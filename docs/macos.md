@@ -13,13 +13,18 @@ Linux pins. Compatible management dependencies are borrowed, not installed twice
 
 Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
-results. Homebrew cleanup/tap removal and hand-installed application
-replacement run only when selected with `--effect brew-maintenance` or
-`--effect app-replacement`. Before replacing an app, `app-replacement` copies it
-to `recovery/apps/` in Workbench's state folder
-(`~/Library/Application Support/workbench/state` by default) and keeps the copy
-until you delete it. A skipped app does not block VS Code extension
-installs; the step still exits nonzero afterwards so the skip stays visible.
+results. Homebrew cleanup/tap removal runs only when selected with
+`--effect brew-maintenance`.
+
+Apps in `packages.toml` that are missing install at the cask's current version.
+An app already installed outside Homebrew is left alone. Each full plan asks
+Homebrew which listed apps are outdated, using Homebrew's own check without
+naming casks, so an app that updated itself is not reinstalled or downgraded.
+Each one appears as an `update-<app>` effect, and approving the plan updates
+them with `brew upgrade --cask`. `brew pin --cask <app>` holds an app; the plan
+names held apps in its warnings. A failed install or update does not block VS
+Code extension installs; the step still exits nonzero afterwards so the failure
+stays visible.
 Do not delete native script state to force all installers to rerun.
 
 The managed shell is zsh; `.zshrc.local` remains an unmanaged override.

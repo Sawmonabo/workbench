@@ -49,9 +49,9 @@ func provisioningEffects(answers Answers) []operation.Effect {
 			},
 			operation.Effect{
 				Name:        "macos-apps-extensions",
-				Description: "Missing casks and VS Code extensions; existing unmanaged apps require the app-replacement effect",
+				Description: "Missing casks and VS Code extensions; apps installed outside Homebrew are left alone",
 				Privilege:   "user; casks may require elevation",
-				Recovery:    "external; application snapshots retained separately",
+				Recovery:    "external; no package rollback",
 			},
 			operation.Effect{
 				Name:        "terminal-font",
@@ -124,15 +124,6 @@ var optionalEffects = []struct {
 			Description: "Reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
 			Privilege:   "user; network",
 			Recovery:    "external; removed versions and cache are not restored",
-		},
-	},
-	{
-		false,
-		operation.Effect{
-			Name:        "app-replacement",
-			Description: "Adopt or force-replace hand-installed apps that packages.toml casks cover; each app is cloned first and restored if lost",
-			Privilege:   "user; linking may require elevation",
-			Recovery:    "a copy of each app is kept under Workbench state recovery/apps; package changes external",
 		},
 	},
 	{

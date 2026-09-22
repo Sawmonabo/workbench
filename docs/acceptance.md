@@ -75,6 +75,12 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
 - With two releases pinning different TOML Kit versions, installing the newer
   one kept the version the replaced release pins and removed only an unpinned
   one. A changed or unpinned workflow action failed the source-trust check.
+- A full read-only plan against this Mac's Homebrew (scratch home, auto-update
+  off) listed `update-<app>` effects only for listed apps Homebrew reports as
+  outdated by their installed version, skipped current and unlisted ones, and
+  kept the same digest on a rerun; `--config-only` listed none. With a stub
+  `brew`, the apps step upgraded only the plan's apps, left an app installed
+  outside Homebrew alone, and still ran the extension step when an update failed.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

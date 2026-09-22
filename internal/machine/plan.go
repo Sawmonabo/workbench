@@ -45,6 +45,8 @@ type preparation struct {
 	scratch, executable  string
 	environment, secrets []string
 	selection            Selection
+	// appUpdates names the casks the plan's update effects cover.
+	appUpdates []string
 }
 
 func (p *preparation) Close() {
@@ -108,6 +110,7 @@ func prepare(
 	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
+		prepared.planAppUpdates(ctx, c, files)
 	}
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
@@ -668,12 +671,12 @@ func (p *preparation) Apply(
 		for _, name := range p.selection.Effects {
 			environment = append(environment, effectVariable(name)+"=1")
 		}
-		// Scripts keep copies of what they replace outside checkpoints here,
-		// in Workbench's private state rather than a temporary directory.
-		environment = append(
-			environment,
-			"WORKBENCH_RECOVERY_DIR="+filepath.Join(c.Paths.State, "recovery"),
-		)
+		if len(p.appUpdates) > 0 {
+			environment = append(
+				environment,
+				"WORKBENCH_APP_UPDATES="+strings.Join(p.appUpdates, " "),
+			)
+		}
 		for i, value := range environment {
 			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
 				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest

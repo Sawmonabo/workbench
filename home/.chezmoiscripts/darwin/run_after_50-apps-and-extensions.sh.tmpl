@@ -5,25 +5,13 @@
 # that was skipped because it was running, or a download that failed, is
 # retried on the next apply with no manual state reset. When everything is
 # already satisfied it is a single `brew bundle check`.
-# Failed or skipped requested effects return nonzero and are retried.
 #
-# Hand-installed apps. `brew bundle` adopts an app that is already in
-# /Applications, whatever its version — but when anything goes wrong midway,
-# Homebrew's rollback DELETES the app (observed twice: Obsidian 1.8, whose
-# cask links an obsidian-cli the old app lacked; Docker Desktop, whose cask
-# links into the root-owned /usr/local/bin and so needs sudo, which has no
-# terminal under a non-interactive apply). Two defences:
-#   1. classify every cask first and never hand a predictable failure to brew:
-#        managed by Homebrew, or app absent        -> brew bundle (no-op / fresh install)
-#        present, linked binaries exist, targets
-#          writable (or sudo can prompt)           -> brew bundle (adopt in place)
-#        present, a linked binary is missing:
-#          app not running                         -> brew install --cask --force (replace)
-#          app running                             -> skipped with a note; retried next apply
-#        present, linking needs sudo, no terminal  -> skipped with a note; retried next apply
-#   2. before brew touches a present app, clone it (APFS, instant, no extra
-#      space) into Workbench's private recovery folder, and put it back if it
-#      is gone afterwards. The copies stay until you delete them.
+# - A missing app is installed at the cask's current version.
+# - An app already installed outside Homebrew is left alone; Homebrew would
+#   refuse to install over it.
+# - Updates run only for the casks the approved plan named in
+#   WORKBENCH_APP_UPDATES. The plan chose them with Homebrew's own outdated
+#   check, which compares the installed app's version and skips pinned casks.
 set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
@@ -32,21 +20,13 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
-# Homebrew's default appdir. The binary paths in `brew info --json` are already
-# expanded against the real appdir, so only the app-bundle probe uses this.
-appdir="/Applications"
-prefix="$(brew --prefix)"
 managed_casks="$(brew list --cask 2>/dev/null || true)"
 bundle_casks=()
-replace_casks=()
-touched_apps=()    # apps brew will adopt or replace: cloned first, restored if lost
+outside=()
 skipped=()
 
-# sudo can prompt when stdin is a terminal, or is passwordless.
-sudo_available() { [ -t 0 ] || sudo -n true 2>/dev/null; }
-
 classify() {
-    local cask="$1" info app binary target missing=0 needs_sudo=0
+    local cask="$1" info app
     if grep -qx "$cask" <<< "$managed_casks"; then
         bundle_casks+=("$cask"); return
     fi
@@ -54,70 +34,18 @@ classify() {
         bundle_casks+=("$cask"); return    # let brew bundle report the error
     fi
     app="$(jq -r '[.casks[0].artifacts[] | select(.app) | .app[0] | strings][0] // empty' <<< "$info")"
-    if [ -z "$app" ] || [ ! -d "$appdir/$app" ]; then
-        bundle_casks+=("$cask"); return    # no app artifact (fonts) or nothing to adopt
+    if [ -n "$app" ] && [ -d "/Applications/$app" ]; then
+        outside+=("$cask ($app)"); return
     fi
-    if [ "${WORKBENCH_EFFECT_APP_REPLACEMENT:-}" != 1 ]; then
-        skipped+=("$cask: hand-installed app requires separate adoption/replacement approval")
-        return
-    fi
-    if [[ "$app" == */* || "$app" == . || "$app" == .. ]]; then
-        echo 'WORKBENCH_EFFECT app-replacement blocked: invalid app artifact' >&2
-        exit 1
-    fi
-    # Every binary the cask links must exist in the app that is there ...
-    while IFS= read -r binary; do
-        [ -n "$binary" ] && [ ! -e "$binary" ] && missing=1
-    done < <(jq -r '.casks[0].artifacts[] | select(.binary) | .binary[0] | strings' <<< "$info")
-    # ... and every link target must land in a directory this user can write,
-    # otherwise Homebrew escalates with sudo.
-    while IFS= read -r target; do
-        [ -n "$target" ] && [ ! -w "$(dirname "$target")" ] && needs_sudo=1
-    done < <(jq -r --arg prefix "$prefix" '.casks[0].artifacts[] | select(.binary) | .binary
-        | if (.[1] | type) == "object" and ((.[1].target // "") | length) > 0
-          then .[1].target else ($prefix + "/bin/" + (.[0] | split("/") | last)) end' <<< "$info")
-    if [ "$needs_sudo" -eq 1 ] && ! sudo_available; then
-        skipped+=("$cask: linking its binaries needs sudo; run chezmoi apply from a terminal so sudo can prompt (retried next apply)")
-        return
-    fi
-    if [ "$missing" -eq 0 ]; then
-        touched_apps+=("$app"); bundle_casks+=("$cask"); return    # adopt in place
-    fi
-    if pgrep -qf "$appdir/$app/"; then
-        skipped+=("$cask: $app is running and lacks a binary the cask links; quit it and re-run chezmoi apply to replace it with the cask version")
-    else
-        touched_apps+=("$app"); replace_casks+=("$cask")
-    fi
+    bundle_casks+=("$cask")
 }
 {{- range .packages.darwin.cask }}
 classify "{{ . }}"
 {{- end }}
 
-# --- safety net: clone every app brew is about to adopt or replace ---
-snapshot=
-if [ ${#touched_apps[@]} -gt 0 ]; then
-    (umask 077 && mkdir -p "${WORKBENCH_RECOVERY_DIR:?}/apps")
-    snapshot=$(mktemp -d "$WORKBENCH_RECOVERY_DIR/apps/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+if [ ${#outside[@]} -gt 0 ]; then
+    printf '    Left alone, installed outside Homebrew: %s\n' "${outside[@]}"
 fi
-for app in ${touched_apps[@]+"${touched_apps[@]}"}; do
-    # -c clones on APFS (instant, shares blocks); a plain copy is the fallback.
-    cp -Rc "$appdir/$app" "$snapshot/" 2>/dev/null || cp -R "$appdir/$app" "$snapshot/" \
-        || { echo "WORKBENCH_EFFECT app-replacement blocked: cannot snapshot $app" >&2; exit 1; }
-done
-restore_lost_apps() {
-    local app
-    for app in ${touched_apps[@]+"${touched_apps[@]}"}; do
-        if [ ! -d "$appdir/$app" ] && [ -d "$snapshot/$app" ]; then
-            echo "    WARNING: Homebrew removed $app; restoring the pre-apply copy" >&2
-            mv "$snapshot/$app" "$appdir/$app" || { echo "WORKBENCH_EFFECT app-replacement failed: recovery copy retained at $snapshot" >&2; return 1; }
-        fi
-    done
-}
-
-for cask in ${replace_casks[@]+"${replace_casks[@]}"}; do
-    echo "==> Replacing hand-installed $cask with the cask version (it is not running)..."
-    brew install --cask --force "$cask" || skipped+=("$cask: replace failed (see above)")
-done
 
 bundle="$(mktemp)"
 trap 'rm -f "$bundle"' EXIT
@@ -127,7 +55,7 @@ trap 'rm -f "$bundle"' EXIT
     done
 } > "$bundle"
 
-# --no-upgrade: install what is missing, never upgrade what is there.
+# --no-upgrade: install what is missing; updates are the plan's choice below.
 if brew bundle check --file="$bundle" --no-upgrade >/dev/null 2>&1; then
     echo "==> Apps and extensions already satisfied."
 else
@@ -135,10 +63,10 @@ else
     brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
 fi
 
-restore_lost_apps
-# Keep recovery material; never prune a previous or failed operation's copies.
-if [ ${#touched_apps[@]} -gt 0 ]; then
-    echo "WORKBENCH_EFFECT app-replacement recovery-copy: $snapshot" >&2
+if [ -n "${WORKBENCH_APP_UPDATES:-}" ]; then
+    read -ra updates <<< "$WORKBENCH_APP_UPDATES"
+    echo "==> Updating ${updates[*]}..."
+    brew upgrade --cask "${updates[@]}" || skipped+=("updating ${updates[*]} failed (see above)")
 fi
 
 # A skipped app must not cancel the unrelated extension step; report it after.

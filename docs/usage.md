@@ -95,9 +95,14 @@ No blanket `--yes` grants unspecified external effects.
 Optional provisioning steps run only when named with a repeatable `--effect`
 on both `plan` and `apply` (and `install`/`update`); each appears in the plan and
 its digest. macOS offers `brew-maintenance` (tap/cleanup hygiene that dotfiles
-ran on every apply) and `app-replacement` (adopt hand-installed apps that casks
-cover). `workbench plan --help` lists what this host offers. `--effect` cannot
-be combined with `--config-only`.
+ran on every apply). `workbench plan --help` lists what this host offers.
+`--effect` cannot be combined with `--config-only`.
+
+On macOS, a full plan (`plan`, `apply`, `install`, `update`) also lists an
+`update-<app>` effect for each app in `packages.toml` that Homebrew reports as
+outdated, for example `Update docker-desktop 4.89.0 → 4.92.0`; approving the
+plan approves those updates. Hold an app at its version with
+`brew pin --cask <app>` (`brew unpin --cask <app>` releases it).
 
 ```sh
 workbench plan --effect brew-maintenance

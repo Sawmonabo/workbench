@@ -54,15 +54,18 @@ type Effect struct {
 // Descriptions contain reviewed redacted text and summaries only counts, modes
 // and link targets, never raw diffs or answers.
 type Plan struct {
-	Source         SourceIdentity `json:"source"`
-	Scope          Scope          `json:"scope"`
-	Dependencies   []Dependency   `json:"dependencies"`
-	Inputs         []Input        `json:"-"`
-	Edits          []Edit         `json:"edits"`
-	Prerequisites  []string       `json:"prerequisites"`
-	Effects        []Effect       `json:"effects"`
-	RecoveryLimits []string       `json:"recovery_limits"`
-	Complete       bool           `json:"complete"`
+	Source        SourceIdentity `json:"source"`
+	Scope         Scope          `json:"scope"`
+	Dependencies  []Dependency   `json:"dependencies"`
+	Inputs        []Input        `json:"-"`
+	Edits         []Edit         `json:"edits"`
+	Prerequisites []string       `json:"prerequisites"`
+	Effects       []Effect       `json:"effects"`
+	// Warnings are review notes that change nothing, such as a check that
+	// could not run.
+	Warnings       []string `json:"warnings,omitempty"`
+	RecoveryLimits []string `json:"recovery_limits"`
+	Complete       bool     `json:"complete"`
 }
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its
