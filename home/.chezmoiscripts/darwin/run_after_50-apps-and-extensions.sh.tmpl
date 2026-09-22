@@ -138,10 +138,12 @@ else
     rmdir "$snapshot"
 fi
 
+# A skipped app must not cancel the unrelated extension step; report it after.
+status=0
 if [ ${#skipped[@]} -gt 0 ]; then
     printf '    WARNING: %s\n' "${skipped[@]}" >&2
-    exit 1
+    status=1
 fi
 {{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
-exit 0
+exit "$status"
 {{ end -}}

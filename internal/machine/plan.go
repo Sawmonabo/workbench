@@ -14,7 +14,12 @@ import (
 	"github.com/Sawmonabo/workbench/internal/release"
 )
 
-type Selection struct{ ConfigOnly bool }
+// Selection is what an apply covers: configuration only, or full provisioning
+// plus any optional effects named in Effects.
+type Selection struct {
+	ConfigOnly bool
+	Effects    []string
+}
 
 // Plan runs only reviewed target enumeration/status/diff against copied native
 // state. It never initializes source Git, saves answers or runs provisioning.
@@ -100,6 +105,10 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	plan.Inputs = append(plan.Inputs, operation.Input{Name: "machine-answers", Digest: digest(answersRaw)})
 	if !selection.ConfigOnly && c.Native.Destination != c.Home {
 		return prepared, operation.Fail(3, "scope", "Full provisioning requires the actual user's home; use --config-only for an isolated destination")
+	}
+	optional, err := selectedEffects(selection)
+	if err != nil {
+		return prepared, err
 	}
 	scratch, err := os.MkdirTemp("", "workbench-preview-")
 	if err != nil {
@@ -273,6 +282,7 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	plan.Effects = append(plan.Effects, operation.Effect{Name: "ai-security-settings", Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply", Privilege: "user", Recovery: "configuration files only"})
 	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, ProvisioningEffects(answers)...)
+		plan.Effects = append(plan.Effects, optional...)
 	}
 	rendered, renderErr := run("dump", "--exclude=scripts", "--format=json")
 	if renderErr != nil {
@@ -386,6 +396,9 @@ func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.
 		args = append(args, "--exclude=scripts")
 	} else {
 		environment = ScriptEnvironment(c, p.Plan.Dependencies)
+		for _, name := range p.selection.Effects {
+			environment = append(environment, effectVariable(name)+"=1")
+		}
 		for i, value := range environment {
 			if strings.HasPrefix(value, "PATH=") {
 				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + strings.TrimPrefix(value, "PATH=")

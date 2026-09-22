@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"strings"
+
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -56,8 +58,8 @@ func statusCommand(o *options) *cobra.Command {
 // Both plan and apply --dry-run use the same native planning owner.
 func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
-	configOnly, _ := cmd.Flags().GetBool("config-only")
-	plan, err := machine.Plan(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly})
+	selection := machineSelection(cmd)
+	plan, err := machine.Plan(cmd.Context(), c, selection)
 	status := "complete"
 	if err != nil {
 		status = "blocked"
@@ -75,8 +77,18 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 		if !dryRun {
 			terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 			defer closeConsole()
-			return machine.Apply(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly}, plan, releaseConsent(o, o.approvePlan), terminal, progress)
+			return machine.Apply(cmd.Context(), c, selection, plan, releaseConsent(o, o.approvePlan), terminal, progress)
 		}
 	}
 	return result, nil
+}
+
+func addEffectFlag(cmd *cobra.Command) {
+	cmd.Flags().StringArray("effect", nil, "Select an optional provisioning effect by name (repeatable); available here: "+strings.Join(machine.OptionalEffectNames(), ", "))
+}
+
+func machineSelection(cmd *cobra.Command) machine.Selection {
+	configOnly, _ := cmd.Flags().GetBool("config-only")
+	effects, _ := cmd.Flags().GetStringArray("effect")
+	return machine.Selection{ConfigOnly: configOnly, Effects: effects}
 }

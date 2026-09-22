@@ -13,9 +13,11 @@ Linux pins. Compatible management dependencies are borrowed, not installed twice
 
 Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
-results. Automatic cleanup, tap removal and hand-installed application
-replacement are not ordinary-update authority. Do not delete native script state
-to force all installers to rerun.
+results. Homebrew cleanup/tap removal and hand-installed application
+replacement run only when selected with `--effect brew-maintenance` or
+`--effect app-replacement`. A skipped app does not block VS Code extension
+installs; the step still exits nonzero afterwards so the skip stays visible.
+Do not delete native script state to force all installers to rerun.
 
 The managed shell is zsh; `.zshrc.local` remains an unmanaged override.
 Oh My Posh uses Catppuccin Mocha. Terminal font selection remains manual:

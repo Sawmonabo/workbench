@@ -99,6 +99,18 @@ management setup and target application are separate plans: `--approve-plan`,
 Unattended setup also requires a complete private `--machine-config` file.
 No blanket `--yes` grants unspecified external effects.
 
+Optional provisioning steps run only when named with a repeatable `--effect`
+on both `plan` and `apply` (and `install`/`update`); each appears in the plan and
+its digest. macOS offers `brew-maintenance` (tap/cleanup hygiene that dotfiles
+ran on every apply) and `app-replacement` (adopt hand-installed apps that casks
+cover). `workbench plan --help` lists what this host offers. `--effect` cannot
+be combined with `--config-only`.
+
+```sh
+workbench plan --effect brew-maintenance
+workbench apply --effect brew-maintenance
+```
+
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
 Human results use stdout and diagnostics stderr; help/version/completion remain

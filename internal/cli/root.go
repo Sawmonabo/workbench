@@ -88,6 +88,7 @@ func newRoot(o *options) *cobra.Command {
 			cmd.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
 			cmd.Flags().Bool("config-only", false, "Apply native configuration without provisioning scripts")
 		}
+		addEffectFlag(cmd)
 		root.AddCommand(cmd)
 	}
 	return root

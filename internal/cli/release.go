@@ -23,6 +23,7 @@ func releaseCommands(o *options) []*cobra.Command {
 		cmd.Flags().Bool("install-only", false, "Install the CLI and sources without management setup or configuration")
 		cmd.Flags().Bool("evaluation", false, "Explicitly permit an unpublished evaluation bundle; production acceptance remains blocked")
 		cmd.Flags().Bool("config-only", false, "Apply configuration without provisioning; missing dependencies remain blocked")
+		addEffectFlag(cmd)
 		cmd.Flags().String("approve-setup", "", "Approve exactly the separate setup plan digest")
 		cmd.Flags().String("approve-apply", "", "Approve exactly the subsequent native target plan digest")
 		cmd.Flags().Bool("runtime-ready", false, "Continue the verified same-process runtime handoff")
@@ -176,6 +177,10 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 		if configOnly, _ := cmd.Flags().GetBool("config-only"); configOnly {
 			args = append(args, "--config-only")
 		}
+		effects, _ := cmd.Flags().GetStringArray("effect")
+		for _, effect := range effects {
+			args = append(args, "--effect", effect)
+		}
 		return result, operation.Handoff(c, *state.ActiveRelease, args, "")
 	}
 	c.Native.Source = bundle.Directory(c)
@@ -208,7 +213,7 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 			return result, err
 		}
 	}
-	selection := machine.Selection{ConfigOnly: configOnly}
+	selection := machineSelection(cmd)
 	applyPlan, err := machine.Plan(cmd.Context(), c, selection)
 	if err != nil {
 		return result, err
