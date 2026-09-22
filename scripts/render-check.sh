@@ -77,7 +77,7 @@ fi
 # replaced by a generated body. This reuses the native render fixture, not a
 # separate per-script test suite.
 echo "==> [$role/$mode] malformed-input preservation"
-for relative in .codex/config.toml 'Library/Application Support/Code/User/settings.json' .config/Code/User/settings.json; do
+for relative in .codex/config.toml .claude/settings.json 'Library/Application Support/Code/User/settings.json' .config/Code/User/settings.json; do
     target="$dest/$relative"
     [ -f "$target" ] || continue
     cp "$target" "$tmp/valid-config"

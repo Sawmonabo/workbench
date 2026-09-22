@@ -1,0 +1,130 @@
+{
+  "claude": {
+    "defaults": {
+      "model": "claude-fable-5-1[1m]",
+      "advisorModel": "opus",
+      "modelSettings": {
+        "claude-fable-5-1": {
+          "effortLevel": "xhigh"
+        },
+        "claude-opus-5": {
+          "effortLevel": "xhigh"
+        }
+      },
+      "effortLevel": "xhigh",
+      "outputStyle": "Concise",
+      "theme": "dark",
+      "viewMode": "verbose",
+      "verbose": true,
+      "tui": "fullscreen",
+      "alwaysThinkingEnabled": true,
+      "switchModelsOnFlag": true,
+      "remoteControlAtStartup": false,
+      "agentPushNotifEnabled": true
+    },
+    "enforced": {
+      "$schema": "https://json.schemastore.org/claude-code-settings.json",
+      "env": {
+        "CLAUDE_CODE_ENABLE_TODO_TOOLS": "true"
+      },
+      "permissions": {
+        "allow": [
+          "Bash(uv run pytest:*)",
+          "Bash(uv run python:*)",
+          "Bash(uv run:*)",
+          "Bash(python:*)",
+          "Bash(tree:*)",
+          "Bash(find:*)",
+          "Bash(wc:*)",
+          "Bash(ls:*)",
+          "Bash(test:*)",
+          "Bash(mkdir:*)",
+          "Bash(cat:*)",
+          "Bash(head:*)",
+          "Bash(tail:*)",
+          "Bash(git log:*)",
+          "Bash(git diff:*)",
+          "Bash(git status:*)",
+          "Bash(git branch:*)",
+          "Bash(git show:*)",
+          "Write",
+          "Edit",
+          "Agent",
+          "WebSearch",
+          "WebFetch",
+          "Skill"
+        ],
+        "deny": [
+          "Read(./.env)",
+          "Read(./.env.*)",
+          "Read(./secrets/**)",
+          "Read(./**/*.pem)",
+          "Read(./**/*.key)",
+          "Read(./**/*credentials*)"
+        ],
+        "ask": [],
+        "defaultMode": "auto"
+      },
+      "statusLine": {
+        "type": "command",
+        "command": "python3 ~/.claude/scripts/statusline.py",
+        "refreshInterval": 2
+      },
+      "enabledPlugins": {
+        "superpowers@claude-plugins-official": true,
+        "code-review@claude-plugins-official": true,
+        "code-simplifier@claude-plugins-official": true,
+        "claude-md-management@claude-plugins-official": true,
+        "skill-creator@claude-plugins-official": true,
+        "context7@claude-plugins-official": true,
+        "codex@openai-codex": true,
+        "deep-research@sidekick-skills": true,
+        "memory-audit@sidekick-skills": true,
+        "post-mortem@sidekick-skills": true
+      },
+      "extraKnownMarketplaces": {
+        "openai-codex": {
+          "source": {
+            "source": "github",
+            "repo": "openai/codex-plugin-cc"
+          }
+        },
+        "sidekick-skills": {
+          "source": {
+            "source": "github",
+            "repo": "Sawmonabo/sidekick-skills",
+            "ref": "marketplace"
+          }
+        }
+      },
+      "spinnerVerbs": {
+        "mode": "append",
+        "verbs": [
+          "Pulling My Hair Out",
+          "Hallucinating responsibly",
+          "Consulting my training data",
+          "Pretending to understand",
+          "Guessing confidently",
+          "Making things up",
+          "Procrastinating productively",
+          "Overthinking",
+          "Caffeinating",
+          "Touching grass mentally",
+          "Fucking around",
+          "Using Dark Magic",
+          "Using the Force"
+        ]
+      },
+      "companyAnnouncements": [
+        "Hey Sawbo, I can't fix bugs you haven't written yet. Get coding!",
+        "Sawbo, today's mass hallucination brought to you by stochastic parrots everywhere.",
+        "Sawbo, if it works on the first try, you probably forgot to save the file.",
+        "Sawbo, I've read your codebase. I have mass opinions. I'm keeping them to myself... for now.",
+        "What's up Sawbo? Ready to mass ship some mass code?"
+      ],
+      "plansDirectory": "./.claude/tmp/plans",
+      "skipDangerousModePermissionPrompt": true,
+      "skipAutoPermissionPrompt": true
+    }
+  }
+}

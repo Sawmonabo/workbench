@@ -35,6 +35,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Machine questions | `home/.chezmoi.toml.tmpl` |
 | Package/extension names and pins | `home/.chezmoidata/packages.toml`, `versions.toml` |
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the shared merge |
+| Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/python/` |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are

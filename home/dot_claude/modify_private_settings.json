@@ -1,0 +1,13 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /* Claude Code rewrites its own settings. Defaults fill only missing keys,
+       live values win over them, and enforced policy wins over both.
+       Permission lists keep entries granted in a session. Invalid JSON fails
+       the apply instead of being replaced. */ -}}
+{{- $live := .chezmoi.stdin | default "{}" | fromJson -}}
+{{- $enforced := deepCopy .claude.enforced -}}
+{{- range $list := list "allow" "deny" "ask" -}}
+  {{- $managed := index $enforced.permissions $list -}}
+  {{- $granted := dig "permissions" $list (list) $live -}}
+  {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
+{{- end -}}
+{{- mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced | toPrettyJson }}

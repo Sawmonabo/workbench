@@ -9,6 +9,7 @@
   "files": {
     ".chezmoiroot": "9a3e246041d3c27dc3645f79cb0d1eb41c277965614655d17119ed7498b956ec",
     "home/.chezmoi.toml.tmpl": "bf67726354aa25b1b81f935f6ad3dee36dfa3bcd6ba2c9f7525a5e6909f845ba",
+    "home/.chezmoidata/claude.json": "18420edc9ff0139d8349620ff3d33d531000d51f87cdd09049c013a723841487",
     "home/.chezmoidata/packages.toml": "6a9db01f51bc74dd024c35202de440fa0b080340aecc2679466da388d184a239",
     "home/.chezmoidata/role-targets.json": "43bd5de0501dcde66711e6d9d46ea038926e36bcb11c309f5c498546b58ec831",
     "home/.chezmoidata/versions.toml": "321146d44fc25f85c9df078fb178c138468a6c2e04e0dae4a7df8fb3cfa1a7c0",
@@ -40,7 +41,7 @@
     "home/.chezmoitemplates/vscode-settings.json.tmpl": "02063f93954ca42df659f069feb39729ffed5c38bfc003aaf5c17f98da3d3d2b",
     "home/Library/Application Support/Code/User/modify_private_settings.json": "68507361f7e6a73f8dc5009eea6c90c4e125c634f11086be21bbb2c2f8b07c00",
     "home/dot_claude/CLAUDE.md": "60df64c607adb8e0fc29c979b3246dbabc6ac0429f2a431a332ed71890681c73",
-    "home/dot_claude/private_settings.json": "4d0beed44aae51c28e87af4009368a06dc165d832909bacd73728ccc11e0fb73",
+    "home/dot_claude/modify_private_settings.json": "d3ee9176b531e04a68052871b13b49c0ca08e9b8b666a3568a4ccea65d30400f",
     "home/dot_claude/scripts/executable_statusline.py": "7e5006b0563ef2b3c4380f8d298967c59981e41356fafff2f35298473f53102f",
     "home/dot_codex/AGENTS.md.tmpl": "bef1a42b128ef68025b75a09c6fe764d485f9e8ce6d75e96ca4255b10ea36949",
     "home/dot_codex/modify_private_config.toml.tmpl": "0d572d5d26e651b884e13d77877acc8cfd307e1e3ef19abcb039afd83486d52a",
