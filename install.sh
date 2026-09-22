@@ -32,7 +32,7 @@ main() {
         shift
         count=$((count - 1))
     done
-    for tool in uname mktemp tar curl; do
+    for tool in uname mktemp tar; do
         command -v "$tool" >/dev/null 2>&1 || fail "missing required tool: $tool"
     done
     case $(uname -s) in Darwin) os=darwin ;; Linux) os=linux ;; *) fail 'macOS or Linux required' ;; esac
@@ -47,6 +47,7 @@ main() {
         check_version
         gh release download "$version" -R "$repo" -p "workbench-$version-$os-$arch.tar.gz" -D "$tmp"
     else
+        command -v curl >/dev/null 2>&1 || fail 'missing required tool: curl (or a logged-in gh)'
         if [ "$version" = latest ]; then
             url=$(curl -fsSL -o /dev/null -w '%{url_effective}' "https://github.com/$repo/releases/latest")
             version=${url##*/}

@@ -42,9 +42,10 @@ payload["licenses/NOTICE"] = (
     "Third-party notices are included below; they do not grant rights to Workbench sources.\n"
 ).encode()
 # Include exact licenses of linked modules, plus the Go runtime. Never copy host
-# source trees wholesale into artifacts.
-modules = subprocess.check_output(["go", "list", "-m", "-json", "all"], cwd=root, text=True)
+# source trees wholesale into artifacts. Listing packages first downloads the
+# linked modules, so the module listing below has their directories.
 linked = set(subprocess.check_output(["go", "list", "-deps", "-f", "{{if .Module}}{{.Module.Path}}{{end}}", "./cmd/workbench"], cwd=root, text=True).splitlines())
+modules = subprocess.check_output(["go", "list", "-m", "-json", "all"], cwd=root, text=True)
 decoder = json.JSONDecoder()
 while modules.strip():
     module, end = decoder.raw_decode(modules.lstrip())

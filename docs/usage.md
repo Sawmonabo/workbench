@@ -25,8 +25,8 @@ argument through:
 
 The CLI checks every file against the SHA-256 manifest inside the bundle before
 installing. That catches a truncated or corrupted download; it is not a
-signature. The installer needs POSIX `sh`, `uname`, `mktemp`, `tar` and `curl`
-(or `gh`). Never run it as root.
+signature. The installer needs POSIX `sh`, `uname`, `mktemp`, `tar`, and `curl` or a
+logged-in `gh`. Never run it as root.
 
 To update, rerun the one-liner, optionally with `--version`. `workbench install`
 and `workbench update` also accept `--bundle` with a local archive or HTTPS URL.
