@@ -506,6 +506,9 @@ func missingTools(doc map[string]any) []string {
 
 func array(value any) []any { result, _ := value.([]any); return result }
 
+// nameSeparators matches the runs PEP 503 normalization collapses to "-".
+var nameSeparators = regexp.MustCompile(`[-_.]+`)
+
 // requirementName returns the normalized project name of a PEP 508 requirement.
 func requirementName(value string) string {
 	end := strings.IndexAny(value, " <>=!~;[@")
@@ -514,9 +517,6 @@ func requirementName(value string) string {
 	}
 	return nameSeparators.ReplaceAllString(strings.ToLower(value), "-")
 }
-
-// nameSeparators matches the runs PEP 503 normalization collapses to "-".
-var nameSeparators = regexp.MustCompile(`[-_.]+`)
 
 // owned reports whether check holds for any Python project that owner owns.
 func (r *Inventory) owned(owner string, check func(doc map[string]any) bool) bool {
