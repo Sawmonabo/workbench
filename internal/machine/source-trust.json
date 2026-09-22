@@ -10,7 +10,7 @@
     ".chezmoiroot": "9a3e246041d3c27dc3645f79cb0d1eb41c277965614655d17119ed7498b956ec",
     "home/.chezmoi.toml.tmpl": "bf67726354aa25b1b81f935f6ad3dee36dfa3bcd6ba2c9f7525a5e6909f845ba",
     "home/.chezmoidata/claude.json": "18420edc9ff0139d8349620ff3d33d531000d51f87cdd09049c013a723841487",
-    "home/.chezmoidata/packages.toml": "6a9db01f51bc74dd024c35202de440fa0b080340aecc2679466da388d184a239",
+    "home/.chezmoidata/packages.toml": "b69bd2bae843bb9c0a8d3c1d9e0e8bb522dd8dc54dc79036585eff25d418d34b",
     "home/.chezmoidata/role-targets.json": "43bd5de0501dcde66711e6d9d46ea038926e36bcb11c309f5c498546b58ec831",
     "home/.chezmoidata/versions.toml": "512ba044a67510598da5abf1add9cd05ad6fbe3a095f132dba63218540b48611",
     "home/.chezmoidata/vscode.json": "48a327da6be9c20685d3b39061dd2589874f278f02176a4a26e59ad9c1ac0f21",

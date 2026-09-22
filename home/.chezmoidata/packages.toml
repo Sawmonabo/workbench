@@ -195,6 +195,7 @@ brew = [
 cask = [
   "claude",
   "dbeaver-community",
+  "discord",
   "docker-desktop",
   "font-jetbrains-mono-nerd-font",
   "google-chrome",
