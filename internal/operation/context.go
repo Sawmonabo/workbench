@@ -245,7 +245,7 @@ func (n NativeContext) Args() ([]string, error) {
 }
 
 func (c Context) ValidateTarget(path string) error {
-	if !filepath.IsAbs(path) || !Within(c.Scope.Root, path) || path == c.Scope.Root {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) || path == c.Scope.Root {
 		return Fail(2, "scope", "Target must lie strictly inside the selected scope")
 	}
 	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin} {

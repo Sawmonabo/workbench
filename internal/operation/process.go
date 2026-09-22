@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"syscall"
@@ -60,6 +61,9 @@ func outsideProjects(directory string, excluded []string) error {
 	for parent := directory; ; parent = filepath.Dir(parent) {
 		for _, marker := range []string{".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"} {
 			if _, err := os.Lstat(filepath.Join(parent, marker)); err == nil {
+				if marker == ".git" && homebrewRepository(parent, directory) {
+					continue
+				}
 				return Fail(3, "tool", "Project-controlled management executable lookup is forbidden")
 			} else if !os.IsNotExist(err) {
 				return Fail(3, "tool", "Cannot establish ownership of a management executable directory")
@@ -69,6 +73,38 @@ func outsideProjects(directory string, excluded []string) error {
 			return nil
 		}
 	}
+}
+
+// Homebrew itself is a Git checkout at its standard installation locations.
+// Recognize its installed-tool directories, not arbitrary repositories with a
+// Homebrew-shaped name. Explicit project exclusions and nested markers still win.
+func homebrewRepository(repository, directory string) bool {
+	known := runtime.GOOS == "darwin" && (repository == "/opt/homebrew" || repository == "/usr/local/Homebrew") ||
+		runtime.GOOS == "linux" && repository == "/home/linuxbrew/.linuxbrew/Homebrew"
+	if !known {
+		return false
+	}
+	installed := false
+	for _, name := range []string{"bin", "sbin", "Cellar", "opt"} {
+		if Within(filepath.Join(repository, name), directory) {
+			installed = true
+			break
+		}
+	}
+	if !installed {
+		return false
+	}
+	for _, name := range []string{"bin/brew", "Library/Homebrew/brew.sh"} {
+		info, err := os.Lstat(filepath.Join(repository, name))
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 {
+			return false
+		}
+		stat, ok := info.Sys().(*syscall.Stat_t)
+		if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
+			return false
+		}
+	}
+	return true
 }
 
 type Process struct {

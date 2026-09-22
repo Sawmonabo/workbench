@@ -165,6 +165,17 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	if err := m.Check(); err != nil {
 		return err
 	}
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return Fail(2, "scope", "Private metadata targets must be canonical absolute paths")
+	}
+	// Atomic replacement of a lock file would leave flock on the old inode.
+	// Reserve the entire namespace, including case aliases on macOS filesystems.
+	if relative, err := filepath.Rel(m.context.Paths.State, path); err == nil {
+		first, _, _ := strings.Cut(relative, string(filepath.Separator))
+		if strings.EqualFold(first, "locks") {
+			return Fail(2, "scope", "Operation lock files are reserved and cannot be replaced by metadata writes")
+		}
+	}
 	if len(data) > 1024*1024 {
 		return Fail(2, "state", "Private metadata exceeds its 1 MiB limit")
 	}
@@ -177,7 +188,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 			}
 		}
 	}
-	if !filepath.IsAbs(path) || !allowed {
+	if !allowed {
 		return Fail(2, "scope", "Private metadata write is outside config/state directories")
 	}
 	if err := ensurePrivateDirectory(filepath.Dir(path)); err != nil {
