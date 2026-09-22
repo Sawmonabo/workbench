@@ -758,20 +758,9 @@ func pruneApproved(c Context, plan Plan) error {
 			"Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan",
 		)
 	}
-	scope := checkpointScope(c)
-	removed := filepath.Join(filepath.Dir(scope), ".removed-"+oldest.ID)
-	if err = os.Rename(oldest.directory, removed); err != nil {
-		return err
-	}
-	directory, err := os.Open(scope)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = directory.Close() }()
-	if err = directory.Sync(); err != nil {
-		return err
-	}
-	return os.RemoveAll(removed)
+	// The trash is outside the scope, whose listing admits only checkpoints.
+	trash := filepath.Dir(checkpointScope(c))
+	return removeDirectory(oldest.directory, trash, ".removed-"+oldest.ID)
 }
 
 func decodePrivate(path string, limit int64, value any) error {

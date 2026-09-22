@@ -2,8 +2,10 @@ package operation
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -373,4 +375,55 @@ func (l *locks) close() {
 		_ = v.Close()
 	}
 	l.files = nil
+}
+
+// RemovePrivateDirectory deletes directory, a runtime directory below the data
+// root that the approved plan lists for removal: an older release, application
+// context or private tool version. It is a no-op once directory is gone.
+func (m *Mutation) RemovePrivateDirectory(directory string) error {
+	if err := m.Check(); err != nil {
+		return err
+	}
+	data := m.context.Paths.Data
+	if filepath.Clean(directory) != directory || directory == data || !Within(data, directory) {
+		return Fail(
+			ExitInvalid,
+			"private_path",
+			"Only directories below Workbench data are removed",
+		)
+	}
+	info, err := os.Lstat(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if !info.IsDir() {
+		return Fail(ExitInvalid, "private_path", "Only private directories are removed")
+	}
+	id, err := NewID()
+	if err != nil {
+		return err
+	}
+	return removeDirectory(directory, filepath.Dir(directory), ".removed-"+id)
+}
+
+// removeDirectory moves directory into trash as name and syncs directory's
+// parent, so the removal is durable before any file is deleted, then deletes
+// the moved tree.
+func removeDirectory(directory, trash, name string) error {
+	removed := filepath.Join(trash, name)
+	if err := os.Rename(directory, removed); err != nil {
+		return err
+	}
+	parent, err := os.Open(filepath.Dir(directory))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Close() }()
+	if err = parent.Sync(); err != nil {
+		return err
+	}
+	return os.RemoveAll(removed)
 }

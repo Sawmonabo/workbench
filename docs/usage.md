@@ -183,6 +183,12 @@ entry-point/state switch fails closed while retaining the prior runtime. Resume
 the active-release record. Existing processes retain their inherited environment:
 Workbench never injects PATH changes into running terminals or AI sessions.
 
+Installs keep storage bounded. The activation plan lists, as `remove` edits,
+every staged release except the new one, the one it replaces and a staged
+candidate, plus setup contexts and private tool versions that nothing kept or
+recorded uses. They are deleted after activation succeeds, so the previous
+release stays available to reinstall.
+
 ## Releases
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the four

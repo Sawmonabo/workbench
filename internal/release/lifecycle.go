@@ -428,7 +428,8 @@ func ValidateSelection(c operation.Context) error {
 }
 
 // Activate only records a verified matched runtime. It never changes the last
-// successfully applied configuration identity or removes a previous release.
+// successfully applied configuration identity or removes a release; the
+// caller removes what the approved plan lists afterwards.
 func Activate(
 	ctx context.Context,
 	c operation.Context,

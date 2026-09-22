@@ -2,6 +2,8 @@ package cli
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 
@@ -153,16 +155,7 @@ func releaseLifecycle(
 		plan,
 		consentFor(o, o.approvePlan),
 		planner,
-		func(m *operation.Mutation) error {
-			directory, stageErr := release.Stage(c, m, bundle)
-			if stageErr != nil {
-				return stageErr
-			}
-			if activate {
-				return release.Activate(cmd.Context(), c, m, bundle, directory)
-			}
-			return nil
-		},
+		stageRelease(cmd, c, bundle, plan, activate),
 	)
 	if err != nil {
 		return result, err
@@ -190,6 +183,28 @@ func releaseLifecycle(
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o), "")
 }
 
+// stageRelease stages bundle and, when activate is set, activates it and
+// removes what the approved plan lists as no longer needed.
+func stageRelease(
+	cmd *cobra.Command,
+	c operation.Context,
+	bundle release.Bundle,
+	plan operation.Plan,
+	activate bool,
+) func(*operation.Mutation) error {
+	return func(m *operation.Mutation) error {
+		directory, err := release.Stage(c, m, bundle)
+		if err != nil || !activate {
+			return err
+		}
+		if err = release.Activate(cmd.Context(), c, m, bundle, directory); err != nil {
+			return err
+		}
+		removeStale(m, plan, cmd.ErrOrStderr())
+		return nil
+	}
+}
+
 // releasePlanner previews staging bundle and, unless only pulling, activating
 // it as the workbench command.
 func releasePlanner(
@@ -212,8 +227,54 @@ func releasePlanner(
 				plan.RecoveryLimits,
 				"Activation spans a journal, state record and entry point; interruption fails closed and requires resuming this installer",
 			)
+			if planErr == nil {
+				var removals []operation.Edit
+				removals, planErr = retentionEdits(current, bundle)
+				plan.Edits = append(plan.Edits, removals...)
+			}
 		}
 		return plan, planErr
+	}
+}
+
+// retentionEdits lists what activating bundle makes unnecessary: releases
+// other than it, the active one it replaces and a staged candidate, plus the
+// setup contexts and tool versions only removed releases used. An unreadable
+// candidate record removes nothing, so an unknown directory is never deleted.
+func retentionEdits(c operation.Context, bundle release.Bundle) ([]operation.Edit, error) {
+	candidate, err := release.Candidate(c)
+	if err != nil {
+		return nil, nil
+	}
+	keep := []string{bundle.Directory(c)}
+	if candidate != "" {
+		keep = append(keep, candidate)
+	}
+	state, err := operation.ReadState(c.Paths)
+	if err != nil {
+		return nil, err
+	}
+	if state != nil && state.ActiveRelease != nil {
+		keep = append(keep, state.ActiveRelease.Source)
+	}
+	releases, kept, err := release.StaleReleases(c, keep...)
+	if err != nil {
+		return nil, err
+	}
+	setup, err := machine.StaleSetup(c, append(kept, bundle.Identity()))
+	return append(releases, setup...), err
+}
+
+// removeStale deletes the approved removals after activation. A failure only
+// warns: the directory stays and the next activation lists it again.
+func removeStale(m *operation.Mutation, plan operation.Plan, diagnostics io.Writer) {
+	for _, edit := range plan.Edits {
+		if edit.Action != "remove" {
+			continue
+		}
+		if err := m.RemovePrivateDirectory(edit.Path); err != nil {
+			_, _ = fmt.Fprintf(diagnostics, "Warning: could not remove %s: %v\n", edit.Path, err)
+		}
 	}
 }
 

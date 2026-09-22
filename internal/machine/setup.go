@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -596,4 +597,95 @@ func Setup(
 	}
 	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")
 	return c, nil
+}
+
+// StaleSetup lists setup output that no kept release needs as removal edits:
+// application contexts of other sources, and private tool versions that are
+// neither recorded in state nor pinned by this build.
+func StaleSetup(c operation.Context, kept []operation.SourceIdentity) ([]operation.Edit, error) {
+	state, err := operation.ReadState(c.Paths)
+	if err != nil {
+		return nil, err
+	}
+	var stale []operation.Edit
+	contexts := filepath.Join(c.Paths.Data, "application-contexts")
+	names, err := privateEntries(c, contexts)
+	if err != nil {
+		return nil, err
+	}
+	for _, name := range names {
+		used := slices.ContainsFunc(kept, func(identity operation.SourceIdentity) bool {
+			return name == identity.Release+"-"+identity.ContentDigest
+		})
+		if !used {
+			stale = append(stale, operation.Edit{
+				Path:        filepath.Join(contexts, name),
+				Action:      "remove",
+				Description: "Remove the setup context of a source no kept release uses",
+			})
+		}
+	}
+	tools, err := staleTools(c, state)
+	return append(stale, tools...), err
+}
+
+func staleTools(c operation.Context, state *operation.State) ([]operation.Edit, error) {
+	requirements := ManagementRequirements()
+	pinned := map[string]string{
+		"chezmoi": requirements.Chezmoi,
+		"uv":      requirements.UV,
+		"python":  requirements.Python,
+		"tomlkit": requirements.Tomlkit,
+	}
+	var recorded []operation.Dependency
+	if state != nil {
+		recorded = state.Dependencies
+	}
+	root := filepath.Join(c.Paths.Data, "tools")
+	tools, err := privateEntries(c, root)
+	if err != nil {
+		return nil, err
+	}
+	var stale []operation.Edit
+	for _, tool := range tools {
+		versions, err := privateEntries(c, filepath.Join(root, tool))
+		if err != nil {
+			return nil, err
+		}
+		for _, version := range versions {
+			directory := filepath.Join(root, tool, version)
+			inUse := slices.ContainsFunc(recorded, func(dependency operation.Dependency) bool {
+				return operation.Within(directory, dependency.Path)
+			})
+			if version == pinned[tool] || inUse {
+				continue
+			}
+			stale = append(stale, operation.Edit{
+				Path:        directory,
+				Action:      "remove",
+				Description: "Remove a private " + tool + " version that is neither pinned nor in use",
+			})
+		}
+	}
+	return stale, nil
+}
+
+// privateEntries returns the names in directory, a private runtime directory
+// that may not exist yet.
+func privateEntries(c operation.Context, directory string) ([]string, error) {
+	entries, err := os.ReadDir(directory)
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err = release.PrivateDirectory(c.Paths.Data, directory, false); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+	}
+	return names, nil
 }
