@@ -1,0 +1,8 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/usr/bin/env bash
+# Install the canonical local VS Code extension set. This never contacts a
+# remote extension host or selects a non-default profile.
+set -euo pipefail
+
+{{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
+{{ end -}}

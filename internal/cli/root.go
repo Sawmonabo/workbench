@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"runtime/debug"
-	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/spf13/cobra"
 )
 
@@ -18,13 +19,14 @@ type options struct {
 	json, nonInteractive bool
 	approvePlan          string
 	rendered             bool
+	invocation           []string
 }
 
-func New() *cobra.Command { return newRoot(&options{}) }
+func New() *cobra.Command { return newRoot(&options{invocation: os.Args[1:]}) }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
 func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics io.Writer) int {
-	o := &options{}
+	o := &options{invocation: append([]string(nil), args...)}
 	root := newRoot(o)
 	root.SetArgs(args)
 	root.SetIn(in)
@@ -60,7 +62,7 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 func newRoot(o *options) *cobra.Command {
 	root := &cobra.Command{
 		Use: "workbench", Short: "Inspect developer machines and existing projects",
-		Long:    "Workbench is in development. Read-only inventories and operation foundations are available; native planning, installation and configuration changes are not yet implemented.",
+		Long:    "Workbench previews and coordinates explicit machine provisioning, recoverable configuration changes and existing-project tooling.",
 		Version: version(), SilenceErrors: true, SilenceUsage: true, Args: cobra.NoArgs,
 	}
 	root.SetVersionTemplate("workbench {{.Version}}\n")
@@ -72,21 +74,19 @@ func newRoot(o *options) *cobra.Command {
 	flags.StringVar(&o.resolve.MachineConfig, "machine-config", "", "Select an existing private native answer file")
 	flags.StringVar(&o.resolve.Destination, "destination", "", "Select an existing configuration destination (default: home)")
 	root.AddCommand(doctorCommand(o), statusCommand(o), projectCommand(o))
+	root.AddCommand(recoveryCommand(o))
+	root.AddCommand(releaseCommands(o)...)
 	for _, spec := range []struct{ use, short string }{
-		{"pull [version]", "Stage a release (not implemented)"},
-		{"plan", "Preview machine changes (not implemented)"},
-		{"apply", "Apply machine configuration (not implemented)"},
-		{"update", "Pull and apply a release (not implemented)"},
-		{"revert [version]", "Recover configuration (not implemented)"},
+		{"plan", "Preview native machine changes and prerequisites"},
+		{"apply", "Apply approved native machine changes with file checkpoints"},
 	} {
-		cmd := unavailable(o, spec.use, spec.short, false)
+		cmd := &cobra.Command{Use: spec.use, Short: spec.short, Args: cobra.NoArgs, RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) { return machinePlan(cmd, c, o) })}
+		if cmd.Name() == "plan" {
+			cmd.Flags().Bool("config-only", false, "Preview configuration without provisioning effects")
+		}
 		if cmd.Name() == "apply" {
 			cmd.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
-			cmd.Flags().Bool("config-only", false, "Exclude provisioning (application not implemented)")
-		}
-		if cmd.Name() == "revert" {
-			cmd.Flags().Bool("list", false, "List scope checkpoints (not implemented)")
-			cmd.Flags().String("checkpoint", "", "Select a checkpoint (not implemented)")
+			cmd.Flags().Bool("config-only", false, "Apply native configuration without provisioning scripts")
 		}
 		root.AddCommand(cmd)
 	}
@@ -108,7 +108,20 @@ func (o *options) action(project bool, run handler) func(*cobra.Command, []strin
 		result := operation.NewResult(cmd.CommandPath())
 		resolved, err := operation.Resolve(selection)
 		if err == nil {
-			_, err = operation.ReadState(resolved.Paths)
+			var state *operation.State
+			state, err = operation.ReadState(resolved.Paths)
+			if err == nil && cmd.Name() != "install" && cmd.Name() != "update" && cmd.Name() != "pull" && cmd.Name() != "release-check" {
+				err = release.ValidateSelection(resolved)
+			}
+			if err == nil && resolved.Native.Source == "" && !project && (cmd.Name() == "plan" || cmd.Name() == "apply") {
+				resolved.Native.Source, err = release.Candidate(resolved)
+				if err == nil && resolved.Native.Source == "" && state != nil && state.ActiveRelease != nil {
+					resolved.Native.Source = state.ActiveRelease.Source
+				}
+			}
+			if err == nil && !project && (cmd.Name() == "plan" || cmd.Name() == "apply") {
+				err = release.CandidateHandoff(cmd.Context(), resolved, o.invocation)
+			}
 			if err == nil {
 				result, err = run(cmd, resolved)
 			}
@@ -120,27 +133,6 @@ func (o *options) action(project bool, run handler) func(*cobra.Command, []strin
 		}
 		return err
 	}
-}
-
-func unavailable(o *options, use, short string, project bool) *cobra.Command {
-	cmd := &cobra.Command{Use: use, Short: short, Args: cobra.NoArgs}
-	if strings.Contains(use, "[") {
-		cmd.Args = cobra.MaximumNArgs(1)
-	}
-	cmd.RunE = o.action(project, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-		if project {
-			for _, language := range c.Languages {
-				if language != "python" {
-					return operation.NewResult(cmd.CommandPath()), operation.Fail(3, "unsupported_language", "Only Python configuration is planned; the explicitly requested language is discovery-only")
-				}
-			}
-		}
-		if cmd.Name() == "plan" || cmd.Name() == "apply" {
-			return machinePlan(cmd, c)
-		}
-		return operation.NewResult(cmd.CommandPath()), operation.Fail(3, "not_implemented", cmd.CommandPath()+" is not implemented; no changes were made")
-	})
-	return cmd
 }
 
 func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) error {
@@ -183,6 +175,9 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 }
 
 func version() string {
+	if buildReleaseVersion != "dev" {
+		return buildReleaseVersion
+	}
 	info, ok := debug.ReadBuildInfo()
 	if !ok || info.Main.Version == "" || info.Main.Version == "(devel)" {
 		return "dev"

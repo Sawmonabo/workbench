@@ -1,4 +1,6 @@
+{{ if eq .machine_role "both" -}}
 # Work git overrides
 # Applied automatically for repos under ~/repos/ via includeIf
 [user]
-    email = {{ .work_email }}
+    email = {{ .work_email | quote }}
+{{ end -}}

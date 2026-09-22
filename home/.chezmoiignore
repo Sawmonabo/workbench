@@ -1,10 +1,3 @@
-{{- /* Role/WSL keys come from a generated chezmoi.toml. A config written before
-       these keys existed would make the conditions below abort with "map has no
-       entry for key", so fall back to the safest machine shape: personal and
-       non-WSL, which deploys nothing work-only or WSL-only. */ -}}
-{{- $isWsl := false }}{{- if hasKey . "is_wsl" }}{{ $isWsl = .is_wsl }}{{ end }}
-{{- $hasWork := false }}{{- if hasKey . "has_work" }}{{ $hasWork = .has_work }}{{ end }}
-{{- $role := "personal" }}{{- if hasKey . "machine_role" }}{{ $role = .machine_role }}{{ end }}
 {{- /* Platform gating */ -}}
 {{ if ne .chezmoi.os "linux" }}
 .bashrc
@@ -13,16 +6,18 @@
 {{ if ne .chezmoi.os "darwin" }}
 .zshrc
 Library
+.terminal-font-setup.sh
 {{ end }}
-{{ if not $isWsl }}
+{{ if not .is_wsl }}
 .local/bin/win-browser
 {{ end }}
 
-{{- /* Role gating: work-only files never reach a personal machine */ -}}
-{{ if not $hasWork }}
-.codex/hooks.json
+{{- /* Direct native use ignores inactive source files. Workbench omits those
+       exact sources in its private context so native removals stay visible. */ -}}
+{{ if not (get . "workbench_managed") }}
+{{ range .role_targets }}
+{{ if not (has $.machine_role .roles) }}
+{{ .target }}
 {{ end }}
-{{ if ne $role "both" }}
-.gitconfig-personal
-.gitconfig-work
+{{ end }}
 {{ end }}

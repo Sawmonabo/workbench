@@ -11,6 +11,7 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+{{ template "operation-context.sh" }}
 failed=()
 
 # --- Node via nvm ---

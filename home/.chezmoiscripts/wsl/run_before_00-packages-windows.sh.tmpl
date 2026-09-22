@@ -8,8 +8,26 @@ echo "==> WSL → Windows bootstrap starting..."
 
 # Detect Windows username
 WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-WIN_HOME="/mnt/c/Users/$WIN_USER"
-WIN_APPDATA="$WIN_HOME/AppData/Local"
+WIN_HOME=$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")
+WIN_APPDATA=$(wslpath -u "$(cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")
+WIN_PROGRAMDATA=$(wslpath -u "$(cmd.exe /c 'echo %PROGRAMDATA%' | tr -d '\r')")
+PS_PROFILE=$(wslpath -u "$(powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' | tr -d '\r')")
+case "$(cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')" in
+    AMD64) ;;
+    *) echo 'WORKBENCH_EFFECT windows-files blocked: Windows x64 required' >&2; exit 3 ;;
+esac
+[[ -d "$WIN_HOME" && -d "$WIN_APPDATA" && -n "$WSL_DISTRO_NAME" ]] || exit 3
+WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
+if [[ -e "$WT_SETTINGS_DIR/settings.json" && "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT terminal-settings blocked: existing file requires explicit whole-file ownership and checkpoint' >&2
+    exit 3
+fi
+if [[ -e "$PS_PROFILE" && "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT powershell-profile blocked: existing file requires explicit whole-file ownership and checkpoint' >&2
+    exit 3
+fi
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
 
 echo "    Windows user: $WIN_USER"
 
@@ -31,14 +49,14 @@ if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
         curl -fsSL "$OMP_URL" -o "$OMP_WIN_BIN/oh-my-posh.exe"
         echo "    oh-my-posh.exe installed."
     else
-        echo "    WARNING: Could not find oh-my-posh.exe download URL."
+        echo "WORKBENCH_EFFECT windows-posh failed: no download URL" >&2
+        exit 1
     fi
 
     # Download themes
     THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
-    curl -fsSL "$THEMES_URL" -o /tmp/omp-themes-win.zip
-    unzip -o /tmp/omp-themes-win.zip -d "$OMP_WIN_THEMES"
-    rm -f /tmp/omp-themes-win.zip
+    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
+    unzip -o "$download_dir/themes.zip" -d "$OMP_WIN_THEMES"
     echo "    oh-my-posh themes installed for Windows."
 else
     echo "==> oh-my-posh for Windows already installed, skipping."
@@ -55,14 +73,14 @@ if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/nu
         | head -1 \
         | cut -d'"' -f4)
     if [ -n "$FONT_URL" ]; then
-        curl -fsSL "$FONT_URL" -o /tmp/jetbrains-mono-nf-win.zip
-        unzip -o /tmp/jetbrains-mono-nf-win.zip -d /tmp/jetbrains-mono-nf-win
-        cp /tmp/jetbrains-mono-nf-win/*.ttf "$WIN_FONT_DIR/" 2>/dev/null || true
-        rm -rf /tmp/jetbrains-mono-nf-win /tmp/jetbrains-mono-nf-win.zip
+        curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
+        unzip -o "$download_dir/font.zip" -d "$download_dir/fonts"
+        cp "$download_dir/fonts/"*.ttf "$WIN_FONT_DIR/"
 
         echo "    JetBrains Mono Nerd Font installed for Windows."
     else
-        echo "    WARNING: Could not find JetBrains Mono Nerd Font download URL."
+        echo 'WORKBENCH_EFFECT windows-fonts failed: no download URL' >&2
+        exit 1
     fi
 else
     echo "==> JetBrains Mono Nerd Font for Windows already present, skipping download."
@@ -72,9 +90,10 @@ fi
 # time: it is idempotent, cheap, and repairs bad entries — an earlier version
 # wrote /mnt/c/... paths into the registry, which Windows cannot resolve, so
 # Windows Terminal reported "Unable to find the following fonts".
-if ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+if [[ "${WORKBENCH_EFFECT_FONT_REGISTRY:-}" == 1 ]] && ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
     echo "    Registering fonts in Windows registry..."
     WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
+    WIN_FONT_DIR_W=${WIN_FONT_DIR_W//\'/\'\'}
     powershell.exe -NoProfile -Command "
         \$key = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
         Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object {
@@ -112,10 +131,11 @@ if [ -d "$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe" ]; then
     # set by overriding commandline instead. Older distros get a profile from
     # WT's own generator (source Windows.Terminal.Wsl). Guessing GUIDs fails
     # across these cases, so read them. Fallback: explicit wsl.exe profile.
-    WSL_PROFILE_JSON=$(python3 - "$WT_SETTINGS_DIR" "$WSL_DISTRO_NAME" "$WIN_APPDATA/Microsoft/Windows Terminal/Fragments" "/mnt/c/ProgramData/Microsoft/Windows Terminal/Fragments" <<'PY'
+    WSL_PROFILE_JSON=$(python3 - "$WT_SETTINGS_DIR" "$WSL_DISTRO_NAME" "$WIN_APPDATA/Microsoft/Windows Terminal/Fragments" "$WIN_PROGRAMDATA/Microsoft/Windows Terminal/Fragments" <<'PY'
 import glob, json, os, re, sys
 wt, distro, *frag_dirs = sys.argv[1:]
-cmdline = "wsl.exe -d " + distro + " --cd ~/repos"
+import subprocess
+cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", "~/repos"])
 def load(path):
     try:
         with open(path, encoding='utf-8-sig') as fh:
@@ -157,7 +177,7 @@ import json,sys
 d=json.loads(sys.argv[1]); d.pop("guid")
 print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k,v in d.items()))' "$WSL_PROFILE_JSON")
     echo "    Windows Terminal WSL profile: $WSL_PROFILE_JSON"
-    cat > "$WT_SETTINGS_DIR/settings.json" << 'WTSETTINGS'
+    cat > "$download_dir/terminal.json" << 'WTSETTINGS'
 {
     "$help": "https://aka.ms/terminal-documentation",
     "$schema": "https://aka.ms/terminal-profiles-schema",
@@ -291,7 +311,7 @@ print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k
                 "guid": "__WSL_PROFILE_GUID__",
 __WSL_PROFILE_EXTRA__
                 "hidden": false,
-                "name": "{{ env "WSL_DISTRO_NAME" }}",
+                "name": "__WSL_DISTRO_NAME__",
                 "tabColor": "#FAB387"
             }
         ]
@@ -326,28 +346,32 @@ __WSL_PROFILE_EXTRA__
     "themes": []
 }
 WTSETTINGS
-    python3 - "$WT_SETTINGS_DIR/settings.json" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" <<'PY'
+    python3 - "$download_dir/terminal.json" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" "$WSL_DISTRO_NAME" <<'PY'
 import json, sys
 path, guid, extra = sys.argv[1:4]
 s = open(path, encoding='utf-8').read().replace('__WSL_PROFILE_GUID__', guid).replace('__WSL_PROFILE_EXTRA__', extra)
+s = s.replace('"__WSL_DISTRO_NAME__"', json.dumps(sys.argv[4]))
 json.loads(s)  # fail loudly rather than hand WT a broken file
 open(path, 'w', encoding='utf-8').write(s)
 PY
+    cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
     echo "    Windows Terminal settings written."
 else
     echo "==> Windows Terminal not found, skipping settings."
+    exit 3
 fi
 
 # --- PowerShell profile ---
-PS_PROFILE_DIR="$WIN_HOME/Documents/WindowsPowerShell"
+PS_PROFILE_DIR=$(dirname "$PS_PROFILE")
 echo "==> Writing PowerShell profile..."
 mkdir -p "$PS_PROFILE_DIR"
-if [ -f "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" ]; then
-    cp -a "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1.before-dotfiles-$(date +%Y%m%d-%H%M%S)"
+if [ -f "$PS_PROFILE" ]; then
+    profile_backup=$(mktemp "$PS_PROFILE.before-workbench.XXXXXX")
+    cp -p "$PS_PROFILE" "$profile_backup"
 fi
-cat > "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" << 'PSPROFILE'
+cat > "$PS_PROFILE" << 'PSPROFILE'
 # Start in the WSL repos directory when it is reachable (WSL may not be running yet)
-$wslRepos = "\\wsl.localhost\{{ env "WSL_DISTRO_NAME" }}\home\{{ .chezmoi.username }}\repos"
+$wslRepos = '{{ printf "\\\\wsl.localhost\\%s\\home\\%s\\repos" (env "WSL_DISTRO_NAME") .chezmoi.username | replace "'" "''" }}'
 if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
 
 # Oh My Posh prompt

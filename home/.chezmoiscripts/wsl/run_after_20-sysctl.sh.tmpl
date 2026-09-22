@@ -8,6 +8,10 @@
 # Needs sudo; when no tty/sudo credential is available it prints the manual
 # step and exits 0 so the rest of `chezmoi apply` is not blocked.
 set -euo pipefail
+if [[ "${WORKBENCH_EFFECT_SYSCTL:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT sysctl disabled (not selected)' >&2
+    exit 0
+fi
 
 CONF=/etc/sysctl.d/99-dev.conf
 WANT='vm.swappiness=10'
@@ -20,7 +24,7 @@ fi
 if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
     echo "==> sysctl: sudo needs a password and there is no terminal — skipped."
     echo "    Apply manually:  echo '$WANT' | sudo tee $CONF && sudo sysctl -p $CONF"
-    exit 0
+    exit 3
 fi
 
 echo "==> sysctl: writing $CONF ($WANT)"

@@ -20,8 +20,10 @@ jobs:
           version-file: .golangci-lint-version
       - name: Build
         run: go build ./...
+      - name: Check reviewed machine-source identity
+        run: python3 scripts/generate-source-trust.py --check
       - name: Unauthorized execution safeguard
-        run: go test ./internal/operation
+        run: go test ./...
       - name: Compile CLI platform targets (not native provisioning verification)
         run: |
           for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
@@ -44,7 +46,9 @@ jobs:
             extra: wsl
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Install chezmoi and shellcheck
         run: |
           if [ "$RUNNER_OS" = Linux ]; then
@@ -58,7 +62,8 @@ jobs:
           # `sh -c "$(curl ...)"` form silently runs nothing when curl fails
           # (seen as "chezmoi: command not found" one step later), so verify.
           curl -fsLS --retry 5 --retry-all-errors --retry-delay 3 get.chezmoi.io -o "$RUNNER_TEMP/install-chezmoi.sh"
-          sh "$RUNNER_TEMP/install-chezmoi.sh" -b "$HOME/.local/bin" -t v2.70.3
+          chezmoi_version=$(python3 -c 'import pathlib,tomllib; print(tomllib.loads(pathlib.Path("home/.chezmoidata/versions.toml").read_text())["management"]["chezmoi"])')
+          sh "$RUNNER_TEMP/install-chezmoi.sh" -b "$HOME/.local/bin" -t "v$chezmoi_version"
           "$HOME/.local/bin/chezmoi" --version
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
       - name: Render, lint, and leak-check
@@ -66,8 +71,8 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: {fetch-depth: 0}
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with: {fetch-depth: 0, persist-credentials: false}
       - uses: gitleaks/gitleaks-action@v2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

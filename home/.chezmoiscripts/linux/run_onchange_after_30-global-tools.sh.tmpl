@@ -5,6 +5,7 @@
 set -uo pipefail
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+{{ template "operation-context.sh" }}
 failed=()
 
 {{- $mode := .versions_mode }}

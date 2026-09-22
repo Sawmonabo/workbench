@@ -5,8 +5,7 @@
 # that was skipped because it was running, or a download that failed, is
 # retried on the next apply with no manual state reset. When everything is
 # already satisfied it is a single `brew bundle check`.
-# After-phase and best-effort on purpose: files are already deployed and a
-# marketplace hiccup must not fail the apply.
+# Failed or skipped requested effects return nonzero and are retried.
 #
 # Hand-installed apps. `brew bundle` adopts an app that is already in
 # /Applications, whatever its version — but when anything goes wrong midway,
@@ -24,7 +23,7 @@
 #        present, linking needs sudo, no terminal  -> skipped with a note; retried next apply
 #   2. before brew touches a present app, clone it (APFS, instant, no extra
 #      space) and put it back if it is gone afterwards.
-set -uo pipefail
+set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -57,6 +56,14 @@ classify() {
     if [ -z "$app" ] || [ ! -d "$appdir/$app" ]; then
         bundle_casks+=("$cask"); return    # no app artifact (fonts) or nothing to adopt
     fi
+    if [ "${WORKBENCH_EFFECT_APP_REPLACEMENT:-}" != 1 ]; then
+        skipped+=("$cask: hand-installed app requires separate adoption/replacement approval")
+        return
+    fi
+    if [[ "$app" == */* || "$app" == . || "$app" == .. ]]; then
+        echo 'WORKBENCH_EFFECT app-replacement blocked: invalid app artifact' >&2
+        exit 1
+    fi
     # Every binary the cask links must exist in the app that is there ...
     while IFS= read -r binary; do
         [ -n "$binary" ] && [ ! -e "$binary" ] && missing=1
@@ -86,19 +93,18 @@ classify "{{ . }}"
 {{- end }}
 
 # --- safety net: clone every app brew is about to adopt or replace ---
-snapshot="$HOME/.cache/chezmoi-cask-snapshot"
-rm -rf "$snapshot"; mkdir -p "$snapshot"
+snapshot=$(mktemp -d)
 for app in ${touched_apps[@]+"${touched_apps[@]}"}; do
     # -c clones on APFS (instant, shares blocks); a plain copy is the fallback.
-    cp -Rc "$appdir/$app" "$snapshot/$app" 2>/dev/null || cp -R "$appdir/$app" "$snapshot/$app" \
-        || echo "    WARNING: could not snapshot $app before handing it to Homebrew" >&2
+    cp -Rc "$appdir/$app" "$snapshot/" 2>/dev/null || cp -R "$appdir/$app" "$snapshot/" \
+        || { echo "WORKBENCH_EFFECT app-replacement blocked: cannot snapshot $app" >&2; exit 1; }
 done
 restore_lost_apps() {
     local app
     for app in ${touched_apps[@]+"${touched_apps[@]}"}; do
         if [ ! -d "$appdir/$app" ] && [ -d "$snapshot/$app" ]; then
             echo "    WARNING: Homebrew removed $app; restoring the pre-apply copy" >&2
-            mv "$snapshot/$app" "$appdir/$app" || echo "    WARNING: restore of $app failed; copy is in $snapshot" >&2
+            mv "$snapshot/$app" "$appdir/$app" || { echo "WORKBENCH_EFFECT app-replacement failed: recovery copy retained at $snapshot" >&2; return 1; }
         fi
     done
 }
@@ -114,18 +120,6 @@ trap 'rm -f "$bundle"' EXIT
     for cask in ${bundle_casks[@]+"${bundle_casks[@]}"}; do
         echo "cask \"$cask\""
     done
-    # No `command -v code` gate: brew bundle installs the cask batch (which
-    # includes visual-studio-code) before the vscode batch, and resolves
-    # `code` itself at that point. If VS Code is truly absent the vscode
-    # batch fails into the best-effort warning below.
-{{- range .packages.vscode_extensions }}
-    echo 'vscode "{{ . }}"'
-{{- end }}
-{{- if .has_work }}
-    # GitLab is work-only, so this one is gated here rather than in the
-    # role-neutral vscode_extensions list.
-    echo 'vscode "jasonn-porch.gitlab-mr"'
-{{- end }}
 } > "$bundle"
 
 # --no-upgrade: install what is missing, never upgrade what is there.
@@ -137,11 +131,17 @@ else
 fi
 
 restore_lost_apps
-rm -rf "$snapshot"
+# Keep recovery material; never prune a previous or failed operation's copies.
+if [ ${#touched_apps[@]} -gt 0 ]; then
+    echo "WORKBENCH_EFFECT app-replacement recovery-copy: $snapshot" >&2
+else
+    rmdir "$snapshot"
+fi
 
 if [ ${#skipped[@]} -gt 0 ]; then
     printf '    WARNING: %s\n' "${skipped[@]}" >&2
+    exit 1
 fi
-# Best effort: exit 0 so later scripts still run.
+{{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
 exit 0
 {{ end -}}

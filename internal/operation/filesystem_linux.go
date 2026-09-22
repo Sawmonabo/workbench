@@ -4,7 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
+
+func isTerminal(file *os.File) bool {
+	_, err := unix.IoctlGetTermios(int(file.Fd()), unix.TCGETS)
+	return err == nil
+}
 
 // Private state must stay on a native Linux filesystem, including under WSL.
 // Windows/9P/FUSE/network mounts need separately verified protection semantics.

@@ -27,14 +27,17 @@ type Item struct {
 }
 
 type Inventory struct {
-	Directory string `json:"directory"`
-	Items     []Item `json:"items"`
-	Entries   int    `json:"entries"`
-	Excluded  int    `json:"excluded"`
-	Skipped   int    `json:"skipped"`
+	Directory string    `json:"directory"`
+	Items     []Item    `json:"items"`
+	Entries   int       `json:"entries"`
+	Excluded  int       `json:"excluded"`
+	Skipped   int       `json:"skipped"`
+	Projects  []Project `json:"projects"`
+	Warnings  []string  `json:"warnings,omitempty"`
+	inputs    map[string][]byte
 }
 
-// Inspect never reads file contents, runs commands, or creates directories.
+// Inspect reads bounded native metadata without commands or directory creation.
 // The returned inventory can be partial when err is non-nil.
 func Inspect(ctx context.Context, path string) (*Inventory, error) {
 	directory, err := filepath.Abs(path)
@@ -49,6 +52,9 @@ func Inspect(ctx context.Context, path string) (*Inventory, error) {
 	result := &Inventory{Directory: directory}
 	err = result.walk(ctx, root, ".", 0)
 	slices.SortFunc(result.Items, func(a, b Item) int { return strings.Compare(a.Path, b.Path) })
+	if err == nil {
+		err = result.resolve(ctx)
+	}
 	return result, err
 }
 

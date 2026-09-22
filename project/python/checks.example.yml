@@ -1,0 +1,36 @@
+# Adapt your existing GitHub workflow only after reviewing its ownership.
+# Before copying: select a Python version accepted by your project and replace
+# the final step with the project's actual existing test command.
+name: Python checks example
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: python-checks-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+        working-directory: .
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.11.21'
+          # Set python-version from your project's supported versions, or use
+          # python-version-file only if that file already belongs to the project.
+      - run: uv sync --locked --group dev
+      - run: uv run --locked ruff check .
+      - run: uv run --locked ruff format --check .
+      - run: uv run --locked basedpyright
+      - name: Replace with the existing project test command
+        run: |
+          echo 'Choose the project-owned test command before enabling this example.' >&2
+          exit 1

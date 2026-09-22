@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // FindExecutable ignores empty/relative PATH entries and project-local shims.
@@ -119,6 +121,11 @@ type Process struct {
 	Timeout     time.Duration
 	OutputLimit int
 	Mutates     bool
+	// PrivateOutput retains exact successful bytes for private target images.
+	// Never attach this output to public results; failures/overflow stay withheld.
+	PrivateOutput bool
+	// Terminal is only for approved interactive native setup, never preview.
+	Terminal *os.File
 }
 type ProcessOutput struct{ Stdout, Stderr string }
 
@@ -126,6 +133,9 @@ type ProcessOutput struct{ Stdout, Stderr string }
 // not a sandbox for arbitrary tools; never label a modifying command read-only.
 func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (ProcessOutput, error) {
 	var output ProcessOutput
+	if request.Terminal != nil && (!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
+		return output, Fail(3, "terminal", "Terminal execution requires approved mutation, a controlling terminal and no piped input")
+	}
 	if request.Mutates {
 		if err := mutation.Check(); err != nil {
 			return output, err
@@ -194,6 +204,15 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	cmd.Env = append([]string{}, request.Environment...)
 	cmd.Stdin = bytes.NewReader(request.Input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if request.Terminal != nil {
+		foreground, terminalErr := unix.IoctlGetInt(int(request.Terminal.Fd()), unix.TIOCGPGRP)
+		if terminalErr != nil {
+			return output, Fail(3, "terminal", "Cannot inspect native setup terminal")
+		}
+		cmd.SysProcAttr.Foreground = true
+		cmd.SysProcAttr.Ctty = int(request.Terminal.Fd())
+		defer func() { _ = unix.IoctlSetPointerInt(int(request.Terminal.Fd()), unix.TIOCSPGRP, foreground) }()
+	}
 	cmd.Cancel = func() error {
 		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		if errors.Is(err, syscall.ESRCH) {
@@ -204,6 +223,9 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	cmd.WaitDelay = time.Second
 	stdout, stderr := &boundedBuffer{limit: request.OutputLimit}, &boundedBuffer{limit: request.OutputLimit}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
+	if request.Terminal != nil {
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = request.Terminal, request.Terminal, request.Terminal
+	}
 	err = cmd.Run()
 	// A tool may exit while a child retains its pipes. WaitDelay bounds the
 	// wait, and the process group cleanup prevents retained children lingering.
@@ -223,6 +245,9 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	}
 	output.Stdout = Redact(stdout.String(), request.Secrets)
 	output.Stderr = Redact(stderr.String(), request.Secrets)
+	if request.PrivateOutput {
+		output.Stdout = stdout.String()
+	}
 	if len(output.Stdout) > request.OutputLimit || len(output.Stderr) > request.OutputLimit {
 		return ProcessOutput{}, Fail(1, "output_limit", "Redacted subprocess output exceeded its limit; output withheld")
 	}

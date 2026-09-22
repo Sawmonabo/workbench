@@ -13,6 +13,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
+{{ template "operation-context.sh" }}
 
 # --- nvm ---
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -48,6 +49,7 @@ for tool in uv bun go; do
         echo "    $tool present: $("$tool" --version 2>/dev/null | head -n1)"
     else
         echo "    WARNING: $tool missing; 00-packages should have installed it via Homebrew." >&2
+        exit 1
     fi
 done
 

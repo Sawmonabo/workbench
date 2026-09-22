@@ -3,13 +3,20 @@
 # Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, TPM, gh
 # (and bitwarden-cli on work machines)
 set -euo pipefail
+{{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
 
 echo "==> Linux/WSL bootstrap starting..."
 
 # --- base toolchain (a fresh WSL image has no C compiler; cargo/uv/node-gyp all need one) ---
-if command -v apt-get &>/dev/null && ! command -v cc &>/dev/null; then
+base_missing=0
+for tool in cc curl unzip git fc-cache; do
+    command -v "$tool" >/dev/null || base_missing=1
+done
+if command -v apt-get &>/dev/null && [ "$base_missing" -eq 1 ]; then
     echo "==> Installing build-essential, curl, unzip, git (sudo)..."
-    sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl unzip git ca-certificates
+    sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl unzip git ca-certificates fontconfig
 fi
 
 # --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
@@ -25,13 +32,14 @@ if ! command -v bat &>/dev/null; then
         sudo apt-get install -y -qq bat
         if ! command -v bat &>/dev/null && command -v batcat &>/dev/null; then
             mkdir -p "$HOME/.local/bin"
-            ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+            require_unused_command bat
+            ln -s "$(command -v batcat)" "$HOME/.local/bin/bat"
         fi
     else
         echo "==> Installing bat via cargo..."
         if ! command -v cargo &>/dev/null; then
             echo "    Installing rustup first..."
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
             . "$HOME/.cargo/env"
         fi
         cargo install bat
@@ -51,13 +59,14 @@ if ! command -v fd &>/dev/null; then
         sudo apt-get install -y -qq fd-find
         if ! command -v fd &>/dev/null && command -v fdfind &>/dev/null; then
             mkdir -p "$HOME/.local/bin"
-            ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+            require_unused_command fd
+            ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd"
         fi
     else
         echo "==> Installing fd via cargo..."
         if ! command -v cargo &>/dev/null; then
             echo "    Installing rustup first..."
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
             . "$HOME/.cargo/env"
         fi
         cargo install fd-find
@@ -69,6 +78,7 @@ fi
 
 # --- oh-my-posh ---
 if ! command -v oh-my-posh &>/dev/null; then
+    require_unused_command oh-my-posh
     echo "==> Installing oh-my-posh..."
     curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin
     echo "    oh-my-posh installed."
@@ -82,9 +92,8 @@ if [ ! -d "$THEMES_DIR" ] || [ -z "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]; then
     echo "==> Downloading oh-my-posh themes..."
     mkdir -p "$THEMES_DIR"
     THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
-    curl -fsSL "$THEMES_URL" -o /tmp/omp-themes.zip
-    unzip -o /tmp/omp-themes.zip -d "$THEMES_DIR"
-    rm -f /tmp/omp-themes.zip
+    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
+    unzip -o "$download_dir/themes.zip" -d "$THEMES_DIR"
     chmod u+rw "$THEMES_DIR"/*.omp.*
     echo "    Themes installed to $THEMES_DIR"
 else
@@ -113,13 +122,13 @@ if ! font_installed; then
         | head -1 \
         | cut -d'"' -f4)
     if [ -n "$FONT_URL" ]; then
-        curl -fsSL "$FONT_URL" -o /tmp/jetbrains-mono-nf.zip
-        unzip -o /tmp/jetbrains-mono-nf.zip -d "$FONT_DIR"
-        rm -f /tmp/jetbrains-mono-nf.zip
+        curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
+        unzip -o "$download_dir/font.zip" -d "$FONT_DIR"
         fc-cache -fv
         echo "    JetBrains Mono Nerd Font installed."
     else
         echo "    WARNING: Could not find JetBrains Mono Nerd Font download URL."
+        exit 1
     fi
 else
     echo "==> JetBrains Mono Nerd Font already installed, skipping."
@@ -129,7 +138,8 @@ fi
 # Per-user install of the upstream static binary into ~/.local/bin: no sudo,
 # no distro repo (Ubuntu universe lags a year+: 26.04 ships 2.46 vs 2.9x).
 # ~/.local/bin precedes /usr/bin in PATH, so this shadows any apt-installed gh.
-if ! command -v gh &>/dev/null || [[ "$(command -v gh)" != "$HOME/.local/bin/gh" ]]; then
+if ! command -v gh &>/dev/null; then
+    require_unused_command gh
     echo "==> Installing gh (GitHub CLI) to ~/.local/bin..."
     case "$(uname -m)" in
         x86_64) GH_ARCH=amd64 ;;
@@ -145,11 +155,11 @@ if ! command -v gh &>/dev/null || [[ "$(command -v gh)" != "$HOME/.local/bin/gh"
             | tar -xz -C "$GH_TMP"
         mkdir -p "$HOME/.local/bin" "$HOME/.local/share/man/man1"
         install -m 755 "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
-        cp "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/share/man/man1/"*.1 "$HOME/.local/share/man/man1/" 2>/dev/null || true
         rm -rf "$GH_TMP"
         echo "    gh installed: $("$HOME/.local/bin/gh" --version | head -1)"
     else
         echo "    WARNING: could not determine gh release/arch; install manually from https://cli.github.com"
+        exit 1
     fi
 else
     echo "==> gh already installed ($(gh --version | head -1)), skipping."
@@ -159,6 +169,7 @@ fi
 # --- Bitwarden CLI (work machines only; the bw wrapper in .bashrc expects it) ---
 # Same per-user, no-sudo shape as gh above; unzip came from the apt line at the top.
 if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
+    require_unused_command bw
     echo "==> Installing Bitwarden CLI to ~/.local/bin..."
     BW_TMP=$(mktemp -d)
     curl -fsSL "https://bitwarden.com/download/?app=cli&platform=linux" -o "$BW_TMP/bw.zip"
@@ -181,6 +192,7 @@ if ! command -v tmux &>/dev/null; then
         sudo dnf install -y tmux
     else
         echo "    WARNING: Could not detect package manager. Install tmux manually."
+        exit 1
     fi
     echo "    tmux installed."
 else

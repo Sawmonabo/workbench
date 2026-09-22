@@ -6,12 +6,11 @@ Machine role decides which identity, secrets, and tool configuration deploy.
 Answers persist in the local chezmoi.toml, never in the repo.
 */ -}}
 {{- $role := promptChoiceOnce . "machine_role" "Machine role" (list "personal" "work" "both") "personal" -}}
+{{- if not (has $role (list "personal" "work" "both")) }}{{ fail "Invalid machine_role" }}{{ end -}}
 {{- $hasWork := or (eq $role "work") (eq $role "both") -}}
 {{- $hasPersonal := or (eq $role "personal") (eq $role "both") -}}
-{{- /* promptChoiceOnce returns a stale answer verbatim, even one outside the
-       choice list (e.g. an old "cursor"); normalise it back to the default. */ -}}
 {{- $editor := promptChoiceOnce . "editor" "Preferred editor" (list "code" "vim") "code" -}}
-{{- if not (has $editor (list "code" "vim")) }}{{ $editor = "code" }}{{ end -}}
+{{- if not (has $editor (list "code" "vim")) }}{{ fail "Invalid editor" }}{{ end -}}
 {{- /* WSL detection. .chezmoi.kernel is an empty map on macOS, so guard the key. */ -}}
 {{- $isWsl := false -}}
 {{- if eq .chezmoi.os "linux" -}}
@@ -21,26 +20,25 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{-     end -}}
 {{-   end -}}
 {{- end -}}
-sourceDir = {{ .chezmoi.sourceDir | quote }}
-
-[data]
-    machine_role = "{{ $role }}"
-    has_work = {{ $hasWork }}
-    has_personal = {{ $hasPersonal }}
-    is_wsl = {{ $isWsl }}
-    name = "{{ promptStringOnce . "name" "Git user name" }}"
-    email = "{{ promptStringOnce . "email" "Git default email (every repo without an override)" }}"
-{{- if eq $role "both" }}
-    personal_email = "{{ promptStringOnce . "personal_email" "Git personal email (repos under ~/dev/)" }}"
-    work_email = "{{ promptStringOnce . "work_email" "Git work email (repos under ~/repos/)" }}"
-{{- end }}
-    editor = "{{ $editor }}"
-    versions_mode = "{{ promptChoiceOnce . "versions_mode" "Install pinned or latest tool versions" (list "pinned" "latest") "pinned" }}"
-{{- if $hasWork }}
-    # Secrets: stored only in the local chezmoi.toml on this machine, never in the repo
-    jira_api_token = "{{ promptStringOnce . "jira_api_token" "Jira API token (for Codex MCP; stored locally only)" }}"
-    gitlab_token = "{{ promptStringOnce . "gitlab_token" "GitLab token (for Codex MCP; stored locally only)" }}"
-{{- end }}
+{{- $data := dict "machine_role" $role "has_work" $hasWork "has_personal" $hasPersonal "is_wsl" $isWsl "editor" $editor -}}
+{{- $_ := set $data "name" (promptStringOnce . "name" "Git user name") -}}
+{{- $_ := set $data "email" (promptStringOnce . "email" "Git default email (every repo without an override)") -}}
+{{- if eq $role "both" -}}
+{{- $_ := set $data "personal_email" (promptStringOnce . "personal_email" "Git personal email (repos under ~/dev/)") -}}
+{{- $_ := set $data "work_email" (promptStringOnce . "work_email" "Git work email (repos under ~/repos/)") -}}
+{{- end -}}
+{{- range $key := list "name" "email" "personal_email" "work_email" -}}
+{{- if hasKey $data $key -}}
+{{- if or (empty (get $data $key)) (regexMatch "[[:cntrl:]]" (get $data $key)) }}{{ fail "Identity answers must be nonempty and contain no control characters" }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- $mode := promptChoiceOnce . "versions_mode" "Install pinned or latest tool versions" (list "pinned" "latest") "pinned" -}}
+{{- if not (has $mode (list "pinned" "latest")) }}{{ fail "Invalid versions_mode" }}{{ end -}}
+{{- $_ := set $data "versions_mode" $mode -}}
+{{- if $hasWork -}}
+{{- $_ := set $data "jira_api_token" (promptStringOnce . "jira_api_token" "Jira API token (for Codex MCP; stored locally only)") -}}
+{{- $_ := set $data "gitlab_token" (promptStringOnce . "gitlab_token" "GitLab token (for Codex MCP; stored locally only)") -}}
+{{- end -}}
 {{- if $isWsl }}
 {{/*
     WSL VM sizing defaults are derived from the *Windows host* (inside WSL,
@@ -51,7 +49,7 @@ sourceDir = {{ .chezmoi.sourceDir | quote }}
 */}}
 {{-   $hostGB := 0 }}
 {{-   $hostCPU := 0 }}
-{{-   if lookPath "powershell.exe" }}
+{{-   if and (or (not (hasKey . "wsl_memory")) (not (hasKey . "wsl_processors"))) (lookPath "powershell.exe") }}
 {{-     $hostGB = output "powershell.exe" "-NoProfile" "-Command" "[int][math]::Ceiling((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB)" | trim | int }}
 {{-     $hostCPU = output "powershell.exe" "-NoProfile" "-Command" "(Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors" | trim | int }}
 {{-   end }}
@@ -60,8 +58,13 @@ sourceDir = {{ .chezmoi.sourceDir | quote }}
 {{-   if gt $hostGB 0 }}{{ $memGB = div (mul $hostGB 3) 4 }}{{ end }}
 {{-   if gt $hostCPU 0 }}{{ $cpus = max 2 (div (mul $hostCPU 2) 3) }}{{ end }}
 {{-   $swapGB := max 2 (div $memGB 6) }}
-    wsl_memory = "{{ promptStringOnce . "wsl_memory" (printf "WSL memory limit (host has %dGB; default 75%%)" $hostGB) (printf "%dGB" $memGB) }}"
-    wsl_processors = {{ promptIntOnce . "wsl_processors" (printf "WSL vCPUs (host has %d; default 2/3)" $hostCPU) $cpus }}
-    wsl_swap = "{{ promptStringOnce . "wsl_swap" "WSL swap size (default memory/6)" (printf "%dGB" $swapGB) }}"
-    restart_wsl_path = {{ promptStringOnce . "restart_wsl_path" "RestartWSL scripts path (relative to Windows home or a full path e.g. Desktop/RestartWSL)" | quote }}
+{{- $_ := set $data "wsl_memory" (promptStringOnce . "wsl_memory" (printf "WSL memory limit (host has %dGB; default 75%%)" $hostGB) (printf "%dGB" $memGB)) -}}
+{{- $_ := set $data "wsl_processors" (promptIntOnce . "wsl_processors" (printf "WSL vCPUs (host has %d; default 2/3)" $hostCPU) $cpus) -}}
+{{- $_ := set $data "wsl_swap" (promptStringOnce . "wsl_swap" "WSL swap size (default memory/6)" (printf "%dGB" $swapGB)) -}}
+{{- $_ := set $data "restart_wsl_path" (promptStringOnce . "restart_wsl_path" "RestartWSL scripts path (relative to Windows home or a full path e.g. Desktop/RestartWSL)") -}}
+{{- if not (regexMatch "^[1-9][0-9]{0,6}(MB|GB)$" $data.wsl_memory) }}{{ fail "Invalid WSL memory" }}{{ end -}}
+{{- if not (regexMatch "^(0|[1-9][0-9]{0,6}(MB|GB))$" $data.wsl_swap) }}{{ fail "Invalid WSL swap" }}{{ end -}}
+{{- if or (lt (int $data.wsl_processors) 1) (gt (int $data.wsl_processors) 1024) }}{{ fail "Invalid WSL processor count" }}{{ end -}}
+{{- if or (empty $data.restart_wsl_path) (regexMatch "[[:cntrl:]]|(^|[/\\\\])\\.\\.([/\\\\]|$)" $data.restart_wsl_path) }}{{ fail "Invalid RestartWSL path" }}{{ end -}}
 {{- end }}
+{{ dict "sourceDir" .chezmoi.sourceDir "data" $data | toToml }}

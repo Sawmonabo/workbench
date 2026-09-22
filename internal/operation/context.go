@@ -248,13 +248,72 @@ func (c Context) ValidateTarget(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) || path == c.Scope.Root {
 		return Fail(2, "scope", "Target must lie strictly inside the selected scope")
 	}
-	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin} {
+	if c.Scope.Kind == "machine" {
+		markers := []string{".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"}
+		// Ruff's native user configuration is named pyproject.toml despite not
+		// representing a project; this exact canonical machine owner is allowed.
+		ruffConfig := filepath.Join(c.Scope.Root, ".config", "ruff", "pyproject.toml")
+		if slices.Contains(markers, filepath.Base(path)) && path != ruffConfig {
+			return Fail(2, "scope", "Machine configuration cannot own project manifests")
+		}
+		for parent := filepath.Dir(path); parent != c.Scope.Root && Within(c.Scope.Root, parent); parent = filepath.Dir(parent) {
+			for _, marker := range markers {
+				if filepath.Join(parent, marker) == ruffConfig {
+					continue
+				}
+				if _, err := os.Lstat(filepath.Join(parent, marker)); err == nil {
+					return Fail(2, "scope", "Machine configuration cannot write inside a project")
+				} else if !os.IsNotExist(err) {
+					return Fail(2, "scope", "Cannot establish machine target ownership")
+				}
+			}
+		}
+	}
+	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache} {
 		if excluded != "" && (Within(excluded, path) || Within(path, excluded)) {
 			return Fail(2, "scope", "Target overlaps source or Workbench runtime state")
 		}
 	}
+	entrypoint := filepath.Join(c.Paths.Bin, "workbench")
+	if Within(entrypoint, path) {
+		return Fail(2, "scope", "Target is the protected Workbench entry point")
+	}
+	if entryInfo, entryErr := os.Stat(entrypoint); entryErr == nil {
+		if Within(path, entrypoint) {
+			return Fail(2, "scope", "Target contains the protected Workbench entry point")
+		}
+		if targetInfo, targetErr := os.Stat(path); targetErr == nil && os.SameFile(entryInfo, targetInfo) {
+			return Fail(2, "scope", "Target aliases the protected Workbench entry point")
+		}
+	} else if !os.IsNotExist(entryErr) {
+		return Fail(2, "scope", "Cannot inspect protected Workbench entry point")
+	}
+	// Leaf symlinks are images for the checkpoint owner to qualify. Ancestor
+	// symlinks still cannot redirect a managed target outside its scope.
+	if err := safeParents(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ValidateContainer permits inspection of an existing unchanged directory above
+// protected paths. This grants no chmod, replacement, removal or recursive-write
+// authority; planners must reject any proposed edit to such a container.
+func (c Context) ValidateContainer(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) || path == c.Scope.Root {
+		return Fail(2, "scope", "Container must lie strictly inside the selected scope")
+	}
+	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, filepath.Join(c.Paths.Bin, "workbench")} {
+		if excluded != "" && Within(excluded, path) {
+			return Fail(2, "scope", "Container is protected Workbench state")
+		}
+	}
 	if err := safeParents(path); err != nil {
 		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil || !info.IsDir() {
+		return Fail(2, "scope", "Protected ancestors must be existing unchanged directories")
 	}
 	return nil
 }

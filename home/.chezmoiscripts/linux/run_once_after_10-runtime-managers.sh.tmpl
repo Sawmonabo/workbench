@@ -4,6 +4,7 @@
 # Version policy comes from the versions_mode prompt ({{ .versions_mode }})
 # and the pins in .chezmoidata/versions.toml.
 set -euo pipefail
+{{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
 
@@ -29,7 +30,9 @@ else
 fi
 
 # --- uv ---
-if ! command -v uv &>/dev/null; then
+if [ -n "${WORKBENCH_UV:-}" ]; then
+    [ -x "$WORKBENCH_UV" ] || { echo 'WORKBENCH_EFFECT uv blocked: selected owner is unavailable' >&2; exit 1; }
+elif ! command -v uv &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
     curl -LsSf "https://astral.sh/uv/{{ .versions.uv }}/install.sh" | env UV_NO_MODIFY_PATH=1 sh
 {{- else }}
@@ -48,10 +51,16 @@ fi
 
 # --- bun ---
 if ! command -v bun &>/dev/null && [ ! -x "$HOME/.bun/bin/bun" ]; then
+    bun_installer=$(mktemp)
+    trap 'rm -f "$bun_installer"' EXIT
+    curl -fsSL https://bun.com/install -o "$bun_installer"
+    [ -s "$bun_installer" ] || exit 1
+# The upstream installer only edits profiles for bash/zsh/fish. Its generic sh
+# branch prints PATH instructions; our canonical shell targets already own PATH.
 {{- if eq .versions_mode "pinned" }}
-    curl -fsSL https://bun.com/install | bash -s -- "bun-v{{ .versions.bun }}"
+    SHELL=/bin/sh bash "$bun_installer" "bun-v{{ .versions.bun }}"
 {{- else }}
-    curl -fsSL https://bun.com/install | bash
+    SHELL=/bin/sh bash "$bun_installer"
 {{- end }}
 else
     echo "    bun already present."
@@ -67,9 +76,30 @@ if command -v go &>/dev/null && go version | grep -q "go${go_target}"; then
     echo "    Go ${go_target} already installed."
 else
     echo "==> Installing Go ${go_target}..."
+    case "$(uname -m)" in
+        x86_64) go_arch=amd64 ;;
+        aarch64|arm64) go_arch=arm64 ;;
+        *) echo 'WORKBENCH_EFFECT go blocked: unsupported architecture' >&2; exit 1 ;;
+    esac
     install_root="$HOME/.local/share/go-versions"
+    safe_user_directory "$install_root"
+    # Updating aliases belonging to this runtime root is an approved runtime
+    # effect. Ordinary files and unrelated links remain untouched.
+    for command in go gofmt; do
+        target="$HOME/.local/bin/$command"
+        if [ -L "$target" ]; then
+            old=$(readlink "$target")
+            case "$old" in "$install_root"/*/bin/"$command")
+                old_version=${old#"$install_root/"}; old_version=${old_version%"/bin/$command"}
+                [[ "$old_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "Existing command preserved: $target" >&2; exit 1; }
+                safe_user_directory "${old%/*}"
+                ;; *) echo "Existing command preserved: $target" >&2; exit 1 ;; esac
+        elif [ -e "$target" ]; then
+            echo "Existing command preserved: $target" >&2; exit 1
+        fi
+    done
     tmp=$(mktemp -d)
-    curl -fsSL "https://go.dev/dl/go${go_target}.linux-amd64.tar.gz" -o "$tmp/go.tar.gz"
+    curl -fsSL "https://go.dev/dl/go${go_target}.linux-${go_arch}.tar.gz" -o "$tmp/go.tar.gz"
     tar -C "$tmp" -xzf "$tmp/go.tar.gz"
     mkdir -p "$install_root" "$HOME/.local/bin"
     if [ -e "$install_root/$go_target" ]; then

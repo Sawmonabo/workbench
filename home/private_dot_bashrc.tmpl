@@ -58,6 +58,10 @@ fi
 
 # --- PATH ---
 export PATH="$HOME/.local/bin:$PATH"
+{{ with get . "workbench_uv_dir" -}}
+# Reuse Workbench's selected private uv owner in new interactive shells.
+export PATH={{ . | replace "'" "'\"'\"'" | printf "'%s'" }}:"$PATH"
+{{ end -}}
 
 # Go
 export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"

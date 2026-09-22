@@ -35,6 +35,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 # --- Formulae (strict; idempotent: brew bundle skips what is installed) ---
+{{ template "operation-context.sh" }}
 # Strict on purpose: this is the CLI set the rc files and the later scripts
 # assume, and a re-run resumes idempotently.
 # brew bundle resolves aliases (postgresql -> postgresql@N), so it does not
@@ -44,7 +45,13 @@ brewfile="$(mktemp)"
 trap 'rm -f "$brewfile"' EXIT
 {
 {{- range .packages.darwin.brew }}
+{{- if or (eq . "chezmoi") (eq . "uv") }}
+    if [ -z "${WORKBENCH_{{ . | upper }}:-}" ]; then
     echo 'brew "{{ . }}"'
+    fi
+{{- else }}
+    echo 'brew "{{ . }}"'
+{{- end }}
 {{- end }}
 {{- if .has_work }}
     # Role-gated here so bitwarden-cli stays out of the role-neutral data lists.
@@ -63,8 +70,7 @@ mkdir -p "$HOME/.config/oh-my-posh"
 # absent, so a network hiccup here must not abort the apply.
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
     echo "==> Installing TPM..."
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm" \
-        || echo "    WARNING: TPM clone failed; shared/40-tmux-plugins will skip plugin install" >&2
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
 fi
 
 echo "==> macOS bootstrap complete."

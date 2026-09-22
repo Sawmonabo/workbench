@@ -1,3 +1,4 @@
+{{ if .has_work -}}
 {
   "hooks": {
     "UserPromptSubmit": [
@@ -6,10 +7,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "{{ .chezmoi.homeDir }}/.promptctl/bin/codex-prefix-hook"
+            "command": {{ printf "%s/.promptctl/bin/codex-prefix-hook" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" | toJson }}
           }
         ]
       }
     ]
   }
 }
+{{ end -}}

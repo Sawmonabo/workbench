@@ -2,6 +2,33 @@
   "vscode": {
     "settings": {
       "workbench.colorTheme": "Dark 2026",
+      "window.zoomLevel": 0.5,
+      "claudeCode.preferredLocation": "panel",
+      "editor.unicodeHighlight.allowedCharacters": {
+        "§": true
+      },
+      "explorer.confirmDelete": false,
+      "explorer.confirmDragAndDrop": false,
+      "git.confirmSync": false,
+      "extensions.ignoreRecommendations": false,
+      "[json]": {
+        "editor.defaultFormatter": "esbenp.prettier-vscode"
+      },
+      "python.languageServer": "None",
+      "ty.disableLanguageServices": false,
+      "ty.diagnosticMode": "openFilesOnly",
+      "ty.importStrategy": "fromEnvironment",
+      "ruff.nativeServer": "on",
+      "ruff.importStrategy": "fromEnvironment",
+      "ruff.configurationPreference": "filesystemFirst",
+      "[python]": {
+        "editor.defaultFormatter": "charliermarsh.ruff",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.fixAll.ruff": "explicit",
+          "source.organizeImports.ruff": "explicit"
+        }
+      },
       "editor.semanticTokenColorCustomizations": {
         "[Dark 2026]": {
           "enabled": true,

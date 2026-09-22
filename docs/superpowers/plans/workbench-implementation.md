@@ -1,19 +1,29 @@
 # Workbench implementation plan
 
-Status: implementation started; the initial read-only CLI increment exists. The remaining lifecycle/project work below is not completed. This document and the [design specification](../specs/workbench-design.md) are maintained repository inputs. All file paths are repository-relative.
+Status: core implementation available for private evaluation; integrated acceptance and native production qualification remain distinct gates. This document and the [design specification](../specs/workbench-design.md) are maintained repository inputs. All source paths are repository-relative.
 
 ## Progress
 
-- Implemented: one Go/Cobra executable, help/version/completions, PATH-only doctor inventory, development status and bounded filename-based project inspection. Unsupported lifecycle/configure commands return nonzero without changes.
-- Implemented: shared Go/linter pins, gofmt/goimports, standard lint and CI compilation of macOS/Linux arm64/amd64 targets. Existing machine render checks are unchanged. No automated test suite was added.
-- Deliberately incomplete: full doctor validation, release/drift tracking, parsed workspace ownership, planning, execution/consent, persistent state/locking, recovery, installer and project configuration. No numbered phase is claimed wholly complete.
-- Read-only discovery from phase 7 was brought forward because it has no mutation prerequisites. It is not yet the resolved ownership model needed for configure. Empty operation/platform packages were not created.
+The source now contains shared operations, native machine planning/application,
+scoped checkpoints/recovery, verified evaluation-bundle lifecycle/bootstrap,
+global editor policy and existing uv project/workspace configuration. The tasks
+below remain the dependency-ordered delivery specification, not a claim that
+every native release acceptance gate has passed.
 
-### Verification recorded for the initial increment
+| Task | Implementation status | Remaining gate |
+| --- | --- | --- |
+| 1–2 Contracts/shared foundations | Implemented and reviewed | Production qualification remains separate. |
+| 3 Native machine integration | Implemented with explicit Windows-host gate | Full native provisioning qualification. |
+| 4 Apply/recovery | Implemented and reviewed; isolated recovery checks passed | Unsupported metadata remains blocked. |
+| 5 Release/bootstrap | Private evaluation path implemented | Published assets, license/trust decisions and native clean-install qualification. |
+| 6 Editor/Python policy | Canonical policy implemented; isolated merge/schema checks passed | Live intended-profile/tool-resolution verification. |
+| 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
+| 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
+| 9 Documentation/artifacts | Current documentation and verified evaluation packaging complete | Production publication separately authorized. |
 
-On 2026-09-22, native macOS arm64 checks passed with the recorded Go/linter pins: formatting, lint configuration validation, standard lint (zero issues), build, help/version, doctor, status and inspection. Missing tools, a missing directory, apply dry-run and project configure dry-run returned exit 1 as intended. Manual mixed-language inspection found Python/JavaScript/Rust/Go candidates, handled a directory name containing spaces, excluded hidden/dependency directories, skipped an external symlink and reported a nested repository boundary. Selecting that nested repository directly worked. Synthetic input-file hashes were unchanged afterward.
-
-Cross-compilation succeeded for macOS/Linux arm64 and amd64, with output architectures checked. YAML syntax and a secret scan of new CLI/configuration/documentation content passed. CI itself has not run remotely, and no native Linux/WSL provisioning behavior was verified. No machine configuration was applied, global tools installed, automated tests added, commits created or changes pushed.
+[Acceptance](../../acceptance.md) is the maintained evidence record. Do not turn
+cross-compilation, static template checks or source inspection into native support
+claims. No live-machine application is required to finish code/documentation work.
 
 ## Delivery objective
 
@@ -38,7 +48,7 @@ Workbench is greenfield: update the canonical implementation and all affected ca
 | `home/.chezmoiignore`, `home/.chezmoiremove` | Preserve platform/role selection. Preview and checkpoint removals, including configuration-only operations. |
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Extend the current render/lint/role/mode coverage. Simulated WSL rendering does not validate Windows integration. |
 
-The initial read-only application exists; installer and lifecycle engines do not. Known work includes amd64-only download assumptions, some best-effort scripts returning success after skips, automatic maintenance, and script-written Windows configuration that is not automatically covered by native file diffs.
+The shared CLI, installer and lifecycle engines exist. Native script-written Windows configuration still requires explicit path/ACL qualification; uncheckpointed external effects must never be described as file recovery.
 
 ## Execution rules
 
@@ -54,19 +64,23 @@ The initial read-only application exists; installer and lifecycle engines do not
 
 ## Dependency order
 
+The dependency graph permits independent implementation after contracts/shared
+operations stabilize. Shared files have one owner; review integrated batches
+instead of every small edit.
+
 ```text
-1. Resolve blocking contracts and minimal validation policy
-   → 2. Shared CLI/context/execution foundations
-   → 3. Chezmoi integration and safe provisioning boundary
-   → 4. Configuration application and recovery
-   → 5. Release lifecycle and installer
-   → 6. Personal editor/Python machine policy
-   → 7. Workspace discovery and project configuration
-   → 8. Focused platform/resource/security acceptance
-   → 9. Publish-ready documentation and release artifacts
+1 Contracts → 2 Shared operations
+                ├─ 3 Machine/native ─┐
+                ├─ 4 Recovery ──────┤
+                ├─ 5 Release ───────┼─ 8 Integrated acceptance → 9 Current docs/artifacts
+                ├─ 6 Editor policy ─┤
+                └─ 7 Projects ──────┘
 ```
 
-Develop each stage with the smallest relevant verification. Release packaging can be prototyped earlier, but do not activate an updater before its destructive-failure safeguards are verified. A Python-only smoke check is not evidence of monorepo support.
+Project mutations depend on shared recovery; lifecycle setup depends on native
+integration; final bundles include completed project assets. Documentation can
+proceed beside acceptance once interfaces stabilize. Publication remains gated
+on evidence and authority, not the order in which files were implemented.
 
 ## Task 1: Resolve contracts and establish lean validation
 
@@ -206,7 +220,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 
 - Update `home/.chezmoidata/vscode.json`, `packages.toml` and `versions.toml`.
 - Reuse `home/.chezmoitemplates/vscode-settings.json.tmpl` and both existing VS Code target files.
-- Add proposed `home/dot_config/ty/ty.toml` and `home/dot_config/ruff/ruff.toml` only after verifying native discovery.
+- Use `home/dot_config/ty/ty.toml` and `home/dot_config/ruff/pyproject.toml`, the verified native user fallback filenames.
 - Reuse existing extension provisioning; do not create a second platform extension list or new extension test suite.
 
 ### Work
@@ -314,7 +328,7 @@ golangci-lint run ./...
 go build ./...
 ```
 
-The standard linter set includes `govet`; do not run a redundant standalone vet job. Enabled formatters report formatting issues through `run`, so CI need not rewrite files. Use this initial proposed `.golangci.yml`, validating it against the selected pinned release:
+The standard linter set includes `govet`; do not run a redundant standalone vet job. Enabled formatters report formatting issues through `run`, so CI need not rewrite files. The canonical `.golangci.yml` uses:
 
 ```yaml
 version: "2"
@@ -343,15 +357,15 @@ The last command is a simulation/lint check, not native Windows verification. Th
 ## Completion checklist
 
 - [ ] All blocking decisions are resolved in the design and implemented contracts.
-- [ ] One CLI, bootstrap handoff, shared lifecycle and dependency ownership are verified.
-- [ ] Go formatting, standard lint and builds pass using the same pinned configuration locally and in CI.
-- [ ] Canonical paths are updated in place, with no backward-compatibility layers or migration machinery.
+- [x] One CLI, bootstrap handoff, shared lifecycle and dependency ownership are verified in isolated evaluation.
+- [x] Go formatting, standard lint and builds pass locally; CI defines the same pinned checks, with run results recorded by GitHub Actions.
+- [x] Canonical paths are updated in place, with no backward-compatibility layers or migration machinery.
 - [ ] Required machine platform/role/version behavior is supported by existing static checks and brief native smoke results.
-- [ ] New tests are near-zero and each protects against a stated catastrophic failure; no broad suite or coverage target was introduced.
-- [ ] Read-only, consent, conflict and recovery safeguards have focused evidence without a test-per-feature mandate.
-- [ ] Personal editor/Python policy is implemented through canonical owners.
-- [ ] Existing-project and supported monorepo configuration is safe, scoped and repeatable.
+- [x] New tests are near-zero and each protects against a stated catastrophic failure; no broad suite or coverage target was introduced.
+- [x] Read-only, consent, conflict and recovery safeguards have focused evidence without a test-per-feature mandate.
+- [x] Personal editor/Python policy is implemented through canonical owners.
+- [x] Existing-project and supported monorepo configuration is safe, scoped and repeatable in isolated fixtures.
 - [ ] Resource observations, security checks and actual WSL smoke results support published claims.
-- [ ] Release artifacts and public instructions match verified behavior.
+- [x] Private evaluation artifacts and public instructions match verified behavior; no production publication is claimed.
 
-Each checklist item requires actual evidence; writing the plan does not complete it. Implementation is now authorized, but publishing releases, committing and pushing remain separate actions. The progress section states the current implemented scope without treating the remaining plan as complete.
+Each checklist item requires actual evidence; source completion alone does not finish native release qualification. Commit/push delivery and release publication are distinct actions; publication requires separate authorization. The progress and acceptance sections must remain aligned with current results.

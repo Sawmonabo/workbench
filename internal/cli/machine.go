@@ -1,48 +1,27 @@
 package cli
 
 import (
-	"fmt"
-	"os"
-	"runtime"
-
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/spf13/cobra"
 )
 
 func doctorCommand(o *options) *cobra.Command {
 	return &cobra.Command{
-		Use: "doctor", Short: "Inventory trusted local tool locations without executing them", Args: cobra.NoArgs,
+		Use: "doctor", Short: "Check native tool versions and local host prerequisites without repair", Args: cobra.NoArgs,
 		RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			result.Results = append(result.Results, operation.Component{Name: "platform", Status: "complete", Message: runtime.GOOS + "/" + runtime.GOARCH})
-			cwd, err := operation.ExistingDirectory(".")
-			if err != nil {
-				return result, err
-			}
-			missing := false
-			for _, name := range []string{"chezmoi", "uv", "python3", "code"} {
-				if err := cmd.Context().Err(); err != nil {
-					return result, err
-				}
-				path, err := operation.FindExecutable(name, os.Getenv("PATH"), []string{cwd, c.Native.Source})
-				component := operation.Component{Name: name, Status: "complete", Message: fmt.Sprintf("%q", path)}
-				if err != nil {
-					component.Status, component.Message, missing = "blocked", "Not found outside project-controlled PATH entries", true
-				}
-				result.Results = append(result.Results, component)
-			}
-			result.Warnings = append(result.Warnings, "Location inventory only: versions, machine answers and editor host/profile are unchecked. No tools were executed or repaired.")
-			if missing {
-				return result, operation.Fail(3, "dependency", "Inventory incomplete; provide missing tools through an approved setup stage")
-			}
-			return result, nil
+			var err error
+			result.Results, err = machine.Doctor(cmd.Context(), c)
+			return result, err
 		}),
 	}
 }
 
 func statusCommand(o *options) *cobra.Command {
 	return &cobra.Command{
-		Use: "status", Short: "Inspect current private state without release or drift probes", Args: cobra.NoArgs,
+		Use: "status", Short: "Inspect active, staged and applied identities without network or drift probes", Args: cobra.NoArgs,
 		RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
 			state, err := operation.ReadState(c.Paths)
@@ -55,13 +34,47 @@ func statusCommand(o *options) *cobra.Command {
 				message = "Current state schema and recorded identities validated"
 			}
 			result.Results = append(result.Results, operation.Component{Name: "state", Status: "complete", Message: message, Details: state})
-			result.Warnings = append(result.Warnings, "Release activation, staged candidates and drift are not inspected. No state was created or changed.")
+			candidate, err := release.Candidate(c)
+			if err != nil {
+				return result, err
+			}
+			if candidate != "" {
+				metadata, inspectErr := release.Inspect(candidate)
+				if inspectErr != nil {
+					return result, inspectErr
+				}
+				result.Results = append(result.Results, operation.Component{Name: "candidate", Status: "complete", Details: operation.SourceIdentity{Release: metadata.Release, ContentDigest: metadata.SourceDigest}})
+			} else {
+				result.Results = append(result.Results, operation.Component{Name: "candidate", Status: "absent", Message: "No staged release"})
+			}
+			result.Warnings = append(result.Warnings, "Target drift and remote updates are not inspected. No state was created or changed.")
 			return result, nil
 		}),
 	}
 }
 
-// Both plan and apply --dry-run use this owner. No native preview is fabricated.
-func machinePlan(cmd *cobra.Command, _ operation.Context) (operation.Result, error) {
-	return operation.NewResult(cmd.CommandPath()), operation.Fail(3, "not_implemented", "Native machine planning/application is not implemented; no changes were made")
+// Both plan and apply --dry-run use the same native planning owner.
+func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation.Result, error) {
+	result := operation.NewResult(cmd.CommandPath())
+	configOnly, _ := cmd.Flags().GetBool("config-only")
+	plan, err := machine.Plan(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly})
+	status := "complete"
+	if err != nil {
+		status = "blocked"
+	}
+	result.Results = append(result.Results, operation.Component{Name: "machine-plan", Status: status, Details: plan})
+	if err != nil {
+		return result, err
+	}
+	result.PlanDigest, err = plan.Digest()
+	if err != nil {
+		return result, err
+	}
+	if cmd.Name() == "apply" {
+		dryRun, _ := cmd.Flags().GetBool("dry-run")
+		if !dryRun {
+			return machine.Apply(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly}, plan, releaseConsent(o, o.approvePlan))
+		}
+	}
+	return result, nil
 }

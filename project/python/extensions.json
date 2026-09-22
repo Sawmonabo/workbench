@@ -1,0 +1,4 @@
+{
+  "recommendations": ["astral-sh.ty", "charliermarsh.ruff", "ms-python.python", "ms-python.debugpy"],
+  "unwantedRecommendations": ["ms-python.vscode-pylance", "matangover.mypy", "detachhead.basedpyright"]
+}

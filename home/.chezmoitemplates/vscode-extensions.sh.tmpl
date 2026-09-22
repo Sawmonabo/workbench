@@ -1,0 +1,45 @@
+# Resolve the actual desktop installation without launching an editor/server.
+# Explicit directories below select its local default profile, never a remote.
+code_desktop=$(python3 - <<'PY'
+import json, os, pathlib, shutil, sys
+candidate = shutil.which('code')
+if not candidate:
+    sys.exit('Local VS Code desktop CLI unavailable')
+cli = pathlib.Path(candidate).resolve()
+if sys.platform == 'darwin':
+    allowed = [pathlib.Path('/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code')]
+else:
+    allowed = [pathlib.Path('/usr/share/code/bin/code'), pathlib.Path('/snap/code/current/usr/share/code/bin/code').resolve()]
+if cli not in allowed or not cli.is_file() or not os.access(cli, os.X_OK):
+    sys.exit('Unqualified VS Code CLI; remote, Windows, portable and custom installations require explicit host qualification')
+app = cli.parent.parent
+try:
+    product = json.loads((app / 'product.json').read_text())
+    package = json.loads((app / 'package.json').read_text())
+    version = tuple(int(part) for part in package['version'].split('.')[:3])
+    if product.get('applicationName') != 'code' or product.get('nameShort') != 'Code' or len(version) != 3:
+        raise ValueError('unsupported local desktop')
+except (OSError, ValueError, KeyError, TypeError):
+    sys.exit('Local VS Code desktop metadata is missing or unqualified')
+home = pathlib.Path.home()
+data = home / ('Library/Application Support/Code' if sys.platform == 'darwin' else '.config/Code')
+for directory in (data, home / '.vscode/extensions'):
+    for parent in (directory, *directory.parents):
+        if parent == home:
+            break
+        if parent.is_symlink() or (parent.exists() and not parent.is_dir()):
+            sys.exit('Local VS Code profile or extension directory aliases require explicit ownership qualification')
+print(cli)
+PY
+)
+{{ if eq .chezmoi.os "darwin" -}}
+code_user_data="$HOME/Library/Application Support/Code"
+{{ else -}}
+code_user_data="$HOME/.config/Code"
+{{ end -}}
+{{ range .packages.vscode_extensions -}}
+env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER "$code_desktop" --user-data-dir "$code_user_data" --extensions-dir "$HOME/.vscode/extensions" --install-extension '{{ . }}'
+{{ end -}}
+{{ if .has_work -}}
+env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER "$code_desktop" --user-data-dir "$code_user_data" --extensions-dir "$HOME/.vscode/extensions" --install-extension jasonn-porch.gitlab-mr
+{{ end -}}

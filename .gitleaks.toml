@@ -1,0 +1,14 @@
+title = "Workbench secret scanning"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Windows Terminal resize shortcut, not an API credential"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^ctrl\+shift\+down$''']
+paths = ['''^home/\.chezmoiscripts/wsl/run_(once_)?before_00-packages-windows\.sh\.tmpl$''']

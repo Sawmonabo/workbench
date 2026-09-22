@@ -19,13 +19,30 @@ uv = "0.11.21"
 codex = "0.153.0"
 claude = "2.1.263"
 
+# Management acquisition consumes versions.uv and versions.python_pinned[0].
+# These compatibility qualifications do not change user runtime version policy.
+[management]
+chezmoi = "2.70.3"
+uv_additional = ["0.12.3"]
+python_min_minor = 11
+python_max_minor = 14
+tomlkit = "0.15.1"
+tomlkit_sha256 = "177a05aece5a8ca5266fd3c448abb47b8d352f09d477d3ca8332db4d89b24304"
+tomlkit_url = "https://files.pythonhosted.org/packages/13/bc/8c13eb66537dce1d2bd3a57132902f38d0e7f5bb46fa9f4daed9fe9d76ee/tomlkit-0.15.1-py3-none-any.whl"
+tomlkit_license = "MIT"
+chezmoi_sha256 = { "darwin-amd64" = "b1df8211b594375eed78c6685b7e1019e08a0e4e607f28ff452fbb87f62c2211", "darwin-arm64" = "2de26b4217795c2bcf2c5209739f8f0f4c8d687e9441f99e3ca9b51d2269caab", "linux-amd64" = "ed3a131a7e71798513255d8c05534a14a16d98839820708e839d3403be5b46b2", "linux-arm64" = "f094f9baccbe1e5e9744fc70f74974ba1793f2cba550f8b4a9d0fe5310f4a38f" }
+uv_sha256 = { "darwin-amd64" = "f3c8e5708a84b920c18b691214d54d2b0da6b984789caae95d47c95120cb7765", "darwin-arm64" = "1f921d491ba5ffeea774eb04d6681ecee379101341cbb1500394993b541bf3f4", "linux-amd64" = "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050", "linux-arm64" = "88e800834007cc5efd4675f166eb2a51e7e3ad19876d85fa8805a6fb5c922397" }
+
 [corepack_globals]
 pnpm = "10.33.2"
 yarn = "1.22.22"
 
 # uv tool install <name>==<version> (sidekick tools are installed manually)
 [uv_tools]
+"basedpyright" = "1.40.1"
 "pyclean" = "3.4.0"
+"ruff" = "0.16.8"
+"ty" = "0.0.82"
 
 # cargo install <crate> --version <ver>. bat is NOT listed here: the Linux
 # bootstrap script installs it from apt (cargo only as a fallback), so listing

@@ -1,0 +1,17 @@
+[tool.ty.rules]
+dynamic-function-decorator-return = "error"
+missing-type-argument = "error"
+possibly-unresolved-reference = "warn"
+unsound-return-statement = "error"
+
+[tool.ruff]
+line-length = 88
+unsafe-fixes = false
+
+[tool.ruff.lint]
+extend-select = ["I", "B", "UP", "ANN", "PYI", "RUF100"]
+
+[tool.basedpyright]
+typeCheckingMode = "recommended"
+failOnWarnings = true
+reportMatchNotExhaustive = "error"

@@ -10,7 +10,11 @@
 #      formulae and casks, and the whole download cache are removed.
 # Nothing here touches runtimes managed by nvm, uv or rustup: older versions
 # there are kept on purpose for per-project use.
-set -uo pipefail
+set -euo pipefail
+if [ "${WORKBENCH_EFFECT_BREW_MAINTENANCE:-}" != 1 ]; then
+    echo 'WORKBENCH_EFFECT brew-maintenance disabled (not selected)' >&2
+    exit 0
+fi
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"
@@ -27,7 +31,8 @@ for name in {{ range .packages.darwin.brew }}"{{ . }}" {{ end }}; do
     [ -n "$tapped" ] || continue
     echo "    $name is installed from ${tapped%/*}; reinstalling from homebrew/core"
     if ! { brew uninstall --ignore-dependencies "$tapped" && brew install "$name"; }; then
-        echo "    WARNING: could not move $name to homebrew/core (see above)" >&2
+        echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core" >&2
+        exit 1
     fi
 done
 
@@ -37,12 +42,12 @@ installed_taps="$( { brew list --formula --full-name; brew list --cask --full-na
 for tap in $(brew tap 2>/dev/null | grep -v '^homebrew/' || true); do
     grep -qx "$tap" <<< "$installed_taps" && continue
     echo "    untapping $tap (nothing installed comes from it)"
-    brew untap "$tap" || echo "    WARNING: could not untap $tap" >&2
+    brew untap "$tap"
 done
 
 # --- 3. orphans, old versions, cache ---
-brew autoremove || echo "    WARNING: brew autoremove failed" >&2
-brew cleanup -s --prune=all || echo "    WARNING: brew cleanup failed" >&2
+brew autoremove
+brew cleanup -s --prune=all
 
 echo "==> Homebrew cleanup done."
 exit 0

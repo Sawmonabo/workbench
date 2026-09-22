@@ -39,10 +39,13 @@ if [ "$extra" = wsl ]; then
 WSLDATA
     grep -q 'is_wsl = true' "$config" || { echo "WSL FAIL: could not force is_wsl in $config"; exit 1; }
 fi
-chez=(chezmoi --config "$config" --source "$repo" --destination "$dest")
+chez=(chezmoi --config "$config" --source "$repo" --destination "$dest"
+    --persistent-state "$tmp/state.boltdb" --cache "$tmp/cache"
+    --no-pager --use-builtin-diff --refresh-externals=never --use-builtin-git=true)
 
 if [ "$extra" != wsl ]; then
     echo "==> [$role/$mode] apply into $dest (scripts rendered, never run)"
+    "${chez[@]}" diff --exclude scripts >/dev/null
     "${chez[@]}" apply --exclude scripts
 fi
 
@@ -69,6 +72,29 @@ if [ "$extra" = wsl ]; then
     echo "OK [$role/$mode/wsl-lint]"
     exit 0
 fi
+
+# One shared data-loss safeguard: a malformed existing config must never be
+# replaced by a generated body. This reuses the native render fixture, not a
+# separate per-script test suite.
+echo "==> [$role/$mode] malformed-input preservation"
+for relative in .codex/config.toml 'Library/Application Support/Code/User/settings.json' .config/Code/User/settings.json; do
+    target="$dest/$relative"
+    [ -f "$target" ] || continue
+    cp "$target" "$tmp/valid-config"
+    printf '[invalid input\n' > "$target"
+    cp "$target" "$tmp/invalid-config"
+    if "${chez[@]}" apply --exclude scripts -- "$target" >"$tmp/invalid-output" 2>&1; then
+        echo "PRESERVATION FAIL: invalid $relative was accepted"; fail=1
+    fi
+    cmp -s "$target" "$tmp/invalid-config" || { echo "PRESERVATION FAIL: invalid $relative was replaced"; fail=1; }
+    cp "$tmp/valid-config" "$target"
+done
+printf '[invalid input\n' > "$tmp/windows-settings.json"
+cp "$tmp/windows-settings.json" "$tmp/invalid-config"
+if python3 - "$tmp/windows-settings.json" example value < "$repo/home/.chezmoitemplates/merge-json.py" >"$tmp/invalid-output" 2>&1; then
+    echo 'PRESERVATION FAIL: invalid Windows settings accepted'; fail=1
+fi
+cmp -s "$tmp/windows-settings.json" "$tmp/invalid-config" || { echo 'PRESERVATION FAIL: invalid Windows settings replaced'; fail=1; }
 
 echo "==> [$role/$mode] leak checks"
 if grep -rIln -e '/home/sabossedgh' -e '/Users/sawmonabo' "$repo/home"; then

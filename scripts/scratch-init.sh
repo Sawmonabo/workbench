@@ -12,9 +12,15 @@ set -euo pipefail
 role=${1:?usage: scratch-init.sh <personal|work|both> <pinned|latest>}
 mode=${2:?usage: scratch-init.sh <personal|work|both> <pinned|latest>}
 repo=$(cd "$(dirname "$0")/.." && pwd)
-config="$(mktemp -d)/chezmoi.toml"
+scratch=$(mktemp -d)
+config="$scratch/chezmoi.toml"
+mkdir -p "$scratch/source" "$scratch/destination" "$scratch/cache"
+cp "$repo/.chezmoiroot" "$scratch/source/"
+cp -R "$repo/home" "$scratch/source/home"
 
-chezmoi --config "$config" --source "$repo" init \
+chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/destination" \
+    --persistent-state "$scratch/state.boltdb" --cache "$scratch/cache" \
+    --no-pager --use-builtin-diff --refresh-externals=never --use-builtin-git=true init \
     --promptChoice "Machine role=$role" \
     --promptChoice "Preferred editor=code" \
     --promptChoice "Install pinned or latest tool versions=$mode" \

@@ -4,7 +4,14 @@ import (
 	"os"
 	"path/filepath"
 	"syscall"
+
+	"golang.org/x/sys/unix"
 )
+
+func isTerminal(file *os.File) bool {
+	_, err := unix.IoctlGetTermios(int(file.Fd()), unix.TIOCGETA)
+	return err == nil
+}
 
 func privateFilesystem(path string) error {
 	var stat syscall.Statfs_t

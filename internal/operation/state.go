@@ -19,6 +19,7 @@ import (
 // to the recovery owner; unknown state fields fail rather than being discarded.
 type State struct {
 	SchemaVersion        int               `json:"schema_version"`
+	Dependencies         []Dependency      `json:"dependencies,omitempty"`
 	ActiveRelease        *ReleaseRecord    `json:"active_release"`
 	AppliedConfiguration *SourceIdentity   `json:"applied_configuration"`
 	PartialOperation     *PartialOperation `json:"partial_operation"`
@@ -36,9 +37,37 @@ type PartialOperation struct {
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 var operationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 
+// ReadPrivateInput shares private-file validation with state/answer consumers.
+// It never creates missing state and withholds unsafe or oversized input.
+func ReadPrivateInput(path string, limit int64) ([]byte, error) {
+	if limit < 1 || limit > 16<<20 {
+		return nil, Fail(2, "input", "Invalid private input bound")
+	}
+	if err := checkPrivateFile(path); err != nil {
+		return nil, err
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
+	if err != nil {
+		return nil, Fail(2, "input", "Cannot read private input")
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil || int64(len(data)) > limit {
+		return nil, Fail(2, "input", "Private input exceeds its read bound")
+	}
+	return data, nil
+}
+
 func (s State) Validate() error {
 	if s.SchemaVersion != 1 {
 		return Fail(2, "state_format", "Unsupported Workbench state schema; state was left unchanged")
+	}
+	seen := map[string]bool{}
+	for _, dependency := range s.Dependencies {
+		if seen[dependency.Name] || (dependency.Name != "chezmoi" && dependency.Name != "python3" && dependency.Name != "uv") || !filepath.IsAbs(dependency.Path) || dependency.Version == "" || (dependency.Owner != "user" && dependency.Owner != "system" && dependency.Owner != "homebrew" && dependency.Owner != "workbench") {
+			return Fail(2, "state_format", "Invalid recorded management dependency")
+		}
+		seen[dependency.Name] = true
 	}
 	for _, identity := range []*SourceIdentity{s.AppliedConfiguration, releaseIdentity(s.ActiveRelease)} {
 		if identity == nil {
