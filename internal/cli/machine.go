@@ -17,7 +17,7 @@ func doctorCommand(o *options) *cobra.Command {
 		Short: "Check native tool versions and local host prerequisites without repair",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
-			false,
+			machineAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				var err error
@@ -34,7 +34,7 @@ func statusCommand(o *options) *cobra.Command {
 		Short: "Inspect active, staged and applied identities without network or drift probes",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
-			false,
+			machineAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				state, err := operation.ReadState(c.Paths)
@@ -111,7 +111,7 @@ func initCommand(o *options) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "Show the plan without saving answers")
 	_ = cmd.MarkFlagRequired("answers-from")
 	cmd.RunE = o.action(
-		false,
+		machineAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
 			from, _ := cmd.Flags().GetString("answers-from")
@@ -160,8 +160,48 @@ func initCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// Both plan and apply --dry-run use the same native planning owner.
-func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation.Result, error) {
+// machineCommands returns plan and apply, which share one native planner.
+func machineCommands(o *options) []*cobra.Command {
+	plan := &cobra.Command{
+		Use:   "plan",
+		Short: "Preview native machine changes and prerequisites",
+		Args:  cobra.NoArgs,
+		RunE: o.action(
+			nativeAction,
+			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+				return machinePlan(cmd, c, o, false)
+			},
+		),
+	}
+	plan.Flags().Bool("config-only", false, "Preview configuration without provisioning effects")
+	apply := &cobra.Command{
+		Use:   "apply",
+		Short: "Apply approved native machine changes with file checkpoints",
+		Args:  cobra.NoArgs,
+		RunE: o.action(
+			nativeAction,
+			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+				dryRun, _ := cmd.Flags().GetBool("dry-run")
+				return machinePlan(cmd, c, o, !dryRun)
+			},
+		),
+	}
+	apply.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
+	apply.Flags().
+		Bool("config-only", false, "Apply native configuration without provisioning scripts")
+	addEffectFlag(plan)
+	addEffectFlag(apply)
+	return []*cobra.Command{plan, apply}
+}
+
+// machinePlan previews the native machine plan and, when apply is set, applies
+// it with consent.
+func machinePlan(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	apply bool,
+) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
 	selection := machineSelection(cmd)
 	plan, err := machine.Plan(cmd.Context(), c, selection)
@@ -177,23 +217,20 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 		return result, err
 	}
 	result.PlanDigest = plan.Digest()
-	if cmd.Name() == "apply" {
-		dryRun, _ := cmd.Flags().GetBool("dry-run")
-		if !dryRun {
-			terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
-			defer closeConsole()
-			return machine.Apply(
-				cmd.Context(),
-				c,
-				selection,
-				plan,
-				consentFor(o, o.approvePlan),
-				terminal,
-				progress,
-			)
-		}
+	if !apply {
+		return result, nil
 	}
-	return result, nil
+	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
+	defer closeConsole()
+	return machine.Apply(
+		cmd.Context(),
+		c,
+		selection,
+		plan,
+		consentFor(o, o.approvePlan),
+		terminal,
+		progress,
+	)
 }
 
 func addEffectFlag(cmd *cobra.Command) {

@@ -15,11 +15,18 @@ var buildReleaseVersion = "dev"
 
 func releaseCommands(o *options) []*cobra.Command {
 	commands := []*cobra.Command{}
-	for _, name := range []string{"pull", "install", "update"} {
+	for _, spec := range []struct {
+		name, short string
+		activate    bool
+	}{
+		{"pull", "Verify and stage an immutable release only", false},
+		{"install", "Install a verified runtime and perform separately approved setup", true},
+		{"update", "Stage, plan and apply a verified release through shared lifecycle operations", true},
+	} {
 		cmd := &cobra.Command{
-			Use:   name + " [version]",
+			Use:   spec.name + " [version]",
 			Args:  cobra.MaximumNArgs(1),
-			Short: map[string]string{"pull": "Verify and stage an immutable release only", "install": "Install a verified runtime and perform separately approved setup", "update": "Stage, plan and apply a verified release through shared lifecycle operations"}[name],
+			Short: spec.short,
 		}
 		cmd.Flags().
 			String("bundle", "", "Release archive: a local file or HTTPS URL (install.sh downloads the right one)")
@@ -37,9 +44,9 @@ func releaseCommands(o *options) []*cobra.Command {
 			Bool("runtime-ready", false, "Continue the verified same-process runtime handoff")
 		_ = cmd.Flags().MarkHidden("runtime-ready")
 		cmd.RunE = o.action(
-			false,
+			releaseAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				return releaseLifecycle(cmd, c, o)
+				return releaseLifecycle(cmd, c, o, spec.activate)
 			},
 		)
 		commands = append(commands, cmd)
@@ -47,7 +54,7 @@ func releaseCommands(o *options) []*cobra.Command {
 	check := &cobra.Command{Use: "release-check", Hidden: true, Args: cobra.NoArgs}
 	check.Flags().String("bundle-directory", "", "Verified private extracted bundle")
 	check.RunE = o.action(
-		false,
+		releaseAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
 			directory, _ := cmd.Flags().GetString("bundle-directory")
@@ -80,10 +87,13 @@ func releaseCommands(o *options) []*cobra.Command {
 	return append(commands, check)
 }
 
+// releaseLifecycle verifies and stages a release bundle and, when activate is
+// set, activates it and continues setup and apply in the new runtime.
 func releaseLifecycle(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
+	activate bool,
 ) (result operation.Result, resultErr error) {
 	result = operation.NewResult(cmd.CommandPath())
 	defer func() {
@@ -124,7 +134,6 @@ func releaseLifecycle(
 	if err != nil {
 		return result, err
 	}
-	activate := cmd.Name() != "pull"
 	planner := releasePlanner(c, bundle, activate)
 	plan, err := planner(cmd.Context(), c)
 	if err != nil {

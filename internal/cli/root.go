@@ -102,71 +102,56 @@ func newRoot(o *options) *cobra.Command {
 	)
 	root.AddCommand(doctorCommand(o), statusCommand(o), initCommand(o), projectCommand(o))
 	root.AddCommand(recoveryCommand(o))
+	root.AddCommand(machineCommands(o)...)
 	root.AddCommand(releaseCommands(o)...)
-	for _, spec := range []struct{ use, short string }{
-		{"plan", "Preview native machine changes and prerequisites"},
-		{"apply", "Apply approved native machine changes with file checkpoints"},
-	} {
-		cmd := &cobra.Command{
-			Use:   spec.use,
-			Short: spec.short,
-			Args:  cobra.NoArgs,
-			RunE: o.action(
-				false,
-				func(cmd *cobra.Command, c operation.Context) (operation.Result, error) { return machinePlan(cmd, c, o) },
-			),
-		}
-		if cmd.Name() == "plan" {
-			cmd.Flags().
-				Bool("config-only", false, "Preview configuration without provisioning effects")
-		}
-		if cmd.Name() == "apply" {
-			cmd.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
-			cmd.Flags().
-				Bool("config-only", false, "Apply native configuration without provisioning scripts")
-		}
-		addEffectFlag(cmd)
-		root.AddCommand(cmd)
-	}
 	return root
 }
 
 type handler func(*cobra.Command, operation.Context) (operation.Result, error)
 
-func (o *options) action(project bool, run handler) func(*cobra.Command, []string) error {
+// actionKind is what a command operates on, which decides how action prepares
+// its context.
+type actionKind int
+
+const (
+	// machineAction runs against the current release selection.
+	machineAction actionKind = iota
+	// nativeAction also selects the machine source: --source, else the staged
+	// candidate, else the active release. It hands off to the candidate's own
+	// runtime when that is not this executable. plan and apply use it.
+	nativeAction
+	// projectAction selects the project at PATH, narrowed by --language.
+	projectAction
+	// releaseAction stages, installs or checks a release. It skips validating
+	// the current selection, which an interrupted install resumes to repair.
+	releaseAction
+)
+
+func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []string) error {
 	return func(cmd *cobra.Command, args []string) error {
 		selection := o.resolve
-		selection.Project, selection.ReadOnly = project, true
-		if project && len(args) != 0 {
+		selection.Project, selection.ReadOnly = kind == projectAction, true
+		if kind == projectAction && len(args) != 0 {
 			selection.Path = args[0]
 		}
-		if project && cmd.Flags().Lookup("language") != nil {
+		if kind == projectAction && cmd.Flags().Lookup("language") != nil {
 			selection.Languages, _ = cmd.Flags().GetStringArray("language")
 		}
 		result := operation.NewResult(cmd.CommandPath())
 		resolved, err := operation.Resolve(selection)
+		switch {
+		case err != nil:
+		case kind == releaseAction:
+			// Malformed state still stops a release command before any work.
+			_, err = operation.ReadState(resolved.Paths)
+		default:
+			err = release.ValidateSelection(resolved)
+		}
+		if err == nil && kind == nativeAction {
+			err = o.selectSource(cmd.Context(), &resolved)
+		}
 		if err == nil {
-			var state *operation.State
-			state, err = operation.ReadState(resolved.Paths)
-			if err == nil && cmd.Name() != "install" && cmd.Name() != "update" &&
-				cmd.Name() != "pull" &&
-				cmd.Name() != "release-check" {
-				err = release.ValidateSelection(resolved)
-			}
-			if err == nil && resolved.Native.Source == "" && !project &&
-				(cmd.Name() == "plan" || cmd.Name() == "apply") {
-				resolved.Native.Source, err = release.Candidate(resolved)
-				if err == nil && resolved.Native.Source == "" && state != nil &&
-					state.ActiveRelease != nil {
-					resolved.Native.Source = state.ActiveRelease.Source
-				}
-			}
-			if err == nil && !project && (cmd.Name() == "plan" || cmd.Name() == "apply") {
-				err = release.CandidateHandoff(cmd.Context(), resolved, o.invocation)
-			}
-			if err == nil {
-				result, err = run(cmd, resolved)
-			}
+			result, err = run(cmd, resolved)
 		}
 		result.SetError(err)
 		o.rendered = true
@@ -180,6 +165,28 @@ func (o *options) action(project bool, run handler) func(*cobra.Command, []strin
 		}
 		return err
 	}
+}
+
+// selectSource fills in the machine source for a [nativeAction] and hands off
+// to a staged candidate's runtime.
+func (o *options) selectSource(ctx context.Context, c *operation.Context) error {
+	if c.Native.Source == "" {
+		source, err := release.Candidate(*c)
+		if err != nil {
+			return err
+		}
+		if source == "" {
+			state, err := operation.ReadState(c.Paths)
+			if err != nil {
+				return err
+			}
+			if state != nil && state.ActiveRelease != nil {
+				source = state.ActiveRelease.Source
+			}
+		}
+		c.Native.Source = source
+	}
+	return release.CandidateHandoff(ctx, *c, o.invocation)
 }
 
 func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) error {

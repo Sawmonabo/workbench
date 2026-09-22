@@ -17,7 +17,7 @@ func recoveryCommand(o *options) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "Preview recovery conflicts and approval digest")
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		return o.action(
-			false,
+			machineAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				list, _ := cmd.Flags().GetBool("list")

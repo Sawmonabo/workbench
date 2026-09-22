@@ -24,7 +24,7 @@ func projectInspectCommand(o *options) *cobra.Command {
 		Short: "Inventory manifest, lockfile and configuration candidates",
 		Args:  cobra.MaximumNArgs(1),
 		RunE: o.action(
-			true,
+			projectAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				ctx, cancel := context.WithTimeout(cmd.Context(), 5*time.Second)
@@ -77,7 +77,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 	configure.Flags().
 		Bool("ci", false, "Request CI integration; unsupported ownership receives a manual proposal")
 	configure.RunE = o.action(
-		true,
+		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
 			var options project.ConfigureOptions
@@ -160,7 +160,7 @@ func projectRevertCommand(o *options) *cobra.Command {
 	cmd.Flags().Bool("list", false, "List checkpoints in exactly the selected project scope")
 	cmd.Flags().String("checkpoint", "", "Select a project checkpoint UUID")
 	cmd.RunE = o.action(
-		true,
+		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
 			list, _ := cmd.Flags().GetBool("list")
