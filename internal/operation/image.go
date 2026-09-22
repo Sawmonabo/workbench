@@ -175,7 +175,7 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 			fd = next
 		}
 	}
-	if err = fileMetadata(fd, filepath.Dir(path)); err != nil {
+	if err = parentMetadata(fd, filepath.Dir(path)); err != nil {
 		_ = unix.Close(fd)
 		return nil, "", err
 	}

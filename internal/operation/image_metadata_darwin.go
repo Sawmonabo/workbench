@@ -34,7 +34,43 @@ func fileMetadata(fd int, path string) error {
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags != 0 {
 		return Fail(ExitBlocked, "metadata", "Target filesystem flags cannot be preserved")
 	}
-	return darwinACL(fd, nil)
+	return noACL(darwinACL(fd, nil))
+}
+
+// parentMetadata admits the folder a target is written into. Workbench adds,
+// replaces and removes entries there but never changes the folder itself, so
+// the folder may keep an ACL whose entries neither pass to new entries nor
+// deny adding or removing them. macOS puts one such entry, "group:everyone
+// deny delete", on the home folder and its standard folders such as ~/Library;
+// it only stops the folder itself from being deleted.
+func parentMetadata(fd int, path string) error {
+	if err := privateFilesystem(path); err != nil {
+		return err
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags != 0 {
+		return Fail(ExitBlocked, "metadata", "Target folder filesystem flags cannot be preserved")
+	}
+	entries, _, err := darwinACL(fd, nil)
+	if err != nil {
+		return err
+	}
+	const (
+		inherits     = 1<<5 | 1<<6        // KAUTH_ACE_FILE_INHERIT, KAUTH_ACE_DIRECTORY_INHERIT
+		kind         = 0xf                // KAUTH_ACE_KINDMASK
+		deny         = 2                  // KAUTH_ACE_DENY
+		childChanges = 1<<2 | 1<<5 | 1<<6 // KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY, DELETE_CHILD
+	)
+	for _, entry := range entries {
+		if entry.flags&inherits != 0 || entry.flags&kind == deny && entry.rights&childChanges != 0 {
+			return Fail(
+				ExitBlocked,
+				"metadata",
+				"Target folder ACL passes to new entries or denies changing them",
+			)
+		}
+	}
+	return nil
 }
 
 func linkMetadata(path string) error {
@@ -49,13 +85,30 @@ func linkMetadata(path string) error {
 	if err != nil {
 		return err
 	}
-	return darwinACL(-1, pointer)
+	return noACL(darwinACL(-1, pointer))
 }
 
-// darwinACL inspects fd, or path when it is non-nil. Darwin does not expose
-// ACLs through listxattr. getattrlist's extended-security attribute contains
-// kauth_filesec (sys/kauth.h); NOACL is the sole accepted ACL marker. An empty
-// but present ACL also carries semantics and is rejected.
+// noACL rejects any ACL, even an empty one, on a target Workbench replaces:
+// the replacement would not carry it.
+func noACL(_ []aclEntry, present bool, err error) error {
+	if err == nil && present {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Targets with ACLs require reviewed preservation support",
+		)
+	}
+	return err
+}
+
+// aclEntry is one kauth_ace (sys/kauth.h) after its 16-byte applicable GUID.
+type aclEntry struct{ flags, rights uint32 }
+
+// darwinACL returns the ACL entries of fd, or of path when it is non-nil, and
+// whether an ACL is present at all. Darwin does not expose ACLs through
+// listxattr. getattrlist's extended-security attribute contains
+// kauth_filesec (sys/kauth.h): magic, owner and group GUIDs, then the entry
+// count (KAUTH_FILESEC_NOACL when there is no ACL), flags and 24-byte entries.
 //
 // x/sys/unix wraps setattrlist through libSystem but not getattrlist or
 // fgetattrlist, and cgo's acl(3) would break CGO_ENABLED=0 release builds, so
@@ -63,7 +116,7 @@ func linkMetadata(path string) error {
 // layout fails closed; recheck on each major macOS release and switch once
 // x/sys adds the wrappers. Each pointer becomes a uintptr inside the Syscall6
 // argument list, as the unsafe rules require.
-func darwinACL(fd int, path *byte) error {
+func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	attributes := struct {
 		Count, Reserved                       uint16
 		Common, Volume, Directory, File, Fork uint32
@@ -92,25 +145,36 @@ func darwinACL(fd int, path *byte) error {
 		)
 	}
 	if errno != 0 {
-		return Fail(ExitBlocked, "metadata", "Cannot verify target ACL semantics")
+		return nil, false, Fail(ExitBlocked, "metadata", "Cannot verify target ACL semantics")
 	}
+	unsupported := Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
 	length := int(binary.LittleEndian.Uint32(data[0:4]))
 	offset := 4 + int(int32(binary.LittleEndian.Uint32(data[4:8])))
 	size := int(binary.LittleEndian.Uint32(data[8:12]))
 	if size == 0 {
-		return nil
+		return nil, false, nil
 	}
 	if length > len(data) || offset < 12 || size < 44 || offset+size > length {
-		return Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
+		return nil, false, unsupported
 	}
 	security := data[offset : offset+size]
-	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d ||
-		binary.LittleEndian.Uint32(security[36:40]) != 0xffffffff {
-		return Fail(
-			ExitBlocked,
-			"metadata",
-			"Targets with ACLs require reviewed preservation support",
-		)
+	count := binary.LittleEndian.Uint32(security[36:40])
+	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d {
+		return nil, false, unsupported
 	}
-	return nil
+	if count == 0xffffffff {
+		return nil, false, nil
+	}
+	if count > 128 || size < 44+24*int(count) {
+		return nil, false, unsupported
+	}
+	entries := make([]aclEntry, count)
+	for i := range entries {
+		entry := security[44+24*i:]
+		entries[i] = aclEntry{
+			flags:  binary.LittleEndian.Uint32(entry[16:20]),
+			rights: binary.LittleEndian.Uint32(entry[20:24]),
+		}
+	}
+	return entries, true, nil
 }

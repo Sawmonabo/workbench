@@ -27,6 +27,10 @@ func fileMetadata(fd int, path string) error {
 	return nil
 }
 
+// parentMetadata applies the target rules to the folder a target is written
+// into: any extended attribute there blocks planning.
+func parentMetadata(fd int, path string) error { return fileMetadata(fd, path) }
+
 func linkMetadata(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
