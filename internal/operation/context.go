@@ -21,8 +21,12 @@ type Scope struct {
 }
 
 // NativeContext is the source, answers, destination, state and cache that
-// every native chezmoi call receives.
-type NativeContext struct{ Source, Config, Destination, PersistentState, Cache string }
+// every native chezmoi call receives. Developer marks a source selected with
+// --source, which may be a checkout bound by its content instead of a release.
+type NativeContext struct {
+	Source, Config, Destination, PersistentState, Cache string
+	Developer                                           bool
+}
 
 // Context is one resolved operation: its paths, scope and native selection.
 // ReadOnly contexts may plan but never mutate.
@@ -106,6 +110,7 @@ func Resolve(options Options) (Context, error) {
 		if err != nil {
 			return c, err
 		}
+		c.Native.Developer = true
 		info, markerErr := os.Lstat(filepath.Join(c.Native.Source, ".chezmoiroot"))
 		if markerErr != nil || !info.Mode().IsRegular() {
 			return c, Fail(ExitInvalid, "source", "Source must contain a regular .chezmoiroot file")

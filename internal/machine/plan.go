@@ -30,14 +30,11 @@ func Plan(
 	selection Selection,
 ) (_ operation.Plan, err error) {
 	defer operation.Annotate(&err, "plan machine configuration")
+	// prepare cleans up after itself when it fails.
 	prepared, err := prepare(ctx, c, selection)
-	if prepared == nil {
-		return operation.Plan{}, err
+	if err == nil {
+		prepared.Close()
 	}
-	if err != nil {
-		return prepared.Plan, err
-	}
-	defer prepared.Close()
 	return prepared.Plan, err
 }
 
@@ -70,7 +67,7 @@ func prepare(
 			prepared.Close()
 		}
 	}()
-	files, identity, err := SourceSnapshot(c.Native.Source)
+	files, identity, err := SourceSnapshot(c.Native.Source, c.Native.Developer)
 	plan.Source = identity
 	if err != nil {
 		return prepared, err

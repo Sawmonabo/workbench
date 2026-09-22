@@ -47,15 +47,17 @@ func ManagementRequirements() Requirements {
 
 // SourceSnapshot reads the machine source at source before any native template
 // evaluation. A release source (one with release.json) must match the reviewed
-// hashes compiled into this executable exactly. A developer checkout is bound
-// by its actual content instead: the digest enters the plan the user approves,
-// so editing home/ needs no trust regeneration or rebuild until a release.
+// hashes compiled into this executable exactly. Only a developer source, one
+// selected with --source, may lack release.json: that checkout is bound by its
+// actual content instead, and the digest enters the plan the user approves, so
+// editing home/ needs no trust regeneration or rebuild until a release.
 // Repository Git metadata is outside home and never copied or executed.
-func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity, error) {
-	trusted := operation.SHA256Hex(sourceTrust)
-	identity := operation.SourceIdentity{Release: "developer", ContentDigest: trusted}
+func SourceSnapshot(
+	source string,
+	developer bool,
+) (map[string][]byte, operation.SourceIdentity, error) {
 	if source == "" {
-		return nil, identity, operation.Fail(
+		return nil, operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
 			"Select --source or activate a verified source before planning",
@@ -63,21 +65,31 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 	}
 	files, err := readSource(source)
 	if err != nil {
-		return nil, identity, err
+		return nil, operation.SourceIdentity{}, err
 	}
+	trusted := operation.SHA256Hex(sourceTrust)
 	release, err := releaseName(source, trusted)
-	if err != nil {
-		return nil, identity, err
-	}
-	if release == "" {
-		identity.ContentDigest = developerDigest(files)
+	switch {
+	case err != nil:
+		return nil, operation.SourceIdentity{}, err
+	case release != "":
+		if err = checkTrusted(files); err != nil {
+			return nil, operation.SourceIdentity{}, err
+		}
+		return files, operation.SourceIdentity{Release: release, ContentDigest: trusted}, nil
+	case developer:
+		identity := operation.SourceIdentity{
+			Release:       "developer",
+			ContentDigest: developerDigest(files),
+		}
 		return files, identity, nil
+	default:
+		return nil, operation.SourceIdentity{}, operation.Fail(
+			operation.ExitBlocked,
+			"source_trust",
+			"Release source has no release.json identity; reinstall the release",
+		)
 	}
-	if err = checkTrusted(files); err != nil {
-		return nil, identity, err
-	}
-	identity.Release = release
-	return files, identity, nil
 }
 
 // readSource reads .chezmoiroot and every file under home/, within the preview

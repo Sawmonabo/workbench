@@ -35,7 +35,7 @@ func selectPrivateContext(c operation.Context, source string) (operation.Context
 			)
 		}
 	}
-	if _, _, err = SourceSnapshot(path); err != nil {
+	if _, _, err = SourceSnapshot(path, false); err != nil {
 		return c, err
 	}
 	c.Native.Source = path
@@ -127,7 +127,7 @@ func initialize(
 	if err != nil {
 		return nil, err
 	}
-	if _, _, err = SourceSnapshot(c.Native.Source); err != nil {
+	if _, _, err = SourceSnapshot(c.Native.Source, false); err != nil {
 		return nil, err
 	}
 	encoded, err := toml.Marshal(map[string]any{"data": answers})

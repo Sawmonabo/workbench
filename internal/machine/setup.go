@@ -32,7 +32,7 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 			"Private tool acquisition and native answer initialization are separate from configuration apply; borrowed installations are retained",
 		},
 	}
-	_, identity, err := SourceSnapshot(c.Native.Source)
+	_, identity, err := SourceSnapshot(c.Native.Source, false)
 	plan.Source = identity
 	if err != nil {
 		return plan, err
@@ -547,7 +547,7 @@ func Setup(
 	if _, err := setupDependencies(ctx, c, m); err != nil {
 		return c, err
 	}
-	files, identity, err := SourceSnapshot(c.Native.Source)
+	files, identity, err := SourceSnapshot(c.Native.Source, false)
 	if err != nil {
 		return c, err
 	}

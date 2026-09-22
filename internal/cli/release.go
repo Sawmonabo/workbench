@@ -64,7 +64,7 @@ func releaseCommands(o *options) []*cobra.Command {
 			if err != nil {
 				return result, err
 			}
-			_, identity, err := machine.SourceSnapshot(directory)
+			_, identity, err := machine.SourceSnapshot(directory, false)
 			if err != nil {
 				return result, err
 			}
@@ -296,7 +296,7 @@ func continueInstall(
 			Message: metadata.Release + " (" + metadata.Target + ")",
 		},
 	)
-	c.Native.Source = state.ActiveRelease.Source
+	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
 	return configureMachine(cmd, c, o, result)
 }
 
