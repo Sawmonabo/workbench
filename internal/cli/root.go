@@ -31,6 +31,8 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 	root.SetErr(diagnostics)
 	cmd, err := root.ExecuteContextC(ctx)
 	if err != nil && !o.rendered {
+		// Cobra stops before parsing flags when the command or a flag is invalid,
+		// so o.json is unset here; honor --json from the raw arguments.
 		for _, arg := range args {
 			if arg == "--" {
 				break

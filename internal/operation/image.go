@@ -111,9 +111,9 @@ func validateImageGroup(c Context, path string, image Image) error {
 	if err != nil {
 		return err
 	}
-	permitted := uint32(os.Getegid()) == *image.Group
+	permitted := groupID(os.Getegid()) == *image.Group
 	for _, group := range groups {
-		permitted = permitted || uint32(group) == *image.Group
+		permitted = permitted || groupID(group) == *image.Group
 	}
 	if !permitted {
 		inherited, inheritErr := CreationGroup(c, path)
@@ -328,7 +328,7 @@ func CreationGroup(c Context, path string) (uint32, error) {
 			if runtime.GOOS == "darwin" || stat.Mode&unix.S_ISGID != 0 {
 				return uint32(stat.Gid), nil
 			}
-			return uint32(os.Getegid()), nil
+			return groupID(os.Getegid()), nil
 		}
 		if !errors.Is(err, unix.ENOENT) || parent == c.Scope.Root {
 			return 0, Fail(3, "metadata", "Cannot establish target group inheritance")
@@ -622,3 +622,7 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	}
 	return parent.Sync()
 }
+
+// groupID converts a group ID from the os package, which uses int. Group IDs
+// are 32-bit on macOS and Linux, so the conversion is exact.
+func groupID(id int) uint32 { return uint32(id) }

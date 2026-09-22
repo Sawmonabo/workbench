@@ -552,9 +552,6 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		)
 	}
 	if changed && runErr != nil {
-		if errors.Is(runErr, context.Canceled) {
-			return runErr
-		}
 		return Fail(
 			5,
 			"partial",
@@ -596,9 +593,9 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 			return -1
 		}
 		if xImage.Kind == "absent" {
-			return stringsCompare(y.Path, x.Path)
+			return strings.Compare(y.Path, x.Path)
 		}
-		return stringsCompare(x.Path, y.Path)
+		return strings.Compare(x.Path, y.Path)
 	})
 	for _, i := range indices {
 		if err := ctx.Err(); err != nil {
@@ -742,16 +739,6 @@ func pruneApproved(c Context, plan Plan) error {
 		return err
 	}
 	return os.RemoveAll(removed)
-}
-
-func stringsCompare(a, b string) int {
-	if a < b {
-		return -1
-	}
-	if a > b {
-		return 1
-	}
-	return 0
 }
 
 func decodePrivate(path string, limit int64, value any) error {

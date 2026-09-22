@@ -77,14 +77,17 @@ func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error)
 			Recovery:    "Previously saved answers are retained until successful validation",
 		},
 	)
-	if raw, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr == nil {
-		if _, err = parseAnswers(raw); err != nil {
-			return plan, err
-		}
-		plan.Inputs = append(plan.Inputs, operation.Input{Name: "answers", Digest: digest(raw)})
-	} else if !os.IsNotExist(func() error { _, e := os.Lstat(c.Native.Config); return e }()) {
-		return plan, readErr
+	if _, err = os.Lstat(c.Native.Config); errors.Is(err, fs.ErrNotExist) {
+		return plan, nil
 	}
+	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	if err != nil {
+		return plan, err
+	}
+	if _, err = parseAnswers(raw); err != nil {
+		return plan, err
+	}
+	plan.Inputs = append(plan.Inputs, operation.Input{Name: "answers", Digest: digest(raw)})
 	return plan, nil
 }
 

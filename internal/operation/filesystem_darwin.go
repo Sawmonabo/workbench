@@ -25,6 +25,7 @@ func privateFilesystem(path string) error {
 		}
 		path = filepath.Dir(path)
 	}
+	// Fstypename is a NUL-terminated ASCII name stored as int8.
 	name := make([]byte, 0, len(stat.Fstypename))
 	for _, char := range stat.Fstypename {
 		if char == 0 {

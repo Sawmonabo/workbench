@@ -117,6 +117,9 @@ func (p *Proposal) readWorkflow(root string) (string, *ast.File, error) {
 	}
 	var workflows []string
 	for _, entry := range entries {
+		if !entry.Type().IsRegular() {
+			continue
+		}
 		if strings.HasSuffix(entry.Name(), ".yml") || strings.HasSuffix(entry.Name(), ".yaml") {
 			workflows = append(workflows, filepath.Join(directory, entry.Name()))
 		}
@@ -198,10 +201,10 @@ func checkJob(python string) (*ast.File, *ast.MappingNode, error) {
     group: workbench-python-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         persist-credentials: false
-    - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4
+    - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
       with:
         version: %q
         python-version: %q

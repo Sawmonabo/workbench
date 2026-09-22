@@ -279,7 +279,7 @@ func decodeMetadata(data []byte, target *Metadata) error {
 	if err := decoder.Decode(target); err != nil {
 		return err
 	}
-	if decoder.Decode(new(any)) != io.EOF {
+	if !errors.Is(decoder.Decode(new(any)), io.EOF) {
 		return operation.Fail(2, "release_metadata", "Trailing release metadata")
 	}
 	return nil

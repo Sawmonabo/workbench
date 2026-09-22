@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -436,8 +437,7 @@ func (p *Proposal) addParent(c operation.Context, path string) error {
 	if _, err := os.Lstat(parent); !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
-	if grandparent := filepath.Dir(parent); grandparent != c.Scope.Root &&
-		!operation.Within(c.Scope.Root, grandparent) {
+	if !operation.Within(c.Scope.Root, filepath.Dir(parent)) {
 		return operation.Fail(3, "project_scope", "Unsupported parent directory creation")
 	}
 	before, err := operation.ReadImage(c, parent)
@@ -493,13 +493,17 @@ func missingTools(doc map[string]any) []string {
 
 func array(value any) []any { result, _ := value.([]any); return result }
 
+// requirementName returns the normalized project name of a PEP 508 requirement.
 func requirementName(value string) string {
 	end := strings.IndexAny(value, " <>=!~;[@")
 	if end >= 0 {
 		value = value[:end]
 	}
-	return strings.ReplaceAll(strings.ToLower(value), "_", "-")
+	return nameSeparators.ReplaceAllString(strings.ToLower(value), "-")
 }
+
+// nameSeparators matches the runs PEP 503 normalization collapses to "-".
+var nameSeparators = regexp.MustCompile(`[-_.]+`)
 
 // owned reports whether check holds for any Python project that owner owns.
 func (r *Inventory) owned(owner string, check func(doc map[string]any) bool) bool {

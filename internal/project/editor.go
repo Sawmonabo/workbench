@@ -66,6 +66,16 @@ func transform(
 	return result, nil
 }
 
+// extensionPolicy is the embedded recommendation policy. An invalid embedded
+// asset is a build defect, so it fails at startup like a bad regexp.
+var extensionPolicy = func() map[string][]string {
+	var policy map[string][]string
+	if err := json.Unmarshal(pythonpolicy.Extensions, &policy); err != nil {
+		panic("invalid embedded extensions.json: " + err.Error())
+	}
+	return policy
+}()
+
 func mergeExtensions(data []byte) ([]byte, error) {
 	if len(data) == 0 {
 		data = []byte("{}\n")
@@ -83,8 +93,6 @@ func mergeExtensions(data []byte) ([]byte, error) {
 	if json.Unmarshal(plain.Pack(), &existing) != nil || existing == nil {
 		return nil, operation.Fail(2, "jsonc", "Extension recommendations require an object")
 	}
-	var policy map[string][]string
-	_ = json.Unmarshal(pythonpolicy.Extensions, &policy)
 	values := make(map[string][]string)
 	for _, key := range []string{"recommendations", "unwantedRecommendations"} {
 		if raw, ok := existing[key]; ok {
@@ -95,9 +103,9 @@ func mergeExtensions(data []byte) ([]byte, error) {
 			values[key] = entries
 		}
 	}
-	for _, id := range append(append([]string{}, values["recommendations"]...), policy["recommendations"]...) {
+	for _, id := range append(append([]string{}, values["recommendations"]...), extensionPolicy["recommendations"]...) {
 		if slices.Contains(values["unwantedRecommendations"], id) ||
-			slices.Contains(policy["unwantedRecommendations"], id) {
+			slices.Contains(extensionPolicy["unwantedRecommendations"], id) {
 			return nil, operation.Fail(
 				4,
 				"extensions",
@@ -110,11 +118,11 @@ func mergeExtensions(data []byte) ([]byte, error) {
 		if _, ok := existing[key]; !ok {
 			patches = append(
 				patches,
-				map[string]any{"op": "add", "path": "/" + key, "value": policy[key]},
+				map[string]any{"op": "add", "path": "/" + key, "value": extensionPolicy[key]},
 			)
 			continue
 		}
-		for _, id := range policy[key] {
+		for _, id := range extensionPolicy[key] {
 			if !slices.Contains(values[key], id) {
 				patches = append(
 					patches,
