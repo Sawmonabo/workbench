@@ -12,7 +12,7 @@
     "home/.chezmoidata/claude.json": "18420edc9ff0139d8349620ff3d33d531000d51f87cdd09049c013a723841487",
     "home/.chezmoidata/packages.toml": "6a9db01f51bc74dd024c35202de440fa0b080340aecc2679466da388d184a239",
     "home/.chezmoidata/role-targets.json": "43bd5de0501dcde66711e6d9d46ea038926e36bcb11c309f5c498546b58ec831",
-    "home/.chezmoidata/versions.toml": "321146d44fc25f85c9df078fb178c138468a6c2e04e0dae4a7df8fb3cfa1a7c0",
+    "home/.chezmoidata/versions.toml": "512ba044a67510598da5abf1add9cd05ad6fbe3a095f132dba63218540b48611",
     "home/.chezmoidata/vscode.json": "48a327da6be9c20685d3b39061dd2589874f278f02176a4a26e59ad9c1ac0f21",
     "home/.chezmoiignore": "2ef1a4fc0ca541526d2472996f7250b01e56924594645a200b9f4cc12e44817d",
     "home/.chezmoiremove": "92b4eb0a580f7e768305abcb9922fbb13366789e52c30c405a39b9d14f02d601",
@@ -60,6 +60,24 @@
     "home/dot_zshrc.tmpl": "55c4502784c99fafc94bae6c4d916f6baf6aab05b5d6effee0e8958fdbcbc8b2",
     "home/executable_dot_terminal-font-setup.sh": "24681faf4488047e51a6addb27f31edf7a19f654ad8c8bec6cfff2af49e1a2e0",
     "home/private_dot_bashrc.tmpl": "2ae983dfad0cf9377616255f7d6ab4737cce85dd1ec65d3a5f5a34ac3005a846"
+  },
+  "github_actions": {
+    "actions/checkout": {
+      "commit": "3d3c42e5aac5ba805825da76410c181273ba90b1",
+      "version": "v7.0.1"
+    },
+    "actions/setup-go": {
+      "commit": "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
+      "version": "v7.0.0"
+    },
+    "astral-sh/setup-uv": {
+      "commit": "bec219d24cd3e171d82865faccec33120bb574f4",
+      "version": "v10.1.0"
+    },
+    "golangci/golangci-lint-action": {
+      "commit": "ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a",
+      "version": "v9.3.0"
+    }
   },
   "python": "3.12.12",
   "python_max_minor": 14,

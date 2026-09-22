@@ -191,8 +191,18 @@ func runsTests(job *ast.MappingValueNode) bool {
 	return false
 }
 
-// checkJob renders the owned job for python as a one-entry jobs mapping.
+// checkJob renders the owned job for python as a one-entry jobs mapping, with
+// the uv and GitHub Action pins from versions.toml.
 func checkJob(python string) (*ast.File, *ast.MappingNode, error) {
+	requirements := machine.ManagementRequirements()
+	checkout, err := requirements.Uses("actions/checkout")
+	if err != nil {
+		return nil, nil, err
+	}
+	setupUV, err := requirements.Uses("astral-sh/setup-uv")
+	if err != nil {
+		return nil, nil, err
+	}
 	text := fmt.Sprintf(`workbench-python:
   name: Workbench Python checks (%s)
   runs-on: ubuntu-24.04
@@ -207,10 +217,10 @@ func checkJob(python string) (*ast.File, *ast.MappingNode, error) {
     group: workbench-python-${{ github.workflow }}-${{ github.ref }}
     cancel-in-progress: true
   steps:
-    - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+    - uses: %s
       with:
         persist-credentials: false
-    - uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+    - uses: %s
       with:
         version: %q
         python-version: %q
@@ -218,7 +228,7 @@ func checkJob(python string) (*ast.File, *ast.MappingNode, error) {
     - run: uv run --locked ruff check .
     - run: uv run --locked ruff format --check .
     - run: uv run --locked basedpyright
-`, pythonpolicy.ID, machine.ManagementRequirements().UV, python)
+`, pythonpolicy.ID, checkout, setupUV, requirements.UV, python)
 	file, err := parser.ParseBytes([]byte(text), parser.ParseComments)
 	if err != nil {
 		return nil, nil, err

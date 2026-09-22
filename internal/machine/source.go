@@ -4,6 +4,7 @@ package machine
 import (
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -33,6 +34,22 @@ type Requirements struct {
 	Python         string            `json:"python"`
 	PythonMinMinor int               `json:"python_min_minor"`
 	PythonMaxMinor int               `json:"python_max_minor"`
+	GitHubActions  map[string]Action `json:"github_actions"`
+}
+
+// Action is a GitHub Action pinned by commit, with the version it tags.
+type Action struct {
+	Version string `json:"version"`
+	Commit  string `json:"commit"`
+}
+
+// Uses returns the workflow reference for the pinned action name.
+func (r Requirements) Uses(name string) (string, error) {
+	action, ok := r.GitHubActions[name]
+	if !ok {
+		return "", fmt.Errorf("no pinned GitHub Action %s in versions.toml", name)
+	}
+	return name + "@" + action.Commit + " # " + action.Version, nil
 }
 
 // ManagementRequirements is generated from the canonical version data. Release

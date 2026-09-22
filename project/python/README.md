@@ -54,7 +54,10 @@ manual integration of other layouts. Merge appropriate steps into the workflow,
 select a supported project Python version, and replace its failing final step
 with the project's actual test command. Do not invent pytest ownership. CI setup
 and test execution may run project code and require normal repository review.
-The action commits were checked against upstream tags on 2026-09-22:
+Action pins live in `home/.chezmoidata/versions.toml` under `[github_actions]`;
+the generated job reads them, and `scripts/generate-source-trust.py` refuses any
+workflow or example pin that differs. The commits were checked against upstream
+tags on 2026-09-22:
 [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) and
 [setup-uv v10.1.0](https://github.com/astral-sh/setup-uv/releases/tag/v10.1.0).
 Unsupported `--ci` requests report the precise ownership/preservation gate without
