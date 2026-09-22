@@ -73,7 +73,8 @@ func (image Image) validate(c Context, path string) error {
 		}
 	}
 	for name, value := range image.Attributes {
-		if !preservedAttribute(name) || len(value) > 4096 || image.Kind == ImageAbsent {
+		if !slices.Contains(preservedAttributes, name) || len(value) > 4096 ||
+			image.Kind == ImageAbsent {
 			return Fail(ExitBlocked, "metadata", "Unsupported target extended attributes")
 		}
 	}
@@ -356,21 +357,6 @@ func sameImageContent(a, b Image) bool {
 	return sameImage(a, b)
 }
 
-// preservedAttribute reports whether name is a macOS extended attribute that
-// images carry verbatim. Each is small, grants no access and is commonly added
-// by the system: download provenance and quarantine, Finder flags and the last
-// used date. Every other attribute, including ACLs, blocks planning.
-func preservedAttribute(name string) bool {
-	switch name {
-	case "com.apple.provenance",
-		"com.apple.quarantine",
-		"com.apple.FinderInfo",
-		"com.apple.lastuseddate#PS":
-		return runtime.GOOS == "darwin"
-	}
-	return false
-}
-
 func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 	var names [4096]byte
 	var n int
@@ -392,7 +378,7 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 		if name == "" {
 			continue
 		}
-		if !preservedAttribute(name) {
+		if !slices.Contains(preservedAttributes, name) {
 			return nil, Fail(
 				ExitBlocked,
 				"metadata",

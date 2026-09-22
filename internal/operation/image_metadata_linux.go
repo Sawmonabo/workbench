@@ -2,6 +2,9 @@ package operation
 
 import "golang.org/x/sys/unix"
 
+// preservedAttributes is empty: fileMetadata blocks any extended attribute.
+var preservedAttributes []string
+
 func replaceImage(fd int, from, to string, absent bool) error {
 	if absent {
 		return unix.Renameat2(fd, from, fd, to, unix.RENAME_NOREPLACE)

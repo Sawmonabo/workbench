@@ -7,6 +7,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// preservedAttributes are the extended attributes images carry verbatim. Each
+// is small, grants no access and is commonly added by the system: download
+// provenance and quarantine, Finder flags and the last used date. Every other
+// attribute, including ACLs, blocks planning.
+var preservedAttributes = []string{
+	"com.apple.provenance",
+	"com.apple.quarantine",
+	"com.apple.FinderInfo",
+	"com.apple.lastuseddate#PS",
+}
+
 func replaceImage(fd int, from, to string, absent bool) error {
 	flags := uint32(0)
 	if absent {
