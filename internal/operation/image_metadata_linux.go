@@ -15,7 +15,11 @@ func fileMetadata(fd int, path string) error {
 	}
 	size, err := unix.Flistxattr(fd, nil)
 	if err != nil || size != 0 {
-		return Fail(3, "metadata", "Targets with extended attributes or unverified ACLs cannot be preserved")
+		return Fail(
+			3,
+			"metadata",
+			"Targets with extended attributes or unverified ACLs cannot be preserved",
+		)
 	}
 	return nil
 }
@@ -26,7 +30,11 @@ func linkMetadata(path string) error {
 	}
 	size, err := unix.Llistxattr(path, nil)
 	if err != nil || size != 0 {
-		return Fail(3, "metadata", "Links with extended attributes or unverified ACLs cannot be preserved")
+		return Fail(
+			3,
+			"metadata",
+			"Links with extended attributes or unverified ACLs cannot be preserved",
+		)
 	}
 	return nil
 }

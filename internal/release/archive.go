@@ -21,9 +21,11 @@ import (
 )
 
 // Conservative engineering ceilings, not production capacity qualification.
-const MaxDownload int64 = 128 << 20
-const maxExpanded int64 = 256 << 20
-const maxFiles = 4096
+const (
+	MaxDownload int64 = 128 << 20
+	maxExpanded int64 = 256 << 20
+	maxFiles          = 4096
+)
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
@@ -53,11 +55,18 @@ func validDigest(value string) bool {
 	data, err := hex.DecodeString(value)
 	return err == nil && len(data) == sha256.Size && strings.ToLower(value) == value
 }
+
 func allowed(name string) bool {
-	return name == "bin/workbench" || name == ".chezmoiroot" || strings.HasPrefix(name, "home/") || strings.HasPrefix(name, "project/") || strings.HasPrefix(name, "licenses/")
+	return name == "bin/workbench" || name == ".chezmoiroot" || strings.HasPrefix(name, "home/") ||
+		strings.HasPrefix(name, "project/") ||
+		strings.HasPrefix(name, "licenses/")
 }
+
 func member(name string) bool {
-	return name != "" && name != "." && !strings.ContainsAny(name, "\\\x00\r\n") && !path.IsAbs(name) && path.Clean(name) == name && !strings.HasPrefix(name, "../")
+	return name != "" && name != "." && !strings.ContainsAny(name, "\\\x00\r\n") &&
+		!path.IsAbs(name) &&
+		path.Clean(name) == name &&
+		!strings.HasPrefix(name, "../")
 }
 
 // Verify reads the complete bounded archive before exposing any executable or
@@ -92,7 +101,8 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 		if header.Typeflag == tar.TypeDir {
 			name = strings.TrimSuffix(name, "/")
 		}
-		if !member(name) || seen[strings.ToLower(name)] || len(seen) >= maxFiles || header.Mode&07000 != 0 {
+		if !member(name) || seen[strings.ToLower(name)] || len(seen) >= maxFiles ||
+			header.Mode&0o7000 != 0 {
 			return fail("Unsafe or duplicate archive member")
 		}
 		seen[strings.ToLower(name)] = true
@@ -100,12 +110,14 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 			if header.Size != 0 {
 				return fail("Archive directories cannot carry payload bytes")
 			}
-			if name != "bin" && name != "home" && name != "project" && name != "licenses" && !allowed(name+"/") {
+			if name != "bin" && name != "home" && name != "project" && name != "licenses" &&
+				!allowed(name+"/") {
 				return fail("Unexpected release directory")
 			}
 			continue
 		}
-		if header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > MaxDownload || (!allowed(name) && name != "release.json") {
+		if header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > MaxDownload ||
+			(!allowed(name) && name != "release.json") {
 			return fail("Release contains an unsupported file or layout")
 		}
 		total += header.Size
@@ -119,7 +131,11 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 		bundle.Files[name] = data
 	}
 	// Drain through the gzip checksum, retaining the same expanded bound.
-	if n, drainErr := io.Copy(io.Discard, io.LimitReader(gz, maxExpanded-total+1)); drainErr != nil || n > maxExpanded-total {
+	if n, drainErr := io.Copy(
+		io.Discard,
+		io.LimitReader(gz, maxExpanded-total+1),
+	); drainErr != nil ||
+		n > maxExpanded-total {
 		return fail("Invalid gzip trailer or oversized archive padding")
 	}
 	metadata := bundle.Files["release.json"]
@@ -130,7 +146,10 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 		return fail("Malformed release metadata")
 	}
 	m := bundle.Metadata
-	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) || (version != "" && m.Release != version) || m.Target != target || !validDigest(m.SourceDigest) {
+	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) ||
+		(version != "" && m.Release != version) ||
+		m.Target != target ||
+		!validDigest(m.SourceDigest) {
 		return fail("Release version, target or state format is unsupported")
 	}
 	if len(m.Files)+1 != len(bundle.Files) {
@@ -138,7 +157,9 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 	}
 	for name, entry := range m.Files {
 		data, ok := bundle.Files[name]
-		if !ok || !allowed(name) || !validDigest(entry.SHA256) || sum(data) != entry.SHA256 || int64(len(data)) != entry.Size || entry.Executable != (name == "bin/workbench") {
+		if !ok || !allowed(name) || !validDigest(entry.SHA256) || sum(data) != entry.SHA256 ||
+			int64(len(data)) != entry.Size ||
+			entry.Executable != (name == "bin/workbench") {
 			return fail("Release payload integrity mismatch")
 		}
 	}
@@ -151,14 +172,18 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 }
 
 func (b Bundle) Identity() operation.SourceIdentity {
-	return operation.SourceIdentity{Release: b.Metadata.Release, ContentDigest: b.Metadata.SourceDigest}
+	return operation.SourceIdentity{
+		Release:       b.Metadata.Release,
+		ContentDigest: b.Metadata.SourceDigest,
+	}
 }
+
 func (b Bundle) Directory(c operation.Context) string {
 	return filepath.Join(c.Paths.Data, "releases", b.Metadata.Release+"-"+b.ArchiveDigest[:16])
 }
 
 func (b Bundle) Extract(directory string) error {
-	if err := os.Mkdir(directory, 0700); err != nil {
+	if err := os.Mkdir(directory, 0o700); err != nil {
 		return err
 	}
 	root, err := os.OpenRoot(directory)
@@ -167,12 +192,12 @@ func (b Bundle) Extract(directory string) error {
 	}
 	defer func() { _ = root.Close() }()
 	for name, data := range b.Files {
-		if err = root.MkdirAll(filepath.Dir(name), 0700); err != nil {
+		if err = root.MkdirAll(filepath.Dir(name), 0o700); err != nil {
 			return err
 		}
-		mode := os.FileMode(0600)
+		mode := os.FileMode(0o600)
 		if name == "bin/workbench" {
-			mode = 0700
+			mode = 0o700
 		}
 		file, openErr := root.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_EXCL, mode)
 		if openErr != nil {

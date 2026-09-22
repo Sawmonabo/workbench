@@ -68,7 +68,13 @@ func (r *Inventory) walk(ctx context.Context, root *os.Root, path string, depth 
 	if path != "." {
 		if _, err := root.Lstat(".git"); err == nil {
 			r.Excluded++
-			return r.add(Item{Path: filepath.ToSlash(path), Kind: "nested repository (not scanned)", Ecosystem: "unknown"})
+			return r.add(
+				Item{
+					Path:      filepath.ToSlash(path),
+					Kind:      "nested repository (not scanned)",
+					Ecosystem: "unknown",
+				},
+			)
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return fmt.Errorf("inspect repository boundary %q: %w", path, err)
 		}
@@ -147,7 +153,15 @@ func excludedDirectory(name string) bool {
 		return true
 	}
 	switch name {
-	case "node_modules", "vendor", "target", "dist", "build", "venv", "__pycache__", "coverage", "htmlcov":
+	case "node_modules",
+		"vendor",
+		"target",
+		"dist",
+		"build",
+		"venv",
+		"__pycache__",
+		"coverage",
+		"htmlcov":
 		return true
 	}
 	return false
@@ -176,7 +190,13 @@ func candidate(name string) (Item, bool) {
 		item.Kind, item.Ecosystem = "lockfile", "rust"
 	case "go.sum", "go.work.sum":
 		item.Kind, item.Ecosystem = "checksums", "go"
-	case "ruff.toml", ".ruff.toml", "ty.toml", "pyrightconfig.json", "uv.toml", "requirements.txt", "Pipfile":
+	case "ruff.toml",
+		".ruff.toml",
+		"ty.toml",
+		"pyrightconfig.json",
+		"uv.toml",
+		"requirements.txt",
+		"Pipfile":
 		item.Kind, item.Ecosystem = "configuration", "python"
 	default:
 		return Item{}, false

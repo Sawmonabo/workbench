@@ -19,10 +19,18 @@ type Answers map[string]any
 func ParseAnswers(raw []byte) (Answers, error) {
 	var config map[string]any
 	if err := toml.Unmarshal(raw, &config); err != nil {
-		return nil, operation.Fail(2, "answers", "Machine answers are not valid TOML; original input retained")
+		return nil, operation.Fail(
+			2,
+			"answers",
+			"Machine answers are not valid TOML; original input retained",
+		)
 	}
 	if len(config) != 1 || config["data"] == nil {
-		return nil, operation.Fail(2, "answers", "Machine config must contain only a [data] table; adopt answers without native hooks or commands")
+		return nil, operation.Fail(
+			2,
+			"answers",
+			"Machine config must contain only a [data] table; adopt answers without native hooks or commands",
+		)
 	}
 	data, ok := config["data"].(map[string]any)
 	if !ok {
@@ -36,11 +44,17 @@ func ParseAnswers(raw []byte) (Answers, error) {
 // unattended inputs or normalizes a persisted role/editor/version policy.
 func ValidateAnswers(a Answers) error {
 	fail := func() error {
-		return operation.Fail(2, "answers", "Incomplete or invalid machine answers; use the native setup questionnaire")
+		return operation.Fail(
+			2,
+			"answers",
+			"Incomplete or invalid machine answers; use the native setup questionnaire",
+		)
 	}
 	text := func(key string) string { value, _ := a[key].(string); return value }
 	role := text("machine_role")
-	if !slices.Contains([]string{"personal", "work", "both"}, role) || !slices.Contains([]string{"code", "vim"}, text("editor")) || !slices.Contains([]string{"pinned", "latest"}, text("versions_mode")) {
+	if !slices.Contains([]string{"personal", "work", "both"}, role) ||
+		!slices.Contains([]string{"code", "vim"}, text("editor")) ||
+		!slices.Contains([]string{"pinned", "latest"}, text("versions_mode")) {
 		return fail()
 	}
 	work, personal := role != "personal", role != "work"
@@ -65,7 +79,8 @@ func ValidateAnswers(a Answers) error {
 		}
 	}
 	if IsWSL() {
-		if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(text("wsl_memory")) || !regexp.MustCompile(`^(0|[1-9][0-9]{0,6}(MB|GB))$`).MatchString(text("wsl_swap")) {
+		if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(text("wsl_memory")) ||
+			!regexp.MustCompile(`^(0|[1-9][0-9]{0,6}(MB|GB))$`).MatchString(text("wsl_swap")) {
 			return fail()
 		}
 		processors, ok := a["wsl_processors"].(int64)
@@ -73,11 +88,32 @@ func ValidateAnswers(a Answers) error {
 			return fail()
 		}
 		path := text("restart_wsl_path")
-		if path == "" || strings.ContainsFunc(path, unicode.IsControl) || slices.Contains(strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }), "..") {
+		if path == "" || strings.ContainsFunc(path, unicode.IsControl) ||
+			slices.Contains(
+				strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }),
+				"..",
+			) {
 			return fail()
 		}
 	}
-	allowed := []string{"name", "email", "machine_role", "has_work", "has_personal", "is_wsl", "editor", "versions_mode", "personal_email", "work_email", "jira_api_token", "gitlab_token", "wsl_memory", "wsl_processors", "wsl_swap", "restart_wsl_path"}
+	allowed := []string{
+		"name",
+		"email",
+		"machine_role",
+		"has_work",
+		"has_personal",
+		"is_wsl",
+		"editor",
+		"versions_mode",
+		"personal_email",
+		"work_email",
+		"jira_api_token",
+		"gitlab_token",
+		"wsl_memory",
+		"wsl_processors",
+		"wsl_swap",
+		"restart_wsl_path",
+	}
 	for key := range a {
 		if !slices.Contains(allowed, key) {
 			return fail()
@@ -105,7 +141,12 @@ func (a Answers) label() string { return fmt.Sprintf("%s/%s", a["machine_role"],
 // compatibility reader: plan and apply read only machine.toml. It returns the
 // encoded answers to write.
 func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, error) {
-	plan := operation.Plan{Scope: c.Scope, RecoveryLimits: []string{"machine.toml is not checkpointed; the source config is left unchanged"}}
+	plan := operation.Plan{
+		Scope: c.Scope,
+		RecoveryLimits: []string{
+			"machine.toml is not checkpointed; the source config is left unchanged",
+		},
+	}
 	raw, err := operation.ReadPrivateInput(from, 1<<20)
 	if err != nil {
 		return plan, nil, err
@@ -116,7 +157,11 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	}
 	data, ok := config["data"].(map[string]any)
 	if !ok {
-		return plan, nil, operation.Fail(2, "answers", "Existing chezmoi config has no [data] table")
+		return plan, nil, operation.Fail(
+			2,
+			"answers",
+			"Existing chezmoi config has no [data] table",
+		)
 	}
 	answers := Answers(data)
 	if err = ValidateAnswers(answers); err != nil {
@@ -140,9 +185,18 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	} else if !os.IsNotExist(statErr) {
 		return plan, nil, statErr
 	}
-	plan.Inputs = []operation.Input{{Name: "adopted-answers", Digest: digest(encoded)}, {Name: "machine-answers", Digest: previous}}
+	plan.Inputs = []operation.Input{
+		{Name: "adopted-answers", Digest: digest(encoded)},
+		{Name: "machine-answers", Digest: previous},
+	}
 	if action != "" {
-		plan.Edits = []operation.Edit{{Path: target, Action: action, Description: "Save machine answers (" + answers.label() + ") from the [data] table of " + from + "; its other keys are ignored"}}
+		plan.Edits = []operation.Edit{
+			{
+				Path:        target,
+				Action:      action,
+				Description: "Save machine answers (" + answers.label() + ") from the [data] table of " + from + "; its other keys are ignored",
+			},
+		}
 	}
 	plan.Complete = true
 	return plan, encoded, nil

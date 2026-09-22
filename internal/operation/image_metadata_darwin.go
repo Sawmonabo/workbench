@@ -50,11 +50,21 @@ func darwinACL(target uintptr, descriptor bool) error {
 		Common, Volume, Directory, File, Fork uint32
 	}{Count: 5, Common: unix.ATTR_CMN_EXTENDED_SECURITY}
 	var data [8192]byte
-	call := uintptr(unix.SYS_GETATTRLIST) //nolint:staticcheck // x/sys has no libSystem wrapper for extended-security getattrlist.
+	call := uintptr(
+		unix.SYS_GETATTRLIST,
+	) //nolint:staticcheck // x/sys has no libSystem wrapper for extended-security getattrlist.
 	if descriptor {
 		call = unix.SYS_FGETATTRLIST //nolint:staticcheck // Descriptor form avoids path races while inspecting ACLs.
 	}
-	_, _, errno := unix.Syscall6(call, target, uintptr(unsafe.Pointer(&attributes)), uintptr(unsafe.Pointer(&data[0])), uintptr(len(data)), unix.FSOPT_NOFOLLOW, 0)
+	_, _, errno := unix.Syscall6(
+		call,
+		target,
+		uintptr(unsafe.Pointer(&attributes)),
+		uintptr(unsafe.Pointer(&data[0])),
+		uintptr(len(data)),
+		unix.FSOPT_NOFOLLOW,
+		0,
+	)
 	if errno != 0 {
 		return Fail(3, "metadata", "Cannot verify target ACL semantics")
 	}
@@ -68,7 +78,8 @@ func darwinACL(target uintptr, descriptor bool) error {
 		return Fail(3, "metadata", "Unsupported target ACL metadata")
 	}
 	security := data[offset : offset+size]
-	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d || binary.LittleEndian.Uint32(security[36:40]) != 0xffffffff {
+	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d ||
+		binary.LittleEndian.Uint32(security[36:40]) != 0xffffffff {
 		return Fail(3, "metadata", "Targets with ACLs require reviewed preservation support")
 	}
 	return nil

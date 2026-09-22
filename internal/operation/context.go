@@ -9,20 +9,24 @@ import (
 	"syscall"
 )
 
-type Paths struct{ Config, Data, State, Cache, Bin string }
-type Scope struct {
-	Kind string `json:"kind"`
-	Root string `json:"root"`
-}
-type NativeContext struct{ Source, Config, Destination, PersistentState, Cache string }
-type Context struct {
-	Paths     Paths
-	Scope     Scope
-	Native    NativeContext
-	Home      string
-	Languages []string
-	ReadOnly  bool
-}
+type (
+	Paths struct{ Config, Data, State, Cache, Bin string }
+	Scope struct {
+		Kind string `json:"kind"`
+		Root string `json:"root"`
+	}
+)
+type (
+	NativeContext struct{ Source, Config, Destination, PersistentState, Cache string }
+	Context       struct {
+		Paths     Paths
+		Scope     Scope
+		Native    NativeContext
+		Home      string
+		Languages []string
+		ReadOnly  bool
+	}
+)
 type Options struct {
 	Project                                  bool
 	Path, Source, MachineConfig, Destination string
@@ -65,7 +69,11 @@ func Resolve(options Options) (Context, error) {
 		switch language {
 		case "python", "javascript", "typescript", "rust", "go":
 		default:
-			return c, Fail(2, "language", "Unknown language; use python, javascript, typescript, rust or go")
+			return c, Fail(
+				2,
+				"language",
+				"Unknown language; use python, javascript, typescript, rust or go",
+			)
 		}
 		if !slices.Contains(c.Languages, language) {
 			c.Languages = append(c.Languages, language)
@@ -93,12 +101,17 @@ func Resolve(options Options) (Context, error) {
 		if markerErr != nil || !info.Mode().IsRegular() {
 			return c, Fail(2, "source", "Source must contain a regular .chezmoiroot file")
 		}
-		if Within(c.Native.Source, c.Native.Destination) || c.Native.Source == c.Native.Destination {
+		if Within(c.Native.Source, c.Native.Destination) ||
+			c.Native.Source == c.Native.Destination {
 			return c, Fail(2, "scope", "Destination must not alias or lie inside the source")
 		}
 		for _, path := range []string{c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin} {
 			if Within(c.Native.Source, path) || Within(path, c.Native.Source) {
-				return c, Fail(2, "scope", "Source and Workbench runtime directories must not overlap")
+				return c, Fail(
+					2,
+					"scope",
+					"Source and Workbench runtime directories must not overlap",
+				)
 			}
 		}
 	}
@@ -127,17 +140,38 @@ func ExistingDirectory(path string) (string, error) {
 // Within includes equality; both paths must be canonical absolute paths.
 func Within(root, path string) bool {
 	relative, err := filepath.Rel(root, path)
-	return err == nil && relative != ".." && !strings.HasPrefix(relative, ".."+string(filepath.Separator))
+	return err == nil && relative != ".." &&
+		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
 func RuntimePaths(home string) (Paths, error) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return Paths{}, Fail(3, "platform", "Workbench runtime paths require macOS or Linux/WSL")
 	}
-	defaults := []string{filepath.Join(home, ".config", "workbench"), filepath.Join(home, ".local", "share", "workbench"), filepath.Join(home, ".local", "state", "workbench"), filepath.Join(home, ".cache", "workbench"), filepath.Join(home, ".local", "bin")}
+	defaults := []string{
+		filepath.Join(home, ".config", "workbench"),
+		filepath.Join(home, ".local", "share", "workbench"),
+		filepath.Join(home, ".local", "state", "workbench"),
+		filepath.Join(home, ".cache", "workbench"),
+		filepath.Join(home, ".local", "bin"),
+	}
 	if runtime.GOOS == "darwin" {
 		base := filepath.Join(home, "Library", "Application Support", "workbench")
-		defaults[0], defaults[1], defaults[2], defaults[3] = filepath.Join(base, "config"), filepath.Join(base, "data"), filepath.Join(base, "state"), filepath.Join(home, "Library", "Caches", "workbench")
+		defaults[0], defaults[1], defaults[2], defaults[3] = filepath.Join(
+			base,
+			"config",
+		), filepath.Join(
+			base,
+			"data",
+		), filepath.Join(
+			base,
+			"state",
+		), filepath.Join(
+			home,
+			"Library",
+			"Caches",
+			"workbench",
+		)
 	}
 	names := []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}
 	for i, name := range names {
@@ -151,11 +185,19 @@ func RuntimePaths(home string) (Paths, error) {
 			value = defaults[i]
 		}
 		if !filepath.IsAbs(value) {
-			return Paths{}, Fail(2, "runtime_path", "WORKBENCH directory overrides must be absolute")
+			return Paths{}, Fail(
+				2,
+				"runtime_path",
+				"WORKBENCH directory overrides must be absolute",
+			)
 		}
 		value = filepath.Clean(value)
 		if value == "/" || value == home {
-			return Paths{}, Fail(2, "runtime_path", "A Workbench directory must not be the filesystem root or home itself")
+			return Paths{}, Fail(
+				2,
+				"runtime_path",
+				"A Workbench directory must not be the filesystem root or home itself",
+			)
 		}
 		if err := safeParents(value); err != nil {
 			return Paths{}, err
@@ -172,8 +214,12 @@ func RuntimePaths(home string) (Paths, error) {
 			if err := owned(info); err != nil {
 				return Paths{}, err
 			}
-			if i < 4 && info.Mode().Perm()&0077 != 0 {
-				return Paths{}, Fail(2, "permissions", "Existing Workbench runtime directories must be private (0700)")
+			if i < 4 && info.Mode().Perm()&0o077 != 0 {
+				return Paths{}, Fail(
+					2,
+					"permissions",
+					"Existing Workbench runtime directories must be private (0700)",
+				)
 			}
 		} else if !os.IsNotExist(err) {
 			return Paths{}, Fail(2, "runtime_path", "Cannot inspect Workbench runtime directory")
@@ -195,8 +241,13 @@ func safeParents(path string) error {
 				return Fail(2, "path", "Workbench path parent is not a directory")
 			}
 			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) || (info.Mode().Perm()&0022 != 0 && info.Mode()&os.ModeSticky == 0) {
-				return Fail(2, "permissions", "Workbench path has an unsafe owner or writable parent")
+			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) ||
+				(info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0) {
+				return Fail(
+					2,
+					"permissions",
+					"Workbench path has an unsafe owner or writable parent",
+				)
 			}
 		} else if !os.IsNotExist(err) {
 			return Fail(2, "path", "Cannot inspect Workbench path parents")
@@ -227,7 +278,7 @@ func checkPrivateFile(path string) error {
 		return err
 	}
 	stat := info.Sys().(*syscall.Stat_t)
-	if info.Mode().Perm()&0077 != 0 || stat.Nlink != 1 {
+	if info.Mode().Perm()&0o077 != 0 || stat.Nlink != 1 {
 		return Fail(2, "permissions", "Private files require mode 0600 and exactly one link")
 	}
 	return nil
@@ -238,14 +289,33 @@ func checkPrivateFile(path string) error {
 func (n NativeContext) Args() ([]string, error) {
 	for _, path := range []string{n.Source, n.Config, n.Destination, n.PersistentState, n.Cache} {
 		if !filepath.IsAbs(path) {
-			return nil, Fail(3, "native_context", "Resolve every native context path before running chezmoi")
+			return nil, Fail(
+				3,
+				"native_context",
+				"Resolve every native context path before running chezmoi",
+			)
 		}
 	}
-	return []string{"--source", n.Source, "--config", n.Config, "--destination", n.Destination, "--persistent-state", n.PersistentState, "--cache", n.Cache, "--no-pager", "--use-builtin-diff", "--refresh-externals=never"}, nil
+	return []string{
+		"--source",
+		n.Source,
+		"--config",
+		n.Config,
+		"--destination",
+		n.Destination,
+		"--persistent-state",
+		n.PersistentState,
+		"--cache",
+		n.Cache,
+		"--no-pager",
+		"--use-builtin-diff",
+		"--refresh-externals=never",
+	}, nil
 }
 
 func (c Context) ValidateTarget(path string) error {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) || path == c.Scope.Root {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
+		path == c.Scope.Root {
 		return Fail(2, "scope", "Target must lie strictly inside the selected scope")
 	}
 	if c.Scope.Kind == "machine" {
@@ -282,7 +352,10 @@ func (c Context) ValidateTarget(path string) error {
 		if Within(path, entrypoint) {
 			return Fail(2, "scope", "Target contains the protected Workbench entry point")
 		}
-		if targetInfo, targetErr := os.Stat(path); targetErr == nil && os.SameFile(entryInfo, targetInfo) {
+		if targetInfo, targetErr := os.Stat(
+			path,
+		); targetErr == nil &&
+			os.SameFile(entryInfo, targetInfo) {
 			return Fail(2, "scope", "Target aliases the protected Workbench entry point")
 		}
 	} else if !os.IsNotExist(entryErr) {
@@ -300,7 +373,8 @@ func (c Context) ValidateTarget(path string) error {
 // protected paths. This grants no chmod, replacement, removal or recursive-write
 // authority; planners must reject any proposed edit to such a container.
 func (c Context) ValidateContainer(path string) error {
-	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) || path == c.Scope.Root {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
+		path == c.Scope.Root {
 		return Fail(2, "scope", "Container must lie strictly inside the selected scope")
 	}
 	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, filepath.Join(c.Paths.Bin, "workbench")} {
@@ -319,7 +393,8 @@ func (c Context) ValidateContainer(path string) error {
 }
 
 func (s Scope) Validate() error {
-	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) || filepath.Clean(s.Root) != s.Root {
+	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
+		filepath.Clean(s.Root) != s.Root {
 		return Fail(2, "scope", "Invalid scope; resolve an absolute existing directory")
 	}
 	canonical, err := ExistingDirectory(s.Root)

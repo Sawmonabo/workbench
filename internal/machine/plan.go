@@ -51,12 +51,23 @@ func (p *Prepared) Close() {
 	}
 }
 
-func Prepare(ctx context.Context, c operation.Context, selection Selection) (prepared *Prepared, err error) {
+func Prepare(
+	ctx context.Context,
+	c operation.Context,
+	selection Selection,
+) (prepared *Prepared, err error) {
 	prepared = &Prepared{selection: selection}
 	plan := &prepared.Plan
 	*plan = operation.Plan{Scope: c.Scope, RecoveryLimits: []string{
 		"Restores exact checkpointed files, modes and links only; packages, extensions, registry, services and uncheckpointed script writes are not reverted",
-		fmt.Sprintf("Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; at the checkpoint limit the plan lists removal of the oldest settled one", operation.MaxImageBytes>>20, operation.MaxCheckpointImageBytes>>20, operation.MaxCheckpointTargets, operation.MaxForwardCheckpoints, operation.MaxScopeCheckpointBytes>>30),
+		fmt.Sprintf(
+			"Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; at the checkpoint limit the plan lists removal of the oldest settled one",
+			operation.MaxImageBytes>>20,
+			operation.MaxCheckpointImageBytes>>20,
+			operation.MaxCheckpointTargets,
+			operation.MaxForwardCheckpoints,
+			operation.MaxScopeCheckpointBytes>>30,
+		),
 	}}
 	defer func() {
 		if err != nil {
@@ -84,7 +95,11 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		}
 	}
 	if len(plan.Prerequisites) > 0 {
-		return prepared, operation.Fail(3, "prerequisites", "Qualified rendering/provisioning dependencies are missing; approve setup separately")
+		return prepared, operation.Fail(
+			3,
+			"prerequisites",
+			"Qualified rendering/provisioning dependencies are missing; approve setup separately",
+		)
 	}
 	if platform := Platform(ctx, c); platform.Status != "complete" {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
@@ -92,15 +107,26 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
-		return prepared, operation.Fail(3, "answers", "Provide a complete private [data] answer file through --machine-config; preview does not initialize answers")
+		return prepared, operation.Fail(
+			3,
+			"answers",
+			"Provide a complete private [data] answer file through --machine-config; preview does not initialize answers",
+		)
 	}
 	answers, err := ParseAnswers(answersRaw)
 	if err != nil {
 		return prepared, err
 	}
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "machine-answers", Digest: digest(answersRaw)})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "machine-answers", Digest: digest(answersRaw)},
+	)
 	if !selection.ConfigOnly && c.Native.Destination != c.Home {
-		return prepared, operation.Fail(3, "scope", "Full provisioning requires the actual user's home; use --config-only for an isolated destination")
+		return prepared, operation.Fail(
+			3,
+			"scope",
+			"Full provisioning requires the actual user's home; use --config-only for an isolated destination",
+		)
 	}
 	optional, err := selectedEffects(selection)
 	if err != nil {
@@ -144,10 +170,10 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 			continue
 		}
 		path := filepath.Join(native.Source, name)
-		if err = os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			return prepared, err
 		}
-		if err = os.WriteFile(path, data, 0600); err != nil {
+		if err = os.WriteFile(path, data, 0o600); err != nil {
 			return prepared, err
 		}
 	}
@@ -163,7 +189,7 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		nativeAnswers["workbench_uv_dir"] = filepath.Dir(uv)
 	}
 	config, _ := json.Marshal(map[string]any{"data": nativeAnswers})
-	if err = os.WriteFile(native.Config, config, 0600); err != nil {
+	if err = os.WriteFile(native.Config, config, 0o600); err != nil {
 		return prepared, err
 	}
 	if _, err = os.Lstat(c.Native.PersistentState); err == nil {
@@ -171,8 +197,11 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		if readErr != nil {
 			return prepared, readErr
 		}
-		plan.Inputs = append(plan.Inputs, operation.Input{Name: "native-state", Digest: digest(data)})
-		if err = os.WriteFile(native.PersistentState, data, 0600); err != nil {
+		plan.Inputs = append(
+			plan.Inputs,
+			operation.Input{Name: "native-state", Digest: digest(data)},
+		)
+		if err = os.WriteFile(native.PersistentState, data, 0o600); err != nil {
 			return prepared, err
 		}
 	} else if os.IsNotExist(err) {
@@ -183,30 +212,70 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	// A private alias gives modify scripts the qualified interpreter even when
 	// the installation exposes only a versioned basename. No global links.
 	bin := filepath.Join(scratch, "bin")
-	if err = os.Mkdir(bin, 0700); err != nil {
+	if err = os.Mkdir(bin, 0o700); err != nil {
 		return prepared, err
 	}
-	if err = os.Symlink(dependency(dependencies, "python3"), filepath.Join(bin, "python3")); err != nil {
+	if err = os.Symlink(
+		dependency(dependencies, "python3"),
+		filepath.Join(bin, "python3"),
+	); err != nil {
 		return prepared, err
 	}
 	// gh only affects a native lookPath branch; do not execute it in preview.
-	if gh, findErr := operation.FindExecutable("gh", os.Getenv("PATH"), []string{c.Native.Source}); findErr == nil {
+	if gh, findErr := operation.FindExecutable(
+		"gh",
+		os.Getenv("PATH"),
+		[]string{c.Native.Source},
+	); findErr == nil {
 		if err = os.Symlink(gh, filepath.Join(bin, "gh")); err != nil {
 			return prepared, err
 		}
-		plan.Inputs = append(plan.Inputs, operation.Input{Name: "gh-location", Digest: digest([]byte(gh))})
+		plan.Inputs = append(
+			plan.Inputs,
+			operation.Input{Name: "gh-location", Digest: digest([]byte(gh))},
+		)
 	}
-	environment := []string{"HOME=" + c.Native.Destination, "PATH=" + bin + ":/usr/bin:/bin", "LANG=C.UTF-8", "PYTHONNOUSERSITE=1", "PYTHONDONTWRITEBYTECODE=1"}
+	environment := []string{
+		"HOME=" + c.Native.Destination,
+		"PATH=" + bin + ":/usr/bin:/bin",
+		"LANG=C.UTF-8",
+		"PYTHONNOUSERSITE=1",
+		"PYTHONDONTWRITEBYTECODE=1",
+	}
 	prefix, err := native.Args()
 	if err != nil {
 		return prepared, err
 	}
-	prefix = append(prefix, "--config-format=json", "--no-tty", "--color=false", "--use-builtin-git=true")
+	prefix = append(
+		prefix,
+		"--config-format=json",
+		"--no-tty",
+		"--color=false",
+		"--use-builtin-git=true",
+	)
 	run := func(args ...string) (string, error) {
-		output, runErr := operation.Run(ctx, c, nil, operation.Process{Executable: dependency(dependencies, "chezmoi"), Args: append(slices.Clone(prefix), args...), Directory: scratch, Environment: environment, Secrets: answers.secrets(), PrivateOutput: true, OutputLimit: 16 << 20})
+		output, runErr := operation.Run(
+			ctx,
+			c,
+			nil,
+			operation.Process{
+				Executable:    dependency(dependencies, "chezmoi"),
+				Args:          append(slices.Clone(prefix), args...),
+				Directory:     scratch,
+				Environment:   environment,
+				Secrets:       answers.secrets(),
+				PrivateOutput: true,
+				OutputLimit:   16 << 20,
+			},
+		)
 		return output.Stdout, runErr
 	}
-	managed, err := run("managed", "--exclude=scripts", "--nul-path-separator", "--path-style=absolute")
+	managed, err := run(
+		"managed",
+		"--exclude=scripts",
+		"--nul-path-separator",
+		"--path-style=absolute",
+	)
 	if err != nil {
 		return prepared, err
 	}
@@ -231,7 +300,10 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		if readErr != nil {
 			return prepared, readErr
 		}
-		plan.Inputs = append(plan.Inputs, operation.Input{Name: target, Digest: operation.ImageDigest(image)})
+		plan.Inputs = append(
+			plan.Inputs,
+			operation.Input{Name: target, Digest: operation.ImageDigest(image)},
+		)
 	}
 	status, err := run("status", "--exclude=scripts", "--path-style=absolute")
 	if err != nil {
@@ -246,7 +318,11 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		}
 		target := line[3:]
 		if containers[target] && line[1] != ' ' {
-			return prepared, operation.Fail(3, "scope", "Native plan would change a protected ancestor directory; review its mode/type before applying")
+			return prepared, operation.Fail(
+				3,
+				"scope",
+				"Native plan would change a protected ancestor directory; review its mode/type before applying",
+			)
 		}
 		if !containers[target] {
 			if err = c.ValidateTarget(target); err != nil {
@@ -258,14 +334,24 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 			if readErr != nil {
 				return prepared, readErr
 			}
-			plan.Inputs = append(plan.Inputs, operation.Input{Name: target, Digest: operation.ImageDigest(image)})
+			plan.Inputs = append(
+				plan.Inputs,
+				operation.Input{Name: target, Digest: operation.ImageDigest(image)},
+			)
 		}
 		action := map[byte]string{'A': "create", 'M': "modify", 'D': "remove", ' ': "unchanged"}[line[1]]
 		if action == "" {
 			return prepared, operation.Fail(1, "native", "Unsupported native target action")
 		}
 		if action != "unchanged" {
-			plan.Edits = append(plan.Edits, operation.Edit{Path: target, Action: action, Description: "Native chezmoi configuration change (" + answers.label() + ")"})
+			plan.Edits = append(
+				plan.Edits,
+				operation.Edit{
+					Path:        target,
+					Action:      action,
+					Description: "Native chezmoi configuration change (" + answers.label() + ")",
+				},
+			)
 		}
 	}
 	// Use native built-in diff as the render/merge gate. Never publish its secret-
@@ -274,8 +360,19 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	if err != nil {
 		return prepared, err
 	}
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "native-diff", Digest: digest([]byte(diff))})
-	plan.Effects = append(plan.Effects, operation.Effect{Name: "ai-security-settings", Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply", Privilege: "user", Recovery: "configuration files only"})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "native-diff", Digest: digest([]byte(diff))},
+	)
+	plan.Effects = append(
+		plan.Effects,
+		operation.Effect{
+			Name:        "ai-security-settings",
+			Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply",
+			Privilege:   "user",
+			Recovery:    "configuration files only",
+		},
+	)
 	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, ProvisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
@@ -306,17 +403,29 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 			}
 			entry, ok := desired[relative]
 			if !ok {
-				return prepared, operation.Fail(1, "native", "Native target missing from image enumeration")
+				return prepared, operation.Fail(
+					1,
+					"native",
+					"Native target missing from image enumeration",
+				)
 			}
 			switch entry.Type {
 			case "file":
-				after = operation.Image{Kind: "file", Mode: entry.Perm, Data: []byte(entry.Contents)}
+				after = operation.Image{
+					Kind: "file",
+					Mode: entry.Perm,
+					Data: []byte(entry.Contents),
+				}
 			case "dir":
 				after = operation.Image{Kind: "directory", Mode: entry.Perm}
 			case "symlink":
-				after = operation.Image{Kind: "symlink", Mode: 0777, Link: entry.Target}
+				after = operation.Image{Kind: "symlink", Mode: 0o777, Link: entry.Target}
 			default:
-				return prepared, operation.Fail(3, "native", "Native target type is unsupported for recovery")
+				return prepared, operation.Fail(
+					3,
+					"native",
+					"Native target type is unsupported for recovery",
+				)
 			}
 		}
 		after, err = operation.ImageWithGroup(c, edit.Path, after)
@@ -327,7 +436,11 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		// group. Until corrected under the checkpoint owner's exact-image gate,
 		// never expose permissions available only to that transient group.
 		if ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
-			return prepared, operation.Fail(3, "metadata", "Native group-exclusive permissions require separately qualified atomic ownership handling")
+			return prepared, operation.Fail(
+				3,
+				"metadata",
+				"Native group-exclusive permissions require separately qualified atomic ownership handling",
+			)
 		}
 		if before.Kind == "file" || before.Kind == "symlink" {
 			group, groupErr := operation.CreationGroup(c, edit.Path)
@@ -335,12 +448,25 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 				return prepared, groupErr
 			}
 			if edit.Action != "remove" && before.Group != nil && *before.Group != group {
-				return prepared, operation.Fail(3, "metadata", "Native replacement cannot preserve this target's group ownership")
+				return prepared, operation.Fail(
+					3,
+					"metadata",
+					"Native replacement cannot preserve this target's group ownership",
+				)
 			}
 		}
-		prepared.Changes = append(prepared.Changes, operation.TargetChange{Path: edit.Path, Before: before, After: after})
+		prepared.Changes = append(
+			prepared.Changes,
+			operation.TargetChange{Path: edit.Path, Before: before, After: after},
+		)
 	}
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "checkpoint-images", Digest: operation.ChangesDigest(prepared.Changes)})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{
+			Name:   "checkpoint-images",
+			Digest: operation.ChangesDigest(prepared.Changes),
+		},
+	)
 	if len(prepared.Changes) > 0 {
 		retention, retentionErr := operation.RetentionEffect(c)
 		if retentionErr != nil {
@@ -363,7 +489,13 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 // Apply executes the prepared configuration through the same native owner.
 // Callers must hold mutation authority and a durable checkpoint of any target changes.
 // An interactive run owns terminal; otherwise redacted output goes to progress.
-func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.Mutation, terminal *os.File, progress io.Writer) error {
+func (p *Prepared) Apply(
+	ctx context.Context,
+	c operation.Context,
+	m *operation.Mutation,
+	terminal *os.File,
+	progress io.Writer,
+) error {
 	if err := m.Check(); err != nil {
 		return err
 	}
@@ -373,7 +505,7 @@ func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.
 	if c.Native.PersistentState != filepath.Join(c.Paths.State, "chezmoi", "chezmoi.boltdb") {
 		return operation.Fail(2, "state", "Unexpected native state target")
 	}
-	if err := os.MkdirAll(filepath.Dir(c.Native.PersistentState), 0700); err != nil {
+	if err := os.MkdirAll(filepath.Dir(c.Native.PersistentState), 0o700); err != nil {
 		return err
 	}
 	native := p.native
@@ -397,11 +529,25 @@ func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.
 		}
 		for i, value := range environment {
 			if strings.HasPrefix(value, "PATH=") {
-				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + strings.TrimPrefix(value, "PATH=")
+				environment[i] = "PATH=" + filepath.Join(
+					p.scratch,
+					"bin",
+				) + ":" + strings.TrimPrefix(
+					value,
+					"PATH=",
+				)
 			}
 		}
 	}
-	request := operation.Process{Executable: p.executable, Args: args, Directory: p.scratch, Environment: environment, Secrets: p.secrets, Mutates: true, Terminal: terminal}
+	request := operation.Process{
+		Executable:  p.executable,
+		Args:        args,
+		Directory:   p.scratch,
+		Environment: environment,
+		Secrets:     p.secrets,
+		Mutates:     true,
+		Terminal:    terminal,
+	}
 	if terminal == nil {
 		request.Progress = progress
 	}

@@ -20,14 +20,44 @@ import (
 //go:embed adapter.py
 var adapter string
 
-func transform(ctx context.Context, c operation.Context, python operation.Dependency, library, version, release string, documents []string) ([]string, error) {
-	input, err := json.Marshal(map[string]any{"version": version, "policy": pythonpolicy.Policy, "release": release, "documents": documents})
+func transform(
+	ctx context.Context,
+	c operation.Context,
+	python operation.Dependency,
+	library, version, release string,
+	documents []string,
+) ([]string, error) {
+	input, err := json.Marshal(
+		map[string]any{
+			"version":   version,
+			"policy":    pythonpolicy.Policy,
+			"release":   release,
+			"documents": documents,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
-	output, err := operation.Run(ctx, c, nil, operation.Process{Executable: python.Path, Args: []string{"-I", "-S", "-B", "-c", adapter, library}, Directory: "/", Environment: []string{"PATH=/usr/bin:/bin"}, Input: input, Timeout: 15 * time.Second, OutputLimit: 8 << 20})
+	output, err := operation.Run(
+		ctx,
+		c,
+		nil,
+		operation.Process{
+			Executable:  python.Path,
+			Args:        []string{"-I", "-S", "-B", "-c", adapter, library},
+			Directory:   "/",
+			Environment: []string{"PATH=/usr/bin:/bin"},
+			Input:       input,
+			Timeout:     15 * time.Second,
+			OutputLimit: 8 << 20,
+		},
+	)
 	if err != nil {
-		return nil, operation.Fail(3, "project_editor", "TOML preservation adapter failed; review unsupported syntax or provenance before changing files")
+		return nil, operation.Fail(
+			3,
+			"project_editor",
+			"TOML preservation adapter failed; review unsupported syntax or provenance before changing files",
+		)
 	}
 	var result []string
 	if json.Unmarshal([]byte(output.Stdout), &result) != nil || len(result) != len(documents) {
@@ -66,19 +96,30 @@ func mergeExtensions(data []byte) ([]byte, error) {
 		}
 	}
 	for _, id := range append(append([]string{}, values["recommendations"]...), policy["recommendations"]...) {
-		if slices.Contains(values["unwantedRecommendations"], id) || slices.Contains(policy["unwantedRecommendations"], id) {
-			return nil, operation.Fail(4, "extensions", "Contradictory recommendations require a project decision")
+		if slices.Contains(values["unwantedRecommendations"], id) ||
+			slices.Contains(policy["unwantedRecommendations"], id) {
+			return nil, operation.Fail(
+				4,
+				"extensions",
+				"Contradictory recommendations require a project decision",
+			)
 		}
 	}
 	var patches []map[string]any
 	for _, key := range []string{"recommendations", "unwantedRecommendations"} {
 		if _, ok := existing[key]; !ok {
-			patches = append(patches, map[string]any{"op": "add", "path": "/" + key, "value": policy[key]})
+			patches = append(
+				patches,
+				map[string]any{"op": "add", "path": "/" + key, "value": policy[key]},
+			)
 			continue
 		}
 		for _, id := range policy[key] {
 			if !slices.Contains(values[key], id) {
-				patches = append(patches, map[string]any{"op": "add", "path": "/" + key + "/-", "value": id})
+				patches = append(
+					patches,
+					map[string]any{"op": "add", "path": "/" + key + "/-", "value": id},
+				)
 			}
 		}
 	}
@@ -134,14 +175,21 @@ func mergeIgnore(data []byte) ([]byte, error) {
 	lines := strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n")
 	for _, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "!") && line != "!.env.example" {
-			return nil, operation.Fail(3, "gitignore", "Existing negations require review before adding ignore rules")
+			return nil, operation.Fail(
+				3,
+				"gitignore",
+				"Existing negations require review before adding ignore rules",
+			)
 		}
 	}
 	result := string(data)
 	for _, entry := range strings.Split(strings.TrimSpace(pythonpolicy.Ignore), "\n") {
 		// Test, distribution, coverage and secret-file patterns are optional assets;
 		// their relevance cannot be inferred merely from Python ownership.
-		if !slices.Contains([]string{".venv/", "__pycache__/", "*.py[cod]", ".ruff_cache/"}, entry) {
+		if !slices.Contains(
+			[]string{".venv/", "__pycache__/", "*.py[cod]", ".ruff_cache/"},
+			entry,
+		) {
 			continue
 		}
 		if !slices.Contains(lines, entry) {
@@ -154,7 +202,10 @@ func mergeIgnore(data []byte) ([]byte, error) {
 	return []byte(result), nil
 }
 
-func adapterDependency(ctx context.Context, c operation.Context) (operation.Dependency, string, string, []operation.Dependency, error) {
+func adapterDependency(
+	ctx context.Context,
+	c operation.Context,
+) (operation.Dependency, string, string, []operation.Dependency, error) {
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
 		return operation.Dependency{}, "", "", nil, err
@@ -173,5 +224,12 @@ func adapterDependency(ctx context.Context, c operation.Context) (operation.Depe
 			return dep, library, filepath.Base(filepath.Dir(library)), deps, nil
 		}
 	}
-	return operation.Dependency{}, "", "", deps, operation.Fail(3, "dependency", fmt.Sprintf("Approved management Python and TOML Kit setup required before project preview (%s)", filepath.Base(library)))
+	return operation.Dependency{}, "", "", deps, operation.Fail(
+		3,
+		"dependency",
+		fmt.Sprintf(
+			"Approved management Python and TOML Kit setup required before project preview (%s)",
+			filepath.Base(library),
+		),
+	)
 }

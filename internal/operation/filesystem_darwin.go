@@ -33,7 +33,11 @@ func privateFilesystem(path string) error {
 		name = append(name, byte(char))
 	}
 	if string(name) != "apfs" && string(name) != "hfs" {
-		return Fail(3, "filesystem", "Private Workbench state requires APFS or HFS; other protection semantics are unqualified")
+		return Fail(
+			3,
+			"filesystem",
+			"Private Workbench state requires APFS or HFS; other protection semantics are unqualified",
+		)
 	}
 	return nil
 }

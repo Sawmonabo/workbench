@@ -82,14 +82,25 @@ type Mutation struct {
 
 func (m *Mutation) Check() error {
 	if m == nil || !m.active || m.context.ReadOnly {
-		return Fail(3, "read_only", "Mutation requires an approved current plan and held operation locks")
+		return Fail(
+			3,
+			"read_only",
+			"Mutation requires an approved current plan and held operation locks",
+		)
 	}
 	return nil
 }
 
 // WithMutation binds consent to the displayed plan, re-plans under both locks,
 // and refuses changes if any bound input changed. The planner is always read-only.
-func WithMutation(ctx context.Context, c Context, displayed Plan, consent Consent, planner func(context.Context, Context) (Plan, error), apply func(*Mutation) error) error {
+func WithMutation(
+	ctx context.Context,
+	c Context,
+	displayed Plan,
+	consent Consent,
+	planner func(context.Context, Context) (Plan, error),
+	apply func(*Mutation) error,
+) error {
 	if c.ReadOnly {
 		return Fail(3, "read_only", "This operation is read-only")
 	}
@@ -97,7 +108,11 @@ func WithMutation(ctx context.Context, c Context, displayed Plan, consent Consen
 		return err
 	}
 	if !displayed.Complete || !consent.CompleteInputs || len(displayed.Prerequisites) != 0 {
-		return Fail(3, "prerequisites", "Complete the disclosed setup stage and inputs before approving target changes")
+		return Fail(
+			3,
+			"prerequisites",
+			"Complete the disclosed setup stage and inputs before approving target changes",
+		)
 	}
 	if displayed.Scope != c.Scope {
 		return Fail(4, "scope", "Plan does not match the selected scope")
@@ -108,11 +123,19 @@ func WithMutation(ctx context.Context, c Context, displayed Plan, consent Consen
 	}
 	if consent.ApprovedDigest != "" {
 		if consent.ApprovedDigest != digest {
-			return Fail(4, "plan", "Approval digest does not match the current plan; review a new plan")
+			return Fail(
+				4,
+				"plan",
+				"Approval digest does not match the current plan; review a new plan",
+			)
 		}
 	} else {
 		if consent.NonInteractive || consent.Confirm == nil {
-			return Fail(3, "consent", "Mutation requires --approve-plan with the displayed digest, or terminal approval")
+			return Fail(
+				3,
+				"consent",
+				"Mutation requires --approve-plan with the displayed digest, or terminal approval",
+			)
 		}
 		accepted, err := consent.Confirm(displayed, digest)
 		if err != nil {

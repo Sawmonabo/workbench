@@ -23,7 +23,11 @@ var pythonChoice = regexp.MustCompile(`^3\.[0-9]{1,2}(\.[0-9]{1,2})?$`)
 // All unowned AST nodes must serialize identically before and after the merge.
 func (p *Proposal) addCI(c operation.Context, owners []string) error {
 	fail := func(message string) error {
-		return operation.Fail(3, "project_ci", message+"; adapt project/python/checks.example.yml manually")
+		return operation.Fail(
+			3,
+			"project_ci",
+			message+"; adapt project/python/checks.example.yml manually",
+		)
 	}
 	if len(owners) != 1 || owners[0] != c.Scope.Root {
 		return fail("Automatic CI requires one Python workspace owner equal to the selected root")
@@ -35,9 +39,14 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 	}
 	python := strings.TrimSpace(string(pythonData))
 	if !pythonChoice.MatchString(python) {
-		return fail("An existing explicit .python-version is required; no Python baseline is chosen")
+		return fail(
+			"An existing explicit .python-version is required; no Python baseline is chosen",
+		)
 	}
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: pythonFile, Digest: hash(pythonData)})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: pythonFile, Digest: hash(pythonData)},
+	)
 	directory := filepath.Join(c.Scope.Root, ".github", "workflows")
 	entries, err := os.ReadDir(directory)
 	if err != nil {
@@ -108,7 +117,9 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 		}
 	}
 	if !testOwned {
-		return fail("An existing test/tests job with an identifiable test command is required; tests will not be invented")
+		return fail(
+			"An existing test/tests job with an identifiable test command is required; tests will not be invented",
+		)
 	}
 	jobText := fmt.Sprintf(`workbench-python:
   name: Workbench Python checks (python-v1)
@@ -148,7 +159,8 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 		have := existing.String()
 		if strings.TrimSpace(have) != strings.TrimSpace(want) {
 			var actual, expected any
-			if yaml.Unmarshal([]byte(have), &actual) != nil || yaml.Unmarshal([]byte(want), &expected) != nil {
+			if yaml.Unmarshal([]byte(have), &actual) != nil ||
+				yaml.Unmarshal([]byte(want), &expected) != nil {
 				return fail("Existing Workbench check job needs review")
 			}
 			if !reflect.DeepEqual(actual, expected) {
@@ -183,8 +195,21 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 	if err != nil || len(reparsed.Docs) != 1 {
 		return fail("Proposed workflow failed reparse validation")
 	}
-	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{Name: "ci-workflow-checks", Description: "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code; configure does not run CI", Privilege: "CI runner", Recovery: "Restoring the workflow file does not undo completed CI runs or their external effects"})
-	return p.add(c, workflows[0], proposed, "Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments")
+	p.Plan.Effects = append(
+		p.Plan.Effects,
+		operation.Effect{
+			Name:        "ci-workflow-checks",
+			Description: "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code; configure does not run CI",
+			Privilege:   "CI runner",
+			Recovery:    "Restoring the workflow file does not undo completed CI runs or their external effects",
+		},
+	)
+	return p.add(
+		c,
+		workflows[0],
+		proposed,
+		"Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments",
+	)
 }
 
 func mappingValue(node *ast.MappingNode, key string) ast.Node {

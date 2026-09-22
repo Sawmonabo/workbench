@@ -34,8 +34,12 @@ type PartialOperation struct {
 	Scope Scope  `json:"scope"`
 }
 
-var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-var operationID = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+var (
+	identifier  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	operationID = regexp.MustCompile(
+		`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
+	)
+)
 
 // ReadPrivateInput shares private-file validation with state/answer consumers.
 // It never creates missing state and withholds unsafe or oversized input.
@@ -60,11 +64,19 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 
 func (s State) Validate() error {
 	if s.SchemaVersion != 1 {
-		return Fail(2, "state_format", "Unsupported Workbench state schema; state was left unchanged")
+		return Fail(
+			2,
+			"state_format",
+			"Unsupported Workbench state schema; state was left unchanged",
+		)
 	}
 	seen := map[string]bool{}
 	for _, dependency := range s.Dependencies {
-		if seen[dependency.Name] || (dependency.Name != "chezmoi" && dependency.Name != "python3" && dependency.Name != "uv") || !filepath.IsAbs(dependency.Path) || dependency.Version == "" || (dependency.Owner != "user" && dependency.Owner != "system" && dependency.Owner != "homebrew" && dependency.Owner != "workbench") {
+		if seen[dependency.Name] ||
+			(dependency.Name != "chezmoi" && dependency.Name != "python3" && dependency.Name != "uv") ||
+			!filepath.IsAbs(dependency.Path) ||
+			dependency.Version == "" ||
+			(dependency.Owner != "user" && dependency.Owner != "system" && dependency.Owner != "homebrew" && dependency.Owner != "workbench") {
 			return Fail(2, "state_format", "Invalid recorded management dependency")
 		}
 		seen[dependency.Name] = true
@@ -80,7 +92,11 @@ func (s State) Validate() error {
 	}
 	if s.ActiveRelease != nil {
 		if !filepath.IsAbs(s.ActiveRelease.Executable) || !filepath.IsAbs(s.ActiveRelease.Source) {
-			return Fail(2, "state_format", "Active release requires absolute executable and source paths")
+			return Fail(
+				2,
+				"state_format",
+				"Active release requires absolute executable and source paths",
+			)
 		}
 	}
 	if s.PartialOperation != nil {
@@ -117,7 +133,11 @@ func ReadState(paths Paths) (*State, error) {
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, 1024*1024+1))
 	if err != nil || len(data) > 1024*1024 {
-		return nil, Fail(2, "state", "Current state is unreadable or exceeds its metadata size limit")
+		return nil, Fail(
+			2,
+			"state",
+			"Current state is unreadable or exceeds its metadata size limit",
+		)
 	}
 	var state State
 	if err := validateStateJSON(json.NewDecoder(bytes.NewReader(data))); err != nil {
@@ -126,7 +146,11 @@ func ReadState(paths Paths) (*State, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&state); err != nil {
-		return nil, Fail(2, "state_format", "Malformed current Workbench state; no conversion or deletion attempted")
+		return nil, Fail(
+			2,
+			"state_format",
+			"Malformed current Workbench state; no conversion or deletion attempted",
+		)
 	}
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return nil, Fail(2, "state_format", "Current state must contain exactly one JSON object")
@@ -202,12 +226,20 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	// alias the same directory under different spellings or mount paths.
 	lockDirectory, err := os.Stat(filepath.Join(m.context.Paths.State, "locks"))
 	if err != nil || !lockDirectory.IsDir() {
-		return Fail(4, "lock", "Cannot establish the held operation lock directory; stop before metadata writes")
+		return Fail(
+			4,
+			"lock",
+			"Cannot establish the held operation lock directory; stop before metadata writes",
+		)
 	}
 	for ancestor := path; ; ancestor = filepath.Dir(ancestor) {
 		info, err := os.Stat(ancestor)
 		if err == nil && os.SameFile(lockDirectory, info) {
-			return Fail(2, "scope", "Operation lock files are reserved and cannot be replaced by metadata writes")
+			return Fail(
+				2,
+				"scope",
+				"Operation lock files are reserved and cannot be replaced by metadata writes",
+			)
 		}
 		if err != nil && !os.IsNotExist(err) {
 			return Fail(2, "scope", "Cannot inspect private metadata target ancestry")
@@ -251,7 +283,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		return err
 	}
 	temporary := ".write-" + id
-	f, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+	f, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
 	}
@@ -285,15 +317,19 @@ func ensurePrivateDirectory(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(path, 0700); err != nil {
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		return err
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode().Perm() != 0700 {
-		return Fail(2, "permissions", "Existing private state directory must have mode 0700; it was not changed")
+	if !info.IsDir() || info.Mode().Perm() != 0o700 {
+		return Fail(
+			2,
+			"permissions",
+			"Existing private state directory must have mode 0700; it was not changed",
+		)
 	}
 	return owned(info)
 }
@@ -321,7 +357,7 @@ func acquireLocks(c Context) (*locks, error) {
 	digest := sha256.Sum256([]byte(c.Scope.Kind + ":" + c.Scope.Root))
 	for _, name := range []string{"shared.lock", fmt.Sprintf("%s-%x.lock", c.Scope.Kind, digest)} {
 		path := filepath.Join(directory, name)
-		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0600)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
 			result.close()
 			return nil, Fail(3, "lock", "Cannot open private operation lock")
@@ -333,13 +369,22 @@ func acquireLocks(c Context) (*locks, error) {
 		}
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			result.close()
-			return nil, Fail(3, "locked", "Another Workbench mutation holds the shared or selected scope lock; retry after it finishes")
+			return nil, Fail(
+				3,
+				"locked",
+				"Another Workbench mutation holds the shared or selected scope lock; retry after it finishes",
+			)
 		}
 		if err := f.Truncate(0); err != nil {
 			result.close()
 			return nil, err
 		}
-		if _, err := fmt.Fprintf(f, "schema_version=1\npid=%d\nscope=%s\n", os.Getpid(), c.Scope.Kind); err != nil {
+		if _, err := fmt.Fprintf(
+			f,
+			"schema_version=1\npid=%d\nscope=%s\n",
+			os.Getpid(),
+			c.Scope.Kind,
+		); err != nil {
 			result.close()
 			return nil, err
 		}

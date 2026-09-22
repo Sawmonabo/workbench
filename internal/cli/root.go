@@ -45,7 +45,11 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 				o.json = false
 			}
 		}
-		err = operation.Fail(2, "invocation", "Invalid command, flags or arguments; run workbench --help")
+		err = operation.Fail(
+			2,
+			"invocation",
+			"Invalid command, flags or arguments; run workbench --help",
+		)
 		name := "workbench"
 		if cmd != nil {
 			name = cmd.CommandPath()
@@ -61,18 +65,42 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 
 func newRoot(o *options) *cobra.Command {
 	root := &cobra.Command{
-		Use: "workbench", Short: "Inspect developer machines and existing projects",
-		Long:    "Workbench previews and coordinates explicit machine provisioning, recoverable configuration changes and existing-project tooling.",
-		Version: version(), SilenceErrors: true, SilenceUsage: true, Args: cobra.NoArgs,
+		Use:           "workbench",
+		Short:         "Inspect developer machines and existing projects",
+		Long:          "Workbench previews and coordinates explicit machine provisioning, recoverable configuration changes and existing-project tooling.",
+		Version:       version(),
+		SilenceErrors: true,
+		SilenceUsage:  true,
+		Args:          cobra.NoArgs,
 	}
 	root.SetVersionTemplate("workbench {{.Version}}\n")
 	flags := root.PersistentFlags()
 	flags.BoolVar(&o.json, "json", false, "Emit one structured result object")
-	flags.BoolVar(&o.nonInteractive, "non-interactive", false, "Never prompt; mutations require complete inputs and plan approval")
-	flags.StringVar(&o.approvePlan, "approve-plan", "", "Approve exactly the displayed SHA-256 plan digest")
+	flags.BoolVar(
+		&o.nonInteractive,
+		"non-interactive",
+		false,
+		"Never prompt; mutations require complete inputs and plan approval",
+	)
+	flags.StringVar(
+		&o.approvePlan,
+		"approve-plan",
+		"",
+		"Approve exactly the displayed SHA-256 plan digest",
+	)
 	flags.StringVar(&o.resolve.Source, "source", "", "Select an existing developer source tree")
-	flags.StringVar(&o.resolve.MachineConfig, "machine-config", "", "Select an existing private native answer file")
-	flags.StringVar(&o.resolve.Destination, "destination", "", "Select an existing configuration destination (default: home)")
+	flags.StringVar(
+		&o.resolve.MachineConfig,
+		"machine-config",
+		"",
+		"Select an existing private native answer file",
+	)
+	flags.StringVar(
+		&o.resolve.Destination,
+		"destination",
+		"",
+		"Select an existing configuration destination (default: home)",
+	)
 	root.AddCommand(doctorCommand(o), statusCommand(o), initCommand(o), projectCommand(o))
 	root.AddCommand(recoveryCommand(o))
 	root.AddCommand(releaseCommands(o)...)
@@ -80,13 +108,23 @@ func newRoot(o *options) *cobra.Command {
 		{"plan", "Preview native machine changes and prerequisites"},
 		{"apply", "Apply approved native machine changes with file checkpoints"},
 	} {
-		cmd := &cobra.Command{Use: spec.use, Short: spec.short, Args: cobra.NoArgs, RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) { return machinePlan(cmd, c, o) })}
+		cmd := &cobra.Command{
+			Use:   spec.use,
+			Short: spec.short,
+			Args:  cobra.NoArgs,
+			RunE: o.action(
+				false,
+				func(cmd *cobra.Command, c operation.Context) (operation.Result, error) { return machinePlan(cmd, c, o) },
+			),
+		}
 		if cmd.Name() == "plan" {
-			cmd.Flags().Bool("config-only", false, "Preview configuration without provisioning effects")
+			cmd.Flags().
+				Bool("config-only", false, "Preview configuration without provisioning effects")
 		}
 		if cmd.Name() == "apply" {
 			cmd.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
-			cmd.Flags().Bool("config-only", false, "Apply native configuration without provisioning scripts")
+			cmd.Flags().
+				Bool("config-only", false, "Apply native configuration without provisioning scripts")
 		}
 		addEffectFlag(cmd)
 		root.AddCommand(cmd)
@@ -111,12 +149,16 @@ func (o *options) action(project bool, run handler) func(*cobra.Command, []strin
 		if err == nil {
 			var state *operation.State
 			state, err = operation.ReadState(resolved.Paths)
-			if err == nil && cmd.Name() != "install" && cmd.Name() != "update" && cmd.Name() != "pull" && cmd.Name() != "release-check" {
+			if err == nil && cmd.Name() != "install" && cmd.Name() != "update" &&
+				cmd.Name() != "pull" &&
+				cmd.Name() != "release-check" {
 				err = release.ValidateSelection(resolved)
 			}
-			if err == nil && resolved.Native.Source == "" && !project && (cmd.Name() == "plan" || cmd.Name() == "apply") {
+			if err == nil && resolved.Native.Source == "" && !project &&
+				(cmd.Name() == "plan" || cmd.Name() == "apply") {
 				resolved.Native.Source, err = release.Candidate(resolved)
-				if err == nil && resolved.Native.Source == "" && state != nil && state.ActiveRelease != nil {
+				if err == nil && resolved.Native.Source == "" && state != nil &&
+					state.ActiveRelease != nil {
 					resolved.Native.Source = state.ActiveRelease.Source
 				}
 			}
@@ -129,7 +171,12 @@ func (o *options) action(project bool, run handler) func(*cobra.Command, []strin
 		}
 		result.SetError(err)
 		o.rendered = true
-		if renderErr := render(cmd.OutOrStdout(), cmd.ErrOrStderr(), o.json, result); renderErr != nil {
+		if renderErr := render(
+			cmd.OutOrStdout(),
+			cmd.ErrOrStderr(),
+			o.json,
+			result,
+		); renderErr != nil {
 			return renderErr
 		}
 		return err

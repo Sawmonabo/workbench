@@ -40,7 +40,11 @@ func readMetadata(path string) ([]byte, error) {
 		return nil, err
 	}
 	if !info.Mode().IsRegular() || info.Size() > 8<<20 {
-		return nil, operation.Fail(3, "manifest", "Metadata must be a bounded regular file: "+filepath.Base(path))
+		return nil, operation.Fail(
+			3,
+			"manifest",
+			"Metadata must be a bounded regular file: "+filepath.Base(path),
+		)
 	}
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
@@ -70,7 +74,11 @@ func (r *Inventory) read(path string) ([]byte, error) {
 			total += len(input)
 		}
 		if total > 16<<20 {
-			return nil, operation.Fail(3, "manifest", "Combined metadata exceeds 16 MiB; select a narrower scope")
+			return nil, operation.Fail(
+				3,
+				"manifest",
+				"Combined metadata exceeds 16 MiB; select a narrower scope",
+			)
 		}
 		r.inputs[path] = data
 	}
@@ -83,6 +91,7 @@ func nested(doc map[string]any, keys ...string) map[string]any {
 	}
 	return doc
 }
+
 func stringsOf(value any) []string {
 	var result []string
 	switch list := value.(type) {
@@ -97,6 +106,7 @@ func stringsOf(value any) []string {
 	}
 	return result
 }
+
 func decodeTOML(data []byte) (map[string]any, error) {
 	var doc map[string]any
 	if err := toml.Unmarshal(data, &doc); err != nil {
@@ -123,7 +133,12 @@ func (r *Inventory) resolve(ctx context.Context) error {
 		if item.Kind != "manifest" {
 			continue
 		}
-		project := Project{Root: filepath.Dir(path), Language: item.Ecosystem, Owner: filepath.Dir(path), Reason: "Recognized; configuration is not supported for this language"}
+		project := Project{
+			Root:     filepath.Dir(path),
+			Language: item.Ecosystem,
+			Owner:    filepath.Dir(path),
+			Reason:   "Recognized; configuration is not supported for this language",
+		}
 		switch filepath.Base(path) {
 		case "pyproject.toml":
 			project.metadata, err = decodeTOML(data)
@@ -168,7 +183,13 @@ func (r *Inventory) resolve(ctx context.Context) error {
 				if e != nil {
 					return e
 				}
-				p := Project{Root: parent, Owner: parent, Language: "python", Manager: "unknown", metadata: doc}
+				p := Project{
+					Root:     parent,
+					Owner:    parent,
+					Language: "python",
+					Manager:  "unknown",
+					metadata: doc,
+				}
 				if e = r.pythonOwner(&p); e != nil {
 					return e
 				}
@@ -207,7 +228,10 @@ func (r *Inventory) pythonOwner(p *Project) error {
 					if nested(p.metadata, "tool", tool) == nil && nested(doc, "tool", tool) != nil {
 						p.Manager = "uv"
 						p.Owner = parent
-						p.Reason = "Inherited tool policy requires explicit ownership review: " + filepath.Join(parent, "pyproject.toml")
+						p.Reason = "Inherited tool policy requires explicit ownership review: " + filepath.Join(
+							parent,
+							"pyproject.toml",
+						)
 						return nil
 					}
 				}
@@ -219,7 +243,8 @@ func (r *Inventory) pythonOwner(p *Project) error {
 				relative, _ := filepath.Rel(parent, p.Root)
 				relative = filepath.ToSlash(relative)
 				for _, pattern := range stringsOf(workspace["members"]) {
-					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "..") {
+					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") ||
+						strings.Contains(pattern, "..") {
 						p.Reason = "Workspace pattern needs explicit ownership review"
 						return nil
 					}
@@ -230,7 +255,8 @@ func (r *Inventory) pythonOwner(p *Project) error {
 					member = member || matched
 				}
 				for _, pattern := range stringsOf(workspace["exclude"]) {
-					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") || strings.Contains(pattern, "..") {
+					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") ||
+						strings.Contains(pattern, "..") {
 						p.Reason = "Workspace exclusion pattern needs explicit ownership review"
 						return nil
 					}
@@ -275,7 +301,10 @@ func (r *Inventory) pythonOwner(p *Project) error {
 	}
 	p.Manager = "uv"
 	if _, inherits := nested(p.metadata, "tool", "ruff")["extend"]; inherits {
-		p.Reason = "Ruff extend configuration requires explicit inherited-policy ownership review: " + filepath.Join(p.Root, "pyproject.toml")
+		p.Reason = "Ruff extend configuration requires explicit inherited-policy ownership review: " + filepath.Join(
+			p.Root,
+			"pyproject.toml",
+		)
 		return nil
 	}
 	p.Supported = true
@@ -294,7 +323,10 @@ func (r *Inventory) pythonOwner(p *Project) error {
 			}
 			if data != nil {
 				p.Supported = false
-				p.Reason = "Standalone configuration requires reviewed integration: " + filepath.Join(parent, name)
+				p.Reason = "Standalone configuration requires reviewed integration: " + filepath.Join(
+					parent,
+					name,
+				)
 			}
 		}
 		if _, err := os.Lstat(filepath.Join(parent, ".git")); err == nil {

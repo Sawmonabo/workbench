@@ -44,10 +44,26 @@ func selectedCandidate(c operation.Context) (*candidate, error) {
 	}
 	manifest, err := os.ReadFile(filepath.Join(directory, "release.json"))
 	if err != nil || sum(manifest) != saved.MetadataSHA256 || metadata.Release != saved.Version {
-		return nil, operation.Fail(4, "candidate", "Staged manifest differs from its verified candidate record")
+		return nil, operation.Fail(
+			4,
+			"candidate",
+			"Staged manifest differs from its verified candidate record",
+		)
 	}
-	b := Bundle{Metadata: metadata, ArchiveDigest: saved.SHA256, Files: map[string][]byte{"release.json": manifest}}
-	return &candidate{bundle: b, record: operation.ReleaseRecord{Identity: b.Identity(), Executable: filepath.Join(directory, "bin", "workbench"), Source: directory}, recordDigest: sum(raw)}, nil
+	b := Bundle{
+		Metadata:      metadata,
+		ArchiveDigest: saved.SHA256,
+		Files:         map[string][]byte{"release.json": manifest},
+	}
+	return &candidate{
+		bundle: b,
+		record: operation.ReleaseRecord{
+			Identity:   b.Identity(),
+			Executable: filepath.Join(directory, "bin", "workbench"),
+			Source:     directory,
+		},
+		recordDigest: sum(raw),
+	}, nil
 }
 
 // CandidateHandoff validates and executes a staged runtime without activation,
@@ -86,13 +102,27 @@ func PlanCandidate(c operation.Context, plan *operation.Plan) error {
 	if err != nil {
 		return err
 	}
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "verified-candidate", Digest: selected.recordDigest})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "verified-candidate", Digest: selected.recordDigest},
+	)
 	stateRaw, _ := json.Marshal(state)
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "runtime-selection", Digest: sum(stateRaw)})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "runtime-selection", Digest: sum(stateRaw)},
+	)
 	if state != nil && state.ActiveRelease != nil && *state.ActiveRelease == selected.record {
 		return nil
 	}
-	plan.Effects = append(plan.Effects, operation.Effect{Name: "activate-candidate", Description: "Activate this verified CLI and source together", Privilege: "user", Recovery: "Previous runtime retained; interrupted selector changes require resuming the same approved installation"})
+	plan.Effects = append(
+		plan.Effects,
+		operation.Effect{
+			Name:        "activate-candidate",
+			Description: "Activate this verified CLI and source together",
+			Privilege:   "user",
+			Recovery:    "Previous runtime retained; interrupted selector changes require resuming the same approved installation",
+		},
+	)
 	return nil
 }
 
@@ -123,10 +153,30 @@ func ActivateCandidate(ctx context.Context, c operation.Context, m *operation.Mu
 func checkRuntime(ctx context.Context, c operation.Context, executable, directory string) error {
 	probe := c
 	probe.Native.Source = ""
-	output, err := operation.Run(ctx, probe, nil, operation.Process{Executable: executable, Args: []string{"release-check", "--bundle-directory", directory, "--json"}, Directory: "/", Environment: RuntimeEnvironment(c), OutputLimit: 1 << 20})
+	output, err := operation.Run(
+		ctx,
+		probe,
+		nil,
+		operation.Process{
+			Executable:  executable,
+			Args:        []string{"release-check", "--bundle-directory", directory, "--json"},
+			Directory:   "/",
+			Environment: RuntimeEnvironment(c),
+			OutputLimit: 1 << 20,
+		},
+	)
 	var checked operation.Result
-	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil || checked.Status != "complete" || len(checked.Errors) != 0 || len(checked.Results) != 1 || checked.Results[0].Name != "release-check" || checked.Results[0].Status != "complete" {
-		return operation.Fail(3, "handoff", "Candidate runtime did not validate its source and current contract; installed runtime retained")
+	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil ||
+		checked.Status != "complete" ||
+		len(checked.Errors) != 0 ||
+		len(checked.Results) != 1 ||
+		checked.Results[0].Name != "release-check" ||
+		checked.Results[0].Status != "complete" {
+		return operation.Fail(
+			3,
+			"handoff",
+			"Candidate runtime did not validate its source and current contract; installed runtime retained",
+		)
 	}
 	return nil
 }

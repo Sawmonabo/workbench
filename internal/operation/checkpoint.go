@@ -19,8 +19,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const journalBytes = 64 << 10
-const MaxScopeCheckpointBytes = 1 << 30
+const (
+	journalBytes            = 64 << 10
+	MaxScopeCheckpointBytes = 1 << 30
+)
 
 type imageReference struct {
 	Path   string `json:"path"`
@@ -111,15 +113,21 @@ func validateChanges(c Context, changes []TargetChange) error {
 				attributes += len(value)
 			}
 		}
-		if change.Before.Kind == "directory" && change.After.Kind != "absent" && change.After.Kind != "directory" {
+		if change.Before.Kind == "directory" && change.After.Kind != "absent" &&
+			change.After.Kind != "directory" {
 			return Fail(3, "checkpoint", "Existing directory replacement is unsupported")
 		}
-		if change.After.Kind == "directory" && change.Before.Kind != "absent" && change.Before.Kind != "directory" {
+		if change.After.Kind == "directory" && change.Before.Kind != "absent" &&
+			change.Before.Kind != "directory" {
 			return Fail(3, "checkpoint", "Directory replacement is unsupported")
 		}
 	}
 	if attributes > 16<<10 {
-		return Fail(3, "checkpoint_limit", "Extended attributes exceed the reserved 16 KiB pair limit")
+		return Fail(
+			3,
+			"checkpoint_limit",
+			"Extended attributes exceed the reserved 16 KiB pair limit",
+		)
 	}
 	if total > MaxCheckpointImageBytes {
 		return Fail(3, "checkpoint_limit", "Pre/post images exceed the 32 MiB checkpoint limit")
@@ -127,7 +135,12 @@ func validateChanges(c Context, changes []TargetChange) error {
 	return nil
 }
 
-func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []TargetChange) (*Checkpoint, error) {
+func BeginCheckpoint(
+	m *Mutation,
+	plan Plan,
+	before *SourceIdentity,
+	changes []TargetChange,
+) (*Checkpoint, error) {
 	if err := m.Check(); err != nil {
 		return nil, err
 	}
@@ -175,12 +188,21 @@ func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []T
 	}
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".prepare-") {
-			return nil, Fail(3, "checkpoint", "A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable")
+			return nil, Fail(
+				3,
+				"checkpoint",
+				"A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable",
+			)
 		}
 	}
 	for _, old := range existing {
-		if old.journal.Status == "running" || old.journal.Status == "unknown" || old.journal.Status == "partial" {
-			return nil, Fail(3, "recovery", "Resolve the retained incomplete checkpoint before further application")
+		if old.journal.Status == "running" || old.journal.Status == "unknown" ||
+			old.journal.Status == "partial" {
+			return nil, Fail(
+				3,
+				"recovery",
+				"Resolve the retained incomplete checkpoint before further application",
+			)
 		}
 	}
 	if len(existing) >= MaxForwardCheckpoints {
@@ -196,14 +218,40 @@ func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []T
 	if err != nil {
 		return nil, err
 	}
-	cp := &Checkpoint{ID: id, mutation: m, directory: filepath.Join(checkpointScope(c), ".prepare-"+id), changes: changes}
-	cp.record = checkpointRecord{SchemaVersion: 1, ID: id, RecoveryID: pair, Scope: c.Scope, Created: time.Now().UTC(), Before: before, Applied: plan.Source, Effects: plan.Effects}
-	cp.journal = checkpointJournal{SchemaVersion: 1, OperationID: id, Direction: "forward", Status: "prepared", Known: make([]string, len(changes)), PostAttributes: make([]map[string][]byte, len(changes)), ObservedAttributes: make([]map[string][]byte, len(changes))}
+	cp := &Checkpoint{
+		ID:        id,
+		mutation:  m,
+		directory: filepath.Join(checkpointScope(c), ".prepare-"+id),
+		changes:   changes,
+	}
+	cp.record = checkpointRecord{
+		SchemaVersion: 1,
+		ID:            id,
+		RecoveryID:    pair,
+		Scope:         c.Scope,
+		Created:       time.Now().UTC(),
+		Before:        before,
+		Applied:       plan.Source,
+		Effects:       plan.Effects,
+	}
+	cp.journal = checkpointJournal{
+		SchemaVersion:      1,
+		OperationID:        id,
+		Direction:          "forward",
+		Status:             "prepared",
+		Known:              make([]string, len(changes)),
+		PostAttributes:     make([]map[string][]byte, len(changes)),
+		ObservedAttributes: make([]map[string][]byte, len(changes)),
+	}
 	for i, change := range changes {
 		cp.journal.Known[i] = "before"
 		cp.journal.PostAttributes[i] = change.After.Attributes
 		cp.journal.ObservedAttributes[i] = change.Before.Attributes
-		ref := imageReference{Path: change.Path, Before: ImageDigest(change.Before), After: ImageDigest(change.After)}
+		ref := imageReference{
+			Path:   change.Path,
+			Before: ImageDigest(change.Before),
+			After:  ImageDigest(change.After),
+		}
 		cp.record.Targets = append(cp.record.Targets, ref)
 		for _, image := range []Image{change.Before, change.After} {
 			if err = cp.storeImage(image); err != nil {
@@ -218,7 +266,10 @@ func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []T
 		if name[0] == 'r' {
 			size = 1 << 20
 		}
-		if err = m.WritePrivate(filepath.Join(cp.directory, name), bytes.Repeat([]byte(" "), size)); err != nil {
+		if err = m.WritePrivate(
+			filepath.Join(cp.directory, name),
+			bytes.Repeat([]byte(" "), size),
+		); err != nil {
 			return nil, err
 		}
 	}
@@ -268,7 +319,10 @@ func (cp *Checkpoint) storeImage(image Image) error {
 	manifest := imageManifest{Size: len(data), Chunks: (len(data) + (1 << 20) - 1) / (1 << 20)}
 	for i := range manifest.Chunks {
 		end := min((i+1)*(1<<20), len(data))
-		if err = cp.mutation.WritePrivate(filepath.Join(directory, fmt.Sprintf("%02d.part", i)), data[i*(1<<20):end]); err != nil {
+		if err = cp.mutation.WritePrivate(
+			filepath.Join(directory, fmt.Sprintf("%02d.part", i)),
+			data[i*(1<<20):end],
+		); err != nil {
 			return err
 		}
 	}
@@ -282,7 +336,8 @@ func readStoredImage(directory, digest string) (Image, error) {
 	if err := decodePrivate(filepath.Join(directory, "image.json"), 1024, &manifest); err != nil {
 		return Image{}, err
 	}
-	if manifest.Size < 1 || manifest.Size > MaxImageBytes*2 || manifest.Chunks != (manifest.Size+(1<<20)-1)/(1<<20) {
+	if manifest.Size < 1 || manifest.Size > MaxImageBytes*2 ||
+		manifest.Chunks != (manifest.Size+(1<<20)-1)/(1<<20) {
 		return Image{}, Fail(2, "checkpoint_format", "Invalid image storage bounds")
 	}
 	data := make([]byte, 0, manifest.Size)
@@ -318,7 +373,9 @@ func (cp *Checkpoint) saveJournal() error {
 	cp.journal.Sequence++
 	data, _ := json.Marshal(cp.journal)
 	digest := sha256.Sum256(data)
-	envelope, err := json.Marshal(journalEnvelope{Digest: hex.EncodeToString(digest[:]), Journal: cp.journal})
+	envelope, err := json.Marshal(
+		journalEnvelope{Digest: hex.EncodeToString(digest[:]), Journal: cp.journal},
+	)
 	if err != nil {
 		return err
 	}
@@ -369,10 +426,18 @@ func (cp *Checkpoint) FinalizeNative() error {
 		comparison := current
 		comparison.Group = change.After.Group
 		if !sameImageContent(comparison, change.After) {
-			return Fail(5, "native_image", "Native output differs from the approved images; metadata was not changed")
+			return Fail(
+				5,
+				"native_image",
+				"Native output differs from the approved images; metadata was not changed",
+			)
 		}
 		if current.Kind == "symlink" && *current.Group != *change.After.Group {
-			return Fail(3, "metadata", "Native link group correction is unqualified; retained images require review")
+			return Fail(
+				3,
+				"metadata",
+				"Native link group correction is unqualified; retained images require review",
+			)
 		}
 		observed[i] = current
 	}
@@ -385,7 +450,11 @@ func (cp *Checkpoint) FinalizeNative() error {
 			return err
 		}
 		if !sameImage(current, observed[i]) {
-			return Fail(5, "native_image", "Native target changed before group preservation; stop for review")
+			return Fail(
+				5,
+				"native_image",
+				"Native target changed before group preservation; stop for review",
+			)
 		}
 		if err = enforceNativeGroup(c, change.Path, observed[i], *change.After.Group); err != nil {
 			return err
@@ -435,19 +504,31 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		if errors.Is(runErr, context.Canceled) {
 			return runErr
 		}
-		return Fail(5, "checkpoint", "Target outcome could not be recorded; retained images require reviewed reconciliation")
+		return Fail(
+			5,
+			"checkpoint",
+			"Target outcome could not be recorded; retained images require reviewed reconciliation",
+		)
 	}
 	if errors.Is(runErr, context.Canceled) {
 		return runErr
 	}
 	if unknown {
-		return Fail(5, "recovery", "Unrecognized target outcomes require reviewed reconciliation; original images retained")
+		return Fail(
+			5,
+			"recovery",
+			"Unrecognized target outcomes require reviewed reconciliation; original images retained",
+		)
 	}
 	if changed && runErr != nil {
 		if errors.Is(runErr, context.Canceled) {
 			return runErr
 		}
-		return Fail(5, "partial", "Some target changes completed; recover using the retained checkpoint")
+		return Fail(
+			5,
+			"partial",
+			"Some target changes completed; recover using the retained checkpoint",
+		)
 	}
 	return runErr
 }
@@ -511,13 +592,21 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 		if err := writeImage(cp.mutation.context, change.Path, expected, desired); err != nil {
 			cp.journal.Status = "partial"
 			_ = cp.saveJournal()
-			return Fail(5, "partial", "A target write did not complete; retained checkpoint requires reconciliation before retry")
+			return Fail(
+				5,
+				"partial",
+				"A target write did not complete; retained checkpoint requires reconciliation before retry",
+			)
 		}
 		observed, err := ReadImage(cp.mutation.context, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {
 			cp.journal.Status = "unknown"
 			_ = cp.saveJournal()
-			return Fail(5, "partial", "Target outcome requires reconciliation; retained images were preserved")
+			return Fail(
+				5,
+				"partial",
+				"Target outcome requires reconciliation; retained images were preserved",
+			)
 		}
 		cp.journal.ObservedAttributes[i] = observed.Attributes
 		if !reverse && !cp.journal.RecoveryCreated {
@@ -526,12 +615,20 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 		}
 		cp.journal.Known[i] = known
 		if err := cp.saveJournal(); err != nil {
-			return Fail(5, "checkpoint", "A target changed but journal update failed; recovery images are retained")
+			return Fail(
+				5,
+				"checkpoint",
+				"A target changed but journal update failed; recovery images are retained",
+			)
 		}
 	}
 	cp.journal.Status = "complete"
 	if err := cp.saveJournal(); err != nil {
-		return Fail(5, "checkpoint", "Target changes completed but journal finalization failed; retained images remain available")
+		return Fail(
+			5,
+			"checkpoint",
+			"Target changes completed but journal finalization failed; retained images remain available",
+		)
 	}
 	return nil
 }
@@ -551,10 +648,15 @@ func RetentionEffect(c Context) (*Effect, error) {
 
 func retentionEffect(cp *Checkpoint) Effect {
 	return Effect{
-		Name:        "checkpoint-retention",
-		Description: fmt.Sprintf("Remove checkpoint %s from %s, the oldest settled of %d retained, with its paired recovery record", cp.ID, cp.record.Created.Format(time.RFC3339), MaxForwardCheckpoints),
-		Privilege:   "user",
-		Recovery:    "the removed checkpoint can no longer be restored",
+		Name: "checkpoint-retention",
+		Description: fmt.Sprintf(
+			"Remove checkpoint %s from %s, the oldest settled of %d retained, with its paired recovery record",
+			cp.ID,
+			cp.record.Created.Format(time.RFC3339),
+			MaxForwardCheckpoints,
+		),
+		Privilege: "user",
+		Recovery:  "the removed checkpoint can no longer be restored",
 	}
 }
 
@@ -570,7 +672,8 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	var oldest *Checkpoint
 	for _, cp := range checkpoints {
 		settled := cp.journal.Status == "complete" || cp.journal.Status == "failed"
-		if !settled || state != nil && state.PartialOperation != nil && state.PartialOperation.ID == cp.ID {
+		if !settled ||
+			state != nil && state.PartialOperation != nil && state.PartialOperation.ID == cp.ID {
 			continue
 		}
 		if oldest == nil || cp.record.Created.Before(oldest.record.Created) {
@@ -588,7 +691,11 @@ func pruneApproved(c Context, plan Plan) error {
 		return err
 	}
 	if oldest == nil || !slices.Contains(plan.Effects, retentionEffect(oldest)) {
-		return Fail(3, "checkpoint_limit", "Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan")
+		return Fail(
+			3,
+			"checkpoint_limit",
+			"Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan",
+		)
 	}
 	scope := checkpointScope(c)
 	removed := filepath.Join(filepath.Dir(scope), ".removed-"+oldest.ID)
@@ -651,16 +758,25 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 		return nil, err
 	}
 	if len(entries) > MaxForwardCheckpoints+1 {
-		return nil, Fail(2, "checkpoint_format", "Scope checkpoint count exceeds its supported bound")
+		return nil, Fail(
+			2,
+			"checkpoint_format",
+			"Scope checkpoint count exceeds its supported bound",
+		)
 	}
 	var result []*Checkpoint
 	var total int64
 	for _, entry := range entries {
-		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".prepare-") && operationID.MatchString(strings.TrimPrefix(entry.Name(), ".prepare-")) {
+		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".prepare-") &&
+			operationID.MatchString(strings.TrimPrefix(entry.Name(), ".prepare-")) {
 			continue
 		}
 		if !entry.IsDir() || !operationID.MatchString(entry.Name()) {
-			return nil, Fail(2, "checkpoint_format", "Unexpected checkpoint entry; no cleanup attempted")
+			return nil, Fail(
+				2,
+				"checkpoint_format",
+				"Unexpected checkpoint entry; no cleanup attempted",
+			)
 		}
 		cp, loadErr := loadCheckpoint(c, filepath.Join(directory, entry.Name()))
 		if loadErr != nil {
@@ -674,7 +790,11 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 		total += stored
 	}
 	if len(result) > MaxForwardCheckpoints || total > MaxScopeCheckpointBytes {
-		return nil, Fail(2, "checkpoint_limit", "Retained scope storage exceeds its supported count or byte bound")
+		return nil, Fail(
+			2,
+			"checkpoint_limit",
+			"Retained scope storage exceeds its supported count or byte bound",
+		)
 	}
 	return result, nil
 }
@@ -695,7 +815,7 @@ func checkpointStorageBytes(directory string) (int64, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if info.Mode().Perm() != 0700 {
+			if info.Mode().Perm() != 0o700 {
 				return Fail(2, "permissions", "Checkpoint directories require mode 0700")
 			}
 			return owned(info)
@@ -705,7 +825,11 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		}
 		size += info.Size()
 		if size > 50<<20 {
-			return Fail(2, "checkpoint_limit", "Checkpoint exceeds its 50 MiB serialized storage bound")
+			return Fail(
+				2,
+				"checkpoint_limit",
+				"Checkpoint exceeds its 50 MiB serialized storage bound",
+			)
 		}
 		return nil
 	})
@@ -714,11 +838,19 @@ func checkpointStorageBytes(directory string) (int64, error) {
 
 func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	cp := &Checkpoint{directory: directory}
-	if err := decodePrivate(filepath.Join(directory, "checkpoint.json"), 1<<20, &cp.record); err != nil {
+	if err := decodePrivate(
+		filepath.Join(directory, "checkpoint.json"),
+		1<<20,
+		&cp.record,
+	); err != nil {
 		return nil, err
 	}
 	r := cp.record
-	if r.SchemaVersion != 1 || r.Scope != c.Scope || !operationID.MatchString(r.ID) || r.ID != filepath.Base(directory) || !operationID.MatchString(r.RecoveryID) || r.ID == r.RecoveryID || r.Created.IsZero() {
+	if r.SchemaVersion != 1 || r.Scope != c.Scope || !operationID.MatchString(r.ID) ||
+		r.ID != filepath.Base(directory) ||
+		!operationID.MatchString(r.RecoveryID) ||
+		r.ID == r.RecoveryID ||
+		r.Created.IsZero() {
 		return nil, Fail(2, "checkpoint_format", "Unsupported checkpoint identity or scope")
 	}
 	if err := (State{SchemaVersion: 1, AppliedConfiguration: &r.Applied}).Validate(); err != nil {
@@ -747,7 +879,11 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 			}
 			total += len(image.Data) + len(image.Link)
 			if total > MaxCheckpointImageBytes {
-				return nil, Fail(2, "checkpoint_limit", "Checkpoint images exceed their aggregate read bound")
+				return nil, Fail(
+					2,
+					"checkpoint_limit",
+					"Checkpoint images exceed their aggregate read bound",
+				)
 			}
 			if index == 0 {
 				change.Before = image
@@ -762,14 +898,29 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	}
 	for i := range 2 {
 		var envelope journalEnvelope
-		if err := decodePrivate(filepath.Join(directory, fmt.Sprintf("journal-%d.json", i)), journalBytes, &envelope); err != nil {
+		if err := decodePrivate(
+			filepath.Join(directory, fmt.Sprintf("journal-%d.json", i)),
+			journalBytes,
+			&envelope,
+		); err != nil {
 			return nil, err
 		}
 		data, _ := json.Marshal(envelope.Journal)
 		digest := sha256.Sum256(data)
 		j := envelope.Journal
-		if envelope.Digest != hex.EncodeToString(digest[:]) || j.SchemaVersion != 1 || !operationID.MatchString(j.OperationID) || j.Sequence == 0 || len(j.Known) != len(cp.changes) || len(j.PostAttributes) != len(cp.changes) || len(j.ObservedAttributes) != len(cp.changes) || (j.Direction != "forward" && j.Direction != "reverse") || !slices.Contains([]string{"prepared", "running", "complete", "partial", "failed", "unknown"}, j.Status) {
-			return nil, Fail(2, "checkpoint_format", "Invalid recovery journal; retained images require review")
+		if envelope.Digest != hex.EncodeToString(digest[:]) || j.SchemaVersion != 1 ||
+			!operationID.MatchString(j.OperationID) ||
+			j.Sequence == 0 ||
+			len(j.Known) != len(cp.changes) ||
+			len(j.PostAttributes) != len(cp.changes) ||
+			len(j.ObservedAttributes) != len(cp.changes) ||
+			(j.Direction != "forward" && j.Direction != "reverse") ||
+			!slices.Contains([]string{"prepared", "running", "complete", "partial", "failed", "unknown"}, j.Status) {
+			return nil, Fail(
+				2,
+				"checkpoint_format",
+				"Invalid recovery journal; retained images require review",
+			)
 		}
 		for _, known := range j.Known {
 			if !slices.Contains([]string{"before", "after", "unknown"}, known) {
@@ -782,7 +933,11 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 			}
 			for _, known := range j.PairPost {
 				if known != "before" && known != "after" {
-					return nil, Fail(2, "checkpoint_format", "Invalid paired recovery image selection")
+					return nil, Fail(
+						2,
+						"checkpoint_format",
+						"Invalid paired recovery image selection",
+					)
 				}
 			}
 		} else if len(j.PairPost) != 0 {
@@ -828,11 +983,35 @@ func ListCheckpoints(c Context) ([]CheckpointSummary, error) {
 	result := make([]CheckpointSummary, 0, len(checkpoints)*2)
 	for _, cp := range checkpoints {
 		r := cp.record
-		result = append(result, CheckpointSummary{ID: r.ID, PairedID: r.RecoveryID, Before: r.Before, Applied: &r.Applied, Created: r.Created, Status: cp.journal.Status})
+		result = append(
+			result,
+			CheckpointSummary{
+				ID:       r.ID,
+				PairedID: r.RecoveryID,
+				Before:   r.Before,
+				Applied:  &r.Applied,
+				Created:  r.Created,
+				Status:   cp.journal.Status,
+			},
+		)
 		if cp.journal.RecoveryCreated {
-			result = append(result, CheckpointSummary{ID: r.RecoveryID, PairedID: r.ID, Before: &r.Applied, Applied: r.Before, Created: r.Created, Status: cp.journal.Status, Recovery: true})
+			result = append(
+				result,
+				CheckpointSummary{
+					ID:       r.RecoveryID,
+					PairedID: r.ID,
+					Before:   &r.Applied,
+					Applied:  r.Before,
+					Created:  r.Created,
+					Status:   cp.journal.Status,
+					Recovery: true,
+				},
+			)
 		}
 	}
-	slices.SortFunc(result, func(a, b CheckpointSummary) int { return a.Created.Compare(b.Created) })
+	slices.SortFunc(
+		result,
+		func(a, b CheckpointSummary) int { return a.Created.Compare(b.Created) },
+	)
 	return result, nil
 }

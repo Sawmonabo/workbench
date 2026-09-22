@@ -14,7 +14,9 @@ func TestRejectEscapingOrUnverifiedExecutable(t *testing.T) {
 	var raw bytes.Buffer
 	gz := gzip.NewWriter(&raw)
 	archive := tar.NewWriter(gz)
-	if err := archive.WriteHeader(&tar.Header{Name: "../workbench", Mode: 0700, Size: 4}); err != nil {
+	if err := archive.WriteHeader(
+		&tar.Header{Name: "../workbench", Mode: 0o700, Size: 4},
+	); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := archive.Write([]byte("evil")); err != nil {

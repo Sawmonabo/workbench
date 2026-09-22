@@ -20,7 +20,12 @@ var toolVersion = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 
 // ResolveDependencies never installs or repairs. Recorded compatible owners win;
 // incompatible borrowed tools are retained and reported, never replaced here.
-func ResolveDependencies(ctx context.Context, c operation.Context, recorded []operation.Dependency, searchPath string) ([]operation.Dependency, []operation.Component) {
+func ResolveDependencies(
+	ctx context.Context,
+	c operation.Context,
+	recorded []operation.Dependency,
+	searchPath string,
+) ([]operation.Dependency, []operation.Component) {
 	var dependencies []operation.Dependency
 	var results []operation.Component
 	requirements := ManagementRequirements()
@@ -31,7 +36,11 @@ func ResolveDependencies(ctx context.Context, c operation.Context, recorded []op
 				candidates = append(candidates, prior)
 			}
 		}
-		path, err := operation.FindExecutable(name, searchPath, []string{c.Native.Source, projectRoot(c)})
+		path, err := operation.FindExecutable(
+			name,
+			searchPath,
+			[]string{c.Native.Source, projectRoot(c)},
+		)
 		if err == nil {
 			owner := "user"
 			if strings.Contains(path, "/Cellar/") {
@@ -40,12 +49,23 @@ func ResolveDependencies(ctx context.Context, c operation.Context, recorded []op
 			if strings.HasPrefix(path, "/usr/bin/") {
 				owner = "system"
 			}
-			candidates = append(candidates, operation.Dependency{Name: name, Path: path, Owner: owner})
+			candidates = append(
+				candidates,
+				operation.Dependency{Name: name, Path: path, Owner: owner},
+			)
 		}
-		component := operation.Component{Name: name, Status: "blocked", Message: "Missing qualified tool; approved setup is required"}
+		component := operation.Component{
+			Name:    name,
+			Status:  "blocked",
+			Message: "Missing qualified tool; approved setup is required",
+		}
 		for _, candidate := range candidates {
 			args := []string{"--version"}
-			environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}
+			environment := []string{
+				"PATH=/usr/bin:/bin",
+				"PYTHONDONTWRITEBYTECODE=1",
+				"HOME=" + c.Home,
+			}
 			cleanup := func() {}
 			if name == "chezmoi" {
 				scratch, scratchErr := os.MkdirTemp("", "workbench-version-")
@@ -54,19 +74,45 @@ func ResolveDependencies(ctx context.Context, c operation.Context, recorded []op
 					continue
 				}
 				cleanup = func() { _ = os.RemoveAll(scratch) }
-				if scratchErr = os.WriteFile(filepath.Join(scratch, "config.toml"), nil, 0600); scratchErr != nil {
+				if scratchErr = os.WriteFile(
+					filepath.Join(scratch, "config.toml"),
+					nil,
+					0o600,
+				); scratchErr != nil {
 					cleanup()
 					continue
 				}
-				native := operation.NativeContext{Source: scratch, Config: filepath.Join(scratch, "config.toml"), Destination: scratch, PersistentState: filepath.Join(scratch, "state.boltdb"), Cache: filepath.Join(scratch, "cache")}
+				native := operation.NativeContext{
+					Source:          scratch,
+					Config:          filepath.Join(scratch, "config.toml"),
+					Destination:     scratch,
+					PersistentState: filepath.Join(scratch, "state.boltdb"),
+					Cache:           filepath.Join(scratch, "cache"),
+				}
 				args, _ = native.Args()
 				args = append(args, "--version")
 				environment = []string{"PATH=/usr/bin:/bin", "HOME=" + scratch}
 			}
 			if name == "python3" {
-				args = []string{"-I", "-c", "import sys,tomllib; print('.'.join(map(str,sys.version_info[:3])))"}
+				args = []string{
+					"-I",
+					"-c",
+					"import sys,tomllib; print('.'.join(map(str,sys.version_info[:3])))",
+				}
 			}
-			output, runErr := operation.Run(ctx, c, nil, operation.Process{Executable: candidate.Path, Args: args, Directory: "/", Environment: environment, Timeout: 10 * time.Second, OutputLimit: 4096})
+			output, runErr := operation.Run(
+				ctx,
+				c,
+				nil,
+				operation.Process{
+					Executable:  candidate.Path,
+					Args:        args,
+					Directory:   "/",
+					Environment: environment,
+					Timeout:     10 * time.Second,
+					OutputLimit: 4096,
+				},
+			)
 			cleanup()
 			if runErr != nil {
 				component.Message = "Version/capability probe failed; existing tool retained"
@@ -79,13 +125,15 @@ func ResolveDependencies(ctx context.Context, c operation.Context, recorded []op
 				qualified = version == requirements.Chezmoi
 				candidate.Capabilities = []string{"builtin-git", "builtin-diff", "native-targets"}
 			case "uv":
-				qualified = version == requirements.UV || slices.Contains(requirements.UVAdditional, version)
+				qualified = version == requirements.UV ||
+					slices.Contains(requirements.UVAdditional, version)
 				candidate.Capabilities = []string{"private-python"}
 			case "python3":
 				parts := strings.Split(version, ".")
 				if len(parts) == 3 {
 					minor, _ := strconv.Atoi(parts[1])
-					qualified = parts[0] == "3" && minor >= requirements.PythonMinMinor && minor <= requirements.PythonMaxMinor
+					qualified = parts[0] == "3" && minor >= requirements.PythonMinMinor &&
+						minor <= requirements.PythonMaxMinor
 				}
 				candidate.Capabilities = []string{"tomllib"}
 			}
@@ -130,7 +178,10 @@ func ScriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 			directories = append(directories, directory)
 		}
 		if selected.Name == "chezmoi" || selected.Name == "uv" {
-			environment = append(environment, "WORKBENCH_"+strings.ToUpper(selected.Name)+"="+selected.Path)
+			environment = append(
+				environment,
+				"WORKBENCH_"+strings.ToUpper(selected.Name)+"="+selected.Path,
+			)
 		}
 	}
 	path := strings.Join(directories, string(os.PathListSeparator))
@@ -156,7 +207,8 @@ func windowsSystemDirectories(searchPath string) []string {
 	var directories []string
 	for _, entry := range filepath.SplitList(searchPath) {
 		lower := strings.ToLower(strings.TrimSuffix(entry, "/"))
-		system := strings.HasSuffix(lower, "/windows/system32") || strings.HasSuffix(lower, "/windows/system32/windowspowershell/v1.0")
+		system := strings.HasSuffix(lower, "/windows/system32") ||
+			strings.HasSuffix(lower, "/windows/system32/windowspowershell/v1.0")
 		if strings.HasPrefix(lower, "/mnt/") && system && !slices.Contains(directories, entry) {
 			directories = append(directories, entry)
 		}
@@ -165,18 +217,37 @@ func windowsSystemDirectories(searchPath string) []string {
 }
 
 func Platform(ctx context.Context, c operation.Context) operation.Component {
-	result := operation.Component{Name: "platform", Status: "blocked", Message: runtime.GOOS + "/" + runtime.GOARCH}
+	result := operation.Component{
+		Name:    "platform",
+		Status:  "blocked",
+		Message: runtime.GOOS + "/" + runtime.GOARCH,
+	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		return result
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		output, err := operation.Run(ctx, c, nil, operation.Process{Executable: "/usr/bin/sw_vers", Args: []string{"-productVersion"}, Directory: "/", Environment: []string{"PATH=/usr/bin:/bin"}, Timeout: 10 * time.Second})
+		output, err := operation.Run(
+			ctx,
+			c,
+			nil,
+			operation.Process{
+				Executable:  "/usr/bin/sw_vers",
+				Args:        []string{"-productVersion"},
+				Directory:   "/",
+				Environment: []string{"PATH=/usr/bin:/bin"},
+				Timeout:     10 * time.Second,
+			},
+		)
 		if err != nil {
 			return result
 		}
 		major, _ := strconv.Atoi(strings.Split(strings.TrimSpace(output.Stdout), ".")[0])
-		result.Message = fmt.Sprintf("macOS %s/%s; native provisioning qualification still required", strings.TrimSpace(output.Stdout), runtime.GOARCH)
+		result.Message = fmt.Sprintf(
+			"macOS %s/%s; native provisioning qualification still required",
+			strings.TrimSpace(output.Stdout),
+			runtime.GOARCH,
+		)
 		if major >= 15 {
 			result.Status = "complete"
 		}
@@ -192,7 +263,8 @@ func Platform(ctx context.Context, c operation.Context) operation.Component {
 				values[key] = strings.Trim(value, `"`)
 			}
 		}
-		if values["ID"] == "ubuntu" && slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"]) {
+		if values["ID"] == "ubuntu" &&
+			slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"]) {
 			result.Status = "complete"
 		}
 		result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH
@@ -223,12 +295,21 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	results = append([]operation.Component{Platform(ctx, c)}, results...)
 	// Plain chezmoi still pointed at another source, such as dotfiles, would
 	// reapply it over the same files Workbench manages.
-	if raw, readErr := os.ReadFile(filepath.Join(c.Home, ".config", "chezmoi", "chezmoi.toml")); readErr == nil {
+	if raw, readErr := os.ReadFile(
+		filepath.Join(c.Home, ".config", "chezmoi", "chezmoi.toml"),
+	); readErr == nil {
 		var native struct {
 			SourceDir string `toml:"sourceDir"`
 		}
 		if toml.Unmarshal(raw, &native) == nil && native.SourceDir != "" {
-			results = append(results, operation.Component{Name: "native-chezmoi", Status: "conflict", Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir + "; move it aside after switching (docs/switch-from-dotfiles.md)"})
+			results = append(
+				results,
+				operation.Component{
+					Name:    "native-chezmoi",
+					Status:  "conflict",
+					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir + "; move it aside after switching (docs/switch-from-dotfiles.md)",
+				},
+			)
 		}
 	}
 	root := filepath.Join(c.Home, ".config", "Code", "User")
@@ -236,7 +317,11 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		root = filepath.Join(c.Home, "Library", "Application Support", "Code", "User")
 	}
 	for _, target := range []struct{ name, path string }{{"editor-local", root}, {"editor-remote-wsl", filepath.Join(c.Home, ".vscode-server", "data", "Machine")}} {
-		component := operation.Component{Name: target.name, Status: "skipped", Message: "No existing host settings directory"}
+		component := operation.Component{
+			Name:    target.name,
+			Status:  "skipped",
+			Message: "No existing host settings directory",
+		}
 		if info, statErr := os.Lstat(target.path); statErr == nil && info.IsDir() {
 			component.Status = "complete"
 			component.Message = target.path + " (profile ownership requires apply preflight)"
@@ -245,7 +330,11 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	for _, result := range results {
 		if result.Status == "blocked" {
-			return results, operation.Fail(3, "dependency", "Doctor found missing or unqualified prerequisites; no repair performed")
+			return results, operation.Fail(
+				3,
+				"dependency",
+				"Doctor found missing or unqualified prerequisites; no repair performed",
+			)
 		}
 	}
 	return results, nil

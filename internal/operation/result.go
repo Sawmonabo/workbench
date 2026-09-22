@@ -50,14 +50,25 @@ type Result struct {
 }
 
 func NewResult(command string) Result {
-	return Result{SchemaVersion: 1, Command: command, Status: "complete", Results: []Component{}, Warnings: []string{}, Errors: []*Error{}}
+	return Result{
+		SchemaVersion: 1,
+		Command:       command,
+		Status:        "complete",
+		Results:       []Component{},
+		Warnings:      []string{},
+		Errors:        []*Error{},
+	}
 }
 
 func (r *Result) SetError(err error) {
 	if err == nil {
 		return
 	}
-	problem := &Error{Category: "execution", Message: "Operation failed: " + err.Error(), Code: ExitCode(err)}
+	problem := &Error{
+		Category: "execution",
+		Message:  "Operation failed: " + err.Error(),
+		Code:     ExitCode(err),
+	}
 	if problem.Code == 130 {
 		problem.Category, problem.Message = "interrupted", "Operation interrupted; inspect any recorded partial operation before retrying"
 	}

@@ -23,16 +23,30 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 			return readErr
 		}
 		hash := sha256.Sum256(raw)
-		if hex.EncodeToString(hash[:]) != candidateRecordDigest || expected.Source != c.Native.Source || !Within(filepath.Join(c.Paths.Data, "releases"), expected.Source) {
-			return Fail(4, "handoff", "Staged candidate changed before offline handoff; select and review it again")
+		if hex.EncodeToString(hash[:]) != candidateRecordDigest ||
+			expected.Source != c.Native.Source ||
+			!Within(filepath.Join(c.Paths.Data, "releases"), expected.Source) {
+			return Fail(
+				4,
+				"handoff",
+				"Staged candidate changed before offline handoff; select and review it again",
+			)
 		}
 	} else {
 		if state == nil || state.ActiveRelease == nil || *state.ActiveRelease != expected {
-			return Fail(4, "handoff", "Activated runtime changed before handoff; inspect state and resume installation")
+			return Fail(
+				4,
+				"handoff",
+				"Activated runtime changed before handoff; inspect state and resume installation",
+			)
 		}
 		entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
 		if err != nil || entry != expected.Executable {
-			return Fail(4, "handoff", "Runtime entry point changed before handoff; resume installation")
+			return Fail(
+				4,
+				"handoff",
+				"Runtime entry point changed before handoff; resume installation",
+			)
 		}
 	}
 	executable, err := trustedExecutable(expected.Executable, nil)
@@ -58,14 +72,30 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 	if len(search) == 0 {
 		search = []string{"/usr/bin", "/bin"}
 	}
-	environment := []string{"HOME=" + c.Home, "PATH=" + strings.Join(search, string(os.PathListSeparator)), "WORKBENCH_CONFIG_DIR=" + c.Paths.Config, "WORKBENCH_DATA_DIR=" + c.Paths.Data, "WORKBENCH_STATE_DIR=" + c.Paths.State, "WORKBENCH_CACHE_DIR=" + c.Paths.Cache, "WORKBENCH_BIN_DIR=" + c.Paths.Bin}
+	environment := []string{
+		"HOME=" + c.Home,
+		"PATH=" + strings.Join(search, string(os.PathListSeparator)),
+		"WORKBENCH_CONFIG_DIR=" + c.Paths.Config,
+		"WORKBENCH_DATA_DIR=" + c.Paths.Data,
+		"WORKBENCH_STATE_DIR=" + c.Paths.State,
+		"WORKBENCH_CACHE_DIR=" + c.Paths.Cache,
+		"WORKBENCH_BIN_DIR=" + c.Paths.Bin,
+	}
 	for _, name := range []string{"TERM", "LANG", "LC_ALL", "WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV"} {
 		if value := os.Getenv(name); value != "" {
 			environment = append(environment, name+"="+value)
 		}
 	}
-	if err = syscall.Exec(executable, append([]string{executable}, args...), environment); err != nil {
-		return Fail(1, "handoff", "Verified runtime could not start; installed and staged runtime files remain available; retry the selected command")
+	if err = syscall.Exec(
+		executable,
+		append([]string{executable}, args...),
+		environment,
+	); err != nil {
+		return Fail(
+			1,
+			"handoff",
+			"Verified runtime could not start; installed and staged runtime files remain available; retry the selected command",
+		)
 	}
 	return nil
 }

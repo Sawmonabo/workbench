@@ -16,10 +16,12 @@ import (
 )
 
 // Bounds include both image sets. Recovery reuses these immutable images.
-const MaxImageBytes = 8 << 20
-const MaxCheckpointImageBytes = 32 << 20
-const MaxCheckpointTargets = 256
-const MaxForwardCheckpoints = 20
+const (
+	MaxImageBytes           = 8 << 20
+	MaxCheckpointImageBytes = 32 << 20
+	MaxCheckpointTargets    = 256
+	MaxForwardCheckpoints   = 20
+)
 
 type Image struct {
 	Kind       string            `json:"kind"`
@@ -43,7 +45,7 @@ func ImageDigest(image Image) string {
 }
 
 func (image Image) validate(c Context, path string) error {
-	if image.Mode > 0777 || len(image.Data) > MaxImageBytes || len(image.Link) > 4096 {
+	if image.Mode > 0o777 || len(image.Data) > MaxImageBytes || len(image.Link) > 4096 {
 		return Fail(3, "image", "Target image exceeds the supported byte or permission bounds")
 	}
 	if image.Kind != "absent" {
@@ -52,7 +54,8 @@ func (image Image) validate(c Context, path string) error {
 		}
 	}
 	for name, value := range image.Attributes {
-		if runtime.GOOS != "darwin" || name != "com.apple.provenance" || len(value) > 4096 || image.Kind == "absent" {
+		if runtime.GOOS != "darwin" || name != "com.apple.provenance" || len(value) > 4096 ||
+			image.Kind == "absent" {
 			return Fail(3, "metadata", "Unsupported target extended attributes")
 		}
 	}
@@ -70,7 +73,7 @@ func (image Image) validate(c Context, path string) error {
 			return Fail(2, "image", "Malformed directory image")
 		}
 	case "symlink":
-		if len(image.Data) != 0 || image.Link == "" || image.Mode != 0777 {
+		if len(image.Data) != 0 || image.Link == "" || image.Mode != 0o777 {
 			return Fail(2, "image", "Malformed symbolic link image")
 		}
 		target := image.Link
@@ -125,7 +128,11 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 	if err := c.ValidateTarget(path); err != nil {
 		return nil, "", err
 	}
-	fd, err := unix.Open(c.Scope.Root, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+	fd, err := unix.Open(
+		c.Scope.Root,
+		unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+		0,
+	)
 	if err != nil {
 		return nil, "", err
 	}
@@ -136,7 +143,12 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 	}
 	if relative != "." {
 		for _, part := range strings.Split(relative, string(filepath.Separator)) {
-			next, openErr := unix.Openat(fd, part, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0)
+			next, openErr := unix.Openat(
+				fd,
+				part,
+				unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+				0,
+			)
 			_ = unix.Close(fd)
 			if openErr != nil {
 				return nil, "", openErr
@@ -162,17 +174,29 @@ func ReadImage(c Context, path string) (Image, error) {
 	}
 	defer func() { _ = parent.Close() }()
 	var stat unix.Stat_t
-	if err = unix.Fstatat(int(parent.Fd()), name, &stat, unix.AT_SYMLINK_NOFOLLOW); errors.Is(err, unix.ENOENT) {
+	if err = unix.Fstatat(
+		int(parent.Fd()),
+		name,
+		&stat,
+		unix.AT_SYMLINK_NOFOLLOW,
+	); errors.Is(
+		err,
+		unix.ENOENT,
+	) {
 		return Image{Kind: "absent"}, nil
 	}
 	if err != nil {
 		return Image{}, err
 	}
-	if int(stat.Uid) != os.Geteuid() || stat.Mode&07000 != 0 {
-		return Image{}, Fail(3, "metadata", "Target ownership or special permissions cannot be preserved")
+	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 {
+		return Image{}, Fail(
+			3,
+			"metadata",
+			"Target ownership or special permissions cannot be preserved",
+		)
 	}
 	group := uint32(stat.Gid)
-	image := Image{Mode: uint32(stat.Mode) & 0777, Group: &group}
+	image := Image{Mode: uint32(stat.Mode) & 0o777, Group: &group}
 	switch stat.Mode & unix.S_IFMT {
 	case unix.S_IFLNK:
 		data := make([]byte, 4097)
@@ -190,9 +214,18 @@ func ReadImage(c Context, path string) (Image, error) {
 		}
 	case unix.S_IFREG, unix.S_IFDIR:
 		if stat.Mode&unix.S_IFMT == unix.S_IFREG && (stat.Nlink != 1 || stat.Size > MaxImageBytes) {
-			return Image{}, Fail(3, "image", "Target has hard links or exceeds the 8 MiB image limit")
+			return Image{}, Fail(
+				3,
+				"image",
+				"Target has hard links or exceeds the 8 MiB image limit",
+			)
 		}
-		fd, openErr := unix.Openat(int(parent.Fd()), name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+		fd, openErr := unix.Openat(
+			int(parent.Fd()),
+			name,
+			unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC,
+			0,
+		)
 		if openErr != nil {
 			return Image{}, openErr
 		}
@@ -234,7 +267,8 @@ func sameImage(a, b Image) bool {
 	if (a.Group == nil) != (b.Group == nil) || a.Group != nil && *a.Group != *b.Group {
 		return false
 	}
-	if a.Kind != b.Kind || a.Mode != b.Mode || a.Link != b.Link || !bytes.Equal(a.Data, b.Data) || len(a.Attributes) != len(b.Attributes) {
+	if a.Kind != b.Kind || a.Mode != b.Mode || a.Link != b.Link || !bytes.Equal(a.Data, b.Data) ||
+		len(a.Attributes) != len(b.Attributes) {
 		return false
 	}
 	for name, value := range a.Attributes {
@@ -281,7 +315,11 @@ func CreationGroup(c Context, path string) (uint32, error) {
 		err := unix.Lstat(parent, &stat)
 		if err == nil {
 			if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
-				return 0, Fail(3, "metadata", "Cannot establish group inheritance through a non-directory")
+				return 0, Fail(
+					3,
+					"metadata",
+					"Cannot establish group inheritance through a non-directory",
+				)
 			}
 			if runtime.GOOS == "darwin" || stat.Mode&unix.S_ISGID != 0 {
 				return uint32(stat.Gid), nil
@@ -318,7 +356,11 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 			continue
 		}
 		if runtime.GOOS != "darwin" || name != "com.apple.provenance" {
-			return nil, Fail(3, "metadata", "Target extended attributes require preservation support")
+			return nil, Fail(
+				3,
+				"metadata",
+				"Target extended attributes require preservation support",
+			)
 		}
 		var data [4096]byte
 		if fd < 0 {
@@ -387,7 +429,12 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 		return err
 	}
 	defer func() { _ = parent.Close() }()
-	fd, err := unix.Openat(int(parent.Fd()), name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	fd, err := unix.Openat(
+		int(parent.Fd()),
+		name,
+		unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC,
+		0,
+	)
 	if err != nil {
 		return err
 	}
@@ -397,10 +444,12 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	if err = unix.Fstat(fd, &stat); err != nil {
 		return err
 	}
-	if int(stat.Uid) != os.Geteuid() || stat.Mode&07000 != 0 || (observed.Kind == "file" && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) || (observed.Kind == "directory" && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
+	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 ||
+		(observed.Kind == "file" && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
+		(observed.Kind == "directory" && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
 		return Fail(5, "native_image", "Native target inode changed before group preservation")
 	}
-	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0777}
+	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
 	currentGroup := uint32(stat.Gid)
 	current.Group = &currentGroup
 	if err = fileMetadata(fd, path); err != nil {
@@ -417,7 +466,11 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 		}
 	}
 	if !sameImage(current, observed) {
-		return Fail(5, "native_image", "Native target differs from its verified image; group was not changed")
+		return Fail(
+			5,
+			"native_image",
+			"Native target differs from its verified image; group was not changed",
+		)
 	}
 	if err = setImageGroup(fd, group); err != nil {
 		return err
@@ -465,7 +518,12 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		if err != nil {
 			return err
 		}
-		directoryFD, openErr := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+		directoryFD, openErr := unix.Openat(
+			fd,
+			name,
+			unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW,
+			0,
+		)
 		if openErr != nil {
 			return openErr
 		}
@@ -505,11 +563,20 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		if err != nil {
 			return err
 		}
-		if err = writeImageAttributes(-1, filepath.Join(filepath.Dir(path), temporary), desired.Attributes); err != nil {
+		if err = writeImageAttributes(
+			-1,
+			filepath.Join(filepath.Dir(path), temporary),
+			desired.Attributes,
+		); err != nil {
 			return err
 		}
 	} else {
-		fileFD, openErr := unix.Openat(fd, temporary, unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC, 0600)
+		fileFD, openErr := unix.Openat(
+			fd,
+			temporary,
+			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC,
+			0o600,
+		)
 		if openErr != nil {
 			return openErr
 		}

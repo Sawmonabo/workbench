@@ -15,13 +15,22 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c := Context{Paths: Paths{State: filepath.Join(root, "state"), Config: filepath.Join(root, "config"), Data: filepath.Join(root, "data"), Cache: filepath.Join(root, "cache"), Bin: filepath.Join(root, "bin")}, Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")}}
-	if err = os.Mkdir(c.Scope.Root, 0700); err != nil {
+	c := Context{
+		Paths: Paths{
+			State:  filepath.Join(root, "state"),
+			Config: filepath.Join(root, "config"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")},
+	}
+	if err = os.Mkdir(c.Scope.Root, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	first, second := filepath.Join(c.Scope.Root, "a"), filepath.Join(c.Scope.Root, "b")
-	before := Image{Kind: "file", Mode: 0640, Data: []byte("original")}
-	after := Image{Kind: "file", Mode: 0640, Data: []byte("applied")}
+	before := Image{Kind: "file", Mode: 0o640, Data: []byte("original")}
+	after := Image{Kind: "file", Mode: 0o640, Data: []byte("applied")}
 	group := os.Getegid()
 	groups, err := os.Getgroups()
 	if err != nil {
@@ -34,7 +43,7 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 		}
 	}
 	for _, path := range []string{first, second} {
-		if err = os.WriteFile(path, before.Data, 0640); err != nil {
+		if err = os.WriteFile(path, before.Data, 0o640); err != nil {
 			t.Fatal(err)
 		}
 		// A replace must retain a readable group's identity, not silently inherit
@@ -49,22 +58,37 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 	}
 	after.Attributes = before.Attributes
 	after.Group = before.Group
-	changes := []TargetChange{{Path: first, Before: before, After: after}, {Path: second, Before: before, After: after}}
-	plan := Plan{Source: SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(before)}, Scope: c.Scope, Complete: true, Inputs: []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}}}
+	changes := []TargetChange{
+		{Path: first, Before: before, After: after},
+		{Path: second, Before: before, After: after},
+	}
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(before)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
 	digest, _ := plan.Digest()
 	id := ""
-	err = WithMutation(context.Background(), c, plan, Consent{ApprovedDigest: digest, CompleteInputs: true}, func(context.Context, Context) (Plan, error) { return plan, nil }, func(m *Mutation) error {
-		cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
-		if beginErr != nil {
-			return beginErr
-		}
-		id = cp.ID
-		return cp.Apply(context.Background())
-	})
+	err = WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: digest, CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
+			if beginErr != nil {
+				return beginErr
+			}
+			id = cp.ID
+			return cp.Apply(context.Background())
+		},
+	)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err = os.WriteFile(second, []byte("later user edit"), 0600); err != nil {
+	if err = os.WriteFile(second, []byte("later user edit"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	_, err = RecoveryPlan(c, RecoverySelector{Checkpoint: id})
@@ -75,7 +99,7 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 	if err != nil || string(data) != "applied" {
 		t.Fatal("conflicting recovery changed another target")
 	}
-	if err = os.WriteFile(second, after.Data, 0600); err != nil {
+	if err = os.WriteFile(second, after.Data, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	// A checkpoint image corrupted after preview must stop before any writes.
@@ -85,10 +109,16 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 	}
 	digest, _ = recovery.Digest()
 	imagePath := filepath.Join(checkpointScope(c), id, "images", ImageDigest(before), "00.part")
-	if err = os.WriteFile(imagePath, []byte("corrupt"), 0600); err != nil {
+	if err = os.WriteFile(imagePath, []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Recover(context.Background(), c, recovery, RecoverySelector{Checkpoint: id}, Consent{ApprovedDigest: digest, CompleteInputs: true})
+	_, err = Recover(
+		context.Background(),
+		c,
+		recovery,
+		RecoverySelector{Checkpoint: id},
+		Consent{ApprovedDigest: digest, CompleteInputs: true},
+	)
 	if err == nil {
 		t.Fatal("corrupted recovery evidence authorized writes")
 	}

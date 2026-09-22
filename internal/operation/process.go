@@ -32,7 +32,11 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 			return path, nil
 		}
 	}
-	return "", Fail(3, "dependency", "Required executable was not found outside project-controlled PATH entries")
+	return "", Fail(
+		3,
+		"dependency",
+		"Required executable was not found outside project-controlled PATH entries",
+	)
 }
 
 func trustedExecutable(path string, excluded []string) (string, error) {
@@ -49,8 +53,13 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 		}
 	}
 	info, err := os.Stat(canonical)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0111 == 0 || info.Mode().Perm()&0022 != 0 {
-		return "", Fail(3, "tool", "Selected executable must be a regular executable without group/other write access")
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
+		info.Mode().Perm()&0o022 != 0 {
+		return "", Fail(
+			3,
+			"tool",
+			"Selected executable must be a regular executable without group/other write access",
+		)
 	}
 	return canonical, nil
 }
@@ -67,9 +76,17 @@ func outsideProjects(directory string, excluded []string) error {
 				if marker == ".git" && homebrewRepository(parent, directory) {
 					continue
 				}
-				return Fail(3, "tool", "Project-controlled management executable lookup is forbidden")
+				return Fail(
+					3,
+					"tool",
+					"Project-controlled management executable lookup is forbidden",
+				)
 			} else if !os.IsNotExist(err) {
-				return Fail(3, "tool", "Cannot establish ownership of a management executable directory")
+				return Fail(
+					3,
+					"tool",
+					"Cannot establish ownership of a management executable directory",
+				)
 			}
 		}
 		if parent == filepath.Dir(parent) {
@@ -82,7 +99,8 @@ func outsideProjects(directory string, excluded []string) error {
 // Recognize its installed-tool directories, not arbitrary repositories with a
 // Homebrew-shaped name. Explicit project exclusions and nested markers still win.
 func homebrewRepository(repository, directory string) bool {
-	known := runtime.GOOS == "darwin" && (repository == "/opt/homebrew" || repository == "/usr/local/Homebrew") ||
+	known := runtime.GOOS == "darwin" &&
+		(repository == "/opt/homebrew" || repository == "/usr/local/Homebrew") ||
 		runtime.GOOS == "linux" && repository == "/home/linuxbrew/.linuxbrew/Homebrew"
 	if !known {
 		return false
@@ -99,7 +117,7 @@ func homebrewRepository(repository, directory string) bool {
 	}
 	for _, name := range []string{"bin/brew", "Library/Homebrew/brew.sh"} {
 		info, err := os.Lstat(filepath.Join(repository, name))
-		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 {
+		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
 			return false
 		}
 		stat, ok := info.Sys().(*syscall.Stat_t)
@@ -138,17 +156,31 @@ type ProcessOutput struct{ Stdout, Stderr string }
 
 // Run is the only subprocess owner. Read-only requests are reviewed native probes,
 // not a sandbox for arbitrary tools; never label a modifying command read-only.
-func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (ProcessOutput, error) {
+func Run(
+	ctx context.Context,
+	c Context,
+	mutation *Mutation,
+	request Process,
+) (ProcessOutput, error) {
 	var output ProcessOutput
-	if request.Terminal != nil && (!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
-		return output, Fail(3, "terminal", "Terminal execution requires approved mutation, a controlling terminal and no piped input")
+	if request.Terminal != nil &&
+		(!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
+		return output, Fail(
+			3,
+			"terminal",
+			"Terminal execution requires approved mutation, a controlling terminal and no piped input",
+		)
 	}
 	if request.Mutates {
 		if err := mutation.Check(); err != nil {
 			return output, err
 		}
 		if c.ReadOnly || mutation.context.Scope != c.Scope {
-			return output, Fail(3, "read_only", "Subprocess mutation is outside the approved context")
+			return output, Fail(
+				3,
+				"read_only",
+				"Subprocess mutation is outside the approved context",
+			)
 		}
 	}
 	excluded := []string{c.Native.Source}
@@ -164,10 +196,18 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 		return output, err
 	}
 	if !filepath.IsAbs(request.Directory) {
-		return output, Fail(2, "process", "Subprocess working directory must be explicit and absolute")
+		return output, Fail(
+			2,
+			"process",
+			"Subprocess working directory must be explicit and absolute",
+		)
 	}
 	if !request.Mutates && c.Scope.Kind == "project" && Within(c.Scope.Root, directory) {
-		return output, Fail(3, "process", "Read-only management probes must run outside the selected project")
+		return output, Fail(
+			3,
+			"process",
+			"Read-only management probes must run outside the selected project",
+		)
 	}
 	// Captured runs are bounded probes and helpers. Streamed native provisioning
 	// depends on network and package sizes, so it runs until done or interrupted.
@@ -176,18 +216,31 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 		request.Timeout = time.Minute
 	}
 	if request.Timeout < 0 || request.Timeout > 30*time.Minute {
-		return output, Fail(2, "process", "Subprocess timeout must be non-negative and at most 30 minutes")
+		return output, Fail(
+			2,
+			"process",
+			"Subprocess timeout must be non-negative and at most 30 minutes",
+		)
 	}
 	if request.OutputLimit == 0 {
 		request.OutputLimit = 1024 * 1024
 	}
-	if request.OutputLimit < 1 || request.OutputLimit > 16*1024*1024 || len(request.Input) > 16*1024*1024 {
-		return output, Fail(2, "process", "Subprocess input/output exceeds the bounded execution policy")
+	if request.OutputLimit < 1 || request.OutputLimit > 16*1024*1024 ||
+		len(request.Input) > 16*1024*1024 {
+		return output, Fail(
+			2,
+			"process",
+			"Subprocess input/output exceeds the bounded execution policy",
+		)
 	}
 	for _, variable := range request.Environment {
 		key, value, ok := strings.Cut(variable, "=")
 		if !ok || key == "" {
-			return output, Fail(2, "process", "Subprocess environment requires explicit key/value entries")
+			return output, Fail(
+				2,
+				"process",
+				"Subprocess environment requires explicit key/value entries",
+			)
 		}
 		if key == "PATH" {
 			for _, entry := range filepath.SplitList(value) {
@@ -234,7 +287,11 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 		return err
 	}
 	cmd.WaitDelay = time.Second
-	stdout, stderr := &boundedBuffer{limit: request.OutputLimit}, &boundedBuffer{limit: request.OutputLimit}
+	stdout, stderr := &boundedBuffer{
+		limit: request.OutputLimit,
+	}, &boundedBuffer{
+		limit: request.OutputLimit,
+	}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	var progress *redactingWriter
 	switch {
@@ -252,7 +309,13 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	}
 	// An interrupted stream may end halfway through a secret; do not expose it.
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return output, Fail(1, "timeout", filepath.Base(executable)+" exceeded its "+request.Timeout.String()+" limit and was stopped")
+		return output, Fail(
+			1,
+			"timeout",
+			filepath.Base(
+				executable,
+			)+" exceeded its "+request.Timeout.String()+" limit and was stopped",
+		)
 	}
 	if ctx.Err() != nil {
 		return output, ctx.Err()
@@ -262,10 +325,18 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	}
 	// Suppress overflowing output entirely, including partial secret suffixes.
 	if stdout.overflow || stderr.overflow {
-		return output, Fail(1, "output_limit", "Subprocess output exceeded its limit; output withheld")
+		return output, Fail(
+			1,
+			"output_limit",
+			"Subprocess output exceeded its limit; output withheld",
+		)
 	}
 	if err != nil {
-		return output, failure(filepath.Base(executable), err, Redact(stderr.String(), request.Secrets))
+		return output, failure(
+			filepath.Base(executable),
+			err,
+			Redact(stderr.String(), request.Secrets),
+		)
 	}
 	output.Stdout = Redact(stdout.String(), request.Secrets)
 	output.Stderr = Redact(stderr.String(), request.Secrets)
@@ -273,7 +344,11 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 		output.Stdout = stdout.String()
 	}
 	if len(output.Stdout) > request.OutputLimit || len(output.Stderr) > request.OutputLimit {
-		return ProcessOutput{}, Fail(1, "output_limit", "Redacted subprocess output exceeded its limit; output withheld")
+		return ProcessOutput{}, Fail(
+			1,
+			"output_limit",
+			"Redacted subprocess output exceeded its limit; output withheld",
+		)
 	}
 	return output, nil
 }

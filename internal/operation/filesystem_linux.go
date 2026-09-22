@@ -31,6 +31,10 @@ func privateFilesystem(path string) error {
 	case 0xef53, 0x58465342, 0x9123683e, 0x01021994, 0x794c7630: // ext, XFS, Btrfs, tmpfs, overlay
 		return nil
 	default:
-		return Fail(3, "filesystem", "Private Workbench state requires a supported native Linux filesystem; Windows/network mounts are unqualified")
+		return Fail(
+			3,
+			"filesystem",
+			"Private Workbench state requires a supported native Linux filesystem; Windows/network mounts are unqualified",
+		)
 	}
 }

@@ -52,7 +52,11 @@ func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeT
 func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity, error) {
 	identity := operation.SourceIdentity{Release: "developer", ContentDigest: digest(sourceTrust)}
 	if source == "" {
-		return nil, identity, operation.Fail(3, "source", "Select --source or activate a verified source before planning")
+		return nil, identity, operation.Fail(
+			3,
+			"source",
+			"Select --source or activate a verified source before planning",
+		)
 	}
 	requirements := ManagementRequirements()
 	files := make(map[string][]byte)
@@ -74,7 +78,11 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 			return operation.Fail(2, "source", "Cannot read selected machine source")
 		}
 		if requirements.Files[name] != digest(data) {
-			return operation.Fail(3, "source_trust", "Source differs from reviewed executable inputs; review changes, regenerate source trust and rebuild")
+			return operation.Fail(
+				3,
+				"source_trust",
+				"Source differs from reviewed executable inputs; review changes, regenerate source trust and rebuild",
+			)
 		}
 		files[name] = data
 		return nil
@@ -85,28 +93,39 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 		err = read(marker, info)
 	}
 	if err == nil {
-		err = filepath.Walk(filepath.Join(source, "home"), func(path string, info fs.FileInfo, walkErr error) error {
-			if walkErr != nil {
-				return walkErr
-			}
-			if info.IsDir() {
-				return nil
-			}
-			return read(path, info)
-		})
+		err = filepath.Walk(
+			filepath.Join(source, "home"),
+			func(path string, info fs.FileInfo, walkErr error) error {
+				if walkErr != nil {
+					return walkErr
+				}
+				if info.IsDir() {
+					return nil
+				}
+				return read(path, info)
+			},
+		)
 	}
 	if err != nil {
 		return nil, identity, err
 	}
 	if len(files) != len(requirements.Files) {
-		return nil, identity, operation.Fail(3, "source_trust", "Reviewed machine source files are missing")
+		return nil, identity, operation.Fail(
+			3,
+			"source_trust",
+			"Reviewed machine source files are missing",
+		)
 	}
 	// Release inspection owns artifact integrity; the already trusted source
 	// digest binds this display identity to the same machine payload.
 	metadataPath := filepath.Join(source, "release.json")
 	if metadataInfo, statErr := os.Lstat(metadataPath); statErr == nil {
 		if !metadataInfo.Mode().IsRegular() || metadataInfo.Size() > 1<<20 {
-			return nil, identity, operation.Fail(3, "source_trust", "Release identity requires bounded regular metadata")
+			return nil, identity, operation.Fail(
+				3,
+				"source_trust",
+				"Release identity requires bounded regular metadata",
+			)
 		}
 		metadata, readErr := os.ReadFile(metadataPath)
 		if readErr != nil {
@@ -116,12 +135,22 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 			Release      string `json:"release"`
 			SourceDigest string `json:"source_digest"`
 		}
-		if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil || release.Release == "" || release.SourceDigest != identity.ContentDigest {
-			return nil, identity, operation.Fail(3, "source_trust", "Release metadata does not match the compiled machine payload")
+		if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil ||
+			release.Release == "" ||
+			release.SourceDigest != identity.ContentDigest {
+			return nil, identity, operation.Fail(
+				3,
+				"source_trust",
+				"Release metadata does not match the compiled machine payload",
+			)
 		}
 		identity.Release = release.Release
 	} else if !os.IsNotExist(statErr) {
-		return nil, identity, operation.Fail(3, "source", "Cannot inspect selected release identity")
+		return nil, identity, operation.Fail(
+			3,
+			"source",
+			"Cannot inspect selected release identity",
+		)
 	}
 	return files, identity, nil
 }

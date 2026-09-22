@@ -33,8 +33,27 @@ type nativeRequest struct {
 	Missing []string
 }
 
-func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (proposal *Proposal, planErr error) {
-	p := &Proposal{Plan: operation.Plan{Scope: c.Scope, Complete: true, Source: operation.SourceIdentity{Release: options.Release, ContentDigest: hash([]byte(pythonpolicy.Policy + string(pythonpolicy.Extensions) + pythonpolicy.Ignore + adapter))}}}
+func Plan(
+	ctx context.Context,
+	c operation.Context,
+	options ConfigureOptions,
+) (proposal *Proposal, planErr error) {
+	p := &Proposal{
+		Plan: operation.Plan{
+			Scope:    c.Scope,
+			Complete: true,
+			Source: operation.SourceIdentity{
+				Release: options.Release,
+				ContentDigest: hash(
+					[]byte(
+						pythonpolicy.Policy + string(
+							pythonpolicy.Extensions,
+						) + pythonpolicy.Ignore + adapter,
+					),
+				),
+			},
+		},
+	}
 	defer func() {
 		if planErr != nil {
 			p.Plan.Complete = false
@@ -42,7 +61,11 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 	}()
 	for _, language := range c.Languages {
 		if language != "python" {
-			return p, operation.Fail(3, "unsupported_language", "Explicitly requested language is discovery-only; only Python configuration is supported")
+			return p, operation.Fail(
+				3,
+				"unsupported_language",
+				"Explicitly requested language is discovery-only; only Python configuration is supported",
+			)
 		}
 	}
 	inventory, err := Inspect(ctx, c.Scope.Root)
@@ -53,12 +76,18 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 	var selected []Project
 	for _, project := range inventory.Projects {
 		if project.Language != "python" {
-			p.Warnings = append(p.Warnings, "Discovery-only component left untouched: "+project.Root)
+			p.Warnings = append(
+				p.Warnings,
+				"Discovery-only component left untouched: "+project.Root,
+			)
 			continue
 		}
 		if !project.Supported {
 			if project.Manager != "uv" {
-				p.Warnings = append(p.Warnings, "Discovery-only Python component left untouched: "+unsupported(project))
+				p.Warnings = append(
+					p.Warnings,
+					"Discovery-only Python component left untouched: "+unsupported(project),
+				)
 				continue
 			}
 			p.Plan.Prerequisites = append(p.Plan.Prerequisites, unsupported(project))
@@ -68,25 +97,44 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 	}
 	p.Plan.Inputs = inventory.inputsList()
 	if len(selected) == 0 {
-		p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Select an existing supported uv project or workspace with a shared lockfile")
+		p.Plan.Prerequisites = append(
+			p.Plan.Prerequisites,
+			"Select an existing supported uv project or workspace with a shared lockfile",
+		)
 	}
 	if len(p.Plan.Prerequisites) > 0 {
 		p.Plan.Complete = false
-		return p, operation.Fail(3, "project_scope", "Project ownership or requested integration needs review; no files changed")
+		return p, operation.Fail(
+			3,
+			"project_scope",
+			"Project ownership or requested integration needs review; no files changed",
+		)
 	}
 	python, library, version, deps, err := adapterDependency(ctx, c)
 	p.Plan.Dependencies = deps
 	if err != nil {
 		p.Plan.Complete = false
-		p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Run separately approved Workbench setup for private Python/TOML Kit; preview does not install dependencies")
+		p.Plan.Prerequisites = append(
+			p.Plan.Prerequisites,
+			"Run separately approved Workbench setup for private Python/TOML Kit; preview does not install dependencies",
+		)
 		return p, err
 	}
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: "tomlkit", Digest: hash([]byte(library + version))})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: "tomlkit", Digest: hash([]byte(library + version))},
+	)
 	optionsData, _ := json.Marshal(options)
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: "project-options", Digest: hash(optionsData)})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: "project-options", Digest: hash(optionsData)},
+	)
 	var documents []string
 	for _, project := range selected {
-		documents = append(documents, string(inventory.inputs[filepath.Join(project.Root, "pyproject.toml")]))
+		documents = append(
+			documents,
+			string(inventory.inputs[filepath.Join(project.Root, "pyproject.toml")]),
+		)
 	}
 	rendered, err := transform(ctx, c, python, library, version, options.Release, documents)
 	if err != nil {
@@ -94,7 +142,12 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 	}
 	owners := map[string]bool{}
 	for i, project := range selected {
-		if err = p.add(c, filepath.Join(project.Root, "pyproject.toml"), []byte(rendered[i]), "Merge missing Python policy while preserving existing rule choices and application metadata"); err != nil {
+		if err = p.add(
+			c,
+			filepath.Join(project.Root, "pyproject.toml"),
+			[]byte(rendered[i]),
+			"Merge missing Python policy while preserving existing rule choices and application metadata",
+		); err != nil {
 			return p, err
 		}
 		owners[project.Owner] = true
@@ -117,13 +170,25 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 		missing := missingTools(doc)
 		if len(missing) > 0 {
 			if !options.ResolveDependencies {
-				p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Missing development checks at "+owner+": "+strings.Join(missing, ", ")+"; select --resolve-dependencies to approve native resolution")
+				p.Plan.Prerequisites = append(
+					p.Plan.Prerequisites,
+					"Missing development checks at "+owner+": "+strings.Join(
+						missing,
+						", ",
+					)+"; select --resolve-dependencies to approve native resolution",
+				)
 			} else {
 				if unsupportedUVSettings(inventory, owner) {
-					p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Custom uv resolution settings at "+owner+" need a native integration review; they will not be ignored or converted")
+					p.Plan.Prerequisites = append(
+						p.Plan.Prerequisites,
+						"Custom uv resolution settings at "+owner+" need a native integration review; they will not be ignored or converted",
+					)
 				}
 				if !options.AllowBuildHooks && unsafeResolution(inventory, owner) {
-					p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Dynamic metadata, local sources or nonstandard uv resolution requires explicit --allow-build-hooks and review; metadata-only staging may not support this project")
+					p.Plan.Prerequisites = append(
+						p.Plan.Prerequisites,
+						"Dynamic metadata, local sources or nonstandard uv resolution requires explicit --allow-build-hooks and review; metadata-only staging may not support this project",
+					)
 				}
 				p.native = append(p.native, nativeRequest{Owner: owner, Missing: missing})
 				// Native resolution may change only these two declared files. Bind their
@@ -138,11 +203,29 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 						if err != nil {
 							return p, err
 						}
-						p.Changes = append(p.Changes, operation.TargetChange{Path: path, Before: image, After: image})
+						p.Changes = append(
+							p.Changes,
+							operation.TargetChange{Path: path, Before: image, After: image},
+						)
 					}
-					p.Plan.Edits = append(p.Plan.Edits, operation.Edit{Path: path, Action: "native-resolution", Description: "Native uv may update this exact manifest/lockfile after approved dependency resolution"})
+					p.Plan.Edits = append(
+						p.Plan.Edits,
+						operation.Edit{
+							Path:        path,
+							Action:      "native-resolution",
+							Description: "Native uv may update this exact manifest/lockfile after approved dependency resolution",
+						},
+					)
 				}
-				p.Plan.Effects = append(p.Plan.Effects, operation.Effect{Name: "uv-dependency-resolution", Description: "Resolve missing development tools with native uv in private metadata staging; may access indexes and download metadata. --no-sync avoids environment synchronization; --no-build is not a sandbox. Project/third-party build execution is " + map[bool]string{true: "explicitly selected", false: "not selected; only static registry/workspace metadata is supported"}[options.AllowBuildHooks], Privilege: "user", Recovery: "Project manifests and lockfiles have exact file recovery; network, package caches and any approved code execution do not"})
+				p.Plan.Effects = append(
+					p.Plan.Effects,
+					operation.Effect{
+						Name:        "uv-dependency-resolution",
+						Description: "Resolve missing development tools with native uv in private metadata staging; may access indexes and download metadata. --no-sync avoids environment synchronization; --no-build is not a sandbox. Project/third-party build execution is " + map[bool]string{true: "explicitly selected", false: "not selected; only static registry/workspace metadata is supported"}[options.AllowBuildHooks],
+						Privilege:   "user",
+						Recovery:    "Project manifests and lockfiles have exact file recovery; network, package caches and any approved code execution do not",
+					},
+				)
 			}
 		}
 		if options.Extensions {
@@ -155,7 +238,12 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 			if err != nil {
 				return p, err
 			}
-			if err = p.add(c, path, merged, "Merge reviewed unique extension recommendations; does not install extensions"); err != nil {
+			if err = p.add(
+				c,
+				path,
+				merged,
+				"Merge reviewed unique extension recommendations; does not install extensions",
+			); err != nil {
 				return p, err
 			}
 		}
@@ -169,7 +257,12 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 			if err != nil {
 				return p, err
 			}
-			if err = p.add(c, path, merged, "Append relevant Python environment/cache ignore entries preserving order"); err != nil {
+			if err = p.add(
+				c,
+				path,
+				merged,
+				"Append relevant Python environment/cache ignore entries preserving order",
+			); err != nil {
 				return p, err
 			}
 		}
@@ -179,11 +272,19 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 			return p, err
 		}
 	}
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: "checkpoint-images", Digest: operation.ChangesDigest(p.Changes)})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: "checkpoint-images", Digest: operation.ChangesDigest(p.Changes)},
+	)
 	for _, change := range p.Changes {
-		p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: change.Path, Digest: operation.ImageDigest(change.Before)})
+		p.Plan.Inputs = append(
+			p.Plan.Inputs,
+			operation.Input{Name: change.Path, Digest: operation.ImageDigest(change.Before)},
+		)
 	}
-	p.Plan.RecoveryLimits = []string{"Exact project files only; dependency caches, downloads and external execution are not reverted"}
+	p.Plan.RecoveryLimits = []string{
+		"Exact project files only; dependency caches, downloads and external execution are not reverted",
+	}
 	if len(p.Changes) > 0 || len(p.native) > 0 {
 		retention, retentionErr := operation.RetentionEffect(c)
 		if retentionErr != nil {
@@ -199,12 +300,19 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 			found = found || dep.Name == "uv"
 		}
 		if !found {
-			p.Plan.Prerequisites = append(p.Plan.Prerequisites, "Qualified uv is required for native dependency resolution")
+			p.Plan.Prerequisites = append(
+				p.Plan.Prerequisites,
+				"Qualified uv is required for native dependency resolution",
+			)
 		}
 	}
 	if len(p.Plan.Prerequisites) > 0 {
 		p.Plan.Complete = false
-		return p, operation.Fail(3, "prerequisites", "Review project prerequisites and produce a complete plan before approval")
+		return p, operation.Fail(
+			3,
+			"prerequisites",
+			"Review project prerequisites and produce a complete plan before approval",
+		)
 	}
 	return p, nil
 }
@@ -215,7 +323,11 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 			if bytes.Equal(change.After.Data, data) {
 				return nil
 			}
-			return operation.Fail(4, "project_conflict", "Selected policies propose conflicting changes to a shared file")
+			return operation.Fail(
+				4,
+				"project_conflict",
+				"Selected policies propose conflicting changes to a shared file",
+			)
 		}
 	}
 	before, err := operation.ReadImage(c, path)
@@ -231,7 +343,8 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 	parent := filepath.Dir(path)
 	if parent != c.Scope.Root {
 		if _, err = os.Lstat(parent); os.IsNotExist(err) {
-			if filepath.Dir(parent) != c.Scope.Root && !operation.Within(c.Scope.Root, filepath.Dir(parent)) {
+			if filepath.Dir(parent) != c.Scope.Root &&
+				!operation.Within(c.Scope.Root, filepath.Dir(parent)) {
 				return operation.Fail(3, "project_scope", "Unsupported parent directory creation")
 			}
 			image, err := operation.ReadImage(c, parent)
@@ -243,26 +356,40 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 				exists = exists || change.Path == parent
 			}
 			if !exists {
-				after, err := operation.ImageWithGroup(c, parent, operation.Image{Kind: "directory", Mode: 0755})
+				after, err := operation.ImageWithGroup(
+					c,
+					parent,
+					operation.Image{Kind: "directory", Mode: 0o755},
+				)
 				if err != nil {
 					return err
 				}
-				p.Changes = append(p.Changes, operation.TargetChange{Path: parent, Before: image, After: after})
+				p.Changes = append(
+					p.Changes,
+					operation.TargetChange{Path: parent, Before: image, After: after},
+				)
 			}
 		} else if err != nil {
 			return err
 		}
 	}
-	mode := uint32(0644)
+	mode := uint32(0o644)
 	if before.Kind == "file" {
 		mode = before.Mode
 	}
-	after, err := operation.ImageWithGroup(c, path, operation.Image{Kind: "file", Mode: mode, Data: data, Attributes: before.Attributes})
+	after, err := operation.ImageWithGroup(
+		c,
+		path,
+		operation.Image{Kind: "file", Mode: mode, Data: data, Attributes: before.Attributes},
+	)
 	if err != nil {
 		return err
 	}
 	p.Changes = append(p.Changes, operation.TargetChange{Path: path, Before: before, After: after})
-	p.Plan.Edits = append(p.Plan.Edits, operation.Edit{Path: path, Action: "merge", Description: description})
+	p.Plan.Edits = append(
+		p.Plan.Edits,
+		operation.Edit{Path: path, Action: "merge", Description: description},
+	)
 	return nil
 }
 
@@ -312,7 +439,9 @@ func unsupportedUVSettings(inventory *Inventory, owner string) bool {
 			continue
 		}
 		for key := range nested(project.metadata, "tool", "uv") {
-			if key != "workspace" && key != "sources" && key != "dev-dependencies" && key != "managed" && key != "package" {
+			if key != "workspace" && key != "sources" && key != "dev-dependencies" &&
+				key != "managed" &&
+				key != "package" {
 				return true
 			}
 		}
@@ -331,7 +460,9 @@ func unsafeResolution(inventory *Inventory, owner string) bool {
 		}
 		uv := nested(doc, "tool", "uv")
 		for key := range uv {
-			if key != "workspace" && key != "sources" && key != "dev-dependencies" && key != "managed" && key != "package" {
+			if key != "workspace" && key != "sources" && key != "dev-dependencies" &&
+				key != "managed" &&
+				key != "package" {
 				return true
 			}
 		}

@@ -20,12 +20,20 @@ func SelectPrivateContext(c operation.Context, source string) (operation.Context
 	}
 	root := filepath.Join(c.Paths.Data, "application-contexts")
 	if !operation.Within(root, path) || path == root {
-		return c, operation.Fail(2, "source", "Native setup requires a private application context beneath Workbench data")
+		return c, operation.Fail(
+			2,
+			"source",
+			"Native setup requires a private application context beneath Workbench data",
+		)
 	}
 	for current := path; operation.Within(c.Paths.Data, current); current = filepath.Dir(current) {
 		info, statErr := os.Lstat(current)
-		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0077 != 0 {
-			return c, operation.Fail(2, "permissions", "Application contexts and their parents must be private directories")
+		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
+			return c, operation.Fail(
+				2,
+				"permissions",
+				"Application contexts and their parents must be private directories",
+			)
 		}
 	}
 	if _, _, err = SourceSnapshot(path); err != nil {
@@ -38,7 +46,12 @@ func SelectPrivateContext(c operation.Context, source string) (operation.Context
 // Initialize reuses the native questionnaire and built-in Git in a verified
 // private context. Acquiring/copying the verified payload belongs to setup.
 // Approval here saves answers only; it does not approve configuration apply.
-func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation, terminal *os.File) (Answers, error) {
+func Initialize(
+	ctx context.Context,
+	c operation.Context,
+	m *operation.Mutation,
+	terminal *os.File,
+) (Answers, error) {
 	if err := m.Check(); err != nil {
 		return nil, err
 	}
@@ -57,7 +70,11 @@ func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation,
 	}
 	dependencies, _ := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
 	if dependency(dependencies, "chezmoi") == "" || dependency(dependencies, "python3") == "" {
-		return nil, operation.Fail(3, "prerequisites", "Native setup requires qualified chezmoi and Python before initialization")
+		return nil, operation.Fail(
+			3,
+			"prerequisites",
+			"Native setup requires qualified chezmoi and Python before initialization",
+		)
 	}
 	seed := []byte("[data]\n")
 	if _, statErr := os.Lstat(c.Native.Config); statErr == nil {
@@ -71,7 +88,11 @@ func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation,
 	} else if !os.IsNotExist(statErr) {
 		return nil, statErr
 	} else if terminal == nil {
-		return nil, operation.Fail(3, "answers", "Unattended native setup requires complete private answers")
+		return nil, operation.Fail(
+			3,
+			"answers",
+			"Unattended native setup requires complete private answers",
+		)
 	}
 	scratch, err := os.MkdirTemp("", "workbench-init-")
 	if err != nil {
@@ -86,7 +107,7 @@ func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation,
 	native.Config = filepath.Join(scratch, "seed.toml")
 	native.PersistentState = filepath.Join(scratch, "state.boltdb")
 	native.Cache = filepath.Join(scratch, "cache")
-	if err = os.WriteFile(native.Config, seed, 0600); err != nil {
+	if err = os.WriteFile(native.Config, seed, 0o600); err != nil {
 		return nil, err
 	}
 	generated := filepath.Join(scratch, "generated.toml")
@@ -100,7 +121,20 @@ func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation,
 	}
 	args = append(args, "init", "--config-path", generated)
 	environment := ScriptEnvironment(c, dependencies)
-	_, err = operation.Run(ctx, c, m, operation.Process{Executable: dependency(dependencies, "chezmoi"), Args: args, Directory: scratch, Environment: environment, Mutates: true, Terminal: terminal, Timeout: 30 * time.Minute})
+	_, err = operation.Run(
+		ctx,
+		c,
+		m,
+		operation.Process{
+			Executable:  dependency(dependencies, "chezmoi"),
+			Args:        args,
+			Directory:   scratch,
+			Environment: environment,
+			Mutates:     true,
+			Terminal:    terminal,
+			Timeout:     30 * time.Minute,
+		},
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +148,11 @@ func Initialize(ctx context.Context, c operation.Context, m *operation.Mutation,
 	}
 	for key := range document {
 		if !slices.Contains([]string{"data", "sourceDir"}, key) {
-			return nil, operation.Fail(2, "answers", "Native init produced unexpected configuration controls")
+			return nil, operation.Fail(
+				2,
+				"answers",
+				"Native init produced unexpected configuration controls",
+			)
 		}
 	}
 	data, ok := document["data"].(map[string]any)

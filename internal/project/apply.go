@@ -10,48 +10,73 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-func Apply(ctx context.Context, c operation.Context, p *Proposal, options ConfigureOptions, consent operation.Consent) (string, error) {
+func Apply(
+	ctx context.Context,
+	c operation.Context,
+	p *Proposal,
+	options ConfigureOptions,
+	consent operation.Consent,
+) (string, error) {
 	var checkpointID string
-	err := operation.WithMutation(ctx, c, p.Plan, consent, func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
-		current, err := Plan(ctx, preview, options)
-		if err == nil {
-			p = current
-		}
-		return current.Plan, err
-	}, func(m *operation.Mutation) error {
-		if len(p.native) > 0 {
-			approvedDigest, _ := p.Plan.Digest()
-			if err := p.resolveNative(ctx, c, m); err != nil {
+	err := operation.WithMutation(
+		ctx,
+		c,
+		p.Plan,
+		consent,
+		func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
+			current, err := Plan(ctx, preview, options)
+			if err == nil {
+				p = current
+			}
+			return current.Plan, err
+		},
+		func(m *operation.Mutation) error {
+			if len(p.native) > 0 {
+				approvedDigest, _ := p.Plan.Digest()
+				if err := p.resolveNative(ctx, c, m); err != nil {
+					return err
+				}
+				preview := c
+				preview.ReadOnly = true
+				current, err := Plan(ctx, preview, options)
+				if err != nil {
+					return operation.Fail(
+						4,
+						"project_conflict",
+						"Project inputs changed during native staging; project files remain unchanged",
+					)
+				}
+				currentDigest, _ := current.Plan.Digest()
+				if currentDigest != approvedDigest {
+					return operation.Fail(
+						4,
+						"project_conflict",
+						"Project inputs changed during native staging; review a fresh plan",
+					)
+				}
+			}
+			if len(p.Changes) == 0 {
+				return nil
+			}
+			checkpoint, err := operation.BeginCheckpoint(m, p.Plan, nil, p.Changes)
+			if err != nil {
 				return err
 			}
-			preview := c
-			preview.ReadOnly = true
-			current, err := Plan(ctx, preview, options)
-			if err != nil {
-				return operation.Fail(4, "project_conflict", "Project inputs changed during native staging; project files remain unchanged")
-			}
-			currentDigest, _ := current.Plan.Digest()
-			if currentDigest != approvedDigest {
-				return operation.Fail(4, "project_conflict", "Project inputs changed during native staging; review a fresh plan")
-			}
-		}
-		if len(p.Changes) == 0 {
-			return nil
-		}
-		checkpoint, err := operation.BeginCheckpoint(m, p.Plan, nil, p.Changes)
-		if err != nil {
-			return err
-		}
-		checkpointID = checkpoint.ID
-		return checkpoint.Apply(ctx)
-	})
+			checkpointID = checkpoint.ID
+			return checkpoint.Apply(ctx)
+		},
+	)
 	return checkpointID, err
 }
 
 // Native mutation runs in a fresh private metadata-only workspace. Exact
 // resolved images become durable in the shared checkpoint before project writes.
 // No application files or executable local backends are copied into staging.
-func (p *Proposal) resolveNative(ctx context.Context, c operation.Context, m *operation.Mutation) error {
+func (p *Proposal) resolveNative(
+	ctx context.Context,
+	c operation.Context,
+	m *operation.Mutation,
+) error {
 	var uv, python operation.Dependency
 	for _, dep := range p.Plan.Dependencies {
 		if dep.Name == "uv" {
@@ -88,24 +113,63 @@ func (p *Proposal) resolveNative(ctx context.Context, c operation.Context, m *op
 				return err
 			}
 			target := filepath.Join(root, rel)
-			if err = os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
 				return err
 			}
-			if err = os.WriteFile(target, data, 0600); err != nil {
+			if err = os.WriteFile(target, data, 0o600); err != nil {
 				return err
 			}
 		}
 		lock := filepath.Join(request.Owner, "uv.lock")
-		if err = os.WriteFile(filepath.Join(root, "uv.lock"), p.Inventory.inputs[lock], 0600); err != nil {
+		if err = os.WriteFile(
+			filepath.Join(root, "uv.lock"),
+			p.Inventory.inputs[lock],
+			0o600,
+		); err != nil {
 			return err
 		}
 		// With --no-config, user/system uv configuration and credentials are not
 		// inherited. Workspace definitions still come from the project manifest.
-		args := []string{"add", "--dev", "--no-sync", "--no-build", "--no-config", "--no-python-downloads", "--python", python.Path, "--cache-dir", filepath.Join(scratch, "cache"), "--keyring-provider", "disabled"}
+		args := []string{
+			"add",
+			"--dev",
+			"--no-sync",
+			"--no-build",
+			"--no-config",
+			"--no-python-downloads",
+			"--python",
+			python.Path,
+			"--cache-dir",
+			filepath.Join(scratch, "cache"),
+			"--keyring-provider",
+			"disabled",
+		}
 		args = append(args, request.Missing...)
-		_, err = operation.Run(ctx, c, m, operation.Process{Executable: uv.Path, Args: args, Directory: root, Environment: []string{"PATH=" + filepath.Dir(python.Path) + ":/usr/bin:/bin", "HOME=" + scratch, "XDG_CONFIG_HOME=" + scratch, "UV_NO_PROGRESS=1"}, Timeout: 5 * time.Minute, OutputLimit: 1 << 20, Mutates: true})
+		_, err = operation.Run(
+			ctx,
+			c,
+			m,
+			operation.Process{
+				Executable: uv.Path,
+				Args:       args,
+				Directory:  root,
+				Environment: []string{
+					"PATH=" + filepath.Dir(python.Path) + ":/usr/bin:/bin",
+					"HOME=" + scratch,
+					"XDG_CONFIG_HOME=" + scratch,
+					"UV_NO_PROGRESS=1",
+				},
+				Timeout:     5 * time.Minute,
+				OutputLimit: 1 << 20,
+				Mutates:     true,
+			},
+		)
 		if err != nil {
-			return operation.Fail(1, "project_resolution", "Native uv metadata staging failed; project files remain unchanged. Local/dynamic sources may require a separately reviewed native operation")
+			return operation.Fail(
+				1,
+				"project_resolution",
+				"Native uv metadata staging failed; project files remain unchanged. Local/dynamic sources may require a separately reviewed native operation",
+			)
 		}
 		for _, name := range []string{"pyproject.toml", "uv.lock"} {
 			data, err := readMetadata(filepath.Join(root, name))
@@ -113,7 +177,11 @@ func (p *Proposal) resolveNative(ctx context.Context, c operation.Context, m *op
 				return err
 			}
 			if data == nil {
-				return operation.Fail(1, "project_resolution", "Native resolution did not produce its required manifest and lockfile")
+				return operation.Fail(
+					1,
+					"project_resolution",
+					"Native resolution did not produce its required manifest and lockfile",
+				)
 			}
 			if _, err = decodeTOML(data); err != nil {
 				return err
@@ -127,7 +195,11 @@ func (p *Proposal) resolveNative(ctx context.Context, c operation.Context, m *op
 				}
 			}
 			if !replaced {
-				return operation.Fail(4, "project_resolution", "Native output was not an explicitly approved target; no project files changed")
+				return operation.Fail(
+					4,
+					"project_resolution",
+					"Native output was not an explicitly approved target; no project files changed",
+				)
 			}
 		}
 	}
@@ -146,5 +218,7 @@ func RecoveryInstructions(id string) string {
 	if id == "" {
 		return "No project files changed"
 	}
-	return "Project checkpoint " + id + "; use project revert with the same selected scope and --checkpoint " + strings.TrimSpace(id)
+	return "Project checkpoint " + id + "; use project revert with the same selected scope and --checkpoint " + strings.TrimSpace(
+		id,
+	)
 }
