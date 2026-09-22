@@ -169,11 +169,22 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		return Fail(2, "scope", "Private metadata targets must be canonical absolute paths")
 	}
 	// Atomic replacement of a lock file would leave flock on the old inode.
-	// Reserve the entire namespace, including case aliases on macOS filesystems.
-	if relative, err := filepath.Rel(m.context.Paths.State, path); err == nil {
-		first, _, _ := strings.Cut(relative, string(filepath.Separator))
-		if strings.EqualFold(first, "locks") {
+	// Compare filesystem identities: config and state overrides may themselves
+	// alias the same directory under different spellings or mount paths.
+	lockDirectory, err := os.Stat(filepath.Join(m.context.Paths.State, "locks"))
+	if err != nil || !lockDirectory.IsDir() {
+		return Fail(4, "lock", "Cannot establish the held operation lock directory; stop before metadata writes")
+	}
+	for ancestor := path; ; ancestor = filepath.Dir(ancestor) {
+		info, err := os.Stat(ancestor)
+		if err == nil && os.SameFile(lockDirectory, info) {
 			return Fail(2, "scope", "Operation lock files are reserved and cannot be replaced by metadata writes")
+		}
+		if err != nil && !os.IsNotExist(err) {
+			return Fail(2, "scope", "Cannot inspect private metadata target ancestry")
+		}
+		if ancestor == filepath.Dir(ancestor) {
+			break
 		}
 	}
 	if len(data) > 1024*1024 {
