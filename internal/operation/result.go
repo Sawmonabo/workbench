@@ -57,7 +57,7 @@ func (r *Result) SetError(err error) {
 	if err == nil {
 		return
 	}
-	problem := &Error{Category: "execution", Message: "Operation failed; inspect the selected inputs and retry", Code: ExitCode(err)}
+	problem := &Error{Category: "execution", Message: "Operation failed: " + err.Error(), Code: ExitCode(err)}
 	if problem.Code == 130 {
 		problem.Category, problem.Message = "interrupted", "Operation interrupted; inspect any recorded partial operation before retrying"
 	}

@@ -2,6 +2,8 @@ package machine
 
 import (
 	"context"
+	"io"
+	"os"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -9,7 +11,8 @@ import (
 
 // Apply shares native preparation with preview and obtains fresh exact images
 // under the operation locks before granting the native engine write authority.
-func Apply(ctx context.Context, c operation.Context, selection Selection, displayed operation.Plan, consent operation.Consent) (operation.Result, error) {
+// See [Prepared.Apply] for terminal and progress.
+func Apply(ctx context.Context, c operation.Context, selection Selection, displayed operation.Plan, consent operation.Consent, terminal *os.File, progress io.Writer) (operation.Result, error) {
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest, _ = displayed.Digest()
 	result.Warnings = append(result.Warnings, displayed.RecoveryLimits...)
@@ -88,12 +91,12 @@ func Apply(ctx context.Context, c operation.Context, selection Selection, displa
 		if err = cp.StartNative(); err != nil {
 			return err
 		}
-		runErr := prepared.Apply(ctx, c, m)
+		runErr := prepared.Apply(ctx, c, m, terminal, progress)
 		if runErr == nil {
 			runErr = cp.FinalizeNative()
 		}
 		if !selection.ConfigOnly && runErr != nil && operation.ExitCode(runErr) != 130 {
-			runErr = operation.Fail(5, "partial", "Native provisioning failed after it started; external effects may be partial and are not rolled back")
+			runErr = operation.Fail(5, "partial", "Native provisioning failed after it started ("+runErr.Error()+"); external effects may be partial and are not rolled back")
 		}
 		if err = cp.Finish(runErr); err != nil {
 			status := "failed"

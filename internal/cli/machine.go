@@ -73,7 +73,9 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 	if cmd.Name() == "apply" {
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if !dryRun {
-			return machine.Apply(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly}, plan, releaseConsent(o, o.approvePlan))
+			terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
+			defer closeConsole()
+			return machine.Apply(cmd.Context(), c, machine.Selection{ConfigOnly: configOnly}, plan, releaseConsent(o, o.approvePlan), terminal, progress)
 		}
 	}
 	return result, nil

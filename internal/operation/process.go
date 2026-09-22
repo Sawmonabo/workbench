@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -118,6 +119,8 @@ type Process struct {
 	Environment []string
 	Input       []byte
 	Secrets     []string
+	// Timeout bounds the run. Zero means one minute for captured runs and no
+	// deadline for terminal or progress runs, which the operator interrupts.
 	Timeout     time.Duration
 	OutputLimit int
 	Mutates     bool
@@ -125,7 +128,11 @@ type Process struct {
 	// Never attach this output to public results; failures/overflow stay withheld.
 	PrivateOutput bool
 	// Terminal is only for approved interactive native setup, never preview.
+	// The child owns it as the foreground process group, so sudo can prompt.
 	Terminal *os.File
+	// Progress receives redacted output lines as they arrive instead of
+	// capturing them, for unattended native runs without a terminal.
+	Progress io.Writer
 }
 type ProcessOutput struct{ Stdout, Stderr string }
 
@@ -162,11 +169,14 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	if !request.Mutates && c.Scope.Kind == "project" && Within(c.Scope.Root, directory) {
 		return output, Fail(3, "process", "Read-only management probes must run outside the selected project")
 	}
-	if request.Timeout == 0 {
+	// Captured runs are bounded probes and helpers. Streamed native provisioning
+	// depends on network and package sizes, so it runs until done or interrupted.
+	streamed := request.Terminal != nil || request.Progress != nil
+	if request.Timeout == 0 && !streamed {
 		request.Timeout = time.Minute
 	}
 	if request.Timeout < 0 || request.Timeout > 30*time.Minute {
-		return output, Fail(2, "process", "Subprocess timeout must be positive and at most 30 minutes")
+		return output, Fail(2, "process", "Subprocess timeout must be non-negative and at most 30 minutes")
 	}
 	if request.OutputLimit == 0 {
 		request.OutputLimit = 1024 * 1024
@@ -197,8 +207,11 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 			}
 		}
 	}
-	ctx, cancel := context.WithTimeout(ctx, request.Timeout)
-	defer cancel()
+	if request.Timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, request.Timeout)
+		defer cancel()
+	}
 	cmd := exec.CommandContext(ctx, executable, request.Args...)
 	cmd.Dir = directory
 	cmd.Env = append([]string{}, request.Environment...)
@@ -223,8 +236,13 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 	cmd.WaitDelay = time.Second
 	stdout, stderr := &boundedBuffer{limit: request.OutputLimit}, &boundedBuffer{limit: request.OutputLimit}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
-	if request.Terminal != nil {
+	var progress *redactingWriter
+	switch {
+	case request.Terminal != nil:
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = request.Terminal, request.Terminal, request.Terminal
+	case request.Progress != nil:
+		progress = &redactingWriter{out: request.Progress, secrets: request.Secrets}
+		cmd.Stdout, cmd.Stderr = progress, progress
 	}
 	err = cmd.Run()
 	// A tool may exit while a child retains its pipes. WaitDelay bounds the
@@ -233,15 +251,21 @@ func Run(ctx context.Context, c Context, mutation *Mutation, request Process) (P
 		_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 	}
 	// An interrupted stream may end halfway through a secret; do not expose it.
+	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		return output, Fail(1, "timeout", filepath.Base(executable)+" exceeded its "+request.Timeout.String()+" limit and was stopped")
+	}
 	if ctx.Err() != nil {
 		return output, ctx.Err()
+	}
+	if progress != nil {
+		progress.flush()
 	}
 	// Suppress overflowing output entirely, including partial secret suffixes.
 	if stdout.overflow || stderr.overflow {
 		return output, Fail(1, "output_limit", "Subprocess output exceeded its limit; output withheld")
 	}
 	if err != nil {
-		return output, Fail(1, "subprocess", "Subprocess failed; incomplete output withheld; inspect prerequisites before retrying")
+		return output, failure(filepath.Base(executable), err, Redact(stderr.String(), request.Secrets))
 	}
 	output.Stdout = Redact(stdout.String(), request.Secrets)
 	output.Stderr = Redact(stderr.String(), request.Secrets)
@@ -272,6 +296,52 @@ func (b *boundedBuffer) Write(data []byte) (int, error) {
 }
 
 func (b *boundedBuffer) String() string { return b.buffer.String() }
+
+// failure reports a failed tool with its own diagnostics. Once the tool has
+// exited its captured stderr is complete, so the redacted tail is safe to show.
+// Terminal and progress runs showed their output live and capture none.
+func failure(name string, err error, stderr string) error {
+	var exit *exec.ExitError
+	if !errors.As(err, &exit) {
+		return Fail(1, "subprocess", name+" could not run: "+err.Error())
+	}
+	message := name + " failed (" + exit.String() + ")"
+	if len(stderr) > 4096 {
+		stderr = stderr[len(stderr)-4096:]
+		if _, rest, ok := strings.Cut(stderr, "\n"); ok {
+			stderr = rest
+		}
+	}
+	if stderr = strings.TrimSpace(stderr); stderr != "" {
+		message += ": " + stderr
+	}
+	return Fail(1, "subprocess", message)
+}
+
+// redactingWriter forwards whole lines after replacing known secret values;
+// no secret spans a line. Only a stream that ended normally is flushed.
+type redactingWriter struct {
+	out     io.Writer
+	secrets []string
+	pending []byte
+}
+
+// Write never fails the child: progress is diagnostic, not part of the result.
+func (w *redactingWriter) Write(data []byte) (int, error) {
+	w.pending = append(w.pending, data...)
+	if end := bytes.LastIndexAny(w.pending, "\r\n"); end >= 0 {
+		_, _ = io.WriteString(w.out, Redact(string(w.pending[:end+1]), w.secrets))
+		w.pending = append(w.pending[:0], w.pending[end+1:]...)
+	}
+	return len(data), nil
+}
+
+func (w *redactingWriter) flush() {
+	if len(w.pending) > 0 {
+		_, _ = io.WriteString(w.out, Redact(string(w.pending), w.secrets)+"\n")
+		w.pending = nil
+	}
+}
 
 func Redact(value string, secrets []string) string {
 	ordered := append([]string{}, secrets...)

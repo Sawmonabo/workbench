@@ -180,6 +180,8 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 	}
 	c.Native.Source = bundle.Directory(c)
 	configOnly, _ := cmd.Flags().GetBool("config-only")
+	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
+	defer closeConsole()
 	if !configOnly {
 		setup, setupErr := machine.SetupPlan(cmd.Context(), c)
 		if setupErr != nil {
@@ -194,13 +196,8 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 				return result, operation.Fail(3, "answers", "Runtime installed; unattended setup requires complete private answers and a separate --approve-setup digest")
 			}
 		}
-		var terminal *os.File
-		if !o.nonInteractive && !o.json {
-			terminal, err = os.OpenFile("/dev/tty", os.O_RDWR, 0)
-			if err != nil {
-				return result, operation.Fail(3, "terminal", "Runtime installed; native setup requires a terminal or complete unattended inputs")
-			}
-			defer func() { _ = terminal.Close() }()
+		if !o.nonInteractive && !o.json && terminal == nil {
+			return result, operation.Fail(3, "terminal", "Runtime installed; native setup requires a terminal or complete unattended inputs")
 		}
 		err = operation.WithMutation(cmd.Context(), c, setup, releaseConsent(o, approved), machine.SetupPlan, func(m *operation.Mutation) error {
 			var setupErr error
@@ -219,7 +216,7 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 	result.PlanDigest, _ = applyPlan.Digest()
 	result.Results = append(result.Results, operation.Component{Name: "machine-plan", Status: "complete", Details: applyPlan})
 	approved, _ := cmd.Flags().GetString("approve-apply")
-	applied, err := machine.Apply(cmd.Context(), c, selection, applyPlan, releaseConsent(o, approved))
+	applied, err := machine.Apply(cmd.Context(), c, selection, applyPlan, releaseConsent(o, approved), terminal, progress)
 	result.Results = append(result.Results, applied.Results...)
 	result.OperationID = applied.OperationID
 	return result, err

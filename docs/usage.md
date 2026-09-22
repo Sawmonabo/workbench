@@ -80,9 +80,12 @@ external effects. See [configuration ownership](chezmoi-local-overrides.md).
 
 ## Approval and automation
 
-Interactive mutations show the plan and read approval from the terminal. JSON
-mode does not prompt. Unattended mutation requires complete inputs,
-`--non-interactive` and the exact digest from a fresh preview:
+Interactive mutations show the plan and read approval from the terminal. An
+interactive apply then hands the terminal to native provisioning, so sudo and
+installers can prompt and you see their output as it runs. JSON mode does not
+prompt; it streams redacted provisioning output on stderr. Unattended mutation
+requires complete inputs, `--non-interactive` and the exact digest from a fresh
+preview:
 
 ```sh
 workbench apply --config-only --dry-run --json

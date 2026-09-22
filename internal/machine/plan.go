@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -346,7 +347,8 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 
 // Apply executes the prepared configuration through the same native owner.
 // Callers must hold mutation authority AND durable target checkpoints.
-func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.Mutation) error {
+// An interactive run owns terminal; otherwise redacted output goes to progress.
+func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.Mutation, terminal *os.File, progress io.Writer) error {
 	if err := m.Check(); err != nil {
 		return err
 	}
@@ -365,7 +367,11 @@ func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.
 	if err != nil {
 		return err
 	}
-	args = append(args, "--config-format=json", "--no-tty", "--color=false", "--use-builtin-git=true", "apply", "--force")
+	args = append(args, "--config-format=json", "--color=false", "--use-builtin-git=true")
+	if terminal == nil {
+		args = append(args, "--no-tty")
+	}
+	args = append(args, "apply", "--force")
 	environment := p.environment
 	if p.selection.ConfigOnly {
 		args = append(args, "--exclude=scripts")
@@ -377,6 +383,10 @@ func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.
 			}
 		}
 	}
-	_, err = operation.Run(ctx, c, m, operation.Process{Executable: p.executable, Args: args, Directory: p.scratch, Environment: environment, Secrets: p.secrets, Mutates: true, OutputLimit: 16 << 20})
+	request := operation.Process{Executable: p.executable, Args: args, Directory: p.scratch, Environment: environment, Secrets: p.secrets, Mutates: true, Terminal: terminal}
+	if terminal == nil {
+		request.Progress = progress
+	}
+	_, err = operation.Run(ctx, c, m, request)
 	return err
 }
