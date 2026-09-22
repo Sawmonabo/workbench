@@ -183,7 +183,7 @@ func mergeIgnore(data []byte) ([]byte, error) {
 		}
 	}
 	result := string(data)
-	for _, entry := range strings.Split(strings.TrimSpace(pythonpolicy.Ignore), "\n") {
+	for entry := range strings.SplitSeq(strings.TrimSpace(pythonpolicy.Ignore), "\n") {
 		// Test, distribution, coverage and secret-file patterns are optional assets;
 		// their relevance cannot be inferred merely from Python ownership.
 		if !slices.Contains(

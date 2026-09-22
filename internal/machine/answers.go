@@ -14,9 +14,11 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// Answers is a machine's validated [data] table, the native chezmoi template
+// data every render uses.
 type Answers map[string]any
 
-func ParseAnswers(raw []byte) (Answers, error) {
+func parseAnswers(raw []byte) (Answers, error) {
 	var config map[string]any
 	if err := toml.Unmarshal(raw, &config); err != nil {
 		return nil, operation.Fail(
@@ -37,12 +39,12 @@ func ParseAnswers(raw []byte) (Answers, error) {
 		return nil, operation.Fail(2, "answers", "Machine [data] must be a table")
 	}
 	answers := Answers(data)
-	return answers, ValidateAnswers(answers)
+	return answers, validateAnswers(answers)
 }
 
-// ValidateAnswers is also the post-init gate. It never silently defaults missing
+// validateAnswers is also the post-init gate. It never silently defaults missing
 // unattended inputs or normalizes a persisted role/editor/version policy.
-func ValidateAnswers(a Answers) error {
+func validateAnswers(a Answers) error {
 	fail := func() error {
 		return operation.Fail(
 			2,
@@ -58,7 +60,7 @@ func ValidateAnswers(a Answers) error {
 		return fail()
 	}
 	work, personal := role != "personal", role != "work"
-	if a["has_work"] != work || a["has_personal"] != personal || a["is_wsl"] != IsWSL() {
+	if a["has_work"] != work || a["has_personal"] != personal || a["is_wsl"] != isWSL() {
 		return fail()
 	}
 	identity := []string{"name", "email"}
@@ -78,7 +80,7 @@ func ValidateAnswers(a Answers) error {
 			}
 		}
 	}
-	if IsWSL() {
+	if isWSL() {
 		if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(text("wsl_memory")) ||
 			!regexp.MustCompile(`^(0|[1-9][0-9]{0,6}(MB|GB))$`).MatchString(text("wsl_swap")) {
 			return fail()
@@ -164,7 +166,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		)
 	}
 	answers := Answers(data)
-	if err = ValidateAnswers(answers); err != nil {
+	if err = validateAnswers(answers); err != nil {
 		return plan, nil, err
 	}
 	encoded, err := toml.Marshal(map[string]any{"data": answers})

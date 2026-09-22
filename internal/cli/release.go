@@ -187,7 +187,7 @@ func releaseLifecycle(
 	if err != nil {
 		return result, err
 	}
-	result.PlanDigest, _ = plan.Digest()
+	result.PlanDigest = plan.Digest()
 	result.Results = append(
 		result.Results,
 		operation.Component{Name: "release-plan", Status: "complete", Details: plan},
@@ -275,7 +275,7 @@ func configureMachine(
 		if setupErr != nil {
 			return result, setupErr
 		}
-		setupDigest, _ := setup.Digest()
+		setupDigest := setup.Digest()
 		result.PlanDigest = setupDigest
 		result.Results = append(
 			result.Results,
@@ -319,7 +319,7 @@ func configureMachine(
 	if err != nil {
 		return result, err
 	}
-	result.PlanDigest, _ = applyPlan.Digest()
+	result.PlanDigest = applyPlan.Digest()
 	result.Results = append(
 		result.Results,
 		operation.Component{Name: "machine-plan", Status: "complete", Details: applyPlan},

@@ -26,6 +26,7 @@ type Item struct {
 	Ecosystem string `json:"ecosystem"`
 }
 
+// Inventory is the bounded result of inspecting a directory for projects.
 type Inventory struct {
 	Directory string    `json:"directory"`
 	Items     []Item    `json:"items"`

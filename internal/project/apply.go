@@ -10,6 +10,9 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// Apply writes an approved proposal's changes under a project checkpoint,
+// resolving native dependencies first when selected, and returns the
+// checkpoint ID.
 func Apply(
 	ctx context.Context,
 	c operation.Context,
@@ -32,7 +35,7 @@ func Apply(
 		},
 		func(m *operation.Mutation) error {
 			if len(p.native) > 0 {
-				approvedDigest, _ := p.Plan.Digest()
+				approvedDigest := p.Plan.Digest()
 				if err := p.resolveNative(ctx, c, m); err != nil {
 					return err
 				}
@@ -46,7 +49,7 @@ func Apply(
 						"Project inputs changed during native staging; project files remain unchanged",
 					)
 				}
-				currentDigest, _ := current.Plan.Digest()
+				currentDigest := current.Plan.Digest()
 				if currentDigest != approvedDigest {
 					return operation.Fail(
 						4,
@@ -214,6 +217,7 @@ func (p *Proposal) resolveNative(
 	return nil
 }
 
+// RecoveryInstructions tells the user how to revert checkpoint id.
 func RecoveryInstructions(id string) string {
 	if id == "" {
 		return "No project files changed"

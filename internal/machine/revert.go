@@ -6,6 +6,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// Revert restores the selected machine checkpoint under consent for plan.
 func Revert(
 	ctx context.Context,
 	c operation.Context,
@@ -17,7 +18,7 @@ func Revert(
 	if c.Scope.Kind != "machine" {
 		return result, operation.Fail(2, "scope", "Machine recovery requires machine scope")
 	}
-	result.PlanDigest, _ = plan.Digest()
+	result.PlanDigest = plan.Digest()
 	result.Warnings = append(result.Warnings, plan.RecoveryLimits...)
 	var err error
 	result.OperationID, err = operation.Recover(ctx, c, plan, selector, consent)

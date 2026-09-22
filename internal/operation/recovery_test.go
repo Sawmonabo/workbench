@@ -68,7 +68,7 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 		Complete: true,
 		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
 	}
-	digest, _ := plan.Digest()
+	digest := plan.Digest()
 	id := ""
 	err = WithMutation(
 		context.Background(),
@@ -107,7 +107,7 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	digest, _ = recovery.Digest()
+	digest = recovery.Digest()
 	imagePath := filepath.Join(checkpointScope(c), id, "images", ImageDigest(before), "00.part")
 	if err = os.WriteFile(imagePath, []byte("corrupt"), 0o600); err != nil {
 		t.Fatal(err)

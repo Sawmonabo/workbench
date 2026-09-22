@@ -129,7 +129,7 @@ func initCommand(o *options) *cobra.Command {
 			if err != nil {
 				return result, err
 			}
-			result.PlanDigest, _ = plan.Digest()
+			result.PlanDigest = plan.Digest()
 			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun || len(plan.Edits) == 0 {
 				return result, nil
 			}
@@ -176,10 +176,7 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 	if err != nil {
 		return result, err
 	}
-	result.PlanDigest, err = plan.Digest()
-	if err != nil {
-		return result, err
-	}
+	result.PlanDigest = plan.Digest()
 	if cmd.Name() == "apply" {
 		dryRun, _ := cmd.Flags().GetBool("dry-run")
 		if !dryRun {

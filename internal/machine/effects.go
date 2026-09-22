@@ -9,9 +9,9 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// ProvisioningEffects describes canonical script owners, not simulated provider
+// provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
-func ProvisioningEffects(answers Answers) []operation.Effect {
+func provisioningEffects(answers Answers) []operation.Effect {
 	effects := []operation.Effect{
 		{
 			Name:        "runtime-managers",
@@ -195,7 +195,7 @@ var optionalEffects = []struct {
 func OptionalEffectNames() []string {
 	var names []string
 	for _, optional := range optionalEffects {
-		if optional.wsl == IsWSL() && (optional.wsl || runtime.GOOS == "darwin") {
+		if optional.wsl == isWSL() && (optional.wsl || runtime.GOOS == "darwin") {
 			names = append(names, optional.effect.Name)
 		}
 	}

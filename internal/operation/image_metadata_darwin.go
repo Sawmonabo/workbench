@@ -23,7 +23,7 @@ func fileMetadata(fd int, path string) error {
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags != 0 {
 		return Fail(3, "metadata", "Target filesystem flags cannot be preserved")
 	}
-	return darwinACL(uintptr(fd), true)
+	return darwinACL(fd, nil)
 }
 
 func linkMetadata(path string) error {
@@ -38,33 +38,48 @@ func linkMetadata(path string) error {
 	if err != nil {
 		return err
 	}
-	return darwinACL(uintptr(unsafe.Pointer(pointer)), false)
+	return darwinACL(-1, pointer)
 }
 
-// Darwin does not expose ACLs through listxattr. getattrlist's extended-security
-// attribute contains kauth_filesec (sys/kauth.h); NOACL is the sole accepted ACL
-// marker. An empty but present ACL also carries semantics and is rejected.
-func darwinACL(target uintptr, descriptor bool) error {
+// darwinACL inspects fd, or path when it is non-nil. Darwin does not expose
+// ACLs through listxattr. getattrlist's extended-security attribute contains
+// kauth_filesec (sys/kauth.h); NOACL is the sole accepted ACL marker. An empty
+// but present ACL also carries semantics and is rejected.
+//
+// x/sys/unix wraps setattrlist through libSystem but not getattrlist or
+// fgetattrlist, and cgo's acl(3) would break CGO_ENABLED=0 release builds, so
+// this uses the raw syscalls Go deprecates on darwin. An error or unexpected
+// layout fails closed; recheck on each major macOS release and switch once
+// x/sys adds the wrappers. Each pointer becomes a uintptr inside the Syscall6
+// argument list, as the unsafe rules require.
+func darwinACL(fd int, path *byte) error {
 	attributes := struct {
 		Count, Reserved                       uint16
 		Common, Volume, Directory, File, Fork uint32
 	}{Count: 5, Common: unix.ATTR_CMN_EXTENDED_SECURITY}
 	var data [8192]byte
-	call := uintptr(
-		unix.SYS_GETATTRLIST,
-	) //nolint:staticcheck // x/sys has no libSystem wrapper for extended-security getattrlist.
-	if descriptor {
-		call = unix.SYS_FGETATTRLIST //nolint:staticcheck // Descriptor form avoids path races while inspecting ACLs.
+	var errno unix.Errno
+	if path == nil {
+		_, _, errno = unix.Syscall6(
+			unix.SYS_FGETATTRLIST, //nolint:staticcheck // See the function comment.
+			uintptr(fd),
+			uintptr(unsafe.Pointer(&attributes)),
+			uintptr(unsafe.Pointer(&data[0])),
+			uintptr(len(data)),
+			unix.FSOPT_NOFOLLOW,
+			0,
+		)
+	} else {
+		_, _, errno = unix.Syscall6(
+			unix.SYS_GETATTRLIST, //nolint:staticcheck // See the function comment.
+			uintptr(unsafe.Pointer(path)),
+			uintptr(unsafe.Pointer(&attributes)),
+			uintptr(unsafe.Pointer(&data[0])),
+			uintptr(len(data)),
+			unix.FSOPT_NOFOLLOW,
+			0,
+		)
 	}
-	_, _, errno := unix.Syscall6(
-		call,
-		target,
-		uintptr(unsafe.Pointer(&attributes)),
-		uintptr(unsafe.Pointer(&data[0])),
-		uintptr(len(data)),
-		unix.FSOPT_NOFOLLOW,
-		0,
-	)
 	if errno != 0 {
 		return Fail(3, "metadata", "Cannot verify target ACL semantics")
 	}

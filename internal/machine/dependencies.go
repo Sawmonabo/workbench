@@ -167,9 +167,9 @@ func dependency(dependencies []operation.Dependency, name string) string {
 	return ""
 }
 
-// ScriptEnvironment keeps privately selected tools ahead of package-manager PATH
+// scriptEnvironment keeps privately selected tools ahead of package-manager PATH
 // edits. Only the apply owner may add individually approved effect selectors.
-func ScriptEnvironment(c operation.Context, dependencies []operation.Dependency) []string {
+func scriptEnvironment(c operation.Context, dependencies []operation.Dependency) []string {
 	directories := []string{}
 	environment := []string{"HOME=" + c.Home, "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1"}
 	for _, selected := range dependencies {
@@ -185,8 +185,8 @@ func ScriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 		}
 	}
 	path := strings.Join(directories, string(os.PathListSeparator))
-	system := "/usr/bin:/bin:/usr/sbin:/sbin"
-	if IsWSL() {
+	system := []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
+	if isWSL() {
 		// Windows host steps run cmd.exe, wsl.exe and powershell.exe through
 		// interop and need the name of the distribution they run in.
 		for _, name := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
@@ -194,11 +194,13 @@ func ScriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 				environment = append(environment, name+"="+value)
 			}
 		}
-		for _, directory := range windowsSystemDirectories(os.Getenv("PATH")) {
-			system += ":" + directory
-		}
+		system = append(system, windowsSystemDirectories(os.Getenv("PATH"))...)
 	}
-	return append(environment, "WORKBENCH_TOOL_PATH="+path, "PATH="+path+":"+system)
+	return append(
+		environment,
+		"WORKBENCH_TOOL_PATH="+path,
+		"PATH="+path+":"+strings.Join(system, ":"),
+	)
 }
 
 // windowsSystemDirectories keeps only the Windows system directories from the
@@ -216,7 +218,7 @@ func windowsSystemDirectories(searchPath string) []string {
 	return directories
 }
 
-func Platform(ctx context.Context, c operation.Context) operation.Component {
+func checkPlatform(ctx context.Context, c operation.Context) operation.Component {
 	result := operation.Component{
 		Name:    "platform",
 		Status:  "blocked",
@@ -268,14 +270,14 @@ func Platform(ctx context.Context, c operation.Context) operation.Component {
 			result.Status = "complete"
 		}
 		result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH
-		if IsWSL() {
+		if isWSL() {
 			result.Message += "; WSL: Windows host steps are not yet qualified on a real host"
 		}
 	}
 	return result
 }
 
-func IsWSL() bool {
+func isWSL() bool {
 	data, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	return runtime.GOOS == "linux" && strings.Contains(strings.ToLower(string(data)), "microsoft")
 }
@@ -292,7 +294,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		recorded = state.Dependencies
 	}
 	_, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
-	results = append([]operation.Component{Platform(ctx, c)}, results...)
+	results = append([]operation.Component{checkPlatform(ctx, c)}, results...)
 	// Plain chezmoi still pointed at another source, such as dotfiles, would
 	// reapply it over the same files Workbench manages.
 	if raw, readErr := os.ReadFile(

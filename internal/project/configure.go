@@ -13,6 +13,7 @@ import (
 	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
 )
 
+// ConfigureOptions selects what project configure changes.
 type ConfigureOptions struct {
 	Release             string
 	Extensions          bool
@@ -21,6 +22,8 @@ type ConfigureOptions struct {
 	AllowBuildHooks     bool
 	CI                  bool
 }
+
+// Proposal is a project configure plan with the exact changes it approves.
 type Proposal struct {
 	Plan      operation.Plan           `json:"plan"`
 	Inventory *Inventory               `json:"inventory"`

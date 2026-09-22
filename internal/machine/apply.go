@@ -11,7 +11,8 @@ import (
 
 // Apply shares native preparation with preview and obtains fresh exact images
 // under the operation locks before granting the native engine write authority.
-// See [Prepared.Apply] for terminal and progress.
+// An interactive apply gives native chezmoi terminal; otherwise its redacted
+// output goes to progress.
 func Apply(
 	ctx context.Context,
 	c operation.Context,
@@ -22,10 +23,10 @@ func Apply(
 	progress io.Writer,
 ) (operation.Result, error) {
 	result := operation.NewResult("workbench apply")
-	result.PlanDigest, _ = displayed.Digest()
+	result.PlanDigest = displayed.Digest()
 	result.Warnings = append(result.Warnings, displayed.RecoveryLimits...)
 	c.ReadOnly = false
-	var prepared *Prepared
+	var prepared *preparation
 	defer func() {
 		if prepared != nil {
 			prepared.Close()
@@ -38,7 +39,7 @@ func Apply(
 		consent,
 		func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
 			var err error
-			prepared, err = Prepare(ctx, preview, selection)
+			prepared, err = prepare(ctx, preview, selection)
 			return prepared.Plan, err
 		},
 		func(m *operation.Mutation) (applyErr error) {

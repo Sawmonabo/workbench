@@ -11,9 +11,9 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
-// SelectPrivateContext is an internal verified application-context selector.
+// selectPrivateContext is an internal verified application-context selector.
 // The public developer --source resolver never grants this runtime exception.
-func SelectPrivateContext(c operation.Context, source string) (operation.Context, error) {
+func selectPrivateContext(c operation.Context, source string) (operation.Context, error) {
 	path, err := operation.ExistingDirectory(source)
 	if err != nil {
 		return c, err
@@ -43,10 +43,10 @@ func SelectPrivateContext(c operation.Context, source string) (operation.Context
 	return c, nil
 }
 
-// Initialize reuses the native questionnaire and built-in Git in a verified
+// initialize reuses the native questionnaire and built-in Git in a verified
 // private context. Acquiring/copying the verified payload belongs to setup.
 // Approval here saves answers only; it does not approve configuration apply.
-func Initialize(
+func initialize(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
@@ -56,7 +56,7 @@ func Initialize(
 		return nil, err
 	}
 	var err error
-	c, err = SelectPrivateContext(c, c.Native.Source)
+	c, err = selectPrivateContext(c, c.Native.Source)
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +82,7 @@ func Initialize(
 		if err != nil {
 			return nil, err
 		}
-		if _, err = ParseAnswers(seed); err != nil {
+		if _, err = parseAnswers(seed); err != nil {
 			return nil, err
 		}
 	} else if !os.IsNotExist(statErr) {
@@ -120,7 +120,7 @@ func Initialize(
 		args = append(args, "--no-tty")
 	}
 	args = append(args, "init", "--config-path", generated)
-	environment := ScriptEnvironment(c, dependencies)
+	environment := scriptEnvironment(c, dependencies)
 	_, err = operation.Run(
 		ctx,
 		c,
@@ -160,7 +160,7 @@ func Initialize(
 		return nil, operation.Fail(2, "answers", "Native init did not produce machine answers")
 	}
 	answers := Answers(data)
-	if err = ValidateAnswers(answers); err != nil {
+	if err = validateAnswers(answers); err != nil {
 		return nil, err
 	}
 	if _, _, err = SourceSnapshot(c.Native.Source); err != nil {

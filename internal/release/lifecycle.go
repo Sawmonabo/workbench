@@ -89,6 +89,7 @@ func ReadBundle(ctx context.Context, location, version string) (Bundle, error) {
 	return Verify(file, version, Target())
 }
 
+// StagePlan previews staging b, bound to its archive digest and current state.
 func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 	plan := operation.Plan{
 		Scope:    c.Scope,
@@ -112,6 +113,8 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 	return plan, nil
 }
 
+// Stage extracts b into its release directory, or rechecks an existing one,
+// records it as the candidate and returns the directory.
 func Stage(c operation.Context, m *operation.Mutation, b Bundle) (string, error) {
 	if err := m.Check(); err != nil {
 		return "", err
@@ -188,6 +191,8 @@ func Candidate(c operation.Context) (string, error) {
 	return record.Directory, nil
 }
 
+// Inspect rechecks a staged release directory against its manifest and
+// returns its metadata.
 func Inspect(directory string) (Metadata, error) {
 	var metadata Metadata
 	info, err := os.Lstat(filepath.Join(directory, "release.json"))
@@ -495,7 +500,7 @@ func Activate(
 	return ValidateSelection(c)
 }
 
-func RuntimeEnvironment(c operation.Context) []string {
+func runtimeEnvironment(c operation.Context) []string {
 	return []string{
 		"HOME=" + c.Home,
 		"PATH=/usr/bin:/bin",

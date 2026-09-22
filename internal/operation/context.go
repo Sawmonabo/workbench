@@ -9,24 +9,33 @@ import (
 	"syscall"
 )
 
-type (
-	Paths struct{ Config, Data, State, Cache, Bin string }
-	Scope struct {
-		Kind string `json:"kind"`
-		Root string `json:"root"`
-	}
-)
-type (
-	NativeContext struct{ Source, Config, Destination, PersistentState, Cache string }
-	Context       struct {
-		Paths     Paths
-		Scope     Scope
-		Native    NativeContext
-		Home      string
-		Languages []string
-		ReadOnly  bool
-	}
-)
+// Paths are Workbench's private runtime directories and the directory that
+// holds the workbench command.
+type Paths struct{ Config, Data, State, Cache, Bin string }
+
+// Scope is what an operation may change: the machine destination or one
+// canonical project root.
+type Scope struct {
+	Kind string `json:"kind"`
+	Root string `json:"root"`
+}
+
+// NativeContext is the source, answers, destination, state and cache that
+// every native chezmoi call receives.
+type NativeContext struct{ Source, Config, Destination, PersistentState, Cache string }
+
+// Context is one resolved operation: its paths, scope and native selection.
+// ReadOnly contexts may plan but never mutate.
+type Context struct {
+	Paths     Paths
+	Scope     Scope
+	Native    NativeContext
+	Home      string
+	Languages []string
+	ReadOnly  bool
+}
+
+// Options are the command-line selections [Resolve] turns into a [Context].
 type Options struct {
 	Project                                  bool
 	Path, Source, MachineConfig, Destination string
@@ -45,7 +54,7 @@ func Resolve(options Options) (Context, error) {
 	if err != nil {
 		return c, err
 	}
-	c.Paths, err = RuntimePaths(c.Home)
+	c.Paths, err = runtimePaths(c.Home)
 	if err != nil {
 		return c, err
 	}
@@ -118,6 +127,8 @@ func Resolve(options Options) (Context, error) {
 	return c, nil
 }
 
+// ExistingDirectory returns the canonical absolute path of an existing
+// directory; an empty path means the working directory.
 func ExistingDirectory(path string) (string, error) {
 	if path == "" {
 		path = "."
@@ -144,7 +155,7 @@ func Within(root, path string) bool {
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
-func RuntimePaths(home string) (Paths, error) {
+func runtimePaths(home string) (Paths, error) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
 		return Paths{}, Fail(3, "platform", "Workbench runtime paths require macOS or Linux/WSL")
 	}
@@ -277,8 +288,8 @@ func checkPrivateFile(path string) error {
 	if err := owned(info); err != nil {
 		return err
 	}
-	stat := info.Sys().(*syscall.Stat_t)
-	if info.Mode().Perm()&0o077 != 0 || stat.Nlink != 1 {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || info.Mode().Perm()&0o077 != 0 || stat.Nlink != 1 {
 		return Fail(2, "permissions", "Private files require mode 0600 and exactly one link")
 	}
 	return nil
@@ -313,6 +324,9 @@ func (n NativeContext) Args() ([]string, error) {
 	}, nil
 }
 
+// ValidateTarget reports whether path may be written in this scope: strictly
+// inside it, never a project manifest or inside a project for machine scope,
+// and never overlapping the source or Workbench's own state.
 func (c Context) ValidateTarget(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
 		path == c.Scope.Root {
@@ -326,7 +340,10 @@ func (c Context) ValidateTarget(path string) error {
 		if slices.Contains(markers, filepath.Base(path)) && path != ruffConfig {
 			return Fail(2, "scope", "Machine configuration cannot own project manifests")
 		}
-		for parent := filepath.Dir(path); parent != c.Scope.Root && Within(c.Scope.Root, parent); parent = filepath.Dir(parent) {
+		inside := func(directory string) bool {
+			return directory != c.Scope.Root && Within(c.Scope.Root, directory)
+		}
+		for parent := filepath.Dir(path); inside(parent); parent = filepath.Dir(parent) {
 			for _, marker := range markers {
 				if filepath.Join(parent, marker) == ruffConfig {
 					continue
@@ -377,7 +394,15 @@ func (c Context) ValidateContainer(path string) error {
 		path == c.Scope.Root {
 		return Fail(2, "scope", "Container must lie strictly inside the selected scope")
 	}
-	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, filepath.Join(c.Paths.Bin, "workbench")} {
+	protected := []string{
+		c.Native.Source,
+		c.Paths.Config,
+		c.Paths.Data,
+		c.Paths.State,
+		c.Paths.Cache,
+		filepath.Join(c.Paths.Bin, "workbench"),
+	}
+	for _, excluded := range protected {
 		if excluded != "" && Within(excluded, path) {
 			return Fail(2, "scope", "Container is protected Workbench state")
 		}
@@ -392,6 +417,8 @@ func (c Context) ValidateContainer(path string) error {
 	return nil
 }
 
+// Validate checks that s is a known kind rooted at an existing canonical
+// directory.
 func (s Scope) Validate() error {
 	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
 		filepath.Clean(s.Root) != s.Root {

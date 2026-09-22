@@ -13,9 +13,14 @@ type Error struct {
 	Code     int    `json:"-"`
 }
 
-func (e *Error) Error() string                      { return e.Message }
+func (e *Error) Error() string { return e.Message }
+
+// Fail returns an [Error] with its exit code: 1 failed, 2 invalid input,
+// 3 blocked, 4 conflict, 5 partial.
 func Fail(code int, category, message string) error { return &Error{category, message, code} }
 
+// ExitCode returns the process exit code for err: 0 for nil, 130 when
+// canceled, the [Error] code when present, otherwise 1.
 func ExitCode(err error) int {
 	if err == nil {
 		return 0
@@ -30,6 +35,7 @@ func ExitCode(err error) int {
 	return 1
 }
 
+// Component is one named part of a command's outcome.
 type Component struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"`
@@ -38,6 +44,7 @@ type Component struct {
 	Details  any    `json:"details,omitempty"`
 }
 
+// Result is the single envelope every command renders, as text or JSON.
 type Result struct {
 	SchemaVersion int         `json:"schema_version"`
 	Command       string      `json:"command"`
@@ -49,6 +56,7 @@ type Result struct {
 	PlanDigest    string      `json:"plan_digest,omitempty"`
 }
 
+// NewResult returns a complete, empty result for command.
 func NewResult(command string) Result {
 	return Result{
 		SchemaVersion: 1,
@@ -60,6 +68,8 @@ func NewResult(command string) Result {
 	}
 }
 
+// SetError records err and sets the matching status. An [Error] keeps its
+// message; any other error is reported with its cause.
 func (r *Result) SetError(err error) {
 	if err == nil {
 		return

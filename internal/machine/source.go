@@ -19,6 +19,8 @@ import (
 //go:embed source-trust.json
 var sourceTrust []byte
 
+// Requirements are the generated management pins and source hashes compiled
+// into the binary from source-trust.json.
 type Requirements struct {
 	ChezmoiSHA256  map[string]string `json:"chezmoi_sha256"`
 	UVSHA256       map[string]string `json:"uv_sha256"`

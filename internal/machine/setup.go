@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"io"
 	"io/fs"
 	"os"
@@ -78,7 +77,7 @@ func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error)
 		},
 	)
 	if raw, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr == nil {
-		if _, err = ParseAnswers(raw); err != nil {
+		if _, err = parseAnswers(raw); err != nil {
 			return plan, err
 		}
 		plan.Inputs = append(plan.Inputs, operation.Input{Name: "answers", Digest: digest(raw)})
@@ -88,9 +87,9 @@ func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error)
 	return plan, nil
 }
 
-// SetupDependencies is the sole management acquisition owner. It is called only
+// setupDependencies is the sole management acquisition owner. It is called only
 // inside an approved setup mutation, never from preview or config-only apply.
-func SetupDependencies(
+func setupDependencies(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
@@ -492,7 +491,7 @@ func Setup(
 	m *operation.Mutation,
 	terminal *os.File,
 ) (operation.Context, error) {
-	if _, err := SetupDependencies(ctx, c, m); err != nil {
+	if _, err := setupDependencies(ctx, c, m); err != nil {
 		return c, err
 	}
 	files, identity, err := SourceSnapshot(c.Native.Source)
@@ -534,19 +533,13 @@ func Setup(
 	} else if !os.IsNotExist(statErr) {
 		return c, statErr
 	}
-	c, err = SelectPrivateContext(c, contextDirectory)
+	c, err = selectPrivateContext(c, contextDirectory)
 	if err != nil {
 		return c, err
 	}
-	if _, err = Initialize(ctx, c, m, terminal); err != nil {
+	if _, err = initialize(ctx, c, m, terminal); err != nil {
 		return c, err
 	}
 	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")
 	return c, nil
-}
-
-// Keep metadata generation coupled to the same dependency resolver contract.
-func ManagementMetadata() json.RawMessage {
-	raw, _ := json.Marshal(ManagementRequirements())
-	return raw
 }

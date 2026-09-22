@@ -10,6 +10,7 @@ import (
 	"strings"
 )
 
+// RecoverySelector picks one checkpoint by ID, or by the release it restores.
 type RecoverySelector struct{ Checkpoint, Version string }
 
 func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, error) {
@@ -40,14 +41,17 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 		if cp.journal.RecoveryCreated {
 			choices = append(choices, cp.record.RecoveryID)
 		}
-		if selector.Checkpoint == cp.record.ID ||
-			(selector.Version != "" && cp.record.Before != nil && selector.Version == cp.record.Before.Release) {
+		// A forward checkpoint restores its before release; its recovery pair
+		// restores the applied one.
+		before := cp.record.Before != nil && selector.Version == cp.record.Before.Release
+		applied := selector.Version == cp.record.Applied.Release
+		if selector.Checkpoint == cp.record.ID || selector.Version != "" && before {
 			selected = cp
 			reverse = true
 			count++
 		}
-		if cp.journal.RecoveryCreated &&
-			(selector.Checkpoint == cp.record.RecoveryID || selector.Version != "" && selector.Version == cp.record.Applied.Release) {
+		pair := selector.Checkpoint == cp.record.RecoveryID || selector.Version != "" && applied
+		if cp.journal.RecoveryCreated && pair {
 			selected = cp
 			reverse = false
 			count++
@@ -140,6 +144,8 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 	return nil
 }
 
+// RecoveryPlan previews restoring the selected checkpoint after checking
+// every target still holds its recorded post-image.
 func RecoveryPlan(c Context, selector RecoverySelector) (Plan, error) {
 	plan := Plan{
 		Scope: c.Scope,
@@ -191,6 +197,8 @@ func RecoveryPlan(c Context, selector RecoverySelector) (Plan, error) {
 	return plan, nil
 }
 
+// Recover restores the selected checkpoint under consent for displayed,
+// returning the recovery operation's ID.
 func Recover(
 	ctx context.Context,
 	c Context,

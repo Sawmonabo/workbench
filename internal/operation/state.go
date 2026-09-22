@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -24,11 +25,17 @@ type State struct {
 	AppliedConfiguration *SourceIdentity   `json:"applied_configuration"`
 	PartialOperation     *PartialOperation `json:"partial_operation"`
 }
+
+// ReleaseRecord is an activated runtime: its identity, executable and the
+// matched source directory.
 type ReleaseRecord struct {
 	Identity   SourceIdentity `json:"identity"`
 	Executable string         `json:"executable"`
 	Source     string         `json:"source"`
 }
+
+// PartialOperation records an operation that started changing targets and has
+// not finished, so later operations stop for reconciliation.
 type PartialOperation struct {
 	ID    string `json:"id"`
 	Scope Scope  `json:"scope"`
@@ -62,6 +69,8 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+// Validate checks the schema version and every recorded identity, dependency
+// and partial operation.
 func (s State) Validate() error {
 	if s.SchemaVersion != 1 {
 		return Fail(
@@ -73,10 +82,13 @@ func (s State) Validate() error {
 	seen := map[string]bool{}
 	for _, dependency := range s.Dependencies {
 		if seen[dependency.Name] ||
-			(dependency.Name != "chezmoi" && dependency.Name != "python3" && dependency.Name != "uv") ||
+			!slices.Contains([]string{"chezmoi", "python3", "uv"}, dependency.Name) ||
 			!filepath.IsAbs(dependency.Path) ||
 			dependency.Version == "" ||
-			(dependency.Owner != "user" && dependency.Owner != "system" && dependency.Owner != "homebrew" && dependency.Owner != "workbench") {
+			!slices.Contains(
+				[]string{"user", "system", "homebrew", "workbench"},
+				dependency.Owner,
+			) {
 			return Fail(2, "state_format", "Invalid recorded management dependency")
 		}
 		seen[dependency.Name] = true
@@ -195,6 +207,7 @@ func validateStateJSON(decoder *json.Decoder) error {
 	return nil
 }
 
+// WriteState validates and atomically replaces the private state record.
 func (m *Mutation) WriteState(state State) error {
 	if err := m.Check(); err != nil {
 		return err
@@ -397,8 +410,8 @@ func acquireLocks(c Context) (*locks, error) {
 }
 
 func (l *locks) close() {
-	for i := len(l.files) - 1; i >= 0; i-- {
-		_ = l.files[i].Close()
+	for _, v := range slices.Backward(l.files) {
+		_ = v.Close()
 	}
 	l.files = nil
 }

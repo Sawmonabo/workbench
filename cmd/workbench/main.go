@@ -1,3 +1,5 @@
+// Workbench coordinates chezmoi and native package managers for developer
+// machines and existing projects.
 package main
 
 import (

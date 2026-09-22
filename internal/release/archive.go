@@ -29,11 +29,15 @@ const (
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// File is one bundle member's manifest entry.
 type File struct {
 	SHA256     string `json:"sha256"`
 	Size       int64  `json:"size"`
 	Executable bool   `json:"executable"`
 }
+
+// Metadata is a bundle's release.json: its release, target, source identity,
+// file manifest and management requirements.
 type Metadata struct {
 	SchemaVersion int             `json:"schema_version"`
 	StateVersion  int             `json:"state_version"`
@@ -43,13 +47,17 @@ type Metadata struct {
 	Files         map[string]File `json:"files"`
 	Requirements  json.RawMessage `json:"requirements"`
 }
+
+// Bundle is a verified release archive held in memory.
 type Bundle struct {
 	Metadata      Metadata
 	Files         map[string][]byte
 	ArchiveDigest string
 }
 
-func Target() string         { return runtime.GOOS + "-" + runtime.GOARCH }
+// Target returns this binary's bundle target, such as darwin-arm64.
+func Target() string { return runtime.GOOS + "-" + runtime.GOARCH }
+
 func sum(data []byte) string { digest := sha256.Sum256(data); return hex.EncodeToString(digest[:]) }
 func validDigest(value string) bool {
 	data, err := hex.DecodeString(value)
@@ -171,6 +179,7 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 	return bundle, nil
 }
 
+// Identity returns the release and source digest the bundle carries.
 func (b Bundle) Identity() operation.SourceIdentity {
 	return operation.SourceIdentity{
 		Release:       b.Metadata.Release,
@@ -178,10 +187,14 @@ func (b Bundle) Identity() operation.SourceIdentity {
 	}
 }
 
+// Directory returns where the bundle is staged, named by release and archive
+// digest.
 func (b Bundle) Directory(c operation.Context) string {
 	return filepath.Join(c.Paths.Data, "releases", b.Metadata.Release+"-"+b.ArchiveDigest[:16])
 }
 
+// Extract writes every verified member into the new directory, private and
+// synced, without following links.
 func (b Bundle) Extract(directory string) error {
 	if err := os.Mkdir(directory, 0o700); err != nil {
 		return err

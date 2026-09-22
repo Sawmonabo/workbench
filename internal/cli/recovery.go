@@ -59,10 +59,7 @@ func recoveryCommand(o *options) *cobra.Command {
 				if err != nil {
 					return result, err
 				}
-				result.PlanDigest, err = plan.Digest()
-				if err != nil {
-					return result, err
-				}
+				result.PlanDigest = plan.Digest()
 				dryRun, _ := cmd.Flags().GetBool("dry-run")
 				if dryRun {
 					result.Results = append(

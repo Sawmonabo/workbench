@@ -26,6 +26,14 @@ linters:
       rules:
         - name: exported
         - name: package-comments
+  exclusions:
+    rules:
+      # Keep long user-facing strings whole; Go style says not to split them.
+      - linters: [lll]
+        source: '"[^"]{50,}"'
+      # Safeguard tests read as one scenario; see CLAUDE.md's test rule.
+      - linters: [funlen]
+        path: _test\.go
 formatters:
   enable:
     - gofumpt

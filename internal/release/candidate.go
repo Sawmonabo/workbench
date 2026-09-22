@@ -161,7 +161,7 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 			Executable:  executable,
 			Args:        []string{"release-check", "--bundle-directory", directory, "--json"},
 			Directory:   "/",
-			Environment: RuntimeEnvironment(c),
+			Environment: runtimeEnvironment(c),
 			OutputLimit: 1 << 20,
 		},
 	)

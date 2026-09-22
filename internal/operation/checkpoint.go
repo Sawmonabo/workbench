@@ -19,10 +19,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-const (
-	journalBytes            = 64 << 10
-	MaxScopeCheckpointBytes = 1 << 30
-)
+const journalBytes = 64 << 10
+
+// MaxScopeCheckpointBytes bounds all retained checkpoint storage in one scope.
+const MaxScopeCheckpointBytes = 1 << 30
 
 type imageReference struct {
 	Path   string `json:"path"`
@@ -66,6 +66,9 @@ type Checkpoint struct {
 	changes   []TargetChange
 	directory string
 }
+
+// CheckpointSummary is the public view of one selectable checkpoint or its
+// recovery pair.
 type CheckpointSummary struct {
 	ID       string          `json:"id"`
 	PairedID string          `json:"paired_id"`
@@ -76,6 +79,8 @@ type CheckpointSummary struct {
 	Recovery bool            `json:"recovery"`
 }
 
+// ChangesDigest returns the SHA-256 of changes, which a plan binds as its
+// checkpoint-images input.
 func ChangesDigest(changes []TargetChange) string {
 	data, _ := json.Marshal(changes)
 	digest := sha256.Sum256(data)
@@ -135,6 +140,9 @@ func validateChanges(c Context, changes []TargetChange) error {
 	return nil
 }
 
+// BeginCheckpoint durably stores the exact before/after images of approved
+// changes, with reserved journal and recovery space, before any target write.
+// before is the configuration identity the checkpoint restores.
 func BeginCheckpoint(
 	m *Mutation,
 	plan Plan,
@@ -145,70 +153,11 @@ func BeginCheckpoint(
 		return nil, err
 	}
 	c := m.context
-	if plan.Scope != c.Scope {
-		return nil, Fail(4, "scope", "Checkpoint scope does not match held mutation")
-	}
-	if err := (State{SchemaVersion: 1, AppliedConfiguration: &plan.Source}).Validate(); err != nil {
+	if err := checkApproved(c, plan, before, changes); err != nil {
 		return nil, err
 	}
-	if err := (State{SchemaVersion: 1, AppliedConfiguration: before}).Validate(); err != nil {
+	if err := makeRoom(c, plan); err != nil {
 		return nil, err
-	}
-	if err := validateChanges(c, changes); err != nil {
-		return nil, err
-	}
-	bound := false
-	for _, input := range plan.Inputs {
-		if input.Name == "checkpoint-images" && input.Digest == ChangesDigest(changes) {
-			bound = true
-		}
-	}
-	if !bound {
-		return nil, Fail(4, "plan", "Exact checkpoint images were not bound to the approved plan")
-	}
-	for _, change := range changes {
-		current, err := ReadImage(c, change.Path)
-		if err != nil {
-			return nil, err
-		}
-		if !sameImage(current, change.Before) {
-			return nil, Fail(4, "conflict", "Checkpoint target changed after preview")
-		}
-	}
-	if err := preflightDirectories(c, changes, false); err != nil {
-		return nil, err
-	}
-	existing, err := loadCheckpoints(c)
-	if err != nil {
-		return nil, err
-	}
-	entries, readErr := os.ReadDir(checkpointScope(c))
-	if readErr != nil && !os.IsNotExist(readErr) {
-		return nil, readErr
-	}
-	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".prepare-") {
-			return nil, Fail(
-				3,
-				"checkpoint",
-				"A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable",
-			)
-		}
-	}
-	for _, old := range existing {
-		if old.journal.Status == "running" || old.journal.Status == "unknown" ||
-			old.journal.Status == "partial" {
-			return nil, Fail(
-				3,
-				"recovery",
-				"Resolve the retained incomplete checkpoint before further application",
-			)
-		}
-	}
-	if len(existing) >= MaxForwardCheckpoints {
-		if err = pruneApproved(c, plan); err != nil {
-			return nil, err
-		}
 	}
 	id, err := NewID()
 	if err != nil {
@@ -259,50 +208,130 @@ func BeginCheckpoint(
 			}
 		}
 	}
+	if err = cp.publish(); err != nil {
+		return nil, err
+	}
+	return cp, nil
+}
+
+// publish reserves journal and recovery space, writes the record and both
+// journal slots, then renames the prepared directory into the scope durably.
+func (cp *Checkpoint) publish() error {
+	m := cp.mutation
 	// Allocate bounded writable journal space and two independent metadata
 	// replacement reserves before target writes. Never delete these for capacity.
-	for _, name := range []string{"journal-0.json", "journal-1.json", "recovery-reserve-0", "recovery-reserve-1"} {
+	reserves := []string{
+		"journal-0.json",
+		"journal-1.json",
+		"recovery-reserve-0",
+		"recovery-reserve-1",
+	}
+	for _, name := range reserves {
 		size := journalBytes
 		if name[0] == 'r' {
 			size = 1 << 20
 		}
-		if err = m.WritePrivate(
-			filepath.Join(cp.directory, name),
-			bytes.Repeat([]byte(" "), size),
-		); err != nil {
-			return nil, err
+		space := bytes.Repeat([]byte(" "), size)
+		if err := m.WritePrivate(filepath.Join(cp.directory, name), space); err != nil {
+			return err
 		}
 	}
 	data, err := json.Marshal(cp.record)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if err = m.WritePrivate(filepath.Join(cp.directory, "checkpoint.json"), data); err != nil {
-		return nil, err
+		return err
 	}
 	if err = cp.saveJournal(); err != nil {
-		return nil, err
+		return err
 	}
 	if err = cp.saveJournal(); err != nil {
-		return nil, err
+		return err
 	}
-	final := filepath.Join(checkpointScope(c), id)
 	if _, err = checkpointStorageBytes(cp.directory); err != nil {
-		return nil, err
+		return err
 	}
+	scope := checkpointScope(m.context)
+	final := filepath.Join(scope, cp.ID)
 	if err = os.Rename(cp.directory, final); err != nil {
-		return nil, err
+		return err
 	}
 	cp.directory = final
-	directory, err := os.Open(checkpointScope(c))
+	directory, err := os.Open(scope)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer func() { _ = directory.Close() }()
-	if err = directory.Sync(); err != nil {
-		return nil, err
+	return directory.Sync()
+}
+
+// checkApproved verifies that changes are exactly the approved plan's images
+// and that every target still holds its previewed before image.
+func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []TargetChange) error {
+	if plan.Scope != c.Scope {
+		return Fail(4, "scope", "Checkpoint scope does not match held mutation")
 	}
-	return cp, nil
+	if err := (State{SchemaVersion: 1, AppliedConfiguration: &plan.Source}).Validate(); err != nil {
+		return err
+	}
+	if err := (State{SchemaVersion: 1, AppliedConfiguration: before}).Validate(); err != nil {
+		return err
+	}
+	if err := validateChanges(c, changes); err != nil {
+		return err
+	}
+	bound := slices.ContainsFunc(plan.Inputs, func(input Input) bool {
+		return input.Name == "checkpoint-images" && input.Digest == ChangesDigest(changes)
+	})
+	if !bound {
+		return Fail(4, "plan", "Exact checkpoint images were not bound to the approved plan")
+	}
+	for _, change := range changes {
+		current, err := ReadImage(c, change.Path)
+		if err != nil {
+			return err
+		}
+		if !sameImage(current, change.Before) {
+			return Fail(4, "conflict", "Checkpoint target changed after preview")
+		}
+	}
+	return preflightDirectories(c, changes, false)
+}
+
+// makeRoom refuses while a reservation or an incomplete checkpoint needs
+// review, then removes the plan-approved oldest checkpoint at the limit.
+func makeRoom(c Context, plan Plan) error {
+	existing, err := loadCheckpoints(c)
+	if err != nil {
+		return err
+	}
+	entries, err := os.ReadDir(checkpointScope(c))
+	if err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	for _, entry := range entries {
+		if strings.HasPrefix(entry.Name(), ".prepare-") {
+			return Fail(
+				3,
+				"checkpoint",
+				"A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable",
+			)
+		}
+	}
+	for _, old := range existing {
+		if slices.Contains([]string{"running", "unknown", "partial"}, old.journal.Status) {
+			return Fail(
+				3,
+				"recovery",
+				"Resolve the retained incomplete checkpoint before further application",
+			)
+		}
+	}
+	if len(existing) >= MaxForwardCheckpoints {
+		return pruneApproved(c, plan)
+	}
+	return nil
 }
 
 type imageManifest struct {
@@ -463,6 +492,8 @@ func (cp *Checkpoint) FinalizeNative() error {
 	return nil
 }
 
+// Finish records each target's observed outcome after a native run and
+// returns runErr, or a partial or unknown-outcome error when targets changed.
 func (cp *Checkpoint) Finish(runErr error) error {
 	changed, unknown, incomplete := false, false, false
 	for i, change := range cp.changes {
@@ -862,86 +893,16 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	if len(r.Targets) > MaxCheckpointTargets {
 		return nil, Fail(2, "checkpoint_format", "Invalid checkpoint target count")
 	}
-	total := 0
-	for _, ref := range r.Targets {
-		change := TargetChange{Path: ref.Path}
-		for index, digest := range []string{ref.Before, ref.After} {
-			decoded, err := hex.DecodeString(digest)
-			if err != nil || len(decoded) != sha256.Size {
-				return nil, Fail(2, "checkpoint_format", "Invalid checkpoint image reference")
-			}
-			image, err := readStoredImage(directory, digest)
-			if err != nil {
-				return nil, err
-			}
-			if ImageDigest(image) != digest {
-				return nil, Fail(2, "checkpoint_format", "Checkpoint image integrity mismatch")
-			}
-			total += len(image.Data) + len(image.Link)
-			if total > MaxCheckpointImageBytes {
-				return nil, Fail(
-					2,
-					"checkpoint_limit",
-					"Checkpoint images exceed their aggregate read bound",
-				)
-			}
-			if index == 0 {
-				change.Before = image
-			} else {
-				change.After = image
-			}
-		}
-		cp.changes = append(cp.changes, change)
+	if err := cp.loadImages(); err != nil {
+		return nil, err
 	}
 	if err := validateChanges(c, cp.changes); err != nil {
 		return nil, err
 	}
 	for i := range 2 {
-		var envelope journalEnvelope
-		if err := decodePrivate(
-			filepath.Join(directory, fmt.Sprintf("journal-%d.json", i)),
-			journalBytes,
-			&envelope,
-		); err != nil {
+		j, err := readJournal(directory, i, len(cp.changes))
+		if err != nil {
 			return nil, err
-		}
-		data, _ := json.Marshal(envelope.Journal)
-		digest := sha256.Sum256(data)
-		j := envelope.Journal
-		if envelope.Digest != hex.EncodeToString(digest[:]) || j.SchemaVersion != 1 ||
-			!operationID.MatchString(j.OperationID) ||
-			j.Sequence == 0 ||
-			len(j.Known) != len(cp.changes) ||
-			len(j.PostAttributes) != len(cp.changes) ||
-			len(j.ObservedAttributes) != len(cp.changes) ||
-			(j.Direction != "forward" && j.Direction != "reverse") ||
-			!slices.Contains([]string{"prepared", "running", "complete", "partial", "failed", "unknown"}, j.Status) {
-			return nil, Fail(
-				2,
-				"checkpoint_format",
-				"Invalid recovery journal; retained images require review",
-			)
-		}
-		for _, known := range j.Known {
-			if !slices.Contains([]string{"before", "after", "unknown"}, known) {
-				return nil, Fail(2, "checkpoint_format", "Invalid target outcome")
-			}
-		}
-		if j.RecoveryCreated {
-			if len(j.PairPost) != len(cp.changes) {
-				return nil, Fail(2, "checkpoint_format", "Missing paired recovery image selection")
-			}
-			for _, known := range j.PairPost {
-				if known != "before" && known != "after" {
-					return nil, Fail(
-						2,
-						"checkpoint_format",
-						"Invalid paired recovery image selection",
-					)
-				}
-			}
-		} else if len(j.PairPost) != 0 {
-			return nil, Fail(2, "checkpoint_format", "Unexpected paired recovery image selection")
 		}
 		if j.Sequence > cp.journal.Sequence {
 			cp.journal = j
@@ -966,6 +927,91 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	return cp, nil
 }
 
+// loadImages reads each target's stored before/after images, checking every
+// digest and the aggregate read bound.
+func (cp *Checkpoint) loadImages() error {
+	total := 0
+	for _, ref := range cp.record.Targets {
+		change := TargetChange{Path: ref.Path}
+		for index, digest := range []string{ref.Before, ref.After} {
+			decoded, err := hex.DecodeString(digest)
+			if err != nil || len(decoded) != sha256.Size {
+				return Fail(2, "checkpoint_format", "Invalid checkpoint image reference")
+			}
+			image, err := readStoredImage(cp.directory, digest)
+			if err != nil {
+				return err
+			}
+			if ImageDigest(image) != digest {
+				return Fail(2, "checkpoint_format", "Checkpoint image integrity mismatch")
+			}
+			total += len(image.Data) + len(image.Link)
+			if total > MaxCheckpointImageBytes {
+				return Fail(
+					2,
+					"checkpoint_limit",
+					"Checkpoint images exceed their aggregate read bound",
+				)
+			}
+			if index == 0 {
+				change.Before = image
+			} else {
+				change.After = image
+			}
+		}
+		cp.changes = append(cp.changes, change)
+	}
+	return nil
+}
+
+// readJournal decodes journal slot i and checks its digest, identity, sizes
+// against targets and every recorded outcome.
+func readJournal(directory string, i, targets int) (checkpointJournal, error) {
+	var envelope journalEnvelope
+	path := filepath.Join(directory, fmt.Sprintf("journal-%d.json", i))
+	if err := decodePrivate(path, journalBytes, &envelope); err != nil {
+		return checkpointJournal{}, err
+	}
+	data, _ := json.Marshal(envelope.Journal)
+	digest := sha256.Sum256(data)
+	j := envelope.Journal
+	statuses := []string{"prepared", "running", "complete", "partial", "failed", "unknown"}
+	if envelope.Digest != hex.EncodeToString(digest[:]) || j.SchemaVersion != 1 ||
+		!operationID.MatchString(j.OperationID) ||
+		j.Sequence == 0 ||
+		len(j.Known) != targets ||
+		len(j.PostAttributes) != targets ||
+		len(j.ObservedAttributes) != targets ||
+		(j.Direction != "forward" && j.Direction != "reverse") ||
+		!slices.Contains(statuses, j.Status) {
+		return j, Fail(
+			2,
+			"checkpoint_format",
+			"Invalid recovery journal; retained images require review",
+		)
+	}
+	for _, known := range j.Known {
+		if !slices.Contains([]string{"before", "after", "unknown"}, known) {
+			return j, Fail(2, "checkpoint_format", "Invalid target outcome")
+		}
+	}
+	if !j.RecoveryCreated {
+		if len(j.PairPost) != 0 {
+			return j, Fail(2, "checkpoint_format", "Unexpected paired recovery image selection")
+		}
+		return j, nil
+	}
+	if len(j.PairPost) != targets {
+		return j, Fail(2, "checkpoint_format", "Missing paired recovery image selection")
+	}
+	for _, known := range j.PairPost {
+		if known != "before" && known != "after" {
+			return j, Fail(2, "checkpoint_format", "Invalid paired recovery image selection")
+		}
+	}
+	return j, nil
+}
+
 func (cp *Checkpoint) expectedImage(index int) Image {
 	image := cp.changes[index].Before
 	if cp.journal.Known[index] == "after" {
@@ -975,6 +1021,8 @@ func (cp *Checkpoint) expectedImage(index int) Image {
 	return image
 }
 
+// ListCheckpoints returns the scope's checkpoints and recovery pairs, oldest
+// first.
 func ListCheckpoints(c Context) ([]CheckpointSummary, error) {
 	checkpoints, err := loadCheckpoints(c)
 	if err != nil {

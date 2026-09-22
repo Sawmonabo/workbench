@@ -87,7 +87,7 @@ func projectCommand(o *options) *cobra.Command {
 			}
 			proposal, err := project.Plan(cmd.Context(), c, options)
 			if proposal != nil {
-				result.PlanDigest, _ = proposal.Plan.Digest()
+				result.PlanDigest = proposal.Plan.Digest()
 				result.Results = append(
 					result.Results,
 					operation.Component{
@@ -188,7 +188,7 @@ func projectRevertCommand(o *options) *cobra.Command {
 			if err != nil {
 				return result, err
 			}
-			result.PlanDigest, _ = plan.Digest()
+			result.PlanDigest = plan.Digest()
 			result.Results = append(
 				result.Results,
 				operation.Component{

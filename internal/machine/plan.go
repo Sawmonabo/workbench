@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -24,7 +25,7 @@ type Selection struct {
 // Plan runs only reviewed target enumeration/status/diff against copied native
 // state. It never initializes source Git, saves answers or runs provisioning.
 func Plan(ctx context.Context, c operation.Context, selection Selection) (operation.Plan, error) {
-	prepared, err := Prepare(ctx, c, selection)
+	prepared, err := prepare(ctx, c, selection)
 	if prepared == nil {
 		return operation.Plan{}, err
 	}
@@ -35,7 +36,7 @@ func Plan(ctx context.Context, c operation.Context, selection Selection) (operat
 	return prepared.Plan, err
 }
 
-type Prepared struct {
+type preparation struct {
 	Plan                 operation.Plan
 	Changes              []operation.TargetChange `json:"-"`
 	native               operation.NativeContext
@@ -44,19 +45,19 @@ type Prepared struct {
 	selection            Selection
 }
 
-func (p *Prepared) Close() {
+func (p *preparation) Close() {
 	if p.scratch != "" {
 		_ = os.RemoveAll(p.scratch)
 		p.scratch = ""
 	}
 }
 
-func Prepare(
+func prepare(
 	ctx context.Context,
 	c operation.Context,
 	selection Selection,
-) (prepared *Prepared, err error) {
-	prepared = &Prepared{selection: selection}
+) (prepared *preparation, err error) {
+	prepared = &preparation{selection: selection}
 	plan := &prepared.Plan
 	*plan = operation.Plan{Scope: c.Scope, RecoveryLimits: []string{
 		"Restores exact checkpointed files, modes and links only; packages, extensions, registry, services and uncheckpointed script writes are not reverted",
@@ -101,7 +102,7 @@ func Prepare(
 			"Qualified rendering/provisioning dependencies are missing; approve setup separately",
 		)
 	}
-	if platform := Platform(ctx, c); platform.Status != "complete" {
+	if platform := checkPlatform(ctx, c); platform.Status != "complete" {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
 		return prepared, operation.Fail(3, "platform", platform.Message)
 	}
@@ -113,7 +114,7 @@ func Prepare(
 			"Provide a complete private [data] answer file through --machine-config; preview does not initialize answers",
 		)
 	}
-	answers, err := ParseAnswers(answersRaw)
+	answers, err := parseAnswers(answersRaw)
 	if err != nil {
 		return prepared, err
 	}
@@ -178,9 +179,7 @@ func Prepare(
 		}
 	}
 	nativeAnswers := map[string]any{}
-	for key, value := range answers {
-		nativeAnswers[key] = value
-	}
+	maps.Copy(nativeAnswers, answers)
 	nativeAnswers["workbench_managed"] = true
 	// Setup's single private uv owner must also be usable by new user shells.
 	// Existing native shell targets expose its directory without replacing
@@ -374,7 +373,7 @@ func Prepare(
 		},
 	)
 	if !selection.ConfigOnly {
-		plan.Effects = append(plan.Effects, ProvisioningEffects(answers)...)
+		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
 	}
 	rendered, renderErr := run("dump", "--exclude=scripts", "--format=json")
@@ -489,7 +488,7 @@ func Prepare(
 // Apply executes the prepared configuration through the same native owner.
 // Callers must hold mutation authority and a durable checkpoint of any target changes.
 // An interactive run owns terminal; otherwise redacted output goes to progress.
-func (p *Prepared) Apply(
+func (p *preparation) Apply(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
@@ -523,19 +522,13 @@ func (p *Prepared) Apply(
 	if p.selection.ConfigOnly {
 		args = append(args, "--exclude=scripts")
 	} else {
-		environment = ScriptEnvironment(c, p.Plan.Dependencies)
+		environment = scriptEnvironment(c, p.Plan.Dependencies)
 		for _, name := range p.selection.Effects {
 			environment = append(environment, effectVariable(name)+"=1")
 		}
 		for i, value := range environment {
-			if strings.HasPrefix(value, "PATH=") {
-				environment[i] = "PATH=" + filepath.Join(
-					p.scratch,
-					"bin",
-				) + ":" + strings.TrimPrefix(
-					value,
-					"PATH=",
-				)
+			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
+				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
 			}
 		}
 	}

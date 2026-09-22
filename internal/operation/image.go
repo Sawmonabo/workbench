@@ -23,6 +23,8 @@ const (
 	MaxForwardCheckpoints   = 20
 )
 
+// Image is the exact recorded state of one target: its kind (file, directory,
+// symlink or absent), mode, content or link, extended attributes and group.
 type Image struct {
 	Kind       string            `json:"kind"`
 	Mode       uint32            `json:"mode"`
@@ -32,12 +34,14 @@ type Image struct {
 	Group      *uint32           `json:"group"`
 }
 
+// TargetChange is one target's approved before and after images.
 type TargetChange struct {
 	Path   string `json:"path"`
 	Before Image  `json:"before"`
 	After  Image  `json:"after"`
 }
 
+// ImageDigest returns the SHA-256 of an image's canonical JSON.
 func ImageDigest(image Image) string {
 	data, _ := json.Marshal(image)
 	digest := sha256.Sum256(data)
@@ -142,7 +146,7 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 		return nil, "", err
 	}
 	if relative != "." {
-		for _, part := range strings.Split(relative, string(filepath.Separator)) {
+		for part := range strings.SplitSeq(relative, string(filepath.Separator)) {
 			next, openErr := unix.Openat(
 				fd,
 				part,
@@ -351,7 +355,7 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 		return nil, Fail(3, "metadata", "Cannot inspect bounded target extended attributes")
 	}
 	attributes := map[string][]byte{}
-	for _, name := range strings.Split(string(names[:n]), "\x00") {
+	for name := range strings.SplitSeq(string(names[:n]), "\x00") {
 		if name == "" {
 			continue
 		}
@@ -478,6 +482,80 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	return file.Sync()
 }
 
+// writeDirectoryImage creates name when absent, then sets the desired
+// attributes, group and mode through a descriptor. It never replaces a
+// non-directory.
+func writeDirectoryImage(fd int, name, path string, current, desired Image) error {
+	if current.Kind != "absent" && current.Kind != "directory" {
+		return Fail(3, "image", "Existing directory replacement is unsupported")
+	}
+	if current.Kind == "absent" {
+		if err := unix.Mkdirat(fd, name, desired.Mode); err != nil {
+			return err
+		}
+	}
+	directoryFD, err := unix.Openat(fd, name, unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW, 0)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = unix.Close(directoryFD) }()
+	if err = writeImageAttributes(directoryFD, path, desired.Attributes); err != nil {
+		return err
+	}
+	if err = setImageGroup(directoryFD, *desired.Group); err != nil {
+		return err
+	}
+	return unix.Fchmod(directoryFD, desired.Mode)
+}
+
+// stageLinkImage creates the desired symlink at temporary beside path, with
+// its group and attributes, ready to replace the target.
+func stageLinkImage(fd int, temporary, path string, desired Image) error {
+	if err := unix.Symlinkat(desired.Link, fd, temporary); err != nil {
+		return err
+	}
+	var stat unix.Stat_t
+	if err := unix.Fstatat(fd, temporary, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+		return err
+	}
+	if uint32(stat.Gid) != *desired.Group {
+		group := int(*desired.Group)
+		if err := unix.Fchownat(fd, temporary, -1, group, unix.AT_SYMLINK_NOFOLLOW); err != nil {
+			return err
+		}
+	}
+	link := filepath.Join(filepath.Dir(path), temporary)
+	return writeImageAttributes(-1, link, desired.Attributes)
+}
+
+// stageFileImage writes the desired bytes, group, mode and attributes to a new
+// private file at temporary and syncs it, ready to replace the target.
+func stageFileImage(fd int, temporary, path string, desired Image) error {
+	flags := unix.O_WRONLY | unix.O_CREAT | unix.O_EXCL | unix.O_NOFOLLOW | unix.O_CLOEXEC
+	fileFD, err := unix.Openat(fd, temporary, flags, 0o600)
+	if err != nil {
+		return err
+	}
+	file := os.NewFile(uintptr(fileFD), temporary)
+	_, err = file.Write(desired.Data)
+	if err == nil {
+		err = setImageGroup(fileFD, *desired.Group)
+	}
+	if err == nil {
+		err = file.Chmod(os.FileMode(desired.Mode))
+	}
+	if err == nil {
+		err = writeImageAttributes(fileFD, path, desired.Attributes)
+	}
+	if err == nil {
+		err = file.Sync()
+	}
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
 func writeImage(c Context, path string, expected, desired Image) error {
 	if err := validateImageGroup(c, path, desired); err != nil {
 		return err
@@ -509,33 +587,7 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return parent.Sync()
 	}
 	if desired.Kind == "directory" {
-		if current.Kind != "absent" && current.Kind != "directory" {
-			return Fail(3, "image", "Existing directory replacement is unsupported")
-		}
-		if current.Kind == "absent" {
-			err = unix.Mkdirat(fd, name, desired.Mode)
-		}
-		if err != nil {
-			return err
-		}
-		directoryFD, openErr := unix.Openat(
-			fd,
-			name,
-			unix.O_RDONLY|unix.O_DIRECTORY|unix.O_NOFOLLOW,
-			0,
-		)
-		if openErr != nil {
-			return openErr
-		}
-		err = writeImageAttributes(directoryFD, path, desired.Attributes)
-		if err == nil {
-			err = setImageGroup(directoryFD, *desired.Group)
-		}
-		if err == nil {
-			err = unix.Fchmod(directoryFD, desired.Mode)
-		}
-		_ = unix.Close(directoryFD)
-		if err != nil {
+		if err = writeDirectoryImage(fd, name, path, current, desired); err != nil {
 			return err
 		}
 		return parent.Sync()
@@ -549,58 +601,12 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	}
 	temporary := ".workbench-" + id
 	defer func() { _ = unix.Unlinkat(fd, temporary, 0) }()
+	stage := stageFileImage
 	if desired.Kind == "symlink" {
-		if err = unix.Symlinkat(desired.Link, fd, temporary); err != nil {
-			return err
-		}
-		var stat unix.Stat_t
-		if err = unix.Fstatat(fd, temporary, &stat, unix.AT_SYMLINK_NOFOLLOW); err != nil {
-			return err
-		}
-		if uint32(stat.Gid) != *desired.Group {
-			err = unix.Fchownat(fd, temporary, -1, int(*desired.Group), unix.AT_SYMLINK_NOFOLLOW)
-		}
-		if err != nil {
-			return err
-		}
-		if err = writeImageAttributes(
-			-1,
-			filepath.Join(filepath.Dir(path), temporary),
-			desired.Attributes,
-		); err != nil {
-			return err
-		}
-	} else {
-		fileFD, openErr := unix.Openat(
-			fd,
-			temporary,
-			unix.O_WRONLY|unix.O_CREAT|unix.O_EXCL|unix.O_NOFOLLOW|unix.O_CLOEXEC,
-			0o600,
-		)
-		if openErr != nil {
-			return openErr
-		}
-		file := os.NewFile(uintptr(fileFD), temporary)
-		_, err = file.Write(desired.Data)
-		if err == nil {
-			err = setImageGroup(fileFD, *desired.Group)
-		}
-		if err == nil {
-			err = file.Chmod(os.FileMode(desired.Mode))
-		}
-		if err == nil {
-			err = writeImageAttributes(fileFD, path, desired.Attributes)
-		}
-		if err == nil {
-			err = file.Sync()
-		}
-		closeErr := file.Close()
-		if err != nil {
-			return err
-		}
-		if closeErr != nil {
-			return closeErr
-		}
+		stage = stageLinkImage
+	}
+	if err = stage(fd, temporary, path, desired); err != nil {
+		return err
 	}
 	// A final check narrows races with non-Workbench writers; conflicts never
 	// trigger a rollback that could destroy their newly written data.

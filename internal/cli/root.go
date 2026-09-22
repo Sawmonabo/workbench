@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"runtime/debug"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -21,8 +20,6 @@ type options struct {
 	rendered             bool
 	invocation           []string
 }
-
-func New() *cobra.Command { return newRoot(&options{invocation: os.Args[1:]}) }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
 func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics io.Writer) int {

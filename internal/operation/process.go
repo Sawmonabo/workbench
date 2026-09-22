@@ -128,6 +128,7 @@ func homebrewRepository(repository, directory string) bool {
 	return true
 }
 
+// Process is one subprocess request for [Run].
 type Process struct {
 	Executable string
 	Args       []string
@@ -152,6 +153,8 @@ type Process struct {
 	// capturing them, for unattended native runs without a terminal.
 	Progress io.Writer
 }
+
+// ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
 // Run is the only subprocess owner. Read-only requests are reviewed native probes,
@@ -163,102 +166,9 @@ func Run(
 	request Process,
 ) (ProcessOutput, error) {
 	var output ProcessOutput
-	if request.Terminal != nil &&
-		(!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
-		return output, Fail(
-			3,
-			"terminal",
-			"Terminal execution requires approved mutation, a controlling terminal and no piped input",
-		)
-	}
-	if request.Mutates {
-		if err := mutation.Check(); err != nil {
-			return output, err
-		}
-		if c.ReadOnly || mutation.context.Scope != c.Scope {
-			return output, Fail(
-				3,
-				"read_only",
-				"Subprocess mutation is outside the approved context",
-			)
-		}
-	}
-	excluded := []string{c.Native.Source}
-	if c.Scope.Kind == "project" {
-		excluded = append(excluded, c.Scope.Root)
-	}
-	executable, err := trustedExecutable(request.Executable, excluded)
+	executable, directory, err := request.admit(c, mutation)
 	if err != nil {
 		return output, err
-	}
-	directory, err := ExistingDirectory(request.Directory)
-	if err != nil {
-		return output, err
-	}
-	if !filepath.IsAbs(request.Directory) {
-		return output, Fail(
-			2,
-			"process",
-			"Subprocess working directory must be explicit and absolute",
-		)
-	}
-	if !request.Mutates && c.Scope.Kind == "project" && Within(c.Scope.Root, directory) {
-		return output, Fail(
-			3,
-			"process",
-			"Read-only management probes must run outside the selected project",
-		)
-	}
-	// Captured runs are bounded probes and helpers. Streamed native provisioning
-	// depends on network and package sizes, so it runs until done or interrupted.
-	streamed := request.Terminal != nil || request.Progress != nil
-	if request.Timeout == 0 && !streamed {
-		request.Timeout = time.Minute
-	}
-	if request.Timeout < 0 || request.Timeout > 30*time.Minute {
-		return output, Fail(
-			2,
-			"process",
-			"Subprocess timeout must be non-negative and at most 30 minutes",
-		)
-	}
-	if request.OutputLimit == 0 {
-		request.OutputLimit = 1024 * 1024
-	}
-	if request.OutputLimit < 1 || request.OutputLimit > 16*1024*1024 ||
-		len(request.Input) > 16*1024*1024 {
-		return output, Fail(
-			2,
-			"process",
-			"Subprocess input/output exceeds the bounded execution policy",
-		)
-	}
-	for _, variable := range request.Environment {
-		key, value, ok := strings.Cut(variable, "=")
-		if !ok || key == "" {
-			return output, Fail(
-				2,
-				"process",
-				"Subprocess environment requires explicit key/value entries",
-			)
-		}
-		if key == "PATH" {
-			for _, entry := range filepath.SplitList(value) {
-				if !filepath.IsAbs(entry) {
-					return output, Fail(2, "process", "Subprocess PATH entries must be absolute")
-				}
-				canonical, err := ExistingDirectory(entry)
-				if err != nil {
-					return output, err
-				}
-				if err := outsideProjects(entry, excluded); err != nil {
-					return output, err
-				}
-				if err := outsideProjects(canonical, excluded); err != nil {
-					return output, err
-				}
-			}
-		}
 	}
 	if request.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -287,11 +197,8 @@ func Run(
 		return err
 	}
 	cmd.WaitDelay = time.Second
-	stdout, stderr := &boundedBuffer{
-		limit: request.OutputLimit,
-	}, &boundedBuffer{
-		limit: request.OutputLimit,
-	}
+	stdout := &boundedBuffer{limit: request.OutputLimit}
+	stderr := &boundedBuffer{limit: request.OutputLimit}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	var progress *redactingWriter
 	switch {
@@ -309,13 +216,9 @@ func Run(
 	}
 	// An interrupted stream may end halfway through a secret; do not expose it.
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-		return output, Fail(
-			1,
-			"timeout",
-			filepath.Base(
-				executable,
-			)+" exceeded its "+request.Timeout.String()+" limit and was stopped",
-		)
+		limit := request.Timeout.String()
+		message := filepath.Base(executable) + " exceeded its " + limit + " limit and was stopped"
+		return output, Fail(1, "timeout", message)
 	}
 	if ctx.Err() != nil {
 		return output, ctx.Err()
@@ -335,11 +238,11 @@ func Run(
 		return output, failure(
 			filepath.Base(executable),
 			err,
-			Redact(stderr.String(), request.Secrets),
+			redact(stderr.String(), request.Secrets),
 		)
 	}
-	output.Stdout = Redact(stdout.String(), request.Secrets)
-	output.Stderr = Redact(stderr.String(), request.Secrets)
+	output.Stdout = redact(stdout.String(), request.Secrets)
+	output.Stderr = redact(stderr.String(), request.Secrets)
 	if request.PrivateOutput {
 		output.Stdout = stdout.String()
 	}
@@ -351,6 +254,112 @@ func Run(
 		)
 	}
 	return output, nil
+}
+
+// admit checks the request's authority, executable, directory and bounds, and
+// fills in the default timeout and output limit. It returns the canonical
+// executable and working directory.
+func (request *Process) admit(c Context, mutation *Mutation) (string, string, error) {
+	if request.Terminal != nil &&
+		(!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
+		return "", "", Fail(
+			3,
+			"terminal",
+			"Terminal execution requires approved mutation, a controlling terminal and no piped input",
+		)
+	}
+	if request.Mutates {
+		if err := mutation.Check(); err != nil {
+			return "", "", err
+		}
+		if c.ReadOnly || mutation.context.Scope != c.Scope {
+			return "", "", Fail(
+				3,
+				"read_only",
+				"Subprocess mutation is outside the approved context",
+			)
+		}
+	}
+	excluded := []string{c.Native.Source}
+	if c.Scope.Kind == "project" {
+		excluded = append(excluded, c.Scope.Root)
+	}
+	executable, err := trustedExecutable(request.Executable, excluded)
+	if err != nil {
+		return "", "", err
+	}
+	directory, err := ExistingDirectory(request.Directory)
+	if err != nil {
+		return "", "", err
+	}
+	if !filepath.IsAbs(request.Directory) {
+		return "", "", Fail(
+			2,
+			"process",
+			"Subprocess working directory must be explicit and absolute",
+		)
+	}
+	if !request.Mutates && c.Scope.Kind == "project" && Within(c.Scope.Root, directory) {
+		return "", "", Fail(
+			3,
+			"process",
+			"Read-only management probes must run outside the selected project",
+		)
+	}
+	// Captured runs are bounded probes and helpers. Streamed native provisioning
+	// depends on network and package sizes, so it runs until done or interrupted.
+	streamed := request.Terminal != nil || request.Progress != nil
+	if request.Timeout == 0 && !streamed {
+		request.Timeout = time.Minute
+	}
+	if request.Timeout < 0 || request.Timeout > 30*time.Minute {
+		return "", "", Fail(
+			2,
+			"process",
+			"Subprocess timeout must be non-negative and at most 30 minutes",
+		)
+	}
+	if request.OutputLimit == 0 {
+		request.OutputLimit = 1 << 20
+	}
+	if request.OutputLimit < 1 || request.OutputLimit > 16<<20 || len(request.Input) > 16<<20 {
+		return "", "", Fail(
+			2,
+			"process",
+			"Subprocess input/output exceeds the bounded execution policy",
+		)
+	}
+	return executable, directory, checkEnvironment(request.Environment, excluded)
+}
+
+// checkEnvironment requires explicit key/value entries and a PATH made only of
+// existing absolute directories outside project control.
+func checkEnvironment(environment, excluded []string) error {
+	for _, variable := range environment {
+		key, value, ok := strings.Cut(variable, "=")
+		if !ok || key == "" {
+			return Fail(2, "process", "Subprocess environment requires explicit key/value entries")
+		}
+		if key != "PATH" {
+			continue
+		}
+		for _, entry := range filepath.SplitList(value) {
+			if !filepath.IsAbs(entry) {
+				return Fail(2, "process", "Subprocess PATH entries must be absolute")
+			}
+			canonical, err := ExistingDirectory(entry)
+			if err != nil {
+				return err
+			}
+			if err := outsideProjects(entry, excluded); err != nil {
+				return err
+			}
+			if err := outsideProjects(canonical, excluded); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 type boundedBuffer struct {
@@ -405,7 +414,7 @@ type redactingWriter struct {
 func (w *redactingWriter) Write(data []byte) (int, error) {
 	w.pending = append(w.pending, data...)
 	if end := bytes.LastIndexAny(w.pending, "\r\n"); end >= 0 {
-		_, _ = io.WriteString(w.out, Redact(string(w.pending[:end+1]), w.secrets))
+		_, _ = io.WriteString(w.out, redact(string(w.pending[:end+1]), w.secrets))
 		w.pending = append(w.pending[:0], w.pending[end+1:]...)
 	}
 	return len(data), nil
@@ -413,12 +422,12 @@ func (w *redactingWriter) Write(data []byte) (int, error) {
 
 func (w *redactingWriter) flush() {
 	if len(w.pending) > 0 {
-		_, _ = io.WriteString(w.out, Redact(string(w.pending), w.secrets)+"\n")
+		_, _ = io.WriteString(w.out, redact(string(w.pending), w.secrets)+"\n")
 		w.pending = nil
 	}
 }
 
-func Redact(value string, secrets []string) string {
+func redact(value string, secrets []string) string {
 	ordered := append([]string{}, secrets...)
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })
 	for _, secret := range ordered {

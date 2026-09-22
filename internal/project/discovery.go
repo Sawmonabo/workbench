@@ -16,6 +16,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 )
 
+// Project is one discovered project root and who owns its tooling.
 type Project struct {
 	Root      string `json:"root"`
 	Language  string `json:"language"`

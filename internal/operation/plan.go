@@ -9,10 +9,15 @@ import (
 	"fmt"
 )
 
+// SourceIdentity names a machine source: its release and the digest of its
+// reviewed content.
 type SourceIdentity struct {
 	Release       string `json:"release"`
 	ContentDigest string `json:"content_digest"`
 }
+
+// Dependency is a resolved management tool (chezmoi, python3 or uv): where it
+// is, its version, who installed it and what it was qualified for.
 type Dependency struct {
 	Name         string   `json:"name"`
 	Path         string   `json:"path"`
@@ -20,15 +25,22 @@ type Dependency struct {
 	Owner        string   `json:"owner"`
 	Capabilities []string `json:"capabilities"`
 }
+
+// Input is one private value a plan depends on, recorded only by digest.
 type Input struct {
 	Name   string `json:"name"`
 	Digest string `json:"digest"`
 }
+
+// Edit is one planned file change: its path, action and reviewed description.
 type Edit struct {
 	Path        string `json:"path"`
 	Action      string `json:"action"`
 	Description string `json:"description"`
 }
+
+// Effect is a planned change outside checkpointed files, with the privilege
+// it needs and what recovery can and cannot undo.
 type Effect struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
@@ -36,8 +48,9 @@ type Effect struct {
 	Recovery    string `json:"recovery"`
 }
 
-// Inputs includes native state, answers and target image hashes. It is private;
-// public output exposes only the aggregate digest, never individual secret hashes.
+// Plan is what an operation will do, shown before consent. Inputs holds native
+// state, answers and target image hashes; it is private, and public output
+// exposes only the aggregate [Plan.Digest], never individual secret hashes.
 // Descriptions contain reviewed redacted text, never raw diffs or answers.
 type Plan struct {
 	Source         SourceIdentity `json:"source"`
@@ -51,19 +64,20 @@ type Plan struct {
 	Complete       bool           `json:"complete"`
 }
 
-func (p Plan) Digest() (string, error) {
-	// Include the private inputs in the digest without serializing them publicly.
-	data, err := json.Marshal(struct {
+// Digest returns the SHA-256 that consent approves: the public plan plus its
+// private inputs. A plan holds only strings, slices and bools, so marshalling
+// cannot fail.
+func (p Plan) Digest() string {
+	data, _ := json.Marshal(struct {
 		Plan   Plan
 		Inputs []Input
 	}{p, p.Inputs})
-	if err != nil {
-		return "", err
-	}
 	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:]), nil
+	return hex.EncodeToString(digest[:])
 }
 
+// Consent is how a mutation is approved: an exact digest, or terminal
+// confirmation of the displayed plan.
 type Consent struct {
 	ApprovedDigest string
 	NonInteractive bool
@@ -80,6 +94,7 @@ type Mutation struct {
 	active  bool
 }
 
+// Check reports an error unless m is an active, writable mutation.
 func (m *Mutation) Check() error {
 	if m == nil || !m.active || m.context.ReadOnly {
 		return Fail(
@@ -117,10 +132,7 @@ func WithMutation(
 	if displayed.Scope != c.Scope {
 		return Fail(4, "scope", "Plan does not match the selected scope")
 	}
-	digest, err := displayed.Digest()
-	if err != nil {
-		return err
-	}
+	digest := displayed.Digest()
 	if consent.ApprovedDigest != "" {
 		if consent.ApprovedDigest != digest {
 			return Fail(
@@ -159,10 +171,7 @@ func WithMutation(
 	if err != nil {
 		return err
 	}
-	currentDigest, err := current.Digest()
-	if err != nil {
-		return err
-	}
+	currentDigest := current.Digest()
 	if currentDigest != digest {
 		return Fail(4, "plan", "Inputs changed after approval; review a new plan before writing")
 	}
@@ -174,6 +183,7 @@ func WithMutation(
 	return apply(m)
 }
 
+// NewID returns a random version 4 UUID for an operation or checkpoint.
 func NewID() (string, error) {
 	var id [16]byte
 	if _, err := rand.Read(id[:]); err != nil {
