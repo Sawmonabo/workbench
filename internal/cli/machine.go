@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"context"
+	"path/filepath"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/machine"
@@ -53,6 +55,43 @@ func statusCommand(o *options) *cobra.Command {
 			return result, nil
 		}),
 	}
+}
+
+// initCommand adopts machine answers from an existing chezmoi config once, so a
+// dotfiles machine switches without re-answering the questionnaire.
+func initCommand(o *options) *cobra.Command {
+	cmd := &cobra.Command{Use: "init", Short: "Save machine answers from an existing chezmoi config's [data] table", Args: cobra.NoArgs}
+	cmd.Flags().String("answers-from", "", "Existing chezmoi config, for example ~/.config/chezmoi/chezmoi.toml")
+	cmd.Flags().Bool("dry-run", false, "Show the plan without saving answers")
+	_ = cmd.MarkFlagRequired("answers-from")
+	cmd.RunE = o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+		result := operation.NewResult(cmd.CommandPath())
+		from, _ := cmd.Flags().GetString("answers-from")
+		var encoded []byte
+		planner := func(_ context.Context, current operation.Context) (operation.Plan, error) {
+			plan, data, err := machine.AdoptionPlan(current, from)
+			encoded = data
+			return plan, err
+		}
+		plan, err := planner(cmd.Context(), c)
+		result.Results = append(result.Results, operation.Component{Name: "answers-plan", Status: "complete", Details: plan})
+		if err != nil {
+			return result, err
+		}
+		result.PlanDigest, _ = plan.Digest()
+		if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun || len(plan.Edits) == 0 {
+			return result, nil
+		}
+		c.ReadOnly = false
+		err = operation.WithMutation(cmd.Context(), c, plan, releaseConsent(o, o.approvePlan), planner, func(m *operation.Mutation) error {
+			return m.WritePrivate(filepath.Join(c.Paths.Config, "machine.toml"), encoded)
+		})
+		if err == nil {
+			result.Results = append(result.Results, operation.Component{Name: "answers", Status: "complete", Message: "Saved; plan and apply now use them without --machine-config"})
+		}
+		return result, err
+	})
+	return cmd
 }
 
 // Both plan and apply --dry-run use the same native planning owner.

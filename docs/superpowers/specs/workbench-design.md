@@ -177,7 +177,7 @@ Keep the working runtime and recoverable state intact until activation succeeds.
 
 Resolve runtime locations from the user's supported platform conventions and applicable XDG overrides. Do not hardcode a username, checkout path or home directory. Maintain explicit locations for the entry point, immutable releases, privately owned tools, machine answers and private operation/checkpoint state.
 
-One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets. Do not maintain two competing active source selectors.
+One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets: `workbench init --answers-from` copies only its `[data]` table, under plan consent (see [switching from dotfiles](../../switch-from-dotfiles.md)). Do not maintain two competing active source selectors.
 
 Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization is an approved setup stage, never an implicit effect of pull, doctor or plan. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths and source identity. Do not replace Git with a no-op command or duplicate the questions.
 

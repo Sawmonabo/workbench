@@ -73,7 +73,7 @@ func newRoot(o *options) *cobra.Command {
 	flags.StringVar(&o.resolve.Source, "source", "", "Select an existing developer source tree")
 	flags.StringVar(&o.resolve.MachineConfig, "machine-config", "", "Select an existing private native answer file")
 	flags.StringVar(&o.resolve.Destination, "destination", "", "Select an existing configuration destination (default: home)")
-	root.AddCommand(doctorCommand(o), statusCommand(o), projectCommand(o))
+	root.AddCommand(doctorCommand(o), statusCommand(o), initCommand(o), projectCommand(o))
 	root.AddCommand(recoveryCommand(o))
 	root.AddCommand(releaseCommands(o)...)
 	for _, spec := range []struct{ use, short string }{

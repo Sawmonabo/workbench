@@ -28,7 +28,8 @@ curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/insta
 ```
 
 See [installation and commands](docs/usage.md) for `--version`, the `gh` form
-and install options.
+and install options, and [switch from dotfiles](docs/switch-from-dotfiles.md)
+to move a machine over.
 
 ## Daily commands
 

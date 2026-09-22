@@ -1,7 +1,10 @@
 package machine
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -94,3 +97,53 @@ func (a Answers) secrets() []string {
 }
 
 func (a Answers) label() string { return fmt.Sprintf("%s/%s", a["machine_role"], a["versions_mode"]) }
+
+// AdoptionPlan previews saving the [data] table of an existing native chezmoi
+// config, such as dotfiles' ~/.config/chezmoi/chezmoi.toml, as Workbench's
+// machine answers. Other keys (sourceDir, hooks, commands) are ignored and
+// never run. This is the design's one-time answer adoption, not a
+// compatibility reader: plan and apply read only machine.toml. It returns the
+// encoded answers to write.
+func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, error) {
+	plan := operation.Plan{Scope: c.Scope, RecoveryLimits: []string{"machine.toml is not checkpointed; the source config is left unchanged"}}
+	raw, err := operation.ReadPrivateInput(from, 1<<20)
+	if err != nil {
+		return plan, nil, err
+	}
+	var config map[string]any
+	if toml.Unmarshal(raw, &config) != nil {
+		return plan, nil, operation.Fail(2, "answers", "Existing chezmoi config is not valid TOML")
+	}
+	data, ok := config["data"].(map[string]any)
+	if !ok {
+		return plan, nil, operation.Fail(2, "answers", "Existing chezmoi config has no [data] table")
+	}
+	answers := Answers(data)
+	if err = ValidateAnswers(answers); err != nil {
+		return plan, nil, err
+	}
+	encoded, err := toml.Marshal(map[string]any{"data": answers})
+	if err != nil {
+		return plan, nil, err
+	}
+	target := filepath.Join(c.Paths.Config, "machine.toml")
+	previous, action := "absent", "create"
+	if _, statErr := os.Lstat(target); statErr == nil {
+		existing, readErr := operation.ReadPrivateInput(target, 1<<20)
+		if readErr != nil {
+			return plan, nil, readErr
+		}
+		previous, action = digest(existing), "modify"
+		if bytes.Equal(existing, encoded) {
+			action = ""
+		}
+	} else if !os.IsNotExist(statErr) {
+		return plan, nil, statErr
+	}
+	plan.Inputs = []operation.Input{{Name: "adopted-answers", Digest: digest(encoded)}, {Name: "machine-answers", Digest: previous}}
+	if action != "" {
+		plan.Edits = []operation.Edit{{Path: target, Action: action, Description: "Save machine answers (" + answers.label() + ") from the [data] table of " + from + "; its other keys are ignored"}}
+	}
+	plan.Complete = true
+	return plan, encoded, nil
+}

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/pelletier/go-toml/v2"
 )
 
 var toolVersion = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
@@ -220,6 +221,16 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	_, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
 	results = append([]operation.Component{Platform(ctx, c)}, results...)
+	// Plain chezmoi still pointed at another source, such as dotfiles, would
+	// reapply it over the same files Workbench manages.
+	if raw, readErr := os.ReadFile(filepath.Join(c.Home, ".config", "chezmoi", "chezmoi.toml")); readErr == nil {
+		var native struct {
+			SourceDir string `toml:"sourceDir"`
+		}
+		if toml.Unmarshal(raw, &native) == nil && native.SourceDir != "" {
+			results = append(results, operation.Component{Name: "native-chezmoi", Status: "conflict", Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir + "; move it aside after switching (docs/switch-from-dotfiles.md)"})
+		}
+	}
 	root := filepath.Join(c.Home, ".config", "Code", "User")
 	if runtime.GOOS == "darwin" {
 		root = filepath.Join(c.Home, "Library", "Application Support", "Code", "User")

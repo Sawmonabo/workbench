@@ -37,6 +37,7 @@ and `workbench update` also accept `--bundle` with a local archive or HTTPS URL.
 | --- | --- |
 | `doctor` | Bounded local tool/host checks; no repair, server startup or remote sessions. |
 | `status` | Inspect private current-state identities; not proof of package health or a drift scan. |
+| `init --answers-from PATH` | Save the `[data]` table of an existing chezmoi config as machine answers; see [switching from dotfiles](switch-from-dotfiles.md). |
 | `pull [version] --bundle FILE` | Verify and stage only; does not activate or configure. |
 | `install [version] --bundle FILE` | Activate the matched runtime/source, then separate setup and apply stages. |
 | `update [version] --bundle FILE` | Compose the same stage/activate/setup/plan/apply owners. |
