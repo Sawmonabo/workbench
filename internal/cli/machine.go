@@ -2,70 +2,66 @@ package cli
 
 import (
 	"fmt"
-	"os/exec"
+	"os"
 	"runtime"
-	"text/tabwriter"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
 )
 
-func doctorCommand() *cobra.Command {
+func doctorCommand(o *options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "doctor",
-		Short: "Inventory local tool locations without executing them",
-		Long:  "Inventory local tool locations without executing them. This initial diagnostic does not validate versions, profiles, machine answers or readiness to apply configuration.",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			w := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-			if _, err := fmt.Fprintf(w, "Platform\t%s/%s\nTool\tDiscovery\tLocation (version not checked)\n", runtime.GOOS, runtime.GOARCH); err != nil {
-				return err
+		Use: "doctor", Short: "Inventory trusted local tool locations without executing them", Args: cobra.NoArgs,
+		RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+			result := operation.NewResult(cmd.CommandPath())
+			result.Results = append(result.Results, operation.Component{Name: "platform", Status: "complete", Message: runtime.GOOS + "/" + runtime.GOARCH})
+			cwd, err := operation.ExistingDirectory(".")
+			if err != nil {
+				return result, err
 			}
 			missing := false
-			// A diagnostic inventory, not a second package installation list.
 			for _, name := range []string{"chezmoi", "uv", "python3", "code"} {
 				if err := cmd.Context().Err(); err != nil {
-					return err
+					return result, err
 				}
-				path, err := exec.LookPath(name)
+				path, err := operation.FindExecutable(name, os.Getenv("PATH"), []string{cwd, c.Native.Source})
+				component := operation.Component{Name: name, Status: "complete", Message: fmt.Sprintf("%q", path)}
 				if err != nil {
-					if _, err := fmt.Fprintf(w, "%s\tnot found safely on PATH\t-\n", name); err != nil {
-						return err
-					}
-					missing = true
-					continue
+					component.Status, component.Message, missing = "blocked", "Not found outside project-controlled PATH entries", true
 				}
-				if _, err := fmt.Fprintf(w, "%s\tfound\t%q\n", name, path); err != nil {
-					return err
-				}
+				result.Results = append(result.Results, component)
 			}
-			if err := w.Flush(); err != nil {
-				return err
-			}
-			cmd.Println("No tools were executed. Tool compatibility and editor host/profile remain unchecked.")
-			cmd.Println("Installer and provisioning are unavailable; this is not a readiness check.")
-			if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-				return fmt.Errorf("native %s provisioning is outside the planned platform scope", runtime.GOOS)
-			}
+			result.Warnings = append(result.Warnings, "Location inventory only: versions, machine answers and editor host/profile are unchecked. No tools were executed or repaired.")
 			if missing {
-				return errIncomplete
+				return result, operation.Fail(3, "dependency", "Inventory incomplete; provide missing tools through an approved setup stage")
 			}
-			return nil
-		},
+			return result, nil
+		}),
 	}
 }
 
-func statusCommand() *cobra.Command {
+func statusCommand(o *options) *cobra.Command {
 	return &cobra.Command{
-		Use:   "status",
-		Short: "Show development status; release tracking is not implemented",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			cmd.Printf("CLI: %s\n", version())
-			cmd.Println("Applied configuration: unknown (release tracking not implemented)")
-			cmd.Println("Staged candidate: unknown (release staging not implemented)")
-			cmd.Println("Drift and partial operations: not inspected")
-			cmd.Println("No machine configuration or private state was read or written.")
-			return nil
-		},
+		Use: "status", Short: "Inspect current private state without release or drift probes", Args: cobra.NoArgs,
+		RunE: o.action(false, func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+			result := operation.NewResult(cmd.CommandPath())
+			state, err := operation.ReadState(c.Paths)
+			if err != nil {
+				return result, err
+			}
+			result.Results = append(result.Results, operation.Component{Name: "cli", Status: "complete", Message: version()})
+			message := "No recorded Workbench state"
+			if state != nil {
+				message = "Current state schema and recorded identities validated"
+			}
+			result.Results = append(result.Results, operation.Component{Name: "state", Status: "complete", Message: message, Details: state})
+			result.Warnings = append(result.Warnings, "Release activation, staged candidates and drift are not inspected. No state was created or changed.")
+			return result, nil
+		}),
 	}
+}
+
+// Both plan and apply --dry-run use this owner. No native preview is fabricated.
+func machinePlan(cmd *cobra.Command, _ operation.Context) (operation.Result, error) {
+	return operation.NewResult(cmd.CommandPath()), operation.Fail(3, "not_implemented", "Native machine planning/application is not implemented; no changes were made")
 }

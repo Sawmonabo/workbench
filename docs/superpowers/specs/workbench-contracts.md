@@ -1,6 +1,6 @@
 # Workbench implementation contracts
 
-Status: selected contracts and isolated evidence, 2026-09-22. The CLI still implements only the read-only increment described in the [design](workbench-design.md). Flags, formats and recovery commands below are future implementation requirements. No provisioning, release publication or live configuration application was performed to establish them.
+Status: selected contracts and isolated evidence, 2026-09-22. The CLI implements the read-only inventories and shared operation foundations described in the [design](workbench-design.md), including context flags, JSON/exit semantics, current-state validation and consent/locking primitives. Native planning, provisioning, release and recovery behavior below remains an implementation requirement. No provisioning, release publication or live configuration application was performed to establish these contracts.
 
 ## Platforms and dependency ownership
 

@@ -2,9 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"os/signal"
+	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/cli"
 )
@@ -14,14 +14,7 @@ func main() {
 }
 
 func run() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	cmd := cli.New()
-	cmd.SetOut(os.Stdout)
-	cmd.SetErr(os.Stderr)
-	if err := cmd.ExecuteContext(ctx); err != nil {
-		fmt.Fprintln(os.Stderr, "Error:", err)
-		return 1
-	}
-	return 0
+	return cli.Execute(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 }

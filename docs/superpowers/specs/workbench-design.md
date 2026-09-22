@@ -44,19 +44,19 @@ These are source observations, not evidence of a successful Workbench deployment
 | `home/dot_codex/modify_private_config.toml.tmpl` | Existing Python-based configuration merge preserving selected application-owned state. Its `tomllib` dependency creates a Python prerequisite for rendering/applying this target. Invalid input currently falls back to a replacement body, which needs a safety review. |
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Role/version-mode rendering, script linting and leak checks on Ubuntu/macOS, plus simulated WSL rendering. Provisioning and real Windows interoperability are not exercised by that simulation. |
 
-The repository also contains `go.mod`, `cmd/workbench/`, `internal/cli/` and `internal/project/`: an initial executable with help/completions, PATH-only doctor inventory, development status and bounded project filename discovery. `.golangci.yml` and `.golangci-lint-version` provide shared formatting/lint policy, and the Go CI job compiles the CLI target architectures.
+The repository also contains `go.mod`, `cmd/workbench/`, `internal/cli/`, `internal/operation/` and `internal/project/`: an executable with help/completions, safe PATH-only doctor inventory, current-state validation and bounded project filename discovery. Shared operation primitives cover explicit contexts, result envelopes, plan consent, bounded subprocess execution, private atomic metadata writes and locks. `.golangci.yml` and `.golangci-lint-version` provide shared formatting/lint policy, and the Go CI job compiles the CLI target architectures.
 
 There is no release installer, configuration planner/apply engine, project configuration engine, operation journal or recovery implementation. Reserved lifecycle/configure commands fail explicitly without effects. Existing machine sources must not be described as those missing features.
 
 ### Initial implementation decisions and limits
 
 - One module at `github.com/Sawmonabo/workbench`; Go `1.26.4`, Cobra `v1.10.2`, golangci-lint `v2.12.2`. Go and linter pins live in `go.mod` and `.golangci-lint-version`, not duplicated CI constants.
-- This increment executes no subprocesses, performs no network requests and writes no machine/project state. Doctor discovers command locations only, with versions and editor profile/host compatibility explicitly unchecked. Status reports release tracking and drift as unavailable, not a clean machine.
+- Available CLI handlers execute no subprocesses, perform no network requests and write no machine/project state. Doctor discovers locations outside project-controlled PATH entries, with versions and editor profile/host compatibility explicitly unchecked. Status validates existing private metadata and reports release activation and drift as uninspected.
 - Project inspect lists filename candidates, not parsed metadata or established ownership. It does not evaluate workspace membership, parent owners or Git ignore rules. Hidden/dependency/build directories, links and nested repositories are excluded; nested repositories are reported as boundaries.
 - Scanner limits: 50,000 entries, 32 directory levels, 1,000 candidates and a five-second cancellation deadline. In-flight OS filesystem calls can outlast cancellation. A limit/error returns partial output and exit 1. The current command takes an existing path, defaults to `.` and never creates it.
-- Human-readable CLI output only; exit 0 for successful inventory and exit 1 for errors, missing diagnostic tools, incomplete scans or unavailable commands. This does not settle future machine-readable or mutation consent contracts.
-- Mutating commands and their dry-run variants are unavailable. Operation models, subprocess execution, persistent state, locks and checkpoints are deliberately deferred until their real consumers and safety contracts exist.
-- No automated tests were added for this read-only increment. Formatting, lint, build and recorded manual smoke checks are its validation; native provisioning support remains unverified.
+- Human-readable results go to stdout and diagnostics to stderr; `--json` emits the versioned result envelope. Exit codes follow the implementation contracts: successful inventory 0, execution/check failure 1, invalid input/state 2, blocked support/prerequisites 3, conflict 4, partial mutation 5 and interruption 130.
+- Mutating commands and their dry-run variants remain unavailable. Shared primitives do not implement native planners, release activation, journals or checkpoint recovery. No CLI command grants mutation authority merely because `--approve-plan` is present.
+- One automated regression prevents preview execution from reaching a mutating subprocess. Formatting, lint, builds and disposable manual probes cover ordinary behavior; native provisioning support remains unverified.
 
 ## 3. Architecture and reuse
 
@@ -152,9 +152,9 @@ workbench project configure . --language python --language typescript --dry-run
 
 The last example specifies intended selection syntax, not implemented TypeScript support. An explicitly requested unsupported language fails before writes. Discovery must report unsupported detected components prominently rather than silently claiming that the entire repository is configured.
 
-Inspection and preview default to offline operation. Missing dependencies/answers produce an actionable result rather than repairs. Normal mutations require confirmation; noninteractive mutation requires complete private inputs and approval of the exact plan digest. The selected future interface is defined in the [consent and output contract](workbench-contracts.md#consent-and-output); it is not yet implemented.
+Inspection and preview default to offline operation. Missing dependencies/answers produce an actionable result rather than repairs. Normal mutations require confirmation; noninteractive mutation requires complete private inputs and approval of the exact plan digest. Shared consent and output primitives follow the [contract](workbench-contracts.md#consent-and-output); actual mutation handlers remain unavailable.
 
-Success means the requested supported scope completed and passed its checks. Requested work that failed or was skipped cannot be reported as complete. Return nonzero for failures, unresolved conflicts and incomplete requested operations; preserve a detailed result distinguishing them. The selected exit codes and JSON envelope in the implementation contracts replace this increment's limited output only when implemented; automation is not advertised yet.
+Success means the requested supported scope completed and passed its checks. Requested work that failed or was skipped cannot be reported as complete. Return nonzero for failures, unresolved conflicts and incomplete requested operations; preserve a detailed result distinguishing them. The implemented exit codes and JSON envelope cover the currently available inventories and explicit blocked results; they do not establish mutation readiness.
 
 ## 5. Installation and release lifecycle
 

@@ -21,17 +21,17 @@ const (
 
 // Item is a filename-based candidate, not a validated project or policy owner.
 type Item struct {
-	Path      string
-	Kind      string
-	Ecosystem string
+	Path      string `json:"path"`
+	Kind      string `json:"kind"`
+	Ecosystem string `json:"ecosystem"`
 }
 
 type Inventory struct {
-	Directory string
-	Items     []Item
-	Entries   int
-	Excluded  int
-	Skipped   int
+	Directory string `json:"directory"`
+	Items     []Item `json:"items"`
+	Entries   int    `json:"entries"`
+	Excluded  int    `json:"excluded"`
+	Skipped   int    `json:"skipped"`
 }
 
 // Inspect never reads file contents, runs commands, or creates directories.

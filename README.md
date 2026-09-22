@@ -33,8 +33,8 @@ corrections are still planned.
 
 | Command | Current behavior |
 | --- | --- |
-| `doctor` | Finds chezmoi, uv, Python and VS Code command locations on PATH without executing them. Missing tools return nonzero. Versions, machine answers and editor profiles are not validated. |
-| `status` | Shows CLI build version and explicitly reports release tracking and drift inspection as unavailable. It does not claim the machine is configured. |
+| `doctor` | Finds chezmoi, uv, Python and VS Code command locations outside project-controlled PATH entries without executing them. Missing tools return nonzero. Versions, machine answers and editor profiles are not validated. |
+| `status` | Shows CLI build version and validates existing private current-state metadata. Release activation and drift inspection remain unavailable. It does not claim the machine is configured. |
 | `project inspect [PATH]` | Lists manifest, workspace-marker, lockfile, checksum and selected Python-config filenames under an existing directory. Defaults to `.`. No file contents are parsed. |
 | `--help`, `--version`, `completion` | Cobra help, build version and shell completion output. Completion output is not installed automatically. |
 
@@ -43,9 +43,30 @@ commands that return an explicit not-implemented error without changing anything
 This includes their dry-run forms: no planner exists yet. `project configure`
 accepts repeatable `--language` flags, but no language has configuration support.
 
-Successful inventory commands return 0; failures, missing diagnostic tools,
-incomplete scans and unavailable commands return 1. Output is human-readable;
-there is no stable machine-readable API yet.
+Successful inventories return 0; check failures return 1; invalid inputs or
+unsupported current-state formats return 2; missing prerequisites and unavailable
+operations return 3. The shared operation layer reserves 4 for conflicts, 5 for
+partial mutations, and 130 for interruption. Mutation commands remain unavailable.
+
+Use `--json` for one result object with `schema_version`, `command`, `status`,
+`results`, `warnings` and `errors`. Normal output sends results to stdout and
+diagnostics to stderr. Help, version and shell completion retain Cobra's text output.
+
+`--source`, `--machine-config` and `--destination` resolve explicit existing paths.
+Machine answer files must be private regular files. Runtime directory overrides
+are `WORKBENCH_CONFIG_DIR`, `WORKBENCH_DATA_DIR`, `WORKBENCH_STATE_DIR`,
+`WORKBENCH_CACHE_DIR` and `WORKBENCH_BIN_DIR`; each must be absolute. See the
+[runtime contracts](docs/superpowers/specs/workbench-contracts.md#runtime-paths-and-context)
+for XDG/platform defaults. Inventories never create these directories or answers.
+Unsupported or malformed existing state fails without conversion or deletion.
+Private runtime storage requires APFS/HFS on macOS or ext/XFS/Btrfs/tmpfs/overlay
+on Linux; Windows, network and other unqualified filesystems are blocked. This
+keeps WSL private state on the Linux side; it does not certify Windows target ACLs.
+
+`--non-interactive` and `--approve-plan SHA256` expose the consent vocabulary for
+future mutation handlers; they do not enable unfinished commands. The shared
+guard binds approval to a plan rechecked under shared and scope locks. Native
+planners, checkpoints and release activation still need their own implementation.
 
 ### Inspection boundaries
 
@@ -97,6 +118,8 @@ test framework or backward-compatibility/migration layer.
 - `cmd/workbench/`: executable entry point.
 - `internal/cli/`: command presentation and read-only diagnostics.
 - `internal/project/`: bounded filename inventory.
+- `internal/operation/`: resolved context, results, consent, bounded subprocesses,
+  private state writes and locks; these primitives do not enable provisioning.
 - `home/`: canonical chezmoi configuration and existing provisioning owners.
 - `scripts/`: existing render validation; not an alternate Workbench CLI.
 - `docs/superpowers/`: maintained product design and implementation plan.
