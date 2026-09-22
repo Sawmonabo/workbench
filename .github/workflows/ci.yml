@@ -70,9 +70,17 @@ jobs:
         run: scripts/render-check.sh "${{ matrix.machine_role }}" "${{ matrix.versions_mode }}" "${{ matrix.extra }}"
   secret-scan:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with: {fetch-depth: 0, persist-credentials: false}
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Scan full Git history with Gitleaks
+        shell: bash
+        run: |
+          gitleaks_dir=$(mktemp -d "$RUNNER_TEMP/gitleaks.XXXXXX")
+          trap 'rm -rf "$gitleaks_dir"' EXIT
+          curl -fsSL --retry 3 https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz -o "$gitleaks_dir/gitleaks.tar.gz"
+          # Pinned from the official v8.30.1 gitleaks_8.30.1_checksums.txt asset.
+          printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$gitleaks_dir/gitleaks.tar.gz" | sha256sum --check --strict
+          tar -xzf "$gitleaks_dir/gitleaks.tar.gz" -C "$gitleaks_dir" gitleaks
+          "$gitleaks_dir/gitleaks" git --redact --no-banner --no-color --exit-code 1 --log-opts=--all --config .gitleaks.toml

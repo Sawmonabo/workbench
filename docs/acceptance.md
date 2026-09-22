@@ -58,6 +58,9 @@ when run from their respective roots with the narrow canonical keyboard-shortcut
 false-positive rule. Both consolidated code reviews closed their material
 findings. Remote CI outcomes are recorded by the repository's GitHub Actions
 runs; the local evidence here does not substitute for a successful remote run.
+The initial remote run also passed Go quality/build/safety/cross-compilation and
+all 13 existing Ubuntu/macOS role/mode/render jobs. These are native CI checks,
+not full machine provisioning or Windows-host qualification.
 
 ## Unqualified release gates
 
