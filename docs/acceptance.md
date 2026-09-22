@@ -52,6 +52,22 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   the runtime handoff and applied configuration to a disposable home; the next
   plan had zero edits. With no release published, the real `gh` path reports
   "no release found".
+- Successive local-bundle installs into a disposable home kept only the new
+  and replaced releases: the third install's plan listed the oldest release, an
+  unused setup context and an unused private tool version as removals, and
+  deleted them after activation; reinstalling an older release kept it and the
+  one it replaced.
+- Plans summarized each edit (for example `+0 −2 lines` or `mode 0600 → 0644`)
+  and flagged a hand-edited managed file as edited outside Workbench. A
+  developer checkout with an edited `home/` template planned and applied
+  without regenerating trust, and editing it again invalidated that approval;
+  a tampered copy of a staged release was still refused.
+- A managed file carrying quarantine, Finder info and last-used-date attributes
+  planned and applied, and revert restored its content and all four attributes.
+- Project configure with extensions, ignore entries, CI and native uv
+  resolution applied to a synthetic uv project; the next plan was unchanged and
+  revert restored every file. Interrupting uv staging exited 130 with no
+  project file changed.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
