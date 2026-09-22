@@ -68,7 +68,7 @@ The initial read-only application exists; installer and lifecycle engines do not
 
 Develop each stage with the smallest relevant verification. Release packaging can be prototyped earlier, but do not activate an updater before its destructive-failure safeguards are verified. A Python-only smoke check is not evidence of monorepo support.
 
-## 1. Resolve contracts and establish lean validation
+## Task 1: Resolve contracts and establish lean validation
 
 ### Files
 
@@ -93,7 +93,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Record the feature/platform checklist and brief manual verification instructions in maintained documentation, not a new testing framework.
 - No implementation stage relies on an invented native flag, missing tool version or undefined destructive-operation policy. Independent work may proceed, but a blocked feature cannot be advertised as complete.
 
-## 2. Build the shared CLI, context and execution foundations
+## Task 2: Build the shared CLI, context and execution foundations
 
 ### Files
 
@@ -119,7 +119,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Inspect locking and atomic state-write behavior for corruption hazards; reuse the destructive-state safeguard in phase 4 instead of duplicating it here.
 - Build the supported targets. This is a compilation gate, not platform provisioning certification.
 
-## 3. Integrate chezmoi and make provisioning effects explicit
+## Task 3: Integrate chezmoi and make provisioning effects explicit
 
 ### Files
 
@@ -147,7 +147,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Review failure/skip reporting and manually exercise relevant changed paths. Automate malformed-input handling only where it would otherwise overwrite user data, through the shared safety test rather than per-script suites.
 - Diff/doctor evaluation must not modify targets. Any helper incapable of that is blocked from the read-only path until corrected.
 
-## 4. Implement configuration apply and recovery
+## Task 4: Implement configuration apply and recovery
 
 ### Files
 
@@ -172,7 +172,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Review that machine recovery cannot touch project paths and failed checkpoint creation prevents writes.
 - Manually repeat apply for unchanged inputs and confirm recovery limitations appear in preview/result output.
 
-## 5. Add release lifecycle and the minimal installer
+## Task 5: Add release lifecycle and the minimal installer
 
 ### Files
 
@@ -200,7 +200,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - A failed candidate does not destroy the working runtime; rollback limitations remain honest.
 - A manual installation smoke check from a published-style bundle, not the working tree, verifies the user path.
 
-## 6. Add personal editor and Python machine policy
+## Task 6: Add personal editor and Python machine policy
 
 ### Files
 
@@ -226,7 +226,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Confirm only ty and native Ruff run for the default Python editor stack; basedpyright is available on demand and in project CI.
 - Record a brief native check of the intended host/profile; no automated editor harness.
 
-## 7. Configure existing projects and supported monorepos
+## Task 7: Configure existing projects and supported monorepos
 
 ### Files
 
@@ -255,7 +255,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 - Dry-run performs no installs, package resolution or lockfile writes. Repeated configuration makes no unnecessary changes.
 - Compare application files and unrelated configuration before/after; no generated application code, framework, README, Git repository or fabricated tests may appear.
 
-## 8. Run platform, resource and security acceptance
+## Task 8: Run platform, resource and security acceptance
 
 ### Files
 
@@ -277,7 +277,7 @@ Develop each stage with the smallest relevant verification. Release packaging ca
 
 Accept static-check output, review and brief reproducible manual observations for routine criteria. Automated checks remain limited to explicitly justified catastrophic risks. If a required platform cannot be smoke-checked, report its release gate as incomplete; do not treat compilation alone as verified native support.
 
-## 9. Prepare accurate public documentation and releases
+## Task 9: Prepare accurate public documentation and releases
 
 ### Files
 
