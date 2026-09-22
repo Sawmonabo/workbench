@@ -147,8 +147,9 @@ type Process struct {
 	Timeout     time.Duration
 	OutputLimit int
 	Mutates     bool
-	// PrivateOutput retains exact successful bytes for private target images.
-	// Never attach this output to public results; failures/overflow stay withheld.
+	// PrivateOutput returns stdout unredacted, as exact private target images;
+	// never attach it to public results. A failure still reports the redacted
+	// stderr tail, and overflow withholds all output.
 	PrivateOutput bool
 	// Terminal is only for approved interactive native setup, never preview.
 	// The child owns it as the foreground process group, so sudo can prompt.

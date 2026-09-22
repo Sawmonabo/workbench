@@ -71,6 +71,9 @@ type checkpointJournal struct {
 	PostAttributes     []map[string][]byte `json:"post_attributes"`
 	PairPost           []targetOutcome     `json:"pair_post"`
 	ObservedAttributes []map[string][]byte `json:"observed_attributes"`
+	// Updated is when the journal was last saved, so when its checkpoint last
+	// wrote targets, forward or in recovery.
+	Updated time.Time `json:"updated"`
 }
 type journalEnvelope struct {
 	Digest  string            `json:"digest"`
@@ -430,6 +433,7 @@ func (cp *Checkpoint) saveJournal() error {
 		return err
 	}
 	cp.journal.Sequence++
+	cp.journal.Updated = time.Now().UTC()
 	data, _ := json.Marshal(cp.journal)
 	envelope, err := json.Marshal(
 		journalEnvelope{Digest: SHA256Hex(data), Journal: cp.journal},
@@ -694,16 +698,17 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 	return nil
 }
 
-// LastApplied returns, for each target path in c's scope, the image the newest
-// checkpoint covering it last left there: its post-image, or its pre-image
-// after a revert or failure. Targets with unknown outcomes are left out.
+// LastApplied returns, for each target path in c's scope, the image the
+// checkpoint that most recently wrote it left there: its post-image, or its
+// pre-image after a revert or failure. A checkpoint with an unknown outcome
+// for a target is skipped, so an earlier known image stands.
 func LastApplied(c Context) (map[string]Image, error) {
 	checkpoints, err := loadCheckpoints(c)
 	if err != nil {
 		return nil, err
 	}
 	slices.SortFunc(checkpoints, func(a, b *Checkpoint) int {
-		return b.record.Created.Compare(a.record.Created)
+		return b.journal.Updated.Compare(a.journal.Updated)
 	})
 	images := map[string]Image{}
 	for _, cp := range checkpoints {
@@ -757,7 +762,8 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	for _, cp := range checkpoints {
 		settled := cp.journal.Status == JournalComplete || cp.journal.Status == JournalFailed
 		if !settled ||
-			state != nil && state.PartialOperation != nil && state.PartialOperation.ID == cp.ID {
+			state != nil && state.PartialOperation != nil &&
+				state.PartialOperation.ID == cp.journal.OperationID {
 			continue
 		}
 		if oldest == nil || cp.record.Created.Before(oldest.record.Created) {

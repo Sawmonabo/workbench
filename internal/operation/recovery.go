@@ -201,7 +201,7 @@ func Recover(
 	selector RecoverySelector,
 	consent Consent,
 ) (_ string, err error) {
-	defer Annotate(&err, "recover checkpoint %s", selector.Checkpoint)
+	defer Annotate(&err, "recover checkpoint")
 	c.ReadOnly = false
 	operationID := ""
 	err = WithMutation(
