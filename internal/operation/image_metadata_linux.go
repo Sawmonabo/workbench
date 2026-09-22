@@ -16,7 +16,7 @@ func fileMetadata(fd int, path string) error {
 	size, err := unix.Flistxattr(fd, nil)
 	if err != nil || size != 0 {
 		return Fail(
-			3,
+			ExitBlocked,
 			"metadata",
 			"Targets with extended attributes or unverified ACLs cannot be preserved",
 		)
@@ -31,7 +31,7 @@ func linkMetadata(path string) error {
 	size, err := unix.Llistxattr(path, nil)
 	if err != nil || size != 0 {
 		return Fail(
-			3,
+			ExitBlocked,
 			"metadata",
 			"Links with extended attributes or unverified ACLs cannot be preserved",
 		)

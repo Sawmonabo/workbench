@@ -206,7 +206,7 @@ func OptionalEffectNames() []string {
 func selectedEffects(selection Selection) ([]operation.Effect, error) {
 	if len(selection.Effects) > 0 && selection.ConfigOnly {
 		return nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"effect",
 			"Optional effects are provisioning steps; they cannot be combined with --config-only",
 		)
@@ -222,7 +222,7 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 				distribution := os.Getenv("WSL_DISTRO_NAME")
 				if distribution == "" {
 					return nil, operation.Fail(
-						3,
+						operation.ExitBlocked,
 						"effect",
 						"default-distro requires WSL_DISTRO_NAME from a WSL session",
 					)
@@ -235,7 +235,7 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 	for _, name := range selection.Effects {
 		if !slices.Contains(available, name) {
 			return nil, operation.Fail(
-				2,
+				operation.ExitInvalid,
 				"effect",
 				"Unknown or unavailable effect "+name+"; available here: "+strings.Join(
 					available,

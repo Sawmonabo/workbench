@@ -29,7 +29,7 @@ func recoveryCommand(o *options) *cobra.Command {
 				if list || id == "" && selector.Version == "" {
 					if list && (id != "" || selector.Version != "") {
 						return result, operation.Fail(
-							2,
+							operation.ExitInvalid,
 							"selector",
 							"--list cannot be combined with a recovery selector",
 						)
@@ -39,7 +39,7 @@ func recoveryCommand(o *options) *cobra.Command {
 						result.Results,
 						operation.Component{
 							Name:    "checkpoints",
-							Status:  "complete",
+							Status:  operation.StatusComplete,
 							Details: checkpoints,
 						},
 					)
@@ -48,7 +48,7 @@ func recoveryCommand(o *options) *cobra.Command {
 					}
 					if !list {
 						return result, operation.Fail(
-							3,
+							operation.ExitBlocked,
 							"selection",
 							"Choose an explicit --checkpoint ID from this list",
 						)
@@ -66,7 +66,7 @@ func recoveryCommand(o *options) *cobra.Command {
 						result.Results,
 						operation.Component{
 							Name:    "recovery-plan",
-							Status:  "complete",
+							Status:  operation.StatusComplete,
 							Details: plan,
 						},
 					)

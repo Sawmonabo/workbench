@@ -68,7 +68,7 @@ func releaseCommands(o *options) []*cobra.Command {
 			}
 			if metadata.SourceDigest != identity.ContentDigest {
 				return result, operation.Fail(
-					2,
+					operation.ExitInvalid,
 					"release_identity",
 					"Candidate executable and source identities differ",
 				)
@@ -77,7 +77,7 @@ func releaseCommands(o *options) []*cobra.Command {
 				result.Results,
 				operation.Component{
 					Name:    "release-check",
-					Status:  "complete",
+					Status:  operation.StatusComplete,
 					Details: metadata.Release,
 				},
 			)
@@ -97,16 +97,16 @@ func releaseLifecycle(
 ) (result operation.Result, resultErr error) {
 	result = operation.NewResult(cmd.CommandPath())
 	defer func() {
-		if resultErr == nil || operation.ExitCode(resultErr) == 130 {
+		if resultErr == nil || operation.ExitCode(resultErr) == operation.ExitInterrupted {
 			return
 		}
 		for _, component := range result.Results {
-			if component.Name == "release" && component.Status == "complete" {
+			if component.Name == "release" && component.Status == operation.StatusComplete {
 				redacted := operation.NewResult(cmd.CommandPath())
 				redacted.SetError(resultErr)
 				problem := redacted.Errors[0]
 				resultErr = operation.Fail(
-					5,
+					operation.ExitPartial,
 					problem.Category,
 					"Runtime installed; requested later stages are incomplete: "+problem.Message,
 				)
@@ -121,7 +121,7 @@ func releaseLifecycle(
 	location, _ := cmd.Flags().GetString("bundle")
 	if location == "" {
 		return result, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"release_unavailable",
 			"Supply --bundle with a release archive; the one-line install.sh downloads one",
 		)
@@ -142,7 +142,7 @@ func releaseLifecycle(
 	result.PlanDigest = plan.Digest()
 	result.Results = append(
 		result.Results,
-		operation.Component{Name: "release-plan", Status: "complete", Details: plan},
+		operation.Component{Name: "release-plan", Status: operation.StatusComplete, Details: plan},
 	)
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
@@ -169,7 +169,11 @@ func releaseLifecycle(
 	}
 	result.Results = append(
 		result.Results,
-		operation.Component{Name: "release", Status: "complete", Message: bundle.String()},
+		operation.Component{
+			Name:    "release",
+			Status:  operation.StatusComplete,
+			Message: bundle.String(),
+		},
 	)
 	installOnly, _ := cmd.Flags().GetBool("install-only")
 	if !activate || installOnly {
@@ -227,7 +231,7 @@ func continueInstall(
 	if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil ||
 		actual != state.ActiveRelease.Executable {
 		return result, operation.Fail(
-			4,
+			operation.ExitConflict,
 			"handoff",
 			"Runtime continuation must execute the activated runtime",
 		)
@@ -243,7 +247,7 @@ func continueInstall(
 		result.Results,
 		operation.Component{
 			Name:    "release",
-			Status:  "complete",
+			Status:  operation.StatusComplete,
 			Message: metadata.Release + " (" + metadata.Target + ")",
 		},
 	)
@@ -302,13 +306,17 @@ func configureMachine(
 		result.PlanDigest = setupDigest
 		result.Results = append(
 			result.Results,
-			operation.Component{Name: "setup-plan", Status: "complete", Details: setup},
+			operation.Component{
+				Name:    "setup-plan",
+				Status:  operation.StatusComplete,
+				Details: setup,
+			},
 		)
 		approved, _ := cmd.Flags().GetString("approve-setup")
 		if o.nonInteractive || o.json {
 			if _, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr != nil {
 				return result, operation.Fail(
-					3,
+					operation.ExitBlocked,
 					"answers",
 					"Runtime installed; unattended setup requires complete private answers and a separate --approve-setup digest",
 				)
@@ -316,7 +324,7 @@ func configureMachine(
 		}
 		if !o.nonInteractive && !o.json && terminal == nil {
 			return result, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"terminal",
 				"Runtime installed; native setup requires a terminal or complete unattended inputs",
 			)
@@ -345,7 +353,11 @@ func configureMachine(
 	result.PlanDigest = applyPlan.Digest()
 	result.Results = append(
 		result.Results,
-		operation.Component{Name: "machine-plan", Status: "complete", Details: applyPlan},
+		operation.Component{
+			Name:    "machine-plan",
+			Status:  operation.StatusComplete,
+			Details: applyPlan,
+		},
 	)
 	approved, _ := cmd.Flags().GetString("approve-apply")
 	applied, err := machine.Apply(

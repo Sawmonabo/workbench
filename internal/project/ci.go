@@ -83,7 +83,7 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 
 func ciFailure(message string) error {
 	return operation.Fail(
-		3,
+		operation.ExitBlocked,
 		"project_ci",
 		message+"; adapt project/python/checks.example.yml manually",
 	)

@@ -21,10 +21,21 @@ const (
 	MaxForwardCheckpoints   = 20
 )
 
-// Image is the exact recorded state of one target: its kind (file, directory,
-// symlink or absent), mode, content or link, extended attributes and group.
+// ImageKind is what a target is, or [ImageAbsent] when it does not exist.
+type ImageKind string
+
+// Image kinds.
+const (
+	ImageAbsent    ImageKind = "absent"
+	ImageFile      ImageKind = "file"
+	ImageDirectory ImageKind = "directory"
+	ImageSymlink   ImageKind = "symlink"
+)
+
+// Image is the exact recorded state of one target: its kind, mode, content or
+// link, extended attributes and group.
 type Image struct {
-	Kind       string            `json:"kind"`
+	Kind       ImageKind         `json:"kind"`
 	Mode       uint32            `json:"mode"`
 	Data       []byte            `json:"data,omitempty"`
 	Link       string            `json:"link,omitempty"`
@@ -47,34 +58,38 @@ func ImageDigest(image Image) string {
 
 func (image Image) validate(c Context, path string) error {
 	if image.Mode > 0o777 || len(image.Data) > MaxImageBytes || len(image.Link) > 4096 {
-		return Fail(3, "image", "Target image exceeds the supported byte or permission bounds")
+		return Fail(
+			ExitBlocked,
+			"image",
+			"Target image exceeds the supported byte or permission bounds",
+		)
 	}
-	if image.Kind != "absent" {
+	if image.Kind != ImageAbsent {
 		if image.Group == nil {
-			return Fail(2, "image", "Present target image requires an explicit group")
+			return Fail(ExitInvalid, "image", "Present target image requires an explicit group")
 		}
 	}
 	for name, value := range image.Attributes {
-		if !preservedAttribute(name) || len(value) > 4096 || image.Kind == "absent" {
-			return Fail(3, "metadata", "Unsupported target extended attributes")
+		if !preservedAttribute(name) || len(value) > 4096 || image.Kind == ImageAbsent {
+			return Fail(ExitBlocked, "metadata", "Unsupported target extended attributes")
 		}
 	}
 	switch image.Kind {
-	case "absent":
+	case ImageAbsent:
 		if image.Mode != 0 || len(image.Data) != 0 || image.Link != "" || image.Group != nil {
-			return Fail(2, "image", "Malformed absent image")
+			return Fail(ExitInvalid, "image", "Malformed absent image")
 		}
-	case "file":
+	case ImageFile:
 		if image.Link != "" {
-			return Fail(2, "image", "Malformed regular file image")
+			return Fail(ExitInvalid, "image", "Malformed regular file image")
 		}
-	case "directory":
+	case ImageDirectory:
 		if len(image.Data) != 0 || image.Link != "" {
-			return Fail(2, "image", "Malformed directory image")
+			return Fail(ExitInvalid, "image", "Malformed directory image")
 		}
-	case "symlink":
+	case ImageSymlink:
 		if len(image.Data) != 0 || image.Link == "" || image.Mode != 0o777 {
-			return Fail(2, "image", "Malformed symbolic link image")
+			return Fail(ExitInvalid, "image", "Malformed symbolic link image")
 		}
 		target := image.Link
 		if !filepath.IsAbs(target) {
@@ -82,7 +97,7 @@ func (image Image) validate(c Context, path string) error {
 		}
 		target = filepath.Clean(target)
 		if target == path {
-			return Fail(3, "image", "Self-referential target links are unsupported")
+			return Fail(ExitBlocked, "image", "Self-referential target links are unsupported")
 		}
 		if err := c.ValidateTarget(target); err != nil {
 			return err
@@ -91,17 +106,17 @@ func (image Image) validate(c Context, path string) error {
 			return err
 		}
 	default:
-		return Fail(2, "image", "Unknown target image type")
+		return Fail(ExitInvalid, "image", "Unknown target image type")
 	}
 	return nil
 }
 
 func validateImageGroup(c Context, path string, image Image) error {
-	if image.Kind == "absent" {
+	if image.Kind == ImageAbsent {
 		return nil
 	}
 	if image.Group == nil {
-		return Fail(2, "image", "Missing target group")
+		return Fail(ExitInvalid, "image", "Missing target group")
 	}
 	groups, err := os.Getgroups()
 	if err != nil {
@@ -116,7 +131,7 @@ func validateImageGroup(c Context, path string, image Image) error {
 		permitted = inheritErr == nil && inherited == *image.Group
 	}
 	if !permitted {
-		return Fail(3, "metadata", "Target group cannot be preserved by the current user")
+		return Fail(ExitBlocked, "metadata", "Target group cannot be preserved by the current user")
 	}
 	return nil
 }
@@ -167,7 +182,7 @@ func imageParent(c Context, path string) (*os.File, string, error) {
 func ReadImage(c Context, path string) (Image, error) {
 	parent, name, err := imageParent(c, path)
 	if errors.Is(err, unix.ENOENT) {
-		return Image{Kind: "absent"}, nil
+		return Image{Kind: ImageAbsent}, nil
 	}
 	if err != nil {
 		return Image{}, err
@@ -183,14 +198,14 @@ func ReadImage(c Context, path string) (Image, error) {
 		err,
 		unix.ENOENT,
 	) {
-		return Image{Kind: "absent"}, nil
+		return Image{Kind: ImageAbsent}, nil
 	}
 	if err != nil {
 		return Image{}, err
 	}
 	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 {
 		return Image{}, Fail(
-			3,
+			ExitBlocked,
 			"metadata",
 			"Target ownership or special permissions cannot be preserved",
 		)
@@ -202,9 +217,9 @@ func ReadImage(c Context, path string) (Image, error) {
 		data := make([]byte, 4097)
 		n, readErr := unix.Readlinkat(int(parent.Fd()), name, data)
 		if readErr != nil || n > 4096 {
-			return Image{}, Fail(3, "image", "Cannot capture target link")
+			return Image{}, Fail(ExitBlocked, "image", "Cannot capture target link")
 		}
-		image.Kind, image.Link = "symlink", string(data[:n])
+		image.Kind, image.Link = ImageSymlink, string(data[:n])
 		if err = linkMetadata(path); err != nil {
 			return Image{}, err
 		}
@@ -215,7 +230,7 @@ func ReadImage(c Context, path string) (Image, error) {
 	case unix.S_IFREG, unix.S_IFDIR:
 		if stat.Mode&unix.S_IFMT == unix.S_IFREG && (stat.Nlink != 1 || stat.Size > MaxImageBytes) {
 			return Image{}, Fail(
-				3,
+				ExitBlocked,
 				"image",
 				"Target has hard links or exceeds the 8 MiB image limit",
 			)
@@ -236,7 +251,7 @@ func ReadImage(c Context, path string) (Image, error) {
 			return Image{}, err
 		}
 		if opened.Ino != stat.Ino || opened.Dev != stat.Dev {
-			return Image{}, Fail(4, "conflict", "Target changed during image capture")
+			return Image{}, Fail(ExitConflict, "conflict", "Target changed during image capture")
 		}
 		if err = fileMetadata(fd, path); err != nil {
 			return Image{}, err
@@ -246,16 +261,16 @@ func ReadImage(c Context, path string) (Image, error) {
 			return Image{}, err
 		}
 		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
-			image.Kind = "directory"
+			image.Kind = ImageDirectory
 		} else {
-			image.Kind = "file"
+			image.Kind = ImageFile
 			image.Data, err = io.ReadAll(io.LimitReader(file, MaxImageBytes+1))
 			if err != nil {
 				return Image{}, err
 			}
 		}
 	default:
-		return Image{}, Fail(3, "image", "Special filesystem targets are not supported")
+		return Image{}, Fail(ExitBlocked, "image", "Special filesystem targets are not supported")
 	}
 	if err = image.validate(c, path); err != nil {
 		return Image{}, err
@@ -284,7 +299,7 @@ func sameImage(a, b Image) bool {
 // changes. Existing targets retain their group; new targets use native parent
 // inheritance. Callers bind the completed image into their plan digest.
 func ImageWithGroup(c Context, path string, image Image) (Image, error) {
-	if image.Kind == "absent" {
+	if image.Kind == ImageAbsent {
 		image.Group = nil
 		return image, nil
 	}
@@ -292,7 +307,7 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	if err != nil {
 		return Image{}, err
 	}
-	if before.Kind != "absent" {
+	if before.Kind != ImageAbsent {
 		image.Group = before.Group
 		return image, nil
 	}
@@ -316,7 +331,7 @@ func CreationGroup(c Context, path string) (uint32, error) {
 		if err == nil {
 			if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
 				return 0, Fail(
-					3,
+					ExitBlocked,
 					"metadata",
 					"Cannot establish group inheritance through a non-directory",
 				)
@@ -327,7 +342,7 @@ func CreationGroup(c Context, path string) (uint32, error) {
 			return groupID(os.Getegid()), nil
 		}
 		if !errors.Is(err, unix.ENOENT) || parent == c.Scope.Root {
-			return 0, Fail(3, "metadata", "Cannot establish target group inheritance")
+			return 0, Fail(ExitBlocked, "metadata", "Cannot establish target group inheritance")
 		}
 	}
 }
@@ -363,7 +378,11 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 		n, err = unix.Flistxattr(fd, names[:])
 	}
 	if err != nil {
-		return nil, Fail(3, "metadata", "Cannot inspect bounded target extended attributes")
+		return nil, Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot inspect bounded target extended attributes",
+		)
 	}
 	attributes := map[string][]byte{}
 	for name := range strings.SplitSeq(string(names[:n]), "\x00") {
@@ -372,7 +391,7 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 		}
 		if !preservedAttribute(name) {
 			return nil, Fail(
-				3,
+				ExitBlocked,
 				"metadata",
 				"Target extended attributes require preservation support",
 			)
@@ -384,7 +403,11 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 			n, err = unix.Fgetxattr(fd, name, data[:])
 		}
 		if err != nil {
-			return nil, Fail(3, "metadata", "Cannot read bounded target extended attribute")
+			return nil, Fail(
+				ExitBlocked,
+				"metadata",
+				"Cannot read bounded target extended attribute",
+			)
 		}
 		attributes[name] = bytes.Clone(data[:n])
 	}
@@ -436,8 +459,12 @@ func setImageGroup(fd int, group uint32) error {
 // Native group correction uses the opened inode for both the exact-image proof
 // and chown, so replacing a path cannot redirect the approved metadata write.
 func enforceNativeGroup(c Context, path string, observed Image, group uint32) error {
-	if observed.Kind != "file" && observed.Kind != "directory" {
-		return Fail(3, "metadata", "Native group correction requires a regular file or directory")
+	if observed.Kind != ImageFile && observed.Kind != ImageDirectory {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Native group correction requires a regular file or directory",
+		)
 	}
 	parent, name, err := imageParent(c, path)
 	if err != nil {
@@ -460,9 +487,13 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 		return err
 	}
 	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 ||
-		(observed.Kind == "file" && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
-		(observed.Kind == "directory" && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
-		return Fail(5, "native_image", "Native target inode changed before group preservation")
+		(observed.Kind == ImageFile && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
+		(observed.Kind == ImageDirectory && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
+		return Fail(
+			ExitPartial,
+			"native_image",
+			"Native target inode changed before group preservation",
+		)
 	}
 	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
 	currentGroup := uint32(stat.Gid)
@@ -474,7 +505,7 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	if err != nil {
 		return err
 	}
-	if current.Kind == "file" {
+	if current.Kind == ImageFile {
 		current.Data, err = io.ReadAll(io.LimitReader(file, MaxImageBytes+1))
 		if err != nil {
 			return err
@@ -482,7 +513,7 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	}
 	if !sameImage(current, observed) {
 		return Fail(
-			5,
+			ExitPartial,
 			"native_image",
 			"Native target differs from its verified image; group was not changed",
 		)
@@ -497,10 +528,10 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 // attributes, group and mode through a descriptor. It never replaces a
 // non-directory.
 func writeDirectoryImage(fd int, name, path string, current, desired Image) error {
-	if current.Kind != "absent" && current.Kind != "directory" {
-		return Fail(3, "image", "Existing directory replacement is unsupported")
+	if current.Kind != ImageAbsent && current.Kind != ImageDirectory {
+		return Fail(ExitBlocked, "image", "Existing directory replacement is unsupported")
 	}
-	if current.Kind == "absent" {
+	if current.Kind == ImageAbsent {
 		if err := unix.Mkdirat(fd, name, desired.Mode); err != nil {
 			return err
 		}
@@ -576,7 +607,11 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return err
 	}
 	if !sameImage(current, expected) {
-		return Fail(4, "conflict", "Target changed before its write; later edits were preserved")
+		return Fail(
+			ExitConflict,
+			"conflict",
+			"Target changed before its write; later edits were preserved",
+		)
 	}
 	if sameImage(current, desired) {
 		return nil
@@ -587,9 +622,9 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	}
 	defer func() { _ = parent.Close() }()
 	fd := int(parent.Fd())
-	if desired.Kind == "absent" {
+	if desired.Kind == ImageAbsent {
 		flags := 0
-		if current.Kind == "directory" {
+		if current.Kind == ImageDirectory {
 			flags = unix.AT_REMOVEDIR
 		}
 		if err = unix.Unlinkat(fd, name, flags); err != nil {
@@ -597,14 +632,14 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		}
 		return parent.Sync()
 	}
-	if desired.Kind == "directory" {
+	if desired.Kind == ImageDirectory {
 		if err = writeDirectoryImage(fd, name, path, current, desired); err != nil {
 			return err
 		}
 		return parent.Sync()
 	}
-	if current.Kind == "directory" {
-		return Fail(3, "image", "Directory replacement is unsupported")
+	if current.Kind == ImageDirectory {
+		return Fail(ExitBlocked, "image", "Directory replacement is unsupported")
 	}
 	id, err := NewID()
 	if err != nil {
@@ -613,7 +648,7 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	temporary := ".workbench-" + id
 	defer func() { _ = unix.Unlinkat(fd, temporary, 0) }()
 	stage := stageFileImage
-	if desired.Kind == "symlink" {
+	if desired.Kind == ImageSymlink {
 		stage = stageLinkImage
 	}
 	if err = stage(fd, temporary, path, desired); err != nil {
@@ -626,9 +661,9 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return err
 	}
 	if !sameImage(current, expected) {
-		return Fail(4, "conflict", "Target changed while preparing its replacement")
+		return Fail(ExitConflict, "conflict", "Target changed while preparing its replacement")
 	}
-	if err = replaceImage(fd, temporary, name, expected.Kind == "absent"); err != nil {
+	if err = replaceImage(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {
 		return err
 	}
 	return parent.Sync()

@@ -20,7 +20,7 @@ func selectPrivateContext(c operation.Context, source string) (operation.Context
 	root := filepath.Join(c.Paths.Data, "application-contexts")
 	if !operation.Within(root, path) || path == root {
 		return c, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"source",
 			"Native setup requires a private application context beneath Workbench data",
 		)
@@ -29,7 +29,7 @@ func selectPrivateContext(c operation.Context, source string) (operation.Context
 		info, statErr := os.Lstat(current)
 		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
 			return c, operation.Fail(
-				2,
+				operation.ExitInvalid,
 				"permissions",
 				"Application contexts and their parents must be private directories",
 			)
@@ -70,7 +70,7 @@ func initialize(
 	dependencies, _ := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
 	if dependency(dependencies, "chezmoi") == "" || dependency(dependencies, "python3") == "" {
 		return nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"prerequisites",
 			"Native setup requires qualified chezmoi and Python before initialization",
 		)
@@ -147,7 +147,7 @@ func initSeed(config string, terminal *os.File) ([]byte, error) {
 	if os.IsNotExist(err) {
 		if terminal == nil {
 			return nil, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"answers",
 				"Unattended native setup requires complete private answers",
 			)
@@ -176,12 +176,16 @@ func generatedAnswers(path string) (Answers, error) {
 	}
 	var document map[string]any
 	if toml.Unmarshal(output, &document) != nil {
-		return nil, operation.Fail(2, "answers", "Native init produced invalid configuration")
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"answers",
+			"Native init produced invalid configuration",
+		)
 	}
 	for key := range document {
 		if key != "data" && key != "sourceDir" {
 			return nil, operation.Fail(
-				2,
+				operation.ExitInvalid,
 				"answers",
 				"Native init produced unexpected configuration controls",
 			)
@@ -189,7 +193,11 @@ func generatedAnswers(path string) (Answers, error) {
 	}
 	data, ok := document["data"].(map[string]any)
 	if !ok {
-		return nil, operation.Fail(2, "answers", "Native init did not produce machine answers")
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"answers",
+			"Native init did not produce machine answers",
+		)
 	}
 	answers := Answers(data)
 	return answers, validateAnswers(answers)

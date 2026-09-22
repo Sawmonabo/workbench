@@ -22,21 +22,25 @@ func parseAnswers(raw []byte) (Answers, error) {
 	var config map[string]any
 	if err := toml.Unmarshal(raw, &config); err != nil {
 		return nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"answers",
 			"Machine answers are not valid TOML; original input retained",
 		)
 	}
 	if len(config) != 1 || config["data"] == nil {
 		return nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"answers",
 			"Machine config must contain only a [data] table; adopt answers without native hooks or commands",
 		)
 	}
 	data, ok := config["data"].(map[string]any)
 	if !ok {
-		return nil, operation.Fail(2, "answers", "Machine [data] must be a table")
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"answers",
+			"Machine [data] must be a table",
+		)
 	}
 	answers := Answers(data)
 	return answers, validateAnswers(answers)
@@ -47,7 +51,7 @@ func parseAnswers(raw []byte) (Answers, error) {
 func validateAnswers(a Answers) error {
 	fail := func() error {
 		return operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"answers",
 			"Incomplete or invalid machine answers; use the native setup questionnaire",
 		)
@@ -155,12 +159,16 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	}
 	var config map[string]any
 	if toml.Unmarshal(raw, &config) != nil {
-		return plan, nil, operation.Fail(2, "answers", "Existing chezmoi config is not valid TOML")
+		return plan, nil, operation.Fail(
+			operation.ExitInvalid,
+			"answers",
+			"Existing chezmoi config is not valid TOML",
+		)
 	}
 	data, ok := config["data"].(map[string]any)
 	if !ok {
 		return plan, nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"answers",
 			"Existing chezmoi config has no [data] table",
 		)

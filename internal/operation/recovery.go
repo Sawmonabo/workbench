@@ -14,14 +14,14 @@ type RecoverySelector struct{ Checkpoint, Version string }
 func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, error) {
 	if selector.Checkpoint != "" && selector.Version != "" {
 		return nil, false, Fail(
-			2,
+			ExitInvalid,
 			"selector",
 			"Select either checkpoint ID or before-release version",
 		)
 	}
 	if selector.Checkpoint == "" && selector.Version == "" {
 		return nil, false, Fail(
-			3,
+			ExitBlocked,
 			"selection",
 			"List checkpoints and explicitly select an ID; recovery has no implicit latest selection",
 		)
@@ -57,7 +57,7 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 	}
 	if count != 1 {
 		return nil, false, Fail(
-			4,
+			ExitConflict,
 			"selection",
 			"Selection has zero or multiple matches; choose a checkpoint ID: "+strings.Join(
 				choices,
@@ -66,10 +66,10 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 		)
 	}
 	if selected.journal.RecoveryCreated &&
-		(selected.journal.Status == "running" || selected.journal.Status == "partial") &&
+		(selected.journal.Status == JournalRunning || selected.journal.Status == JournalPartial) &&
 		((selected.journal.Direction == "reverse") != reverse) {
 		return nil, false, Fail(
-			4,
+			ExitConflict,
 			"recovery",
 			"Resume or reconcile the interrupted recovery direction before undoing it",
 		)
@@ -80,9 +80,9 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 func (cp *Checkpoint) preflight(reverse bool) error {
 	c := cp.mutation.context
 	for i, change := range cp.changes {
-		if cp.journal.Known[i] == "unknown" {
+		if cp.journal.Known[i] == outcomeUnknown {
 			return Fail(
-				4,
+				ExitConflict,
 				"recovery",
 				"Checkpoint has unknown post-images; reviewed reconciliation is required",
 			)
@@ -94,7 +94,7 @@ func (cp *Checkpoint) preflight(reverse bool) error {
 		}
 		if !sameImage(current, expected) {
 			return Fail(
-				4,
+				ExitConflict,
 				"conflict",
 				"At least one target has later edits; no targets were restored",
 			)
@@ -114,14 +114,14 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 	}
 	for _, change := range changes {
 		image := desired[change.Path]
-		if image.Kind != "absent" {
+		if image.Kind != ImageAbsent {
 			continue
 		}
 		current, err := ReadImage(c, change.Path)
 		if err != nil {
 			return err
 		}
-		if current.Kind != "directory" {
+		if current.Kind != ImageDirectory {
 			continue
 		}
 		entries, err := os.ReadDir(change.Path)
@@ -130,9 +130,9 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 		}
 		for _, entry := range entries {
 			child, ok := desired[filepath.Join(change.Path, entry.Name())]
-			if !ok || child.Kind != "absent" {
+			if !ok || child.Kind != ImageAbsent {
 				return Fail(
-					4,
+					ExitConflict,
 					"conflict",
 					"Directory contains uncheckpointed children; no targets were restored",
 				)
@@ -223,9 +223,9 @@ func Recover(
 			}
 			cp.journal.OperationID = operationID
 			if !cp.journal.RecoveryCreated {
-				cp.journal.PairPost = append([]string{}, cp.journal.Known...)
+				cp.journal.PairPost = append([]targetOutcome{}, cp.journal.Known...)
 				for i, known := range cp.journal.PairPost {
-					if known == "before" {
+					if known == outcomeBefore {
 						cp.changes[i].After = cp.changes[i].Before
 						cp.journal.PostAttributes[i] = cp.changes[i].Before.Attributes
 					}
@@ -236,7 +236,7 @@ func Recover(
 			if reverse {
 				cp.journal.Direction = "reverse"
 			}
-			cp.journal.Status = "running"
+			cp.journal.Status = JournalRunning
 			if err = cp.saveJournal(); err != nil {
 				return err
 			}
@@ -265,7 +265,7 @@ func Recover(
 				state.PartialOperation = nil
 				if err = m.WriteState(*state); err != nil {
 					return Fail(
-						5,
+						ExitPartial,
 						"state",
 						"Files restored; current-state finalization failed; retained checkpoint remains available",
 					)

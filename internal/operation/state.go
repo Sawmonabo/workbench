@@ -47,19 +47,19 @@ var (
 // It never creates missing state and withholds unsafe or oversized input.
 func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 	if limit < 1 || limit > 16<<20 {
-		return nil, Fail(2, "input", "Invalid private input bound")
+		return nil, Fail(ExitInvalid, "input", "Invalid private input bound")
 	}
 	if err := checkPrivateFile(path); err != nil {
 		return nil, err
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, Fail(2, "input", "Cannot read private input")
+		return nil, Fail(ExitInvalid, "input", "Cannot read private input")
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, limit+1))
 	if err != nil || int64(len(data)) > limit {
-		return nil, Fail(2, "input", "Private input exceeds its read bound")
+		return nil, Fail(ExitInvalid, "input", "Private input exceeds its read bound")
 	}
 	return data, nil
 }
@@ -69,7 +69,7 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 func (s State) Validate() error {
 	if s.SchemaVersion != 1 {
 		return Fail(
-			2,
+			ExitInvalid,
 			"state_format",
 			"Unsupported Workbench state schema; state was left unchanged",
 		)
@@ -84,7 +84,7 @@ func (s State) Validate() error {
 				[]string{"user", "system", "homebrew", "workbench"},
 				dependency.Owner,
 			) {
-			return Fail(2, "state_format", "Invalid recorded management dependency")
+			return Fail(ExitInvalid, "state_format", "Invalid recorded management dependency")
 		}
 		seen[dependency.Name] = true
 	}
@@ -93,13 +93,13 @@ func (s State) Validate() error {
 			continue
 		}
 		if !identifier.MatchString(identity.Release) || !ValidDigest(identity.ContentDigest) {
-			return Fail(2, "state_format", "Malformed release identity in current state")
+			return Fail(ExitInvalid, "state_format", "Malformed release identity in current state")
 		}
 	}
 	if s.ActiveRelease != nil {
 		if !filepath.IsAbs(s.ActiveRelease.Executable) || !filepath.IsAbs(s.ActiveRelease.Source) {
 			return Fail(
-				2,
+				ExitInvalid,
 				"state_format",
 				"Active release requires absolute executable and source paths",
 			)
@@ -107,7 +107,7 @@ func (s State) Validate() error {
 	}
 	if s.PartialOperation != nil {
 		if !operationID.MatchString(s.PartialOperation.ID) {
-			return Fail(2, "state_format", "Malformed partial operation identity")
+			return Fail(ExitInvalid, "state_format", "Malformed partial operation identity")
 		}
 		if err := s.PartialOperation.Scope.Validate(); err != nil {
 			return err
@@ -134,13 +134,13 @@ func ReadState(paths Paths) (*State, error) {
 	}
 	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
 	if err != nil {
-		return nil, Fail(2, "state", "Cannot read private Workbench state")
+		return nil, Fail(ExitInvalid, "state", "Cannot read private Workbench state")
 	}
 	defer func() { _ = f.Close() }()
 	data, err := io.ReadAll(io.LimitReader(f, 1024*1024+1))
 	if err != nil || len(data) > 1024*1024 {
 		return nil, Fail(
-			2,
+			ExitInvalid,
 			"state",
 			"Current state is unreadable or exceeds its metadata size limit",
 		)
@@ -148,7 +148,7 @@ func ReadState(paths Paths) (*State, error) {
 	var state State
 	if err := DecodeStrict(data, &state); err != nil {
 		return nil, Fail(
-			2,
+			ExitInvalid,
 			"state_format",
 			"Malformed current Workbench state ("+err.Error()+"); no conversion or deletion attempted",
 		)
@@ -184,7 +184,11 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		return err
 	}
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
-		return Fail(2, "scope", "Private metadata targets must be canonical absolute paths")
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Private metadata targets must be canonical absolute paths",
+		)
 	}
 	// Atomic replacement of a lock file would leave flock on the old inode.
 	// Compare filesystem identities: config and state overrides may themselves
@@ -192,7 +196,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	lockDirectory, err := os.Stat(filepath.Join(m.context.Paths.State, "locks"))
 	if err != nil || !lockDirectory.IsDir() {
 		return Fail(
-			4,
+			ExitConflict,
 			"lock",
 			"Cannot establish the held operation lock directory; stop before metadata writes",
 		)
@@ -201,20 +205,20 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		info, err := os.Stat(ancestor)
 		if err == nil && os.SameFile(lockDirectory, info) {
 			return Fail(
-				2,
+				ExitInvalid,
 				"scope",
 				"Operation lock files are reserved and cannot be replaced by metadata writes",
 			)
 		}
 		if err != nil && !os.IsNotExist(err) {
-			return Fail(2, "scope", "Cannot inspect private metadata target ancestry")
+			return Fail(ExitInvalid, "scope", "Cannot inspect private metadata target ancestry")
 		}
 		if ancestor == filepath.Dir(ancestor) {
 			break
 		}
 	}
 	if len(data) > 1024*1024 {
-		return Fail(2, "state", "Private metadata exceeds its 1 MiB limit")
+		return Fail(ExitInvalid, "state", "Private metadata exceeds its 1 MiB limit")
 	}
 	allowed := false
 	for _, base := range []string{m.context.Paths.Config, m.context.Paths.State} {
@@ -226,7 +230,11 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		}
 	}
 	if !allowed {
-		return Fail(2, "scope", "Private metadata write is outside config/state directories")
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Private metadata write is outside config/state directories",
+		)
 	}
 	if err := ensurePrivateDirectory(filepath.Dir(path)); err != nil {
 		return err
@@ -236,7 +244,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 			return err
 		}
 	} else if !os.IsNotExist(err) {
-		return Fail(2, "state", "Cannot inspect private metadata target")
+		return Fail(ExitInvalid, "state", "Cannot inspect private metadata target")
 	}
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
@@ -291,7 +299,7 @@ func ensurePrivateDirectory(path string) error {
 	}
 	if !info.IsDir() || info.Mode().Perm() != 0o700 {
 		return Fail(
-			2,
+			ExitInvalid,
 			"permissions",
 			"Existing private state directory must have mode 0700; it was not changed",
 		)
@@ -306,7 +314,7 @@ type locks struct{ files []*os.File }
 // Lock files are never unlinked: flock releases on close/process death.
 func acquireLocks(c Context) (*locks, error) {
 	if c.ReadOnly {
-		return nil, Fail(3, "read_only", "Read-only operations cannot create locks")
+		return nil, Fail(ExitBlocked, "read_only", "Read-only operations cannot create locks")
 	}
 	if _, err := ReadState(c.Paths); err != nil {
 		return nil, err
@@ -324,7 +332,7 @@ func acquireLocks(c Context) (*locks, error) {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
 			result.close()
-			return nil, Fail(3, "lock", "Cannot open private operation lock")
+			return nil, Fail(ExitBlocked, "lock", "Cannot open private operation lock")
 		}
 		result.files = append(result.files, f)
 		if err := checkPrivateFile(path); err != nil {
@@ -334,7 +342,7 @@ func acquireLocks(c Context) (*locks, error) {
 		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 			result.close()
 			return nil, Fail(
-				3,
+				ExitBlocked,
 				"locked",
 				"Another Workbench mutation holds the shared or selected scope lock; retry after it finishes",
 			)

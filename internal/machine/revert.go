@@ -16,7 +16,11 @@ func Revert(
 ) (operation.Result, error) {
 	result := operation.NewResult("workbench revert")
 	if c.Scope.Kind != "machine" {
-		return result, operation.Fail(2, "scope", "Machine recovery requires machine scope")
+		return result, operation.Fail(
+			operation.ExitInvalid,
+			"scope",
+			"Machine recovery requires machine scope",
+		)
 	}
 	result.PlanDigest = plan.Digest()
 	result.Warnings = append(result.Warnings, plan.RecoveryLimits...)
@@ -27,7 +31,7 @@ func Revert(
 			result.Results,
 			operation.Component{
 				Name:     "configuration",
-				Status:   "complete",
+				Status:   operation.StatusComplete,
 				Recovery: "Paired checkpoint retained; external effects were not reverted",
 			},
 		)

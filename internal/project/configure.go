@@ -56,7 +56,7 @@ func Plan(
 		func(language string) bool { return language != "python" },
 	) {
 		return p, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"unsupported_language",
 			"Explicitly requested language is discovery-only; only Python configuration is supported",
 		)
@@ -143,7 +143,7 @@ func (p *Proposal) blocked(category, message string) error {
 	if len(p.Plan.Prerequisites) == 0 {
 		return nil
 	}
-	return operation.Fail(3, category, message)
+	return operation.Fail(operation.ExitBlocked, category, message)
 }
 
 // addPolicy merges the Python policy into each selected manifest through the
@@ -389,7 +389,7 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 			return nil
 		}
 		return operation.Fail(
-			4,
+			operation.ExitConflict,
 			"project_conflict",
 			"Selected policies propose conflicting changes to a shared file",
 		)
@@ -398,23 +398,32 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 	if err != nil {
 		return err
 	}
-	if before.Kind != "absent" && before.Kind != "file" {
-		return operation.Fail(3, "project_target", "Project edits require regular files")
+	if before.Kind != operation.ImageAbsent && before.Kind != operation.ImageFile {
+		return operation.Fail(
+			operation.ExitBlocked,
+			"project_target",
+			"Project edits require regular files",
+		)
 	}
-	if before.Kind == "file" && bytes.Equal(before.Data, data) {
+	if before.Kind == operation.ImageFile && bytes.Equal(before.Data, data) {
 		return nil
 	}
 	if err = p.addParent(c, path); err != nil {
 		return err
 	}
 	mode := uint32(0o644)
-	if before.Kind == "file" {
+	if before.Kind == operation.ImageFile {
 		mode = before.Mode
 	}
 	after, err := operation.ImageWithGroup(
 		c,
 		path,
-		operation.Image{Kind: "file", Mode: mode, Data: data, Attributes: before.Attributes},
+		operation.Image{
+			Kind:       operation.ImageFile,
+			Mode:       mode,
+			Data:       data,
+			Attributes: before.Attributes,
+		},
 	)
 	if err != nil {
 		return err
@@ -438,7 +447,11 @@ func (p *Proposal) addParent(c operation.Context, path string) error {
 		return err
 	}
 	if !operation.Within(c.Scope.Root, filepath.Dir(parent)) {
-		return operation.Fail(3, "project_scope", "Unsupported parent directory creation")
+		return operation.Fail(
+			operation.ExitBlocked,
+			"project_scope",
+			"Unsupported parent directory creation",
+		)
 	}
 	before, err := operation.ReadImage(c, parent)
 	if err != nil {
@@ -447,7 +460,7 @@ func (p *Proposal) addParent(c operation.Context, path string) error {
 	after, err := operation.ImageWithGroup(
 		c,
 		parent,
-		operation.Image{Kind: "directory", Mode: 0o755},
+		operation.Image{Kind: operation.ImageDirectory, Mode: 0o755},
 	)
 	if err != nil {
 		return err

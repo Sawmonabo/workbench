@@ -22,7 +22,7 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || limit < 1 ||
 		limit > MaxDownload {
 		return nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"download",
 			"Downloads require HTTPS, no URL credentials, and a bounded size",
 		)
@@ -36,19 +36,23 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 		Timeout: 2 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || req.URL.Scheme != "https" {
-				return operation.Fail(2, "download", "Unsafe download redirect")
+				return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
 			}
 			return nil
 		},
 	}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, operation.Fail(1, "download", "HTTPS download failed: "+err.Error())
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			"HTTPS download failed: "+err.Error(),
+		)
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK || response.ContentLength > limit {
 		return nil, operation.Fail(
-			1,
+			operation.ExitFailed,
 			"download",
 			"Release asset unavailable or exceeds the download bound",
 		)
@@ -56,7 +60,7 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil || int64(len(data)) > limit {
 		return nil, operation.Fail(
-			1,
+			operation.ExitFailed,
 			"download",
 			"Download exceeds its size bound or is incomplete",
 		)
@@ -77,7 +81,7 @@ func ReadBundle(ctx context.Context, location, version string) (Bundle, error) {
 	info, err := os.Lstat(location)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxDownload {
 		return Bundle{}, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"release",
 			"Bundle must be an existing bounded regular file or HTTPS URL",
 		)
@@ -190,7 +194,7 @@ func readCandidate(c operation.Context) (*candidateRecord, []byte, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	invalid := operation.Fail(2, "candidate", "Invalid staged candidate record")
+	invalid := operation.Fail(operation.ExitInvalid, "candidate", "Invalid staged candidate record")
 	var record candidateRecord
 	if operation.DecodeStrict(raw, &record) != nil {
 		return nil, nil, invalid
@@ -210,94 +214,146 @@ func readCandidate(c operation.Context) (*candidateRecord, []byte, error) {
 // Inspect rechecks a staged release directory against its manifest and
 // returns its metadata.
 func Inspect(directory string) (Metadata, error) {
+	metadata, err := readMetadata(directory)
+	if err != nil {
+		return metadata, err
+	}
+	if err = metadata.checkFiles(directory); err != nil {
+		return metadata, err
+	}
+	return metadata, metadata.checkNoExtraFiles(directory)
+}
+
+// readMetadata strictly decodes directory's release.json and checks its
+// versions, target and identity.
+func readMetadata(directory string) (Metadata, error) {
 	var metadata Metadata
 	info, err := os.Lstat(filepath.Join(directory, "release.json"))
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return metadata, operation.Fail(2, "release", "Missing bounded release metadata")
+		return metadata, operation.Fail(
+			operation.ExitInvalid,
+			"release",
+			"Missing bounded release metadata",
+		)
 	}
 	raw, err := os.ReadFile(filepath.Join(directory, "release.json"))
 	if err != nil {
 		return metadata, err
 	}
-	unsupported := operation.Fail(2, "release", "Unsupported release metadata")
+	unsupported := operation.Fail(operation.ExitInvalid, "release", "Unsupported release metadata")
 	if operation.DecodeStrict(raw, &metadata) != nil {
 		return metadata, unsupported
 	}
-	if metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() ||
-		!identifier.MatchString(
-			metadata.Release,
-		) || !operation.ValidDigest(metadata.SourceDigest) ||
-		len(metadata.Files) > maxFiles {
+	supported := metadata.SchemaVersion == 1 && metadata.StateVersion == 1 &&
+		metadata.Target == Target()
+	identified := identifier.MatchString(metadata.Release) &&
+		operation.ValidDigest(metadata.SourceDigest)
+	if !supported || !identified || len(metadata.Files) > maxFiles {
 		return metadata, unsupported
-	}
-	var total int64
-	for name, entry := range metadata.Files {
-		if !member(name) || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
-			entry.Size < 0 ||
-			entry.Size > MaxDownload {
-			return metadata, operation.Fail(2, "release", "Invalid release file manifest")
-		}
-		total += entry.Size
-		if total > maxExpanded {
-			return metadata, operation.Fail(2, "release", "Release exceeds expanded size bound")
-		}
-		file := filepath.Join(directory, name)
-		if err = PrivateDirectory(directory, filepath.Dir(file), false); err != nil {
-			return metadata, err
-		}
-		info, err = os.Lstat(file)
-		if err != nil || !info.Mode().IsRegular() || info.Size() != entry.Size {
-			return metadata, operation.Fail(4, "release_conflict", "Release file changed")
-		}
-		data, readErr := os.ReadFile(file)
-		if readErr != nil || operation.SHA256Hex(data) != entry.SHA256 {
-			return metadata, operation.Fail(4, "release_conflict", "Release content changed")
-		}
-	}
-	for _, name := range []string{"bin/workbench", ".chezmoiroot", "home/.chezmoi.toml.tmpl", "licenses/NOTICE"} {
-		if entry, ok := metadata.Files[name]; !ok || entry.Size == 0 {
-			return metadata, operation.Fail(2, "release", "Required release payload missing")
-		}
-	}
-	count := 0
-	err = filepath.Walk(directory, func(full string, info os.FileInfo, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if info.IsDir() {
-			return nil
-		}
-		name, relErr := filepath.Rel(directory, full)
-		if relErr != nil {
-			return relErr
-		}
-		if !info.Mode().IsRegular() {
-			return operation.Fail(
-				4,
-				"release_conflict",
-				"Release contains an unexpected link or special file",
-			)
-		}
-		if name != "release.json" {
-			if _, ok := metadata.Files[name]; !ok {
-				return operation.Fail(4, "release_conflict", "Release contains an unexpected file")
-			}
-		}
-		count++
-		if count > maxFiles {
-			return operation.Fail(2, "release", "Release file-count bound exceeded")
-		}
-		return nil
-	})
-	if err != nil {
-		return metadata, err
 	}
 	return metadata, nil
 }
 
+// checkFiles verifies every manifest entry's name, bounds and content in
+// directory, and that the required payload is present.
+func (m Metadata) checkFiles(directory string) error {
+	var total int64
+	for name, entry := range m.Files {
+		if !member(name) || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
+			entry.Size < 0 || entry.Size > MaxDownload {
+			return operation.Fail(operation.ExitInvalid, "release", "Invalid release file manifest")
+		}
+		total += entry.Size
+		if total > maxExpanded {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"release",
+				"Release exceeds expanded size bound",
+			)
+		}
+		file := filepath.Join(directory, name)
+		if err := PrivateDirectory(directory, filepath.Dir(file), false); err != nil {
+			return err
+		}
+		info, err := os.Lstat(file)
+		if err != nil || !info.Mode().IsRegular() || info.Size() != entry.Size {
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Release file changed",
+			)
+		}
+		data, err := os.ReadFile(file)
+		if err != nil || operation.SHA256Hex(data) != entry.SHA256 {
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Release content changed",
+			)
+		}
+	}
+	for _, name := range []string{"bin/workbench", ".chezmoiroot", "home/.chezmoi.toml.tmpl", "licenses/NOTICE"} {
+		if entry, ok := m.Files[name]; !ok || entry.Size == 0 {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"release",
+				"Required release payload missing",
+			)
+		}
+	}
+	return nil
+}
+
+// checkNoExtraFiles rejects links, special files and files the manifest does
+// not list anywhere in directory.
+func (m Metadata) checkNoExtraFiles(directory string) error {
+	count := 0
+	return filepath.Walk(directory, func(full string, info os.FileInfo, walkErr error) error {
+		if walkErr != nil || info.IsDir() {
+			return walkErr
+		}
+		name, err := filepath.Rel(directory, full)
+		if err != nil {
+			return err
+		}
+		if !info.Mode().IsRegular() {
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Release contains an unexpected link or special file",
+			)
+		}
+		if _, listed := m.Files[name]; !listed && name != "release.json" {
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Release contains an unexpected file",
+			)
+		}
+		count++
+		if count > maxFiles {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"release",
+				"Release file-count bound exceeded",
+			)
+		}
+		return nil
+	})
+}
+
+// activationStatus is where a runtime activation stands.
+type activationStatus string
+
+const (
+	activationRunning  activationStatus = "running"
+	activationComplete activationStatus = "complete"
+	activationFailed   activationStatus = "failed"
+)
+
 type activationJournal struct {
 	SchemaVersion int                      `json:"schema_version"`
-	Status        string                   `json:"status"`
+	Status        activationStatus         `json:"status"`
 	Previous      *operation.ReleaseRecord `json:"previous"`
 	Candidate     operation.ReleaseRecord  `json:"candidate"`
 }
@@ -313,9 +369,9 @@ func readActivation(c operation.Context) (*activationJournal, error) {
 	}
 	var journal activationJournal
 	if err = operation.DecodeStrict(raw, &journal); err != nil || journal.SchemaVersion != 1 ||
-		(journal.Status != "running" && journal.Status != "complete" && journal.Status != "failed") {
+		(journal.Status != activationRunning && journal.Status != activationComplete && journal.Status != activationFailed) {
 		return nil, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"activation",
 			"Invalid current activation journal; left unchanged",
 		)
@@ -338,9 +394,9 @@ func ValidateSelection(c operation.Context) error {
 	if err != nil {
 		return err
 	}
-	if journal != nil && journal.Status == "running" {
+	if journal != nil && journal.Status == activationRunning {
 		return operation.Fail(
-			4,
+			operation.ExitConflict,
 			"activation_incomplete",
 			"Runtime activation was interrupted; resume install with the same verified bundle and explicit consent",
 		)
@@ -352,7 +408,7 @@ func ValidateSelection(c operation.Context) error {
 	entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
 	if err != nil || entry != state.ActiveRelease.Executable {
 		return operation.Fail(
-			4,
+			operation.ExitConflict,
 			"activation_incomplete",
 			"Active runtime and command entry point differ; resume install with the verified bundle and explicit consent",
 		)
@@ -363,7 +419,7 @@ func ValidateSelection(c operation.Context) error {
 		"workbench",
 	) {
 		return operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"activation",
 			"Active executable and source are not one matched release",
 		)
@@ -417,7 +473,7 @@ func Activate(
 	}
 	journal = &activationJournal{
 		SchemaVersion: 1,
-		Status:        "running",
+		Status:        activationRunning,
 		Previous:      previous,
 		Candidate:     next,
 	}
@@ -444,9 +500,9 @@ func Activate(
 	restore := func(cause error, unrestored string) error {
 		state.ActiveRelease = previous
 		if m.WriteState(*state) != nil {
-			return operation.Fail(5, "activation_incomplete", unrestored)
+			return operation.Fail(operation.ExitPartial, "activation_incomplete", unrestored)
 		}
-		journal.Status = "failed"
+		journal.Status = activationFailed
 		_ = writeJournal()
 		return cause
 	}
@@ -465,15 +521,15 @@ func Activate(
 	}
 	if err = syncDirectory(c.Paths.Bin); err != nil {
 		return operation.Fail(
-			5,
+			operation.ExitPartial,
 			"activation_incomplete",
 			"Runtime selector changed but durability could not be confirmed; resume install",
 		)
 	}
-	journal.Status = "complete"
+	journal.Status = activationComplete
 	if err = writeJournal(); err != nil {
 		return operation.Fail(
-			5,
+			operation.ExitPartial,
 			"activation_incomplete",
 			"Runtime selectors changed but completion journal could not be made durable; resume the same install",
 		)
@@ -492,11 +548,11 @@ func replacedRuntime(
 	entry string,
 ) (*operation.ReleaseRecord, error) {
 	previous := state.ActiveRelease
-	if journal != nil && journal.Status == "running" {
+	if journal != nil && journal.Status == activationRunning {
 		if journal.Candidate.Executable != executable ||
 			journal.Candidate.Identity != identity {
 			return nil, operation.Fail(
-				4,
+				operation.ExitConflict,
 				"activation_incomplete",
 				"Resume the interrupted install with its original verified candidate",
 			)
@@ -505,7 +561,7 @@ func replacedRuntime(
 	}
 	// Only an entry point recorded by this state may be replaced.
 	known := []*operation.ReleaseRecord{state.ActiveRelease}
-	if journal != nil && journal.Status == "running" {
+	if journal != nil && journal.Status == activationRunning {
 		known = append(known, &journal.Candidate, previous)
 	}
 	return previous, checkEntryPoint(entry, known)
@@ -523,7 +579,7 @@ func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
 		return operation.Fail(
-			4,
+			operation.ExitConflict,
 			"command_collision",
 			"An unrelated workbench command already occupies the installation path",
 		)
@@ -534,7 +590,7 @@ func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
 	})
 	if err != nil || !recorded {
 		return operation.Fail(
-			4,
+			operation.ExitConflict,
 			"command_collision",
 			"Existing workbench entry point is not the recorded runtime",
 		)

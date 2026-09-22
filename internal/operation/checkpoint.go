@@ -37,16 +37,39 @@ type checkpointRecord struct {
 	Targets       []imageReference `json:"targets"`
 	Effects       []Effect         `json:"effects"`
 }
+
+// JournalStatus is where a checkpoint's operation stands.
+type JournalStatus string
+
+// Journal statuses.
+const (
+	JournalPrepared JournalStatus = "prepared" // Images are saved; no target is touched yet.
+	JournalRunning  JournalStatus = "running"  // Targets are being written.
+	JournalComplete JournalStatus = "complete" // Every target reached its image.
+	JournalFailed   JournalStatus = "failed"   // Failed before changing any target.
+	JournalPartial  JournalStatus = "partial"  // Some targets changed before a failure.
+	JournalUnknown  JournalStatus = "unknown"  // A target's outcome could not be observed.
+)
+
+// targetOutcome is which image a target was last observed to hold.
+type targetOutcome string
+
+const (
+	outcomeBefore  targetOutcome = "before"
+	outcomeAfter   targetOutcome = "after"
+	outcomeUnknown targetOutcome = "unknown"
+)
+
 type checkpointJournal struct {
 	SchemaVersion      int                 `json:"schema_version"`
 	Sequence           uint64              `json:"sequence"`
 	OperationID        string              `json:"operation_id"`
 	Direction          string              `json:"direction"`
-	Status             string              `json:"status"`
-	Known              []string            `json:"known"`
+	Status             JournalStatus       `json:"status"`
+	Known              []targetOutcome     `json:"known"`
 	RecoveryCreated    bool                `json:"recovery_created"`
 	PostAttributes     []map[string][]byte `json:"post_attributes"`
-	PairPost           []string            `json:"pair_post"`
+	PairPost           []targetOutcome     `json:"pair_post"`
 	ObservedAttributes []map[string][]byte `json:"observed_attributes"`
 }
 type journalEnvelope struct {
@@ -72,7 +95,7 @@ type CheckpointSummary struct {
 	Before   *SourceIdentity `json:"before"`
 	Applied  *SourceIdentity `json:"applied"`
 	Created  time.Time       `json:"created"`
-	Status   string          `json:"status"`
+	Status   JournalStatus   `json:"status"`
 	Recovery bool            `json:"recovery"`
 }
 
@@ -94,13 +117,13 @@ func scopeDigest(c Context) string {
 
 func validateChanges(c Context, changes []TargetChange) error {
 	if len(changes) > MaxCheckpointTargets {
-		return Fail(3, "checkpoint", "Checkpoint permits at most 256 explicit targets")
+		return Fail(ExitBlocked, "checkpoint", "Checkpoint permits at most 256 explicit targets")
 	}
 	seen := map[string]bool{}
 	total, attributes := 0, 0
 	for _, change := range changes {
 		if seen[change.Path] {
-			return Fail(2, "checkpoint", "Duplicate checkpoint target")
+			return Fail(ExitInvalid, "checkpoint", "Duplicate checkpoint target")
 		}
 		seen[change.Path] = true
 		if err := c.ValidateTarget(change.Path); err != nil {
@@ -118,24 +141,28 @@ func validateChanges(c Context, changes []TargetChange) error {
 				attributes += len(value)
 			}
 		}
-		if change.Before.Kind == "directory" && change.After.Kind != "absent" &&
-			change.After.Kind != "directory" {
-			return Fail(3, "checkpoint", "Existing directory replacement is unsupported")
+		if change.Before.Kind == ImageDirectory && change.After.Kind != ImageAbsent &&
+			change.After.Kind != ImageDirectory {
+			return Fail(ExitBlocked, "checkpoint", "Existing directory replacement is unsupported")
 		}
-		if change.After.Kind == "directory" && change.Before.Kind != "absent" &&
-			change.Before.Kind != "directory" {
-			return Fail(3, "checkpoint", "Directory replacement is unsupported")
+		if change.After.Kind == ImageDirectory && change.Before.Kind != ImageAbsent &&
+			change.Before.Kind != ImageDirectory {
+			return Fail(ExitBlocked, "checkpoint", "Directory replacement is unsupported")
 		}
 	}
 	if attributes > 16<<10 {
 		return Fail(
-			3,
+			ExitBlocked,
 			"checkpoint_limit",
 			"Extended attributes exceed the reserved 16 KiB pair limit",
 		)
 	}
 	if total > MaxCheckpointImageBytes {
-		return Fail(3, "checkpoint_limit", "Pre/post images exceed the 32 MiB checkpoint limit")
+		return Fail(
+			ExitBlocked,
+			"checkpoint_limit",
+			"Pre/post images exceed the 32 MiB checkpoint limit",
+		)
 	}
 	return nil
 }
@@ -187,13 +214,13 @@ func BeginCheckpoint(
 		SchemaVersion:      1,
 		OperationID:        id,
 		Direction:          "forward",
-		Status:             "prepared",
-		Known:              make([]string, len(changes)),
+		Status:             JournalPrepared,
+		Known:              make([]targetOutcome, len(changes)),
 		PostAttributes:     make([]map[string][]byte, len(changes)),
 		ObservedAttributes: make([]map[string][]byte, len(changes)),
 	}
 	for i, change := range changes {
-		cp.journal.Known[i] = "before"
+		cp.journal.Known[i] = outcomeBefore
 		cp.journal.PostAttributes[i] = change.After.Attributes
 		cp.journal.ObservedAttributes[i] = change.Before.Attributes
 		ref := imageReference{
@@ -270,7 +297,7 @@ func (cp *Checkpoint) publish() error {
 // and that every target still holds its previewed before image.
 func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []TargetChange) error {
 	if plan.Scope != c.Scope {
-		return Fail(4, "scope", "Checkpoint scope does not match held mutation")
+		return Fail(ExitConflict, "scope", "Checkpoint scope does not match held mutation")
 	}
 	if err := (State{SchemaVersion: 1, AppliedConfiguration: &plan.Source}).Validate(); err != nil {
 		return err
@@ -285,7 +312,11 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 		return input.Name == "checkpoint-images" && input.Digest == ChangesDigest(changes)
 	})
 	if !bound {
-		return Fail(4, "plan", "Exact checkpoint images were not bound to the approved plan")
+		return Fail(
+			ExitConflict,
+			"plan",
+			"Exact checkpoint images were not bound to the approved plan",
+		)
 	}
 	for _, change := range changes {
 		current, err := ReadImage(c, change.Path)
@@ -293,7 +324,7 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 			return err
 		}
 		if !sameImage(current, change.Before) {
-			return Fail(4, "conflict", "Checkpoint target changed after preview")
+			return Fail(ExitConflict, "conflict", "Checkpoint target changed after preview")
 		}
 	}
 	return preflightDirectories(c, changes, false)
@@ -313,16 +344,19 @@ func makeRoom(c Context, plan Plan) error {
 	for _, entry := range entries {
 		if strings.HasPrefix(entry.Name(), ".prepare-") {
 			return Fail(
-				3,
+				ExitBlocked,
 				"checkpoint",
 				"A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable",
 			)
 		}
 	}
 	for _, old := range existing {
-		if slices.Contains([]string{"running", "unknown", "partial"}, old.journal.Status) {
+		if slices.Contains(
+			[]JournalStatus{JournalRunning, JournalUnknown, JournalPartial},
+			old.journal.Status,
+		) {
 			return Fail(
-				3,
+				ExitBlocked,
 				"recovery",
 				"Resolve the retained incomplete checkpoint before further application",
 			)
@@ -367,7 +401,7 @@ func readStoredImage(directory, digest string) (Image, error) {
 	}
 	if manifest.Size < 1 || manifest.Size > MaxImageBytes*2 ||
 		manifest.Chunks != (manifest.Size+(1<<20)-1)/(1<<20) {
-		return Image{}, Fail(2, "checkpoint_format", "Invalid image storage bounds")
+		return Image{}, Fail(ExitInvalid, "checkpoint_format", "Invalid image storage bounds")
 	}
 	data := make([]byte, 0, manifest.Size)
 	for i := range manifest.Chunks {
@@ -376,13 +410,17 @@ func readStoredImage(directory, digest string) (Image, error) {
 			return Image{}, err
 		}
 		if len(part) != min(1<<20, manifest.Size-i*(1<<20)) {
-			return Image{}, Fail(2, "checkpoint_format", "Incomplete checkpoint image")
+			return Image{}, Fail(ExitInvalid, "checkpoint_format", "Incomplete checkpoint image")
 		}
 		data = append(data, part...)
 	}
 	var image Image
 	if err := DecodeStrict(data, &image); err != nil {
-		return Image{}, Fail(2, "checkpoint_format", "Malformed checkpoint image ("+err.Error()+")")
+		return Image{}, Fail(
+			ExitInvalid,
+			"checkpoint_format",
+			"Malformed checkpoint image ("+err.Error()+")",
+		)
 	}
 	return image, nil
 }
@@ -400,7 +438,7 @@ func (cp *Checkpoint) saveJournal() error {
 		return err
 	}
 	if len(envelope) > journalBytes {
-		return Fail(2, "checkpoint", "Recovery journal exceeded its reserved capacity")
+		return Fail(ExitInvalid, "checkpoint", "Recovery journal exceeded its reserved capacity")
 	}
 	path := filepath.Join(cp.directory, fmt.Sprintf("journal-%d.json", cp.journal.Sequence%2))
 	if err = checkPrivateFile(path); err != nil {
@@ -421,9 +459,9 @@ func (cp *Checkpoint) saveJournal() error {
 // StartNative persists uncertainty before handing authority to the native engine.
 // An abrupt process death cannot make unobserved writes look safely reversible.
 func (cp *Checkpoint) StartNative() error {
-	cp.journal.Status = "running"
+	cp.journal.Status = JournalRunning
 	for i := range cp.journal.Known {
-		cp.journal.Known[i] = "unknown"
+		cp.journal.Known[i] = outcomeUnknown
 	}
 	return cp.saveJournal()
 }
@@ -447,14 +485,14 @@ func (cp *Checkpoint) FinalizeNative() error {
 		comparison.Group = change.After.Group
 		if !sameImageContent(comparison, change.After) {
 			return Fail(
-				5,
+				ExitPartial,
 				"native_image",
 				"Native output differs from the approved images; metadata was not changed",
 			)
 		}
-		if current.Kind == "symlink" && *current.Group != *change.After.Group {
+		if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
 			return Fail(
-				3,
+				ExitBlocked,
 				"metadata",
 				"Native link group correction is unqualified; retained images require review",
 			)
@@ -462,7 +500,7 @@ func (cp *Checkpoint) FinalizeNative() error {
 		observed[i] = current
 	}
 	for i, change := range cp.changes {
-		if change.After.Kind == "absent" || *observed[i].Group == *change.After.Group {
+		if change.After.Kind == ImageAbsent || *observed[i].Group == *change.After.Group {
 			continue
 		}
 		current, err := ReadImage(c, change.Path)
@@ -471,7 +509,7 @@ func (cp *Checkpoint) FinalizeNative() error {
 		}
 		if !sameImage(current, observed[i]) {
 			return Fail(
-				5,
+				ExitPartial,
 				"native_image",
 				"Native target changed before group preservation; stop for review",
 			)
@@ -494,15 +532,15 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		}
 		switch {
 		case err == nil && sameImageContent(current, change.After):
-			cp.journal.Known[i] = "after"
+			cp.journal.Known[i] = outcomeAfter
 			cp.journal.PostAttributes[i] = current.Attributes
 			cp.changes[i].After.Attributes = current.Attributes
 			changed = changed || !sameImage(change.Before, current)
 		case err == nil && sameImage(current, change.Before):
-			cp.journal.Known[i] = "before"
+			cp.journal.Known[i] = outcomeBefore
 			incomplete = incomplete || !sameImage(change.Before, change.After)
 		default:
-			cp.journal.Known[i] = "unknown"
+			cp.journal.Known[i] = outcomeUnknown
 			unknown = true
 		}
 	}
@@ -510,24 +548,28 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		unknown = true
 	}
 	if incomplete && runErr == nil {
-		runErr = Fail(1, "incomplete", "Native apply did not produce every approved target image")
+		runErr = Fail(
+			ExitFailed,
+			"incomplete",
+			"Native apply did not produce every approved target image",
+		)
 	}
-	cp.journal.Status = "complete"
+	cp.journal.Status = JournalComplete
 	if runErr != nil {
-		cp.journal.Status = "failed"
+		cp.journal.Status = JournalFailed
 	}
 	if changed && runErr != nil {
-		cp.journal.Status = "partial"
+		cp.journal.Status = JournalPartial
 	}
 	if unknown {
-		cp.journal.Status = "unknown"
+		cp.journal.Status = JournalUnknown
 	}
 	if err := cp.saveJournal(); err != nil {
 		if errors.Is(runErr, context.Canceled) {
 			return runErr
 		}
 		return Fail(
-			5,
+			ExitPartial,
 			"checkpoint",
 			"Target outcome could not be recorded; retained images require reviewed reconciliation",
 		)
@@ -537,14 +579,14 @@ func (cp *Checkpoint) Finish(runErr error) error {
 	}
 	if unknown {
 		return Fail(
-			5,
+			ExitPartial,
 			"recovery",
 			"Unrecognized target outcomes require reviewed reconciliation; original images retained",
 		)
 	}
 	if changed && runErr != nil {
 		return Fail(
-			5,
+			ExitPartial,
 			"partial",
 			"Some target changes completed; recover using the retained checkpoint",
 		)
@@ -562,7 +604,7 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 	if err := cp.preflight(reverse); err != nil {
 		return err
 	}
-	cp.journal.Status = "running"
+	cp.journal.Status = JournalRunning
 	if err := cp.saveJournal(); err != nil {
 		return err
 	}
@@ -577,52 +619,52 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 		if reverse {
 			xImage, yImage = x.Before, y.Before
 		}
-		if xImage.Kind == "absent" && yImage.Kind != "absent" {
+		if xImage.Kind == ImageAbsent && yImage.Kind != ImageAbsent {
 			return 1
 		}
-		if xImage.Kind != "absent" && yImage.Kind == "absent" {
+		if xImage.Kind != ImageAbsent && yImage.Kind == ImageAbsent {
 			return -1
 		}
-		if xImage.Kind == "absent" {
+		if xImage.Kind == ImageAbsent {
 			return strings.Compare(y.Path, x.Path)
 		}
 		return strings.Compare(x.Path, y.Path)
 	})
 	for _, i := range indices {
 		if err := ctx.Err(); err != nil {
-			cp.journal.Status = "partial"
+			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
 			return err
 		}
 		change := cp.changes[i]
 		expected := cp.expectedImage(i)
-		desired, known := change.After, "after"
+		desired, known := change.After, outcomeAfter
 		if reverse {
-			desired, known = change.Before, "before"
+			desired, known = change.Before, outcomeBefore
 		}
 		if sameImage(expected, desired) {
 			cp.journal.Known[i] = known
 			continue
 		}
-		cp.journal.Known[i] = "unknown"
+		cp.journal.Known[i] = outcomeUnknown
 		if err := cp.saveJournal(); err != nil {
 			return err
 		}
 		if err := writeImage(cp.mutation.context, change.Path, expected, desired); err != nil {
-			cp.journal.Status = "partial"
+			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
 			return Fail(
-				5,
+				ExitPartial,
 				"partial",
 				"A target write did not complete; retained checkpoint requires reconciliation before retry",
 			)
 		}
 		observed, err := ReadImage(cp.mutation.context, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {
-			cp.journal.Status = "unknown"
+			cp.journal.Status = JournalUnknown
 			_ = cp.saveJournal()
 			return Fail(
-				5,
+				ExitPartial,
 				"partial",
 				"Target outcome requires reconciliation; retained images were preserved",
 			)
@@ -635,16 +677,16 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 		cp.journal.Known[i] = known
 		if err := cp.saveJournal(); err != nil {
 			return Fail(
-				5,
+				ExitPartial,
 				"checkpoint",
 				"A target changed but journal update failed; recovery images are retained",
 			)
 		}
 	}
-	cp.journal.Status = "complete"
+	cp.journal.Status = JournalComplete
 	if err := cp.saveJournal(); err != nil {
 		return Fail(
-			5,
+			ExitPartial,
 			"checkpoint",
 			"Target changes completed but journal finalization failed; retained images remain available",
 		)
@@ -690,7 +732,7 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	}
 	var oldest *Checkpoint
 	for _, cp := range checkpoints {
-		settled := cp.journal.Status == "complete" || cp.journal.Status == "failed"
+		settled := cp.journal.Status == JournalComplete || cp.journal.Status == JournalFailed
 		if !settled ||
 			state != nil && state.PartialOperation != nil && state.PartialOperation.ID == cp.ID {
 			continue
@@ -711,7 +753,7 @@ func pruneApproved(c Context, plan Plan) error {
 	}
 	if oldest == nil || !slices.Contains(plan.Effects, retentionEffect(oldest)) {
 		return Fail(
-			3,
+			ExitBlocked,
 			"checkpoint_limit",
 			"Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan",
 		)
@@ -739,7 +781,7 @@ func decodePrivate(path string, limit int64, value any) error {
 	}
 	if err = DecodeStrict(data, value); err != nil {
 		return Fail(
-			2,
+			ExitInvalid,
 			"checkpoint_format",
 			"Malformed checkpoint ("+err.Error()+"); no repair or deletion attempted",
 		)
@@ -764,7 +806,7 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 	}
 	if len(entries) > MaxForwardCheckpoints+1 {
 		return nil, Fail(
-			2,
+			ExitInvalid,
 			"checkpoint_format",
 			"Scope checkpoint count exceeds its supported bound",
 		)
@@ -778,7 +820,7 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 		}
 		if !entry.IsDir() || !operationID.MatchString(entry.Name()) {
 			return nil, Fail(
-				2,
+				ExitInvalid,
 				"checkpoint_format",
 				"Unexpected checkpoint entry; no cleanup attempted",
 			)
@@ -796,7 +838,7 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 	}
 	if len(result) > MaxForwardCheckpoints || total > MaxScopeCheckpointBytes {
 		return nil, Fail(
-			2,
+			ExitInvalid,
 			"checkpoint_limit",
 			"Retained scope storage exceeds its supported count or byte bound",
 		)
@@ -813,7 +855,11 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		}
 		entries++
 		if entries > 4096 {
-			return Fail(2, "checkpoint_limit", "Checkpoint file count exceeds its supported bound")
+			return Fail(
+				ExitInvalid,
+				"checkpoint_limit",
+				"Checkpoint file count exceeds its supported bound",
+			)
 		}
 		info, err := entry.Info()
 		if err != nil {
@@ -821,7 +867,7 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		}
 		if entry.IsDir() {
 			if info.Mode().Perm() != 0o700 {
-				return Fail(2, "permissions", "Checkpoint directories require mode 0700")
+				return Fail(ExitInvalid, "permissions", "Checkpoint directories require mode 0700")
 			}
 			return owned(info)
 		}
@@ -831,7 +877,7 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		size += info.Size()
 		if size > 50<<20 {
 			return Fail(
-				2,
+				ExitInvalid,
 				"checkpoint_limit",
 				"Checkpoint exceeds its 50 MiB serialized storage bound",
 			)
@@ -856,7 +902,11 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 		!operationID.MatchString(r.RecoveryID) ||
 		r.ID == r.RecoveryID ||
 		r.Created.IsZero() {
-		return nil, Fail(2, "checkpoint_format", "Unsupported checkpoint identity or scope")
+		return nil, Fail(
+			ExitInvalid,
+			"checkpoint_format",
+			"Unsupported checkpoint identity or scope",
+		)
 	}
 	if err := (State{SchemaVersion: 1, AppliedConfiguration: &r.Applied}).Validate(); err != nil {
 		return nil, err
@@ -865,7 +915,7 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 		return nil, err
 	}
 	if len(r.Targets) > MaxCheckpointTargets {
-		return nil, Fail(2, "checkpoint_format", "Invalid checkpoint target count")
+		return nil, Fail(ExitInvalid, "checkpoint_format", "Invalid checkpoint target count")
 	}
 	if err := cp.loadImages(); err != nil {
 		return nil, err
@@ -884,7 +934,7 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	}
 	for i := range cp.changes {
 		cp.changes[i].After.Attributes = cp.journal.PostAttributes[i]
-		if cp.journal.RecoveryCreated && cp.journal.PairPost[i] == "before" {
+		if cp.journal.RecoveryCreated && cp.journal.PairPost[i] == outcomeBefore {
 			cp.changes[i].After = cp.changes[i].Before
 		}
 	}
@@ -909,19 +959,19 @@ func (cp *Checkpoint) loadImages() error {
 		change := TargetChange{Path: ref.Path}
 		for index, digest := range []string{ref.Before, ref.After} {
 			if !ValidDigest(digest) {
-				return Fail(2, "checkpoint_format", "Invalid checkpoint image reference")
+				return Fail(ExitInvalid, "checkpoint_format", "Invalid checkpoint image reference")
 			}
 			image, err := readStoredImage(cp.directory, digest)
 			if err != nil {
 				return err
 			}
 			if ImageDigest(image) != digest {
-				return Fail(2, "checkpoint_format", "Checkpoint image integrity mismatch")
+				return Fail(ExitInvalid, "checkpoint_format", "Checkpoint image integrity mismatch")
 			}
 			total += len(image.Data) + len(image.Link)
 			if total > MaxCheckpointImageBytes {
 				return Fail(
-					2,
+					ExitInvalid,
 					"checkpoint_limit",
 					"Checkpoint images exceed their aggregate read bound",
 				)
@@ -947,7 +997,14 @@ func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 	}
 	data, _ := json.Marshal(envelope.Journal)
 	j := envelope.Journal
-	statuses := []string{"prepared", "running", "complete", "partial", "failed", "unknown"}
+	statuses := []JournalStatus{
+		JournalPrepared,
+		JournalRunning,
+		JournalComplete,
+		JournalFailed,
+		JournalPartial,
+		JournalUnknown,
+	}
 	if envelope.Digest != SHA256Hex(data) || j.SchemaVersion != 1 ||
 		!operationID.MatchString(j.OperationID) ||
 		j.Sequence == 0 ||
@@ -957,28 +1014,36 @@ func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 		(j.Direction != "forward" && j.Direction != "reverse") ||
 		!slices.Contains(statuses, j.Status) {
 		return j, Fail(
-			2,
+			ExitInvalid,
 			"checkpoint_format",
 			"Invalid recovery journal; retained images require review",
 		)
 	}
 	for _, known := range j.Known {
-		if !slices.Contains([]string{"before", "after", "unknown"}, known) {
-			return j, Fail(2, "checkpoint_format", "Invalid target outcome")
+		if !slices.Contains([]targetOutcome{outcomeBefore, outcomeAfter, outcomeUnknown}, known) {
+			return j, Fail(ExitInvalid, "checkpoint_format", "Invalid target outcome")
 		}
 	}
 	if !j.RecoveryCreated {
 		if len(j.PairPost) != 0 {
-			return j, Fail(2, "checkpoint_format", "Unexpected paired recovery image selection")
+			return j, Fail(
+				ExitInvalid,
+				"checkpoint_format",
+				"Unexpected paired recovery image selection",
+			)
 		}
 		return j, nil
 	}
 	if len(j.PairPost) != targets {
-		return j, Fail(2, "checkpoint_format", "Missing paired recovery image selection")
+		return j, Fail(ExitInvalid, "checkpoint_format", "Missing paired recovery image selection")
 	}
 	for _, known := range j.PairPost {
-		if known != "before" && known != "after" {
-			return j, Fail(2, "checkpoint_format", "Invalid paired recovery image selection")
+		if known != outcomeBefore && known != outcomeAfter {
+			return j, Fail(
+				ExitInvalid,
+				"checkpoint_format",
+				"Invalid paired recovery image selection",
+			)
 		}
 	}
 	return j, nil
@@ -986,7 +1051,7 @@ func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 
 func (cp *Checkpoint) expectedImage(index int) Image {
 	image := cp.changes[index].Before
-	if cp.journal.Known[index] == "after" {
+	if cp.journal.Known[index] == outcomeAfter {
 		image = cp.changes[index].After
 	}
 	image.Attributes = cp.journal.ObservedAttributes[index]

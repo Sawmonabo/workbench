@@ -98,7 +98,9 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 	return bundle, nil
 }
 
-func integrity(message string) error { return operation.Fail(2, "release_integrity", message) }
+func integrity(message string) error {
+	return operation.Fail(operation.ExitInvalid, "release_integrity", message)
+}
 
 // readMembers reads every archive member within the file-count and expanded
 // size bounds, rejecting unsafe names, special files and unexpected layout.
@@ -253,11 +255,19 @@ func (b Bundle) CheckDirectory(directory string) error {
 		}
 		info, err := os.Lstat(full)
 		if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(data)) {
-			return operation.Fail(4, "release_conflict", "Staged release was modified")
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Staged release was modified",
+			)
 		}
 		actual, err := os.ReadFile(full)
 		if err != nil || operation.SHA256Hex(actual) != operation.SHA256Hex(data) {
-			return operation.Fail(4, "release_conflict", "Staged release content changed")
+			return operation.Fail(
+				operation.ExitConflict,
+				"release_conflict",
+				"Staged release content changed",
+			)
 		}
 	}
 	return nil

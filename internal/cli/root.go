@@ -45,7 +45,7 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 			}
 		}
 		err = operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"invocation",
 			"Invalid command, flags or arguments; run workbench --help",
 		)
@@ -59,7 +59,7 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 			return 1
 		}
 	}
-	return operation.ExitCode(err)
+	return int(operation.ExitCode(err))
 }
 
 func newRoot(o *options) *cobra.Command {
@@ -71,6 +71,7 @@ func newRoot(o *options) *cobra.Command {
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
+		RunE:          showHelp,
 	}
 	root.SetVersionTemplate("workbench {{.Version}}\n")
 	flags := root.PersistentFlags()
@@ -106,6 +107,10 @@ func newRoot(o *options) *cobra.Command {
 	root.AddCommand(releaseCommands(o)...)
 	return root
 }
+
+// showHelp makes a command group runnable. Cobra then rejects an unknown
+// subcommand through the group's Args, instead of printing help and exiting 0.
+func showHelp(cmd *cobra.Command, _ []string) error { return cmd.Help() }
 
 type handler func(*cobra.Command, operation.Context) (operation.Result, error)
 

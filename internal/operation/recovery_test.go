@@ -29,8 +29,8 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	first, second := filepath.Join(c.Scope.Root, "a"), filepath.Join(c.Scope.Root, "b")
-	before := Image{Kind: "file", Mode: 0o640, Data: []byte("original")}
-	after := Image{Kind: "file", Mode: 0o640, Data: []byte("applied")}
+	before := Image{Kind: ImageFile, Mode: 0o640, Data: []byte("original")}
+	after := Image{Kind: ImageFile, Mode: 0o640, Data: []byte("applied")}
 	group := os.Getegid()
 	groups, err := os.Getgroups()
 	if err != nil {

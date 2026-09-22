@@ -95,7 +95,7 @@ type Mutation struct {
 func (m *Mutation) Check() error {
 	if m == nil || !m.active || m.context.ReadOnly {
 		return Fail(
-			3,
+			ExitBlocked,
 			"read_only",
 			"Mutation requires an approved current plan and held operation locks",
 		)
@@ -114,26 +114,26 @@ func WithMutation(
 	apply func(*Mutation) error,
 ) error {
 	if c.ReadOnly {
-		return Fail(3, "read_only", "This operation is read-only")
+		return Fail(ExitBlocked, "read_only", "This operation is read-only")
 	}
 	if err := c.Scope.Validate(); err != nil {
 		return err
 	}
 	if !displayed.Complete || !consent.CompleteInputs || len(displayed.Prerequisites) != 0 {
 		return Fail(
-			3,
+			ExitBlocked,
 			"prerequisites",
 			"Complete the disclosed setup stage and inputs before approving target changes",
 		)
 	}
 	if displayed.Scope != c.Scope {
-		return Fail(4, "scope", "Plan does not match the selected scope")
+		return Fail(ExitConflict, "scope", "Plan does not match the selected scope")
 	}
 	digest := displayed.Digest()
 	if consent.ApprovedDigest != "" {
 		if consent.ApprovedDigest != digest {
 			return Fail(
-				4,
+				ExitConflict,
 				"plan",
 				"Approval digest does not match the current plan; review a new plan",
 			)
@@ -141,7 +141,7 @@ func WithMutation(
 	} else {
 		if consent.NonInteractive || consent.Confirm == nil {
 			return Fail(
-				3,
+				ExitBlocked,
 				"consent",
 				"Mutation requires --approve-plan with the displayed digest, or terminal approval",
 			)
@@ -151,7 +151,7 @@ func WithMutation(
 			return err
 		}
 		if !accepted {
-			return Fail(3, "consent", "Plan was not approved; no target changes made")
+			return Fail(ExitBlocked, "consent", "Plan was not approved; no target changes made")
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -170,7 +170,11 @@ func WithMutation(
 	}
 	currentDigest := current.Digest()
 	if currentDigest != digest {
-		return Fail(4, "plan", "Inputs changed after approval; review a new plan before writing")
+		return Fail(
+			ExitConflict,
+			"plan",
+			"Inputs changed after approval; review a new plan before writing",
+		)
 	}
 	if err := ctx.Err(); err != nil {
 		return err

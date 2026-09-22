@@ -23,7 +23,7 @@ func privateFilesystem(path string) error {
 			break
 		}
 		if !os.IsNotExist(err) || path == filepath.Dir(path) {
-			return Fail(3, "filesystem", "Cannot verify private state filesystem")
+			return Fail(ExitBlocked, "filesystem", "Cannot verify private state filesystem")
 		}
 		path = filepath.Dir(path)
 	}
@@ -32,7 +32,7 @@ func privateFilesystem(path string) error {
 		return nil
 	default:
 		return Fail(
-			3,
+			ExitBlocked,
 			"filesystem",
 			"Private Workbench state requires a supported native Linux filesystem; Windows/network mounts are unqualified",
 		)

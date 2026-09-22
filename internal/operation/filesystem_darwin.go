@@ -21,7 +21,7 @@ func privateFilesystem(path string) error {
 			break
 		}
 		if !os.IsNotExist(err) || path == filepath.Dir(path) {
-			return Fail(3, "filesystem", "Cannot verify private state filesystem")
+			return Fail(ExitBlocked, "filesystem", "Cannot verify private state filesystem")
 		}
 		path = filepath.Dir(path)
 	}
@@ -35,7 +35,7 @@ func privateFilesystem(path string) error {
 	}
 	if string(name) != "apfs" && string(name) != "hfs" {
 		return Fail(
-			3,
+			ExitBlocked,
 			"filesystem",
 			"Private Workbench state requires APFS or HFS; other protection semantics are unqualified",
 		)

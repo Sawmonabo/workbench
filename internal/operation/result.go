@@ -6,39 +6,88 @@ import (
 	"errors"
 )
 
+// Exit is a process exit status. An [Error] carries one.
+type Exit int
+
+// Exit statuses.
+const (
+	ExitFailed      Exit = 1   // The operation failed.
+	ExitInvalid     Exit = 2   // Input, configuration or recorded state is invalid.
+	ExitBlocked     Exit = 3   // A prerequisite, approval or supported state is missing.
+	ExitConflict    Exit = 4   // Inputs changed or disagree; review a new plan.
+	ExitPartial     Exit = 5   // Some changes completed; recover from the checkpoint.
+	ExitInterrupted Exit = 130 // A signal canceled the operation.
+)
+
 // Error messages must be actionable and safe for public output.
 type Error struct {
 	Category string `json:"category"`
 	Message  string `json:"message"`
-	Code     int    `json:"-"`
+	Code     Exit   `json:"-"`
 }
 
 func (e *Error) Error() string { return e.Message }
 
-// Fail returns an [Error] with its exit code: 1 failed, 2 invalid input,
-// 3 blocked, 4 conflict, 5 partial.
-func Fail(code int, category, message string) error { return &Error{category, message, code} }
+// Fail returns an [Error] with its exit status.
+func Fail(code Exit, category, message string) error { return &Error{category, message, code} }
 
-// ExitCode returns the process exit code for err: 0 for nil, 130 when
-// canceled, the [Error] code when present, otherwise 1.
-func ExitCode(err error) int {
+// ExitCode returns the process exit status for err: 0 for nil,
+// [ExitInterrupted] when canceled, the [Error] code when present, otherwise
+// [ExitFailed].
+func ExitCode(err error) Exit {
 	if err == nil {
 		return 0
 	}
 	if errors.Is(err, context.Canceled) {
-		return 130
+		return ExitInterrupted
 	}
 	var problem *Error
 	if errors.As(err, &problem) {
 		return problem.Code
 	}
-	return 1
+	return ExitFailed
+}
+
+// Status is the outcome of a command or one of its components.
+type Status string
+
+// Statuses.
+const (
+	StatusComplete    Status = "complete"
+	StatusUnchanged   Status = "unchanged"
+	StatusSkipped     Status = "skipped"
+	StatusAbsent      Status = "absent"
+	StatusFailed      Status = "failed"
+	StatusBlocked     Status = "blocked"
+	StatusConflict    Status = "conflict"
+	StatusPartial     Status = "partial"
+	StatusInterrupted Status = "interrupted"
+)
+
+// StatusOf returns the status that reports err.
+func StatusOf(err error) Status { return statusFor(ExitCode(err)) }
+
+func statusFor(code Exit) Status {
+	switch code {
+	case 0:
+		return StatusComplete
+	case ExitBlocked:
+		return StatusBlocked
+	case ExitConflict:
+		return StatusConflict
+	case ExitPartial:
+		return StatusPartial
+	case ExitInterrupted:
+		return StatusInterrupted
+	default:
+		return StatusFailed
+	}
 }
 
 // Component is one named part of a command's outcome.
 type Component struct {
 	Name     string `json:"name"`
-	Status   string `json:"status"`
+	Status   Status `json:"status"`
 	Message  string `json:"message,omitempty"`
 	Recovery string `json:"recovery,omitempty"`
 	Details  any    `json:"details,omitempty"`
@@ -48,7 +97,7 @@ type Component struct {
 type Result struct {
 	SchemaVersion int         `json:"schema_version"`
 	Command       string      `json:"command"`
-	Status        string      `json:"status"`
+	Status        Status      `json:"status"`
 	Results       []Component `json:"results"`
 	Warnings      []string    `json:"warnings"`
 	Errors        []*Error    `json:"errors"`
@@ -61,7 +110,7 @@ func NewResult(command string) Result {
 	return Result{
 		SchemaVersion: 1,
 		Command:       command,
-		Status:        "complete",
+		Status:        StatusComplete,
 		Results:       []Component{},
 		Warnings:      []string{},
 		Errors:        []*Error{},
@@ -79,7 +128,7 @@ func (r *Result) SetError(err error) {
 		Message:  "Operation failed: " + err.Error(),
 		Code:     ExitCode(err),
 	}
-	if problem.Code == 130 {
+	if problem.Code == ExitInterrupted {
 		problem.Category, problem.Message = "interrupted", "Operation interrupted; inspect any recorded partial operation before retrying"
 	}
 	var known *Error
@@ -87,15 +136,5 @@ func (r *Result) SetError(err error) {
 		problem = known
 	}
 	r.Errors = append(r.Errors, problem)
-	r.Status = "failed"
-	switch problem.Code {
-	case 3:
-		r.Status = "blocked"
-	case 4:
-		r.Status = "conflict"
-	case 5:
-		r.Status = "partial"
-	case 130:
-		r.Status = "interrupted"
-	}
+	r.Status = statusFor(problem.Code)
 }

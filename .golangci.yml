@@ -3,6 +3,7 @@ linters:
   default: standard
   enable:
     - errorlint
+    - exhaustive
     - forcetypeassert
     - funlen
     - gocognit
@@ -12,6 +13,10 @@ linters:
     - revive
     - unparam
   settings:
+    # A default case counts: switches may handle a few kinds and send the rest
+    # to one branch.
+    exhaustive:
+      default-signifies-exhaustive: true
     # Hard guards; golines wraps ordinary code at 100 first.
     lll:
       line-length: 120

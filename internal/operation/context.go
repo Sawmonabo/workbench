@@ -48,7 +48,7 @@ func Resolve(options Options) (Context, error) {
 	c := Context{ReadOnly: options.ReadOnly}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return c, Fail(2, "input", "Cannot resolve the current user's home")
+		return c, Fail(ExitInvalid, "input", "Cannot resolve the current user's home")
 	}
 	c.Home, err = ExistingDirectory(home)
 	if err != nil {
@@ -79,7 +79,7 @@ func Resolve(options Options) (Context, error) {
 		case "python", "javascript", "typescript", "rust", "go":
 		default:
 			return c, Fail(
-				2,
+				ExitInvalid,
 				"language",
 				"Unknown language; use python, javascript, typescript, rust or go",
 			)
@@ -93,7 +93,7 @@ func Resolve(options Options) (Context, error) {
 	if options.MachineConfig != "" {
 		c.Native.Config, err = filepath.Abs(options.MachineConfig)
 		if err != nil {
-			return c, Fail(2, "input", "Cannot resolve machine answer file")
+			return c, Fail(ExitInvalid, "input", "Cannot resolve machine answer file")
 		}
 		if err = checkPrivateFile(c.Native.Config); err != nil {
 			return c, err
@@ -108,16 +108,20 @@ func Resolve(options Options) (Context, error) {
 		}
 		info, markerErr := os.Lstat(filepath.Join(c.Native.Source, ".chezmoiroot"))
 		if markerErr != nil || !info.Mode().IsRegular() {
-			return c, Fail(2, "source", "Source must contain a regular .chezmoiroot file")
+			return c, Fail(ExitInvalid, "source", "Source must contain a regular .chezmoiroot file")
 		}
 		if Within(c.Native.Source, c.Native.Destination) ||
 			c.Native.Source == c.Native.Destination {
-			return c, Fail(2, "scope", "Destination must not alias or lie inside the source")
+			return c, Fail(
+				ExitInvalid,
+				"scope",
+				"Destination must not alias or lie inside the source",
+			)
 		}
 		for _, path := range []string{c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin} {
 			if Within(c.Native.Source, path) || Within(path, c.Native.Source) {
 				return c, Fail(
-					2,
+					ExitInvalid,
 					"scope",
 					"Source and Workbench runtime directories must not overlap",
 				)
@@ -135,15 +139,15 @@ func ExistingDirectory(path string) (string, error) {
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", Fail(2, "path", "Cannot resolve the selected directory")
+		return "", Fail(ExitInvalid, "path", "Cannot resolve the selected directory")
 	}
 	canonical, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
-		return "", Fail(2, "path", "Selected directory must exist and be accessible")
+		return "", Fail(ExitInvalid, "path", "Selected directory must exist and be accessible")
 	}
 	info, err := os.Stat(canonical)
 	if err != nil || !info.IsDir() {
-		return "", Fail(2, "path", "Selected path must be an existing directory")
+		return "", Fail(ExitInvalid, "path", "Selected path must be an existing directory")
 	}
 	return canonical, nil
 }
@@ -157,7 +161,11 @@ func Within(root, path string) bool {
 
 func runtimePaths(home string) (Paths, error) {
 	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return Paths{}, Fail(3, "platform", "Workbench runtime paths require macOS or Linux/WSL")
+		return Paths{}, Fail(
+			ExitBlocked,
+			"platform",
+			"Workbench runtime paths require macOS or Linux/WSL",
+		)
 	}
 	defaults := []string{
 		filepath.Join(home, ".config", "workbench"),
@@ -197,7 +205,7 @@ func runtimePaths(home string) (Paths, error) {
 		}
 		if !filepath.IsAbs(value) {
 			return Paths{}, Fail(
-				2,
+				ExitInvalid,
 				"runtime_path",
 				"WORKBENCH directory overrides must be absolute",
 			)
@@ -205,7 +213,7 @@ func runtimePaths(home string) (Paths, error) {
 		value = filepath.Clean(value)
 		if value == "/" || value == home {
 			return Paths{}, Fail(
-				2,
+				ExitInvalid,
 				"runtime_path",
 				"A Workbench directory must not be the filesystem root or home itself",
 			)
@@ -220,20 +228,28 @@ func runtimePaths(home string) (Paths, error) {
 		}
 		if info, err := os.Lstat(value); err == nil {
 			if !info.IsDir() {
-				return Paths{}, Fail(2, "runtime_path", "Workbench runtime path is not a directory")
+				return Paths{}, Fail(
+					ExitInvalid,
+					"runtime_path",
+					"Workbench runtime path is not a directory",
+				)
 			}
 			if err := owned(info); err != nil {
 				return Paths{}, err
 			}
 			if i < 4 && info.Mode().Perm()&0o077 != 0 {
 				return Paths{}, Fail(
-					2,
+					ExitInvalid,
 					"permissions",
 					"Existing Workbench runtime directories must be private (0700)",
 				)
 			}
 		} else if !os.IsNotExist(err) {
-			return Paths{}, Fail(2, "runtime_path", "Cannot inspect Workbench runtime directory")
+			return Paths{}, Fail(
+				ExitInvalid,
+				"runtime_path",
+				"Cannot inspect Workbench runtime directory",
+			)
 		}
 		defaults[i] = value
 	}
@@ -246,22 +262,26 @@ func safeParents(path string) error {
 		info, err := os.Lstat(current)
 		if err == nil {
 			if info.Mode()&os.ModeSymlink != 0 {
-				return Fail(2, "path", "Workbench private paths must not traverse symlinks")
+				return Fail(
+					ExitInvalid,
+					"path",
+					"Workbench private paths must not traverse symlinks",
+				)
 			}
 			if current != path && !info.IsDir() {
-				return Fail(2, "path", "Workbench path parent is not a directory")
+				return Fail(ExitInvalid, "path", "Workbench path parent is not a directory")
 			}
 			stat, ok := info.Sys().(*syscall.Stat_t)
 			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) ||
 				(info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0) {
 				return Fail(
-					2,
+					ExitInvalid,
 					"permissions",
 					"Workbench path has an unsafe owner or writable parent",
 				)
 			}
 		} else if !os.IsNotExist(err) {
-			return Fail(2, "path", "Cannot inspect Workbench path parents")
+			return Fail(ExitInvalid, "path", "Cannot inspect Workbench path parents")
 		}
 		if current == filepath.Dir(current) {
 			return nil
@@ -272,7 +292,11 @@ func safeParents(path string) error {
 func owned(info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || int(stat.Uid) != os.Geteuid() {
-		return Fail(2, "permissions", "Private Workbench state must belong to the current user")
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			"Private Workbench state must belong to the current user",
+		)
 	}
 	return nil
 }
@@ -283,14 +307,18 @@ func checkPrivateFile(path string) error {
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
-		return Fail(2, "state", "Expected an existing regular private file")
+		return Fail(ExitInvalid, "state", "Expected an existing regular private file")
 	}
 	if err := owned(info); err != nil {
 		return err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || info.Mode().Perm()&0o077 != 0 || stat.Nlink != 1 {
-		return Fail(2, "permissions", "Private files require mode 0600 and exactly one link")
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			"Private files require mode 0600 and exactly one link",
+		)
 	}
 	return nil
 }
@@ -301,7 +329,7 @@ func (n NativeContext) Args() ([]string, error) {
 	for _, path := range []string{n.Source, n.Config, n.Destination, n.PersistentState, n.Cache} {
 		if !filepath.IsAbs(path) {
 			return nil, Fail(
-				3,
+				ExitBlocked,
 				"native_context",
 				"Resolve every native context path before running chezmoi",
 			)
@@ -335,14 +363,14 @@ var projectMarkers = []string{".git", "pyproject.toml", "package.json", "Cargo.t
 func (c Context) ValidateTarget(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
 		path == c.Scope.Root {
-		return Fail(2, "scope", "Target must lie strictly inside the selected scope")
+		return Fail(ExitInvalid, "scope", "Target must lie strictly inside the selected scope")
 	}
 	if c.Scope.Kind == "machine" {
 		// Ruff's native user configuration is named pyproject.toml despite not
 		// representing a project; this exact canonical machine owner is allowed.
 		ruffConfig := filepath.Join(c.Scope.Root, ".config", "ruff", "pyproject.toml")
 		if slices.Contains(projectMarkers, filepath.Base(path)) && path != ruffConfig {
-			return Fail(2, "scope", "Machine configuration cannot own project manifests")
+			return Fail(ExitInvalid, "scope", "Machine configuration cannot own project manifests")
 		}
 		inside := func(directory string) bool {
 			return directory != c.Scope.Root && Within(c.Scope.Root, directory)
@@ -353,34 +381,38 @@ func (c Context) ValidateTarget(path string) error {
 					continue
 				}
 				if _, err := os.Lstat(filepath.Join(parent, marker)); err == nil {
-					return Fail(2, "scope", "Machine configuration cannot write inside a project")
+					return Fail(
+						ExitInvalid,
+						"scope",
+						"Machine configuration cannot write inside a project",
+					)
 				} else if !os.IsNotExist(err) {
-					return Fail(2, "scope", "Cannot establish machine target ownership")
+					return Fail(ExitInvalid, "scope", "Cannot establish machine target ownership")
 				}
 			}
 		}
 	}
 	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache} {
 		if excluded != "" && (Within(excluded, path) || Within(path, excluded)) {
-			return Fail(2, "scope", "Target overlaps source or Workbench runtime state")
+			return Fail(ExitInvalid, "scope", "Target overlaps source or Workbench runtime state")
 		}
 	}
 	entrypoint := filepath.Join(c.Paths.Bin, "workbench")
 	if Within(entrypoint, path) {
-		return Fail(2, "scope", "Target is the protected Workbench entry point")
+		return Fail(ExitInvalid, "scope", "Target is the protected Workbench entry point")
 	}
 	if entryInfo, entryErr := os.Stat(entrypoint); entryErr == nil {
 		if Within(path, entrypoint) {
-			return Fail(2, "scope", "Target contains the protected Workbench entry point")
+			return Fail(ExitInvalid, "scope", "Target contains the protected Workbench entry point")
 		}
 		if targetInfo, targetErr := os.Stat(
 			path,
 		); targetErr == nil &&
 			os.SameFile(entryInfo, targetInfo) {
-			return Fail(2, "scope", "Target aliases the protected Workbench entry point")
+			return Fail(ExitInvalid, "scope", "Target aliases the protected Workbench entry point")
 		}
 	} else if !os.IsNotExist(entryErr) {
-		return Fail(2, "scope", "Cannot inspect protected Workbench entry point")
+		return Fail(ExitInvalid, "scope", "Cannot inspect protected Workbench entry point")
 	}
 	// Leaf symlinks are images for the checkpoint owner to qualify. Ancestor
 	// symlinks still cannot redirect a managed target outside its scope.
@@ -396,7 +428,7 @@ func (c Context) ValidateTarget(path string) error {
 func (c Context) ValidateContainer(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
 		path == c.Scope.Root {
-		return Fail(2, "scope", "Container must lie strictly inside the selected scope")
+		return Fail(ExitInvalid, "scope", "Container must lie strictly inside the selected scope")
 	}
 	protected := []string{
 		c.Native.Source,
@@ -408,7 +440,7 @@ func (c Context) ValidateContainer(path string) error {
 	}
 	for _, excluded := range protected {
 		if excluded != "" && Within(excluded, path) {
-			return Fail(2, "scope", "Container is protected Workbench state")
+			return Fail(ExitInvalid, "scope", "Container is protected Workbench state")
 		}
 	}
 	if err := safeParents(path); err != nil {
@@ -416,7 +448,11 @@ func (c Context) ValidateContainer(path string) error {
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.IsDir() {
-		return Fail(2, "scope", "Protected ancestors must be existing unchanged directories")
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Protected ancestors must be existing unchanged directories",
+		)
 	}
 	return nil
 }
@@ -426,11 +462,11 @@ func (c Context) ValidateContainer(path string) error {
 func (s Scope) Validate() error {
 	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
 		filepath.Clean(s.Root) != s.Root {
-		return Fail(2, "scope", "Invalid scope; resolve an absolute existing directory")
+		return Fail(ExitInvalid, "scope", "Invalid scope; resolve an absolute existing directory")
 	}
 	canonical, err := ExistingDirectory(s.Root)
 	if err != nil || canonical != s.Root {
-		return Fail(2, "scope", "Scope directory changed or is not canonical")
+		return Fail(ExitInvalid, "scope", "Scope directory changed or is not canonical")
 	}
 	return nil
 }

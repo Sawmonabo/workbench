@@ -24,7 +24,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 			expected.Source != c.Native.Source ||
 			!Within(filepath.Join(c.Paths.Data, "releases"), expected.Source) {
 			return Fail(
-				4,
+				ExitConflict,
 				"handoff",
 				"Staged candidate changed before offline handoff; select and review it again",
 			)
@@ -32,7 +32,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 	} else {
 		if state == nil || state.ActiveRelease == nil || *state.ActiveRelease != expected {
 			return Fail(
-				4,
+				ExitConflict,
 				"handoff",
 				"Activated runtime changed before handoff; inspect state and resume installation",
 			)
@@ -40,7 +40,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 		entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
 		if err != nil || entry != expected.Executable {
 			return Fail(
-				4,
+				ExitConflict,
 				"handoff",
 				"Runtime entry point changed before handoff; resume installation",
 			)
@@ -51,7 +51,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 		return err
 	}
 	if executable != expected.Executable {
-		return Fail(4, "handoff", "Activated executable path is not canonical")
+		return Fail(ExitConflict, "handoff", "Activated executable path is not canonical")
 	}
 	var search []string
 	for _, directory := range filepath.SplitList(os.Getenv("PATH")) {
@@ -89,7 +89,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 		environment,
 	); err != nil {
 		return Fail(
-			1,
+			ExitFailed,
 			"handoff",
 			"Verified runtime could not start; installed and staged runtime files remain available; retry the selected command",
 		)

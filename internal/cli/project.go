@@ -13,6 +13,8 @@ func projectCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
 		Short: "Inspect or configure an existing project; never generate one",
+		Args:  cobra.NoArgs,
+		RunE:  showHelp,
 	}
 	cmd.AddCommand(projectInspectCommand(o), projectConfigureCommand(o), projectRevertCommand(o))
 	return cmd
@@ -32,14 +34,14 @@ func projectInspectCommand(o *options) *cobra.Command {
 				inventory, err := project.Inspect(ctx, c.Scope.Root)
 				component := operation.Component{
 					Name:    "inventory",
-					Status:  "complete",
+					Status:  operation.StatusComplete,
 					Details: inventory,
 				}
 				if err != nil {
-					component.Status = "failed"
+					component.Status = operation.StatusFailed
 					if ctx.Err() == nil {
 						err = operation.Fail(
-							1,
+							operation.ExitFailed,
 							"inventory",
 							"Inventory incomplete or inaccessible; select a narrower readable scope",
 						)
@@ -88,7 +90,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 			options.CI, _ = cmd.Flags().GetBool("ci")
 			if options.AllowBuildHooks && !options.ResolveDependencies {
 				return result, operation.Fail(
-					2,
+					operation.ExitInvalid,
 					"input",
 					"--allow-build-hooks requires --resolve-dependencies",
 				)
@@ -100,7 +102,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 					result.Results,
 					operation.Component{
 						Name:    "project-plan",
-						Status:  "complete",
+						Status:  operation.StatusComplete,
 						Details: proposal,
 					},
 				)
@@ -108,12 +110,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 			}
 			if err != nil {
 				if len(result.Results) > 0 {
-					result.Results[0].Status = "failed"
-					if operation.ExitCode(err) == 3 {
-						result.Results[0].Status = "blocked"
-					} else if operation.ExitCode(err) == 4 {
-						result.Results[0].Status = "conflict"
-					}
+					result.Results[0].Status = operation.StatusOf(err)
 				}
 				return result, err
 			}
@@ -122,7 +119,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 				return result, nil
 			}
 			if len(proposal.Plan.Edits) == 0 && len(proposal.Plan.Effects) == 0 {
-				result.Results[0].Status = "unchanged"
+				result.Results[0].Status = operation.StatusUnchanged
 				return result, nil
 			}
 			consent := consentFor(o, o.approvePlan)
@@ -130,13 +127,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 			c.ReadOnly = false
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)
 			result.OperationID = checkpoint
-			status := "complete"
-			if err != nil {
-				status = "failed"
-				if operation.ExitCode(err) == 5 {
-					status = "partial"
-				}
-			}
+			status := operation.StatusOf(err)
 			result.Results = append(
 				result.Results,
 				operation.Component{
@@ -171,13 +162,13 @@ func projectRevertCommand(o *options) *cobra.Command {
 					result.Results,
 					operation.Component{
 						Name:    "project-checkpoints",
-						Status:  "complete",
+						Status:  operation.StatusComplete,
 						Details: items,
 					},
 				)
 				if err == nil && !list {
 					err = operation.Fail(
-						3,
+						operation.ExitBlocked,
 						"checkpoint",
 						"Select one checkpoint explicitly with --checkpoint",
 					)
@@ -194,7 +185,7 @@ func projectRevertCommand(o *options) *cobra.Command {
 				result.Results,
 				operation.Component{
 					Name:    "project-recovery-plan",
-					Status:  "complete",
+					Status:  operation.StatusComplete,
 					Details: plan,
 				},
 			)

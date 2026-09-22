@@ -77,9 +77,10 @@ type applyRun struct {
 func (a *applyRun) apply() (err error) {
 	defer func() {
 		code := operation.ExitCode(err)
-		if a.runtimeMutated && err != nil && code != 130 && code != 5 {
+		if a.runtimeMutated && err != nil && code != operation.ExitInterrupted &&
+			code != operation.ExitPartial {
 			err = operation.Fail(
-				5,
+				operation.ExitPartial,
 				"partial",
 				"Runtime activated; subsequent configuration work did not complete, retained recovery state requires inspection",
 			)
@@ -115,7 +116,7 @@ func (a *applyRun) activate() error {
 func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	if state != nil && state.PartialOperation != nil {
 		return operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"recovery",
 			"Resolve the recorded incomplete operation before selecting another configuration release",
 		)
@@ -141,7 +142,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		current.Dependencies = a.prepared.Plan.Dependencies
 		if err = a.m.WriteState(*current); err != nil {
 			return operation.Fail(
-				5,
+				operation.ExitPartial,
 				"state",
 				"Apply completed; configuration identity finalization failed",
 			)
@@ -150,13 +151,13 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	if activated {
 		a.result.Results = append(a.result.Results, operation.Component{
 			Name:    "runtime",
-			Status:  "complete",
+			Status:  operation.StatusComplete,
 			Message: "Approved matching runtime activated",
 		})
 	}
 	a.result.Results = append(a.result.Results, operation.Component{
 		Name:     "configuration",
-		Status:   "unchanged",
+		Status:   operation.StatusUnchanged,
 		Recovery: "No target writes or checkpoint allocation",
 	})
 	if !a.selection.ConfigOnly {
@@ -201,9 +202,10 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		runErr = provisioningFailure(runErr)
 	}
 	if err = cp.Finish(runErr); err != nil {
-		status := "failed"
-		if code := operation.ExitCode(err); code == 5 || code == 130 {
-			status = "partial"
+		status := operation.StatusFailed
+		if code := operation.ExitCode(err); code == operation.ExitPartial ||
+			code == operation.ExitInterrupted {
+			status = operation.StatusPartial
 		}
 		a.result.Results = append(a.result.Results, operation.Component{
 			Name:     "configuration",
@@ -217,14 +219,14 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 	state.PartialOperation = nil
 	if err = a.m.WriteState(*state); err != nil {
 		return operation.Fail(
-			5,
+			operation.ExitPartial,
 			"state",
 			"Configuration applied; state finalization failed, retained checkpoint remains available",
 		)
 	}
 	a.result.Results = append(a.result.Results, operation.Component{
 		Name:     "configuration",
-		Status:   "complete",
+		Status:   operation.StatusComplete,
 		Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
 	})
 	a.result.Results = append(a.result.Results, effectResults(plan.Effects)...)
@@ -233,11 +235,11 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 
 // provisioningFailure keeps the native cause; external effects are not rolled back.
 func provisioningFailure(err error) error {
-	if operation.ExitCode(err) == 130 {
+	if operation.ExitCode(err) == operation.ExitInterrupted {
 		return err
 	}
 	return operation.Fail(
-		5,
+		operation.ExitPartial,
 		"partial",
 		"Native provisioning failed after it started ("+err.Error()+"); external effects may be partial and are not rolled back",
 	)
@@ -250,7 +252,7 @@ func effectResults(effects []operation.Effect) []operation.Component {
 			results,
 			operation.Component{
 				Name:     effect.Name,
-				Status:   "complete",
+				Status:   operation.StatusComplete,
 				Message:  effect.Description,
 				Recovery: effect.Recovery,
 			},

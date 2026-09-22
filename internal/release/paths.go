@@ -13,7 +13,7 @@ import (
 func PrivateDirectory(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !operation.Within(root, target) {
 		return operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"private_path",
 			"Private target escapes the selected runtime directory",
 		)
@@ -23,7 +23,7 @@ func PrivateDirectory(root, target string, create bool) error {
 		if err == nil {
 			if !info.IsDir() {
 				return operation.Fail(
-					2,
+					operation.ExitInvalid,
 					"private_path",
 					"Private directory ancestry contains a link or non-directory",
 				)
@@ -32,7 +32,7 @@ func PrivateDirectory(root, target string, create bool) error {
 				stat, ok := info.Sys().(*syscall.Stat_t)
 				if !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm() != 0o700 {
 					return operation.Fail(
-						2,
+						operation.ExitInvalid,
 						"permissions",
 						"Private runtime directories must be owned by this user with mode 0700",
 					)
@@ -41,7 +41,11 @@ func PrivateDirectory(root, target string, create bool) error {
 		} else if !os.IsNotExist(err) {
 			return err
 		} else if !create {
-			return operation.Fail(3, "private_path", "Required private runtime directory is absent")
+			return operation.Fail(
+				operation.ExitBlocked,
+				"private_path",
+				"Required private runtime directory is absent",
+			)
 		}
 		if current == filepath.Dir(current) {
 			break

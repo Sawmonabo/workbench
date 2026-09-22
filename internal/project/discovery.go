@@ -40,7 +40,7 @@ func readMetadata(path string) ([]byte, error) {
 	}
 	if !info.Mode().IsRegular() || info.Size() > 8<<20 {
 		return nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"manifest",
 			"Metadata must be a bounded regular file: "+filepath.Base(path),
 		)
@@ -57,7 +57,11 @@ func readMetadata(path string) ([]byte, error) {
 	defer func() { _ = file.Close() }()
 	data, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
 	if len(data) > 8<<20 {
-		return nil, operation.Fail(3, "manifest", "Metadata exceeds the input bound")
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"manifest",
+			"Metadata exceeds the input bound",
+		)
 	}
 	return data, err
 }
@@ -74,7 +78,7 @@ func (r *Inventory) read(path string) ([]byte, error) {
 		}
 		if total > 16<<20 {
 			return nil, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"manifest",
 				"Combined metadata exceeds 16 MiB; select a narrower scope",
 			)
@@ -111,7 +115,11 @@ func stringsOf(value any) []string {
 func decodeTOML(data []byte) (map[string]any, error) {
 	var doc map[string]any
 	if err := toml.Unmarshal(data, &doc); err != nil {
-		return nil, operation.Fail(2, "toml", "Invalid TOML metadata; correct it before planning")
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"toml",
+			"Invalid TOML metadata; correct it before planning",
+		)
 	}
 	return doc, nil
 }
@@ -169,7 +177,11 @@ func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Projec
 	case "package.json":
 		var doc map[string]any
 		if json.Unmarshal(data, &doc) != nil {
-			return project, operation.Fail(2, "manifest", "Invalid package.json")
+			return project, operation.Fail(
+				operation.ExitInvalid,
+				"manifest",
+				"Invalid package.json",
+			)
 		}
 		project.Manager = "javascript package manager"
 		if manager, ok := doc["packageManager"].(string); ok {
@@ -333,7 +345,11 @@ func workspaceMember(
 		}
 		matched, err := filepath.Match(pattern, relative)
 		if err != nil {
-			return false, "", operation.Fail(2, "workspace", "Invalid uv workspace member pattern")
+			return false, "", operation.Fail(
+				operation.ExitInvalid,
+				"workspace",
+				"Invalid uv workspace member pattern",
+			)
 		}
 		member = member || matched
 	}
@@ -343,7 +359,11 @@ func workspaceMember(
 		}
 		matched, err := filepath.Match(pattern, relative)
 		if err != nil {
-			return false, "", operation.Fail(2, "workspace", "Invalid uv workspace exclude pattern")
+			return false, "", operation.Fail(
+				operation.ExitInvalid,
+				"workspace",
+				"Invalid uv workspace exclude pattern",
+			)
 		}
 		member = member && !matched
 	}

@@ -54,7 +54,7 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 	}
 	if source == "" {
 		return nil, identity, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"source",
 			"Select --source or activate a verified source before planning",
 		)
@@ -68,19 +68,31 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 			return err
 		}
 		if !info.Mode().IsRegular() || info.Size() > 16<<20 {
-			return operation.Fail(3, "source", "Machine source requires bounded regular files")
+			return operation.Fail(
+				operation.ExitBlocked,
+				"source",
+				"Machine source requires bounded regular files",
+			)
 		}
 		total += info.Size()
 		if total > 16<<20 {
-			return operation.Fail(3, "source", "Machine source exceeds the preview input bound")
+			return operation.Fail(
+				operation.ExitBlocked,
+				"source",
+				"Machine source exceeds the preview input bound",
+			)
 		}
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return operation.Fail(2, "source", "Cannot read selected machine source")
+			return operation.Fail(
+				operation.ExitInvalid,
+				"source",
+				"Cannot read selected machine source",
+			)
 		}
 		if requirements.Files[name] != operation.SHA256Hex(data) {
 			return operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"source_trust",
 				"Source differs from reviewed executable inputs; review changes, regenerate source trust and rebuild",
 			)
@@ -112,7 +124,7 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 	}
 	if len(files) != len(requirements.Files) {
 		return nil, identity, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"source_trust",
 			"Reviewed machine source files are missing",
 		)
@@ -138,11 +150,15 @@ func releaseName(source, sourceDigest string) (string, error) {
 		return "", nil
 	}
 	if err != nil {
-		return "", operation.Fail(3, "source", "Cannot inspect selected release identity")
+		return "", operation.Fail(
+			operation.ExitBlocked,
+			"source",
+			"Cannot inspect selected release identity",
+		)
 	}
 	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
 		return "", operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"source_trust",
 			"Release identity requires bounded regular metadata",
 		)
@@ -159,7 +175,7 @@ func releaseName(source, sourceDigest string) (string, error) {
 		release.Release == "" ||
 		release.SourceDigest != sourceDigest {
 		return "", operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"source_trust",
 			"Release metadata does not match the compiled machine payload",
 		)

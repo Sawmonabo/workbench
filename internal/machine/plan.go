@@ -165,25 +165,26 @@ func (p *preparation) checkPrerequisites(
 	dependencies, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
 	plan.Dependencies = dependencies
 	for _, result := range results {
-		if result.Status != "complete" && (result.Name != "uv" || !p.selection.ConfigOnly) {
+		if result.Status != operation.StatusComplete &&
+			(result.Name != "uv" || !p.selection.ConfigOnly) {
 			plan.Prerequisites = append(plan.Prerequisites, result.Name+": "+result.Message)
 		}
 	}
 	if len(plan.Prerequisites) > 0 {
 		return nil, nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"prerequisites",
 			"Qualified rendering/provisioning dependencies are missing; approve setup separately",
 		)
 	}
-	if platform := checkPlatform(ctx, c); platform.Status != "complete" {
+	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
-		return nil, nil, operation.Fail(3, "platform", platform.Message)
+		return nil, nil, operation.Fail(operation.ExitBlocked, "platform", platform.Message)
 	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
 		return nil, nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"answers",
 			"Provide a complete private [data] answer file through --machine-config; preview does not initialize answers",
 		)
@@ -198,7 +199,7 @@ func (p *preparation) checkPrerequisites(
 	)
 	if !p.selection.ConfigOnly && c.Native.Destination != c.Home {
 		return nil, nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"scope",
 			"Full provisioning requires the actual user's home; use --config-only for an isolated destination",
 		)
@@ -413,7 +414,10 @@ func (p *preparation) readTargets(
 			info, statErr := os.Lstat(target)
 			readErr = statErr
 			if statErr == nil {
-				image = operation.Image{Kind: "directory", Mode: uint32(info.Mode().Perm())}
+				image = operation.Image{
+					Kind: operation.ImageDirectory,
+					Mode: uint32(info.Mode().Perm()),
+				}
 			}
 		}
 		if readErr != nil {
@@ -445,12 +449,12 @@ func (p *preparation) planEdits(
 			continue
 		}
 		if len(line) < 4 || line[2] != ' ' {
-			return operation.Fail(1, "native", "Unexpected native status output")
+			return operation.Fail(operation.ExitFailed, "native", "Unexpected native status output")
 		}
 		target := line[3:]
 		if containers[target] && line[1] != ' ' {
 			return operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"scope",
 				"Native plan would change a protected ancestor directory; review its mode/type before applying",
 			)
@@ -473,7 +477,11 @@ func (p *preparation) planEdits(
 		actions := map[byte]string{'A': "create", 'M': "modify", 'D': "remove", ' ': "unchanged"}
 		action := actions[line[1]]
 		if action == "" {
-			return operation.Fail(1, "native", "Unsupported native target action")
+			return operation.Fail(
+				operation.ExitFailed,
+				"native",
+				"Unsupported native target action",
+			)
 		}
 		if action != "unchanged" {
 			p.Plan.Edits = append(
@@ -498,14 +506,18 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 	}
 	var desired map[string]nativeEntry
 	if json.Unmarshal([]byte(rendered), &desired) != nil {
-		return operation.Fail(1, "native", "Unexpected native target-image output")
+		return operation.Fail(
+			operation.ExitFailed,
+			"native",
+			"Unexpected native target-image output",
+		)
 	}
 	for _, edit := range p.Plan.Edits {
 		before, err := operation.ReadImage(c, edit.Path)
 		if err != nil {
 			return err
 		}
-		after := operation.Image{Kind: "absent"}
+		after := operation.Image{Kind: operation.ImageAbsent}
 		if edit.Action != "remove" {
 			relative, err := filepath.Rel(c.Native.Destination, edit.Path)
 			if err != nil {
@@ -513,7 +525,11 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 			}
 			entry, ok := desired[relative]
 			if !ok {
-				return operation.Fail(1, "native", "Native target missing from image enumeration")
+				return operation.Fail(
+					operation.ExitFailed,
+					"native",
+					"Native target missing from image enumeration",
+				)
 			}
 			if after, err = entry.image(); err != nil {
 				return err
@@ -545,14 +561,18 @@ type nativeEntry struct {
 func (e nativeEntry) image() (operation.Image, error) {
 	switch e.Type {
 	case "file":
-		return operation.Image{Kind: "file", Mode: e.Perm, Data: []byte(e.Contents)}, nil
+		return operation.Image{
+			Kind: operation.ImageFile,
+			Mode: e.Perm,
+			Data: []byte(e.Contents),
+		}, nil
 	case "dir":
-		return operation.Image{Kind: "directory", Mode: e.Perm}, nil
+		return operation.Image{Kind: operation.ImageDirectory, Mode: e.Perm}, nil
 	case "symlink":
-		return operation.Image{Kind: "symlink", Mode: 0o777, Link: e.Target}, nil
+		return operation.Image{Kind: operation.ImageSymlink, Mode: 0o777, Link: e.Target}, nil
 	}
 	return operation.Image{}, operation.Fail(
-		3,
+		operation.ExitBlocked,
 		"native",
 		"Native target type is unsupported for recovery",
 	)
@@ -570,12 +590,12 @@ func checkPreservable(
 	// never expose permissions available only to that transient group.
 	if ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
 		return operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"metadata",
 			"Native group-exclusive permissions require separately qualified atomic ownership handling",
 		)
 	}
-	if before.Kind != "file" && before.Kind != "symlink" {
+	if before.Kind != operation.ImageFile && before.Kind != operation.ImageSymlink {
 		return nil
 	}
 	group, err := operation.CreationGroup(c, edit.Path)
@@ -584,7 +604,7 @@ func checkPreservable(
 	}
 	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
 		return operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"metadata",
 			"Native replacement cannot preserve this target's group ownership",
 		)
@@ -606,10 +626,14 @@ func (p *preparation) Apply(
 		return err
 	}
 	if !p.Plan.Complete || p.scratch == "" || p.Plan.Scope != c.Scope {
-		return operation.Fail(3, "plan", "Native apply requires an open complete prepared plan")
+		return operation.Fail(
+			operation.ExitBlocked,
+			"plan",
+			"Native apply requires an open complete prepared plan",
+		)
 	}
 	if c.Native.PersistentState != filepath.Join(c.Paths.State, "chezmoi", "chezmoi.boltdb") {
-		return operation.Fail(2, "state", "Unexpected native state target")
+		return operation.Fail(operation.ExitInvalid, "state", "Unexpected native state target")
 	}
 	if err := os.MkdirAll(filepath.Dir(c.Native.PersistentState), 0o700); err != nil {
 		return err

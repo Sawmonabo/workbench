@@ -21,7 +21,7 @@ func fileMetadata(fd int, path string) error {
 	}
 	var stat unix.Stat_t
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags != 0 {
-		return Fail(3, "metadata", "Target filesystem flags cannot be preserved")
+		return Fail(ExitBlocked, "metadata", "Target filesystem flags cannot be preserved")
 	}
 	return darwinACL(fd, nil)
 }
@@ -32,7 +32,7 @@ func linkMetadata(path string) error {
 	}
 	var stat unix.Stat_t
 	if err := unix.Lstat(path, &stat); err != nil || stat.Flags != 0 {
-		return Fail(3, "metadata", "Target link flags cannot be preserved")
+		return Fail(ExitBlocked, "metadata", "Target link flags cannot be preserved")
 	}
 	pointer, err := unix.BytePtrFromString(path)
 	if err != nil {
@@ -81,7 +81,7 @@ func darwinACL(fd int, path *byte) error {
 		)
 	}
 	if errno != 0 {
-		return Fail(3, "metadata", "Cannot verify target ACL semantics")
+		return Fail(ExitBlocked, "metadata", "Cannot verify target ACL semantics")
 	}
 	length := int(binary.LittleEndian.Uint32(data[0:4]))
 	offset := 4 + int(int32(binary.LittleEndian.Uint32(data[4:8])))
@@ -90,12 +90,16 @@ func darwinACL(fd int, path *byte) error {
 		return nil
 	}
 	if length > len(data) || offset < 12 || size < 44 || offset+size > length {
-		return Fail(3, "metadata", "Unsupported target ACL metadata")
+		return Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
 	}
 	security := data[offset : offset+size]
 	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d ||
 		binary.LittleEndian.Uint32(security[36:40]) != 0xffffffff {
-		return Fail(3, "metadata", "Targets with ACLs require reviewed preservation support")
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Targets with ACLs require reviewed preservation support",
+		)
 	}
 	return nil
 }

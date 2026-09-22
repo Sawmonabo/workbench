@@ -36,7 +36,7 @@ func selectedCandidate(c operation.Context) (*candidate, error) {
 	if err != nil || operation.SHA256Hex(manifest) != saved.MetadataSHA256 ||
 		metadata.Release != saved.Version {
 		return nil, operation.Fail(
-			4,
+			operation.ExitConflict,
 			"candidate",
 			"Staged manifest differs from its verified candidate record",
 		)
@@ -158,13 +158,13 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 	)
 	var checked operation.Result
 	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil ||
-		checked.Status != "complete" ||
+		checked.Status != operation.StatusComplete ||
 		len(checked.Errors) != 0 ||
 		len(checked.Results) != 1 ||
 		checked.Results[0].Name != "release-check" ||
-		checked.Results[0].Status != "complete" {
+		checked.Results[0].Status != operation.StatusComplete {
 		return operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"handoff",
 			"Candidate runtime did not validate its source and current contract; installed runtime retained",
 		)

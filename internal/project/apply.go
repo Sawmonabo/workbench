@@ -45,7 +45,7 @@ func Apply(
 				current, err := Plan(ctx, preview, options)
 				if err != nil {
 					return operation.Fail(
-						4,
+						operation.ExitConflict,
 						"project_conflict",
 						"Project inputs changed during native staging; project files remain unchanged",
 					)
@@ -53,7 +53,7 @@ func Apply(
 				currentDigest := current.Plan.Digest()
 				if currentDigest != approvedDigest {
 					return operation.Fail(
-						4,
+						operation.ExitConflict,
 						"project_conflict",
 						"Project inputs changed during native staging; review a fresh plan",
 					)
@@ -196,7 +196,7 @@ func (p *Proposal) runResolution(
 	)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		err = operation.Fail(
-			1,
+			operation.ExitFailed,
 			"project_resolution",
 			"Native uv staging failed; project files remain unchanged. "+err.Error(),
 		)
@@ -214,7 +214,7 @@ func (p *Proposal) collectResolution(root, owner string) error {
 		}
 		if data == nil {
 			return operation.Fail(
-				1,
+				operation.ExitFailed,
 				"project_resolution",
 				"Native resolution did not produce its required manifest and lockfile",
 			)
@@ -225,7 +225,7 @@ func (p *Proposal) collectResolution(root, owner string) error {
 		change := p.change(filepath.Join(owner, name))
 		if change == nil {
 			return operation.Fail(
-				4,
+				operation.ExitConflict,
 				"project_resolution",
 				"Native output was not an explicitly approved target; no project files changed",
 			)

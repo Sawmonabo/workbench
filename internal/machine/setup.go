@@ -105,7 +105,11 @@ func setupDependencies(
 		return nil, err
 	}
 	if os.Geteuid() == 0 {
-		return nil, operation.Fail(3, "root", "Do not initialize Workbench as root")
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"root",
+			"Do not initialize Workbench as root",
+		)
 	}
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
@@ -140,9 +144,9 @@ func setupDependencies(
 	}
 	qualified, results := ResolveDependencies(ctx, c, selected, "")
 	for _, result := range results {
-		if result.Status != "complete" {
+		if result.Status != operation.StatusComplete {
 			return nil, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"dependency",
 				"Acquired management dependencies did not pass their capability checks",
 			)
@@ -159,7 +163,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	if info, err := os.Lstat(target); err == nil {
 		if !info.Mode().IsRegular() {
 			return operation.Fail(
-				4,
+				operation.ExitConflict,
 				"dependency_conflict",
 				"Existing private tool has unsupported file type",
 			)
@@ -167,7 +171,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 		existing, readErr := os.ReadFile(target)
 		if readErr != nil || !bytes.Equal(existing, data) {
 			return operation.Fail(
-				4,
+				operation.ExitConflict,
 				"dependency_conflict",
 				"Existing private tool differs; it was retained",
 			)
@@ -213,7 +217,7 @@ func acquireTool(
 	}
 	if len(hash) != 64 {
 		return operation.Dependency{}, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"dependency_trust",
 			"No reviewed management artifact digest for this target",
 		)
@@ -224,7 +228,7 @@ func acquireTool(
 	}
 	if operation.SHA256Hex(data) != hash {
 		return operation.Dependency{}, operation.Fail(
-			2,
+			operation.ExitInvalid,
 			"dependency_trust",
 			"Management archive checksum mismatch; executable was not used",
 		)
@@ -291,7 +295,7 @@ func acquirePython(
 	matches, err := filepath.Glob(pattern)
 	if err != nil || len(matches) != 1 {
 		return operation.Dependency{}, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"python",
 			"Private Python installation did not produce one interpreter",
 		)
@@ -312,7 +316,11 @@ func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requi
 		return err
 	}
 	if operation.SHA256Hex(wheel) != requirements.TomlkitSHA256 {
-		return operation.Fail(2, "dependency_trust", "TOML Kit wheel checksum mismatch")
+		return operation.Fail(
+			operation.ExitInvalid,
+			"dependency_trust",
+			"TOML Kit wheel checksum mismatch",
+		)
 	}
 	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
 	lib := filepath.Join(directory, "lib")
@@ -336,7 +344,11 @@ func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requi
 }
 
 func toolArchive(data []byte, name string) ([]byte, error) {
-	unsafeArchive := operation.Fail(2, "dependency_archive", "Unsafe management archive")
+	unsafeArchive := operation.Fail(
+		operation.ExitInvalid,
+		"dependency_archive",
+		"Unsafe management archive",
+	)
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -412,14 +424,26 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 			strings.Contains(name, "\\") ||
 			len(files) > 1024 ||
 			file.UncompressedSize64 > 16<<20 {
-			return nil, operation.Fail(2, "dependency_archive", "Unsafe wheel member")
+			return nil, operation.Fail(
+				operation.ExitInvalid,
+				"dependency_archive",
+				"Unsafe wheel member",
+			)
 		}
 		if _, exists := files[name]; exists {
-			return nil, operation.Fail(2, "dependency_archive", "Duplicate wheel member")
+			return nil, operation.Fail(
+				operation.ExitInvalid,
+				"dependency_archive",
+				"Duplicate wheel member",
+			)
 		}
 		total += int64(file.UncompressedSize64)
 		if total > 16<<20 {
-			return nil, operation.Fail(2, "dependency_archive", "Wheel exceeds extraction bound")
+			return nil, operation.Fail(
+				operation.ExitInvalid,
+				"dependency_archive",
+				"Wheel exceeds extraction bound",
+			)
 		}
 		reader, openErr := file.Open()
 		if openErr != nil {
@@ -446,7 +470,7 @@ func TomlkitPath(c operation.Context) (string, error) {
 	info, err := os.Lstat(filepath.Join(directory, "distribution.whl"))
 	if err != nil || !info.Mode().IsRegular() || info.Size() > 16<<20 {
 		return "", operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"tomlkit",
 			"Private TOML Kit is missing; approve setup before project editing",
 		)
@@ -454,7 +478,7 @@ func TomlkitPath(c operation.Context) (string, error) {
 	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))
 	if err != nil || operation.SHA256Hex(data) != requirements.TomlkitSHA256 {
 		return "", operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"tomlkit",
 			"Private TOML Kit wheel failed integrity verification",
 		)
@@ -477,7 +501,7 @@ func TomlkitPath(c operation.Context) (string, error) {
 		}
 		if _, ok := files[name]; !ok || entry.Type()&os.ModeSymlink != 0 {
 			return operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"tomlkit",
 				"Unexpected private library files or links; refuse Python imports",
 			)
@@ -491,11 +515,19 @@ func TomlkitPath(c operation.Context) (string, error) {
 		file := filepath.Join(library, name)
 		info, err = os.Lstat(file)
 		if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(expected)) {
-			return "", operation.Fail(3, "tomlkit", "Private TOML Kit files were modified")
+			return "", operation.Fail(
+				operation.ExitBlocked,
+				"tomlkit",
+				"Private TOML Kit files were modified",
+			)
 		}
 		actual, readErr := os.ReadFile(file)
 		if readErr != nil || !bytes.Equal(expected, actual) {
-			return "", operation.Fail(3, "tomlkit", "Private TOML Kit content was modified")
+			return "", operation.Fail(
+				operation.ExitBlocked,
+				"tomlkit",
+				"Private TOML Kit content was modified",
+			)
 		}
 	}
 	return library, nil
@@ -535,7 +567,11 @@ func Setup(
 	}
 	if info, statErr := os.Lstat(filepath.Join(c.Native.Source, "release.json")); statErr == nil {
 		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-			return c, operation.Fail(2, "release", "Invalid native context release metadata")
+			return c, operation.Fail(
+				operation.ExitInvalid,
+				"release",
+				"Invalid native context release metadata",
+			)
 		}
 		metadata, readErr := os.ReadFile(filepath.Join(c.Native.Source, "release.json"))
 		if readErr != nil {

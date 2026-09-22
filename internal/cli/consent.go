@@ -32,7 +32,7 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return false, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"consent",
 			"No terminal is available; supply complete inputs and --approve-plan",
 		)
@@ -50,7 +50,11 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 	}
 	answer, err := bufio.NewReaderSize(terminal, 128).ReadSlice('\n')
 	if err != nil {
-		return false, operation.Fail(3, "consent", "No complete approval was received")
+		return false, operation.Fail(
+			operation.ExitBlocked,
+			"consent",
+			"No complete approval was received",
+		)
 	}
 	return strings.TrimSpace(string(answer)) == "yes", nil
 }

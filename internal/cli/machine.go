@@ -43,7 +43,11 @@ func statusCommand(o *options) *cobra.Command {
 				}
 				result.Results = append(
 					result.Results,
-					operation.Component{Name: "cli", Status: "complete", Message: version()},
+					operation.Component{
+						Name:    "cli",
+						Status:  operation.StatusComplete,
+						Message: version(),
+					},
 				)
 				message := "No recorded Workbench state"
 				if state != nil {
@@ -53,7 +57,7 @@ func statusCommand(o *options) *cobra.Command {
 					result.Results,
 					operation.Component{
 						Name:    "state",
-						Status:  "complete",
+						Status:  operation.StatusComplete,
 						Message: message,
 						Details: state,
 					},
@@ -71,7 +75,7 @@ func statusCommand(o *options) *cobra.Command {
 						result.Results,
 						operation.Component{
 							Name:   "candidate",
-							Status: "complete",
+							Status: operation.StatusComplete,
 							Details: operation.SourceIdentity{
 								Release:       metadata.Release,
 								ContentDigest: metadata.SourceDigest,
@@ -83,7 +87,7 @@ func statusCommand(o *options) *cobra.Command {
 						result.Results,
 						operation.Component{
 							Name:    "candidate",
-							Status:  "absent",
+							Status:  operation.StatusAbsent,
 							Message: "No staged release",
 						},
 					)
@@ -124,7 +128,11 @@ func initCommand(o *options) *cobra.Command {
 			plan, err := planner(cmd.Context(), c)
 			result.Results = append(
 				result.Results,
-				operation.Component{Name: "answers-plan", Status: "complete", Details: plan},
+				operation.Component{
+					Name:    "answers-plan",
+					Status:  operation.StatusComplete,
+					Details: plan,
+				},
 			)
 			if err != nil {
 				return result, err
@@ -149,7 +157,7 @@ func initCommand(o *options) *cobra.Command {
 					result.Results,
 					operation.Component{
 						Name:    "answers",
-						Status:  "complete",
+						Status:  operation.StatusComplete,
 						Message: "Saved; plan and apply now use them without --machine-config",
 					},
 				)
@@ -205,9 +213,9 @@ func machinePlan(
 	result := operation.NewResult(cmd.CommandPath())
 	selection := machineSelection(cmd)
 	plan, err := machine.Plan(cmd.Context(), c, selection)
-	status := "complete"
+	status := operation.StatusComplete
 	if err != nil {
-		status = "blocked"
+		status = operation.StatusBlocked
 	}
 	result.Results = append(
 		result.Results,

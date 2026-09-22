@@ -54,14 +54,18 @@ func transform(
 	)
 	if err != nil {
 		return nil, operation.Fail(
-			3,
+			operation.ExitBlocked,
 			"project_editor",
 			"TOML preservation adapter failed; review unsupported syntax or provenance before changing files",
 		)
 	}
 	var result []string
 	if json.Unmarshal([]byte(output.Stdout), &result) != nil || len(result) != len(documents) {
-		return nil, operation.Fail(1, "project_editor", "Invalid bounded adapter response")
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"project_editor",
+			"Invalid bounded adapter response",
+		)
 	}
 	return result, nil
 }
@@ -82,7 +86,7 @@ func mergeExtensions(data []byte) ([]byte, error) {
 	}
 	doc, err := hujson.Parse(data)
 	if err != nil {
-		return nil, operation.Fail(2, "jsonc", "Invalid extensions JSONC")
+		return nil, operation.Fail(operation.ExitInvalid, "jsonc", "Invalid extensions JSONC")
 	}
 	if err = uniqueKeys(doc); err != nil {
 		return nil, err
@@ -91,14 +95,22 @@ func mergeExtensions(data []byte) ([]byte, error) {
 	plain.Standardize()
 	var existing map[string]json.RawMessage
 	if json.Unmarshal(plain.Pack(), &existing) != nil || existing == nil {
-		return nil, operation.Fail(2, "jsonc", "Extension recommendations require an object")
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"jsonc",
+			"Extension recommendations require an object",
+		)
 	}
 	values := make(map[string][]string)
 	for _, key := range []string{"recommendations", "unwantedRecommendations"} {
 		if raw, ok := existing[key]; ok {
 			var entries []string
 			if json.Unmarshal(raw, &entries) != nil {
-				return nil, operation.Fail(2, "jsonc", "Recommendations must be arrays of strings")
+				return nil, operation.Fail(
+					operation.ExitInvalid,
+					"jsonc",
+					"Recommendations must be arrays of strings",
+				)
 			}
 			values[key] = entries
 		}
@@ -107,7 +119,7 @@ func mergeExtensions(data []byte) ([]byte, error) {
 		if slices.Contains(values["unwantedRecommendations"], id) ||
 			slices.Contains(extensionPolicy["unwantedRecommendations"], id) {
 			return nil, operation.Fail(
-				4,
+				operation.ExitConflict,
 				"extensions",
 				"Contradictory recommendations require a project decision",
 			)
@@ -156,11 +168,19 @@ func uniqueKeys(value hujson.Value) error {
 		for _, member := range node.Members {
 			name, ok := member.Name.Value.(hujson.Literal)
 			if !ok || name.Kind() != '"' {
-				return operation.Fail(2, "jsonc", "JSONC object keys must be quoted strings")
+				return operation.Fail(
+					operation.ExitInvalid,
+					"jsonc",
+					"JSONC object keys must be quoted strings",
+				)
 			}
 			key := name.String()
 			if seen[key] {
-				return operation.Fail(2, "jsonc", "Duplicate JSONC keys require manual repair")
+				return operation.Fail(
+					operation.ExitInvalid,
+					"jsonc",
+					"Duplicate JSONC keys require manual repair",
+				)
 			}
 			seen[key] = true
 			if err := uniqueKeys(member.Value); err != nil {
@@ -184,7 +204,7 @@ func mergeIgnore(data []byte) ([]byte, error) {
 	for _, line := range lines {
 		if strings.HasPrefix(strings.TrimSpace(line), "!") && line != "!.env.example" {
 			return nil, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"gitignore",
 				"Existing negations require review before adding ignore rules",
 			)
@@ -233,7 +253,7 @@ func adapterDependency(
 		}
 	}
 	return operation.Dependency{}, "", "", deps, operation.Fail(
-		3,
+		operation.ExitBlocked,
 		"dependency",
 		fmt.Sprintf(
 			"Approved management Python and TOML Kit setup required before project preview (%s)",

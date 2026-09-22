@@ -21,7 +21,7 @@ import (
 // This discovers a location only; callers must verify version/capabilities.
 func FindExecutable(name, searchPath string, excluded []string) (string, error) {
 	if filepath.Base(name) != name || name == "." || name == "" {
-		return "", Fail(2, "tool", "Tool discovery requires a command basename")
+		return "", Fail(ExitInvalid, "tool", "Tool discovery requires a command basename")
 	}
 	for _, directory := range filepath.SplitList(searchPath) {
 		if !filepath.IsAbs(directory) {
@@ -33,7 +33,7 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 		}
 	}
 	return "", Fail(
-		3,
+		ExitBlocked,
 		"dependency",
 		"Required executable was not found outside project-controlled PATH entries",
 	)
@@ -41,11 +41,11 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 
 func trustedExecutable(path string, excluded []string) (string, error) {
 	if !filepath.IsAbs(path) {
-		return "", Fail(2, "tool", "Subprocess executable must be absolute")
+		return "", Fail(ExitInvalid, "tool", "Subprocess executable must be absolute")
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return "", Fail(3, "dependency", "Selected executable is unavailable")
+		return "", Fail(ExitBlocked, "dependency", "Selected executable is unavailable")
 	}
 	for _, candidate := range []string{path, canonical} {
 		if err := outsideProjects(filepath.Dir(candidate), excluded); err != nil {
@@ -56,7 +56,7 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
 		info.Mode().Perm()&0o022 != 0 {
 		return "", Fail(
-			3,
+			ExitBlocked,
 			"tool",
 			"Selected executable must be a regular executable without group/other write access",
 		)
@@ -67,7 +67,11 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 func outsideProjects(directory string, excluded []string) error {
 	for _, root := range excluded {
 		if root != "" && Within(root, directory) {
-			return Fail(3, "tool", "Project-controlled management executable lookup is forbidden")
+			return Fail(
+				ExitBlocked,
+				"tool",
+				"Project-controlled management executable lookup is forbidden",
+			)
 		}
 	}
 	for parent := directory; ; parent = filepath.Dir(parent) {
@@ -77,13 +81,13 @@ func outsideProjects(directory string, excluded []string) error {
 					continue
 				}
 				return Fail(
-					3,
+					ExitBlocked,
 					"tool",
 					"Project-controlled management executable lookup is forbidden",
 				)
 			} else if !os.IsNotExist(err) {
 				return Fail(
-					3,
+					ExitBlocked,
 					"tool",
 					"Cannot establish ownership of a management executable directory",
 				)
@@ -183,7 +187,7 @@ func Run(
 	if request.Terminal != nil {
 		foreground, terminalErr := unix.IoctlGetInt(int(request.Terminal.Fd()), unix.TIOCGPGRP)
 		if terminalErr != nil {
-			return output, Fail(3, "terminal", "Cannot inspect native setup terminal")
+			return output, Fail(ExitBlocked, "terminal", "Cannot inspect native setup terminal")
 		}
 		cmd.SysProcAttr.Foreground = true
 		cmd.SysProcAttr.Ctty = int(request.Terminal.Fd())
@@ -218,7 +222,7 @@ func Run(
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		limit := request.Timeout.String()
 		message := filepath.Base(executable) + " exceeded its " + limit + " limit and was stopped"
-		return output, Fail(1, "timeout", message)
+		return output, Fail(ExitFailed, "timeout", message)
 	}
 	if ctx.Err() != nil {
 		return output, ctx.Err()
@@ -229,7 +233,7 @@ func Run(
 	// Suppress overflowing output entirely, including partial secret suffixes.
 	if stdout.overflow || stderr.overflow {
 		return output, Fail(
-			1,
+			ExitFailed,
 			"output_limit",
 			"Subprocess output exceeded its limit; output withheld",
 		)
@@ -248,7 +252,7 @@ func Run(
 	}
 	if len(output.Stdout) > request.OutputLimit || len(output.Stderr) > request.OutputLimit {
 		return ProcessOutput{}, Fail(
-			1,
+			ExitFailed,
 			"output_limit",
 			"Redacted subprocess output exceeded its limit; output withheld",
 		)
@@ -263,7 +267,7 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 	if request.Terminal != nil &&
 		(!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
 		return "", "", Fail(
-			3,
+			ExitBlocked,
 			"terminal",
 			"Terminal execution requires approved mutation, a controlling terminal and no piped input",
 		)
@@ -274,7 +278,7 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 		}
 		if c.ReadOnly || mutation.context.Scope != c.Scope {
 			return "", "", Fail(
-				3,
+				ExitBlocked,
 				"read_only",
 				"Subprocess mutation is outside the approved context",
 			)
@@ -294,14 +298,14 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 	}
 	if !filepath.IsAbs(request.Directory) {
 		return "", "", Fail(
-			2,
+			ExitInvalid,
 			"process",
 			"Subprocess working directory must be explicit and absolute",
 		)
 	}
 	if !request.Mutates && c.Scope.Kind == "project" && Within(c.Scope.Root, directory) {
 		return "", "", Fail(
-			3,
+			ExitBlocked,
 			"process",
 			"Read-only management probes must run outside the selected project",
 		)
@@ -314,7 +318,7 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 	}
 	if request.Timeout < 0 || request.Timeout > 30*time.Minute {
 		return "", "", Fail(
-			2,
+			ExitInvalid,
 			"process",
 			"Subprocess timeout must be non-negative and at most 30 minutes",
 		)
@@ -324,7 +328,7 @@ func (request *Process) admit(c Context, mutation *Mutation) (string, string, er
 	}
 	if request.OutputLimit < 1 || request.OutputLimit > 16<<20 || len(request.Input) > 16<<20 {
 		return "", "", Fail(
-			2,
+			ExitInvalid,
 			"process",
 			"Subprocess input/output exceeds the bounded execution policy",
 		)
@@ -338,14 +342,18 @@ func checkEnvironment(environment, excluded []string) error {
 	for _, variable := range environment {
 		key, value, ok := strings.Cut(variable, "=")
 		if !ok || key == "" {
-			return Fail(2, "process", "Subprocess environment requires explicit key/value entries")
+			return Fail(
+				ExitInvalid,
+				"process",
+				"Subprocess environment requires explicit key/value entries",
+			)
 		}
 		if key != "PATH" {
 			continue
 		}
 		for _, entry := range filepath.SplitList(value) {
 			if !filepath.IsAbs(entry) {
-				return Fail(2, "process", "Subprocess PATH entries must be absolute")
+				return Fail(ExitInvalid, "process", "Subprocess PATH entries must be absolute")
 			}
 			canonical, err := ExistingDirectory(entry)
 			if err != nil {
@@ -387,7 +395,7 @@ func (b *boundedBuffer) String() string { return b.buffer.String() }
 func failure(name string, err error, stderr string) error {
 	var exit *exec.ExitError
 	if !errors.As(err, &exit) {
-		return Fail(1, "subprocess", name+" could not run: "+err.Error())
+		return Fail(ExitFailed, "subprocess", name+" could not run: "+err.Error())
 	}
 	message := name + " failed (" + exit.String() + ")"
 	if len(stderr) > 4096 {
@@ -399,7 +407,7 @@ func failure(name string, err error, stderr string) error {
 	if stderr = strings.TrimSpace(stderr); stderr != "" {
 		message += ": " + stderr
 	}
-	return Fail(1, "subprocess", message)
+	return Fail(ExitFailed, "subprocess", message)
 }
 
 // redactingWriter forwards whole lines after replacing known secret values;

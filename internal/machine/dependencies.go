@@ -56,7 +56,7 @@ func ResolveDependencies(
 		}
 		component := operation.Component{
 			Name:    name,
-			Status:  "blocked",
+			Status:  operation.StatusBlocked,
 			Message: "Missing qualified tool; approved setup is required",
 		}
 		for _, candidate := range candidates {
@@ -73,7 +73,9 @@ func ResolveDependencies(
 				continue
 			}
 			dependencies = append(dependencies, candidate)
-			component.Status, component.Message, component.Details = "complete", "Qualified existing installation", candidate
+			component.Status = operation.StatusComplete
+			component.Message = "Qualified existing installation"
+			component.Details = candidate
 			break
 		}
 		results = append(results, component)
@@ -92,7 +94,7 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 		scratch, err := os.MkdirTemp("", "workbench-version-")
 		if err != nil {
 			return "", operation.Fail(
-				1,
+				operation.ExitFailed,
 				"dependency",
 				"Cannot create private version-probe scratch",
 			)
@@ -101,7 +103,7 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 		config := filepath.Join(scratch, "config.toml")
 		if err = os.WriteFile(config, nil, 0o600); err != nil {
 			return "", operation.Fail(
-				1,
+				operation.ExitFailed,
 				"dependency",
 				"Cannot create private version-probe scratch",
 			)
@@ -133,7 +135,7 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 	})
 	if err != nil {
 		return "", operation.Fail(
-			1,
+			operation.ExitFailed,
 			"dependency",
 			"Version/capability probe failed; existing tool retained",
 		)
@@ -238,7 +240,7 @@ func windowsSystemDirectories(searchPath string) []string {
 func checkPlatform(ctx context.Context, c operation.Context) operation.Component {
 	result := operation.Component{
 		Name:    "platform",
-		Status:  "blocked",
+		Status:  operation.StatusBlocked,
 		Message: runtime.GOOS + "/" + runtime.GOARCH,
 	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
@@ -268,7 +270,7 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 			runtime.GOARCH,
 		)
 		if major >= 15 {
-			result.Status = "complete"
+			result.Status = operation.StatusComplete
 		}
 	case "linux":
 		data, err := os.ReadFile("/etc/os-release")
@@ -284,7 +286,7 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 		}
 		if values["ID"] == "ubuntu" &&
 			slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"]) {
-			result.Status = "complete"
+			result.Status = operation.StatusComplete
 		}
 		result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH
 		if isWSL() {
@@ -325,7 +327,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 				results,
 				operation.Component{
 					Name:    "native-chezmoi",
-					Status:  "conflict",
+					Status:  operation.StatusConflict,
 					Message: "~/.config/chezmoi/chezmoi.toml points plain chezmoi at " + native.SourceDir + "; move it aside after switching (docs/switch-from-dotfiles.md)",
 				},
 			)
@@ -342,19 +344,19 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	for _, target := range editors {
 		component := operation.Component{
 			Name:    target.name,
-			Status:  "skipped",
+			Status:  operation.StatusSkipped,
 			Message: "No existing host settings directory",
 		}
 		if info, statErr := os.Lstat(target.path); statErr == nil && info.IsDir() {
-			component.Status = "complete"
+			component.Status = operation.StatusComplete
 			component.Message = target.path + " (profile ownership requires apply preflight)"
 		}
 		results = append(results, component)
 	}
 	for _, result := range results {
-		if result.Status == "blocked" {
+		if result.Status == operation.StatusBlocked {
 			return results, operation.Fail(
-				3,
+				operation.ExitBlocked,
 				"dependency",
 				"Doctor found missing or unqualified prerequisites; no repair performed",
 			)
