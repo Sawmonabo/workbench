@@ -74,7 +74,7 @@ VS Code is the editor integration; no alternative-IDE routing is introduced.
 
 Do not treat a managed file as an unmanaged override: a future approved apply
 can replace its owned content. Update canonical source when changing shared
-policy, regenerate source trust and rebuild. Keep local-only values in their
+policy and regenerate source trust before committing. Keep local-only values in their
 intended override/configuration owner.
 
 Recovery restores recorded pre-images only after all post-images still match.

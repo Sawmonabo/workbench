@@ -45,13 +45,15 @@ func ManagementRequirements() Requirements {
 	return requirements
 }
 
-// SourceSnapshot checks every source byte before any native template evaluation.
+// SourceSnapshot reads the machine source at source before any native template
+// evaluation. A release source (one with release.json) must match the reviewed
+// hashes compiled into this executable exactly. A developer checkout is bound
+// by its actual content instead: the digest enters the plan the user approves,
+// so editing home/ needs no trust regeneration or rebuild until a release.
 // Repository Git metadata is outside home and never copied or executed.
 func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity, error) {
-	identity := operation.SourceIdentity{
-		Release:       "developer",
-		ContentDigest: operation.SHA256Hex(sourceTrust),
-	}
+	trusted := operation.SHA256Hex(sourceTrust)
+	identity := operation.SourceIdentity{Release: "developer", ContentDigest: trusted}
 	if source == "" {
 		return nil, identity, operation.Fail(
 			operation.ExitBlocked,
@@ -59,7 +61,28 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 			"Select --source or activate a verified source before planning",
 		)
 	}
-	requirements := ManagementRequirements()
+	files, err := readSource(source)
+	if err != nil {
+		return nil, identity, err
+	}
+	release, err := releaseName(source, trusted)
+	if err != nil {
+		return nil, identity, err
+	}
+	if release == "" {
+		identity.ContentDigest = developerDigest(files)
+		return files, identity, nil
+	}
+	if err = checkTrusted(files); err != nil {
+		return nil, identity, err
+	}
+	identity.Release = release
+	return files, identity, nil
+}
+
+// readSource reads .chezmoiroot and every file under home/, within the preview
+// input bound.
+func readSource(source string) (map[string][]byte, error) {
 	files := make(map[string][]byte)
 	var total int64
 	read := func(path string, info fs.FileInfo) error {
@@ -90,13 +113,6 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 				"Cannot read selected machine source",
 			)
 		}
-		if requirements.Files[name] != operation.SHA256Hex(data) {
-			return operation.Fail(
-				operation.ExitBlocked,
-				"source_trust",
-				"Source differs from reviewed executable inputs; review changes, regenerate source trust and rebuild",
-			)
-		}
 		files[name] = data
 		return nil
 	}
@@ -109,34 +125,51 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 		err = filepath.Walk(
 			filepath.Join(source, "home"),
 			func(path string, info fs.FileInfo, walkErr error) error {
-				if walkErr != nil {
+				if walkErr != nil || info.IsDir() {
 					return walkErr
-				}
-				if info.IsDir() {
-					return nil
 				}
 				return read(path, info)
 			},
 		)
 	}
-	if err != nil {
-		return nil, identity, err
+	return files, err
+}
+
+// checkTrusted requires files to be exactly the reviewed set compiled into
+// this executable.
+func checkTrusted(files map[string][]byte) error {
+	reviewed := ManagementRequirements().Files
+	for name, data := range files {
+		if reviewed[name] != operation.SHA256Hex(data) {
+			return operation.Fail(
+				operation.ExitBlocked,
+				"source_trust",
+				"Release source differs from the reviewed hashes compiled into this executable",
+			)
+		}
 	}
-	if len(files) != len(requirements.Files) {
-		return nil, identity, operation.Fail(
+	if len(files) != len(reviewed) {
+		return operation.Fail(
 			operation.ExitBlocked,
 			"source_trust",
 			"Reviewed machine source files are missing",
 		)
 	}
-	release, err := releaseName(source, identity.ContentDigest)
-	if err != nil {
-		return nil, identity, err
+	return nil
+}
+
+// developerDigest identifies a developer checkout by its file hashes and this
+// executable's management pins.
+func developerDigest(files map[string][]byte) string {
+	hashes := make(map[string]string, len(files))
+	for name, data := range files {
+		hashes[name] = operation.SHA256Hex(data)
 	}
-	if release != "" {
-		identity.Release = release
-	}
-	return files, identity, nil
+	encoded, _ := json.Marshal(struct {
+		Files map[string]string `json:"files"`
+		Trust string            `json:"trust"`
+	}{hashes, operation.SHA256Hex(sourceTrust)})
+	return operation.SHA256Hex(encoded)
 }
 
 // releaseName returns the release named by the source's release.json, or ""

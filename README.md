@@ -102,9 +102,11 @@ zero: only explicit catastrophic data-loss, credential-exposure or unauthorized
 execution safeguards. Routine checks use formatting, lint, builds and brief
 disposable smoke checks. No coverage target or new test framework.
 
-Machine-source changes require regenerating the compiled trust record with
-`python3 scripts/generate-source-trust.py` and rebuilding before preview/apply.
-This binds executable render behavior to reviewed source content.
+A `--source` developer checkout previews and applies edited `home/` files
+directly; the plan binds their content digest. Release sources must match the
+trust record compiled into the executable, so regenerate it with
+`python3 scripts/generate-source-trust.py` before committing machine-source
+changes; CI and release packaging refuse a stale record.
 
 See the [design](docs/superpowers/specs/workbench-design.md),
 [contracts](docs/superpowers/specs/workbench-contracts.md),

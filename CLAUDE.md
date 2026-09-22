@@ -52,12 +52,15 @@ are not sandboxed and must remain visible in consent.
 
 ## Machine-source changes
 
-Source trust is an exact generated record embedded in the executable. After
-editing `home/` or management metadata, run
-`python3 scripts/generate-source-trust.py`, rebuild and use the existing
-`scripts/render-check.sh ROLE MODE [wsl]` for affected roles/modes. CI checks the
-record with `--check`. Do not bypass trust checks or add a second renderer.
-The WSL argument is static simulation, not Windows qualification.
+Release sources must match the exact trust record embedded in the executable.
+A developer checkout passed with `--source` is instead bound by its actual
+content digest, which the approved plan carries, so `home/` edits preview and
+apply without a rebuild. Before committing `home/` or management metadata
+changes, run `python3 scripts/generate-source-trust.py` and the existing
+`scripts/render-check.sh ROLE MODE [wsl]` for affected roles/modes. CI and
+`scripts/package-release.py` refuse a stale record (`--check`). Do not weaken
+the release trust check or add a second renderer. The WSL argument is static
+simulation, not Windows qualification.
 
 Invalid existing configuration must fail without fallback replacement. Global
 VS Code merging accepts JSONC but emits JSON without comments; project JSONC
