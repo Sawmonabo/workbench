@@ -237,31 +237,15 @@ func releasePlanner(
 	}
 }
 
-// retentionEdits lists what activating bundle makes unnecessary: releases
-// other than it, the active one it replaces and a staged candidate, plus the
-// setup contexts and tool versions only removed releases used. An unreadable
-// candidate record removes nothing, so an unknown directory is never deleted.
+// retentionEdits lists what activating bundle makes unnecessary: the releases
+// it does not keep, the setup contexts no kept release uses, and private tool
+// versions that neither this executable pins nor state records.
 func retentionEdits(c operation.Context, bundle release.Bundle) ([]operation.Edit, error) {
-	candidate, err := release.Candidate(c)
-	if err != nil {
-		return nil, nil
-	}
-	keep := []string{bundle.Directory(c)}
-	if candidate != "" {
-		keep = append(keep, candidate)
-	}
-	state, err := operation.ReadState(c.Paths)
-	if err != nil {
+	releases, kept, err := release.StaleReleases(c, bundle)
+	if len(kept) == 0 || err != nil {
 		return nil, err
 	}
-	if state != nil && state.ActiveRelease != nil {
-		keep = append(keep, state.ActiveRelease.Source)
-	}
-	releases, kept, err := release.StaleReleases(c, keep...)
-	if err != nil {
-		return nil, err
-	}
-	setup, err := machine.StaleSetup(c, append(kept, bundle.Identity()))
+	setup, err := machine.StaleSetup(c, kept)
 	return append(releases, setup...), err
 }
 

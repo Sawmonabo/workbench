@@ -10,7 +10,7 @@ import (
 // Prevent unauthorized executable extraction via path traversal. This is a
 // catastrophic execution-boundary regression, not a matrix of ordinary
 // archive/library behavior.
-func TestRejectEscapingOrUnverifiedExecutable(t *testing.T) {
+func TestRejectEscapingExecutable(t *testing.T) {
 	var raw bytes.Buffer
 	gz := gzip.NewWriter(&raw)
 	archive := tar.NewWriter(gz)
