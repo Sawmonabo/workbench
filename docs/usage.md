@@ -155,8 +155,10 @@ resolve conflicts manually; do not delete state to bypass a failure.
 
 File recovery does not uninstall tools/extensions, undo runtime upgrades or revert
 registry, environment, services, package caches or uncheckpointed script effects.
-Supported bytes/types/modes/groups/link targets and macOS provenance are recorded;
-unsupported ACLs, metadata, hard links and special files block preservation.
+Supported bytes/types/modes/groups/link targets are recorded, along with the
+macOS provenance, quarantine, Finder info and last-used-date attributes; other
+extended attributes, ACLs, file flags, hard links and special files block
+preservation.
 Native machine apply currently rejects group-exclusive modes such as `0640` and
 `0750`, avoiding transient exposure before group correction. The shared direct
 project/recovery writer sets the group before permissions and atomic replacement.
