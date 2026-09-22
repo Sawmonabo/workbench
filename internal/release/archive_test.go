@@ -4,13 +4,12 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"strings"
 	"testing"
 )
 
-// Prevent unauthorized executable extraction via traversal or an unverified
-// payload. These are catastrophic execution-boundary regressions, not a matrix
-// of ordinary archive/library behavior.
+// Prevent unauthorized executable extraction via path traversal. This is a
+// catastrophic execution-boundary regression, not a matrix of ordinary
+// archive/library behavior.
 func TestRejectEscapingOrUnverifiedExecutable(t *testing.T) {
 	var raw bytes.Buffer
 	gz := gzip.NewWriter(&raw)
@@ -27,10 +26,8 @@ func TestRejectEscapingOrUnverifiedExecutable(t *testing.T) {
 	if err := gz.Close(); err != nil {
 		t.Fatal(err)
 	}
-	for _, hash := range []string{sum(raw.Bytes()), strings.Repeat("0", 64)} {
-		bundle, err := Verify(bytes.NewReader(raw.Bytes()), hash, "", Target())
-		if err == nil || len(bundle.Files) != 0 {
-			t.Fatal("unsafe executable payload passed verification")
-		}
+	bundle, err := Verify(bytes.NewReader(raw.Bytes()), "", Target())
+	if err == nil || len(bundle.Files) != 0 {
+		t.Fatal("unsafe executable payload passed verification")
 	}
 }

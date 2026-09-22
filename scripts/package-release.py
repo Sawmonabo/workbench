@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a private review bundle; never publish or infer redistribution rights."""
+"""Build one Workbench release bundle for a target: CLI, machine sources and project policy."""
 import argparse
 import hashlib
 import io
@@ -38,8 +38,7 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
                 raise SystemExit(f"Unexpected private/generated payload: {relative}")
             payload[str(relative)] = item.read_bytes()
 payload["licenses/NOTICE"] = (
-    "Workbench private evaluation bundle. No redistribution license has been granted.\n"
-    "Publication remains disabled pending license, trust, capacity and native acceptance decisions.\n"
+    "Workbench personal release. No redistribution license has been granted.\n"
     "Third-party notices are included below; they do not grant rights to Workbench sources.\n"
 ).encode()
 # Include exact licenses of linked modules, plus the Go runtime. Never copy host
@@ -74,7 +73,7 @@ metadata = {
     "schema_version": 1, "state_version": 1, "release": args.version,
     "target": args.target, "source_digest": hashlib.sha256(requirements).hexdigest(),
     "files": {name: {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "executable": name == "bin/workbench"} for name, data in sorted(payload.items())},
-    "requirements": json.loads(requirements), "publication": "operator-trusted-unpublished",
+    "requirements": json.loads(requirements),
 }
 payload["release.json"] = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode()
 args.output.mkdir(parents=True, exist_ok=True)
@@ -86,9 +85,4 @@ with tarfile.open(bundle, "w:gz", format=tarfile.USTAR_FORMAT) as archive:
         info = tarfile.TarInfo(name)
         info.size, info.mode, info.mtime = len(data), 0o700 if name == "bin/workbench" else 0o600, 0
         archive.addfile(info, io.BytesIO(data))
-binary = args.output / f"workbench-{args.version}-{args.target}"
-binary.write_bytes(payload["bin/workbench"])
-binary.chmod(0o700)
-for artifact in (bundle, binary):
-    artifact.with_name(artifact.name + ".sha256").write_text(hashlib.sha256(artifact.read_bytes()).hexdigest() + "  " + artifact.name + "\n")
 print(bundle)

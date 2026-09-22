@@ -40,7 +40,6 @@ type Metadata struct {
 	SourceDigest  string          `json:"source_digest"`
 	Files         map[string]File `json:"files"`
 	Requirements  json.RawMessage `json:"requirements"`
-	Publication   string          `json:"publication"`
 }
 type Bundle struct {
 	Metadata      Metadata
@@ -63,20 +62,16 @@ func member(name string) bool {
 
 // Verify reads the complete bounded archive before exposing any executable or
 // extracting any member. Links, devices, duplicate entries and extra files fail.
-func Verify(reader io.Reader, expected, version, target string) (Bundle, error) {
+// Every member must match its SHA-256 in release.json, which catches a
+// truncated or corrupted download; it is not an authenticity check.
+func Verify(reader io.Reader, version, target string) (Bundle, error) {
 	bundle := Bundle{Files: map[string][]byte{}}
 	fail := func(message string) (Bundle, error) { return Bundle{}, operation.Fail(2, "release_integrity", message) }
-	if !validDigest(expected) {
-		return fail("Supply an explicitly trusted lowercase SHA-256 before reading a release")
-	}
 	raw, err := io.ReadAll(io.LimitReader(reader, MaxDownload+1))
 	if err != nil || int64(len(raw)) > MaxDownload {
 		return fail("Release download exceeds its bound or cannot be read")
 	}
-	if sum(raw) != expected {
-		return fail("Release archive SHA-256 mismatch; no executable was used")
-	}
-	bundle.ArchiveDigest = expected
+	bundle.ArchiveDigest = sum(raw)
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
 		return fail("Release is not a gzip archive")
@@ -135,8 +130,8 @@ func Verify(reader io.Reader, expected, version, target string) (Bundle, error) 
 		return fail("Malformed release metadata")
 	}
 	m := bundle.Metadata
-	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) || (version != "" && m.Release != version) || m.Target != target || !validDigest(m.SourceDigest) || m.Publication != "operator-trusted-unpublished" {
-		return fail("Release version, target, state format or publication contract is unsupported")
+	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) || (version != "" && m.Release != version) || m.Target != target || !validDigest(m.SourceDigest) {
+		return fail("Release version, target or state format is unsupported")
 	}
 	if len(m.Files)+1 != len(bundle.Files) {
 		return fail("Release manifest does not match the complete payload")

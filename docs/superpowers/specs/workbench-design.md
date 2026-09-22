@@ -1,6 +1,6 @@
 # Workbench design
 
-Status: implementation specification for private evaluation, 2026-09-22. Core lifecycle, machine and project handlers exist; production publication and native platform qualification remain gated. Acceptance requirements below are not claims that every target has passed them.
+Status: implementation specification, 2026-09-22. Core lifecycle, machine and project handlers exist. Releases publish on tag for personal use; native platform qualification remains open. Acceptance requirements below are not claims that every target has passed them.
 
 ## 1. Purpose and scope
 
@@ -123,18 +123,18 @@ No test-per-feature rule, coverage target, TDD mandate, UI/help snapshots, broad
 
 ## 4. Command contract
 
-This table defines the command contract. Exact flags, evaluation-only release constraints and supported project cases are documented in [usage](../../usage.md).
+This table defines the command contract. Exact flags, install options and supported project cases are documented in [usage](../../usage.md).
 
 | Command | Contract |
 | --- | --- |
 | `workbench doctor` | Local, read-only checks of context, tools, configuration and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
 | `workbench status` | Inspect recorded CLI/configuration/state identities without fetching or applying; complete drift inspection remains unavailable. |
-| `workbench pull [version] --bundle FILE --sha256 HASH` | Acquire and verify an explicitly trusted release candidate; stage only. No published latest channel exists. |
+| `workbench pull [version] --bundle FILE` | Verify a release bundle against its manifest and stage it only. |
 | `workbench plan` | Preview the selected candidate, or the current selected source when no candidate exists. Show file changes, removals, prerequisites and planned external effects. |
 | `workbench apply --dry-run` | Use the same planner and scope as `plan`; no application or provisioning. |
 | `workbench apply` | Preflight, preview, confirm, checkpoint, execute approved operations, validate and record the result. |
 | `workbench apply --config-only` | Exclude provisioning scripts and installs. Preview managed configuration removals as well as writes. Missing render prerequisites block rather than trigger installation. |
-| `workbench install` / `workbench update` | Compose shared staging, journaled activation, separate setup and approved apply; require an explicit bundle/hash and `--evaluation` while production is gated. |
+| `workbench install` / `workbench update` | Compose shared staging, journaled activation, separate setup and approved apply from a `--bundle` archive; `install.sh` supplies it. |
 | `workbench revert [version]` | Preview configuration recovery using a retained operation checkpoint and its release. Never infer recoverable contents from a version number alone. |
 | `workbench project inspect [PATH]` | Read-only discovery of languages, project boundaries, tool ownership, shared configuration and unsupported cases. PATH defaults to `.` and must exist. |
 | `workbench project configure [PATH] [--language NAME ...]` | Preview and configure supported tooling in existing projects. Repeated language flags narrow selection; no flags means supported detected languages. |
@@ -159,9 +159,9 @@ Success means the requested supported scope completed and passed its checks. Req
 
 ### Bootstrap
 
-Publish one installer entry point for macOS, Linux and WSL after release acceptance passes. The shell detects the target, downloads/verifies a standalone executable and hands off; the same Go CLI owns archive validation/extraction and lifecycle operations. No manual repository clone or separately installed chezmoi is required. The repository is private; authenticated acquisition requires explicit credentials or operator-supplied local artifacts.
+Each tagged release publishes one `install.sh` for macOS, Linux and WSL, stamped with its own tag. It detects the target, downloads the bundle with `gh` (logged in) or `curl`, extracts only the CLI and hands off to `workbench install`; the Go CLI owns manifest verification, extraction and lifecycle operations. No repository clone or separately installed chezmoi is required. `curl` needs a public repository; `gh` also works while it is private.
 
-Document required bootstrap utilities and detect them before work. Do not promise operation on a system lacking the required shell/download/checksum utilities. The implemented utility set is documented in [usage](../../usage.md#evaluation-installation); clean native bootstrap qualification remains open. Read interactive answers from the terminal, not the pipe carrying the installer. Without a terminal, require explicit inputs and consent. Offer install-only behavior and a download-and-inspect alternative.
+Document required bootstrap utilities and detect them before work. Do not promise operation on a system lacking the required shell/download/checksum utilities. The implemented utility set is documented in [usage](../../usage.md#installation-and-commands); clean native bootstrap qualification remains open. Read interactive answers from the terminal, not the pipe carrying the installer. Without a terminal, require explicit inputs and consent. Offer install-only behavior and a download-and-inspect alternative.
 
 The installer may present a bootstrap-only dry-run before management tools exist; it must explicitly state when a full configuration preview is unavailable. It cannot claim to have rendered files it could not inspect. Do not change already-running terminals' environments or inject commands into them.
 
@@ -169,9 +169,9 @@ The installer may present a bootstrap-only dry-run before management tools exist
 
 Each supported OS/architecture bundle contains the compiled CLI, `.chezmoiroot`, `home/`, selected `project/` policies, required licenses and generated release metadata. Exclude Git history, maintainer-only material, generated host configuration, credentials, environments and recovery state.
 
-Resolve a requested release once per operation. Verify version, target compatibility, integrity, expected layout and file types. Reject archive traversal, escaping links, absolute archive members and entries that could overwrite unrelated files. A checksum delivered by the same publisher detects corruption; it is not independent proof against publisher compromise. Signing/attestation policy remains a release decision.
+Resolve a requested release once per operation. Verify version, target compatibility, integrity, expected layout and file types. Reject archive traversal, escaping links, absolute archive members and entries that could overwrite unrelated files. The per-file SHA-256 manifest inside the bundle detects corruption; it is not proof against publisher compromise. Releases are personal and unsigned by decision.
 
-Keep the working runtime and recoverable state intact until activation succeeds. Reinstallation and updates reuse the same CLI operations. The shell bootstrap's first download is the only necessary pre-CLI transport path; it uses the same generated metadata and verification contract, not another package list or updater.
+Keep the working runtime and recoverable state intact until activation succeeds. Reinstallation and updates reuse the same CLI operations. The installer's download is the only pre-CLI transport path; the CLI then applies the same metadata and verification contract, not another package list or updater. Updating means rerunning the installer.
 
 ### Runtime context
 
@@ -426,4 +426,4 @@ Spot-check CLI startup, workspace inspection and resource use on representative 
 
 The maintained [implementation contracts](workbench-contracts.md) select native initialization, management ownership/prerequisites, runtime paths, unattended consent, output, checkpoint selection, project editors and initial platform acceptance targets. They also inventory each current file/provisioning effect and its recovery boundary. These remain binding implementation requirements; the acceptance record distinguishes isolated checks from native release qualification.
 
-Production release remains blocked on native platform smoke evidence, publication/license authority, approved publisher trust/signature policy, and qualification of the conservative archive/checkpoint bounds. Optional maintenance and application replacement remain disabled unless separately selected and approved. Additional languages/managers, native Windows, automatic maintenance and performance/resource budgets remain unresolved; do not silently expand support. See the [implementation plan](../plans/workbench-implementation.md) for work order.
+Releases are personal: public, unsigned and without a redistribution license. Native platform smoke evidence and qualification of the conservative archive/checkpoint bounds remain open. Optional maintenance and application replacement remain disabled unless separately selected and approved. Additional languages/managers, native Windows, automatic maintenance and performance/resource budgets remain unresolved; do not silently expand support. See the [implementation plan](../plans/workbench-implementation.md) for work order.

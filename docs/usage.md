@@ -1,48 +1,35 @@
 # Installation and commands
 
-Workbench currently supports explicitly trusted **private evaluation bundles**,
-not a published release channel. Production qualification is tracked in
-[acceptance](acceptance.md). Run installation/provisioning evaluation in a
-disposable user or VM, not an ordinary development account.
-
-## Evaluation installation
-
-An operator supplies a bundle, its standalone executable and trusted SHA-256
-values. Check the expected operating system/architecture and inspect `install.sh`
-before running it. A checksum downloaded with an artifact detects corruption;
-it does not independently establish publisher authenticity.
-
-For example, with reviewed local files and real trusted hashes substituted:
+Install the latest release, or pin one, with one command. Each release carries
+its own `install.sh`.
 
 ```sh
-WORKBENCH_BOOTSTRAP_FILE=./workbench-evaluation-darwin-arm64 \
-WORKBENCH_BOOTSTRAP_SHA256=TRUSTED_EXECUTABLE_SHA256 \
-sh install.sh --bundle ./workbench-evaluation-darwin-arm64.tar.gz \
-  --sha256 TRUSTED_BUNDLE_SHA256 --evaluation --install-only
+curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
+curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh -s -- --version v0.2.0
+
+# With gh; this also works while the repository is private.
+gh release download -R Sawmonabo/workbench -p install.sh -O - | sh
+gh release download -R Sawmonabo/workbench -p install.sh -O - | sh -s -- --version v0.2.0
 ```
 
-`--install-only` installs the matched CLI/source release without management setup
-or configuration application. Omit it to continue through separately approved
-setup and machine plans. `--config-only` skips prerequisite acquisition and
-provisioning; it therefore requires existing compatible tools and complete answers.
+`install.sh` picks the bundle for this OS and CPU and downloads it with `gh`
+when `gh` is installed and logged in, otherwise with `curl`. It extracts only the
+CLI and runs `workbench install VERSION --bundle FILE`, passing every other
+argument through:
 
-For authenticated assets, use `WORKBENCH_BOOTSTRAP_URL` instead of the local file
-and provide `WORKBENCH_GITHUB_TOKEN` through the environment. Credentials are
-accepted only for the Workbench GitHub release-asset API endpoint
-`https://api.github.com/repos/Sawmonabo/workbench/releases/assets/ID`.
-Never put the token in command arguments or commit it. No assets are published
-at this time. There is no anonymous private-repository installation promise.
+- `--install-only` installs the CLI and sources without setup or configuration.
+- `--config-only` applies configuration without provisioning; it needs existing
+  compatible tools and complete answers from `--machine-config`.
+- `--dry-run` verifies the bundle and shows only the staging/activation plan.
+- `--effect NAME` selects an optional provisioning step (see below).
 
-The bootstrap requires POSIX `sh`, `uname`, `mktemp`, `mkdir`, `chmod`, HTTPS
-`curl`, `rm`, `rmdir`, and `sha256sum` or `shasum`; local input also needs `cp`.
-Go handles archive verification/extraction, so users need neither Go, Python nor
-`tar` for runtime-only installation. Approved management setup can acquire its
-own qualified tools. Never run the entire installer as root.
+The CLI checks every file against the SHA-256 manifest inside the bundle before
+installing. That catches a truncated or corrupted download; it is not a
+signature. The installer needs POSIX `sh`, `uname`, `mktemp`, `tar` and `curl`
+(or `gh`). Never run it as root.
 
-`sh install.sh --dry-run` performs only bootstrap target/prerequisite inspection.
-It downloads nothing and cannot preview machine configuration. By contrast,
-the CLI's release `--dry-run` verifies the supplied bundle (including a download
-when an HTTPS location is selected) and previews staging/activation only.
+To update, rerun the one-liner, optionally with `--version`. `workbench install`
+and `workbench update` also accept `--bundle` with a local archive or HTTPS URL.
 
 ## Machine lifecycle
 
@@ -50,12 +37,12 @@ when an HTTPS location is selected) and previews staging/activation only.
 | --- | --- |
 | `doctor` | Bounded local tool/host checks; no repair, server startup or remote sessions. |
 | `status` | Inspect private current-state identities; not proof of package health or a drift scan. |
-| `pull [version] --bundle FILE --sha256 HASH` | Verify and stage only; does not activate or configure. |
-| `install [version] --bundle FILE --sha256 HASH --evaluation` | Activate the matched runtime/source, then separate setup and apply stages. |
-| `update [version] --bundle FILE --sha256 HASH --evaluation` | Compose the same stage/activate/setup/plan/apply owners. |
-| `plan [--config-only]` | Offline native target plan; missing render dependencies/answers block. |
-| `apply --dry-run [--config-only]` | Same planner as `plan`, no provisioning. |
-| `apply [--config-only]` | Revalidate the approved plan, checkpoint files and invoke native apply. |
+| `pull [version] --bundle FILE` | Verify and stage only; does not activate or configure. |
+| `install [version] --bundle FILE` | Activate the matched runtime/source, then separate setup and apply stages. |
+| `update [version] --bundle FILE` | Compose the same stage/activate/setup/plan/apply owners. |
+| `plan [--config-only] [--effect NAME]` | Offline native target plan; missing render dependencies/answers block. |
+| `apply --dry-run [--config-only] [--effect NAME]` | Same planner as `plan`, no provisioning. |
+| `apply [--config-only] [--effect NAME]` | Revalidate the approved plan, checkpoint files and invoke native apply. |
 | `revert --list` | List machine checkpoints. |
 | `revert --checkpoint ID [--dry-run]` | Preview/restore a selected checkpoint after conflict checks. |
 
@@ -63,9 +50,9 @@ when an HTTPS location is selected) and previews staging/activation only.
 ambiguous matches fail. With no selector, revert lists choices and requests an
 explicit checkpoint. It does not run an old executable or reverse old scripts.
 
-There is no automatic “latest” channel yet: release commands require `--bundle`
-and an operator-trusted `--sha256`. Bundle URLs may use the authenticated API
-endpoint above. Pull also requires plan consent because staging writes state.
+Release commands take `--bundle` with a local archive or HTTPS URL; `install.sh`
+finds the right one for you. Pull also requires plan consent because staging
+writes state.
 
 After pull, plan and apply use the candidate's verified executable/source pair.
 Preview does not activate it. The apply plan explicitly includes any runtime
@@ -193,21 +180,19 @@ entry-point/state switch fails closed while retaining the prior runtime. Resume
 the active-release record. Existing processes retain their inherited environment:
 Workbench never injects PATH changes into running terminals or AI sessions.
 
-## Maintainer bundles
+## Releases
 
-Packaging requires the pinned Go toolchain and Python 3.11+ on the build host:
+Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the four
+bundles with `scripts/package-release.py`, stamps the tag into a copy of
+`install.sh`, and publishes all five files as a GitHub release. Build one bundle
+locally with the pinned Go toolchain and Python 3.11+:
 
 ```sh
-python3 scripts/package-release.py --version evaluation --target darwin-arm64 --output dist
+python3 scripts/package-release.py --version v0.2.0 --target darwin-arm64 --output dist
 ```
 
-Choose the actual target from `darwin-arm64`, `darwin-amd64`, `linux-arm64`,
-`linux-amd64`. Output contains the bundle, standalone executable and checksum
-files; existing immutable bundle names are not overwritten. The explicit payload
-includes machine sources, portable Python policy, generated requirements and
-linked dependency/Go license notices—not host answers, logs, Git metadata or
-checkpoints. Inspect payloads and run the existing secret scanner before sharing.
-
-`.github/workflows/release-bundles.yml` produces private, short-retention CI
-artifacts only; it does not publish releases or sign them. These artifacts do not
-grant a Workbench redistribution license or establish an independent trust root.
+Targets are `darwin-arm64`, `darwin-amd64`, `linux-arm64` and `linux-amd64`.
+Existing bundle names are not overwritten. The payload holds machine sources,
+portable Python policy, generated requirements and linked dependency/Go license
+notices, never host answers, logs, Git metadata or checkpoints. No
+redistribution license is granted.

@@ -1,4 +1,4 @@
-# macOS evaluation
+# macOS notes
 
 Target: macOS 15+ on Apple Silicon and Intel. Isolated macOS arm64 checks exist;
 complete disposable-user provisioning and Intel/minimum-OS qualification remain

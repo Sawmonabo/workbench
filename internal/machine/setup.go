@@ -95,7 +95,7 @@ func SetupDependencies(ctx context.Context, c operation.Context, m *operation.Mu
 		if len(hash) != 64 {
 			return nil, operation.Fail(3, "dependency_trust", "No reviewed management artifact digest for this target")
 		}
-		data, downloadErr := release.Download(ctx, location, "", release.MaxDownload)
+		data, downloadErr := release.Download(ctx, location, release.MaxDownload)
 		if downloadErr != nil {
 			return nil, downloadErr
 		}
@@ -138,7 +138,7 @@ func SetupDependencies(ctx context.Context, c operation.Context, m *operation.Mu
 		selected = append(selected, operation.Dependency{Name: "python3", Path: matches[0], Version: requirements.Python, Owner: "workbench"})
 	}
 	if _, err = TomlkitPath(c); err != nil {
-		wheel, downloadErr := release.Download(ctx, requirements.TomlkitURL, "", 16<<20)
+		wheel, downloadErr := release.Download(ctx, requirements.TomlkitURL, 16<<20)
 		if downloadErr != nil {
 			return nil, downloadErr
 		}

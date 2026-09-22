@@ -1,4 +1,4 @@
-# Linux evaluation
+# Linux notes
 
 Targets: Ubuntu 22.04, 24.04 and 26.04 LTS on amd64/arm64. Native release and
 provisioning qualification remains open; builds and template rendering alone

@@ -1,11 +1,11 @@
 # Workbench implementation plan
 
-Status: core implementation available for private evaluation; integrated acceptance and native production qualification remain distinct gates. This document and the [design specification](../specs/workbench-design.md) are maintained repository inputs. All source paths are repository-relative.
+Status: core implementation available; releases publish on tag for personal use. Integrated acceptance and native platform qualification remain distinct gates. This document and the [design specification](../specs/workbench-design.md) are maintained repository inputs. All source paths are repository-relative.
 
 ## Progress
 
 The source now contains shared operations, native machine planning/application,
-scoped checkpoints/recovery, verified evaluation-bundle lifecycle/bootstrap,
+scoped checkpoints/recovery, the verified release-bundle lifecycle and one-line installer,
 global editor policy and existing uv project/workspace configuration. The tasks
 below remain the dependency-ordered delivery specification, not a claim that
 every native release acceptance gate has passed.
@@ -13,13 +13,13 @@ every native release acceptance gate has passed.
 | Task | Implementation status | Remaining gate |
 | --- | --- | --- |
 | 1–2 Contracts/shared foundations | Implemented and reviewed | Production qualification remains separate. |
-| 3 Native machine integration | Implemented with explicit Windows-host gate | Full native provisioning qualification. |
+| 3 Native machine integration | Implemented; WSL host steps are selected effects | Full native provisioning qualification, including a real WSL host run. |
 | 4 Apply/recovery | Implemented and reviewed; isolated recovery checks passed | Unsupported metadata remains blocked. |
-| 5 Release/bootstrap | Private evaluation path implemented | Published assets, license/trust decisions and native clean-install qualification. |
+| 5 Release/bootstrap | Tag-triggered release workflow and one-line `install.sh` implemented | First published release and native clean-install qualification. |
 | 6 Editor/Python policy | Canonical policy implemented; isolated merge/schema checks passed | Live intended-profile/tool-resolution verification. |
 | 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
 | 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
-| 9 Documentation/artifacts | Current documentation and verified evaluation packaging complete | Production publication separately authorized. |
+| 9 Documentation/artifacts | Current documentation and release packaging complete | First tagged release. |
 
 [Acceptance](../../acceptance.md) is the maintained evidence record. Do not turn
 cross-compilation, static template checks or source inspection into native support
@@ -79,8 +79,8 @@ instead of every small edit.
 
 Project mutations depend on shared recovery; lifecycle setup depends on native
 integration; final bundles include completed project assets. Documentation can
-proceed beside acceptance once interfaces stabilize. Publication remains gated
-on evidence and authority, not the order in which files were implemented.
+proceed beside acceptance once interfaces stabilize. Releases publish when the
+owner pushes a `v*` tag, not when files are implemented.
 
 ## Task 1: Resolve contracts and establish lean validation
 
@@ -306,7 +306,7 @@ Accept static-check output, review and brief reproducible manual observations fo
 3. Explain global versus project settings ownership and mixed-language selection with examples matching the implemented commands.
 4. Manually verify documented command/flag/examples against the built executable and supported-platform claims against recorded native checks.
 5. Ensure all necessary product decisions are in maintained repository documents and no workstation-specific paths or private artifacts are required.
-6. Prepare signed/verified artifacts according to the resolved release policy. Publishing requires separate release authorization; writing this plan does not perform or authorize publication.
+6. Publish unsigned personal releases from `v*` tags through the release workflow; the owner pushes tags. Bundles keep their SHA-256 manifest and grant no redistribution license.
 
 ### Verification and gate
 
@@ -366,6 +366,6 @@ The last command is a simulation/lint check, not native Windows verification. Th
 - [x] Personal editor/Python policy is implemented through canonical owners.
 - [x] Existing-project and supported monorepo configuration is safe, scoped and repeatable in isolated fixtures.
 - [ ] Resource observations, security checks and actual WSL smoke results support published claims.
-- [x] Private evaluation artifacts and public instructions match verified behavior; no production publication is claimed.
+- [x] Release artifacts and public instructions match verified behavior; no platform qualification beyond the acceptance record is claimed.
 
-Each checklist item requires actual evidence; source completion alone does not finish native release qualification. Commit/push delivery and release publication are distinct actions; publication requires separate authorization. The progress and acceptance sections must remain aligned with current results.
+Each checklist item requires actual evidence; source completion alone does not finish native release qualification. Commit/push delivery and release publication are distinct actions; only the owner pushes release tags. The progress and acceptance sections must remain aligned with current results.

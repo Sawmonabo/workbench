@@ -71,6 +71,9 @@ developer's absolute paths or private scratch evidence as dependencies. Describe
 Workbench directly. Keep commands aligned with the built CLI and native support
 claims aligned with `docs/acceptance.md`.
 
-Packaging does not authorize publication, repository visibility changes,
-redistribution rights, signing identity, installation on a real machine or
-destructive branch/worktree cleanup. Evaluation artifacts are explicitly gated.
+Releases are personal: pushing a `v*` tag publishes the four bundles and a
+tag-stamped `install.sh` through `.github/workflows/release.yml`. They are
+unsigned and grant no redistribution rights; add no LICENSE. Only the owner
+pushes release tags. Repository visibility changes, installation on a real
+machine and destructive branch/worktree cleanup still need the owner's explicit
+go-ahead.

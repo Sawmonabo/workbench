@@ -17,11 +17,9 @@ func releaseCommands(o *options) []*cobra.Command {
 	commands := []*cobra.Command{}
 	for _, name := range []string{"pull", "install", "update"} {
 		cmd := &cobra.Command{Use: name + " [version]", Args: cobra.MaximumNArgs(1), Short: map[string]string{"pull": "Verify and stage an immutable release only", "install": "Install a verified runtime and perform separately approved setup", "update": "Stage, plan and apply a verified release through shared lifecycle operations"}[name]}
-		cmd.Flags().String("bundle", "", "Local bundle or authenticated HTTPS asset URL (private releases require WORKBENCH_GITHUB_TOKEN)")
-		cmd.Flags().String("sha256", "", "Operator-trusted bundle SHA-256; same-origin checksums alone do not establish authenticity")
+		cmd.Flags().String("bundle", "", "Release archive: a local file or HTTPS URL (install.sh downloads the right one)")
 		cmd.Flags().Bool("dry-run", false, "Verify the bundle and show only the runtime staging/activation plan")
 		cmd.Flags().Bool("install-only", false, "Install the CLI and sources without management setup or configuration")
-		cmd.Flags().Bool("evaluation", false, "Explicitly permit an unpublished evaluation bundle; production acceptance remains blocked")
 		cmd.Flags().Bool("config-only", false, "Apply configuration without provisioning; missing dependencies remain blocked")
 		addEffectFlag(cmd)
 		cmd.Flags().String("approve-setup", "", "Approve exactly the separate setup plan digest")
@@ -79,16 +77,35 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 			}
 		}
 	}()
+	c.ReadOnly = false
+	if ready, _ := cmd.Flags().GetBool("runtime-ready"); ready {
+		// The activated runtime continues the install that verified, staged and
+		// activated it; it re-reads nothing from the original bundle location.
+		state, stateErr := operation.ReadState(c.Paths)
+		actual, executableErr := os.Executable()
+		if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil || actual != state.ActiveRelease.Executable {
+			return result, operation.Fail(4, "handoff", "Runtime continuation must execute the activated runtime")
+		}
+		if err := release.ValidateSelection(c); err != nil {
+			return result, err
+		}
+		metadata, err := release.Inspect(state.ActiveRelease.Source)
+		if err != nil {
+			return result, err
+		}
+		result.Results = append(result.Results, operation.Component{Name: "release", Status: "complete", Message: metadata.Release + " (" + metadata.Target + ")"})
+		c.Native.Source = state.ActiveRelease.Source
+		return configureMachine(cmd, c, o, result)
+	}
 	location, _ := cmd.Flags().GetString("bundle")
-	hash, _ := cmd.Flags().GetString("sha256")
 	if location == "" {
-		return result, operation.Fail(3, "release_unavailable", "No published release channel exists; supply --bundle and an operator-trusted --sha256 for an evaluation bundle")
+		return result, operation.Fail(3, "release_unavailable", "Supply --bundle with a release archive; the one-line install.sh downloads one")
 	}
 	version := ""
 	if len(cmd.Flags().Args()) > 0 {
 		version = cmd.Flags().Args()[0]
 	}
-	bundle, err := release.ReadBundle(cmd.Context(), location, hash, version)
+	bundle, err := release.ReadBundle(cmd.Context(), location, version)
 	if err != nil {
 		return result, err
 	}
@@ -107,38 +124,19 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 	}
 	result.PlanDigest, _ = plan.Digest()
 	result.Results = append(result.Results, operation.Component{Name: "release-plan", Status: "complete", Details: plan})
-	result.Warnings = append(result.Warnings, "Unpublished private evaluation bundle. Production publication, redistribution, trust policy, measured resource bounds and native platform acceptance remain gated.")
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	if dryRun {
+	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
 	}
-	evaluation, _ := cmd.Flags().GetBool("evaluation")
-	if activate && !evaluation {
-		return result, operation.Fail(3, "release_gate", "Production activation is not qualified; --evaluation explicitly selects the unpublished evaluation path")
-	}
-	c.ReadOnly = false
-	ready, _ := cmd.Flags().GetBool("runtime-ready")
-	if ready {
-		state, stateErr := operation.ReadState(c.Paths)
-		actual, executableErr := os.Executable()
-		if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil || actual != state.ActiveRelease.Executable || state.ActiveRelease.Identity != bundle.Identity() {
-			return result, operation.Fail(4, "handoff", "Runtime continuation must execute the exact activated candidate")
+	err = operation.WithMutation(cmd.Context(), c, plan, releaseConsent(o, o.approvePlan), planner, func(m *operation.Mutation) error {
+		directory, stageErr := release.Stage(c, m, bundle)
+		if stageErr != nil {
+			return stageErr
 		}
-		if err = release.ValidateSelection(c); err != nil {
-			return result, err
+		if activate {
+			return release.Activate(cmd.Context(), c, m, bundle, directory)
 		}
-	} else {
-		err = operation.WithMutation(cmd.Context(), c, plan, releaseConsent(o, o.approvePlan), planner, func(m *operation.Mutation) error {
-			directory, stageErr := release.Stage(c, m, bundle)
-			if stageErr != nil {
-				return stageErr
-			}
-			if activate {
-				return release.Activate(cmd.Context(), c, m, bundle, directory)
-			}
-			return nil
-		})
-	}
+		return nil
+	})
 	if err != nil {
 		return result, err
 	}
@@ -147,43 +145,45 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 	if !activate || installOnly {
 		return result, nil
 	}
-	if !ready {
-		// No operation locks or transient extraction files survive this boundary.
-		if _, err = release.Inspect(bundle.Directory(c)); err != nil {
-			return result, err
-		}
-		state, stateErr := operation.ReadState(c.Paths)
-		if stateErr != nil {
-			return result, stateErr
-		}
-		args := []string{cmd.Name(), "--bundle", location, "--sha256", hash, "--evaluation", "--runtime-ready"}
-		for _, name := range []string{"approve-setup", "approve-apply"} {
-			value, _ := cmd.Flags().GetString(name)
-			if value != "" {
-				args = append(args, "--"+name, value)
-			}
-		}
-		if o.nonInteractive {
-			args = append(args, "--non-interactive")
-		}
-		if o.json {
-			args = append(args, "--json")
-		}
-		for name, value := range map[string]string{"machine-config": o.resolve.MachineConfig, "destination": o.resolve.Destination} {
-			if value != "" {
-				args = append(args, "--"+name, value)
-			}
-		}
-		if configOnly, _ := cmd.Flags().GetBool("config-only"); configOnly {
-			args = append(args, "--config-only")
-		}
-		effects, _ := cmd.Flags().GetStringArray("effect")
-		for _, effect := range effects {
-			args = append(args, "--effect", effect)
-		}
-		return result, operation.Handoff(c, *state.ActiveRelease, args, "")
+	// No operation locks or transient extraction files survive this boundary.
+	if _, err = release.Inspect(bundle.Directory(c)); err != nil {
+		return result, err
 	}
-	c.Native.Source = bundle.Directory(c)
+	state, err := operation.ReadState(c.Paths)
+	if err != nil {
+		return result, err
+	}
+	args := []string{cmd.Name(), "--runtime-ready"}
+	for _, name := range []string{"approve-setup", "approve-apply"} {
+		if value, _ := cmd.Flags().GetString(name); value != "" {
+			args = append(args, "--"+name, value)
+		}
+	}
+	if o.nonInteractive {
+		args = append(args, "--non-interactive")
+	}
+	if o.json {
+		args = append(args, "--json")
+	}
+	if o.resolve.MachineConfig != "" {
+		args = append(args, "--machine-config", o.resolve.MachineConfig)
+	}
+	if o.resolve.Destination != "" {
+		args = append(args, "--destination", o.resolve.Destination)
+	}
+	if configOnly, _ := cmd.Flags().GetBool("config-only"); configOnly {
+		args = append(args, "--config-only")
+	}
+	effects, _ := cmd.Flags().GetStringArray("effect")
+	for _, effect := range effects {
+		args = append(args, "--effect", effect)
+	}
+	return result, operation.Handoff(c, *state.ActiveRelease, args, "")
+}
+
+// configureMachine runs the separately approved setup and apply stages inside
+// the activated runtime.
+func configureMachine(cmd *cobra.Command, c operation.Context, o *options, result operation.Result) (operation.Result, error) {
 	configOnly, _ := cmd.Flags().GetBool("config-only")
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
@@ -204,7 +204,7 @@ func releaseLifecycle(cmd *cobra.Command, c operation.Context, o *options) (resu
 		if !o.nonInteractive && !o.json && terminal == nil {
 			return result, operation.Fail(3, "terminal", "Runtime installed; native setup requires a terminal or complete unattended inputs")
 		}
-		err = operation.WithMutation(cmd.Context(), c, setup, releaseConsent(o, approved), machine.SetupPlan, func(m *operation.Mutation) error {
+		err := operation.WithMutation(cmd.Context(), c, setup, releaseConsent(o, approved), machine.SetupPlan, func(m *operation.Mutation) error {
 			var setupErr error
 			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal)
 			return setupErr

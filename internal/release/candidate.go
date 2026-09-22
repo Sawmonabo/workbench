@@ -92,7 +92,7 @@ func PlanCandidate(c operation.Context, plan *operation.Plan) error {
 	if state != nil && state.ActiveRelease != nil && *state.ActiveRelease == selected.record {
 		return nil
 	}
-	plan.Effects = append(plan.Effects, operation.Effect{Name: "activate-candidate", Description: "Activate this verified unpublished evaluation CLI and source together; production qualification remains gated", Privilege: "user", Recovery: "Previous runtime retained; interrupted selector changes require resuming the same approved installation"})
+	plan.Effects = append(plan.Effects, operation.Effect{Name: "activate-candidate", Description: "Activate this verified CLI and source together", Privilege: "user", Recovery: "Previous runtime retained; interrupted selector changes require resuming the same approved installation"})
 	return nil
 }
 

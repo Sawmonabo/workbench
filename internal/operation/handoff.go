@@ -59,7 +59,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 		search = []string{"/usr/bin", "/bin"}
 	}
 	environment := []string{"HOME=" + c.Home, "PATH=" + strings.Join(search, string(os.PathListSeparator)), "WORKBENCH_CONFIG_DIR=" + c.Paths.Config, "WORKBENCH_DATA_DIR=" + c.Paths.Data, "WORKBENCH_STATE_DIR=" + c.Paths.State, "WORKBENCH_CACHE_DIR=" + c.Paths.Cache, "WORKBENCH_BIN_DIR=" + c.Paths.Bin}
-	for _, name := range []string{"TERM", "LANG", "LC_ALL", "WORKBENCH_GITHUB_TOKEN", "WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV"} {
+	for _, name := range []string{"TERM", "LANG", "LC_ALL", "WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV"} {
 		if value := os.Getenv(name); value != "" {
 			environment = append(environment, name+"="+value)
 		}

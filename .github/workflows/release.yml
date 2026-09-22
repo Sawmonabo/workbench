@@ -1,0 +1,36 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # CGO_ENABLED=0 cross-compiles every target from one runner. Each release
+      # carries its own install.sh stamped with its tag, so releases/latest
+      # installs exactly that release and an old install.sh installs its own.
+      - name: Build bundles and installer
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          for target in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
+            python3 scripts/package-release.py --version "$VERSION" --target "$target" --output dist
+          done
+          sed "s/^default_version=.*/default_version=$VERSION/" install.sh > dist/install.sh
+          grep -q "^default_version=$VERSION\$" dist/install.sh
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ github.ref_name }}
+        run: gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --generate-notes dist/*.tar.gz dist/install.sh

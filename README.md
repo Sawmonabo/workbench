@@ -4,9 +4,8 @@ One Go CLI for developer-machine configuration and tooling in existing projects.
 Workbench coordinates chezmoi and native package managers; it is not a project
 generator, language server, background service or whole-machine backup tool.
 
-The implementation is available for private evaluation. No release is published
-and production activation is not qualified. [Acceptance](docs/acceptance.md)
-separates checked behavior from remaining platform and publication gates.
+Releases are published on GitHub for personal use. [Acceptance](docs/acceptance.md)
+separates checked behavior from remaining native platform checks.
 
 ## Start here
 
@@ -22,10 +21,14 @@ go build -o bin/workbench ./cmd/workbench
 Go may download modules and update its build cache. Doctor and project inspection
 do not install or repair anything. A missing prerequisite returns nonzero.
 
-Release users will not need a checkout, Go, or a separately installed chezmoi.
-Today, use an explicitly trusted evaluation bundle as described in
-[installation and commands](docs/usage.md). There is intentionally no advertised
-`curl | sh` release URL until qualified assets exist.
+Release users need no checkout, Go, or separately installed chezmoi:
+
+```sh
+curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
+```
+
+See [installation and commands](docs/usage.md) for `--version`, the `gh` form
+and install options.
 
 ## Daily commands
 
@@ -44,7 +47,7 @@ Machine commands require a verified source and complete private machine answers.
 Mutations display a plan and require approval; unattended use requires its exact
 digest. Missing prerequisites block preview rather than trigger installation.
 `pull` stages a verified bundle; `install` and `update` reuse the same activation,
-setup and apply operations. See [usage](docs/usage.md) for evaluation flags,
+setup and apply operations. See [usage](docs/usage.md) for install options,
 separate setup consent, recovery selection and limits.
 
 Python configuration supports existing uv projects/workspaces. Other languages
@@ -105,5 +108,5 @@ This binds executable render behavior to reviewed source content.
 See the [design](docs/superpowers/specs/workbench-design.md),
 [contracts](docs/superpowers/specs/workbench-contracts.md),
 [implementation plan](docs/superpowers/plans/workbench-implementation.md) and
-[acceptance record](docs/acceptance.md). No redistribution license or signing
-authority is implied by private evaluation.
+[acceptance record](docs/acceptance.md). Releases are for personal use; no
+redistribution license is granted.

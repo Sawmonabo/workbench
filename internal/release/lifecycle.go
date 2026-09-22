@@ -15,9 +15,8 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// Download does not forward credentials across redirects. A token is used only
-// for GitHub's authenticated release-asset API; never put it in URLs or output.
-func Download(ctx context.Context, location, token string, limit int64) ([]byte, error) {
+// Download fetches a bounded public HTTPS resource; callers verify its content.
+func Download(ctx context.Context, location string, limit int64) ([]byte, error) {
 	u, err := url.Parse(location)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || limit < 1 || limit > MaxDownload {
 		return nil, operation.Fail(2, "download", "Downloads require HTTPS, no URL credentials, and a bounded size")
@@ -27,24 +26,15 @@ func Download(ctx context.Context, location, token string, limit int64) ([]byte,
 		return nil, err
 	}
 	request.Header.Set("Accept", "application/octet-stream")
-	if token != "" {
-		if u.Host != "api.github.com" || !strings.HasPrefix(u.Path, "/repos/Sawmonabo/workbench/releases/assets/") {
-			return nil, operation.Fail(2, "download", "Private credentials are restricted to Workbench's GitHub release asset API")
-		}
-		request.Header.Set("Authorization", "Bearer "+token)
-	}
 	client := &http.Client{Timeout: 2 * time.Minute, CheckRedirect: func(req *http.Request, via []*http.Request) error {
 		if len(via) >= 5 || req.URL.Scheme != "https" {
 			return operation.Fail(2, "download", "Unsafe download redirect")
-		}
-		if req.URL.Host != via[0].URL.Host {
-			req.Header.Del("Authorization")
 		}
 		return nil
 	}}
 	response, err := client.Do(request)
 	if err != nil {
-		return nil, operation.Fail(1, "download", "HTTPS acquisition failed; check authorization and asset availability")
+		return nil, operation.Fail(1, "download", "HTTPS download failed: "+err.Error())
 	}
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK || response.ContentLength > limit {
@@ -57,16 +47,15 @@ func Download(ctx context.Context, location, token string, limit int64) ([]byte,
 	return data, nil
 }
 
-func ReadBundle(ctx context.Context, location, digest, version string) (Bundle, error) {
-	if !validDigest(digest) {
-		return Bundle{}, operation.Fail(2, "release_trust", "An operator-trusted --sha256 is required; same-origin checksums are not independent authenticity")
-	}
+// ReadBundle verifies a release archive from a local file or HTTPS URL. A
+// non-empty version must match the archive's recorded release.
+func ReadBundle(ctx context.Context, location, version string) (Bundle, error) {
 	if strings.HasPrefix(location, "https://") {
-		data, err := Download(ctx, location, os.Getenv("WORKBENCH_GITHUB_TOKEN"), MaxDownload)
+		data, err := Download(ctx, location, MaxDownload)
 		if err != nil {
 			return Bundle{}, err
 		}
-		return Verify(bytes.NewReader(data), digest, version, Target())
+		return Verify(bytes.NewReader(data), version, Target())
 	}
 	info, err := os.Lstat(location)
 	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxDownload {
@@ -77,7 +66,7 @@ func ReadBundle(ctx context.Context, location, digest, version string) (Bundle, 
 		return Bundle{}, err
 	}
 	defer func() { _ = file.Close() }()
-	return Verify(file, digest, version, Target())
+	return Verify(file, version, Target())
 }
 
 func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
@@ -163,7 +152,7 @@ func Inspect(directory string) (Metadata, error) {
 	if err != nil {
 		return metadata, err
 	}
-	if err = decodeMetadata(raw, &metadata); err != nil || metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() || !identifier.MatchString(metadata.Release) || !validDigest(metadata.SourceDigest) || len(metadata.Files) > maxFiles || metadata.Publication != "operator-trusted-unpublished" {
+	if err = decodeMetadata(raw, &metadata); err != nil || metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() || !identifier.MatchString(metadata.Release) || !validDigest(metadata.SourceDigest) || len(metadata.Files) > maxFiles {
 		return metadata, operation.Fail(2, "release", "Unsupported release metadata")
 	}
 	var total int64

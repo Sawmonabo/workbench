@@ -1,6 +1,6 @@
 name: ci
 on:
-  push: {branches: [main, restructure, 'feat/**']}
+  push: {branches: [main, 'feat/**']}
   pull_request:
 permissions:
   contents: read
@@ -20,6 +20,8 @@ jobs:
           version-file: .golangci-lint-version
       - name: Build
         run: go build ./...
+      - name: Lint installer
+        run: shellcheck -s sh install.sh
       - name: Check reviewed machine-source identity
         run: python3 scripts/generate-source-trust.py --check
       - name: Unauthorized execution safeguard
