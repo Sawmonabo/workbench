@@ -72,6 +72,9 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   replaces. A staged release missing its `release.json` was refused, not
   planned as a developer checkout. The installer ran through a stand-in `gh`
   with no `curl` on `PATH`. Packaging succeeded from an empty module cache.
+- With two releases pinning different TOML Kit versions, installing the newer
+  one kept the version the replaced release pins and removed only an unpinned
+  one. A changed or unpinned workflow action failed the source-trust check.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
