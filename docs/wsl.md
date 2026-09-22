@@ -5,11 +5,15 @@ Workbench uses the Linux executable inside WSL and the shared
 [command interface](usage.md). Native Windows and Windows ARM integration are
 not qualified. Real Windows-host testing remains a release gate.
 
-Linux guest configuration and Windows-host effects are distinct. Supported
-Ubuntu guests can use configuration-only planning/application, which excludes
-all provisioning scripts. Full provisioning remains blocked until the Windows
-host/path/ACL boundary is qualified, and doctor reports that host gate separately.
-The WSL scripts remain maintained; static rendering does not qualify them.
+Linux guest configuration and Windows-host effects are distinct.
+`--config-only` excludes all provisioning scripts. Full provisioning runs the
+Linux scripts and the Windows host steps: prompt engine, fonts, `.wslconfig`,
+RestartWSL helpers and editor settings. Existing Terminal settings and
+PowerShell profiles are left unchanged unless `terminal-adoption` or
+`powershell-adoption` is selected; `font-registry`, `windows-path`,
+`default-distro` and `sysctl` are also selected `--effect`s. Windows-side script
+writes are not checkpointed. No real Windows host run is recorded yet; static
+rendering does not qualify these scripts.
 Project inspection/configuration is not Windows-host provisioning.
 
 The canonical WSL scripts describe these effects:

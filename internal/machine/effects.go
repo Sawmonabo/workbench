@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"os"
 	"runtime"
 	"slices"
 	"strings"
@@ -31,7 +32,7 @@ func ProvisioningEffects(answers Answers) []operation.Effect {
 	}
 	if answers["is_wsl"] == true {
 		effects = append(effects,
-			operation.Effect{Name: "windows-files", Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, Terminal settings, actual PowerShell profile, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json", Privilege: "Windows user; native path/ACL and existing-file ownership qualification required", Recovery: "each exact path needs file preflight/checkpoint; acquired executables are external"},
+			operation.Effect{Name: "windows-files", Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, Terminal settings, actual PowerShell profile, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json", Privilege: "Windows user; not yet qualified on a real Windows host", Recovery: "script writes are not checkpointed; acquired executables are external"},
 			operation.Effect{Name: "wsl-preferences", Description: ".wslconfig affects VM sizing/networking at future startup; restart helpers are installed but never executed", Privilege: "Windows user", Recovery: "configuration only; running VM state is external"})
 	}
 	return effects
@@ -73,7 +74,16 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 	var effects []operation.Effect
 	for _, optional := range optionalEffects {
 		if slices.Contains(selection.Effects, optional.effect.Name) && slices.Contains(available, optional.effect.Name) {
-			effects = append(effects, optional.effect)
+			effect := optional.effect
+			// Name the distribution so consent never covers an implicit choice.
+			if effect.Name == "default-distro" {
+				distribution := os.Getenv("WSL_DISTRO_NAME")
+				if distribution == "" {
+					return nil, operation.Fail(3, "effect", "default-distro requires WSL_DISTRO_NAME from a WSL session")
+				}
+				effect.Description = "Make " + distribution + " the default WSL distribution"
+			}
+			effects = append(effects, effect)
 		}
 	}
 	for _, name := range selection.Effects {

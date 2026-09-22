@@ -90,10 +90,6 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
 		return prepared, operation.Fail(3, "platform", platform.Message)
 	}
-	if IsWSL() && !selection.ConfigOnly {
-		plan.Prerequisites = append(plan.Prerequisites, "Windows host paths and ACL semantics require native qualification")
-		return prepared, operation.Fail(3, "windows_host", "Use --config-only for Linux guest configuration; Windows provisioning requires native host and ACL qualification")
-	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
 		return prepared, operation.Fail(3, "answers", "Provide a complete private [data] answer file through --machine-config; preview does not initialize answers")

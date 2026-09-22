@@ -70,7 +70,8 @@ upgrades or arbitrary external effects. Later edits block recovery before any
 restore. Unsupported state is rejected without conversion or deletion.
 
 Targets are macOS Apple Silicon/Intel, Ubuntu amd64/arm64 and WSL2 on Windows x64.
-Native qualification is incomplete; Windows-host integration remains gated.
+Native qualification is incomplete; Windows-host integration has not run on a
+real host yet.
 Read the [macOS](docs/macos.md), [Linux](docs/linux.md) and [WSL](docs/wsl.md)
 notes before evaluating provisioning. Never use a live development machine for
 acceptance checks.

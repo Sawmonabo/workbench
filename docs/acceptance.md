@@ -68,7 +68,7 @@ not full machine provisioning or Windows-host qualification.
 | --- | --- |
 | macOS | Complete disposable-user provisioning, minimum OS and Intel runs. Isolated arm64 checks do not qualify all native effects. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. Cross-builds and CI rendering are insufficient. |
-| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning remains blocked; Ubuntu guest config-only scope does not qualify host effects. |
+| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are selected `--effect`s, and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
 | Release | Publication authorization, redistribution license, publisher trust/signature policy and native capacity qualification. |
 

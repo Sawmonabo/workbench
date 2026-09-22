@@ -133,7 +133,34 @@ func ScriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 		}
 	}
 	path := strings.Join(directories, string(os.PathListSeparator))
-	return append(environment, "WORKBENCH_TOOL_PATH="+path, "PATH="+path+":/usr/bin:/bin:/usr/sbin:/sbin")
+	system := "/usr/bin:/bin:/usr/sbin:/sbin"
+	if IsWSL() {
+		// Windows host steps run cmd.exe, wsl.exe and powershell.exe through
+		// interop and need the name of the distribution they run in.
+		for _, name := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
+			if value := os.Getenv(name); value != "" {
+				environment = append(environment, name+"="+value)
+			}
+		}
+		for _, directory := range windowsSystemDirectories(os.Getenv("PATH")) {
+			system += ":" + directory
+		}
+	}
+	return append(environment, "WORKBENCH_TOOL_PATH="+path, "PATH="+path+":"+system)
+}
+
+// windowsSystemDirectories keeps only the Windows system directories from the
+// WSL PATH, where cmd.exe, wsl.exe and powershell.exe live.
+func windowsSystemDirectories(searchPath string) []string {
+	var directories []string
+	for _, entry := range filepath.SplitList(searchPath) {
+		lower := strings.ToLower(strings.TrimSuffix(entry, "/"))
+		system := strings.HasSuffix(lower, "/windows/system32") || strings.HasSuffix(lower, "/windows/system32/windowspowershell/v1.0")
+		if strings.HasPrefix(lower, "/mnt/") && system && !slices.Contains(directories, entry) {
+			directories = append(directories, entry)
+		}
+	}
+	return directories
 }
 
 func Platform(ctx context.Context, c operation.Context) operation.Component {
@@ -169,7 +196,7 @@ func Platform(ctx context.Context, c operation.Context) operation.Component {
 		}
 		result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH
 		if IsWSL() {
-			result.Message += "; Linux guest configuration only; Windows host effects require separate qualification"
+			result.Message += "; WSL: Windows host steps are not yet qualified on a real host"
 		}
 	}
 	return result
@@ -193,9 +220,6 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	_, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
 	results = append([]operation.Component{Platform(ctx, c)}, results...)
-	if IsWSL() {
-		results = append(results, operation.Component{Name: "windows-host", Status: "blocked", Message: "Windows 11 24H2/WSL 2.6 host and ACL qualification required for full provisioning; guest --config-only remains available"})
-	}
 	root := filepath.Join(c.Home, ".config", "Code", "User")
 	if runtime.GOOS == "darwin" {
 		root = filepath.Join(c.Home, "Library", "Application Support", "Code", "User")

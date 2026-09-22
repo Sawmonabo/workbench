@@ -277,12 +277,12 @@ fi
 # ---------- Default WSL distro ----------
 # Docker Desktop registers its own distro and often leaves it as the default.
 # A bare `wsl` then drops you into docker-desktop, and VS Code's "Reopen in WSL"
-# targets it too - opening the wrong distro with none of your toolchain. Point
-# the default at the real distro instead. Only acts when a non-docker distro
-# exists and the default is currently docker-desktop.
+# targets it too - opening the wrong distro with none of your toolchain. When
+# the default-distro effect is selected, the distro running this apply (named
+# in the approved plan) becomes the default.
 if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
-    [[ -n "${WORKBENCH_DEFAULT_DISTRO:-}" ]] || { echo 'WORKBENCH_EFFECT default-distro blocked: explicit distribution required' >&2; exit 3; }
-    wsl.exe --set-default "$WORKBENCH_DEFAULT_DISTRO"
+    [[ -n "${WSL_DISTRO_NAME:-}" ]] || { echo 'WORKBENCH_EFFECT default-distro blocked: WSL_DISTRO_NAME unavailable' >&2; exit 3; }
+    wsl.exe --set-default "$WSL_DISTRO_NAME"
 fi
 
 # ---------- Windows-side ripgrep ----------

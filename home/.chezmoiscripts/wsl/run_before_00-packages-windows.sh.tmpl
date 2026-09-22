@@ -16,15 +16,22 @@ case "$(cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')" in
     AMD64) ;;
     *) echo 'WORKBENCH_EFFECT windows-files blocked: Windows x64 required' >&2; exit 3 ;;
 esac
-[[ -d "$WIN_HOME" && -d "$WIN_APPDATA" && -n "$WSL_DISTRO_NAME" ]] || exit 3
-WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
-if [[ -e "$WT_SETTINGS_DIR/settings.json" && "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-}" != 1 ]]; then
-    echo 'WORKBENCH_EFFECT terminal-settings blocked: existing file requires explicit whole-file ownership and checkpoint' >&2
+if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
+    echo 'WORKBENCH_EFFECT windows-files blocked: Windows home, AppData or WSL_DISTRO_NAME unavailable' >&2
     exit 3
 fi
+# Existing Terminal settings and PowerShell profiles are replaced whole, so they
+# are left alone unless their adoption effect is selected; the rest still runs.
+WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
+manage_terminal=1
+if [[ -e "$WT_SETTINGS_DIR/settings.json" && "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT terminal-adoption not selected: existing Windows Terminal settings left unchanged' >&2
+    manage_terminal=0
+fi
+manage_profile=1
 if [[ -e "$PS_PROFILE" && "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-}" != 1 ]]; then
-    echo 'WORKBENCH_EFFECT powershell-profile blocked: existing file requires explicit whole-file ownership and checkpoint' >&2
-    exit 3
+    echo 'WORKBENCH_EFFECT powershell-adoption not selected: existing PowerShell profile left unchanged' >&2
+    manage_profile=0
 fi
 download_dir=$(mktemp -d)
 trap 'rm -rf "$download_dir"' EXIT
@@ -116,8 +123,7 @@ if [[ "${WORKBENCH_EFFECT_FONT_REGISTRY:-}" == 1 ]] && ls "$WIN_FONT_DIR"/JetBra
 fi
 
 # --- Windows Terminal settings.json ---
-WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
-if [ -d "$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe" ]; then
+if [ "$manage_terminal" = 1 ] && [ -d "$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe" ]; then
     echo "==> Writing Windows Terminal settings..."
     mkdir -p "$WT_SETTINGS_DIR"
     if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
@@ -356,12 +362,12 @@ open(path, 'w', encoding='utf-8').write(s)
 PY
     cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
     echo "    Windows Terminal settings written."
-else
+elif [ "$manage_terminal" = 1 ]; then
     echo "==> Windows Terminal not found, skipping settings."
-    exit 3
 fi
 
 # --- PowerShell profile ---
+if [ "$manage_profile" = 1 ]; then
 PS_PROFILE_DIR=$(dirname "$PS_PROFILE")
 echo "==> Writing PowerShell profile..."
 mkdir -p "$PS_PROFILE_DIR"
@@ -378,6 +384,7 @@ if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
 & "$env:LOCALAPPDATA\Programs\oh-my-posh\bin\oh-my-posh.exe" init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\catppuccin_mocha.omp.json" | Invoke-Expression
 PSPROFILE
 echo "    PowerShell profile written."
+fi
 
 echo "==> WSL → Windows bootstrap complete."
 echo "    NOTE: Restart Windows Terminal to see changes."

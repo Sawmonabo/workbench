@@ -52,9 +52,10 @@ Public command details are in [usage](../../usage.md). Status inspects recorded
 identities, not package health or complete drift. Doctor performs bounded local
 checks but does not qualify a live editor profile. Project configuration supports
 uv Python; other languages are discovery-only. No “latest” release channel or
-production-qualified activation exists. WSL Ubuntu guest config-only scope is
-available, but full provisioning blocks pending native Windows host/path/ACL
-qualification. Do not infer native acceptance from code,
+production-qualified activation exists. WSL full provisioning runs the
+Linux scripts plus Windows host steps, with Terminal/PowerShell adoption and
+other host changes as selected optional effects; none of it has run on a real
+Windows host yet. Do not infer native acceptance from code,
 cross-compilation or static WSL rendering.
 
 ## 3. Architecture and reuse
@@ -220,7 +221,7 @@ Maintain one feature/platform checklist derived from current source owners, cove
 - Review role-driven removals and `.chezmoiremove` as destructive target operations with previews and checkpoints.
 - Validate machine answers and preserve correct quoting when rendering TOML, shell and PowerShell. Invalid existing configuration must stop for review rather than silently discard unrelated application-owned state.
 - WSL scripts modify files, user environment/registry state, default distribution and system settings. Enumerate effects before approval. File recovery does not undo those other effects. Do not restart services or WSL merely to inspect/configure a project.
-- Windows Terminal/PowerShell writes require explicit ownership/adoption and preservation. Native Windows path/ACL qualification is still a blocking gate for full integration.
+- Windows Terminal/PowerShell writes require explicit ownership/adoption and preservation. Their adoption is a selected optional effect; unselected existing files are left unchanged. A real Windows host run is still required to qualify the integration.
 - The full personal VS Code settings merge currently targets macOS and Linux. WSL scripts separately adjust selected Windows/remote editor keys. Do not describe this as full Windows-hosted settings deployment.
 
 Native package-manager calls may need elevation, network access or executable build hooks. Disclose these operations and request only necessary privilege. Never run the entire bootstrap as root. Missing privilege is an incomplete/blocked operation, not permission to skip silently.
