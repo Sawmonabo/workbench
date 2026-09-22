@@ -101,7 +101,7 @@ func newProposal(c operation.Context) *Proposal {
 			Complete: true,
 			Source: operation.SourceIdentity{
 				Release:       pythonpolicy.ID,
-				ContentDigest: hash([]byte(policy)),
+				ContentDigest: operation.SHA256Hex([]byte(policy)),
 			},
 		},
 	}
@@ -166,8 +166,8 @@ func (p *Proposal) addPolicy(
 	optionsData, _ := json.Marshal(options)
 	p.Plan.Inputs = append(
 		p.Plan.Inputs,
-		operation.Input{Name: "tomlkit", Digest: hash([]byte(library + version))},
-		operation.Input{Name: "project-options", Digest: hash(optionsData)},
+		operation.Input{Name: "tomlkit", Digest: operation.SHA256Hex([]byte(library + version))},
+		operation.Input{Name: "project-options", Digest: operation.SHA256Hex(optionsData)},
 	)
 	documents := make([]string, len(selected))
 	for i, project := range selected {

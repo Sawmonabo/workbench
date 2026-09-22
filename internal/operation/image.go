@@ -2,8 +2,6 @@ package operation
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
@@ -44,8 +42,7 @@ type TargetChange struct {
 // ImageDigest returns the SHA-256 of an image's canonical JSON.
 func ImageDigest(image Image) string {
 	data, _ := json.Marshal(image)
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:])
+	return SHA256Hex(data)
 }
 
 func (image Image) validate(c Context, path string) error {

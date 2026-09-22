@@ -33,7 +33,8 @@ func selectedCandidate(c operation.Context) (*candidate, error) {
 		return nil, err
 	}
 	manifest, err := os.ReadFile(filepath.Join(directory, "release.json"))
-	if err != nil || sum(manifest) != saved.MetadataSHA256 || metadata.Release != saved.Version {
+	if err != nil || operation.SHA256Hex(manifest) != saved.MetadataSHA256 ||
+		metadata.Release != saved.Version {
 		return nil, operation.Fail(
 			4,
 			"candidate",
@@ -52,7 +53,7 @@ func selectedCandidate(c operation.Context) (*candidate, error) {
 			Executable: filepath.Join(directory, "bin", "workbench"),
 			Source:     directory,
 		},
-		recordDigest: sum(raw),
+		recordDigest: operation.SHA256Hex(raw),
 	}, nil
 }
 
@@ -99,7 +100,7 @@ func PlanCandidate(c operation.Context, plan *operation.Plan) error {
 	stateRaw, _ := json.Marshal(state)
 	plan.Inputs = append(
 		plan.Inputs,
-		operation.Input{Name: "runtime-selection", Digest: sum(stateRaw)},
+		operation.Input{Name: "runtime-selection", Digest: operation.SHA256Hex(stateRaw)},
 	)
 	if state != nil && state.ActiveRelease != nil && *state.ActiveRelease == selected.record {
 		return nil

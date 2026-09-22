@@ -180,7 +180,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		if readErr != nil {
 			return plan, nil, readErr
 		}
-		previous, action = digest(existing), "modify"
+		previous, action = operation.SHA256Hex(existing), "modify"
 		if bytes.Equal(existing, encoded) {
 			action = ""
 		}
@@ -188,7 +188,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		return plan, nil, statErr
 	}
 	plan.Inputs = []operation.Input{
-		{Name: "adopted-answers", Digest: digest(encoded)},
+		{Name: "adopted-answers", Digest: operation.SHA256Hex(encoded)},
 		{Name: "machine-answers", Digest: previous},
 	}
 	if action != "" {

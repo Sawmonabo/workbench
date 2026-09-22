@@ -102,7 +102,10 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 			"An existing explicit .python-version is required; no Python baseline is chosen",
 		)
 	}
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: path, Digest: hash(data)})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: path, Digest: operation.SHA256Hex(data)},
+	)
 	return python, nil
 }
 
@@ -134,7 +137,10 @@ func (p *Proposal) readWorkflow(root string) (string, *ast.File, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: path, Digest: hash(data)})
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: path, Digest: operation.SHA256Hex(data)},
+	)
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil || len(file.Docs) != 1 {
 		return "", nil, ciFailure("Workflow needs one valid YAML document without duplicate keys")

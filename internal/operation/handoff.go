@@ -1,8 +1,6 @@
 package operation
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,8 +20,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDi
 		if readErr != nil {
 			return readErr
 		}
-		hash := sha256.Sum256(raw)
-		if hex.EncodeToString(hash[:]) != candidateRecordDigest ||
+		if SHA256Hex(raw) != candidateRecordDigest ||
 			expected.Source != c.Native.Source ||
 			!Within(filepath.Join(c.Paths.Data, "releases"), expected.Source) {
 			return Fail(

@@ -324,6 +324,11 @@ func (n NativeContext) Args() ([]string, error) {
 	}, nil
 }
 
+// projectMarkers are the entries that make a directory a project. Machine
+// configuration never owns or lies inside one, and management tools are never
+// resolved from one.
+var projectMarkers = []string{".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"}
+
 // ValidateTarget reports whether path may be written in this scope: strictly
 // inside it, never a project manifest or inside a project for machine scope,
 // and never overlapping the source or Workbench's own state.
@@ -333,18 +338,17 @@ func (c Context) ValidateTarget(path string) error {
 		return Fail(2, "scope", "Target must lie strictly inside the selected scope")
 	}
 	if c.Scope.Kind == "machine" {
-		markers := []string{".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"}
 		// Ruff's native user configuration is named pyproject.toml despite not
 		// representing a project; this exact canonical machine owner is allowed.
 		ruffConfig := filepath.Join(c.Scope.Root, ".config", "ruff", "pyproject.toml")
-		if slices.Contains(markers, filepath.Base(path)) && path != ruffConfig {
+		if slices.Contains(projectMarkers, filepath.Base(path)) && path != ruffConfig {
 			return Fail(2, "scope", "Machine configuration cannot own project manifests")
 		}
 		inside := func(directory string) bool {
 			return directory != c.Scope.Root && Within(c.Scope.Root, directory)
 		}
 		for parent := filepath.Dir(path); inside(parent); parent = filepath.Dir(parent) {
-			for _, marker := range markers {
+			for _, marker := range projectMarkers {
 				if filepath.Join(parent, marker) == ruffConfig {
 					continue
 				}

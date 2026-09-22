@@ -87,7 +87,10 @@ func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error)
 	if _, err = parseAnswers(raw); err != nil {
 		return plan, err
 	}
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "answers", Digest: digest(raw)})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "answers", Digest: operation.SHA256Hex(raw)},
+	)
 	return plan, nil
 }
 
@@ -219,7 +222,7 @@ func acquireTool(
 	if err != nil {
 		return operation.Dependency{}, err
 	}
-	if digest(data) != hash {
+	if operation.SHA256Hex(data) != hash {
 		return operation.Dependency{}, operation.Fail(
 			2,
 			"dependency_trust",
@@ -308,7 +311,7 @@ func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requi
 	if err != nil {
 		return err
 	}
-	if digest(wheel) != requirements.TomlkitSHA256 {
+	if operation.SHA256Hex(wheel) != requirements.TomlkitSHA256 {
 		return operation.Fail(2, "dependency_trust", "TOML Kit wheel checksum mismatch")
 	}
 	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
@@ -449,7 +452,7 @@ func TomlkitPath(c operation.Context) (string, error) {
 		)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))
-	if err != nil || digest(data) != requirements.TomlkitSHA256 {
+	if err != nil || operation.SHA256Hex(data) != requirements.TomlkitSHA256 {
 		return "", operation.Fail(
 			3,
 			"tomlkit",

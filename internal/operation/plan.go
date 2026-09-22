@@ -3,8 +3,6 @@ package operation
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 )
@@ -72,8 +70,7 @@ func (p Plan) Digest() string {
 		Plan   Plan
 		Inputs []Input
 	}{p, p.Inputs})
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:])
+	return SHA256Hex(data)
 }
 
 // Consent is how a mutation is approved: an exact digest, or terminal

@@ -110,7 +110,10 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 		return plan, err
 	}
 	raw, _ := json.Marshal(state)
-	plan.Inputs = append(plan.Inputs, operation.Input{Name: "state", Digest: sum(raw)})
+	plan.Inputs = append(
+		plan.Inputs,
+		operation.Input{Name: "state", Digest: operation.SHA256Hex(raw)},
+	)
 	return plan, nil
 }
 
@@ -160,7 +163,7 @@ func writeCandidate(c operation.Context, m *operation.Mutation, b Bundle, direct
 			Directory:      directory,
 			SHA256:         b.ArchiveDigest,
 			Version:        b.Metadata.Release,
-			MetadataSHA256: sum(b.Files["release.json"]),
+			MetadataSHA256: operation.SHA256Hex(b.Files["release.json"]),
 		},
 	)
 	return m.WritePrivate(filepath.Join(c.Paths.State, "candidate.json"), record)
@@ -189,12 +192,10 @@ func readCandidate(c operation.Context) (*candidateRecord, []byte, error) {
 	}
 	invalid := operation.Fail(2, "candidate", "Invalid staged candidate record")
 	var record candidateRecord
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if decoder.Decode(&record) != nil {
+	if operation.DecodeStrict(raw, &record) != nil {
 		return nil, nil, invalid
 	}
-	valid := validDigest(record.SHA256) && validDigest(record.MetadataSHA256) &&
+	valid := operation.ValidDigest(record.SHA256) && operation.ValidDigest(record.MetadataSHA256) &&
 		identifier.MatchString(record.Version)
 	if !valid {
 		return nil, nil, invalid
@@ -219,17 +220,20 @@ func Inspect(directory string) (Metadata, error) {
 		return metadata, err
 	}
 	unsupported := operation.Fail(2, "release", "Unsupported release metadata")
-	if decodeMetadata(raw, &metadata) != nil {
+	if operation.DecodeStrict(raw, &metadata) != nil {
 		return metadata, unsupported
 	}
 	if metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() ||
-		!identifier.MatchString(metadata.Release) || !validDigest(metadata.SourceDigest) ||
+		!identifier.MatchString(
+			metadata.Release,
+		) || !operation.ValidDigest(metadata.SourceDigest) ||
 		len(metadata.Files) > maxFiles {
 		return metadata, unsupported
 	}
 	var total int64
 	for name, entry := range metadata.Files {
-		if !member(name) || !allowed(name) || !validDigest(entry.SHA256) || entry.Size < 0 ||
+		if !member(name) || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
+			entry.Size < 0 ||
 			entry.Size > MaxDownload {
 			return metadata, operation.Fail(2, "release", "Invalid release file manifest")
 		}
@@ -246,7 +250,7 @@ func Inspect(directory string) (Metadata, error) {
 			return metadata, operation.Fail(4, "release_conflict", "Release file changed")
 		}
 		data, readErr := os.ReadFile(file)
-		if readErr != nil || sum(data) != entry.SHA256 {
+		if readErr != nil || operation.SHA256Hex(data) != entry.SHA256 {
 			return metadata, operation.Fail(4, "release_conflict", "Release content changed")
 		}
 	}
@@ -308,11 +312,7 @@ func readActivation(c operation.Context) (*activationJournal, error) {
 		return nil, err
 	}
 	var journal activationJournal
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(
-		&journal,
-	); err != nil || journal.SchemaVersion != 1 ||
+	if err = operation.DecodeStrict(raw, &journal); err != nil || journal.SchemaVersion != 1 ||
 		(journal.Status != "running" && journal.Status != "complete" && journal.Status != "failed") {
 		return nil, operation.Fail(
 			2,

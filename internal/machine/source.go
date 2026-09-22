@@ -2,9 +2,7 @@
 package machine
 
 import (
-	"crypto/sha256"
 	_ "embed"
-	"encoding/hex"
 	"encoding/json"
 	"io/fs"
 	"os"
@@ -47,12 +45,13 @@ func ManagementRequirements() Requirements {
 	return requirements
 }
 
-func digest(data []byte) string { sum := sha256.Sum256(data); return hex.EncodeToString(sum[:]) }
-
 // SourceSnapshot checks every source byte before any native template evaluation.
 // Repository Git metadata is outside home and never copied or executed.
 func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity, error) {
-	identity := operation.SourceIdentity{Release: "developer", ContentDigest: digest(sourceTrust)}
+	identity := operation.SourceIdentity{
+		Release:       "developer",
+		ContentDigest: operation.SHA256Hex(sourceTrust),
+	}
 	if source == "" {
 		return nil, identity, operation.Fail(
 			3,
@@ -79,7 +78,7 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 		if err != nil {
 			return operation.Fail(2, "source", "Cannot read selected machine source")
 		}
-		if requirements.Files[name] != digest(data) {
+		if requirements.Files[name] != operation.SHA256Hex(data) {
 			return operation.Fail(
 				3,
 				"source_trust",

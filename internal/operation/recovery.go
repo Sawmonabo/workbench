@@ -2,8 +2,6 @@ package operation
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -170,11 +168,7 @@ func RecoveryPlan(c Context, selector RecoverySelector) (Plan, error) {
 		Journal checkpointJournal
 		Reverse bool
 	}{cp.record, cp.journal, reverse})
-	digest := sha256.Sum256(data)
-	plan.Inputs = append(
-		plan.Inputs,
-		Input{Name: "checkpoint", Digest: hex.EncodeToString(digest[:])},
-	)
+	plan.Inputs = append(plan.Inputs, Input{Name: "checkpoint", Digest: SHA256Hex(data)})
 	for i, change := range cp.changes {
 		current := cp.expectedImage(i)
 		target := change.After

@@ -5,8 +5,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -60,12 +58,6 @@ type Bundle struct {
 // Target returns this binary's bundle target, such as darwin-arm64.
 func Target() string { return runtime.GOOS + "-" + runtime.GOARCH }
 
-func sum(data []byte) string { digest := sha256.Sum256(data); return hex.EncodeToString(digest[:]) }
-func validDigest(value string) bool {
-	data, err := hex.DecodeString(value)
-	return err == nil && len(data) == sha256.Size && strings.ToLower(value) == value
-}
-
 func allowed(name string) bool {
 	return name == "bin/workbench" || name == ".chezmoiroot" || strings.HasPrefix(name, "home/") ||
 		strings.HasPrefix(name, "project/") ||
@@ -92,12 +84,12 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 	if err != nil {
 		return Bundle{}, err
 	}
-	bundle := Bundle{Files: files, ArchiveDigest: sum(raw)}
+	bundle := Bundle{Files: files, ArchiveDigest: operation.SHA256Hex(raw)}
 	metadata := files["release.json"]
 	if len(metadata) == 0 || len(metadata) > 1<<20 {
 		return Bundle{}, integrity("Missing or oversized release metadata")
 	}
-	if err = decodeMetadata(metadata, &bundle.Metadata); err != nil {
+	if err = operation.DecodeStrict(metadata, &bundle.Metadata); err != nil {
 		return Bundle{}, integrity("Malformed release metadata")
 	}
 	if err = bundle.checkManifest(version, target); err != nil {
@@ -177,7 +169,7 @@ func (b Bundle) checkManifest(version, target string) error {
 	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) ||
 		(version != "" && m.Release != version) ||
 		m.Target != target ||
-		!validDigest(m.SourceDigest) {
+		!operation.ValidDigest(m.SourceDigest) {
 		return integrity("Release version, target or state format is unsupported")
 	}
 	if len(m.Files)+1 != len(b.Files) {
@@ -185,7 +177,8 @@ func (b Bundle) checkManifest(version, target string) error {
 	}
 	for name, entry := range m.Files {
 		data, ok := b.Files[name]
-		if !ok || !allowed(name) || !validDigest(entry.SHA256) || sum(data) != entry.SHA256 ||
+		if !ok || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
+			operation.SHA256Hex(data) != entry.SHA256 ||
 			int64(len(data)) != entry.Size ||
 			entry.Executable != (name == "bin/workbench") {
 			return integrity("Release payload integrity mismatch")
@@ -263,56 +256,11 @@ func (b Bundle) CheckDirectory(directory string) error {
 			return operation.Fail(4, "release_conflict", "Staged release was modified")
 		}
 		actual, err := os.ReadFile(full)
-		if err != nil || sum(actual) != sum(data) {
+		if err != nil || operation.SHA256Hex(actual) != operation.SHA256Hex(data) {
 			return operation.Fail(4, "release_conflict", "Staged release content changed")
 		}
 	}
 	return nil
-}
-
-func decodeMetadata(data []byte, target *Metadata) error {
-	if err := uniqueJSON(json.NewDecoder(bytes.NewReader(data))); err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(target); err != nil {
-		return err
-	}
-	if !errors.Is(decoder.Decode(new(any)), io.EOF) {
-		return operation.Fail(2, "release_metadata", "Trailing release metadata")
-	}
-	return nil
-}
-
-func uniqueJSON(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return err
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	seen := map[string]bool{}
-	for decoder.More() {
-		if delimiter == '{' {
-			key, readErr := decoder.Token()
-			if readErr != nil {
-				return readErr
-			}
-			name, valid := key.(string)
-			if !valid || seen[strings.ToLower(name)] {
-				return operation.Fail(2, "release_metadata", "Duplicate release metadata keys")
-			}
-			seen[strings.ToLower(name)] = true
-		}
-		if err = uniqueJSON(decoder); err != nil {
-			return err
-		}
-	}
-	_, err = decoder.Token()
-	return err
 }
 
 func (b Bundle) String() string { return fmt.Sprintf("%s (%s)", b.Metadata.Release, b.Metadata.Target) }

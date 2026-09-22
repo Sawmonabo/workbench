@@ -92,7 +92,7 @@ func prepare(
 	}
 	plan.Inputs = append(
 		plan.Inputs,
-		operation.Input{Name: "native-diff", Digest: digest([]byte(diff))},
+		operation.Input{Name: "native-diff", Digest: operation.SHA256Hex([]byte(diff))},
 	)
 	plan.Effects = append(
 		plan.Effects,
@@ -194,7 +194,7 @@ func (p *preparation) checkPrerequisites(
 	}
 	plan.Inputs = append(
 		plan.Inputs,
-		operation.Input{Name: "machine-answers", Digest: digest(answersRaw)},
+		operation.Input{Name: "machine-answers", Digest: operation.SHA256Hex(answersRaw)},
 	)
 	if !p.selection.ConfigOnly && c.Native.Destination != c.Home {
 		return nil, nil, operation.Fail(
@@ -270,7 +270,7 @@ func (p *preparation) stageNative(
 		}
 		p.Plan.Inputs = append(
 			p.Plan.Inputs,
-			operation.Input{Name: "gh-location", Digest: digest([]byte(gh))},
+			operation.Input{Name: "gh-location", Digest: operation.SHA256Hex([]byte(gh))},
 		)
 	}
 	p.environment = []string{
@@ -341,7 +341,7 @@ func (p *preparation) copyNativeState(c operation.Context) error {
 	}
 	p.Plan.Inputs = append(
 		p.Plan.Inputs,
-		operation.Input{Name: "native-state", Digest: digest(data)},
+		operation.Input{Name: "native-state", Digest: operation.SHA256Hex(data)},
 	)
 	return os.WriteFile(p.native.PersistentState, data, 0o600)
 }

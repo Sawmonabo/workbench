@@ -3,12 +3,9 @@ package operation
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -83,13 +80,16 @@ type CheckpointSummary struct {
 // checkpoint-images input.
 func ChangesDigest(changes []TargetChange) string {
 	data, _ := json.Marshal(changes)
-	digest := sha256.Sum256(data)
-	return hex.EncodeToString(digest[:])
+	return SHA256Hex(data)
 }
 
 func checkpointScope(c Context) string {
-	digest := sha256.Sum256([]byte(c.Scope.Kind + ":" + c.Scope.Root))
-	return filepath.Join(c.Paths.State, "checkpoints", hex.EncodeToString(digest[:]))
+	return filepath.Join(c.Paths.State, "checkpoints", scopeDigest(c))
+}
+
+// scopeDigest names a scope's checkpoint directory and lock file.
+func scopeDigest(c Context) string {
+	return SHA256Hex([]byte(c.Scope.Kind + ":" + c.Scope.Root))
 }
 
 func validateChanges(c Context, changes []TargetChange) error {
@@ -380,17 +380,9 @@ func readStoredImage(directory, digest string) (Image, error) {
 		}
 		data = append(data, part...)
 	}
-	if err := validateStateJSON(json.NewDecoder(bytes.NewReader(data))); err != nil {
-		return Image{}, err
-	}
 	var image Image
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&image); err != nil {
-		return Image{}, Fail(2, "checkpoint_format", "Malformed checkpoint image")
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return Image{}, Fail(2, "checkpoint_format", "Malformed checkpoint image tail")
+	if err := DecodeStrict(data, &image); err != nil {
+		return Image{}, Fail(2, "checkpoint_format", "Malformed checkpoint image ("+err.Error()+")")
 	}
 	return image, nil
 }
@@ -401,9 +393,8 @@ func (cp *Checkpoint) saveJournal() error {
 	}
 	cp.journal.Sequence++
 	data, _ := json.Marshal(cp.journal)
-	digest := sha256.Sum256(data)
 	envelope, err := json.Marshal(
-		journalEnvelope{Digest: hex.EncodeToString(digest[:]), Journal: cp.journal},
+		journalEnvelope{Digest: SHA256Hex(data), Journal: cp.journal},
 	)
 	if err != nil {
 		return err
@@ -746,16 +737,12 @@ func decodePrivate(path string, limit int64, value any) error {
 	if err != nil {
 		return err
 	}
-	if err = validateStateJSON(json.NewDecoder(bytes.NewReader(data))); err != nil {
-		return err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(value); err != nil {
-		return Fail(2, "checkpoint_format", "Malformed checkpoint; no repair or deletion attempted")
-	}
-	if err = decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return Fail(2, "checkpoint_format", "Checkpoint must contain exactly one JSON value")
+	if err = DecodeStrict(data, value); err != nil {
+		return Fail(
+			2,
+			"checkpoint_format",
+			"Malformed checkpoint ("+err.Error()+"); no repair or deletion attempted",
+		)
 	}
 	return nil
 }
@@ -921,8 +908,7 @@ func (cp *Checkpoint) loadImages() error {
 	for _, ref := range cp.record.Targets {
 		change := TargetChange{Path: ref.Path}
 		for index, digest := range []string{ref.Before, ref.After} {
-			decoded, err := hex.DecodeString(digest)
-			if err != nil || len(decoded) != sha256.Size {
+			if !ValidDigest(digest) {
 				return Fail(2, "checkpoint_format", "Invalid checkpoint image reference")
 			}
 			image, err := readStoredImage(cp.directory, digest)
@@ -960,10 +946,9 @@ func readJournal(directory string, i, targets int) (checkpointJournal, error) {
 		return checkpointJournal{}, err
 	}
 	data, _ := json.Marshal(envelope.Journal)
-	digest := sha256.Sum256(data)
 	j := envelope.Journal
 	statuses := []string{"prepared", "running", "complete", "partial", "failed", "unknown"}
-	if envelope.Digest != hex.EncodeToString(digest[:]) || j.SchemaVersion != 1 ||
+	if envelope.Digest != SHA256Hex(data) || j.SchemaVersion != 1 ||
 		!operationID.MatchString(j.OperationID) ||
 		j.Sequence == 0 ||
 		len(j.Known) != targets ||

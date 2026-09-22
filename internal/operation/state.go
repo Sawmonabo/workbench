@@ -1,18 +1,13 @@
 package operation
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"strings"
 	"syscall"
 )
 
@@ -97,8 +92,7 @@ func (s State) Validate() error {
 		if identity == nil {
 			continue
 		}
-		digest, err := hex.DecodeString(identity.ContentDigest)
-		if !identifier.MatchString(identity.Release) || err != nil || len(digest) != sha256.Size {
+		if !identifier.MatchString(identity.Release) || !ValidDigest(identity.ContentDigest) {
 			return Fail(2, "state_format", "Malformed release identity in current state")
 		}
 	}
@@ -152,59 +146,17 @@ func ReadState(paths Paths) (*State, error) {
 		)
 	}
 	var state State
-	if err := validateStateJSON(json.NewDecoder(bytes.NewReader(data))); err != nil {
-		return nil, err
-	}
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&state); err != nil {
+	if err := DecodeStrict(data, &state); err != nil {
 		return nil, Fail(
 			2,
 			"state_format",
-			"Malformed current Workbench state; no conversion or deletion attempted",
+			"Malformed current Workbench state ("+err.Error()+"); no conversion or deletion attempted",
 		)
-	}
-	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
-		return nil, Fail(2, "state_format", "Current state must contain exactly one JSON object")
 	}
 	if err := state.Validate(); err != nil {
 		return nil, err
 	}
 	return &state, nil
-}
-
-// encoding/json accepts duplicate object keys. State cannot, since that could
-// hide an unsupported schema or contradictory identity from one of its readers.
-func validateStateJSON(decoder *json.Decoder) error {
-	token, err := decoder.Token()
-	if err != nil {
-		return Fail(2, "state_format", "Malformed current state JSON")
-	}
-	delimiter, ok := token.(json.Delim)
-	if !ok {
-		return nil
-	}
-	seen := map[string]bool{}
-	for decoder.More() {
-		if delimiter == '{' {
-			key, err := decoder.Token()
-			if err != nil {
-				return Fail(2, "state_format", "Malformed current state JSON")
-			}
-			name, ok := key.(string)
-			if !ok || name != strings.ToLower(name) || seen[name] {
-				return Fail(2, "state_format", "Duplicate fields in current state are unsupported")
-			}
-			seen[name] = true
-		}
-		if err := validateStateJSON(decoder); err != nil {
-			return err
-		}
-	}
-	if _, err := decoder.Token(); err != nil {
-		return Fail(2, "state_format", "Malformed current state JSON")
-	}
-	return nil
 }
 
 // WriteState validates and atomically replaces the private state record.
@@ -367,8 +319,7 @@ func acquireLocks(c Context) (*locks, error) {
 		return nil, err
 	}
 	result := &locks{}
-	digest := sha256.Sum256([]byte(c.Scope.Kind + ":" + c.Scope.Root))
-	for _, name := range []string{"shared.lock", fmt.Sprintf("%s-%x.lock", c.Scope.Kind, digest)} {
+	for _, name := range []string{"shared.lock", c.Scope.Kind + "-" + scopeDigest(c) + ".lock"} {
 		path := filepath.Join(directory, name)
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {

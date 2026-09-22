@@ -2,8 +2,6 @@ package project
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -29,8 +27,6 @@ type Project struct {
 	Reason    string `json:"reason,omitempty"`
 	metadata  map[string]any
 }
-
-func hash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToString(h[:]) }
 
 // readMetadata rejects symlinks and bounds every read. Ancestors are read only
 // to discover ownership; they never expand the selected mutation scope.
@@ -409,7 +405,7 @@ func (r *Inventory) inputsList() []operation.Input {
 		value := r.inputs[name]
 		digest := "absent"
 		if value != nil {
-			digest = hash(value)
+			digest = operation.SHA256Hex(value)
 		}
 		result = append(result, operation.Input{Name: name, Digest: digest})
 	}

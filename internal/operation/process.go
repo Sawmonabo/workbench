@@ -71,7 +71,7 @@ func outsideProjects(directory string, excluded []string) error {
 		}
 	}
 	for parent := directory; ; parent = filepath.Dir(parent) {
-		for _, marker := range []string{".git", "pyproject.toml", "package.json", "Cargo.toml", "go.mod"} {
+		for _, marker := range projectMarkers {
 			if _, err := os.Lstat(filepath.Join(parent, marker)); err == nil {
 				if marker == ".git" && homebrewRepository(parent, directory) {
 					continue
