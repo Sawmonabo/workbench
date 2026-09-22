@@ -71,7 +71,7 @@ Use Go for the application and [Cobra](https://github.com/spf13/cobra) for comma
 | Package and runtime installation | Existing platform scripts and their native package managers, after safety corrections. |
 | Personal editor data and merge | Existing shared VS Code data/template. |
 | Project dependency changes | The supported project's native package manager. |
-| Project configuration edits | Maintained format-aware libraries, selected and tested before adoption; no ad hoc TOML/JSONC/YAML text rewriting. |
+| Project configuration edits | TOML Kit, HuJSON and go-yaml with the preservation limits in the [implementation contracts](workbench-contracts.md#project-editors). Go owns planning and writes; no ad hoc TOML/JSONC/YAML rewriting. |
 | Release acquisition, operation state, confirmation, locks and scoped checkpoints | Shared Workbench Go code. |
 | OS-specific paths, permissions and interoperability | Small platform-specific functions around the shared operations. |
 
@@ -152,9 +152,9 @@ workbench project configure . --language python --language typescript --dry-run
 
 The last example specifies intended selection syntax, not implemented TypeScript support. An explicitly requested unsupported language fails before writes. Discovery must report unsupported detected components prominently rather than silently claiming that the entire repository is configured.
 
-Inspection and preview default to offline operation. Missing dependencies/answers produce an actionable result rather than repairs. Normal mutations require confirmation; noninteractive mutation requires explicit consent and complete inputs. The exact unattended input/consent interface is an open decision, not an invented flag in these examples.
+Inspection and preview default to offline operation. Missing dependencies/answers produce an actionable result rather than repairs. Normal mutations require confirmation; noninteractive mutation requires complete private inputs and approval of the exact plan digest. The selected future interface is defined in the [consent and output contract](workbench-contracts.md#consent-and-output); it is not yet implemented.
 
-Success means the requested supported scope completed and passed its checks. Requested work that failed or was skipped cannot be reported as complete. Return nonzero for failures, unresolved conflicts and incomplete requested operations; preserve a detailed result distinguishing them. Exact exit-code allocation and machine-readable output format must be settled before automation is advertised.
+Success means the requested supported scope completed and passed its checks. Requested work that failed or was skipped cannot be reported as complete. Return nonzero for failures, unresolved conflicts and incomplete requested operations; preserve a detailed result distinguishing them. The selected exit codes and JSON envelope in the implementation contracts replace this increment's limited output only when implemented; automation is not advertised yet.
 
 ## 5. Installation and release lifecycle
 
@@ -180,11 +180,11 @@ Resolve runtime locations from the user's supported platform conventions and app
 
 One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets. Do not maintain two competing active source selectors.
 
-Archive-based setup must reuse native configuration templating without accidentally cloning or initializing a Git checkout. Ordinary [chezmoi init](https://www.chezmoi.io/reference/commands/init/) can initialize Git; the exact supported archive initialization sequence needs a tested implementation decision. Do not invent a native flag or duplicate the question definitions to bypass it.
+Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization is an approved setup stage, never an implicit effect of pull, doctor or plan. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths, source identity and remaining escaping gates. Do not replace Git with a no-op command or duplicate the questions.
 
 The CLI itself does not require a Python installation, but existing modify scripts can. Preflight must account for every rendering prerequisite, including Python with `tomllib`, before claiming clean-machine application works. Installing those prerequisites is an explicitly approved setup stage; previews and configuration-only apply must not install them implicitly.
 
-An optional developer source override may inspect a checkout, but release installation and ordinary project configuration must work without one. Its precise CLI spelling is not finalized.
+An optional `--source PATH` developer override selects an existing source tree; ordinary release installation and project configuration work without one. Hash its inputs for every plan and never change the checkout during inspection. Paths and other overrides are defined in the implementation contracts.
 
 ### Apply state and reproducibility
 
@@ -231,9 +231,9 @@ Revert uses recorded checkpoints, not reverse-running old scripts. Preflight all
 
 An additive settings merge does not remove newly introduced keys merely because an older release is selected. Recovery must restore a suitable pre-image or require a reviewed merge. Do not build a generic per-key version-control system.
 
-Reverting does not promise to uninstall packages/extensions, reverse a runtime upgrade, restore services/registry state or undo arbitrary cleanup. Keep these limits in plan, result and recovery output. Ambiguous version-to-checkpoint selection must fail instead of choosing silently; selection syntax and retention limits require a decision before the command ships.
+Reverting does not promise to uninstall packages/extensions, reverse a runtime upgrade, restore services/registry state or undo arbitrary cleanup. Keep these limits in plan, result and recovery output. Ambiguous version-to-checkpoint selection fails instead of choosing silently. The [checkpoint contract](workbench-contracts.md#checkpoints-and-current-state) defines selection and retention; its unmeasured byte limit remains a release gate.
 
-Machine and project checkpoints share implementation but have distinct scopes. Machine revert must never restore project files. Project recovery UX is not finalized and must not be advertised as implemented; shared checkpoint storage alone does not establish usable recovery.
+Machine and project checkpoints share implementation but have distinct scopes. Machine revert must never restore project files. The selected `project revert [PATH] --checkpoint ID` interface shares recovery operations, and remains unimplemented; shared checkpoint storage alone does not establish usable recovery.
 
 Protect answers, logs and snapshots with private permissions appropriate to their filesystem. Do not persist secret values in public manifests, diagnostics or project provenance. Redact known sensitive fields and avoid logging subprocess arguments/environment wholesale. Do not send telemetry or start resident services by default.
 
@@ -395,7 +395,7 @@ Run the project's existing tests; use `uv run --locked pytest` only when pytest 
 
 An optional `project/python/checks.example.yml` must demonstrate read-only repository permissions, checkout without persisted credentials, uv setup, locked development-dependency synchronization, the three checks above and the real test command. Set a bounded job timeout and cancel superseded checks. Select a supported Python version from the project, validate pinned action/tool references before publication, and adapt an existing workflow instead of creating a duplicate pipeline. Do not alter branch protection or change CI providers automatically.
 
-Project configuration may approve package resolution/environment changes, but these must be listed as external effects and never run during dry-run. Record a portable Workbench policy/release identity without embedding installation paths. Exact provenance format is an open decision; never make project execution depend on Workbench being installed.
+Project configuration may approve package resolution/environment changes, but these must be listed as external effects and never run during dry-run. Record a portable Workbench policy/release identity without embedding installation paths, using the `[tool.workbench]` format in the implementation contracts. Never make project execution depend on Workbench being installed.
 
 ## 10. Acceptance criteria
 
@@ -418,18 +418,8 @@ These are behavioral acceptance requirements, not a mandate for an automated tes
 
 Spot-check CLI startup, workspace inspection and resource use on representative workspaces. Record the environment and observations; do not create a benchmark framework or fabricate comparative performance numbers. Set budgets only if measurement establishes a need.
 
-## 11. Decisions required before implementation milestones
+## 11. Implementation contracts and remaining gates
 
-These are unresolved choices, not permission to invent defaults silently:
+The maintained [implementation contracts](workbench-contracts.md) select native initialization, management ownership/prerequisites, runtime paths, unattended consent, output, checkpoint selection, project editors and initial platform acceptance targets. They also inventory each current file/provisioning effect and its recovery boundary. These are implementation requirements and dated probe evidence, not claims that lifecycle commands already work.
 
-1. Exact supported OS/WSL versions and Linux/Windows-host CPU targets, including upstream dependency coverage and environments for native smoke checks.
-2. Management-tool pins and ownership on clean versus already configured machines. Initial Go/Cobra/golangci-lint choices are recorded in section 2.
-3. Native archive-based questionnaire/config initialization and availability of Python-dependent rendering before machine writes.
-4. Maintained comment-preserving project configuration libraries and their behavior on unsupported syntax, separate configs and conflicting owners.
-5. Runtime location overrides, noninteractive answers/consent, exit-code allocation and machine-readable output contract.
-6. Checkpoint selection for repeated applications of one release, project recovery UX, retention/size limits and safe release activation using the current state format. Historical state migration is out of scope.
-7. Release publisher/visibility, license/distribution requirements, integrity/signature policy and release/versioning automation.
-8. Optional maintenance/app-replacement consent and reliable per-component reporting for existing best-effort scripts.
-9. Portable project-policy provenance and the initial tested set of managers/language integrations; resource budgets after measurement.
-
-Blocking choices must be resolved and documented at the corresponding plan milestone. They do not block writing or reviewing this specification. See the [implementation plan](../plans/workbench-implementation.md) for work order and verification gates.
+Release remains blocked on native platform smoke evidence, current source safety corrections, publisher/visibility and license authority, approved trust/signature policy, and measured archive/checkpoint byte bounds. Optional maintenance and application replacement remain disabled unless separately selected and approved. Additional languages/managers, native Windows, automatic maintenance and performance/resource budgets remain unresolved; do not silently expand support. See the [implementation plan](../plans/workbench-implementation.md) for work order.
