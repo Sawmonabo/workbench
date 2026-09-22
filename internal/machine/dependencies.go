@@ -69,7 +69,13 @@ func ResolveDependencies(
 			candidate.Capabilities = capabilities
 			candidate.Version = version
 			if !qualified {
-				component.Message = "Installed version is unqualified; retained without replacement"
+				component.Message = fmt.Sprintf(
+					"%s %s at %s is not the qualified %s; it is left alone, and approved setup installs a private copy",
+					name,
+					version,
+					candidate.Path,
+					qualifiedVersions(name, requirements),
+				)
 				continue
 			}
 			dependencies = append(dependencies, candidate)
@@ -168,6 +174,17 @@ func qualify(name, version string, requirements Requirements) (bool, []string) {
 		return qualified, []string{"tomllib"}
 	}
 	return false, nil
+}
+
+// qualifiedVersions describes the versions qualify accepts for tool name.
+func qualifiedVersions(name string, requirements Requirements) string {
+	switch name {
+	case "uv":
+		return strings.Join(append([]string{requirements.UV}, requirements.UVAdditional...), " or ")
+	case "python3":
+		return fmt.Sprintf("3.%d–3.%d", requirements.PythonMinMinor, requirements.PythonMaxMinor)
+	}
+	return requirements.Chezmoi
 }
 
 func projectRoot(c operation.Context) string {
