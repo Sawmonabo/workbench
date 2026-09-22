@@ -3,9 +3,12 @@
 # Reads the existing file on stdin and writes the new file to stdout.
 """Merge the chezmoi-managed Codex config with the parts Codex owns.
 
-The MANAGED body below is authoritative. A handful of tables are rewritten by
-Codex itself at runtime; those are read back from the existing file and
-re-emitted so `chezmoi diff` stays quiet instead of proposing to delete them.
+The MANAGED body below wins for every key it sets and is emitted verbatim.
+Every other key and table in the existing file is kept: Codex records project
+trust, notices, TUI flags and marketplace bookkeeping there itself, and an
+apply must not delete them. Keys Codex adds to a table the managed body
+declares go under that header; tables the managed body lacks go in the
+preserved block at the end, and top-level keys before the first header.
 """
 
 import datetime
@@ -16,19 +19,9 @@ import tomllib
 
 MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
 
-# Tables Codex rewrites itself and that must survive an apply, as paths into
-# the parsed document. Each is emitted verbatim in the preserved block below.
-PRESERVED_TABLES = (
-    ("notice", "model_migrations"),
-    ("tui", "model_availability_nux"),
-    ("hooks",),
-)
-# Per-marketplace bookkeeping keys Codex stamps onto its own marketplace tables.
-PRESERVED_MARKETPLACE_KEYS = ("last_updated", "last_revision")
-
 DELIMITER = "# --- preserved from the existing file (Codex-owned) ---"
 BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
-MARKETPLACE_HEADER = re.compile(r"^\[marketplaces\.(.+)\]\s*$")
+TABLE_HEADER = re.compile(r"^\[([^\[].*)\]\s*$")
 
 
 def format_key(key):
@@ -75,56 +68,60 @@ def render_table(header_path, table):
     return lines
 
 
-def lookup(document, path):
+def header_path(text):
+    """Split a table header's dotted key, such as projects."/a/b", into parts."""
+    parts, rest = [], text.strip()
+    while rest:
+        if rest[0] == '"':
+            part, end = json.JSONDecoder().raw_decode(rest)
+        elif rest[0] == "'":
+            end = rest.index("'", 1) + 1
+            part = rest[1 : end - 1]
+        else:
+            match = BARE_KEY.match(re.split(r"[\s.]", rest, maxsplit=1)[0])
+            if match is None:
+                raise ValueError("unsupported table header: " + text)
+            part, end = match.group(), match.end()
+        parts.append(part)
+        rest = rest[end:].strip()
+        if rest.startswith("."):
+            rest = rest[1:].strip()
+        elif rest:
+            raise ValueError("unsupported table header: " + text)
+    return tuple(parts)
+
+
+def table_at(document, path):
     node = document
     for part in path:
-        if not isinstance(node, dict) or part not in node:
-            return None
+        if not isinstance(node, dict) or not isinstance(node.get(part), dict):
+            return {}
         node = node[part]
-    return node if isinstance(node, dict) and node else None
+    return node
 
 
-def marketplace_keys(document):
-    """{marketplace name: {key: value}} for the Codex-stamped bookkeeping keys."""
-    marketplaces = document.get("marketplaces")
-    if not isinstance(marketplaces, dict):
-        return {}
-    found = {}
-    for name, table in marketplaces.items():
-        if not isinstance(table, dict):
+def added_tables(existing, managed, path=()):
+    """Render the tables in existing that managed does not have, at any depth."""
+    lines = []
+    for key, value in existing.items():
+        if not isinstance(value, dict):
             continue
-        kept = {key: table[key] for key in PRESERVED_MARKETPLACE_KEYS if key in table}
-        if kept:
-            found[name] = kept
-    return found
+        if key not in managed:
+            lines.extend(render_table(path + (key,), value))
+        elif isinstance(managed[key], dict):
+            lines.extend(added_tables(value, managed[key], path + (key,)))
+    return lines
 
 
-def inject_marketplace_keys(managed, per_marketplace):
-    """Insert preserved keys under the managed [marketplaces.<name>] headers.
-
-    They cannot go in the appended block: TOML forbids reopening a table that
-    a header already declared, and dotted keys before the header collide with
-    it too. So they are written into the managed table itself, tagged with a
-    comment so their provenance is obvious.
-    """
-    if not per_marketplace:
-        return managed
-    out = []
-    for line in managed.split("\n"):
-        out.append(line)
-        match = MARKETPLACE_HEADER.match(line)
-        if not match:
-            continue
-        name = match.group(1).strip()
-        if len(name) > 1 and name[0] == name[-1] == '"':
-            name = name[1:-1]
-        for key, value in per_marketplace.get(name, {}).items():
-            out.append(
-                "{} = {}  # preserved (Codex-owned)".format(
-                    format_key(key), format_value(value, ("marketplaces", name, key))
-                )
-            )
-    return "\n".join(out)
+def added_keys(existing, managed, path):
+    """Lines for the non-table keys existing has in a table and managed lacks."""
+    return [
+        "{} = {}  # preserved (Codex-owned)".format(
+            format_key(key), format_value(value, path + (key,))
+        )
+        for key, value in existing.items()
+        if key not in managed and not isinstance(value, dict)
+    ]
 
 
 def main():
@@ -134,16 +131,27 @@ def main():
     except (UnicodeDecodeError, tomllib.TOMLDecodeError):
         sys.stderr.write("modify_config.toml: invalid existing TOML; original input preserved\n")
         return 1
+    managed = tomllib.loads(MANAGED)
 
-    output = inject_marketplace_keys(MANAGED, marketplace_keys(document))
+    lines, first_header = [], None
+    for line in MANAGED.rstrip("\n").split("\n"):
+        lines.append(line)
+        match = TABLE_HEADER.match(line)
+        if match is None:
+            continue
+        if first_header is None:
+            first_header = len(lines) - 1
+        path = header_path(match.group(1))
+        lines.extend(added_keys(table_at(document, path), table_at(managed, path), path))
+    top = added_keys(document, managed, ())
+    if top:
+        at = len(lines) if first_header is None else first_header
+        lines[at:at] = top + [""]
+    output = "\n".join(lines)
 
-    preserved = []
-    for path in PRESERVED_TABLES:
-        table = lookup(document, path)
-        if table is not None:
-            preserved.extend(render_table(path, table))
+    preserved = added_tables(document, managed)
     if preserved:
-        output = output.rstrip("\n") + "\n\n" + DELIMITER + "\n".join(preserved) + "\n"
+        output += "\n\n" + DELIMITER + "\n".join(preserved)
 
     tomllib.loads(output)  # Validate before emitting any replacement bytes.
     sys.stdout.write(output.rstrip("\n") + "\n")

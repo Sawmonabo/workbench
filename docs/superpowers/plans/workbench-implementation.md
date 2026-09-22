@@ -44,7 +44,7 @@ Workbench is greenfield: update the canonical implementation and all affected ca
 | `home/.chezmoidata/packages.toml`, `versions.toml` | Reuse canonical names/pins. Resolve duplicated ownership of management dependencies; the apt list is not currently the executed Linux package plan. |
 | `home/.chezmoitemplates/vscode-settings.json.tmpl`, `home/.chezmoidata/vscode.json` | Reuse the single editor merge/data source. JSONC input is accepted but comments are not retained by this machine-settings merge. |
 | `home/.chezmoiscripts/` | Reuse provisioning owners. Audit hidden writes, cleanup, elevation, architecture assumptions, partial outcomes and duplicate dependency installs. |
-| `home/dot_codex/modify_private_config.toml.tmpl` | Account for Python with `tomllib`; invalid input must not silently lose unowned state. |
+| `home/private_dot_codex/modify_private_config.toml.tmpl` | Account for Python with `tomllib`; invalid input must not silently lose unowned state. |
 | `home/.chezmoiignore`, `home/.chezmoiremove` | Preserve platform/role selection. Preview and checkpoint removals, including configuration-only operations. |
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Extend the current render/lint/role/mode coverage. Simulated WSL rendering does not validate Windows integration. |
 
