@@ -668,6 +668,12 @@ func (p *preparation) Apply(
 		for _, name := range p.selection.Effects {
 			environment = append(environment, effectVariable(name)+"=1")
 		}
+		// Scripts keep copies of what they replace outside checkpoints here,
+		// in Workbench's private state rather than a temporary directory.
+		environment = append(
+			environment,
+			"WORKBENCH_RECOVERY_DIR="+filepath.Join(c.Paths.State, "recovery"),
+		)
 		for i, value := range environment {
 			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
 				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest

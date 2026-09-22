@@ -132,7 +132,7 @@ var optionalEffects = []struct {
 			Name:        "app-replacement",
 			Description: "Adopt or force-replace hand-installed apps that packages.toml casks cover; each app is cloned first and restored if lost",
 			Privilege:   "user; linking may require elevation",
-			Recovery:    "application snapshot retained; package changes external",
+			Recovery:    "a copy of each app is kept under Workbench state recovery/apps; package changes external",
 		},
 	},
 	{

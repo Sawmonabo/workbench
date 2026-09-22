@@ -22,7 +22,8 @@
 #          app running                             -> skipped with a note; retried next apply
 #        present, linking needs sudo, no terminal  -> skipped with a note; retried next apply
 #   2. before brew touches a present app, clone it (APFS, instant, no extra
-#      space) and put it back if it is gone afterwards.
+#      space) into Workbench's private recovery folder, and put it back if it
+#      is gone afterwards. The copies stay until you delete them.
 set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
@@ -93,7 +94,11 @@ classify "{{ . }}"
 {{- end }}
 
 # --- safety net: clone every app brew is about to adopt or replace ---
-snapshot=$(mktemp -d)
+snapshot=
+if [ ${#touched_apps[@]} -gt 0 ]; then
+    (umask 077 && mkdir -p "${WORKBENCH_RECOVERY_DIR:?}/apps")
+    snapshot=$(mktemp -d "$WORKBENCH_RECOVERY_DIR/apps/$(date -u +%Y%m%dT%H%M%SZ).XXXXXX")
+fi
 for app in ${touched_apps[@]+"${touched_apps[@]}"}; do
     # -c clones on APFS (instant, shares blocks); a plain copy is the fallback.
     cp -Rc "$appdir/$app" "$snapshot/" 2>/dev/null || cp -R "$appdir/$app" "$snapshot/" \
@@ -134,8 +139,6 @@ restore_lost_apps
 # Keep recovery material; never prune a previous or failed operation's copies.
 if [ ${#touched_apps[@]} -gt 0 ]; then
     echo "WORKBENCH_EFFECT app-replacement recovery-copy: $snapshot" >&2
-else
-    rmdir "$snapshot"
 fi
 
 # A skipped app must not cancel the unrelated extension step; report it after.

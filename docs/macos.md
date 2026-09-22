@@ -15,7 +15,10 @@ Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
 results. Homebrew cleanup/tap removal and hand-installed application
 replacement run only when selected with `--effect brew-maintenance` or
-`--effect app-replacement`. A skipped app does not block VS Code extension
+`--effect app-replacement`. Before replacing an app, `app-replacement` copies it
+to `recovery/apps/` in Workbench's state folder
+(`~/Library/Application Support/workbench/state` by default) and keeps the copy
+until you delete it. A skipped app does not block VS Code extension
 installs; the step still exits nonzero afterwards so the skip stays visible.
 Do not delete native script state to force all installers to rerun.
 
