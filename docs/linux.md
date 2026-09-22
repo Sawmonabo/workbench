@@ -1,8 +1,10 @@
 # Linux notes
 
-Targets: Ubuntu 22.04, 24.04 and 26.04 LTS on amd64/arm64. Native release and
-provisioning qualification remains open; builds and template rendering alone
-do not establish it. Use the shared [installation and commands](usage.md).
+Targets: Ubuntu 22.04, 24.04 and 26.04 LTS on amd64/arm64, by decision;
+preflight blocks other distributions, including the `dnf` ones the dotfiles
+script handled. Native release and provisioning qualification remains open;
+builds and template rendering alone do not establish it. Use the shared
+[installation and commands](usage.md).
 
 The existing Linux scripts own apt base prerequisites, shell tools, fonts,
 tmux/TPM, runtime managers and global tools. They consume canonical version
