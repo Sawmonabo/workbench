@@ -23,7 +23,8 @@ import (
 
 // SetupPlan is offline. Downloads and native initialization are disclosed setup
 // effects; their consent never approves target configuration or provisioning.
-func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error) {
+func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err error) {
+	defer operation.Annotate(&err, "plan management setup")
 	plan := operation.Plan{
 		Scope:    c.Scope,
 		Complete: true,
@@ -541,7 +542,8 @@ func Setup(
 	c operation.Context,
 	m *operation.Mutation,
 	terminal *os.File,
-) (operation.Context, error) {
+) (_ operation.Context, err error) {
+	defer operation.Annotate(&err, "set up management tools")
 	if _, err := setupDependencies(ctx, c, m); err != nil {
 		return c, err
 	}

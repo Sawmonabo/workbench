@@ -70,7 +70,8 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 
 // ReadBundle verifies a release archive from a local file or HTTPS URL. A
 // non-empty version must match the archive's recorded release.
-func ReadBundle(ctx context.Context, location, version string) (Bundle, error) {
+func ReadBundle(ctx context.Context, location, version string) (_ Bundle, err error) {
+	defer operation.Annotate(&err, "read release bundle %s", location)
 	if strings.HasPrefix(location, "https://") {
 		data, err := Download(ctx, location, MaxDownload)
 		if err != nil {
@@ -123,7 +124,8 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 
 // Stage extracts b into its release directory, or rechecks an existing one,
 // records it as the candidate and returns the directory.
-func Stage(c operation.Context, m *operation.Mutation, b Bundle) (string, error) {
+func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err error) {
+	defer operation.Annotate(&err, "stage release %s", b)
 	if err := m.Check(); err != nil {
 		return "", err
 	}
@@ -436,11 +438,12 @@ func Activate(
 	m *operation.Mutation,
 	b Bundle,
 	directory string,
-) error {
-	if err := m.Check(); err != nil {
+) (err error) {
+	defer operation.Annotate(&err, "activate release %s", b)
+	if err = m.Check(); err != nil {
 		return err
 	}
-	if err := b.CheckDirectory(directory); err != nil {
+	if err = b.CheckDirectory(directory); err != nil {
 		return err
 	}
 	state, err := operation.ReadState(c.Paths)
@@ -467,46 +470,60 @@ func Activate(
 	if err = os.MkdirAll(c.Paths.Bin, 0o755); err != nil {
 		return err
 	}
-	next := operation.ReleaseRecord{
-		Identity:   b.Identity(),
-		Executable: executable,
-		Source:     directory,
-	}
 	journal = &activationJournal{
 		SchemaVersion: 1,
 		Status:        activationRunning,
 		Previous:      previous,
-		Candidate:     next,
+		Candidate: operation.ReleaseRecord{
+			Identity:   b.Identity(),
+			Executable: executable,
+			Source:     directory,
+		},
 	}
-	writeJournal := func() error {
-		raw, _ := json.Marshal(journal)
-		return m.WritePrivate(filepath.Join(c.Paths.State, "activation.json"), raw)
-	}
-	if err = writeJournal(); err != nil {
+	if err = journal.write(c, m); err != nil {
 		return err
 	}
-	// Retain the old pointer until the replacement link is ready. The state is
-	// written first; a failed link swap restores the previous state below.
+	if err = switchRuntime(c, m, state, journal); err != nil {
+		return err
+	}
+	return ValidateSelection(c)
+}
+
+// write records the journal durably in the state directory.
+func (j *activationJournal) write(c operation.Context, m *operation.Mutation) error {
+	raw, _ := json.Marshal(j)
+	return m.WritePrivate(filepath.Join(c.Paths.State, "activation.json"), raw)
+}
+
+// switchRuntime records the journal's candidate as active and points the entry
+// point at it. The old pointer stays until the replacement link is ready. A
+// failed step restores the previous runtime in state; if even that fails, the
+// journal still requires resuming this install.
+func switchRuntime(
+	c operation.Context,
+	m *operation.Mutation,
+	state *operation.State,
+	journal *activationJournal,
+) error {
 	id, err := operation.NewID()
 	if err != nil {
 		return err
 	}
 	pending := filepath.Join(c.Paths.Bin, ".workbench-"+id)
-	if err = os.Symlink(executable, pending); err != nil {
+	if err = os.Symlink(journal.Candidate.Executable, pending); err != nil {
 		return err
 	}
 	defer func() { _ = os.Remove(pending) }()
-	// restore puts the previous runtime back in state after a failed step; if
-	// even that fails, the journal still requires resuming this install.
 	restore := func(cause error, unrestored string) error {
-		state.ActiveRelease = previous
+		state.ActiveRelease = journal.Previous
 		if m.WriteState(*state) != nil {
 			return operation.Fail(operation.ExitPartial, "activation_incomplete", unrestored)
 		}
 		journal.Status = activationFailed
-		_ = writeJournal()
+		_ = journal.write(c, m)
 		return cause
 	}
+	next := journal.Candidate
 	state.ActiveRelease = &next
 	if err = m.WriteState(*state); err != nil {
 		return restore(
@@ -514,7 +531,7 @@ func Activate(
 			"Activation state could not be made durable or restored; resume the same install",
 		)
 	}
-	if err = os.Rename(pending, entry); err != nil {
+	if err = os.Rename(pending, filepath.Join(c.Paths.Bin, "workbench")); err != nil {
 		return restore(
 			err,
 			"Entry-point activation failed and state restoration is incomplete; resume install",
@@ -528,14 +545,14 @@ func Activate(
 		)
 	}
 	journal.Status = activationComplete
-	if err = writeJournal(); err != nil {
+	if err = journal.write(c, m); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"activation_incomplete",
 			"Runtime selectors changed but completion journal could not be made durable; resume the same install",
 		)
 	}
-	return ValidateSelection(c)
+	return nil
 }
 
 // replacedRuntime returns the runtime this activation replaces: the active one,

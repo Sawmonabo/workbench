@@ -22,7 +22,8 @@ func Apply(
 	consent operation.Consent,
 	terminal *os.File,
 	progress io.Writer,
-) (operation.Result, error) {
+) (_ operation.Result, err error) {
+	defer operation.Annotate(&err, "apply machine configuration")
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest = displayed.Digest()
 	result.Warnings = append(result.Warnings, displayed.RecoveryLimits...)
@@ -38,7 +39,7 @@ func Apply(
 		prepared, err = prepare(ctx, preview, selection)
 		return prepared.Plan, err
 	}
-	err := operation.WithMutation(
+	err = operation.WithMutation(
 		ctx,
 		c,
 		displayed,

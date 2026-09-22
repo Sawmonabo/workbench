@@ -24,7 +24,12 @@ type Selection struct {
 
 // Plan runs only reviewed target enumeration/status/diff against copied native
 // state. It never initializes source Git, saves answers or runs provisioning.
-func Plan(ctx context.Context, c operation.Context, selection Selection) (operation.Plan, error) {
+func Plan(
+	ctx context.Context,
+	c operation.Context,
+	selection Selection,
+) (_ operation.Plan, err error) {
+	defer operation.Annotate(&err, "plan machine configuration")
 	prepared, err := prepare(ctx, c, selection)
 	if prepared == nil {
 		return operation.Plan{}, err

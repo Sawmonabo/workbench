@@ -4,6 +4,7 @@ package operation
 import (
 	"context"
 	"errors"
+	"fmt"
 )
 
 // Exit is a process exit status. An [Error] carries one.
@@ -82,6 +83,19 @@ func statusFor(code Exit) Status {
 	default:
 		return StatusFailed
 	}
+}
+
+// Annotate prefixes *err with what failed, unless it is nil, canceled or
+// already an actionable [Error]. Defer it at a package entry point so a raw
+// operating-system or decoding error says which step it came from:
+//
+//	defer operation.Annotate(&err, "stage release %s", name)
+func Annotate(err *error, format string, args ...any) {
+	var known *Error
+	if *err == nil || errors.Is(*err, context.Canceled) || errors.As(*err, &known) {
+		return
+	}
+	*err = fmt.Errorf(format+": %w", append(args, *err)...)
 }
 
 // Component is one named part of a command's outcome.

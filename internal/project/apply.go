@@ -20,9 +20,10 @@ func Apply(
 	p *Proposal,
 	options ConfigureOptions,
 	consent operation.Consent,
-) (string, error) {
+) (_ string, err error) {
+	defer operation.Annotate(&err, "configure project %s", c.Scope.Root)
 	var checkpointID string
-	err := operation.WithMutation(
+	err = operation.WithMutation(
 		ctx,
 		c,
 		p.Plan,

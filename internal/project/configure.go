@@ -47,6 +47,7 @@ func Plan(
 	c operation.Context,
 	options ConfigureOptions,
 ) (proposal *Proposal, planErr error) {
+	defer operation.Annotate(&planErr, "plan project configuration")
 	p := newProposal(c)
 	defer func() {
 		if planErr != nil {

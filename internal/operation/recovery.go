@@ -144,7 +144,8 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 
 // RecoveryPlan previews restoring the selected checkpoint after checking
 // every target still holds its recorded post-image.
-func RecoveryPlan(c Context, selector RecoverySelector) (Plan, error) {
+func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
+	defer Annotate(&err, "plan checkpoint recovery")
 	plan := Plan{
 		Scope: c.Scope,
 		RecoveryLimits: []string{
@@ -199,10 +200,11 @@ func Recover(
 	displayed Plan,
 	selector RecoverySelector,
 	consent Consent,
-) (string, error) {
+) (_ string, err error) {
+	defer Annotate(&err, "recover checkpoint %s", selector.Checkpoint)
 	c.ReadOnly = false
 	operationID := ""
-	err := WithMutation(
+	err = WithMutation(
 		ctx,
 		c,
 		displayed,
