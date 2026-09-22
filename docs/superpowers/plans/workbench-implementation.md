@@ -259,7 +259,7 @@ owner pushes a `v*` tag, not when files are implemented.
 7. Add only relevant, reviewed recommendations/ignore entries. Keep personal settings out of projects and preserve pattern/negation order.
 8. Integrate optional CI with the existing workflow. Use locked Ruff/basedpyright checks and the actual test runner; do not force pytest, a Python version, a CI provider or branch protection.
 9. Implement duplicate-free repeated configuration, preview/input revalidation and explicit partial results. Project dependency resolution/builds are approved external effects, never preview work.
-10. Record portable policy/release provenance using the resolved format. Implement the decided project recovery UX or explicitly withhold that capability; machine revert remains unable to restore project targets.
+10. Record portable policy provenance using the resolved format. Implement the decided project recovery UX or explicitly withhold that capability; machine revert remains unable to restore project targets.
 
 ### Verification and gate
 

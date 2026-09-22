@@ -58,6 +58,8 @@ This example is not a WSL/work-role input and does not authorize application.
   Its `enforced` policy (env, permissions, plugins, marketplaces, status line)
   wins every apply. Permission lists keep entries granted in a session, keys
   the repo doesn't know are left alone, and malformed JSON fails the apply.
+  Apply only adds and overwrites: an entry or key you drop from `enforced`
+  stays in the live `~/.claude/settings.json` until you delete it there.
 - Portable project policy belongs in `project/python/`, not global settings.
   Project editing preserves supported comments/order through format-aware
   libraries and rejects unsupported round trips.

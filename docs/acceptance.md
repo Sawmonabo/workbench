@@ -68,6 +68,10 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   resolution applied to a synthetic uv project; the next plan was unchanged and
   revert restored every file. Interrupting uv staging exited 130 with no
   project file changed.
+- Resuming an activation left running in a disposable home kept the release it
+  replaces. A staged release missing its `release.json` was refused, not
+  planned as a developer checkout. The installer ran through a stand-in `gh`
+  with no `curl` on `PATH`. Packaging succeeded from an empty module cache.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
