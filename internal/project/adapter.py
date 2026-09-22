@@ -47,12 +47,11 @@ for source in request["documents"]:
     tool = doc.setdefault("tool", tomlkit.table())
     provenance = tool.setdefault("workbench", tomlkit.table())
     provenance["schema_version"] = 1
-    provenance["release"] = request["release"]
     policies = provenance.setdefault("policies", [])
     if not isinstance(policies, list):
         raise ValueError("invalid policy provenance")
-    if "python-v1" not in policies:
-        policies.append("python-v1")
+    if request["policy_id"] not in policies:
+        policies.append(request["policy_id"])
     rendered = tomlkit.dumps(doc)
     if tomlkit.dumps(tomlkit.parse(rendered)) != rendered:
         raise ValueError("proposed document does not roundtrip")

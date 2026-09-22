@@ -24,14 +24,14 @@ func transform(
 	ctx context.Context,
 	c operation.Context,
 	python operation.Dependency,
-	library, version, release string,
+	library, version string,
 	documents []string,
 ) ([]string, error) {
 	input, err := json.Marshal(
 		map[string]any{
 			"version":   version,
 			"policy":    pythonpolicy.Policy,
-			"release":   release,
+			"policy_id": pythonpolicy.ID,
 			"documents": documents,
 		},
 	)

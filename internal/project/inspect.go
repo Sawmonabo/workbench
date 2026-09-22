@@ -59,6 +59,8 @@ func Inspect(ctx context.Context, path string) (*Inventory, error) {
 	return result, err
 }
 
+// walk records candidate files below root, which is path relative to the
+// inspected directory. Symlinks and nested repositories are not followed.
 func (r *Inventory) walk(ctx context.Context, root *os.Root, path string, depth int) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -88,47 +90,8 @@ func (r *Inventory) walk(ctx context.Context, root *os.Root, path string, depth 
 	for {
 		entries, readErr := dir.ReadDir(128)
 		for _, entry := range entries {
-			if err := ctx.Err(); err != nil {
+			if err := r.visit(ctx, root, path, depth, entry); err != nil {
 				return err
-			}
-			r.Entries++
-			if r.Entries > maxEntries {
-				return fmt.Errorf("entry limit of %d exceeded; choose a narrower scope", maxEntries)
-			}
-			name := entry.Name()
-			relative := filepath.Join(path, name)
-			if entry.Type()&os.ModeSymlink != 0 {
-				r.Skipped++
-				continue
-			}
-			if entry.IsDir() {
-				if excludedDirectory(name) {
-					r.Excluded++
-					continue
-				}
-				child, err := root.OpenRoot(name)
-				if err != nil {
-					return fmt.Errorf("open directory %q: %w", relative, err)
-				}
-				err = r.walk(ctx, child, relative, depth+1)
-				closeErr := child.Close()
-				if err != nil {
-					return err
-				}
-				if closeErr != nil {
-					return closeErr
-				}
-				continue
-			}
-			if !entry.Type().IsRegular() {
-				r.Skipped++
-				continue
-			}
-			if item, ok := candidate(name); ok {
-				item.Path = filepath.ToSlash(relative)
-				if err := r.add(item); err != nil {
-					return err
-				}
 			}
 		}
 		if errors.Is(readErr, io.EOF) {
@@ -138,6 +101,45 @@ func (r *Inventory) walk(ctx context.Context, root *os.Root, path string, depth 
 			return fmt.Errorf("read directory %q: %w", path, readErr)
 		}
 	}
+}
+
+// visit records one directory entry, descending into included directories.
+func (r *Inventory) visit(
+	ctx context.Context,
+	root *os.Root,
+	path string,
+	depth int,
+	entry fs.DirEntry,
+) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	r.Entries++
+	if r.Entries > maxEntries {
+		return fmt.Errorf("entry limit of %d exceeded; choose a narrower scope", maxEntries)
+	}
+	name := entry.Name()
+	relative := filepath.Join(path, name)
+	switch {
+	case entry.Type()&os.ModeSymlink != 0:
+		r.Skipped++
+	case entry.IsDir() && excludedDirectory(name):
+		r.Excluded++
+	case entry.IsDir():
+		child, err := root.OpenRoot(name)
+		if err != nil {
+			return fmt.Errorf("open directory %q: %w", relative, err)
+		}
+		return errors.Join(r.walk(ctx, child, relative, depth+1), child.Close())
+	case !entry.Type().IsRegular():
+		r.Skipped++
+	default:
+		if item, ok := candidate(name); ok {
+			item.Path = filepath.ToSlash(relative)
+			return r.add(item)
+		}
+	}
+	return nil
 }
 
 func (r *Inventory) add(item Item) error {

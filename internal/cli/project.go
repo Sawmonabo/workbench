@@ -80,7 +80,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 		true,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			options := project.ConfigureOptions{Release: version()}
+			var options project.ConfigureOptions
 			options.Extensions, _ = cmd.Flags().GetBool("extensions")
 			options.Ignore, _ = cmd.Flags().GetBool("gitignore")
 			options.ResolveDependencies, _ = cmd.Flags().GetBool("resolve-dependencies")

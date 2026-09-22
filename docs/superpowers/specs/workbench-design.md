@@ -399,7 +399,7 @@ Run the project's existing tests; use `uv run --locked pytest` only when pytest 
 
 An optional `project/python/checks.example.yml` must demonstrate read-only repository permissions, checkout without persisted credentials, uv setup, locked development-dependency synchronization, the three checks above and the real test command. Set a bounded job timeout and cancel superseded checks. Select a supported Python version from the project, validate pinned action/tool references before publication, and adapt an existing workflow instead of creating a duplicate pipeline. Do not alter branch protection or change CI providers automatically.
 
-Project configuration may approve package resolution/environment changes, but these must be listed as external effects and never run during dry-run. Record a portable Workbench policy/release identity without embedding installation paths, using the `[tool.workbench]` format in the implementation contracts. Never make project execution depend on Workbench being installed.
+Project configuration may approve package resolution/environment changes, but these must be listed as external effects and never run during dry-run. Record a portable Workbench policy identity without embedding installation paths, using the `[tool.workbench]` format in the implementation contracts. Never make project execution depend on Workbench being installed.
 
 ## 10. Acceptance criteria
 

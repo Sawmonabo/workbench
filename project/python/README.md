@@ -65,5 +65,5 @@ Application writes use the shared project checkpoint engine. List with
 `workbench project revert PATH --checkpoint UUID` and approve its exact plan.
 Later file edits cause a recovery conflict. Recovery does not invoke old project
 code, reset environments or change machine configuration. Project provenance is
-portable `[tool.workbench]` data with schema 1, the release identity and
+portable `[tool.workbench]` data with schema 1 and
 `policies = ["python-v1"]`; project execution never requires Workbench.

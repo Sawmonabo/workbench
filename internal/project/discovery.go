@@ -5,8 +5,10 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,7 +36,7 @@ func hash(data []byte) string { h := sha256.Sum256(data); return hex.EncodeToStr
 // to discover ownership; they never expand the selected mutation scope.
 func readMetadata(path string) ([]byte, error) {
 	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {
@@ -85,7 +87,9 @@ func (r *Inventory) read(path string) ([]byte, error) {
 	}
 	return data, err
 }
+
 func table(value any) map[string]any { result, _ := value.(map[string]any); return result }
+
 func nested(doc map[string]any, keys ...string) map[string]any {
 	for _, key := range keys {
 		doc = table(doc[key])
@@ -116,6 +120,8 @@ func decodeTOML(data []byte) (map[string]any, error) {
 	return doc, nil
 }
 
+// resolve turns the inspected manifests into projects and records every
+// metadata file read as a plan input.
 func (r *Inventory) resolve(ctx context.Context) error {
 	r.inputs = make(map[string][]byte)
 	for _, item := range r.Items {
@@ -134,87 +140,58 @@ func (r *Inventory) resolve(ctx context.Context) error {
 		if item.Kind != "manifest" {
 			continue
 		}
-		project := Project{
-			Root:     filepath.Dir(path),
-			Language: item.Ecosystem,
-			Owner:    filepath.Dir(path),
-			Reason:   "Recognized; configuration is not supported for this language",
-		}
-		switch filepath.Base(path) {
-		case "pyproject.toml":
-			project.metadata, err = decodeTOML(data)
-			if err != nil {
-				return err
-			}
-			project.Language = "python"
-			project.Manager = "unknown"
-			project.Reason = "Existing uv.lock or explicit uv workspace ownership required; no project initialization"
-			if err = r.pythonOwner(&project); err != nil {
-				return err
-			}
-		case "package.json":
-			var doc map[string]any
-			if json.Unmarshal(data, &doc) != nil {
-				return operation.Fail(2, "manifest", "Invalid package.json")
-			}
-			project.Manager = "javascript package manager"
-			if s, ok := doc["packageManager"].(string); ok {
-				project.Manager = s
-			}
-		case "Cargo.toml":
-			project.Manager = "cargo"
-			if _, err = decodeTOML(data); err != nil {
-				return err
-			}
-		case "go.mod":
-			project.Manager = "go"
+		project, err := r.manifestProject(path, item.Ecosystem, data)
+		if err != nil {
+			return err
 		}
 		r.Projects = append(r.Projects, project)
 	}
-	// Also recognize the enclosing Python manifest when selection is a package
-	// subdirectory. It is reported but cannot authorize writes above selection.
 	if len(r.Projects) == 0 {
-		for parent := filepath.Dir(r.Directory); ; parent = filepath.Dir(parent) {
-			data, err := r.read(filepath.Join(parent, "pyproject.toml"))
-			if err != nil {
-				return err
-			}
-			if data != nil {
-				doc, e := decodeTOML(data)
-				if e != nil {
-					return e
-				}
-				p := Project{
-					Root:     parent,
-					Owner:    parent,
-					Language: "python",
-					Manager:  "unknown",
-					metadata: doc,
-				}
-				if e = r.pythonOwner(&p); e != nil {
-					return e
-				}
-				p.Supported = false
-				p.Reason = "Select enclosing project root explicitly: " + p.Owner
-				r.Projects = append(r.Projects, p)
-				break
-			}
-			if parent == filepath.Dir(parent) {
-				break
-			}
-		}
+		return r.enclosingProject()
 	}
 	return nil
 }
 
-func (r *Inventory) pythonOwner(p *Project) error {
-	if nested(p.metadata, "tool", "poetry") != nil || nested(p.metadata, "tool", "pdm") != nil {
-		p.Manager = "poetry/pdm"
-		p.Reason = "Poetry/PDM configuration is discovery-only"
-		return nil
+func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Project, error) {
+	project := Project{
+		Root:     filepath.Dir(path),
+		Language: ecosystem,
+		Owner:    filepath.Dir(path),
+		Reason:   "Recognized; configuration is not supported for this language",
 	}
-	owner := p.Root
-	for parent := p.Root; ; parent = filepath.Dir(parent) {
+	var err error
+	switch filepath.Base(path) {
+	case "pyproject.toml":
+		project.metadata, err = decodeTOML(data)
+		if err != nil {
+			return project, err
+		}
+		project.Language = "python"
+		project.Manager = "unknown"
+		project.Reason = "Existing uv.lock or explicit uv workspace ownership required; no project initialization"
+		err = r.pythonOwner(&project)
+	case "package.json":
+		var doc map[string]any
+		if json.Unmarshal(data, &doc) != nil {
+			return project, operation.Fail(2, "manifest", "Invalid package.json")
+		}
+		project.Manager = "javascript package manager"
+		if manager, ok := doc["packageManager"].(string); ok {
+			project.Manager = manager
+		}
+	case "Cargo.toml":
+		project.Manager = "cargo"
+		_, err = decodeTOML(data)
+	case "go.mod":
+		project.Manager = "go"
+	}
+	return project, err
+}
+
+// enclosingProject recognizes the Python manifest above a selected package
+// subdirectory. It is reported but cannot authorize writes above selection.
+func (r *Inventory) enclosingProject() error {
+	for parent := filepath.Dir(r.Directory); ; parent = filepath.Dir(parent) {
 		data, err := r.read(filepath.Join(parent, "pyproject.toml"))
 		if err != nil {
 			return err
@@ -224,68 +201,39 @@ func (r *Inventory) pythonOwner(p *Project) error {
 			if err != nil {
 				return err
 			}
-			if parent != p.Root {
-				for _, tool := range []string{"ruff", "ty", "basedpyright"} {
-					if nested(p.metadata, "tool", tool) == nil && nested(doc, "tool", tool) != nil {
-						p.Manager = "uv"
-						p.Owner = parent
-						p.Reason = "Inherited tool policy requires explicit ownership review: " + filepath.Join(
-							parent,
-							"pyproject.toml",
-						)
-						return nil
-					}
-				}
+			p := Project{
+				Root:     parent,
+				Owner:    parent,
+				Language: "python",
+				Manager:  "unknown",
+				metadata: doc,
 			}
-			workspace := nested(doc, "tool", "uv", "workspace")
-			if workspace != nil {
-				p.Manager = "uv"
-				member := parent == p.Root
-				relative, _ := filepath.Rel(parent, p.Root)
-				relative = filepath.ToSlash(relative)
-				for _, pattern := range stringsOf(workspace["members"]) {
-					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") ||
-						strings.Contains(pattern, "..") {
-						p.Reason = "Workspace pattern needs explicit ownership review"
-						return nil
-					}
-					matched, e := filepath.Match(pattern, relative)
-					if e != nil {
-						return operation.Fail(2, "workspace", "Invalid uv workspace member pattern")
-					}
-					member = member || matched
-				}
-				for _, pattern := range stringsOf(workspace["exclude"]) {
-					if strings.Contains(pattern, "**") || strings.HasPrefix(pattern, "/") ||
-						strings.Contains(pattern, "..") {
-						p.Reason = "Workspace exclusion pattern needs explicit ownership review"
-						return nil
-					}
-					matched, e := filepath.Match(pattern, relative)
-					if e != nil {
-						return e
-					}
-					if matched {
-						member = false
-					}
-				}
-				if parent != p.Root && !member {
-					break
-				}
-				if member {
-					owner = parent
-					break
-				}
+			if err = r.pythonOwner(&p); err != nil {
+				return err
 			}
-		}
-		if _, err := os.Lstat(filepath.Join(parent, ".git")); err == nil {
-			break
-		} else if !os.IsNotExist(err) {
-			return err
+			p.Supported = false
+			p.Reason = "Select enclosing project root explicitly: " + p.Owner
+			r.Projects = append(r.Projects, p)
+			return nil
 		}
 		if parent == filepath.Dir(parent) {
-			break
+			return nil
 		}
+	}
+}
+
+// pythonOwner finds who owns p's tooling: the uv workspace that lists it as a
+// member, or p itself. It sets Supported only when that owner has a shared
+// uv.lock, lies inside the selection and no inherited policy competes.
+func (r *Inventory) pythonOwner(p *Project) error {
+	if nested(p.metadata, "tool", "poetry") != nil || nested(p.metadata, "tool", "pdm") != nil {
+		p.Manager = "poetry/pdm"
+		p.Reason = "Poetry/PDM configuration is discovery-only"
+		return nil
+	}
+	owner, decided, err := r.workspaceOwner(p)
+	if err != nil || decided {
+		return err
 	}
 	p.Owner = owner
 	p.Lockfile = filepath.Join(owner, "uv.lock")
@@ -302,10 +250,8 @@ func (r *Inventory) pythonOwner(p *Project) error {
 	}
 	p.Manager = "uv"
 	if _, inherits := nested(p.metadata, "tool", "ruff")["extend"]; inherits {
-		p.Reason = "Ruff extend configuration requires explicit inherited-policy ownership review: " + filepath.Join(
-			p.Root,
-			"pyproject.toml",
-		)
+		manifest := filepath.Join(p.Root, "pyproject.toml")
+		p.Reason = "Ruff extend configuration requires inherited-policy ownership review: " + manifest
 		return nil
 	}
 	p.Supported = true
@@ -314,32 +260,142 @@ func (r *Inventory) pythonOwner(p *Project) error {
 		p.Supported = false
 		p.Reason = "Select shared workspace root explicitly: " + owner
 	}
-	// Native tools may inherit configuration from any ancestor. Record all
-	// candidates and refuse competing standalone ownership during planning.
-	for parent := p.Root; ; parent = filepath.Dir(parent) {
+	return r.checkStandalone(p)
+}
+
+// workspaceOwner walks up from p's root to the repository boundary for the uv
+// workspace that owns p. decided reports that p's manager and reason are
+// already final: an ancestor's tool policy or workspace pattern needs review.
+func (r *Inventory) workspaceOwner(p *Project) (owner string, decided bool, err error) {
+	owner = p.Root
+	err = ancestors(p.Root, func(parent string) (bool, error) {
+		manifest := filepath.Join(parent, "pyproject.toml")
+		data, err := r.read(manifest)
+		if err != nil || data == nil {
+			return false, err
+		}
+		doc, err := decodeTOML(data)
+		if err != nil {
+			return false, err
+		}
+		if parent != p.Root && inheritsToolPolicy(p.metadata, doc) {
+			p.Manager = "uv"
+			p.Owner = parent
+			p.Reason = "Inherited tool policy requires explicit ownership review: " + manifest
+			decided = true
+			return true, nil
+		}
+		workspace := nested(doc, "tool", "uv", "workspace")
+		if workspace == nil {
+			return false, nil
+		}
+		p.Manager = "uv"
+		member, reason, err := workspaceMember(workspace, parent, p.Root)
+		switch {
+		case err != nil:
+			return false, err
+		case reason != "":
+			p.Reason = reason
+			decided = true
+			return true, nil
+		case member:
+			owner = parent
+			return true, nil
+		}
+		// A workspace that excludes its own root keeps looking further up.
+		return parent != p.Root, nil
+	})
+	return owner, decided, err
+}
+
+// inheritsToolPolicy reports an ancestor configuring a check that the project
+// leaves to inheritance.
+func inheritsToolPolicy(project, ancestor map[string]any) bool {
+	for _, tool := range []string{"ruff", "ty", "basedpyright"} {
+		if nested(project, "tool", tool) == nil && nested(ancestor, "tool", tool) != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// workspaceMember reports whether root is a member of the uv workspace declared
+// at parent. A pattern that cannot be matched exactly returns a review reason.
+func workspaceMember(
+	workspace map[string]any,
+	parent, root string,
+) (member bool, reason string, err error) {
+	relative, err := filepath.Rel(parent, root)
+	if err != nil {
+		return false, "", err
+	}
+	relative = filepath.ToSlash(relative)
+	member = parent == root
+	for _, pattern := range stringsOf(workspace["members"]) {
+		if !exactPattern(pattern) {
+			return false, "Workspace pattern needs explicit ownership review", nil
+		}
+		matched, err := filepath.Match(pattern, relative)
+		if err != nil {
+			return false, "", operation.Fail(2, "workspace", "Invalid uv workspace member pattern")
+		}
+		member = member || matched
+	}
+	for _, pattern := range stringsOf(workspace["exclude"]) {
+		if !exactPattern(pattern) {
+			return false, "Workspace exclusion pattern needs explicit ownership review", nil
+		}
+		matched, err := filepath.Match(pattern, relative)
+		if err != nil {
+			return false, "", operation.Fail(2, "workspace", "Invalid uv workspace exclude pattern")
+		}
+		member = member && !matched
+	}
+	return member, "", nil
+}
+
+// exactPattern rejects recursive, absolute and parent-relative globs, which
+// filepath.Match cannot evaluate the way uv does.
+func exactPattern(pattern string) bool {
+	return !strings.Contains(pattern, "**") && !strings.HasPrefix(pattern, "/") &&
+		!strings.Contains(pattern, "..")
+}
+
+// checkStandalone refuses competing standalone tool configuration. Native
+// tools may inherit it from any ancestor, so every candidate is recorded.
+func (r *Inventory) checkStandalone(p *Project) error {
+	return ancestors(p.Root, func(parent string) (bool, error) {
 		for _, name := range []string{"ruff.toml", ".ruff.toml", "ty.toml", "pyrightconfig.json", "uv.toml"} {
 			data, err := r.read(filepath.Join(parent, name))
 			if err != nil {
-				return err
+				return false, err
 			}
 			if data != nil {
 				p.Supported = false
-				p.Reason = "Standalone configuration requires reviewed integration: " + filepath.Join(
-					parent,
-					name,
-				)
+				p.Reason = "Standalone configuration requires reviewed integration: " +
+					filepath.Join(parent, name)
 			}
 		}
+		return false, nil
+	})
+}
+
+// ancestors calls visit for dir and each parent until visit stops the walk or
+// the repository root (the directory holding .git) or filesystem root is done.
+func ancestors(dir string, visit func(parent string) (stop bool, err error)) error {
+	for parent := dir; ; parent = filepath.Dir(parent) {
+		if stop, err := visit(parent); stop || err != nil {
+			return err
+		}
 		if _, err := os.Lstat(filepath.Join(parent, ".git")); err == nil {
-			break
-		} else if !os.IsNotExist(err) {
+			return nil
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		if parent == filepath.Dir(parent) {
-			break
+			return nil
 		}
 	}
-	return nil
 }
 
 func (r *Inventory) inputsList() []operation.Input {

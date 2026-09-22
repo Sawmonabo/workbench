@@ -5,6 +5,10 @@ package pythonpolicy
 
 import _ "embed"
 
+// ID names the policy content. Change it whenever the content changes; project
+// provenance and the CI job name record it.
+const ID = "python-v1"
+
 // Policy is the project tooling policy (policy.toml).
 //
 //go:embed policy.toml

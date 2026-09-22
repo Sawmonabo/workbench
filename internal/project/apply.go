@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -72,23 +73,15 @@ func Apply(
 	return checkpointID, err
 }
 
-// Native mutation runs in a fresh private metadata-only workspace. Exact
-// resolved images become durable in the shared checkpoint before project writes.
-// No application files or executable local backends are copied into staging.
+// resolveNative runs native uv in a fresh private metadata-only workspace per
+// owner. No application files or executable local backends are copied into
+// staging. The resolved images replace the approved postimages, and they
+// become durable in the shared checkpoint before any project write.
 func (p *Proposal) resolveNative(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
 ) error {
-	var uv, python operation.Dependency
-	for _, dep := range p.Plan.Dependencies {
-		if dep.Name == "uv" {
-			uv = dep
-		}
-		if dep.Name == "python3" {
-			python = dep
-		}
-	}
 	scratch, err := os.MkdirTemp("", "workbench-project-resolution-")
 	if err != nil {
 		return err
@@ -100,110 +93,14 @@ func (p *Proposal) resolveNative(
 			return err
 		}
 		root := filepath.Join(scratch, "projects", relative)
-		for _, project := range p.Inventory.Projects {
-			if project.Language != "python" || project.Owner != request.Owner {
-				continue
-			}
-			name := filepath.Join(project.Root, "pyproject.toml")
-			data := p.Inventory.inputs[name]
-			for _, change := range p.Changes {
-				if change.Path == name {
-					data = change.After.Data
-				}
-			}
-			rel, err := filepath.Rel(request.Owner, name)
-			if err != nil {
-				return err
-			}
-			target := filepath.Join(root, rel)
-			if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
-				return err
-			}
-			if err = os.WriteFile(target, data, 0o600); err != nil {
-				return err
-			}
-		}
-		lock := filepath.Join(request.Owner, "uv.lock")
-		if err = os.WriteFile(
-			filepath.Join(root, "uv.lock"),
-			p.Inventory.inputs[lock],
-			0o600,
-		); err != nil {
+		if err = p.stageMetadata(root, request.Owner); err != nil {
 			return err
 		}
-		// With --no-config, user/system uv configuration and credentials are not
-		// inherited. Workspace definitions still come from the project manifest.
-		args := []string{
-			"add",
-			"--dev",
-			"--no-sync",
-			"--no-build",
-			"--no-config",
-			"--no-python-downloads",
-			"--python",
-			python.Path,
-			"--cache-dir",
-			filepath.Join(scratch, "cache"),
-			"--keyring-provider",
-			"disabled",
+		if err = p.runResolution(ctx, c, m, scratch, root, request.Missing); err != nil {
+			return err
 		}
-		args = append(args, request.Missing...)
-		_, err = operation.Run(
-			ctx,
-			c,
-			m,
-			operation.Process{
-				Executable: uv.Path,
-				Args:       args,
-				Directory:  root,
-				Environment: []string{
-					"PATH=" + filepath.Dir(python.Path) + ":/usr/bin:/bin",
-					"HOME=" + scratch,
-					"XDG_CONFIG_HOME=" + scratch,
-					"UV_NO_PROGRESS=1",
-				},
-				Timeout:     5 * time.Minute,
-				OutputLimit: 1 << 20,
-				Mutates:     true,
-			},
-		)
-		if err != nil {
-			return operation.Fail(
-				1,
-				"project_resolution",
-				"Native uv metadata staging failed; project files remain unchanged. Local/dynamic sources may require a separately reviewed native operation",
-			)
-		}
-		for _, name := range []string{"pyproject.toml", "uv.lock"} {
-			data, err := readMetadata(filepath.Join(root, name))
-			if err != nil {
-				return err
-			}
-			if data == nil {
-				return operation.Fail(
-					1,
-					"project_resolution",
-					"Native resolution did not produce its required manifest and lockfile",
-				)
-			}
-			if _, err = decodeTOML(data); err != nil {
-				return err
-			}
-			path := filepath.Join(request.Owner, name)
-			replaced := false
-			for i := range p.Changes {
-				if p.Changes[i].Path == path {
-					p.Changes[i].After.Data = data
-					replaced = true
-				}
-			}
-			if !replaced {
-				return operation.Fail(
-					4,
-					"project_resolution",
-					"Native output was not an explicitly approved target; no project files changed",
-				)
-			}
+		if err = p.collectResolution(root, request.Owner); err != nil {
+			return err
 		}
 	}
 	// Source, target preimages, scope and external effects were approved before
@@ -213,6 +110,127 @@ func (p *Proposal) resolveNative(
 		if p.Plan.Inputs[i].Name == "checkpoint-images" {
 			p.Plan.Inputs[i].Digest = operation.ChangesDigest(p.Changes)
 		}
+	}
+	return nil
+}
+
+// stageMetadata copies owner's proposed manifests and its lockfile into root.
+func (p *Proposal) stageMetadata(root, owner string) error {
+	for _, project := range p.Inventory.Projects {
+		if project.Language != "python" || project.Owner != owner {
+			continue
+		}
+		name := filepath.Join(project.Root, "pyproject.toml")
+		data := p.Inventory.inputs[name]
+		if change := p.change(name); change != nil {
+			data = change.After.Data
+		}
+		relative, err := filepath.Rel(owner, name)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(root, relative)
+		if err = os.MkdirAll(filepath.Dir(target), 0o700); err != nil {
+			return err
+		}
+		if err = os.WriteFile(target, data, 0o600); err != nil {
+			return err
+		}
+	}
+	lock := p.Inventory.inputs[filepath.Join(owner, "uv.lock")]
+	return os.WriteFile(filepath.Join(root, "uv.lock"), lock, 0o600)
+}
+
+// runResolution adds the missing checks to the dev group of the staged project
+// at root with native uv.
+func (p *Proposal) runResolution(
+	ctx context.Context,
+	c operation.Context,
+	m *operation.Mutation,
+	scratch, root string,
+	missing []string,
+) error {
+	var uv, python operation.Dependency
+	for _, dep := range p.Plan.Dependencies {
+		switch dep.Name {
+		case "uv":
+			uv = dep
+		case "python3":
+			python = dep
+		}
+	}
+	// With --no-config, user/system uv configuration and credentials are not
+	// inherited. Workspace definitions still come from the project manifest.
+	args := []string{
+		"add",
+		"--dev",
+		"--no-sync",
+		"--no-build",
+		"--no-config",
+		"--no-python-downloads",
+		"--python",
+		python.Path,
+		"--cache-dir",
+		filepath.Join(scratch, "cache"),
+		"--keyring-provider",
+		"disabled",
+	}
+	_, err := operation.Run(
+		ctx,
+		c,
+		m,
+		operation.Process{
+			Executable: uv.Path,
+			Args:       append(args, missing...),
+			Directory:  root,
+			Environment: []string{
+				"PATH=" + filepath.Dir(python.Path) + ":/usr/bin:/bin",
+				"HOME=" + scratch,
+				"XDG_CONFIG_HOME=" + scratch,
+				"UV_NO_PROGRESS=1",
+			},
+			Timeout:     5 * time.Minute,
+			OutputLimit: 1 << 20,
+			Mutates:     true,
+		},
+	)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		err = operation.Fail(
+			1,
+			"project_resolution",
+			"Native uv staging failed; project files remain unchanged. "+err.Error(),
+		)
+	}
+	return err
+}
+
+// collectResolution replaces owner's approved manifest and lockfile postimages
+// with the resolved files from root.
+func (p *Proposal) collectResolution(root, owner string) error {
+	for _, name := range []string{"pyproject.toml", "uv.lock"} {
+		data, err := readMetadata(filepath.Join(root, name))
+		if err != nil {
+			return err
+		}
+		if data == nil {
+			return operation.Fail(
+				1,
+				"project_resolution",
+				"Native resolution did not produce its required manifest and lockfile",
+			)
+		}
+		if _, err = decodeTOML(data); err != nil {
+			return err
+		}
+		change := p.change(filepath.Join(owner, name))
+		if change == nil {
+			return operation.Fail(
+				4,
+				"project_resolution",
+				"Native output was not an explicitly approved target; no project files changed",
+			)
+		}
+		change.After.Data = data
 	}
 	return nil
 }
