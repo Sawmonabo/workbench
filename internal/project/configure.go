@@ -184,6 +184,15 @@ func Plan(ctx context.Context, c operation.Context, options ConfigureOptions) (p
 		p.Plan.Inputs = append(p.Plan.Inputs, operation.Input{Name: change.Path, Digest: operation.ImageDigest(change.Before)})
 	}
 	p.Plan.RecoveryLimits = []string{"Exact project files only; dependency caches, downloads and external execution are not reverted"}
+	if len(p.Changes) > 0 || len(p.native) > 0 {
+		retention, retentionErr := operation.RetentionEffect(c)
+		if retentionErr != nil {
+			return p, retentionErr
+		}
+		if retention != nil {
+			p.Plan.Effects = append(p.Plan.Effects, *retention)
+		}
+	}
 	if len(p.native) > 0 {
 		found := false
 		for _, dep := range deps {

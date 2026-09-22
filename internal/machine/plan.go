@@ -51,7 +51,7 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 	plan := &prepared.Plan
 	*plan = operation.Plan{Scope: c.Scope, RecoveryLimits: []string{
 		"Restores exact checkpointed files, modes and links only; packages, extensions, registry, services and uncheckpointed script writes are not reverted",
-		fmt.Sprintf("Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; no automatic pruning", operation.MaxImageBytes>>20, operation.MaxCheckpointImageBytes>>20, operation.MaxCheckpointTargets, operation.MaxForwardCheckpoints, operation.MaxScopeCheckpointBytes>>30),
+		fmt.Sprintf("Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; at the checkpoint limit the plan lists removal of the oldest settled one", operation.MaxImageBytes>>20, operation.MaxCheckpointImageBytes>>20, operation.MaxCheckpointTargets, operation.MaxForwardCheckpoints, operation.MaxScopeCheckpointBytes>>30),
 	}}
 	defer func() {
 		if err != nil {
@@ -335,6 +335,15 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 		prepared.Changes = append(prepared.Changes, operation.TargetChange{Path: edit.Path, Before: before, After: after})
 	}
 	plan.Inputs = append(plan.Inputs, operation.Input{Name: "checkpoint-images", Digest: operation.ChangesDigest(prepared.Changes)})
+	if len(prepared.Changes) > 0 {
+		retention, retentionErr := operation.RetentionEffect(c)
+		if retentionErr != nil {
+			return prepared, retentionErr
+		}
+		if retention != nil {
+			plan.Effects = append(plan.Effects, *retention)
+		}
+	}
 	prepared.native, prepared.executable = native, dependency(dependencies, "chezmoi")
 	prepared.environment, prepared.secrets = environment, answers.secrets()
 
@@ -346,7 +355,7 @@ func Prepare(ctx context.Context, c operation.Context, selection Selection) (pre
 }
 
 // Apply executes the prepared configuration through the same native owner.
-// Callers must hold mutation authority AND durable target checkpoints.
+// Callers must hold mutation authority and a durable checkpoint of any target changes.
 // An interactive run owns terminal; otherwise redacted output goes to progress.
 func (p *Prepared) Apply(ctx context.Context, c operation.Context, m *operation.Mutation, terminal *os.File, progress io.Writer) error {
 	if err := m.Check(); err != nil {

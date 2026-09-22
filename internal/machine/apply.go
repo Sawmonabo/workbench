@@ -41,7 +41,9 @@ func Apply(ctx context.Context, c operation.Context, selection Selection, displa
 		if err != nil {
 			return err
 		}
-		if selection.ConfigOnly && len(prepared.Changes) == 0 {
+		// Without target changes there is nothing to checkpoint; provisioning
+		// effects are external and never rolled back either way.
+		if len(prepared.Changes) == 0 {
 			if state != nil && state.PartialOperation != nil {
 				return operation.Fail(3, "recovery", "Resolve the recorded incomplete operation before selecting another configuration release")
 			}
@@ -49,19 +51,33 @@ func Apply(ctx context.Context, c operation.Context, selection Selection, displa
 				return err
 			}
 			runtimeMutated = activationPlanned
+			if !selection.ConfigOnly {
+				if err = prepared.Apply(ctx, c, m, terminal, progress); err != nil {
+					return provisioningFailure(err)
+				}
+			}
 			current, readErr := operation.ReadState(c.Paths)
 			if readErr != nil {
 				return readErr
 			}
-			if runtimeChanged(state, current) {
+			activated := runtimeChanged(state, current)
+			if activated || !selection.ConfigOnly {
+				if current == nil {
+					current = &operation.State{SchemaVersion: 1}
+				}
 				current.AppliedConfiguration = &prepared.Plan.Source
 				current.Dependencies = prepared.Plan.Dependencies
 				if err = m.WriteState(*current); err != nil {
-					return operation.Fail(5, "state", "Runtime activated; configuration identity finalization failed")
+					return operation.Fail(5, "state", "Apply completed; configuration identity finalization failed")
 				}
+			}
+			if activated {
 				result.Results = append(result.Results, operation.Component{Name: "runtime", Status: "complete", Message: "Approved matching runtime activated"})
 			}
 			result.Results = append(result.Results, operation.Component{Name: "configuration", Status: "unchanged", Recovery: "No target writes or checkpoint allocation"})
+			if !selection.ConfigOnly {
+				result.Results = append(result.Results, effectResults(prepared.Plan.Effects)...)
+			}
 			return nil
 		}
 		if state == nil {
@@ -95,8 +111,8 @@ func Apply(ctx context.Context, c operation.Context, selection Selection, displa
 		if runErr == nil {
 			runErr = cp.FinalizeNative()
 		}
-		if !selection.ConfigOnly && runErr != nil && operation.ExitCode(runErr) != 130 {
-			runErr = operation.Fail(5, "partial", "Native provisioning failed after it started ("+runErr.Error()+"); external effects may be partial and are not rolled back")
+		if !selection.ConfigOnly && runErr != nil {
+			runErr = provisioningFailure(runErr)
 		}
 		if err = cp.Finish(runErr); err != nil {
 			status := "failed"
@@ -113,12 +129,26 @@ func Apply(ctx context.Context, c operation.Context, selection Selection, displa
 			return operation.Fail(5, "state", "Configuration applied; state finalization failed, retained checkpoint remains available")
 		}
 		result.Results = append(result.Results, operation.Component{Name: "configuration", Status: "complete", Recovery: "Exact configuration images retained; select checkpoint " + cp.ID})
-		for _, effect := range prepared.Plan.Effects {
-			result.Results = append(result.Results, operation.Component{Name: effect.Name, Status: "complete", Message: effect.Description, Recovery: effect.Recovery})
-		}
+		result.Results = append(result.Results, effectResults(prepared.Plan.Effects)...)
 		return nil
 	})
 	return result, err
+}
+
+// provisioningFailure keeps the native cause; external effects are not rolled back.
+func provisioningFailure(err error) error {
+	if operation.ExitCode(err) == 130 {
+		return err
+	}
+	return operation.Fail(5, "partial", "Native provisioning failed after it started ("+err.Error()+"); external effects may be partial and are not rolled back")
+}
+
+func effectResults(effects []operation.Effect) []operation.Component {
+	results := make([]operation.Component, 0, len(effects))
+	for _, effect := range effects {
+		results = append(results, operation.Component{Name: effect.Name, Status: "complete", Message: effect.Description, Recovery: effect.Recovery})
+	}
+	return results
 }
 
 func runtimeChanged(before, after *operation.State) bool {

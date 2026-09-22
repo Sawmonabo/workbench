@@ -169,9 +169,6 @@ func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []T
 	if err != nil {
 		return nil, err
 	}
-	if len(existing) >= MaxForwardCheckpoints {
-		return nil, Fail(3, "checkpoint_limit", "Scope retains 20 forward checkpoints; further application is blocked, recovery remains available")
-	}
 	entries, readErr := os.ReadDir(checkpointScope(c))
 	if readErr != nil && !os.IsNotExist(readErr) {
 		return nil, readErr
@@ -184,6 +181,11 @@ func BeginCheckpoint(m *Mutation, plan Plan, before *SourceIdentity, changes []T
 	for _, old := range existing {
 		if old.journal.Status == "running" || old.journal.Status == "unknown" || old.journal.Status == "partial" {
 			return nil, Fail(3, "recovery", "Resolve the retained incomplete checkpoint before further application")
+		}
+	}
+	if len(existing) >= MaxForwardCheckpoints {
+		if err = pruneApproved(c, plan); err != nil {
+			return nil, err
 		}
 	}
 	id, err := NewID()
@@ -532,6 +534,76 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 		return Fail(5, "checkpoint", "Target changes completed but journal finalization failed; retained images remain available")
 	}
 	return nil
+}
+
+// RetentionEffect names the checkpoint that a new forward checkpoint replaces
+// once the scope holds MaxForwardCheckpoints: the oldest settled one. Plans
+// list it so consent covers the removal. Running, partial and unknown
+// checkpoints and the recorded partial operation are never candidates.
+func RetentionEffect(c Context) (*Effect, error) {
+	oldest, err := retentionCandidate(c)
+	if oldest == nil || err != nil {
+		return nil, err
+	}
+	effect := retentionEffect(oldest)
+	return &effect, nil
+}
+
+func retentionEffect(cp *Checkpoint) Effect {
+	return Effect{
+		Name:        "checkpoint-retention",
+		Description: fmt.Sprintf("Remove checkpoint %s from %s, the oldest settled of %d retained, with its paired recovery record", cp.ID, cp.record.Created.Format(time.RFC3339), MaxForwardCheckpoints),
+		Privilege:   "user",
+		Recovery:    "the removed checkpoint can no longer be restored",
+	}
+}
+
+func retentionCandidate(c Context) (*Checkpoint, error) {
+	checkpoints, err := loadCheckpoints(c)
+	if err != nil || len(checkpoints) < MaxForwardCheckpoints {
+		return nil, err
+	}
+	state, err := ReadState(c.Paths)
+	if err != nil {
+		return nil, err
+	}
+	var oldest *Checkpoint
+	for _, cp := range checkpoints {
+		settled := cp.journal.Status == "complete" || cp.journal.Status == "failed"
+		if !settled || state != nil && state.PartialOperation != nil && state.PartialOperation.ID == cp.ID {
+			continue
+		}
+		if oldest == nil || cp.record.Created.Before(oldest.record.Created) {
+			oldest = cp
+		}
+	}
+	return oldest, nil
+}
+
+// pruneApproved removes only the checkpoint the approved plan names. A rename
+// out of the scope makes the removal atomic before its files are deleted.
+func pruneApproved(c Context, plan Plan) error {
+	oldest, err := retentionCandidate(c)
+	if err != nil {
+		return err
+	}
+	if oldest == nil || !slices.Contains(plan.Effects, retentionEffect(oldest)) {
+		return Fail(3, "checkpoint_limit", "Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan")
+	}
+	scope := checkpointScope(c)
+	removed := filepath.Join(filepath.Dir(scope), ".removed-"+oldest.ID)
+	if err = os.Rename(oldest.directory, removed); err != nil {
+		return err
+	}
+	directory, err := os.Open(scope)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = directory.Close() }()
+	if err = directory.Sync(); err != nil {
+		return err
+	}
+	return os.RemoveAll(removed)
 }
 
 func stringsCompare(a, b string) int {

@@ -161,8 +161,10 @@ Native machine apply currently rejects group-exclusive modes such as `0640` and
 `0750`, avoiding transient exposure before group correction. The shared direct
 project/recovery writer sets the group before permissions and atomic replacement.
 
-Each scope retains at most 20 forward checkpoints plus their paired recovery
-records, without automatic pruning. Limits are 256 targets, 8 MiB per image,
+Each scope retains the 20 most recent forward checkpoints plus their paired
+recovery records. At the limit, the plan lists removal of the oldest settled
+checkpoint for your approval; incomplete checkpoints are never removed. Applies
+that change no files allocate none. Limits are 256 targets, 8 MiB per image,
 32 MiB raw pre/post images per operation, 50 MiB serialized per pair and 1 GiB per
 scope. Recovery journal/metadata capacity is reserved before forward writes;
 reaching the forward ceiling does not prevent recovery.
