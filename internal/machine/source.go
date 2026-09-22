@@ -118,41 +118,52 @@ func SourceSnapshot(source string) (map[string][]byte, operation.SourceIdentity,
 			"Reviewed machine source files are missing",
 		)
 	}
-	// Release inspection owns artifact integrity; the already trusted source
-	// digest binds this display identity to the same machine payload.
-	metadataPath := filepath.Join(source, "release.json")
-	if metadataInfo, statErr := os.Lstat(metadataPath); statErr == nil {
-		if !metadataInfo.Mode().IsRegular() || metadataInfo.Size() > 1<<20 {
-			return nil, identity, operation.Fail(
-				3,
-				"source_trust",
-				"Release identity requires bounded regular metadata",
-			)
-		}
-		metadata, readErr := os.ReadFile(metadataPath)
-		if readErr != nil {
-			return nil, identity, readErr
-		}
-		var release struct {
-			Release      string `json:"release"`
-			SourceDigest string `json:"source_digest"`
-		}
-		if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil ||
-			release.Release == "" ||
-			release.SourceDigest != identity.ContentDigest {
-			return nil, identity, operation.Fail(
-				3,
-				"source_trust",
-				"Release metadata does not match the compiled machine payload",
-			)
-		}
-		identity.Release = release.Release
-	} else if !os.IsNotExist(statErr) {
-		return nil, identity, operation.Fail(
-			3,
-			"source",
-			"Cannot inspect selected release identity",
-		)
+	release, err := releaseName(source, identity.ContentDigest)
+	if err != nil {
+		return nil, identity, err
+	}
+	if release != "" {
+		identity.Release = release
 	}
 	return files, identity, nil
+}
+
+// releaseName returns the release named by the source's release.json, or ""
+// for a developer checkout without one. Release inspection owns artifact
+// integrity; the already trusted source digest binds this display identity to
+// the same machine payload.
+func releaseName(source, sourceDigest string) (string, error) {
+	path := filepath.Join(source, "release.json")
+	info, err := os.Lstat(path)
+	if os.IsNotExist(err) {
+		return "", nil
+	}
+	if err != nil {
+		return "", operation.Fail(3, "source", "Cannot inspect selected release identity")
+	}
+	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
+		return "", operation.Fail(
+			3,
+			"source_trust",
+			"Release identity requires bounded regular metadata",
+		)
+	}
+	metadata, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	var release struct {
+		Release      string `json:"release"`
+		SourceDigest string `json:"source_digest"`
+	}
+	if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil ||
+		release.Release == "" ||
+		release.SourceDigest != sourceDigest {
+		return "", operation.Fail(
+			3,
+			"source_trust",
+			"Release metadata does not match the compiled machine payload",
+		)
+	}
+	return release.Release, nil
 }

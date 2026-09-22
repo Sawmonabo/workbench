@@ -4,7 +4,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -76,23 +75,9 @@ func initialize(
 			"Native setup requires qualified chezmoi and Python before initialization",
 		)
 	}
-	seed := []byte("[data]\n")
-	if _, statErr := os.Lstat(c.Native.Config); statErr == nil {
-		seed, err = operation.ReadPrivateInput(c.Native.Config, 1<<20)
-		if err != nil {
-			return nil, err
-		}
-		if _, err = parseAnswers(seed); err != nil {
-			return nil, err
-		}
-	} else if !os.IsNotExist(statErr) {
-		return nil, statErr
-	} else if terminal == nil {
-		return nil, operation.Fail(
-			3,
-			"answers",
-			"Unattended native setup requires complete private answers",
-		)
+	seed, err := initSeed(c.Native.Config, terminal)
+	if err != nil {
+		return nil, err
 	}
 	scratch, err := os.MkdirTemp("", "workbench-init-")
 	if err != nil {
@@ -138,29 +123,8 @@ func initialize(
 	if err != nil {
 		return nil, err
 	}
-	output, err := operation.ReadPrivateInput(generated, 1<<20)
+	answers, err := generatedAnswers(generated)
 	if err != nil {
-		return nil, err
-	}
-	var document map[string]any
-	if toml.Unmarshal(output, &document) != nil {
-		return nil, operation.Fail(2, "answers", "Native init produced invalid configuration")
-	}
-	for key := range document {
-		if !slices.Contains([]string{"data", "sourceDir"}, key) {
-			return nil, operation.Fail(
-				2,
-				"answers",
-				"Native init produced unexpected configuration controls",
-			)
-		}
-	}
-	data, ok := document["data"].(map[string]any)
-	if !ok {
-		return nil, operation.Fail(2, "answers", "Native init did not produce machine answers")
-	}
-	answers := Answers(data)
-	if err = validateAnswers(answers); err != nil {
 		return nil, err
 	}
 	if _, _, err = SourceSnapshot(c.Native.Source); err != nil {
@@ -174,4 +138,59 @@ func initialize(
 		return nil, err
 	}
 	return answers, nil
+}
+
+// initSeed returns the existing validated answers to seed native init, or an
+// empty [data] table when a terminal can answer the questionnaire.
+func initSeed(config string, terminal *os.File) ([]byte, error) {
+	_, err := os.Lstat(config)
+	if os.IsNotExist(err) {
+		if terminal == nil {
+			return nil, operation.Fail(
+				3,
+				"answers",
+				"Unattended native setup requires complete private answers",
+			)
+		}
+		return []byte("[data]\n"), nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	seed, err := operation.ReadPrivateInput(config, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	if _, err = parseAnswers(seed); err != nil {
+		return nil, err
+	}
+	return seed, nil
+}
+
+// generatedAnswers reads the config native init wrote, allowing only [data]
+// and sourceDir, and validates the answers.
+func generatedAnswers(path string) (Answers, error) {
+	output, err := operation.ReadPrivateInput(path, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	var document map[string]any
+	if toml.Unmarshal(output, &document) != nil {
+		return nil, operation.Fail(2, "answers", "Native init produced invalid configuration")
+	}
+	for key := range document {
+		if key != "data" && key != "sourceDir" {
+			return nil, operation.Fail(
+				2,
+				"answers",
+				"Native init produced unexpected configuration controls",
+			)
+		}
+	}
+	data, ok := document["data"].(map[string]any)
+	if !ok {
+		return nil, operation.Fail(2, "answers", "Native init did not produce machine answers")
+	}
+	answers := Answers(data)
+	return answers, validateAnswers(answers)
 }

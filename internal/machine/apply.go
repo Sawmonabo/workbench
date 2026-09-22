@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"os"
+	"slices"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -32,173 +33,202 @@ func Apply(
 			prepared.Close()
 		}
 	}()
+	planner := func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
+		var err error
+		prepared, err = prepare(ctx, preview, selection)
+		return prepared.Plan, err
+	}
 	err := operation.WithMutation(
 		ctx,
 		c,
 		displayed,
 		consent,
-		func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
-			var err error
-			prepared, err = prepare(ctx, preview, selection)
-			return prepared.Plan, err
-		},
-		func(m *operation.Mutation) (applyErr error) {
-			runtimeMutated, activationPlanned := false, false
-			for _, effect := range prepared.Plan.Effects {
-				activationPlanned = activationPlanned || effect.Name == "activate-candidate"
+		planner,
+		func(m *operation.Mutation) error {
+			run := &applyRun{
+				ctx:       ctx,
+				c:         c,
+				m:         m,
+				selection: selection,
+				prepared:  prepared,
+				terminal:  terminal,
+				progress:  progress,
+				result:    &result,
 			}
-			defer func() {
-				if runtimeMutated && applyErr != nil && operation.ExitCode(applyErr) != 130 &&
-					operation.ExitCode(applyErr) != 5 {
-					applyErr = operation.Fail(
-						5,
-						"partial",
-						"Runtime activated; subsequent configuration work did not complete, retained recovery state requires inspection",
-					)
-				}
-			}()
-			state, err := operation.ReadState(c.Paths)
-			if err != nil {
-				return err
-			}
-			// Without target changes there is nothing to checkpoint; provisioning
-			// effects are external and never rolled back either way.
-			if len(prepared.Changes) == 0 {
-				if state != nil && state.PartialOperation != nil {
-					return operation.Fail(
-						3,
-						"recovery",
-						"Resolve the recorded incomplete operation before selecting another configuration release",
-					)
-				}
-				if err = release.ActivateCandidate(ctx, c, m); err != nil {
-					return err
-				}
-				runtimeMutated = activationPlanned
-				if !selection.ConfigOnly {
-					if err = prepared.Apply(ctx, c, m, terminal, progress); err != nil {
-						return provisioningFailure(err)
-					}
-				}
-				current, readErr := operation.ReadState(c.Paths)
-				if readErr != nil {
-					return readErr
-				}
-				activated := runtimeChanged(state, current)
-				if activated || !selection.ConfigOnly {
-					if current == nil {
-						current = &operation.State{SchemaVersion: 1}
-					}
-					current.AppliedConfiguration = &prepared.Plan.Source
-					current.Dependencies = prepared.Plan.Dependencies
-					if err = m.WriteState(*current); err != nil {
-						return operation.Fail(
-							5,
-							"state",
-							"Apply completed; configuration identity finalization failed",
-						)
-					}
-				}
-				if activated {
-					result.Results = append(
-						result.Results,
-						operation.Component{
-							Name:    "runtime",
-							Status:  "complete",
-							Message: "Approved matching runtime activated",
-						},
-					)
-				}
-				result.Results = append(
-					result.Results,
-					operation.Component{
-						Name:     "configuration",
-						Status:   "unchanged",
-						Recovery: "No target writes or checkpoint allocation",
-					},
-				)
-				if !selection.ConfigOnly {
-					result.Results = append(result.Results, effectResults(prepared.Plan.Effects)...)
-				}
-				return nil
-			}
-			if state == nil {
-				state = &operation.State{SchemaVersion: 1}
-			}
-			cp, err := operation.BeginCheckpoint(
-				m,
-				prepared.Plan,
-				state.AppliedConfiguration,
-				prepared.Changes,
-			)
-			if err != nil {
-				return err
-			}
-			result.OperationID = cp.ID
-			if err = release.ActivateCandidate(ctx, c, m); err != nil {
-				return err
-			}
-			runtimeMutated = activationPlanned
-			current, err := operation.ReadState(c.Paths)
-			if err != nil {
-				return err
-			}
-			runtimeMutated = runtimeMutated || runtimeChanged(state, current)
-			if current != nil {
-				state = current
-			}
-			state.PartialOperation = &operation.PartialOperation{ID: cp.ID, Scope: c.Scope}
-			if err = m.WriteState(*state); err != nil {
-				return err
-			}
-			if err = cp.StartNative(); err != nil {
-				return err
-			}
-			runErr := prepared.Apply(ctx, c, m, terminal, progress)
-			if runErr == nil {
-				runErr = cp.FinalizeNative()
-			}
-			if !selection.ConfigOnly && runErr != nil {
-				runErr = provisioningFailure(runErr)
-			}
-			if err = cp.Finish(runErr); err != nil {
-				status := "failed"
-				if operation.ExitCode(err) == 5 || operation.ExitCode(err) == 130 {
-					status = "partial"
-				}
-				result.Results = append(
-					result.Results,
-					operation.Component{
-						Name:     "configuration",
-						Status:   status,
-						Recovery: "Checkpoint " + cp.ID + " retained; unknown outcomes require reconciliation",
-					},
-				)
-				return err
-			}
-			state.AppliedConfiguration = &prepared.Plan.Source
-			state.Dependencies = prepared.Plan.Dependencies
-			state.PartialOperation = nil
-			if err = m.WriteState(*state); err != nil {
-				return operation.Fail(
-					5,
-					"state",
-					"Configuration applied; state finalization failed, retained checkpoint remains available",
-				)
-			}
-			result.Results = append(
-				result.Results,
-				operation.Component{
-					Name:     "configuration",
-					Status:   "complete",
-					Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
-				},
-			)
-			result.Results = append(result.Results, effectResults(prepared.Plan.Effects)...)
-			return nil
+			return run.apply()
 		},
 	)
 	return result, err
+}
+
+// applyRun is one approved apply holding the operation locks.
+type applyRun struct {
+	ctx            context.Context
+	c              operation.Context
+	m              *operation.Mutation
+	selection      Selection
+	prepared       *preparation
+	terminal       *os.File
+	progress       io.Writer
+	result         *operation.Result
+	runtimeMutated bool
+}
+
+func (a *applyRun) apply() (err error) {
+	defer func() {
+		code := operation.ExitCode(err)
+		if a.runtimeMutated && err != nil && code != 130 && code != 5 {
+			err = operation.Fail(
+				5,
+				"partial",
+				"Runtime activated; subsequent configuration work did not complete, retained recovery state requires inspection",
+			)
+		}
+	}()
+	state, err := operation.ReadState(a.c.Paths)
+	if err != nil {
+		return err
+	}
+	// Without target changes there is nothing to checkpoint; provisioning
+	// effects are external and never rolled back either way.
+	if len(a.prepared.Changes) == 0 {
+		return a.withoutCheckpoint(state)
+	}
+	return a.withCheckpoint(state)
+}
+
+// activate switches to the planned candidate runtime, if any, and records
+// whether that changed the runtime.
+func (a *applyRun) activate() error {
+	if err := release.ActivateCandidate(a.ctx, a.c, a.m); err != nil {
+		return err
+	}
+	a.runtimeMutated = slices.ContainsFunc(
+		a.prepared.Plan.Effects,
+		func(effect operation.Effect) bool {
+			return effect.Name == "activate-candidate"
+		},
+	)
+	return nil
+}
+
+func (a *applyRun) withoutCheckpoint(state *operation.State) error {
+	if state != nil && state.PartialOperation != nil {
+		return operation.Fail(
+			3,
+			"recovery",
+			"Resolve the recorded incomplete operation before selecting another configuration release",
+		)
+	}
+	if err := a.activate(); err != nil {
+		return err
+	}
+	if !a.selection.ConfigOnly {
+		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil {
+			return provisioningFailure(err)
+		}
+	}
+	current, err := operation.ReadState(a.c.Paths)
+	if err != nil {
+		return err
+	}
+	activated := runtimeChanged(state, current)
+	if activated || !a.selection.ConfigOnly {
+		if current == nil {
+			current = &operation.State{SchemaVersion: 1}
+		}
+		current.AppliedConfiguration = &a.prepared.Plan.Source
+		current.Dependencies = a.prepared.Plan.Dependencies
+		if err = a.m.WriteState(*current); err != nil {
+			return operation.Fail(
+				5,
+				"state",
+				"Apply completed; configuration identity finalization failed",
+			)
+		}
+	}
+	if activated {
+		a.result.Results = append(a.result.Results, operation.Component{
+			Name:    "runtime",
+			Status:  "complete",
+			Message: "Approved matching runtime activated",
+		})
+	}
+	a.result.Results = append(a.result.Results, operation.Component{
+		Name:     "configuration",
+		Status:   "unchanged",
+		Recovery: "No target writes or checkpoint allocation",
+	})
+	if !a.selection.ConfigOnly {
+		a.result.Results = append(a.result.Results, effectResults(a.prepared.Plan.Effects)...)
+	}
+	return nil
+}
+
+func (a *applyRun) withCheckpoint(state *operation.State) error {
+	if state == nil {
+		state = &operation.State{SchemaVersion: 1}
+	}
+	plan := a.prepared.Plan
+	cp, err := operation.BeginCheckpoint(a.m, plan, state.AppliedConfiguration, a.prepared.Changes)
+	if err != nil {
+		return err
+	}
+	a.result.OperationID = cp.ID
+	if err = a.activate(); err != nil {
+		return err
+	}
+	current, err := operation.ReadState(a.c.Paths)
+	if err != nil {
+		return err
+	}
+	a.runtimeMutated = a.runtimeMutated || runtimeChanged(state, current)
+	if current != nil {
+		state = current
+	}
+	state.PartialOperation = &operation.PartialOperation{ID: cp.ID, Scope: a.c.Scope}
+	if err = a.m.WriteState(*state); err != nil {
+		return err
+	}
+	if err = cp.StartNative(); err != nil {
+		return err
+	}
+	runErr := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress)
+	if runErr == nil {
+		runErr = cp.FinalizeNative()
+	}
+	if !a.selection.ConfigOnly && runErr != nil {
+		runErr = provisioningFailure(runErr)
+	}
+	if err = cp.Finish(runErr); err != nil {
+		status := "failed"
+		if code := operation.ExitCode(err); code == 5 || code == 130 {
+			status = "partial"
+		}
+		a.result.Results = append(a.result.Results, operation.Component{
+			Name:     "configuration",
+			Status:   status,
+			Recovery: "Checkpoint " + cp.ID + " retained; unknown outcomes require reconciliation",
+		})
+		return err
+	}
+	state.AppliedConfiguration = &plan.Source
+	state.Dependencies = plan.Dependencies
+	state.PartialOperation = nil
+	if err = a.m.WriteState(*state); err != nil {
+		return operation.Fail(
+			5,
+			"state",
+			"Configuration applied; state finalization failed, retained checkpoint remains available",
+		)
+	}
+	a.result.Results = append(a.result.Results, operation.Component{
+		Name:     "configuration",
+		Status:   "complete",
+		Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
+	})
+	a.result.Results = append(a.result.Results, effectResults(plan.Effects)...)
+	return nil
 }
 
 // provisioningFailure keeps the native cause; external effects are not rolled back.

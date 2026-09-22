@@ -192,13 +192,12 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		{Name: "machine-answers", Digest: previous},
 	}
 	if action != "" {
-		plan.Edits = []operation.Edit{
-			{
-				Path:        target,
-				Action:      action,
-				Description: "Save machine answers (" + answers.label() + ") from the [data] table of " + from + "; its other keys are ignored",
-			},
-		}
+		description := fmt.Sprintf(
+			"Save machine answers (%s) from the [data] table of %s; its other keys are ignored",
+			answers.label(),
+			from,
+		)
+		plan.Edits = []operation.Edit{{Path: target, Action: action, Description: description}}
 	}
 	plan.Complete = true
 	return plan, encoded, nil

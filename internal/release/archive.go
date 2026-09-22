@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -82,28 +84,49 @@ func member(name string) bool {
 // Every member must match its SHA-256 in release.json, which catches a
 // truncated or corrupted download; it is not an authenticity check.
 func Verify(reader io.Reader, version, target string) (Bundle, error) {
-	bundle := Bundle{Files: map[string][]byte{}}
-	fail := func(message string) (Bundle, error) { return Bundle{}, operation.Fail(2, "release_integrity", message) }
 	raw, err := io.ReadAll(io.LimitReader(reader, MaxDownload+1))
 	if err != nil || int64(len(raw)) > MaxDownload {
-		return fail("Release download exceeds its bound or cannot be read")
+		return Bundle{}, integrity("Release download exceeds its bound or cannot be read")
 	}
-	bundle.ArchiveDigest = sum(raw)
+	files, err := readMembers(raw)
+	if err != nil {
+		return Bundle{}, err
+	}
+	bundle := Bundle{Files: files, ArchiveDigest: sum(raw)}
+	metadata := files["release.json"]
+	if len(metadata) == 0 || len(metadata) > 1<<20 {
+		return Bundle{}, integrity("Missing or oversized release metadata")
+	}
+	if err = decodeMetadata(metadata, &bundle.Metadata); err != nil {
+		return Bundle{}, integrity("Malformed release metadata")
+	}
+	if err = bundle.checkManifest(version, target); err != nil {
+		return Bundle{}, err
+	}
+	return bundle, nil
+}
+
+func integrity(message string) error { return operation.Fail(2, "release_integrity", message) }
+
+// readMembers reads every archive member within the file-count and expanded
+// size bounds, rejecting unsafe names, special files and unexpected layout.
+func readMembers(raw []byte) (map[string][]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {
-		return fail("Release is not a gzip archive")
+		return nil, integrity("Release is not a gzip archive")
 	}
 	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
+	files := map[string][]byte{}
 	seen := map[string]bool{}
 	var total int64
 	for {
 		header, readErr := tr.Next()
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {
-			return fail("Malformed release archive")
+			return nil, integrity("Malformed release archive")
 		}
 		name := header.Name
 		if header.Typeflag == tar.TypeDir {
@@ -111,72 +134,69 @@ func Verify(reader io.Reader, version, target string) (Bundle, error) {
 		}
 		if !member(name) || seen[strings.ToLower(name)] || len(seen) >= maxFiles ||
 			header.Mode&0o7000 != 0 {
-			return fail("Unsafe or duplicate archive member")
+			return nil, integrity("Unsafe or duplicate archive member")
 		}
 		seen[strings.ToLower(name)] = true
 		if header.Typeflag == tar.TypeDir {
 			if header.Size != 0 {
-				return fail("Archive directories cannot carry payload bytes")
+				return nil, integrity("Archive directories cannot carry payload bytes")
 			}
-			if name != "bin" && name != "home" && name != "project" && name != "licenses" &&
-				!allowed(name+"/") {
-				return fail("Unexpected release directory")
+			top := slices.Contains([]string{"bin", "home", "project", "licenses"}, name)
+			if !top && !allowed(name+"/") {
+				return nil, integrity("Unexpected release directory")
 			}
 			continue
 		}
 		if header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > MaxDownload ||
 			(!allowed(name) && name != "release.json") {
-			return fail("Release contains an unsupported file or layout")
+			return nil, integrity("Release contains an unsupported file or layout")
 		}
 		total += header.Size
 		if total > maxExpanded {
-			return fail("Expanded release exceeds its size bound")
+			return nil, integrity("Expanded release exceeds its size bound")
 		}
 		data, readErr := io.ReadAll(io.LimitReader(tr, header.Size+1))
 		if readErr != nil || int64(len(data)) != header.Size {
-			return fail("Truncated release member")
+			return nil, integrity("Truncated release member")
 		}
-		bundle.Files[name] = data
+		files[name] = data
 	}
 	// Drain through the gzip checksum, retaining the same expanded bound.
-	if n, drainErr := io.Copy(
-		io.Discard,
-		io.LimitReader(gz, maxExpanded-total+1),
-	); drainErr != nil ||
-		n > maxExpanded-total {
-		return fail("Invalid gzip trailer or oversized archive padding")
+	remaining := maxExpanded - total
+	n, err := io.Copy(io.Discard, io.LimitReader(gz, remaining+1))
+	if err != nil || n > remaining {
+		return nil, integrity("Invalid gzip trailer or oversized archive padding")
 	}
-	metadata := bundle.Files["release.json"]
-	if len(metadata) == 0 || len(metadata) > 1<<20 {
-		return fail("Missing or oversized release metadata")
-	}
-	if err = decodeMetadata(metadata, &bundle.Metadata); err != nil {
-		return fail("Malformed release metadata")
-	}
-	m := bundle.Metadata
+	return files, nil
+}
+
+// checkManifest requires the expected release, target and state format, and
+// every payload file to match its manifest entry exactly.
+func (b Bundle) checkManifest(version, target string) error {
+	m := b.Metadata
 	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) ||
 		(version != "" && m.Release != version) ||
 		m.Target != target ||
 		!validDigest(m.SourceDigest) {
-		return fail("Release version, target or state format is unsupported")
+		return integrity("Release version, target or state format is unsupported")
 	}
-	if len(m.Files)+1 != len(bundle.Files) {
-		return fail("Release manifest does not match the complete payload")
+	if len(m.Files)+1 != len(b.Files) {
+		return integrity("Release manifest does not match the complete payload")
 	}
 	for name, entry := range m.Files {
-		data, ok := bundle.Files[name]
+		data, ok := b.Files[name]
 		if !ok || !allowed(name) || !validDigest(entry.SHA256) || sum(data) != entry.SHA256 ||
 			int64(len(data)) != entry.Size ||
 			entry.Executable != (name == "bin/workbench") {
-			return fail("Release payload integrity mismatch")
+			return integrity("Release payload integrity mismatch")
 		}
 	}
 	for _, required := range []string{"bin/workbench", ".chezmoiroot", "home/.chezmoi.toml.tmpl", "licenses/NOTICE"} {
-		if len(bundle.Files[required]) == 0 {
-			return fail("Required release payload is missing")
+		if len(b.Files[required]) == 0 {
+			return integrity("Required release payload is missing")
 		}
 	}
-	return bundle, nil
+	return nil
 }
 
 // Identity returns the release and source digest the bundle carries.

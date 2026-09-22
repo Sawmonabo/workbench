@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -168,27 +169,41 @@ func writeCandidate(c operation.Context, m *operation.Mutation, b Bundle, direct
 // Candidate is an offline selection; only pull writes this pointer. Active
 // runtime selection remains in state.json and applied configuration is separate.
 func Candidate(c operation.Context) (string, error) {
-	if _, err := os.Lstat(filepath.Join(c.Paths.State, "candidate.json")); os.IsNotExist(err) {
-		return "", nil
-	}
-	raw, err := operation.ReadPrivateInput(filepath.Join(c.Paths.State, "candidate.json"), 1<<20)
-	if err != nil {
+	record, _, err := readCandidate(c)
+	if record == nil || err != nil {
 		return "", err
 	}
-	var record candidateRecord
-	decoder := json.NewDecoder(strings.NewReader(string(raw)))
-	decoder.DisallowUnknownFields()
-	if err = decoder.Decode(
-		&record,
-	); err != nil || !validDigest(record.SHA256) || !validDigest(record.MetadataSHA256) || !identifier.MatchString(record.Version) ||
-		record.Directory != filepath.Join(
-			c.Paths.Data,
-			"releases",
-			record.Version+"-"+record.SHA256[:16],
-		) {
-		return "", operation.Fail(2, "candidate", "Invalid staged candidate record")
-	}
 	return record.Directory, nil
+}
+
+// readCandidate strictly decodes and validates candidate.json, returning nil
+// when no candidate is staged, plus the raw bytes that consent binds.
+func readCandidate(c operation.Context) (*candidateRecord, []byte, error) {
+	path := filepath.Join(c.Paths.State, "candidate.json")
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return nil, nil, nil
+	}
+	raw, err := operation.ReadPrivateInput(path, 1<<20)
+	if err != nil {
+		return nil, nil, err
+	}
+	invalid := operation.Fail(2, "candidate", "Invalid staged candidate record")
+	var record candidateRecord
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&record) != nil {
+		return nil, nil, invalid
+	}
+	valid := validDigest(record.SHA256) && validDigest(record.MetadataSHA256) &&
+		identifier.MatchString(record.Version)
+	if !valid {
+		return nil, nil, invalid
+	}
+	staged := filepath.Join(c.Paths.Data, "releases", record.Version+"-"+record.SHA256[:16])
+	if record.Directory != staged {
+		return nil, nil, invalid
+	}
+	return &record, raw, nil
 }
 
 // Inspect rechecks a staged release directory against its manifest and
@@ -203,12 +218,14 @@ func Inspect(directory string) (Metadata, error) {
 	if err != nil {
 		return metadata, err
 	}
-	if err = decodeMetadata(
-		raw,
-		&metadata,
-	); err != nil || metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() || !identifier.MatchString(metadata.Release) || !validDigest(metadata.SourceDigest) ||
+	unsupported := operation.Fail(2, "release", "Unsupported release metadata")
+	if decodeMetadata(raw, &metadata) != nil {
+		return metadata, unsupported
+	}
+	if metadata.SchemaVersion != 1 || metadata.StateVersion != 1 || metadata.Target != Target() ||
+		!identifier.MatchString(metadata.Release) || !validDigest(metadata.SourceDigest) ||
 		len(metadata.Files) > maxFiles {
-		return metadata, operation.Fail(2, "release", "Unsupported release metadata")
+		return metadata, unsupported
 	}
 	var total int64
 	for name, entry := range metadata.Files {
@@ -386,42 +403,9 @@ func Activate(
 	if err != nil {
 		return err
 	}
-	previous := state.ActiveRelease
-	if journal != nil && journal.Status == "running" {
-		if journal.Candidate.Executable != executable ||
-			journal.Candidate.Identity != b.Identity() {
-			return operation.Fail(
-				4,
-				"activation_incomplete",
-				"Resume the interrupted install with its original verified candidate",
-			)
-		}
-		previous = journal.Previous
-	}
-	if info, statErr := os.Lstat(entry); statErr == nil {
-		// Only an entry point recorded by this state may be replaced.
-		if info.Mode()&os.ModeSymlink == 0 {
-			return operation.Fail(
-				4,
-				"command_collision",
-				"An unrelated workbench command already occupies the installation path",
-			)
-		}
-		link, linkErr := os.Readlink(entry)
-		known := state.ActiveRelease != nil && link == state.ActiveRelease.Executable
-		if journal != nil && journal.Status == "running" {
-			known = known || link == journal.Candidate.Executable ||
-				(previous != nil && link == previous.Executable)
-		}
-		if linkErr != nil || !known {
-			return operation.Fail(
-				4,
-				"command_collision",
-				"Existing workbench entry point is not the recorded runtime",
-			)
-		}
-	} else if !os.IsNotExist(statErr) {
-		return statErr
+	previous, err := replacedRuntime(state, journal, executable, b.Identity(), entry)
+	if err != nil {
+		return err
 	}
 	if err = os.MkdirAll(c.Paths.Bin, 0o755); err != nil {
 		return err
@@ -455,32 +439,29 @@ func Activate(
 		return err
 	}
 	defer func() { _ = os.Remove(pending) }()
+	// restore puts the previous runtime back in state after a failed step; if
+	// even that fails, the journal still requires resuming this install.
+	restore := func(cause error, unrestored string) error {
+		state.ActiveRelease = previous
+		if m.WriteState(*state) != nil {
+			return operation.Fail(5, "activation_incomplete", unrestored)
+		}
+		journal.Status = "failed"
+		_ = writeJournal()
+		return cause
+	}
 	state.ActiveRelease = &next
 	if err = m.WriteState(*state); err != nil {
-		state.ActiveRelease = previous
-		if restoreErr := m.WriteState(*state); restoreErr != nil {
-			return operation.Fail(
-				5,
-				"activation_incomplete",
-				"Activation state could not be made durable or restored; resume the same install",
-			)
-		}
-		journal.Status = "failed"
-		_ = writeJournal()
-		return err
+		return restore(
+			err,
+			"Activation state could not be made durable or restored; resume the same install",
+		)
 	}
 	if err = os.Rename(pending, entry); err != nil {
-		state.ActiveRelease = previous
-		if restoreErr := m.WriteState(*state); restoreErr != nil {
-			return operation.Fail(
-				5,
-				"activation_incomplete",
-				"Entry-point activation failed and state restoration is incomplete; resume install",
-			)
-		}
-		journal.Status = "failed"
-		_ = writeJournal()
-		return err
+		return restore(
+			err,
+			"Entry-point activation failed and state restoration is incomplete; resume install",
+		)
 	}
 	if err = syncDirectory(c.Paths.Bin); err != nil {
 		return operation.Fail(
@@ -498,6 +479,67 @@ func Activate(
 		)
 	}
 	return ValidateSelection(c)
+}
+
+// replacedRuntime returns the runtime this activation replaces: the active one,
+// or the one an interrupted activation of the same candidate recorded. It also
+// checks that the entry point may be replaced.
+func replacedRuntime(
+	state *operation.State,
+	journal *activationJournal,
+	executable string,
+	identity operation.SourceIdentity,
+	entry string,
+) (*operation.ReleaseRecord, error) {
+	previous := state.ActiveRelease
+	if journal != nil && journal.Status == "running" {
+		if journal.Candidate.Executable != executable ||
+			journal.Candidate.Identity != identity {
+			return nil, operation.Fail(
+				4,
+				"activation_incomplete",
+				"Resume the interrupted install with its original verified candidate",
+			)
+		}
+		previous = journal.Previous
+	}
+	// Only an entry point recorded by this state may be replaced.
+	known := []*operation.ReleaseRecord{state.ActiveRelease}
+	if journal != nil && journal.Status == "running" {
+		known = append(known, &journal.Candidate, previous)
+	}
+	return previous, checkEntryPoint(entry, known)
+}
+
+// checkEntryPoint allows a missing entry point, or a symlink to one of the
+// known runtimes' executables; anything else is a command collision.
+func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
+	info, err := os.Lstat(entry)
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		return operation.Fail(
+			4,
+			"command_collision",
+			"An unrelated workbench command already occupies the installation path",
+		)
+	}
+	link, err := os.Readlink(entry)
+	recorded := slices.ContainsFunc(known, func(record *operation.ReleaseRecord) bool {
+		return record != nil && link == record.Executable
+	})
+	if err != nil || !recorded {
+		return operation.Fail(
+			4,
+			"command_collision",
+			"Existing workbench entry point is not the recorded runtime",
+		)
+	}
+	return nil
 }
 
 func runtimeEnvironment(c operation.Context) []string {

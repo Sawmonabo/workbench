@@ -23,21 +23,11 @@ type candidate struct {
 }
 
 func selectedCandidate(c operation.Context) (*candidate, error) {
-	directory, err := Candidate(c)
-	if err != nil {
+	saved, raw, err := readCandidate(c)
+	if saved == nil || err != nil || saved.Directory != c.Native.Source {
 		return nil, err
 	}
-	if directory == "" || directory != c.Native.Source {
-		return nil, nil
-	}
-	raw, err := operation.ReadPrivateInput(filepath.Join(c.Paths.State, "candidate.json"), 1<<20)
-	if err != nil {
-		return nil, err
-	}
-	var saved candidateRecord
-	if err = json.Unmarshal(raw, &saved); err != nil {
-		return nil, err
-	}
+	directory := saved.Directory
 	metadata, err := Inspect(directory)
 	if err != nil {
 		return nil, err

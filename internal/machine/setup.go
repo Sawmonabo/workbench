@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"errors"
 	"io"
 	"io/fs"
 	"os"
@@ -113,152 +114,21 @@ func setupDependencies(
 		if dependency(selected, name) != "" {
 			continue
 		}
-		version := requirements.Chezmoi
-		hash := requirements.ChezmoiSHA256[release.Target()]
-		asset := "chezmoi_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
-		location := "https://github.com/twpayne/chezmoi/releases/download/v" + version + "/" + asset
-		if name == "uv" {
-			version = requirements.UV
-			hash = requirements.UVSHA256[release.Target()]
-			cpu := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
-			platform := map[string]string{"darwin": "apple-darwin", "linux": "unknown-linux-gnu"}[runtime.GOOS]
-			asset = "uv-" + cpu + "-" + platform + ".tar.gz"
-			location = "https://github.com/astral-sh/uv/releases/download/" + version + "/" + asset
+		acquired, acquireErr := acquireTool(ctx, c, name, requirements)
+		if acquireErr != nil {
+			return nil, acquireErr
 		}
-		if len(hash) != 64 {
-			return nil, operation.Fail(
-				3,
-				"dependency_trust",
-				"No reviewed management artifact digest for this target",
-			)
-		}
-		data, downloadErr := release.Download(ctx, location, release.MaxDownload)
-		if downloadErr != nil {
-			return nil, downloadErr
-		}
-		if digest(data) != hash {
-			return nil, operation.Fail(
-				2,
-				"dependency_trust",
-				"Management archive checksum mismatch; executable was not used",
-			)
-		}
-		binary, extractErr := toolArchive(data, name)
-		if extractErr != nil {
-			return nil, extractErr
-		}
-		directory := filepath.Join(c.Paths.Data, "tools", name, version)
-		if err = release.PrivateDirectory(c.Paths.Data, directory, true); err != nil {
-			return nil, err
-		}
-		executable := filepath.Join(directory, name)
-		if err = writeNewOrIdentical(executable, binary, 0o700); err != nil {
-			return nil, err
-		}
-		selected = append(
-			selected,
-			operation.Dependency{
-				Name:    name,
-				Path:    executable,
-				Version: version,
-				Owner:   "workbench",
-			},
-		)
+		selected = append(selected, acquired)
 	}
 	if dependency(selected, "python3") == "" {
-		install := filepath.Join(c.Paths.Data, "tools", "python", requirements.Python)
-		cache := filepath.Join(c.Paths.Cache, "uv")
-		if err = release.PrivateDirectory(c.Paths.Cache, cache, true); err != nil {
-			return nil, err
+		python, pythonErr := acquirePython(ctx, c, m, dependency(selected, "uv"), requirements)
+		if pythonErr != nil {
+			return nil, pythonErr
 		}
-		if err = release.PrivateDirectory(c.Paths.Data, install, true); err != nil {
-			return nil, err
-		}
-		_, err = operation.Run(
-			ctx,
-			c,
-			m,
-			operation.Process{
-				Executable: dependency(selected, "uv"),
-				Args: []string{
-					"--cache-dir",
-					cache,
-					"python",
-					"install",
-					"--install-dir",
-					install,
-					"--no-bin",
-					requirements.Python,
-				},
-				Directory:   "/",
-				Environment: []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
-				Mutates:     true,
-				Timeout:     10 * time.Minute,
-			},
-		)
-		if err != nil {
-			return nil, err
-		}
-		// uv also creates a minor-version alias; select the exact acquired patch
-		// directory rather than counting that alias as a second interpreter.
-		matches, globErr := filepath.Glob(
-			filepath.Join(install, "cpython-"+requirements.Python+"-*", "bin", "python3"),
-		)
-		if globErr != nil || len(matches) != 1 {
-			return nil, operation.Fail(
-				3,
-				"python",
-				"Private Python installation did not produce one interpreter",
-			)
-		}
-		selected = append(
-			selected,
-			operation.Dependency{
-				Name:    "python3",
-				Path:    matches[0],
-				Version: requirements.Python,
-				Owner:   "workbench",
-			},
-		)
+		selected = append(selected, python)
 	}
 	if _, err = TomlkitPath(c); err != nil {
-		wheel, downloadErr := release.Download(ctx, requirements.TomlkitURL, 16<<20)
-		if downloadErr != nil {
-			return nil, downloadErr
-		}
-		if digest(wheel) != requirements.TomlkitSHA256 {
-			return nil, operation.Fail(2, "dependency_trust", "TOML Kit wheel checksum mismatch")
-		}
-		directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
-		if err = release.PrivateDirectory(
-			c.Paths.Data,
-			filepath.Join(directory, "lib"),
-			true,
-		); err != nil {
-			return nil, err
-		}
-		files, extractErr := wheelFiles(wheel)
-		if extractErr != nil {
-			return nil, extractErr
-		}
-		for name, data := range files {
-			target := filepath.Join(directory, "lib", name)
-			if err = release.PrivateDirectory(
-				c.Paths.Data,
-				filepath.Dir(target),
-				true,
-			); err != nil {
-				return nil, err
-			}
-			if err = writeNewOrIdentical(target, data, 0o600); err != nil {
-				return nil, err
-			}
-		}
-		if err = writeNewOrIdentical(
-			filepath.Join(directory, "distribution.whl"),
-			wheel,
-			0o600,
-		); err != nil {
+		if err = acquireTomlkit(ctx, c, requirements); err != nil {
 			return nil, err
 		}
 	}
@@ -315,10 +185,152 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	return closeErr
 }
 
-func toolArchive(data []byte, name string) ([]byte, error) {
-	fail := func() ([]byte, error) {
-		return nil, operation.Fail(2, "dependency_archive", "Unsafe management archive")
+// acquireTool downloads the pinned chezmoi or uv release for this target,
+// checks its reviewed digest and installs the binary privately.
+func acquireTool(
+	ctx context.Context,
+	c operation.Context,
+	name string,
+	requirements Requirements,
+) (operation.Dependency, error) {
+	version := requirements.Chezmoi
+	hash := requirements.ChezmoiSHA256[release.Target()]
+	asset := "chezmoi_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+	location := "https://github.com/twpayne/chezmoi/releases/download/v" + version + "/" + asset
+	if name == "uv" {
+		version = requirements.UV
+		hash = requirements.UVSHA256[release.Target()]
+		cpu := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
+		platform := map[string]string{"darwin": "apple-darwin", "linux": "unknown-linux-gnu"}[runtime.GOOS]
+		asset = "uv-" + cpu + "-" + platform + ".tar.gz"
+		location = "https://github.com/astral-sh/uv/releases/download/" + version + "/" + asset
 	}
+	if len(hash) != 64 {
+		return operation.Dependency{}, operation.Fail(
+			3,
+			"dependency_trust",
+			"No reviewed management artifact digest for this target",
+		)
+	}
+	data, err := release.Download(ctx, location, release.MaxDownload)
+	if err != nil {
+		return operation.Dependency{}, err
+	}
+	if digest(data) != hash {
+		return operation.Dependency{}, operation.Fail(
+			2,
+			"dependency_trust",
+			"Management archive checksum mismatch; executable was not used",
+		)
+	}
+	binary, err := toolArchive(data, name)
+	if err != nil {
+		return operation.Dependency{}, err
+	}
+	directory := filepath.Join(c.Paths.Data, "tools", name, version)
+	if err = release.PrivateDirectory(c.Paths.Data, directory, true); err != nil {
+		return operation.Dependency{}, err
+	}
+	executable := filepath.Join(directory, name)
+	if err = writeNewOrIdentical(executable, binary, 0o700); err != nil {
+		return operation.Dependency{}, err
+	}
+	return operation.Dependency{
+		Name:    name,
+		Path:    executable,
+		Version: version,
+		Owner:   "workbench",
+	}, nil
+}
+
+// acquirePython installs the pinned CPython privately with uv.
+func acquirePython(
+	ctx context.Context,
+	c operation.Context,
+	m *operation.Mutation,
+	uv string,
+	requirements Requirements,
+) (operation.Dependency, error) {
+	install := filepath.Join(c.Paths.Data, "tools", "python", requirements.Python)
+	cache := filepath.Join(c.Paths.Cache, "uv")
+	if err := release.PrivateDirectory(c.Paths.Cache, cache, true); err != nil {
+		return operation.Dependency{}, err
+	}
+	if err := release.PrivateDirectory(c.Paths.Data, install, true); err != nil {
+		return operation.Dependency{}, err
+	}
+	_, err := operation.Run(ctx, c, m, operation.Process{
+		Executable: uv,
+		Args: []string{
+			"--cache-dir",
+			cache,
+			"python",
+			"install",
+			"--install-dir",
+			install,
+			"--no-bin",
+			requirements.Python,
+		},
+		Directory:   "/",
+		Environment: []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
+		Mutates:     true,
+		Timeout:     10 * time.Minute,
+	})
+	if err != nil {
+		return operation.Dependency{}, err
+	}
+	// uv also creates a minor-version alias; select the exact acquired patch
+	// directory rather than counting that alias as a second interpreter.
+	pattern := filepath.Join(install, "cpython-"+requirements.Python+"-*", "bin", "python3")
+	matches, err := filepath.Glob(pattern)
+	if err != nil || len(matches) != 1 {
+		return operation.Dependency{}, operation.Fail(
+			3,
+			"python",
+			"Private Python installation did not produce one interpreter",
+		)
+	}
+	return operation.Dependency{
+		Name:    "python3",
+		Path:    matches[0],
+		Version: requirements.Python,
+		Owner:   "workbench",
+	}, nil
+}
+
+// acquireTomlkit downloads the pinned TOML Kit wheel, checks its digest and
+// unpacks it privately for the project editor adapter.
+func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requirements) error {
+	wheel, err := release.Download(ctx, requirements.TomlkitURL, 16<<20)
+	if err != nil {
+		return err
+	}
+	if digest(wheel) != requirements.TomlkitSHA256 {
+		return operation.Fail(2, "dependency_trust", "TOML Kit wheel checksum mismatch")
+	}
+	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
+	lib := filepath.Join(directory, "lib")
+	if err = release.PrivateDirectory(c.Paths.Data, lib, true); err != nil {
+		return err
+	}
+	files, err := wheelFiles(wheel)
+	if err != nil {
+		return err
+	}
+	for name, data := range files {
+		target := filepath.Join(lib, name)
+		if err = release.PrivateDirectory(c.Paths.Data, filepath.Dir(target), true); err != nil {
+			return err
+		}
+		if err = writeNewOrIdentical(target, data, 0o600); err != nil {
+			return err
+		}
+	}
+	return writeNewOrIdentical(filepath.Join(directory, "distribution.whl"), wheel, 0o600)
+}
+
+func toolArchive(data []byte, name string) ([]byte, error) {
+	unsafeArchive := operation.Fail(2, "dependency_archive", "Unsafe management archive")
 	gz, err := gzip.NewReader(bytes.NewReader(data))
 	if err != nil {
 		return nil, err
@@ -330,7 +342,7 @@ func toolArchive(data []byte, name string) ([]byte, error) {
 	var total int64
 	for {
 		header, readErr := reader.Next()
-		if readErr == io.EOF {
+		if errors.Is(readErr, io.EOF) {
 			break
 		}
 		if readErr != nil {
@@ -344,21 +356,21 @@ func toolArchive(data []byte, name string) ([]byte, error) {
 			strings.Contains(member, "\\") ||
 			seen[member] ||
 			len(seen) > 4096 {
-			return fail()
+			return nil, unsafeArchive
 		}
 		seen[member] = true
 		if header.Typeflag == tar.TypeDir {
 			if header.Size != 0 {
-				return fail()
+				return nil, unsafeArchive
 			}
 			continue
 		}
 		if header.Typeflag != tar.TypeReg || header.Size < 0 || header.Size > release.MaxDownload {
-			return fail()
+			return nil, unsafeArchive
 		}
 		total += header.Size
 		if total > 256<<20 {
-			return fail()
+			return nil, unsafeArchive
 		}
 		content, readErr := io.ReadAll(io.LimitReader(reader, header.Size+1))
 		if readErr != nil {
@@ -366,13 +378,13 @@ func toolArchive(data []byte, name string) ([]byte, error) {
 		}
 		if path.Base(member) == name {
 			if binary != nil {
-				return fail()
+				return nil, unsafeArchive
 			}
 			binary = content
 		}
 	}
 	if len(binary) == 0 {
-		return fail()
+		return nil, unsafeArchive
 	}
 	return binary, nil
 }

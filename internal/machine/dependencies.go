@@ -60,83 +60,13 @@ func ResolveDependencies(
 			Message: "Missing qualified tool; approved setup is required",
 		}
 		for _, candidate := range candidates {
-			args := []string{"--version"}
-			environment := []string{
-				"PATH=/usr/bin:/bin",
-				"PYTHONDONTWRITEBYTECODE=1",
-				"HOME=" + c.Home,
-			}
-			cleanup := func() {}
-			if name == "chezmoi" {
-				scratch, scratchErr := os.MkdirTemp("", "workbench-version-")
-				if scratchErr != nil {
-					component.Message = "Cannot create private version-probe scratch"
-					continue
-				}
-				cleanup = func() { _ = os.RemoveAll(scratch) }
-				if scratchErr = os.WriteFile(
-					filepath.Join(scratch, "config.toml"),
-					nil,
-					0o600,
-				); scratchErr != nil {
-					cleanup()
-					continue
-				}
-				native := operation.NativeContext{
-					Source:          scratch,
-					Config:          filepath.Join(scratch, "config.toml"),
-					Destination:     scratch,
-					PersistentState: filepath.Join(scratch, "state.boltdb"),
-					Cache:           filepath.Join(scratch, "cache"),
-				}
-				args, _ = native.Args()
-				args = append(args, "--version")
-				environment = []string{"PATH=/usr/bin:/bin", "HOME=" + scratch}
-			}
-			if name == "python3" {
-				args = []string{
-					"-I",
-					"-c",
-					"import sys,tomllib; print('.'.join(map(str,sys.version_info[:3])))",
-				}
-			}
-			output, runErr := operation.Run(
-				ctx,
-				c,
-				nil,
-				operation.Process{
-					Executable:  candidate.Path,
-					Args:        args,
-					Directory:   "/",
-					Environment: environment,
-					Timeout:     10 * time.Second,
-					OutputLimit: 4096,
-				},
-			)
-			cleanup()
-			if runErr != nil {
-				component.Message = "Version/capability probe failed; existing tool retained"
+			version, err := probeVersion(ctx, c, name, candidate.Path)
+			if err != nil {
+				component.Message = err.Error()
 				continue
 			}
-			version := toolVersion.FindString(output.Stdout)
-			qualified := false
-			switch name {
-			case "chezmoi":
-				qualified = version == requirements.Chezmoi
-				candidate.Capabilities = []string{"builtin-git", "builtin-diff", "native-targets"}
-			case "uv":
-				qualified = version == requirements.UV ||
-					slices.Contains(requirements.UVAdditional, version)
-				candidate.Capabilities = []string{"private-python"}
-			case "python3":
-				parts := strings.Split(version, ".")
-				if len(parts) == 3 {
-					minor, _ := strconv.Atoi(parts[1])
-					qualified = parts[0] == "3" && minor >= requirements.PythonMinMinor &&
-						minor <= requirements.PythonMaxMinor
-				}
-				candidate.Capabilities = []string{"tomllib"}
-			}
+			qualified, capabilities := qualify(name, version, requirements)
+			candidate.Capabilities = capabilities
 			candidate.Version = version
 			if !qualified {
 				component.Message = "Installed version is unqualified; retained without replacement"
@@ -149,6 +79,93 @@ func ResolveDependencies(
 		results = append(results, component)
 	}
 	return dependencies, results
+}
+
+// probeVersion runs a bounded version probe of the tool at path and returns
+// the version it reports. chezmoi runs against an empty private scratch
+// context so it never reads the user's configuration.
+func probeVersion(ctx context.Context, c operation.Context, name, path string) (string, error) {
+	args := []string{"--version"}
+	environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}
+	switch name {
+	case "chezmoi":
+		scratch, err := os.MkdirTemp("", "workbench-version-")
+		if err != nil {
+			return "", operation.Fail(
+				1,
+				"dependency",
+				"Cannot create private version-probe scratch",
+			)
+		}
+		defer func() { _ = os.RemoveAll(scratch) }()
+		config := filepath.Join(scratch, "config.toml")
+		if err = os.WriteFile(config, nil, 0o600); err != nil {
+			return "", operation.Fail(
+				1,
+				"dependency",
+				"Cannot create private version-probe scratch",
+			)
+		}
+		native := operation.NativeContext{
+			Source:          scratch,
+			Config:          config,
+			Destination:     scratch,
+			PersistentState: filepath.Join(scratch, "state.boltdb"),
+			Cache:           filepath.Join(scratch, "cache"),
+		}
+		args, _ = native.Args()
+		args = append(args, "--version")
+		environment = []string{"PATH=/usr/bin:/bin", "HOME=" + scratch}
+	case "python3":
+		args = []string{
+			"-I",
+			"-c",
+			"import sys,tomllib; print('.'.join(map(str,sys.version_info[:3])))",
+		}
+	}
+	output, err := operation.Run(ctx, c, nil, operation.Process{
+		Executable:  path,
+		Args:        args,
+		Directory:   "/",
+		Environment: environment,
+		Timeout:     10 * time.Second,
+		OutputLimit: 4096,
+	})
+	if err != nil {
+		return "", operation.Fail(
+			1,
+			"dependency",
+			"Version/capability probe failed; existing tool retained",
+		)
+	}
+	return toolVersion.FindString(output.Stdout), nil
+}
+
+// qualify reports whether version is qualified for tool name and returns the
+// capabilities Workbench relies on from it.
+func qualify(name, version string, requirements Requirements) (bool, []string) {
+	switch name {
+	case "chezmoi":
+		return version == requirements.Chezmoi, []string{
+			"builtin-git",
+			"builtin-diff",
+			"native-targets",
+		}
+	case "uv":
+		qualified := version == requirements.UV ||
+			slices.Contains(requirements.UVAdditional, version)
+		return qualified, []string{"private-python"}
+	case "python3":
+		parts := strings.Split(version, ".")
+		if len(parts) != 3 {
+			return false, []string{"tomllib"}
+		}
+		minor, _ := strconv.Atoi(parts[1])
+		qualified := parts[0] == "3" && minor >= requirements.PythonMinMinor &&
+			minor <= requirements.PythonMaxMinor
+		return qualified, []string{"tomllib"}
+	}
+	return false, nil
 }
 
 func projectRoot(c operation.Context) string {
@@ -318,7 +335,11 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	if runtime.GOOS == "darwin" {
 		root = filepath.Join(c.Home, "Library", "Application Support", "Code", "User")
 	}
-	for _, target := range []struct{ name, path string }{{"editor-local", root}, {"editor-remote-wsl", filepath.Join(c.Home, ".vscode-server", "data", "Machine")}} {
+	editors := []struct{ name, path string }{
+		{"editor-local", root},
+		{"editor-remote-wsl", filepath.Join(c.Home, ".vscode-server", "data", "Machine")},
+	}
+	for _, target := range editors {
 		component := operation.Component{
 			Name:    target.name,
 			Status:  "skipped",
