@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -602,9 +603,9 @@ func Setup(
 }
 
 // StaleSetup lists setup output that no kept release needs as removal edits:
-// application contexts of other sources, and private tool versions that are
-// neither recorded in state nor pinned by this build.
-func StaleSetup(c operation.Context, kept []operation.SourceIdentity) ([]operation.Edit, error) {
+// application contexts of other sources, and private tool versions that no
+// kept release pins and state does not record in use.
+func StaleSetup(c operation.Context, kept []release.Metadata) ([]operation.Edit, error) {
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
 		return nil, err
@@ -616,8 +617,8 @@ func StaleSetup(c operation.Context, kept []operation.SourceIdentity) ([]operati
 		return nil, err
 	}
 	for _, name := range names {
-		used := slices.ContainsFunc(kept, func(identity operation.SourceIdentity) bool {
-			return name == identity.Release+"-"+identity.ContentDigest
+		used := slices.ContainsFunc(kept, func(metadata release.Metadata) bool {
+			return name == metadata.Release+"-"+metadata.SourceDigest
 		})
 		if !used {
 			stale = append(stale, operation.Edit{
@@ -627,17 +628,28 @@ func StaleSetup(c operation.Context, kept []operation.SourceIdentity) ([]operati
 			})
 		}
 	}
-	tools, err := staleTools(c, state)
+	tools, err := staleTools(c, state, kept)
 	return append(stale, tools...), err
 }
 
-func staleTools(c operation.Context, state *operation.State) ([]operation.Edit, error) {
-	requirements := ManagementRequirements()
-	pinned := map[string]string{
-		"chezmoi": requirements.Chezmoi,
-		"uv":      requirements.UV,
-		"python":  requirements.Python,
-		"tomlkit": requirements.Tomlkit,
+// staleTools lists private tool versions that no kept release pins and state
+// does not record in use. Each release's metadata carries the requirements
+// compiled into its executable; if one cannot be read, no tool is removed.
+func staleTools(
+	c operation.Context,
+	state *operation.State,
+	kept []release.Metadata,
+) ([]operation.Edit, error) {
+	pinned := map[string][]string{}
+	for _, metadata := range kept {
+		var requirements Requirements
+		if json.Unmarshal(metadata.Requirements, &requirements) != nil {
+			return nil, nil
+		}
+		pinned["chezmoi"] = append(pinned["chezmoi"], requirements.Chezmoi)
+		pinned["uv"] = append(pinned["uv"], requirements.UV)
+		pinned["python"] = append(pinned["python"], requirements.Python)
+		pinned["tomlkit"] = append(pinned["tomlkit"], requirements.Tomlkit)
 	}
 	var recorded []operation.Dependency
 	if state != nil {
@@ -659,13 +671,13 @@ func staleTools(c operation.Context, state *operation.State) ([]operation.Edit, 
 			inUse := slices.ContainsFunc(recorded, func(dependency operation.Dependency) bool {
 				return operation.Within(directory, dependency.Path)
 			})
-			if version == pinned[tool] || inUse {
+			if slices.Contains(pinned[tool], version) || inUse {
 				continue
 			}
 			stale = append(stale, operation.Edit{
 				Path:        directory,
 				Action:      "remove",
-				Description: "Remove a private " + tool + " version that is neither pinned nor in use",
+				Description: "Remove a private " + tool + " version that no kept release pins or uses",
 			})
 		}
 	}

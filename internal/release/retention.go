@@ -11,16 +11,13 @@ import (
 )
 
 // StaleReleases lists the staged releases that activating bundle leaves
-// unneeded as removal edits, and returns the identities of the kept ones,
-// whose application contexts stay. Activation keeps bundle, the release it
-// replaces (the journal's previous one while an interrupted activation is
+// unneeded as removal edits, and returns the metadata of the kept ones, whose
+// setup contexts and pinned tools stay. Activation keeps bundle, the release
+// it replaces (the journal's previous one while an interrupted activation is
 // resumed) and a staged candidate, so storage stays bounded while rollback
-// remains possible. An unreadable candidate record returns no kept
-// identities: nothing may be removed while an unknown directory could be it.
-func StaleReleases(
-	c operation.Context,
-	bundle Bundle,
-) ([]operation.Edit, []operation.SourceIdentity, error) {
+// remains possible. If a kept release's records cannot be read, it returns no
+// kept releases: nothing may be removed that an unknown release could need.
+func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Metadata, error) {
 	candidate, _, err := readCandidate(c)
 	if err != nil {
 		return nil, nil, nil
@@ -34,28 +31,26 @@ func StaleReleases(
 		return nil, nil, err
 	}
 	keep := []string{bundle.Directory(c)}
-	kept := []operation.SourceIdentity{bundle.Identity()}
-	var replaced []*operation.ReleaseRecord
-	if state != nil {
-		replaced = append(replaced, state.ActiveRelease)
+	if state != nil && state.ActiveRelease != nil {
+		keep = append(keep, state.ActiveRelease.Source)
 	}
-	if journal != nil && journal.Status == activationRunning {
-		replaced = append(replaced, journal.Previous)
-	}
-	for _, record := range replaced {
-		if record != nil {
-			keep = append(keep, record.Source)
-			kept = append(kept, record.Identity)
-		}
+	if journal != nil && journal.Status == activationRunning && journal.Previous != nil {
+		keep = append(keep, journal.Previous.Source)
 	}
 	if candidate != nil {
 		keep = append(keep, candidate.Directory)
-		if metadata, err := readMetadata(candidate.Directory); err == nil {
-			kept = append(kept, operation.SourceIdentity{
-				Release:       metadata.Release,
-				ContentDigest: metadata.SourceDigest,
-			})
+	}
+	// The bundle may not be staged yet; its verified metadata is in memory.
+	kept := []Metadata{bundle.Metadata}
+	for _, directory := range keep[1:] {
+		if directory == keep[0] {
+			continue
 		}
+		metadata, err := readMetadata(directory)
+		if err != nil {
+			return nil, nil, nil
+		}
+		kept = append(kept, metadata)
 	}
 	stale, err := staleDirectories(c, keep)
 	return stale, kept, err

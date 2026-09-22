@@ -238,8 +238,8 @@ func releasePlanner(
 }
 
 // retentionEdits lists what activating bundle makes unnecessary: the releases
-// it does not keep, the setup contexts no kept release uses, and private tool
-// versions that neither this executable pins nor state records.
+// it does not keep, plus the setup contexts and private tool versions that no
+// kept release uses.
 func retentionEdits(c operation.Context, bundle release.Bundle) ([]operation.Edit, error) {
 	releases, kept, err := release.StaleReleases(c, bundle)
 	if len(kept) == 0 || err != nil {
