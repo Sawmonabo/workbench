@@ -1,0 +1,28 @@
+{{- /* Role/WSL keys come from a generated chezmoi.toml. A config written before
+       these keys existed would make the conditions below abort with "map has no
+       entry for key", so fall back to the safest machine shape: personal and
+       non-WSL, which deploys nothing work-only or WSL-only. */ -}}
+{{- $isWsl := false }}{{- if hasKey . "is_wsl" }}{{ $isWsl = .is_wsl }}{{ end }}
+{{- $hasWork := false }}{{- if hasKey . "has_work" }}{{ $hasWork = .has_work }}{{ end }}
+{{- $role := "personal" }}{{- if hasKey . "machine_role" }}{{ $role = .machine_role }}{{ end }}
+{{- /* Platform gating */ -}}
+{{ if ne .chezmoi.os "linux" }}
+.bashrc
+.config/Code
+{{ end }}
+{{ if ne .chezmoi.os "darwin" }}
+.zshrc
+Library
+{{ end }}
+{{ if not $isWsl }}
+.local/bin/win-browser
+{{ end }}
+
+{{- /* Role gating: work-only files never reach a personal machine */ -}}
+{{ if not $hasWork }}
+.codex/hooks.json
+{{ end }}
+{{ if ne $role "both" }}
+.gitconfig-personal
+.gitconfig-work
+{{ end }}

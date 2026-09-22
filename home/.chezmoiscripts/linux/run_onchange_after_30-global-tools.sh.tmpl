@@ -1,0 +1,90 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/bin/bash
+# Install GLOBAL command-line tools from .chezmoidata/versions.toml.
+# Re-runs whenever the pins change. versions hash: {{ include ".chezmoidata/versions.toml" | sha256sum }}
+set -uo pipefail
+export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
+export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+failed=()
+
+{{- $mode := .versions_mode }}
+
+# --- npm globals + codex + claude (into the default Node) ---
+{{ template "nvm-load.sh" }}
+    nvm use default || failed+=(node-default-missing)
+{{- if eq $mode "pinned" }}
+    npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=(codex)
+    npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=(claude)
+{{- else }}
+    npm install -g @openai/codex@latest || failed+=(codex)
+    npm install -g @anthropic-ai/claude-code@latest || failed+=(claude)
+{{- end }}
+    # Node >= 25 no longer bundles corepack; install it into the default Node first.
+    command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=(corepack-install)
+    corepack enable || failed+=(corepack)
+{{- range $tool, $ver := .corepack_globals }}
+{{- if eq $mode "pinned" }}
+    corepack install --global "{{ $tool }}@{{ $ver }}" || failed+=("corepack:{{ $tool }}")
+{{- else }}
+    corepack install --global "{{ $tool }}@latest" || failed+=("corepack:{{ $tool }}")
+{{- end }}
+{{- end }}
+else
+    failed+=(nvm-missing)
+fi
+
+# --- uv tools ---
+if command -v uv &>/dev/null; then
+{{- range $pkg, $ver := .uv_tools }}
+{{- if eq $mode "pinned" }}
+    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("uv:{{ $pkg }}")
+{{- else }}
+    uv tool install --upgrade "{{ $pkg }}" || failed+=("uv:{{ $pkg }}")
+{{- end }}
+{{- end }}
+else
+    failed+=(uv-missing)
+fi
+
+# --- cargo tools ---
+# (an empty cargo_tools table must still render a valid if-body, hence the no-op)
+if command -v cargo &>/dev/null; then
+    :
+{{- range $pkg, $ver := .cargo_tools }}
+{{- if eq $mode "pinned" }}
+    cargo install --locked "{{ $pkg }}" --version "{{ $ver }}" || failed+=("cargo:{{ $pkg }}")
+{{- else }}
+    cargo install --locked "{{ $pkg }}" || failed+=("cargo:{{ $pkg }}")
+{{- end }}
+{{- end }}
+else
+    failed+=(cargo-missing)
+fi
+
+# --- go tools ---
+if command -v go &>/dev/null; then
+{{- range $mod, $ver := .go_tools }}
+{{- if eq $mode "pinned" }}
+    go install "{{ $mod }}@{{ $ver }}" || failed+=("go:{{ $mod }}")
+{{- else }}
+    go install "{{ $mod }}@latest" || failed+=("go:{{ $mod }}")
+{{- end }}
+{{- end }}
+else
+    failed+=(go-missing)
+fi
+
+# --- podman (Ubuntu repository package) ---
+if ! command -v podman &>/dev/null; then
+    echo "==> Installing podman via apt (sudo may prompt)..."
+    sudo apt-get install -y podman || failed+=(podman)
+else
+    echo "    podman already installed: $(podman --version)"
+fi
+
+if [ ${#failed[@]} -gt 0 ]; then
+    printf 'WARNING: tool installs failed: %s\n' "${failed[*]}" >&2
+    exit 1
+fi
+echo "==> Global tools done."
+{{ end -}}

@@ -1,0 +1,14 @@
+{{- $existing := .chezmoi.stdin | default "{}" | fromJsonc -}}
+{{- $managed := deepCopy .vscode.settings -}}
+{{- $tokenKey := "editor.tokenColorCustomizations" -}}
+{{- $theme := "[Dark 2026]" -}}
+{{- $managedRules := index $managed $tokenKey $theme "textMateRules" -}}
+{{- $existingRules := dig $tokenKey $theme "textMateRules" (list) $existing -}}
+{{- $preservedRules := list -}}
+{{- range $existingRules -}}
+  {{- if not (has (get . "name") (list "Dotfiles TypeScript properties" "Dotfiles TypeScript readonly properties")) -}}
+    {{- $preservedRules = append $preservedRules . -}}
+  {{- end -}}
+{{- end -}}
+{{- $_ := set (index $managed $tokenKey $theme) "textMateRules" (concat $preservedRules $managedRules) -}}
+{{- mustMergeOverwrite $existing $managed | toPrettyJson }}

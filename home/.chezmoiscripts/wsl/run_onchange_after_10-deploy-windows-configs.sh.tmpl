@@ -1,0 +1,442 @@
+{{ if .is_wsl -}}
+#!/bin/bash
+# Deploy .wslconfig and RestartWSL scripts to the Windows filesystem
+# Re-runs whenever this template's content changes
+#
+# Merge behavior for .wslconfig:
+#   - New install: writes fresh file
+#   - Existing file, already correct: skips
+#   - Existing file, differs: shows diff, prompts y/n (backs up to .wslconfig.chezmoi.bak)
+#   - CHEZMOI_FORCE=1: merges without prompting
+set -euo pipefail
+
+WSL_MEMORY="{{ .wsl_memory }}"
+WSL_PROCESSORS="{{ .wsl_processors }}"
+WSL_SWAP="{{ .wsl_swap }}"
+RESTART_WSL_PATH="{{ .restart_wsl_path }}"
+
+echo "==> Deploying WSL Windows configs..."
+
+WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
+WIN_HOME="/mnt/c/Users/$WIN_USER"
+echo "    Windows user: $WIN_USER"
+
+# ---------- Helpers ----------
+
+# Resolve a path: absolute Unix, Windows absolute (via wslpath), or relative to Windows home
+resolve_path() {
+    local path="$1" win_home="$2"
+    if [[ "$path" == /* ]]; then
+        echo "$path"
+    elif [[ "$path" =~ ^[A-Za-z]:[/\\] ]]; then
+        local converted
+        if converted=$(wslpath -u "$path" 2>/dev/null); then
+            echo "$converted"
+        else
+            # wslpath failed (unmounted drive, etc.) — convert manually
+            local drive="${path:0:1}" rest="${path:2}"
+            echo "/mnt/${drive,,}${rest//\\//}"
+        fi
+    else
+        echo "$win_home/$path"
+    fi
+}
+
+# Merge a key=value into a specific INI section, preserving all other content
+# Usage: merge_ini_key <file> <section> <key> <value>
+merge_ini_key() {
+    local file="$1" section="$2" key="$3" value="$4"
+
+    if ! grep -q "^\[${section}\]" "$file" 2>/dev/null; then
+        printf '\n[%s]\n%s=%s\n' "$section" "$key" "$value" >> "$file"
+        return
+    fi
+
+    awk -v section="[$section]" -v key="$key" -v value="$value" '
+        BEGIN { found = 0; in_section = 0; inserted = 0 }
+        /^\[/ {
+            if (in_section && !found && !inserted) {
+                print key "=" value
+                inserted = 1
+            }
+            in_section = ($0 == section)
+        }
+        in_section && $0 ~ "^" key "[[:space:]]*=" {
+            print key "=" value
+            found = 1
+            next
+        }
+        { print }
+        END {
+            if (in_section && !found && !inserted) {
+                print key "=" value
+            }
+        }
+    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
+}
+
+# ---------- .wslconfig ----------
+WSLCONFIG="$WIN_HOME/.wslconfig"
+
+MANAGED_KEYS=(
+    "wsl2|memory|$WSL_MEMORY"
+    "wsl2|swap|$WSL_SWAP"
+    "wsl2|processors|$WSL_PROCESSORS"
+    "wsl2|networkingMode|mirrored"
+    "wsl2|vmIdleTimeout|300000"
+    "experimental|autoMemoryReclaim|gradual"
+    "experimental|sparseVhd|true"
+)
+
+if [[ ! -f "$WSLCONFIG" ]]; then
+    echo "==> Creating new .wslconfig..."
+    cat > "$WSLCONFIG" << EOF
+[wsl2]
+memory=$WSL_MEMORY
+swap=$WSL_SWAP
+processors=$WSL_PROCESSORS
+# Keep the VM alive 5 min after the last window closes (default 60 s) so a
+# brief close does not cost a cold start.
+vmIdleTimeout=300000
+# Mirrored networking: WSL shares the host's interfaces and localhost in both
+# directions, so Windows tools (Compass, Studio 3T, browsers) reach services
+# bound inside WSL/podman reliably. NAT's localhost-forwarding shim misses
+# rootless-podman bindings. Requires Win11 22H2+ / WSL 2.0+.
+networkingMode=mirrored
+
+[experimental]
+# Automatically reclaim cached memory (the WSL VM otherwise holds page cache
+# until Windows is starved; this is what made /mnt/c writes fail under load)
+autoMemoryReclaim=gradual
+# Sparse VHD (the ext4.vhdx shrinks when files are deleted instead of only growing)
+sparseVhd=true
+EOF
+    echo "    Created $WSLCONFIG"
+else
+    echo "==> Checking existing .wslconfig..."
+
+    TMPMERGED=$(mktemp)
+    TMPORIGINAL=$(mktemp)
+    trap 'rm -f "$TMPMERGED" "$TMPORIGINAL"' EXIT
+
+    # Normalize CRLF for consistent processing
+    sed 's/\r$//' "$WSLCONFIG" > "$TMPORIGINAL"
+    cp "$TMPORIGINAL" "$TMPMERGED"
+
+    for entry in "${MANAGED_KEYS[@]}"; do
+        IFS='|' read -r section key value <<< "$entry"
+        merge_ini_key "$TMPMERGED" "$section" "$key" "$value"
+    done
+    # Keys an earlier version wrote under [wsl2] that WSL 2.6 rejects
+    # ("Unknown key 'wsl2.pageReporting'"): delete them from that section only.
+    awk '
+        /^\[/ { insec = ($0 == "[wsl2]") }
+        insec && ($0 ~ /^pageReporting=/ || $0 ~ /^autoMemoryReclaim=/) { next }
+        { print }
+    ' "$TMPMERGED" > "$TMPMERGED.tmp" && mv "$TMPMERGED.tmp" "$TMPMERGED"
+
+    if diff -q "$TMPORIGINAL" "$TMPMERGED" > /dev/null 2>&1; then
+        echo "    Already up to date."
+    else
+        echo "    Proposed changes:"
+        diff -u --label "current" --label "proposed" \
+            "$TMPORIGINAL" "$TMPMERGED" | sed 's/^/    /' || true
+
+        APPLY=false
+        if [[ "${CHEZMOI_FORCE:-}" == "1" ]]; then
+            echo "    CHEZMOI_FORCE=1 — applying."
+            APPLY=true
+        elif [[ -t 0 ]]; then
+            read -rp "    Merge changes into .wslconfig? [y/N] " response
+            # Strip stray terminal escape sequences (arrow keys etc.) so an
+            # accidental keypress before the 'y' does not silently skip.
+            response=$(printf '%s' "$response" | sed -E 's/\x1b\[[0-9;]*[A-Za-z~]//g')
+            [[ "$response" =~ ^[Yy]$ ]] && APPLY=true
+        else
+            echo "    Non-interactive — skipping. Use CHEZMOI_FORCE=1 to apply."
+        fi
+
+        if [[ "$APPLY" == true ]]; then
+            cp "$WSLCONFIG" "${WSLCONFIG}.chezmoi.bak"
+            echo "    Backed up to .wslconfig.chezmoi.bak"
+            cp "$TMPMERGED" "$WSLCONFIG"
+            echo "    Merged."
+        else
+            echo "    Skipped."
+        fi
+    fi
+fi
+
+# ---------- RestartWSL scripts ----------
+RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME")
+
+if [[ -z "$RESTART_DIR" ]]; then
+    echo "==> ERROR: restart_wsl_path resolved to empty. Skipping RestartWSL scripts."
+else
+    echo "==> Writing RestartWSL scripts to $RESTART_DIR..."
+    mkdir -p "$RESTART_DIR"
+
+    cat > "$RESTART_DIR/restart-wsl.ps1" << 'PS1SCRIPT'
+# Restart WSL via the pre-configured elevated scheduled task
+# No admin permissions required - the task itself runs elevated
+#
+# WARNING: Restarting VMCompute while WSL is running can cause a BSOD.
+# This script checks for running distros and aborts if any are found.
+
+# Check if any WSL distros are currently running
+$wslList = wsl -l -v 2>&1
+$running = $wslList | Select-String "Running"
+
+if ($running) {
+    Write-Host "ERROR: WSL distros are currently running:" -ForegroundColor Red
+    Write-Host ""
+    $wslList | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
+
+    $response = Read-Host "Shut down WSL first, then restart VMCompute? (y/N)"
+    if ($response -ne 'y') {
+        Write-Host "Aborted." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "Shutting down WSL..."
+    wsl --shutdown
+
+    # Verify it actually stopped
+    Start-Sleep -Seconds 3
+    $wslCheck = wsl -l -v 2>&1
+    $stillRunning = $wslCheck | Select-String "Running"
+    if ($stillRunning) {
+        Write-Host "ERROR: WSL is still running after shutdown. Aborting to avoid BSOD." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "WSL stopped." -ForegroundColor Green
+}
+
+Write-Host "Restarting VMCompute service via scheduled task..."
+schtasks /run /tn "RestartVMCompute"
+
+Write-Host "Waiting for VMCompute to restart..."
+Start-Sleep -Seconds 5
+
+Write-Host "Done. WSL will start fresh on next use."
+PS1SCRIPT
+
+    cat > "$RESTART_DIR/Restart WSL.bat" << 'BATSCRIPT'
+@echo off
+powershell -ExecutionPolicy Bypass -File "%~dp0restart-wsl.ps1"
+pause
+BATSCRIPT
+
+    cat > "$RESTART_DIR/setup-task.ps1" << 'SETUPSCRIPT'
+# One-time setup: creates the "RestartVMCompute" scheduled task
+# MUST be run as Administrator (right-click > Run as Administrator)
+
+#Requires -RunAsAdministrator
+
+$taskName = "RestartVMCompute"
+
+# Check if task already exists
+$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
+if ($existing) {
+    Write-Host "Task '$taskName' already exists. Removing and recreating..." -ForegroundColor Yellow
+    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
+}
+
+$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command Restart-Service vmcompute -Force"
+$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
+$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
+
+Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Description "Restarts the VMCompute (Hyper-V) service for WSL recovery"
+
+Write-Host ""
+Write-Host "Scheduled task '$taskName' created successfully." -ForegroundColor Green
+Write-Host "You can now use 'Restart WSL.bat' without admin rights." -ForegroundColor Green
+SETUPSCRIPT
+
+    echo "    RestartWSL scripts written."
+    echo "    NOTE: Run setup-task.ps1 as Administrator once to create the scheduled task."
+fi
+
+
+# ---------- Default WSL distro ----------
+# Docker Desktop registers its own distro and often leaves it as the default.
+# A bare `wsl` then drops you into docker-desktop, and VS Code's "Reopen in WSL"
+# targets it too - opening the wrong distro with none of your toolchain. Point
+# the default at the real distro instead. Only acts when a non-docker distro
+# exists and the default is currently docker-desktop.
+CURRENT_DEFAULT=$(wsl.exe -l -v 2>/dev/null | tr -d '\r\0' | awk '/^\*/{print $2}')
+if [[ "$CURRENT_DEFAULT" == docker-desktop* ]]; then
+    REAL_DISTRO=$(wsl.exe -l -q 2>/dev/null | tr -d '\r\0' | grep -v '^docker-desktop' | grep -v '^$' | head -1)
+    if [[ -n "$REAL_DISTRO" ]]; then
+        echo "==> Default WSL distro is $CURRENT_DEFAULT; switching to $REAL_DISTRO..."
+        wsl.exe --set-default "$REAL_DISTRO" >/dev/null 2>&1 \
+            && echo "    Default distro is now $REAL_DISTRO" \
+            || echo "    WARNING: could not change the default distro"
+    fi
+else
+    echo "==> Default WSL distro: ${CURRENT_DEFAULT:-unknown} (leaving alone)."
+fi
+
+# ---------- Windows-side ripgrep ----------
+# VS Code's Todo-Tree extension shells out to ripgrep. Its bundled copy lives under
+# a version-hash directory that changes on every VS Code update, so pointing the
+# extension at it guarantees breakage. Instead keep a stable rg.exe of our own and
+# point the setting there. (winget would also work, but its source cache needs an
+# elevated `winget source reset` to repair when it corrupts.)
+RG_DIR="$WIN_HOME/bin"
+RG_EXE="$RG_DIR/rg.exe"
+RG_VERSION="15.2.0"
+
+if [[ ! -f "$RG_EXE" ]]; then
+    echo "==> Installing ripgrep $RG_VERSION for Windows..."
+    mkdir -p "$RG_DIR"
+    RG_TMP=$(mktemp -d)
+    RG_URL="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-pc-windows-msvc.zip"
+    if curl -fsSL -o "$RG_TMP/rg.zip" "$RG_URL" && unzip -o -q "$RG_TMP/rg.zip" -d "$RG_TMP"; then
+        find "$RG_TMP" -name rg.exe -exec cp {} "$RG_EXE" \;
+        echo "    Installed $RG_EXE"
+    else
+        echo "    WARNING: download failed; skipping."
+    fi
+    rm -rf "$RG_TMP"
+else
+    echo "==> Windows ripgrep already present."
+fi
+
+# ---------- Windows user PATH ----------
+# Directories we want on the Windows *user* PATH. %USERPROFILE%\.local\bin is
+# where uv installs itself and its tools on Windows; it normally lands there only
+# as a side effect of running uv's installer, so a rebuilt machine would not have
+# it. %USERPROFILE%\bin holds rg.exe from the block above.
+#
+# Uses [Environment]::SetEnvironmentVariable rather than `reg add` because the
+# .NET API broadcasts WM_SETTINGCHANGE, so Explorer re-reads the environment and
+# anything launched from the Start menu afterwards inherits the new PATH. Nothing
+# can update an ALREADY-RUNNING process: Windows processes inherit their
+# environment block from their parent and never re-read the registry. A long-lived
+# shell (or a WSL session) therefore keeps the old PATH until it is restarted.
+echo "==> Checking Windows user PATH..."
+powershell.exe -NoProfile -Command '
+    $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
+    $cur  = [Environment]::GetEnvironmentVariable("Path","User")
+    # Drop empty segments (a stray ";;" is common) while preserving order.
+    $entries = @($cur -split ";" | Where-Object { $_ -ne "" })
+    $added = @()
+    foreach ($d in $want) {
+        if ($entries -notcontains $d) { $entries += $d; $added += $d }
+    }
+    $new = ($entries -join ";")
+    if ($new -ne $cur) {
+        [Environment]::SetEnvironmentVariable("Path", $new, "User")
+        if ($added.Count) { $added | ForEach-Object { Write-Output "    Added $_" } }
+        else { Write-Output "    Cleaned empty PATH segments" }
+        Write-Output "    NOTE: already-running processes keep the old PATH until restarted."
+    } else {
+        Write-Output "    Already correct."
+    }
+' 2>/dev/null | tr -d '\r' || true
+
+# ---------- VS Code (Windows host) todo-tree ripgrep path ----------
+# Merge a single key rather than managing settings.json outright: VS Code and its
+# extensions rewrite this file constantly, so a chezmoi-owned copy would fight it
+# on every apply.
+#
+# The key is "todo-tree.ripgrep.ripgrep" - nested under the extension's "ripgrep"
+# settings category. Todo-Tree's own error message tells you to set
+# "todo-tree.ripgrep", which is NOT a declared setting; VS Code accepts unknown
+# keys silently, so getting this wrong looks like it worked and changes nothing.
+#
+# A Windows path is correct here because this settings.json is read by the Windows
+# extension host - including when a WSL folder is opened over \\wsl.localhost.
+# Opening a folder through Remote-WSL instead runs the extension inside WSL, where
+# this path is meaningless; that case needs a Linux path in the remote's machine
+# settings (~/.vscode-server/data/Machine/settings.json).
+VSCODE_SETTINGS="$WIN_HOME/AppData/Roaming/Code/User/settings.json"
+if [[ -f "$VSCODE_SETTINGS" && -f "$RG_EXE" ]]; then
+    # Repair the mis-named key an earlier version of this script wrote.
+    if grep -q '"todo-tree\.ripgrep"' "$VSCODE_SETTINGS"; then
+        echo "==> Fixing mis-named todo-tree.ripgrep key..."
+        sed -i 's/"todo-tree\.ripgrep"/"todo-tree.ripgrep.ripgrep"/' "$VSCODE_SETTINGS"
+    fi
+
+    if grep -q 'todo-tree\.ripgrep\.ripgrep' "$VSCODE_SETTINGS"; then
+        echo "==> VS Code todo-tree ripgrep path already set."
+    else
+        echo "==> Adding todo-tree ripgrep path to Windows VS Code settings..."
+        cp "$VSCODE_SETTINGS" "${VSCODE_SETTINGS}.chezmoi.bak"
+        python3 - "$VSCODE_SETTINGS" <<'PYEOF'
+import sys
+p = sys.argv[1]
+s = open(p, encoding='utf-8-sig').read()
+i = s.rstrip().rfind('}')
+head = s[:i].rstrip()
+if not head.endswith((',', '{')):
+    head += ','
+open(p, 'w', encoding='utf-8').write(
+    head + '\n    "todo-tree.ripgrep.ripgrep": "%USERPROFILE%\\\\bin\\\\rg.exe"\n}\n')
+PYEOF
+        # %USERPROFILE% is not expanded by VS Code - substitute the real path.
+        WIN_HOME_WIN=$(wslpath -w "$WIN_HOME" 2>/dev/null | tr -d '\r')
+        python3 - "$VSCODE_SETTINGS" "$WIN_HOME_WIN" <<'PYEOF'
+import sys
+p, home = sys.argv[1], sys.argv[2]
+s = open(p, encoding='utf-8').read()
+open(p, 'w', encoding='utf-8').write(
+    s.replace('%USERPROFILE%', home.replace('\\', '\\\\')))
+PYEOF
+        echo "    Set (reload the VS Code window to pick it up)."
+    fi
+fi
+
+# ---------- VS Code Remote-WSL machine settings ----------
+# Opening a folder through Remote-WSL runs extensions inside WSL, where the
+# Windows rg.exe path above is meaningless. The remote's machine-scope settings
+# override user settings for that case only. Seeded even before ~/.vscode-server
+# exists - the server creates the tree around an existing file rather than
+# replacing it.
+LINUX_RG="$HOME/.local/bin/rg"
+MACHINE_SETTINGS="$HOME/.vscode-server/data/Machine/settings.json"
+if [[ -x "$LINUX_RG" ]]; then
+    mkdir -p "$(dirname "$MACHINE_SETTINGS")"
+    [[ -f "$MACHINE_SETTINGS" ]] || echo '{}' > "$MACHINE_SETTINGS"
+    if grep -q 'todo-tree\.ripgrep\.ripgrep' "$MACHINE_SETTINGS"; then
+        echo "==> Remote-WSL todo-tree ripgrep path already set."
+    else
+        echo "==> Setting todo-tree ripgrep path for Remote-WSL..."
+        python3 - "$MACHINE_SETTINGS" "$LINUX_RG" <<'PYEOF'
+import json, sys
+p, rg = sys.argv[1], sys.argv[2]
+try:
+    d = json.load(open(p, encoding='utf-8-sig'))
+    if not isinstance(d, dict): d = {}
+except Exception:
+    d = {}
+d['todo-tree.ripgrep.ripgrep'] = rg
+json.dump(d, open(p, 'w', encoding='utf-8'), indent=4)
+PYEOF
+        echo "    $MACHINE_SETTINGS -> $LINUX_RG"
+    fi
+fi
+
+# ---------- Notepad++ Dracula themes ----------
+# Never captured by migrate.sh's Windows profile sync, so re-fetch from upstream.
+# Installing the theme files only - selecting one is a GUI action.
+NPP_THEMES="$WIN_HOME/AppData/Roaming/Notepad++/themes"
+if [[ -d "$WIN_HOME/AppData/Roaming/Notepad++" ]] || [[ -d "/mnt/c/Program Files/Notepad++" ]]; then
+    mkdir -p "$NPP_THEMES"
+    for theme in Dracula Alucard; do
+        if [[ ! -f "$NPP_THEMES/$theme.xml" ]]; then
+            if curl -fsSL -o "$NPP_THEMES/$theme.xml" \
+                "https://raw.githubusercontent.com/dracula/notepad-plus-plus/master/generated/$theme.xml"; then
+                echo "==> Installed Notepad++ theme: $theme"
+            else
+                rm -f "$NPP_THEMES/$theme.xml"
+                echo "    WARNING: could not fetch Notepad++ theme $theme"
+            fi
+        fi
+    done
+fi
+
+echo "==> Done."
+{{ end -}}

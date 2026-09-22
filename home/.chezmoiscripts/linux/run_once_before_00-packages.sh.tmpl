@@ -1,0 +1,200 @@
+{{ if eq .chezmoi.os "linux" -}}
+#!/bin/bash
+# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, TPM, gh
+# (and bitwarden-cli on work machines)
+set -euo pipefail
+
+echo "==> Linux/WSL bootstrap starting..."
+
+# --- base toolchain (a fresh WSL image has no C compiler; cargo/uv/node-gyp all need one) ---
+if command -v apt-get &>/dev/null && ! command -v cc &>/dev/null; then
+    echo "==> Installing build-essential, curl, unzip, git (sudo)..."
+    sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl unzip git ca-certificates
+fi
+
+# --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
+mkdir -p "$HOME/repos" "$HOME/dev"
+
+# --- bat ---
+# Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
+# binary as `batcat`; expose it as `bat` in ~/.local/bin. Fall back to cargo
+# only where apt is unavailable.
+if ! command -v bat &>/dev/null; then
+    if command -v apt-get &>/dev/null; then
+        echo "==> Installing bat via apt..."
+        sudo apt-get install -y -qq bat
+        if ! command -v bat &>/dev/null && command -v batcat &>/dev/null; then
+            mkdir -p "$HOME/.local/bin"
+            ln -sf "$(command -v batcat)" "$HOME/.local/bin/bat"
+        fi
+    else
+        echo "==> Installing bat via cargo..."
+        if ! command -v cargo &>/dev/null; then
+            echo "    Installing rustup first..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            . "$HOME/.cargo/env"
+        fi
+        cargo install bat
+    fi
+    echo "    bat installed."
+else
+    echo "==> bat already installed, skipping."
+fi
+
+# --- fd ---
+# Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
+# binary as `fdfind` (name clash with fdclone); expose it as `fd` in
+# ~/.local/bin. Fall back to cargo only where apt is unavailable.
+if ! command -v fd &>/dev/null; then
+    if command -v apt-get &>/dev/null; then
+        echo "==> Installing fd via apt..."
+        sudo apt-get install -y -qq fd-find
+        if ! command -v fd &>/dev/null && command -v fdfind &>/dev/null; then
+            mkdir -p "$HOME/.local/bin"
+            ln -sf "$(command -v fdfind)" "$HOME/.local/bin/fd"
+        fi
+    else
+        echo "==> Installing fd via cargo..."
+        if ! command -v cargo &>/dev/null; then
+            echo "    Installing rustup first..."
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+            . "$HOME/.cargo/env"
+        fi
+        cargo install fd-find
+    fi
+    echo "    fd installed."
+else
+    echo "==> fd already installed, skipping."
+fi
+
+# --- oh-my-posh ---
+if ! command -v oh-my-posh &>/dev/null; then
+    echo "==> Installing oh-my-posh..."
+    curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin
+    echo "    oh-my-posh installed."
+else
+    echo "==> oh-my-posh already installed, skipping."
+fi
+
+# --- Oh My Posh themes (downloaded to cache) ---
+THEMES_DIR="$HOME/.cache/oh-my-posh/themes"
+if [ ! -d "$THEMES_DIR" ] || [ -z "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]; then
+    echo "==> Downloading oh-my-posh themes..."
+    mkdir -p "$THEMES_DIR"
+    THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
+    curl -fsSL "$THEMES_URL" -o /tmp/omp-themes.zip
+    unzip -o /tmp/omp-themes.zip -d "$THEMES_DIR"
+    rm -f /tmp/omp-themes.zip
+    chmod u+rw "$THEMES_DIR"/*.omp.*
+    echo "    Themes installed to $THEMES_DIR"
+else
+    echo "==> oh-my-posh themes already present, skipping."
+fi
+
+# --- Oh My Posh config directory ---
+OMP_CONFIG_DIR="$HOME/.config/oh-my-posh"
+mkdir -p "$OMP_CONFIG_DIR"
+
+# --- JetBrains Mono Nerd Font ---
+FONT_DIR="$HOME/.local/share/fonts"
+# Installed-check: look for the font files themselves. The previous
+# `fc-list | grep -q` test was wrong under `set -o pipefail`: grep -q exits on
+# the first match and closes the pipe, fc-list dies of SIGPIPE, the pipeline
+# reports failure, and the font was re-downloaded on every run.
+font_installed() {
+    compgen -G "$FONT_DIR/JetBrainsMono*NerdFont*.ttf" >/dev/null \
+        || { command -v fc-list >/dev/null && fc-list 2>/dev/null | grep -ci "JetBrainsMono Nerd Font" | grep -qv '^0$'; }
+}
+if ! font_installed; then
+    echo "==> Installing JetBrains Mono Nerd Font..."
+    mkdir -p "$FONT_DIR"
+    FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
+        | head -1 \
+        | cut -d'"' -f4)
+    if [ -n "$FONT_URL" ]; then
+        curl -fsSL "$FONT_URL" -o /tmp/jetbrains-mono-nf.zip
+        unzip -o /tmp/jetbrains-mono-nf.zip -d "$FONT_DIR"
+        rm -f /tmp/jetbrains-mono-nf.zip
+        fc-cache -fv
+        echo "    JetBrains Mono Nerd Font installed."
+    else
+        echo "    WARNING: Could not find JetBrains Mono Nerd Font download URL."
+    fi
+else
+    echo "==> JetBrains Mono Nerd Font already installed, skipping."
+fi
+
+# --- gh (GitHub CLI) ---
+# Per-user install of the upstream static binary into ~/.local/bin: no sudo,
+# no distro repo (Ubuntu universe lags a year+: 26.04 ships 2.46 vs 2.9x).
+# ~/.local/bin precedes /usr/bin in PATH, so this shadows any apt-installed gh.
+if ! command -v gh &>/dev/null || [[ "$(command -v gh)" != "$HOME/.local/bin/gh" ]]; then
+    echo "==> Installing gh (GitHub CLI) to ~/.local/bin..."
+    case "$(uname -m)" in
+        x86_64) GH_ARCH=amd64 ;;
+        aarch64|arm64) GH_ARCH=arm64 ;;
+        *) GH_ARCH="" ;;
+    esac
+    GH_TAG=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
+        | grep -o '"tag_name": *"v[^"]*"' | cut -d'"' -f4)
+    if [ -n "$GH_ARCH" ] && [ -n "$GH_TAG" ]; then
+        GH_VER=${GH_TAG#v}
+        GH_TMP=$(mktemp -d)
+        curl -fsSL "https://github.com/cli/cli/releases/download/${GH_TAG}/gh_${GH_VER}_linux_${GH_ARCH}.tar.gz" \
+            | tar -xz -C "$GH_TMP"
+        mkdir -p "$HOME/.local/bin" "$HOME/.local/share/man/man1"
+        install -m 755 "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
+        cp "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/share/man/man1/"*.1 "$HOME/.local/share/man/man1/" 2>/dev/null || true
+        rm -rf "$GH_TMP"
+        echo "    gh installed: $("$HOME/.local/bin/gh" --version | head -1)"
+    else
+        echo "    WARNING: could not determine gh release/arch; install manually from https://cli.github.com"
+    fi
+else
+    echo "==> gh already installed ($(gh --version | head -1)), skipping."
+fi
+
+{{ if .has_work -}}
+# --- Bitwarden CLI (work machines only; the bw wrapper in .bashrc expects it) ---
+# Same per-user, no-sudo shape as gh above; unzip came from the apt line at the top.
+if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
+    echo "==> Installing Bitwarden CLI to ~/.local/bin..."
+    BW_TMP=$(mktemp -d)
+    curl -fsSL "https://bitwarden.com/download/?app=cli&platform=linux" -o "$BW_TMP/bw.zip"
+    unzip -oq "$BW_TMP/bw.zip" -d "$BW_TMP"
+    mkdir -p "$HOME/.local/bin"
+    install -m 0755 "$BW_TMP/bw" "$HOME/.local/bin/bw"
+    rm -rf "$BW_TMP"
+    echo "    bw installed: $("$HOME/.local/bin/bw" --version)"
+else
+    echo "==> Bitwarden CLI already installed, skipping."
+fi
+
+{{ end -}}
+# --- tmux ---
+if ! command -v tmux &>/dev/null; then
+    echo "==> Installing tmux..."
+    if command -v apt-get &>/dev/null; then
+        sudo apt-get update && sudo apt-get install -y tmux
+    elif command -v dnf &>/dev/null; then
+        sudo dnf install -y tmux
+    else
+        echo "    WARNING: Could not detect package manager. Install tmux manually."
+    fi
+    echo "    tmux installed."
+else
+    echo "==> tmux already installed, skipping."
+fi
+
+# --- TPM (Tmux Plugin Manager) ---
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    echo "==> Installing TPM (Tmux Plugin Manager)..."
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+    echo "    TPM installed."
+else
+    echo "==> TPM already installed, skipping."
+fi
+
+echo "==> Linux/WSL bootstrap complete."
+{{ end -}}

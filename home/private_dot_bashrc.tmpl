@@ -1,0 +1,114 @@
+# ~/.bashrc: executed by bash(1) for non-login shells.
+
+# If not running interactively, don't do anything
+case $- in
+    *i*) ;;
+      *) return;;
+esac
+
+# --- History ---
+HISTCONTROL=ignoreboth
+shopt -s histappend
+HISTSIZE=1000
+HISTFILESIZE=2000
+
+# --- Shell options ---
+shopt -s checkwinsize
+#shopt -s globstar
+
+# make less more friendly for non-text input files, see lesspipe(1)
+[ -x /usr/bin/lesspipe ] && eval "$(SHELL=/bin/sh lesspipe)"
+
+# set variable identifying the chroot you work in (used in the prompt below)
+if [ -z "${debian_chroot:-}" ] && [ -r /etc/debian_chroot ]; then
+    debian_chroot=$(cat /etc/debian_chroot)
+fi
+
+# --- Color support ---
+if [ -x /usr/bin/dircolors ]; then
+    test -r ~/.dircolors && eval "$(dircolors -b ~/.dircolors)" || eval "$(dircolors -b)"
+    alias ls='ls -lha --color=auto'
+    alias grep='grep --color=auto'
+    alias fgrep='fgrep --color=auto'
+    alias egrep='egrep --color=auto'
+fi
+
+# --- Aliases ---
+alias ll='ls -alF'
+alias la='ls -A'
+alias l='ls -CF'
+alias cat='bat --paging=never'
+claude() { command claude --verbose --allow-dangerously-skip-permissions "$@"; }
+
+alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
+
+# Source local aliases if they exist (not managed by chezmoi)
+if [ -f ~/.bash_aliases ]; then
+    . ~/.bash_aliases
+fi
+
+# --- Completion ---
+if ! shopt -oq posix; then
+    if [ -f /usr/share/bash-completion/bash_completion ]; then
+        . /usr/share/bash-completion/bash_completion
+    elif [ -f /etc/bash_completion ]; then
+        . /etc/bash_completion
+    fi
+fi
+
+# --- PATH ---
+export PATH="$HOME/.local/bin:$PATH"
+
+# Go
+export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+
+# Cargo (Rust)
+[ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+
+# nvm (Node.js)
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+
+# bun
+export BUN_INSTALL="$HOME/.bun"
+export PATH="$BUN_INSTALL/bin:$PATH"
+
+# --- Oh My Posh prompt ---
+eval "$(oh-my-posh init bash --config ~/.config/oh-my-posh/catppuccin_mocha.omp.json)"
+
+# --- Editor ---
+export EDITOR="{{ .editor }} --wait"
+
+{{- if .has_work }}
+
+# --- Work tooling ---
+alias create-spec='source "$HOME/repos/ai-devtools/.venv/bin/activate" && python "$HOME/repos/ai-devtools/.claude/tmp/sessions/2026-02-10/artifacts/create_spec_only.py"'
+# promptctl
+[ -f "$HOME/.promptctl/shell/aliases.sh" ] && source "$HOME/.promptctl/shell/aliases.sh"
+{{- end }}
+{{- if .is_wsl }}
+
+# WSL: hand the VM's file cache back to Windows on demand. Linux keeps
+# everything it reads cached (shows up as vmmemWSL in Task Manager); this is
+# reclaimable and autoMemoryReclaim trims it when idle, but after big image
+# pulls / clones you may want it back immediately.
+alias clear-cache="sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' && free -h"
+
+# WSL: route browser opens (bw login SSO/Duo, gh auth, xdg-open) to Windows
+# via ~/.local/bin/win-browser (Chrome -> wslview -> Windows default). A
+# wrapper rather than chrome.exe directly because some tools (gh) split
+# $BROWSER on spaces, and wslview alone is unavailable on Ubuntu 26.04 —
+# an unresolvable BROWSER makes CLIs hang silently waiting for a callback.
+if [ -x "$HOME/.local/bin/win-browser" ]; then
+    export BROWSER="$HOME/.local/bin/win-browser"
+fi
+{{- end }}
+
+# Added by remote-dev-workstation install
+export PATH="$HOME/bin:$PATH"
+
+{{- if .has_work }}
+
+{{ includeTemplate "bw-wrapper.sh" . | trim }}
+{{- end }}

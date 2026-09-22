@@ -1,0 +1,71 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+# macOS bootstrap, before-phase: Homebrew, the command-line formulae under
+# [packages.darwin] in .chezmoidata/packages.toml, the oh-my-posh config
+# directory, and TPM. Deliberately limited to what the rc files and the
+# after-phase scripts depend on, because anything that fails here blocks the
+# apply before a single file deploys. GUI apps (casks) and VS Code extensions
+# are installed best-effort afterwards by 50-apps-and-extensions.
+set -euo pipefail
+
+# A bootstrap should not be the thing that updates Homebrew, cleans up, or nags.
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
+
+echo "==> macOS bootstrap starting..."
+
+# --- Homebrew ---
+# Probe the prefixes rather than `command -v brew`: on a Mac where Homebrew is
+# installed but not yet on PATH the installer would re-run and prompt for RETURN
+# and sudo. Download the installer to a file first, too — `bash -c "$(curl ...)"`
+# runs an empty string and exits 0 when the download fails, and the real error
+# then surfaces much later as `brew: command not found`.
+if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
+    echo "==> Installing Homebrew..."
+    installer="$(mktemp)"
+    trap 'rm -f "$installer"' EXIT
+    curl -fsSL --retry 5 --retry-all-errors https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$installer"
+    [ -s "$installer" ] || { echo "Homebrew installer download failed" >&2; exit 1; }
+    # NONINTERACTIVE: no RETURN prompt; sudo may still ask for a password.
+    NONINTERACTIVE=1 /bin/bash "$installer"
+fi
+if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
+
+# --- Formulae (strict; idempotent: brew bundle skips what is installed) ---
+# Strict on purpose: this is the CLI set the rc files and the later scripts
+# assume, and a re-run resumes idempotently.
+# brew bundle resolves aliases (postgresql -> postgresql@N), so it does not
+# reinstall on every run the way a `brew list <alias>` probe would.
+# --no-upgrade: bootstrap installs what is missing, it never upgrades what is there.
+brewfile="$(mktemp)"
+trap 'rm -f "$brewfile"' EXIT
+{
+{{- range .packages.darwin.brew }}
+    echo 'brew "{{ . }}"'
+{{- end }}
+{{- if .has_work }}
+    # Role-gated here so bitwarden-cli stays out of the role-neutral data lists.
+    # The bw wrapper in .zshrc expects it on work machines.
+    echo 'brew "bitwarden-cli"'
+{{- end }}
+} > "$brewfile"
+echo "==> Installing formulae from packages.toml..."
+brew bundle install --file="$brewfile" --no-upgrade
+
+# --- Oh My Posh config directory ---
+mkdir -p "$HOME/.config/oh-my-posh"
+
+# --- TPM (Tmux Plugin Manager) ---
+# Best effort: shared/40-tmux-plugins already skips gracefully when TPM is
+# absent, so a network hiccup here must not abort the apply.
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    echo "==> Installing TPM..."
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm" \
+        || echo "    WARNING: TPM clone failed; shared/40-tmux-plugins will skip plugin install" >&2
+fi
+
+echo "==> macOS bootstrap complete."
+{{ end -}}

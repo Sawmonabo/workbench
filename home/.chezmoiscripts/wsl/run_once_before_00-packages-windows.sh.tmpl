@@ -1,0 +1,360 @@
+{{ if .is_wsl -}}
+#!/bin/bash
+# Bootstrap script for Windows configs (runs from WSL)
+# Installs oh-my-posh.exe, fonts, Windows Terminal settings, PowerShell profile
+set -euo pipefail
+
+echo "==> WSL → Windows bootstrap starting..."
+
+# Detect Windows username
+WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
+WIN_HOME="/mnt/c/Users/$WIN_USER"
+WIN_APPDATA="$WIN_HOME/AppData/Local"
+
+echo "    Windows user: $WIN_USER"
+
+# --- oh-my-posh for Windows ---
+OMP_WIN_DIR="$WIN_APPDATA/Programs/oh-my-posh"
+OMP_WIN_BIN="$OMP_WIN_DIR/bin"
+OMP_WIN_THEMES="$OMP_WIN_DIR/themes"
+
+if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
+    echo "==> Installing oh-my-posh for Windows..."
+    mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
+
+    # Download oh-my-posh.exe
+    OMP_URL=$(curl -fsSL https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*posh-windows-amd64.exe"' \
+        | head -1 \
+        | cut -d'"' -f4)
+    if [ -n "$OMP_URL" ]; then
+        curl -fsSL "$OMP_URL" -o "$OMP_WIN_BIN/oh-my-posh.exe"
+        echo "    oh-my-posh.exe installed."
+    else
+        echo "    WARNING: Could not find oh-my-posh.exe download URL."
+    fi
+
+    # Download themes
+    THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
+    curl -fsSL "$THEMES_URL" -o /tmp/omp-themes-win.zip
+    unzip -o /tmp/omp-themes-win.zip -d "$OMP_WIN_THEMES"
+    rm -f /tmp/omp-themes-win.zip
+    echo "    oh-my-posh themes installed for Windows."
+else
+    echo "==> oh-my-posh for Windows already installed, skipping."
+fi
+
+# --- JetBrains Mono Nerd Font for Windows ---
+WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
+if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+    echo "==> Installing JetBrains Mono Nerd Font for Windows..."
+    mkdir -p "$WIN_FONT_DIR"
+
+    FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
+        | head -1 \
+        | cut -d'"' -f4)
+    if [ -n "$FONT_URL" ]; then
+        curl -fsSL "$FONT_URL" -o /tmp/jetbrains-mono-nf-win.zip
+        unzip -o /tmp/jetbrains-mono-nf-win.zip -d /tmp/jetbrains-mono-nf-win
+        cp /tmp/jetbrains-mono-nf-win/*.ttf "$WIN_FONT_DIR/" 2>/dev/null || true
+        rm -rf /tmp/jetbrains-mono-nf-win /tmp/jetbrains-mono-nf-win.zip
+
+        echo "    JetBrains Mono Nerd Font installed for Windows."
+    else
+        echo "    WARNING: Could not find JetBrains Mono Nerd Font download URL."
+    fi
+else
+    echo "==> JetBrains Mono Nerd Font for Windows already present, skipping download."
+fi
+
+# Register (or re-register) every font file in one PowerShell call. Runs every
+# time: it is idempotent, cheap, and repairs bad entries — an earlier version
+# wrote /mnt/c/... paths into the registry, which Windows cannot resolve, so
+# Windows Terminal reported "Unable to find the following fonts".
+if ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+    echo "    Registering fonts in Windows registry..."
+    WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
+    powershell.exe -NoProfile -Command "
+        \$key = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object {
+            New-ItemProperty -Path \$key -Name (\$_.BaseName + ' (TrueType)') -Value \$_.FullName -PropertyType String -Force | Out-Null
+        }
+        # Registry alone is not enough for already-running apps: load the font
+        # resources into the session and broadcast WM_FONTCHANGE, which is what
+        # the Fonts control panel does. Without it Windows Terminal keeps saying
+        # 'Unable to find the following fonts' until the user signs out.
+        Add-Type -Namespace Win32 -Name Fonts -MemberDefinition @'
+            [DllImport(\"gdi32.dll\", CharSet = CharSet.Unicode)] public static extern int AddFontResource(string lpFileName);
+            [DllImport(\"user32.dll\")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+'@
+        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object { [void][Win32.Fonts]::AddFontResource(\$_.FullName) }
+        \$r = [IntPtr]::Zero
+        [void][Win32.Fonts]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]\$r)
+        (Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf').Count
+    " 2>/dev/null | tr -d '\r' | sed 's/^/    registered fonts: /'
+    echo "    (restart Windows Terminal; sign out/in only if a font still shows as missing)"
+fi
+
+# --- Windows Terminal settings.json ---
+WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
+if [ -d "$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe" ]; then
+    echo "==> Writing Windows Terminal settings..."
+    mkdir -p "$WT_SETTINGS_DIR"
+    if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
+        cp -a "$WT_SETTINGS_DIR/settings.json" "$WT_SETTINGS_DIR/settings.json.before-dotfiles-$(date +%Y%m%d-%H%M%S)"
+        echo "==> Existing Windows Terminal settings backed up."
+    fi
+    # Bind to the WSL profile Windows Terminal actually has for this distro.
+    # WSL >= 2.4.4 generates it as a JSON *fragment* (source = fragment folder,
+    # e.g. Microsoft.WSL) whose commandline already carries "--cd ~", which
+    # overrides startingDirectory (microsoft/WSL#13346) — so the start dir is
+    # set by overriding commandline instead. Older distros get a profile from
+    # WT's own generator (source Windows.Terminal.Wsl). Guessing GUIDs fails
+    # across these cases, so read them. Fallback: explicit wsl.exe profile.
+    WSL_PROFILE_JSON=$(python3 - "$WT_SETTINGS_DIR" "$WSL_DISTRO_NAME" "$WIN_APPDATA/Microsoft/Windows Terminal/Fragments" "/mnt/c/ProgramData/Microsoft/Windows Terminal/Fragments" <<'PY'
+import glob, json, os, re, sys
+wt, distro, *frag_dirs = sys.argv[1:]
+cmdline = "wsl.exe -d " + distro + " --cd ~/repos"
+def load(path):
+    try:
+        with open(path, encoding='utf-8-sig') as fh:
+            return json.load(fh)
+    except Exception:
+        return {}
+def emit(d, how):
+    print(json.dumps(d)); print(how, file=sys.stderr); sys.exit(0)
+ver = re.search(r'\d+\.\d+', distro); ver = ver.group(0) if ver else distro
+def mentions(p):
+    blob = json.dumps(p)
+    return distro in blob or ver in blob
+# 1. fragments (modern WSL / store apps): source is the fragment folder name
+for d in frag_dirs:
+    for path in sorted(glob.glob(os.path.join(d, '*', '*.json'))):
+        for p in load(path).get('profiles', []):
+            if p.get('guid') and mentions(p):
+                emit({"guid": p["guid"], "source": os.path.basename(os.path.dirname(path)), "commandline": cmdline},
+                     "bound to fragment " + path)
+# 2. profiles WT already merged into settings.json (classic generator or fragment)
+generated = set(load(os.path.join(wt, 'state.json')).get('generatedProfiles', []))
+for fn in ('settings.json', 'settings.json.before-dotfiles'):
+    for p in load(os.path.join(wt, fn)).get('profiles', {}).get('list', []):
+        if p.get('source') and p.get('guid') and (p.get('name') == distro or (p['guid'] in generated and mentions(p))):
+            d = {"guid": p["guid"], "source": p["source"]}
+            if p.get('commandline'): d["commandline"] = cmdline
+            else: d["startingDirectory"] = "~/repos"
+            emit(d, "bound to generated profile in " + fn)
+# 3. nothing to bind to: standalone profile
+emit({"guid": "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}", "commandline": cmdline,
+      "icon": "ms-appx:///ProfileIcons/{9acb9455-ca41-5af7-950f-6bca1bc9722f}.png"},
+     "no generated WSL profile found; using a standalone wsl.exe profile")
+PY
+)
+    WSL_PROFILE_GUID=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["guid"])' "$WSL_PROFILE_JSON")
+    # Remaining keys (source, or commandline+icon) as pre-indented JSON lines.
+    WSL_PROFILE_EXTRA=$(python3 -c '
+import json,sys
+d=json.loads(sys.argv[1]); d.pop("guid")
+print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k,v in d.items()))' "$WSL_PROFILE_JSON")
+    echo "    Windows Terminal WSL profile: $WSL_PROFILE_JSON"
+    cat > "$WT_SETTINGS_DIR/settings.json" << 'WTSETTINGS'
+{
+    "$help": "https://aka.ms/terminal-documentation",
+    "$schema": "https://aka.ms/terminal-profiles-schema",
+    "actions":
+    [
+        {
+            "command": { "action": "clearBuffer", "clear": "all" },
+            "id": "User.clearBufferAll",
+            "name": "Clear scrollback (free pane memory)"
+        },
+        {
+            "command":
+            {
+                "action": "switchToTab",
+                "index": 8
+            },
+            "id": "User.switchToTab.ED268D78"
+        },
+        {
+            "command":
+            {
+                "action": "scrollToMark",
+                "direction": "previous"
+            },
+            "id": "User.scrollToMark.D3F0B923"
+        },
+        {
+            "command":
+            {
+                "action": "scrollToMark",
+                "direction": "next"
+            },
+            "id": "User.scrollToMark.2A0DA8E0"
+        }
+    ],
+    "copyFormatting": "none",
+    "copyOnSelect": true,
+    "defaultProfile": "__WSL_PROFILE_GUID__",
+    "firstWindowPreference": "persistedWindowLayout",
+    "initialCols": 120,
+    "initialRows": 40,
+    "keybindings":
+    [
+        { "id": "User.clearBufferAll", "keys": "ctrl+shift+delete" },
+        { "id": "Terminal.CopyToClipboard", "keys": "ctrl+c" },
+        { "id": "Terminal.PasteFromClipboard", "keys": "ctrl+v" },
+        { "id": "Terminal.OpenNewTab", "keys": "ctrl+shift+t" },
+        { "id": "Terminal.ClosePane", "keys": "ctrl+shift+w" },
+        { "id": "Terminal.DuplicatePaneDown", "keys": "ctrl+shift+d" },
+        { "id": "Terminal.DuplicatePaneRight", "keys": "ctrl+shift+e" },
+        { "id": "Terminal.MoveFocusUp", "keys": "ctrl+shift+k" },
+        { "id": "Terminal.MoveFocusDown", "keys": "ctrl+shift+j" },
+        { "id": "Terminal.MoveFocusLeft", "keys": "ctrl+shift+h" },
+        { "id": "Terminal.MoveFocusRight", "keys": "ctrl+shift+l" },
+        { "id": "Terminal.TogglePaneZoom", "keys": "ctrl+shift+z" },
+        { "id": "Terminal.ToggleFullscreen", "keys": "alt+enter" },
+        { "id": "Terminal.ResizePaneLeft", "keys": "ctrl+shift+left" },
+        { "id": "Terminal.ResizePaneRight", "keys": "ctrl+shift+right" },
+        { "id": "Terminal.ResizePaneUp", "keys": "ctrl+shift+up" },
+        { "id": "Terminal.ResizePaneDown", "keys": "ctrl+shift+down" },
+        { "id": "User.scrollToMark.D3F0B923", "keys": "ctrl+alt+up" },
+        { "id": "User.scrollToMark.2A0DA8E0", "keys": "ctrl+alt+down" },
+        { "id": "Terminal.SwitchToTab0", "keys": "ctrl+alt+1" },
+        { "id": "Terminal.SwitchToTab1", "keys": "ctrl+alt+2" },
+        { "id": "Terminal.SwitchToTab2", "keys": "ctrl+alt+3" },
+        { "id": "Terminal.SwitchToTab3", "keys": "ctrl+alt+4" },
+        { "id": "Terminal.SwitchToTab4", "keys": "ctrl+alt+5" },
+        { "id": "Terminal.SwitchToTab5", "keys": "ctrl+alt+6" },
+        { "id": "Terminal.SwitchToTab6", "keys": "ctrl+alt+7" },
+        { "id": "Terminal.SwitchToTab7", "keys": "ctrl+alt+8" },
+        { "id": "User.switchToTab.ED268D78", "keys": "ctrl+alt+9" }
+    ],
+    "newTabMenu":
+    [
+        { "type": "remainingProfiles" }
+    ],
+    "profiles":
+    {
+        "defaults":
+        {
+            "antialiasingMode": "cleartype",
+            "autoMarkPrompts": true,
+            "colorScheme": "Catppuccin Mocha",
+            "historySize": 5000,
+            "experimental.repositionCursorWithMouse": true,
+            "font":
+            {
+                "face": "JetBrainsMono Nerd Font",
+                "features": { "calt": 1, "liga": 1 },
+                "size": 9,
+                "weight": "medium"
+            },
+            "intenseTextStyle": "bold",
+            "opacity": 100,
+            "padding": "8",
+            "pathTranslationStyle": "wsl",
+            "scrollbarState": "visible",
+            "showMarksOnScrollbar": true
+        },
+        "list":
+        [
+            {
+                "commandline": "%SystemRoot%\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
+                "guid": "{61c54bbd-c2c6-5271-96e7-009a87ff44bf}",
+                "hidden": false,
+                "name": "Windows PowerShell",
+                "tabColor": "#B4BEFE"
+            },
+            {
+                "commandline": "%SystemRoot%\\System32\\cmd.exe",
+                "guid": "{0caa0dad-35be-5f56-a8ff-afceeeaa6101}",
+                "hidden": false,
+                "name": "Command Prompt",
+                "tabColor": "#6C7086"
+            },
+            {
+                "guid": "{574e775e-4f2a-5b96-ac1e-a2962a402336}",
+                "hidden": false,
+                "name": "PowerShell",
+                "source": "Windows.Terminal.PowershellCore",
+                "tabColor": "#B4BEFE"
+            },
+            {
+                "guid": "{b453ae62-4e3d-5e58-b989-0a998ec441b8}",
+                "hidden": false,
+                "name": "Azure Cloud Shell",
+                "source": "Windows.Terminal.Azure",
+                "tabColor": "#74C7EC"
+            },
+            {
+                "guid": "__WSL_PROFILE_GUID__",
+__WSL_PROFILE_EXTRA__
+                "hidden": false,
+                "name": "{{ env "WSL_DISTRO_NAME" }}",
+                "tabColor": "#FAB387"
+            }
+        ]
+    },
+    "schemes":
+    [
+        {
+            "background": "#1E1E2E",
+            "black": "#45475A",
+            "blue": "#89B4FA",
+            "brightBlack": "#585B70",
+            "brightBlue": "#89B4FA",
+            "brightCyan": "#94E2D5",
+            "brightGreen": "#A6E3A1",
+            "brightPurple": "#F5C2E7",
+            "brightRed": "#F38BA8",
+            "brightWhite": "#A6ADC8",
+            "brightYellow": "#F9E2AF",
+            "cursorColor": "#F5E0DC",
+            "cyan": "#94E2D5",
+            "foreground": "#CDD6F4",
+            "green": "#A6E3A1",
+            "name": "Catppuccin Mocha",
+            "purple": "#F5C2E7",
+            "red": "#F38BA8",
+            "selectionBackground": "#585B70",
+            "white": "#BAC2DE",
+            "yellow": "#F9E2AF"
+        }
+    ],
+    "theme": "legacyDark",
+    "themes": []
+}
+WTSETTINGS
+    python3 - "$WT_SETTINGS_DIR/settings.json" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" <<'PY'
+import json, sys
+path, guid, extra = sys.argv[1:4]
+s = open(path, encoding='utf-8').read().replace('__WSL_PROFILE_GUID__', guid).replace('__WSL_PROFILE_EXTRA__', extra)
+json.loads(s)  # fail loudly rather than hand WT a broken file
+open(path, 'w', encoding='utf-8').write(s)
+PY
+    echo "    Windows Terminal settings written."
+else
+    echo "==> Windows Terminal not found, skipping settings."
+fi
+
+# --- PowerShell profile ---
+PS_PROFILE_DIR="$WIN_HOME/Documents/WindowsPowerShell"
+echo "==> Writing PowerShell profile..."
+mkdir -p "$PS_PROFILE_DIR"
+if [ -f "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" ]; then
+    cp -a "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1.before-dotfiles-$(date +%Y%m%d-%H%M%S)"
+fi
+cat > "$PS_PROFILE_DIR/Microsoft.PowerShell_profile.ps1" << 'PSPROFILE'
+# Start in the WSL repos directory when it is reachable (WSL may not be running yet)
+$wslRepos = "\\wsl.localhost\{{ env "WSL_DISTRO_NAME" }}\home\{{ .chezmoi.username }}\repos"
+if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
+
+# Oh My Posh prompt
+& "$env:LOCALAPPDATA\Programs\oh-my-posh\bin\oh-my-posh.exe" init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\catppuccin_mocha.omp.json" | Invoke-Expression
+PSPROFILE
+echo "    PowerShell profile written."
+
+echo "==> WSL → Windows bootstrap complete."
+echo "    NOTE: Restart Windows Terminal to see changes."
+{{ end -}}

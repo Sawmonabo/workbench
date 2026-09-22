@@ -1,0 +1,71 @@
+name: ci
+on:
+  push: {branches: [main, restructure, 'feat/**']}
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  go-quality:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
+        with:
+          version-file: .golangci-lint-version
+      - name: Build
+        run: go build ./...
+      - name: Compile CLI platform targets (not native provisioning verification)
+        run: |
+          for target in darwin/arm64 darwin/amd64 linux/arm64 linux/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 go build -o "$RUNNER_TEMP/workbench-${target%/*}-${target#*/}" ./cmd/workbench
+          done
+  render-and-lint:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        machine_role: [personal, work, both]
+        versions_mode: [pinned, latest]
+        extra: ['']
+        include:
+          # The wsl/ scripts render empty on every other host, so lint them once
+          # against a config that claims to be WSL.
+          - os: ubuntu-latest
+            machine_role: work
+            versions_mode: pinned
+            extra: wsl
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install chezmoi and shellcheck
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then
+            sudo apt-get update -q && sudo apt-get install -y shellcheck
+          else
+            brew install shellcheck
+          fi
+          # Pinned to the version this branch was verified against (-t is the
+          # installer's tag flag); bump deliberately, not by drift.
+          # Download the installer to a file with retries, then run it. The
+          # `sh -c "$(curl ...)"` form silently runs nothing when curl fails
+          # (seen as "chezmoi: command not found" one step later), so verify.
+          curl -fsLS --retry 5 --retry-all-errors --retry-delay 3 get.chezmoi.io -o "$RUNNER_TEMP/install-chezmoi.sh"
+          sh "$RUNNER_TEMP/install-chezmoi.sh" -b "$HOME/.local/bin" -t v2.70.3
+          "$HOME/.local/bin/chezmoi" --version
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Render, lint, and leak-check
+        run: scripts/render-check.sh "${{ matrix.machine_role }}" "${{ matrix.versions_mode }}" "${{ matrix.extra }}"
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

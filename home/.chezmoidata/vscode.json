@@ -1,0 +1,48 @@
+{
+  "vscode": {
+    "settings": {
+      "workbench.colorTheme": "Dark 2026",
+      "editor.semanticTokenColorCustomizations": {
+        "[Dark 2026]": {
+          "enabled": true,
+          "rules": {
+            "property:typescript": "#9CDCFE",
+            "property:typescriptreact": "#9CDCFE",
+            "property.readonly:typescript": "#79C0FF",
+            "property.readonly:typescriptreact": "#79C0FF"
+          }
+        }
+      },
+      "editor.tokenColorCustomizations": {
+        "[Dark 2026]": {
+          "textMateRules": [
+            {
+              "name": "Dotfiles TypeScript properties",
+              "scope": [
+                "meta.object-literal.key.ts",
+                "meta.object-literal.key.tsx",
+                "variable.object.property.ts",
+                "variable.object.property.tsx",
+                "variable.other.property.ts",
+                "variable.other.property.tsx",
+                "variable.other.object.property.ts",
+                "variable.other.object.property.tsx"
+              ],
+              "settings": { "foreground": "#9CDCFE" }
+            },
+            {
+              "name": "Dotfiles TypeScript readonly properties",
+              "scope": [
+                "variable.other.constant.property.ts",
+                "variable.other.constant.property.tsx",
+                "variable.other.constant.object.property.ts",
+                "variable.other.constant.object.property.tsx"
+              ],
+              "settings": { "foreground": "#79C0FF" }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
