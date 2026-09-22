@@ -81,6 +81,12 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   kept the same digest on a rerun; `--config-only` listed none. With a stub
   `brew`, the apps step upgraded only the plan's apps, left an app installed
   outside Homebrew alone, and still ran the extension step when an update failed.
+- A read-only full plan against this Mac's real home (default Workbench
+  folders, Homebrew auto-update off) completed after accepting Apple's default
+  folder ACLs, keeping `~/Library`, VS Code's data folder, `~/.claude` and
+  `~/.codex` private, and keeping Codex-owned config keys. It created no
+  Workbench folders. The merged Codex config lost no key, and merging it again
+  changed nothing.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
