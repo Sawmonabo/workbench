@@ -138,7 +138,7 @@ func initCommand(o *options) *cobra.Command {
 				cmd.Context(),
 				c,
 				plan,
-				releaseConsent(o, o.approvePlan),
+				consentFor(o, o.approvePlan),
 				planner,
 				func(m *operation.Mutation) error {
 					return m.WritePrivate(filepath.Join(c.Paths.Config, "machine.toml"), encoded)
@@ -187,7 +187,7 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 				c,
 				selection,
 				plan,
-				releaseConsent(o, o.approvePlan),
+				consentFor(o, o.approvePlan),
 				terminal,
 				progress,
 			)

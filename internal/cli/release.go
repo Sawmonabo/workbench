@@ -80,18 +80,6 @@ func releaseCommands(o *options) []*cobra.Command {
 	return append(commands, check)
 }
 
-func releaseConsent(o *options, digest string) operation.Consent {
-	consent := operation.Consent{
-		ApprovedDigest: digest,
-		NonInteractive: o.nonInteractive || o.json,
-		CompleteInputs: true,
-	}
-	if !o.nonInteractive && !o.json {
-		consent.Confirm = ConfirmPlan
-	}
-	return consent
-}
-
 func releaseLifecycle(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -118,35 +106,7 @@ func releaseLifecycle(
 	}()
 	c.ReadOnly = false
 	if ready, _ := cmd.Flags().GetBool("runtime-ready"); ready {
-		// The activated runtime continues the install that verified, staged and
-		// activated it; it re-reads nothing from the original bundle location.
-		state, stateErr := operation.ReadState(c.Paths)
-		actual, executableErr := os.Executable()
-		if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil ||
-			actual != state.ActiveRelease.Executable {
-			return result, operation.Fail(
-				4,
-				"handoff",
-				"Runtime continuation must execute the activated runtime",
-			)
-		}
-		if err := release.ValidateSelection(c); err != nil {
-			return result, err
-		}
-		metadata, err := release.Inspect(state.ActiveRelease.Source)
-		if err != nil {
-			return result, err
-		}
-		result.Results = append(
-			result.Results,
-			operation.Component{
-				Name:    "release",
-				Status:  "complete",
-				Message: metadata.Release + " (" + metadata.Target + ")",
-			},
-		)
-		c.Native.Source = state.ActiveRelease.Source
-		return configureMachine(cmd, c, o, result)
+		return continueInstall(cmd, c, o, result)
 	}
 	location, _ := cmd.Flags().GetString("bundle")
 	if location == "" {
@@ -165,24 +125,7 @@ func releaseLifecycle(
 		return result, err
 	}
 	activate := cmd.Name() != "pull"
-	planner := func(_ context.Context, current operation.Context) (operation.Plan, error) {
-		plan, planErr := release.StagePlan(current, bundle)
-		if activate {
-			plan.Edits = append(
-				plan.Edits,
-				operation.Edit{
-					Path:        filepath.Join(c.Paths.Bin, "workbench"),
-					Action:      "activate",
-					Description: "Activate this verified CLI/source pair; retain previous runtime and applied-configuration identity",
-				},
-			)
-			plan.RecoveryLimits = append(
-				plan.RecoveryLimits,
-				"Activation spans a journal, state record and entry point; interruption fails closed and requires resuming this installer",
-			)
-		}
-		return plan, planErr
-	}
+	planner := releasePlanner(c, bundle, activate)
 	plan, err := planner(cmd.Context(), c)
 	if err != nil {
 		return result, err
@@ -199,7 +142,7 @@ func releaseLifecycle(
 		cmd.Context(),
 		c,
 		plan,
-		releaseConsent(o, o.approvePlan),
+		consentFor(o, o.approvePlan),
 		planner,
 		func(m *operation.Mutation) error {
 			directory, stageErr := release.Stage(c, m, bundle)
@@ -231,6 +174,77 @@ func releaseLifecycle(
 	if err != nil {
 		return result, err
 	}
+	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o), "")
+}
+
+// releasePlanner previews staging bundle and, unless only pulling, activating
+// it as the workbench command.
+func releasePlanner(
+	c operation.Context,
+	bundle release.Bundle,
+	activate bool,
+) func(context.Context, operation.Context) (operation.Plan, error) {
+	return func(_ context.Context, current operation.Context) (operation.Plan, error) {
+		plan, planErr := release.StagePlan(current, bundle)
+		if activate {
+			plan.Edits = append(
+				plan.Edits,
+				operation.Edit{
+					Path:        filepath.Join(c.Paths.Bin, "workbench"),
+					Action:      "activate",
+					Description: "Activate this verified CLI/source pair; retain previous runtime and applied-configuration identity",
+				},
+			)
+			plan.RecoveryLimits = append(
+				plan.RecoveryLimits,
+				"Activation spans a journal, state record and entry point; interruption fails closed and requires resuming this installer",
+			)
+		}
+		return plan, planErr
+	}
+}
+
+// continueInstall runs in the activated runtime after the handoff. The parent
+// verified, staged and activated this release, so nothing is re-read from the
+// original bundle location.
+func continueInstall(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	result operation.Result,
+) (operation.Result, error) {
+	state, stateErr := operation.ReadState(c.Paths)
+	actual, executableErr := os.Executable()
+	if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil ||
+		actual != state.ActiveRelease.Executable {
+		return result, operation.Fail(
+			4,
+			"handoff",
+			"Runtime continuation must execute the activated runtime",
+		)
+	}
+	if err := release.ValidateSelection(c); err != nil {
+		return result, err
+	}
+	metadata, err := release.Inspect(state.ActiveRelease.Source)
+	if err != nil {
+		return result, err
+	}
+	result.Results = append(
+		result.Results,
+		operation.Component{
+			Name:    "release",
+			Status:  "complete",
+			Message: metadata.Release + " (" + metadata.Target + ")",
+		},
+	)
+	c.Native.Source = state.ActiveRelease.Source
+	return configureMachine(cmd, c, o, result)
+}
+
+// handoffArgs repeats the setup and apply selections for the activated
+// runtime, which continues this install with --runtime-ready.
+func handoffArgs(cmd *cobra.Command, o *options) []string {
 	args := []string{cmd.Name(), "--runtime-ready"}
 	for _, name := range []string{"approve-setup", "approve-apply"} {
 		if value, _ := cmd.Flags().GetString(name); value != "" {
@@ -256,7 +270,7 @@ func releaseLifecycle(
 	for _, effect := range effects {
 		args = append(args, "--effect", effect)
 	}
-	return result, operation.Handoff(c, *state.ActiveRelease, args, "")
+	return args
 }
 
 // configureMachine runs the separately approved setup and apply stages inside
@@ -302,7 +316,7 @@ func configureMachine(
 			cmd.Context(),
 			c,
 			setup,
-			releaseConsent(o, approved),
+			consentFor(o, approved),
 			machine.SetupPlan,
 			func(m *operation.Mutation) error {
 				var setupErr error
@@ -330,7 +344,7 @@ func configureMachine(
 		c,
 		selection,
 		applyPlan,
-		releaseConsent(o, approved),
+		consentFor(o, approved),
 		terminal,
 		progress,
 	)

@@ -72,14 +72,8 @@ func recoveryCommand(o *options) *cobra.Command {
 					)
 					return result, nil
 				}
-				consent := operation.Consent{
-					ApprovedDigest: o.approvePlan,
-					NonInteractive: o.nonInteractive || o.json,
-					CompleteInputs: plan.Complete,
-				}
-				if !consent.NonInteractive {
-					consent.Confirm = ConfirmPlan
-				}
+				consent := consentFor(o, o.approvePlan)
+				consent.CompleteInputs = plan.Complete
 				return machine.Revert(cmd.Context(), c, plan, selector, consent)
 			},
 		)(

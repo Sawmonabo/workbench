@@ -14,7 +14,12 @@ func projectCommand(o *options) *cobra.Command {
 		Use:   "project",
 		Short: "Inspect or configure an existing project; never generate one",
 	}
-	inspect := &cobra.Command{
+	cmd.AddCommand(projectInspectCommand(o), projectConfigureCommand(o), projectRevertCommand(o))
+	return cmd
+}
+
+func projectInspectCommand(o *options) *cobra.Command {
+	return &cobra.Command{
 		Use:   "inspect [PATH]",
 		Short: "Inventory manifest, lockfile and configuration candidates",
 		Args:  cobra.MaximumNArgs(1),
@@ -49,6 +54,9 @@ func projectCommand(o *options) *cobra.Command {
 			},
 		),
 	}
+}
+
+func projectConfigureCommand(o *options) *cobra.Command {
 	configure := &cobra.Command{
 		Use:   "configure [PATH]",
 		Short: "Preview and configure existing uv Python projects",
@@ -117,14 +125,8 @@ func projectCommand(o *options) *cobra.Command {
 				result.Results[0].Status = "unchanged"
 				return result, nil
 			}
-			consent := operation.Consent{
-				ApprovedDigest: o.approvePlan,
-				NonInteractive: o.nonInteractive || o.json,
-				CompleteInputs: proposal.Plan.Complete,
-			}
-			if !consent.NonInteractive {
-				consent.Confirm = ConfirmPlan
-			}
+			consent := consentFor(o, o.approvePlan)
+			consent.CompleteInputs = proposal.Plan.Complete
 			c.ReadOnly = false
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)
 			result.OperationID = checkpoint
@@ -146,8 +148,7 @@ func projectCommand(o *options) *cobra.Command {
 			return result, err
 		},
 	)
-	cmd.AddCommand(inspect, configure, projectRevertCommand(o))
-	return cmd
+	return configure
 }
 
 func projectRevertCommand(o *options) *cobra.Command {
@@ -197,15 +198,8 @@ func projectRevertCommand(o *options) *cobra.Command {
 					Details: plan,
 				},
 			)
-			consent := operation.Consent{
-				ApprovedDigest: o.approvePlan,
-				NonInteractive: o.nonInteractive || o.json,
-				CompleteInputs: true,
-			}
-			if !consent.NonInteractive {
-				consent.Confirm = ConfirmPlan
-			}
 			c.ReadOnly = false
+			consent := consentFor(o, o.approvePlan)
 			result.OperationID, err = operation.Recover(cmd.Context(), c, plan, selector, consent)
 			return result, err
 		},

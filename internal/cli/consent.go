@@ -11,10 +11,24 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// ConfirmPlan is shared terminal consent for future mutation handlers. Automation
-// and JSON callers leave Consent.Confirm nil and supply ApprovedDigest instead.
+// consentFor approves a plan by digest when unattended, otherwise by typing yes
+// at the terminal. Callers with incomplete inputs clear CompleteInputs.
+func consentFor(o *options, digest string) operation.Consent {
+	unattended := o.nonInteractive || o.json
+	consent := operation.Consent{
+		ApprovedDigest: digest,
+		NonInteractive: unattended,
+		CompleteInputs: true,
+	}
+	if !unattended {
+		consent.Confirm = confirmPlan
+	}
+	return consent
+}
+
+// confirmPlan shows the plan on the controlling terminal and asks for approval.
 // Opening /dev/tty requires a controlling terminal; a pipe never approves a plan.
-func ConfirmPlan(plan operation.Plan, digest string) (bool, error) {
+func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
 	if err != nil {
 		return false, operation.Fail(
