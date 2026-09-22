@@ -32,6 +32,8 @@ type Proposal struct {
 	Warnings  []string                 `json:"warnings,omitempty"`
 	Changes   []operation.TargetChange `json:"-"`
 	native    []nativeRequest
+	// applied holds the images Workbench last left at project targets.
+	applied map[string]operation.Image
 }
 type nativeRequest struct {
 	Owner   string
@@ -72,6 +74,9 @@ func Plan(
 		"project_scope",
 		"Project ownership or requested integration needs review; no files changed",
 	); err != nil {
+		return p, err
+	}
+	if p.applied, err = operation.LastApplied(c); err != nil {
 		return p, err
 	}
 	if err = p.addPolicy(ctx, c, options, selected); err != nil {
@@ -429,10 +434,16 @@ func (p *Proposal) add(c operation.Context, path string, data []byte, descriptio
 		return err
 	}
 	p.Changes = append(p.Changes, operation.TargetChange{Path: path, Before: before, After: after})
-	p.Plan.Edits = append(
-		p.Plan.Edits,
-		operation.Edit{Path: path, Action: "merge", Description: description},
-	)
+	var last *operation.Image
+	if image, ok := p.applied[path]; ok {
+		last = &image
+	}
+	p.Plan.Edits = append(p.Plan.Edits, operation.Edit{
+		Path:        path,
+		Action:      "merge",
+		Description: description,
+		Summary:     operation.ChangeSummary(before, after, last),
+	})
 	return nil
 }
 

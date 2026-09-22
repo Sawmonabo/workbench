@@ -30,11 +30,13 @@ type Input struct {
 	Digest string `json:"digest"`
 }
 
-// Edit is one planned file change: its path, action and reviewed description.
+// Edit is one planned file change: its path, action, reviewed description and
+// a content-free summary of what changes.
 type Edit struct {
 	Path        string `json:"path"`
 	Action      string `json:"action"`
 	Description string `json:"description"`
+	Summary     string `json:"summary,omitempty"`
 }
 
 // Effect is a planned change outside checkpointed files, with the privilege
@@ -49,7 +51,8 @@ type Effect struct {
 // Plan is what an operation will do, shown before consent. Inputs holds native
 // state, answers and target image hashes; it is private, and public output
 // exposes only the aggregate [Plan.Digest], never individual secret hashes.
-// Descriptions contain reviewed redacted text, never raw diffs or answers.
+// Descriptions contain reviewed redacted text and summaries only counts, modes
+// and link targets, never raw diffs or answers.
 type Plan struct {
 	Source         SourceIdentity `json:"source"`
 	Scope          Scope          `json:"scope"`

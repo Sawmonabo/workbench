@@ -694,6 +694,29 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 	return nil
 }
 
+// LastApplied returns, for each target path in c's scope, the image the newest
+// checkpoint covering it last left there: its post-image, or its pre-image
+// after a revert or failure. Targets with unknown outcomes are left out.
+func LastApplied(c Context) (map[string]Image, error) {
+	checkpoints, err := loadCheckpoints(c)
+	if err != nil {
+		return nil, err
+	}
+	slices.SortFunc(checkpoints, func(a, b *Checkpoint) int {
+		return b.record.Created.Compare(a.record.Created)
+	})
+	images := map[string]Image{}
+	for _, cp := range checkpoints {
+		for i, change := range cp.changes {
+			if _, seen := images[change.Path]; seen || cp.journal.Known[i] == outcomeUnknown {
+				continue
+			}
+			images[change.Path] = cp.expectedImage(i)
+		}
+	}
+	return images, nil
+}
+
 // RetentionEffect names the checkpoint that a new forward checkpoint replaces
 // once the scope holds MaxForwardCheckpoints: the oldest settled one. Plans
 // list it so consent covers the removal. Running, partial and unknown

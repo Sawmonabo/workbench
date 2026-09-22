@@ -68,6 +68,11 @@ external effects. See [configuration ownership](chezmoi-local-overrides.md).
 
 ## Approval and automation
 
+Each planned edit carries a `summary` of what changes without showing content,
+such as `+3 −1 lines` or `mode 0600 → 0644`. It also says when a target was
+`edited outside Workbench since it last wrote it` or is `not previously written
+by Workbench`, so an approval never overwrites local edits unnoticed.
+
 Interactive mutations show the plan and read approval from the terminal. An
 interactive apply then hands the terminal to native provisioning, so sudo and
 installers can prompt and you see their output as it runs. JSON mode does not

@@ -512,7 +512,11 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 			"Unexpected native target-image output",
 		)
 	}
-	for _, edit := range p.Plan.Edits {
+	last, err := operation.LastApplied(c)
+	if err != nil {
+		return err
+	}
+	for i, edit := range p.Plan.Edits {
 		before, err := operation.ReadImage(c, edit.Path)
 		if err != nil {
 			return err
@@ -542,6 +546,11 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		if err = checkPreservable(c, edit, before, after); err != nil {
 			return err
 		}
+		var previous *operation.Image
+		if image, ok := last[edit.Path]; ok {
+			previous = &image
+		}
+		p.Plan.Edits[i].Summary = operation.ChangeSummary(before, after, previous)
 		p.Changes = append(
 			p.Changes,
 			operation.TargetChange{Path: edit.Path, Before: before, After: after},
