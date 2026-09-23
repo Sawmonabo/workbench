@@ -8,8 +8,9 @@
 # are installed best-effort afterwards by 50-apps-and-extensions.
 set -euo pipefail
 
-# A bootstrap should not be the thing that updates Homebrew, cleans up, or nags.
-export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_INSTALL_CLEANUP=1 HOMEBREW_NO_ENV_HINTS=1
+# A bootstrap should not be the thing that updates Homebrew or nags. Homebrew's
+# own cleanup of superseded versions stays on, as it is by default.
+export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 
 echo "==> macOS bootstrap starting..."
 

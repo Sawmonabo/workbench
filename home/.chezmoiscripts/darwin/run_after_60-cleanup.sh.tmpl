@@ -1,7 +1,7 @@
 {{ if eq .chezmoi.os "darwin" -}}
 #!/usr/bin/env bash
-# Homebrew hygiene on every apply, best-effort, so nothing stale is left
-# behind by the install scripts above:
+# Homebrew hygiene on every full apply, listed in each plan as
+# brew-maintenance, so nothing stale is left behind by the install scripts above:
 #   1. a packages.toml formula installed from a third-party tap is reinstalled
 #      from homebrew/core (Homebrew's tap-trust policy ignores untrusted taps,
 #      so such a keg would never update again);
@@ -11,10 +11,6 @@
 # Nothing here touches runtimes managed by nvm, uv or rustup: older versions
 # there are kept on purpose for per-project use.
 set -euo pipefail
-if [ "${WORKBENCH_EFFECT_BREW_MAINTENANCE:-}" != 1 ]; then
-    echo 'WORKBENCH_EFFECT brew-maintenance disabled (not selected)' >&2
-    exit 0
-fi
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
     eval "$(/opt/homebrew/bin/brew shellenv)"

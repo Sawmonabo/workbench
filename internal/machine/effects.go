@@ -9,6 +9,34 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// macOSEffects are the macOS-only script owners of a full apply.
+var macOSEffects = []operation.Effect{
+	{
+		Name:        "macos-packages",
+		Description: "Homebrew/formulae, ~/.config/oh-my-posh and TPM; already selected chezmoi/uv owners retained",
+		Privilege:   "user; initial Homebrew/CLT may require elevation",
+		Recovery:    "package effects external; created files require checkpoints",
+	},
+	{
+		Name:        "macos-apps-extensions",
+		Description: "Missing casks and VS Code extensions; apps installed outside Homebrew are left alone",
+		Privilege:   "user; casks may require elevation",
+		Recovery:    "external; no package rollback",
+	},
+	{
+		Name:        "terminal-font",
+		Description: "Native managed ~/.terminal-font-setup.sh provides instructions; Terminal font selection is a separate manual step",
+		Privilege:   "none during provisioning",
+		Recovery:    "helper checkpointed; manual UI external",
+	},
+	{
+		Name:        "brew-maintenance",
+		Description: "Reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
+		Privilege:   "user; network",
+		Recovery:    "external; removed versions and cache are not restored",
+	},
+}
+
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
 func provisioningEffects(answers Answers) []operation.Effect {
@@ -39,27 +67,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 		},
 	}
 	if runtime.GOOS == "darwin" {
-		effects = append(
-			effects,
-			operation.Effect{
-				Name:        "macos-packages",
-				Description: "Homebrew/formulae, ~/.config/oh-my-posh and TPM; already selected chezmoi/uv owners retained",
-				Privilege:   "user; initial Homebrew/CLT may require elevation",
-				Recovery:    "package effects external; created files require checkpoints",
-			},
-			operation.Effect{
-				Name:        "macos-apps-extensions",
-				Description: "Missing casks and VS Code extensions; apps installed outside Homebrew are left alone",
-				Privilege:   "user; casks may require elevation",
-				Recovery:    "external; no package rollback",
-			},
-			operation.Effect{
-				Name:        "terminal-font",
-				Description: "Native managed ~/.terminal-font-setup.sh provides instructions; Terminal font selection is a separate manual step",
-				Privilege:   "none during provisioning",
-				Recovery:    "helper checkpointed; manual UI external",
-			},
-		)
+		effects = append(effects, macOSEffects...)
 	} else {
 		effects = append(
 			effects,
@@ -111,86 +119,65 @@ func provisioningEffects(answers Answers) []operation.Effect {
 	return effects
 }
 
-// optionalEffects run only when selected by name. The owning script checks
-// WORKBENCH_EFFECT_<NAME>; see [effectVariable].
-var optionalEffects = []struct {
-	wsl    bool // false means macOS
-	effect operation.Effect
-}{
+// optionalEffects are the WSL host steps, which run only when selected by name.
+// The owning script checks WORKBENCH_EFFECT_<NAME>; see [effectVariable].
+var optionalEffects = []operation.Effect{
 	{
-		false,
-		operation.Effect{
-			Name:        "brew-maintenance",
-			Description: "Reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
-			Privilege:   "user; network",
-			Recovery:    "external; removed versions and cache are not restored",
-		},
+		Name:        "terminal-adoption",
+		Description: "Replace an existing Windows Terminal settings.json with the managed one; a dated copy is kept beside it",
+		Privilege:   "Windows user",
+		Recovery:    "dated copy only; not checkpointed",
 	},
 	{
-		true,
-		operation.Effect{
-			Name:        "terminal-adoption",
-			Description: "Replace an existing Windows Terminal settings.json with the managed one; a dated copy is kept beside it",
-			Privilege:   "Windows user",
-			Recovery:    "dated copy only; not checkpointed",
-		},
+		Name:        "powershell-adoption",
+		Description: "Replace an existing PowerShell profile with the managed one; a copy is kept beside it",
+		Privilege:   "Windows user",
+		Recovery:    "copy only; not checkpointed",
 	},
 	{
-		true,
-		operation.Effect{
-			Name:        "powershell-adoption",
-			Description: "Replace an existing PowerShell profile with the managed one; a copy is kept beside it",
-			Privilege:   "Windows user",
-			Recovery:    "copy only; not checkpointed",
-		},
+		Name:        "font-registry",
+		Description: "Register JetBrainsMono Nerd Font files in HKCU Fonts and load them into the session",
+		Privilege:   "Windows user registry",
+		Recovery:    "external; registry values are not reverted",
 	},
 	{
-		true,
-		operation.Effect{
-			Name:        "font-registry",
-			Description: "Register JetBrainsMono Nerd Font files in HKCU Fonts and load them into the session",
-			Privilege:   "Windows user registry",
-			Recovery:    "external; registry values are not reverted",
-		},
+		Name:        "default-distro",
+		Description: "Make this distribution the default WSL distribution",
+		Privilege:   "Windows user",
+		Recovery:    "external; previous default is not restored",
 	},
 	{
-		true,
-		operation.Effect{
-			Name:        "default-distro",
-			Description: "Make this distribution the default WSL distribution",
-			Privilege:   "Windows user",
-			Recovery:    "external; previous default is not restored",
-		},
+		Name:        "windows-path",
+		Description: "Append %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to the Windows user PATH, keeping existing entries",
+		Privilege:   "Windows user environment",
+		Recovery:    "external; PATH is not reverted",
 	},
 	{
-		true,
-		operation.Effect{
-			Name:        "windows-path",
-			Description: "Append %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to the Windows user PATH, keeping existing entries",
-			Privilege:   "Windows user environment",
-			Recovery:    "external; PATH is not reverted",
-		},
-	},
-	{
-		true,
-		operation.Effect{
-			Name:        "sysctl",
-			Description: "Write /etc/sysctl.d/99-dev.conf with vm.swappiness=10 and apply it live",
-			Privilege:   "sudo",
-			Recovery:    "external; kernel setting and file are not reverted",
-		},
+		Name:        "sysctl",
+		Description: "Write /etc/sysctl.d/99-dev.conf with vm.swappiness=10 and apply it live",
+		Privilege:   "sudo",
+		Recovery:    "external; kernel setting and file are not reverted",
 	},
 }
 
-// OptionalEffectNames lists the effects selectable on this host.
-func OptionalEffectNames() []string {
-	var names []string
-	for _, optional := range optionalEffects {
-		if optional.wsl == isWSL() && (optional.wsl || runtime.GOOS == "darwin") {
-			names = append(names, optional.effect.Name)
-		}
+// optionalEffectNames lists the effects selectable on this host.
+func optionalEffectNames() []string {
+	if !isWSL() {
+		return nil
+	}
+	names := make([]string, 0, len(optionalEffects))
+	for _, effect := range optionalEffects {
+		names = append(names, effect.Name)
 	}
 	return names
+}
+
+// AvailableEffects lists this host's optional effect names for messages.
+func AvailableEffects() string {
+	if names := optionalEffectNames(); len(names) > 0 {
+		return strings.Join(names, ", ")
+	}
+	return "none on this host"
 }
 
 // selectedEffects validates names against this host's optional effects.
@@ -202,12 +189,11 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 			"Optional effects are provisioning steps; they cannot be combined with --config-only",
 		)
 	}
-	available := OptionalEffectNames()
+	available := optionalEffectNames()
 	var effects []operation.Effect
-	for _, optional := range optionalEffects {
-		if slices.Contains(selection.Effects, optional.effect.Name) &&
-			slices.Contains(available, optional.effect.Name) {
-			effect := optional.effect
+	for _, effect := range optionalEffects {
+		if slices.Contains(selection.Effects, effect.Name) &&
+			slices.Contains(available, effect.Name) {
 			// Name the distribution so consent never covers an implicit choice.
 			if effect.Name == "default-distro" {
 				distribution := os.Getenv("WSL_DISTRO_NAME")
@@ -228,10 +214,7 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 			return nil, operation.Fail(
 				operation.ExitInvalid,
 				"effect",
-				"Unknown or unavailable effect "+name+"; available here: "+strings.Join(
-					available,
-					", ",
-				),
+				"Unknown or unavailable effect "+name+"; available here: "+AvailableEffects(),
 			)
 		}
 	}
@@ -239,7 +222,7 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 }
 
 // effectVariable is the script switch for an optional effect, for example
-// WORKBENCH_EFFECT_BREW_MAINTENANCE for brew-maintenance.
+// WORKBENCH_EFFECT_DEFAULT_DISTRO for default-distro.
 func effectVariable(name string) string {
 	return "WORKBENCH_EFFECT_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }

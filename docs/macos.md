@@ -13,8 +13,10 @@ Linux pins. Compatible management dependencies are borrowed, not installed twice
 
 Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
-results. Homebrew cleanup/tap removal runs only when selected with
-`--effect brew-maintenance`.
+results. Every full apply ends with `brew-maintenance`: tap-sourced
+`packages.toml` formulae move to homebrew/core, unused taps are removed, and
+`brew autoremove` and `brew cleanup -s --prune=all` run. Homebrew's own
+automatic cleanup after installs and upgrades stays on, as it is by default.
 
 Apps in `packages.toml` that are missing install at the cask's current version.
 An app already installed outside Homebrew is left alone. Each full plan asks

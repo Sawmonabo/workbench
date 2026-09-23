@@ -21,7 +21,7 @@ argument through:
 - `--config-only` applies configuration without provisioning; it needs existing
   compatible tools and complete answers from `--machine-config`.
 - `--dry-run` verifies the bundle and shows only the staging/activation plan.
-- `--effect NAME` selects an optional provisioning step (see below).
+- `--effect NAME` selects an optional WSL host step (see below).
 
 The CLI checks every file against the SHA-256 manifest inside the bundle before
 installing. That catches a truncated or corrupted download; it is not a
@@ -92,22 +92,18 @@ management setup and target application are separate plans: `--approve-plan`,
 Unattended setup also requires a complete private `--machine-config` file.
 No blanket `--yes` grants unspecified external effects.
 
-Optional provisioning steps run only when named with a repeatable `--effect`
-on both `plan` and `apply` (and `install`/`update`); each appears in the plan and
-its digest. macOS offers `brew-maintenance` (tap/cleanup hygiene that dotfiles
-ran on every apply). `workbench plan --help` lists what this host offers.
-`--effect` cannot be combined with `--config-only`.
-
-On macOS, a full plan (`plan`, `apply`, `install`, `update`) also lists an
+On macOS, every full plan (`plan`, `apply`, `install`, `update`) lists its
+steps as effects, and approving the plan approves them. They include
+`brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<app>` effect for each app in `packages.toml` that Homebrew reports as
-outdated, for example `Update docker-desktop 4.89.0 → 4.92.0`; approving the
-plan approves those updates. Hold an app at its version with
-`brew pin --cask <app>` (`brew unpin --cask <app>` releases it).
+outdated, for example `Update docker-desktop 4.89.0 → 4.92.0`. Hold an app at
+its version with `brew pin --cask <app>` (`brew unpin --cask <app>` releases
+it).
 
-```sh
-workbench plan --effect brew-maintenance
-workbench apply --effect brew-maintenance
-```
+Windows host steps on WSL run only when named with a repeatable `--effect` on
+both `plan` and `apply` (and `install`/`update`); each appears in the plan and
+its digest. `workbench plan --help` lists what this host offers. `--effect`
+cannot be combined with `--config-only`.
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.

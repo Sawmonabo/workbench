@@ -3,7 +3,6 @@ package cli
 import (
 	"context"
 	"path/filepath"
-	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -243,7 +242,7 @@ func machinePlan(
 
 func addEffectFlag(cmd *cobra.Command) {
 	cmd.Flags().
-		StringArray("effect", nil, "Select an optional provisioning effect by name (repeatable); available here: "+strings.Join(machine.OptionalEffectNames(), ", "))
+		StringArray("effect", nil, "Select an optional WSL host step by name (repeatable); available here: "+machine.AvailableEffects())
 }
 
 func machineSelection(cmd *cobra.Command) machine.Selection {

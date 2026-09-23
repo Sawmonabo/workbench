@@ -87,6 +87,11 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   `~/.codex` private, and keeping Codex-owned config keys. It created no
   Workbench folders. The merged Codex config lost no key, and merging it again
   changed nothing.
+- On this Mac, every full plan listed `brew-maintenance` without a flag, a
+  `--config-only` plan did not, and `--effect brew-maintenance` was rejected
+  because macOS has no optional steps left. Dry runs of `brew autoremove` and
+  `brew cleanup -s --prune=all` showed nothing to remove and about 123 MB of old
+  files to delete.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

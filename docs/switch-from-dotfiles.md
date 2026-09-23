@@ -48,14 +48,14 @@ over the same files.
 5. **Provision when you're ready.**
 
    ```sh
-   workbench plan --effect brew-maintenance
-   workbench apply --effect brew-maintenance
+   workbench plan
+   workbench apply
    ```
 
-   `brew-maintenance` keeps the Homebrew cleanup dotfiles ran on every apply;
-   `workbench plan --help` lists the other optional effects. Workbench keeps
-   its own chezmoi state, so the first full apply runs every `run_once_` and
-   `run_onchange_` script again; they skip tools that are already installed.
+   Every full apply includes the Homebrew cleanup dotfiles ran on every apply
+   (`brew-maintenance` in the plan). Workbench keeps its own chezmoi state, so
+   the first full apply runs every `run_once_` and `run_onchange_` script again;
+   they skip tools that are already installed.
    The apply uses your terminal, so sudo and installers can prompt.
 
 6. **Archive the dotfiles repository** with a README pointer to Workbench, for
