@@ -3,8 +3,8 @@
 # GUI apps (casks) and VS Code extensions from .chezmoidata/packages.toml.
 # Runs on every apply (run_after_, not run_onchange_) so it converges: an app
 # that was skipped because it was running, or a download that failed, is
-# retried on the next apply with no manual state reset. When everything is
-# already satisfied it is a single `brew bundle check`.
+# retried on the next apply with no manual state reset. When every app is
+# installed, the app part is a single `brew bundle check`.
 #
 # - A missing app is installed at the cask's current version.
 # - An app already installed outside Homebrew is left alone; Homebrew would
@@ -57,9 +57,9 @@ trap 'rm -f "$bundle"' EXIT
 
 # --no-upgrade: install what is missing; updates are the plan's choice below.
 if brew bundle check --file="$bundle" --no-upgrade >/dev/null 2>&1; then
-    echo "==> Apps and extensions already satisfied."
+    echo "==> Apps already installed."
 else
-    echo "==> Installing casks and VS Code extensions from packages.toml..."
+    echo "==> Installing missing apps from packages.toml..."
     brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
 fi
 

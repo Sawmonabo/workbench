@@ -2,6 +2,12 @@
 # Install tmux plugins via TPM whenever tmux.conf changes (every platform; TPM is installed by each platform's 00-packages bootstrap)
 # hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
 set -euo pipefail
+# TPM runs tmux itself; Workbench's script PATH has no Homebrew directory.
+if [ -x /opt/homebrew/bin/brew ]; then
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+elif [ -x /usr/local/bin/brew ]; then
+    eval "$(/usr/local/bin/brew shellenv)"
+fi
 
 if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then
     echo "==> Installing tmux plugins..."

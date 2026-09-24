@@ -92,6 +92,16 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   because macOS has no optional steps left. Dry runs of `brew autoremove` and
   `brew cleanup -s --prune=all` showed nothing to remove and about 123 MB of old
   files to delete.
+- The owner's Mac switched from dotfiles with a checkout build: `init
+  --answers-from` saved the eight answers, a config-only apply wrote 10 files
+  (Claude and Codex values kept, only reordered) and re-planned to zero edits,
+  and doctor was clean once the dotfiles chezmoi config was retired. The full
+  apply ran unattended with an approved digest and Docker Desktop held by
+  `brew pin` (its update needs sudo): it installed Node 26.10.0, uv tools and
+  the ty extension, updated four apps and freed 1.1 GB, then failed at the
+  tmux step because TPM could not find Homebrew's `tmux` on the script PATH.
+  With that fixed, the rerun completed every step and the next plan had no
+  edits and no app updates.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

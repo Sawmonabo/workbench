@@ -46,7 +46,7 @@ fi
 # --- uv, bun, Go (Homebrew) ---
 for tool in uv bun go; do
     if command -v "$tool" &>/dev/null; then
-        echo "    $tool present: $("$tool" --version 2>/dev/null | head -n1)"
+        echo "    $tool present: $({ "$tool" --version || "$tool" version; } 2>/dev/null | head -n1)"
     else
         echo "    WARNING: $tool missing; 00-packages should have installed it via Homebrew." >&2
         exit 1
