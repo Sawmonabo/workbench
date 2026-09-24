@@ -11,4 +11,4 @@
   {{- $granted := dig "permissions" $list (list) $live -}}
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
 {{- end -}}
-{{- mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced | toPrettyJson }}
+{{- mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced | toPrettyJson -}}
