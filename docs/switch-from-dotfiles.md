@@ -61,6 +61,6 @@ over the same files.
 6. **Archive the dotfiles repository** with a README pointer to Workbench, for
    example `gh repo archive Sawmonabo/dotfiles` after pushing the pointer.
 
-Claude Code keeps the model and effort you choose in a session: Workbench fills
-only missing defaults in `~/.claude/settings.json` and enforces its policy keys
-(see [configuration ownership](chezmoi-local-overrides.md)).
+Claude Code and Codex keep the model and effort you choose: Workbench sets
+neither, fills only missing defaults in `~/.claude/settings.json` and enforces
+its policy keys (see [configuration ownership](chezmoi-local-overrides.md)).

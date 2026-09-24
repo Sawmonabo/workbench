@@ -52,8 +52,10 @@ This example is not a WSL/work-role input and does not authorize application.
   accepts JSONC, and emits JSON without comments.
 - Codex's managed body and application-owned state use the existing native
   modify target; malformed TOML fails rather than replacing unrelated state.
+  The body sets no model or reasoning effort, so Codex keeps each machine's.
 - Claude Code settings are owned by `home/.chezmoidata/claude.json`. Its
-  `defaults` (model, effort, output style, theme and other `/config` choices)
+  `defaults` (output style, theme and other `/config` choices; no model or
+  effort, which Claude Code keeps per machine)
   are written only when missing, so what you pick in a session survives apply.
   Its `enforced` policy (env, permissions, plugins, marketplaces, status line)
   wins every apply. Permission lists keep entries granted in a session, keys

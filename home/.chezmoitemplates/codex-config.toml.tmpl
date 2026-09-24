@@ -1,15 +1,13 @@
 # :schema https://developers.openai.com/codex/config-schema.json
 # Rendered for machine_role = {{ .machine_role }}.
 # Managed by chezmoi as a modify template: the managed body below is
-# authoritative, while the tables Codex rewrites itself (notice.model_migrations,
-# tui.model_availability_nux, hooks, and the last_updated/last_revision keys
-# under [marketplaces]) are carried over from the existing file so
-# `chezmoi diff` stays quiet. The static marketplace source IS managed because
+# authoritative for the keys it sets. It leaves out the model and reasoning
+# effort so each machine keeps its own choice; those keys and the tables Codex
+# rewrites itself (notice.model_migrations, tui.model_availability_nux, hooks,
+# and the last_updated/last_revision keys under [marketplaces]) are carried
+# over from the existing file so `chezmoi diff` stays quiet. The static marketplace source IS managed because
 # the deep-research plugin cannot resolve without it.
 
-model = "gpt-6-astra"
-model_reasoning_effort = "xhigh"
-plan_mode_reasoning_effort = "max"
 sandbox_mode = "danger-full-access"
 approval_policy = "never"
 approvals_reviewer = "user"

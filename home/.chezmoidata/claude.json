@@ -1,17 +1,6 @@
 {
   "claude": {
     "defaults": {
-      "model": "claude-fable-5-1[1m]",
-      "advisorModel": "opus",
-      "modelSettings": {
-        "claude-fable-5-1": {
-          "effortLevel": "xhigh"
-        },
-        "claude-opus-5": {
-          "effortLevel": "xhigh"
-        }
-      },
-      "effortLevel": "xhigh",
       "outputStyle": "Concise",
       "theme": "dark",
       "viewMode": "verbose",

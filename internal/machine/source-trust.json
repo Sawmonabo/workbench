@@ -9,7 +9,7 @@
   "files": {
     ".chezmoiroot": "9a3e246041d3c27dc3645f79cb0d1eb41c277965614655d17119ed7498b956ec",
     "home/.chezmoi.toml.tmpl": "bf67726354aa25b1b81f935f6ad3dee36dfa3bcd6ba2c9f7525a5e6909f845ba",
-    "home/.chezmoidata/claude.json": "18420edc9ff0139d8349620ff3d33d531000d51f87cdd09049c013a723841487",
+    "home/.chezmoidata/claude.json": "b158eef4800e2fa47e750493dd6ca650fcd7cd5c376754d58186bcd5b0f0fd31",
     "home/.chezmoidata/packages.toml": "b69bd2bae843bb9c0a8d3c1d9e0e8bb522dd8dc54dc79036585eff25d418d34b",
     "home/.chezmoidata/role-targets.json": "af44829ce7113b3866fe909bf5e68df252f6f19bb3acd2ffc55f895d007c8332",
     "home/.chezmoidata/versions.toml": "512ba044a67510598da5abf1add9cd05ad6fbe3a095f132dba63218540b48611",
@@ -32,7 +32,7 @@
     "home/.chezmoiscripts/wsl/run_after_20-sysctl.sh.tmpl": "df571de50e8e5034f7509a39559e49ef7a0c35d43150184c6da376059d6a0e08",
     "home/.chezmoiscripts/wsl/run_before_00-packages-windows.sh.tmpl": "428f9a364bad6f8d9df819b08de7b661319d43a888c116dcf9919ea912bace8f",
     "home/.chezmoitemplates/bw-wrapper.sh": "61c1b98cab3dbf4f0138087c549a24cc460a1f993d9bf63aa0396a54c1a6dc87",
-    "home/.chezmoitemplates/codex-config.toml.tmpl": "4c267911d87a2aabf2c056263cbc32bb242934d991c19c437f9e33af3b537830",
+    "home/.chezmoitemplates/codex-config.toml.tmpl": "7a83f52eb6c6d8252a8bdb1289c9b030335cb7002145d59e1252107ad9477f06",
     "home/.chezmoitemplates/merge-json.py": "d24a58801afe8e57ce01f1ceea3c968802e15c8de7e26e9f5011dc7610435d43",
     "home/.chezmoitemplates/nvm-load.sh": "146ff7561e73b7336c92e60f69156fbf00e216d63e90bf6d0e180d945ebe5f01",
     "home/.chezmoitemplates/operation-context.sh": "9973d6de03b5753027b41d301b60f74cb30f23c752f2bec66a013faeffd1cdf0",
