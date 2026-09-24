@@ -45,8 +45,9 @@ type preparation struct {
 	scratch, executable  string
 	environment, secrets []string
 	selection            Selection
-	// appUpdates names the casks the plan's update effects cover.
-	appUpdates []string
+	// appUpdates and toolUpdates name the casks and formulae the plan's
+	// update effects cover.
+	appUpdates, toolUpdates []string
 }
 
 func (p *preparation) Close() {
@@ -110,7 +111,7 @@ func prepare(
 	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
-		prepared.planAppUpdates(ctx, c, files)
+		prepared.planUpdates(ctx, c, files)
 	}
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
@@ -675,6 +676,12 @@ func (p *preparation) Apply(
 			environment = append(
 				environment,
 				"WORKBENCH_APP_UPDATES="+strings.Join(p.appUpdates, " "),
+			)
+		}
+		if len(p.toolUpdates) > 0 {
+			environment = append(
+				environment,
+				"WORKBENCH_TOOL_UPDATES="+strings.Join(p.toolUpdates, " "),
 			)
 		}
 		for i, value := range environment {

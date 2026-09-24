@@ -16,7 +16,7 @@
     "home/.chezmoidata/vscode.json": "d631962e426e686579ed8510848b8324f62d9d4279079c139d02713efbc7374c",
     "home/.chezmoiignore": "2ef1a4fc0ca541526d2472996f7250b01e56924594645a200b9f4cc12e44817d",
     "home/.chezmoiremove": "92b4eb0a580f7e768305abcb9922fbb13366789e52c30c405a39b9d14f02d601",
-    "home/.chezmoiscripts/darwin/run_after_50-apps-and-extensions.sh.tmpl": "50051732e2473921d18c51aff51356e2c8c1cdeb62beeaa73000f6fb14f320af",
+    "home/.chezmoiscripts/darwin/run_after_50-apps-and-extensions.sh.tmpl": "6dcda703ade848f09e782efd5c591e792ce54d3610e7891b6de7750d6e6345d8",
     "home/.chezmoiscripts/darwin/run_after_60-cleanup.sh.tmpl": "2a5c93e51c94ddb853c1c55edb805e35983e9356af118f5f050b5d37759dcff9",
     "home/.chezmoiscripts/darwin/run_once_after_10-runtime-managers.sh.tmpl": "0b9ed8a6f99c14c0f990a61d9db6ee0d1763125ebb3b4c8d3e564dec152a4670",
     "home/.chezmoiscripts/darwin/run_once_before_00-packages.sh.tmpl": "64b8a52098f5804e9ec3837d7ecdf5328e823fed2fdba84b7c45a30a265f01c0",

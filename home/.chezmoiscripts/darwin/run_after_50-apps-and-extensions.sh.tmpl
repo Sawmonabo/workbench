@@ -1,6 +1,7 @@
 {{ if eq .chezmoi.os "darwin" -}}
 #!/usr/bin/env bash
-# GUI apps (casks) and VS Code extensions from .chezmoidata/packages.toml.
+# GUI apps (casks) and VS Code extensions from .chezmoidata/packages.toml,
+# plus the Homebrew updates the approved plan named.
 # Runs on every apply (run_after_, not run_onchange_) so it converges: an app
 # that was skipped because it was running, or a download that failed, is
 # retried on the next apply with no manual state reset. When every app is
@@ -9,9 +10,10 @@
 # - A missing app is installed at the cask's current version.
 # - An app already installed outside Homebrew is left alone; Homebrew would
 #   refuse to install over it.
-# - Updates run only for the casks the approved plan named in
-#   WORKBENCH_APP_UPDATES. The plan chose them with Homebrew's own outdated
-#   check, which compares the installed app's version and skips pinned casks.
+# - Updates run only for the formulae and casks the approved plan named in
+#   WORKBENCH_TOOL_UPDATES and WORKBENCH_APP_UPDATES. The plan chose them with
+#   Homebrew's own outdated check, which compares the installed app's version
+#   and skips pinned packages.
 set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
@@ -61,6 +63,12 @@ if brew bundle check --file="$bundle" --no-upgrade >/dev/null 2>&1; then
 else
     echo "==> Installing missing apps from packages.toml..."
     brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
+fi
+
+if [ -n "${WORKBENCH_TOOL_UPDATES:-}" ]; then
+    read -ra tools <<< "$WORKBENCH_TOOL_UPDATES"
+    echo "==> Updating ${tools[*]}..."
+    brew upgrade --formula "${tools[@]}" || skipped+=("updating ${tools[*]} failed (see above)")
 fi
 
 if [ -n "${WORKBENCH_APP_UPDATES:-}" ]; then

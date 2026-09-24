@@ -101,7 +101,14 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   the ty extension, updated four apps and freed 1.1 GB, then failed at the
   tmux step because TPM could not find Homebrew's `tmux` on the script PATH.
   With that fixed, the rerun completed every step and the next plan had no
-  edits and no app updates.
+  edits and no app updates. A third full apply installed, updated and removed
+  nothing.
+- A read-only plan on the same Mac listed an `update-<name>` effect for each of
+  the 15 outdated `packages.toml` formulae (the `postgresql` alias resolved to
+  `postgresql@18`), kept the Homebrew chezmoi and uv Workbench runs, named the
+  pinned Docker Desktop as held and kept its digest on a rerun; `--config-only`
+  listed none. With a stub `brew`, the apps step upgraded only the planned
+  formulae, then casks, and reported a failed formula update as a warning.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
