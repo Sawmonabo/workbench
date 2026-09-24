@@ -9,11 +9,11 @@
   "files": {
     ".chezmoiroot": "9a3e246041d3c27dc3645f79cb0d1eb41c277965614655d17119ed7498b956ec",
     "home/.chezmoi.toml.tmpl": "bf67726354aa25b1b81f935f6ad3dee36dfa3bcd6ba2c9f7525a5e6909f845ba",
-    "home/.chezmoidata/claude.json": "b158eef4800e2fa47e750493dd6ca650fcd7cd5c376754d58186bcd5b0f0fd31",
+    "home/.chezmoidata/claude.json": "5c9e75d23a319bd3450bcacf7a04eea24d9ac648d1ff45bf5b8495e28e2ec762",
     "home/.chezmoidata/packages.toml": "b69bd2bae843bb9c0a8d3c1d9e0e8bb522dd8dc54dc79036585eff25d418d34b",
     "home/.chezmoidata/role-targets.json": "af44829ce7113b3866fe909bf5e68df252f6f19bb3acd2ffc55f895d007c8332",
     "home/.chezmoidata/versions.toml": "512ba044a67510598da5abf1add9cd05ad6fbe3a095f132dba63218540b48611",
-    "home/.chezmoidata/vscode.json": "48a327da6be9c20685d3b39061dd2589874f278f02176a4a26e59ad9c1ac0f21",
+    "home/.chezmoidata/vscode.json": "d631962e426e686579ed8510848b8324f62d9d4279079c139d02713efbc7374c",
     "home/.chezmoiignore": "2ef1a4fc0ca541526d2472996f7250b01e56924594645a200b9f4cc12e44817d",
     "home/.chezmoiremove": "92b4eb0a580f7e768305abcb9922fbb13366789e52c30c405a39b9d14f02d601",
     "home/.chezmoiscripts/darwin/run_after_50-apps-and-extensions.sh.tmpl": "ac8bbe5b585b0432e1f517aa37516fa4a3b6a40e0b0ce3a4ea8b3d29b0f74ce6",

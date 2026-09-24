@@ -52,7 +52,7 @@
           "Read(./**/*credentials*)"
         ],
         "ask": [],
-        "defaultMode": "auto"
+        "defaultMode": "bypassPermissions"
       },
       "statusLine": {
         "type": "command",

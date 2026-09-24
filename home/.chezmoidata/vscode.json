@@ -4,6 +4,7 @@
       "workbench.colorTheme": "Dark 2026",
       "window.zoomLevel": 0.5,
       "claudeCode.preferredLocation": "panel",
+      "claudeCode.allowDangerouslySkipPermissions": true,
       "editor.unicodeHighlight.allowedCharacters": {
         "§": true
       },
