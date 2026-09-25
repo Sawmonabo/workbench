@@ -63,9 +63,9 @@ the release trust check or add a second renderer. The WSL argument is static
 simulation, not Windows qualification.
 
 Invalid existing configuration must fail without fallback replacement. Global
-VS Code merging accepts JSONC but emits JSON without comments; project JSONC
-editing preserves supported syntax. Keep unowned nested settings/custom color
-rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
+VS Code merging accepts JSONC, leaves the file untouched when no value changes
+and otherwise emits JSON without comments; project JSONC editing preserves
+supported syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
 Do not change deferred TypeScript/import-color/Todo Tree policy incidentally.
 
 ## Documentation and release boundaries
