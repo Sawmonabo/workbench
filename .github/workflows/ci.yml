@@ -23,8 +23,8 @@ jobs:
         run: go build ./...
       - name: Lint installer
         run: shellcheck -s sh install.sh
-      - name: Check reviewed machine-source identity
-        run: python3 scripts/generate-source-trust.py --check
+      - name: Check workflow action pins
+        run: python3 scripts/check-action-pins.py
       - name: Unauthorized execution safeguard
         run: go test ./...
       - name: Compile CLI platform targets (not native provisioning verification)

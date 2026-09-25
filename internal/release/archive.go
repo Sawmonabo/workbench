@@ -5,7 +5,6 @@ import (
 	"archive/tar"
 	"bytes"
 	"compress/gzip"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,8 +35,8 @@ type File struct {
 	Executable bool   `json:"executable"`
 }
 
-// Metadata is a bundle's release.json: its release, target, source identity,
-// file manifest and management requirements.
+// Metadata is a bundle's release.json: its release, target, source digest,
+// file manifest and the versions.toml built into its executable.
 type Metadata struct {
 	SchemaVersion int             `json:"schema_version"`
 	StateVersion  int             `json:"state_version"`
@@ -45,7 +44,7 @@ type Metadata struct {
 	Target        string          `json:"target"`
 	SourceDigest  string          `json:"source_digest"`
 	Files         map[string]File `json:"files"`
-	Requirements  json.RawMessage `json:"requirements"`
+	Versions      string          `json:"versions"`
 }
 
 // Bundle is a verified release archive held in memory.

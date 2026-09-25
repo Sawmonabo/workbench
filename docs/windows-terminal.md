@@ -11,8 +11,8 @@ Existing user profiles and unrelated settings must survive; malformed input
 must stop, not fall back to whole-file replacement. PowerShell profile ownership
 is separate from Terminal JSON ownership.
 
-To change policy, edit the canonical source, regenerate compiled source trust,
-and use a qualified Workbench preview/approval flow. Never delete all
+To change policy, edit the canonical source and use a qualified Workbench
+preview/approval flow. Never delete all
 chezmoi script state or bypass Workbench to force a Windows rewrite. Installing
 helper files does not authorize executing restart helpers, scheduled tasks or
 registry/environment changes.

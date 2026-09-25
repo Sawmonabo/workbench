@@ -19,7 +19,6 @@ parser.add_argument("--output", required=True, type=Path)
 args = parser.parse_args()
 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.version):
     parser.error("version must be a release identifier")
-subprocess.run(["python3", "scripts/generate-source-trust.py", "--check"], cwd=root, check=True)
 payload = {}
 for base in [root / ".chezmoiroot", root / "home", root / "project"]:
     if not base.exists():
@@ -37,6 +36,14 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
             if any(part in {".git", "__pycache__", ".venv", ".env", ".DS_Store"} for part in relative.parts):
                 raise SystemExit(f"Unexpected private/generated payload: {relative}")
             payload[str(relative)] = item.read_bytes()
+# The machine source digest internal/machine.SourceDigest computes: SHA-256 of
+# one "<sha256>  <path>" line per file, sorted by path. The executable is
+# stamped with it, and it refuses any release source that does not match.
+source_digest = hashlib.sha256("".join(
+    f"{hashlib.sha256(data).hexdigest()}  {name}\n"
+    for name, data in sorted(payload.items())
+    if name == ".chezmoiroot" or name.startswith("home/")
+).encode()).hexdigest()
 payload["licenses/NOTICE"] = (
     "Workbench personal release. No redistribution license has been granted.\n"
     "Third-party notices are included below; they do not grant rights to Workbench sources.\n"
@@ -67,14 +74,13 @@ with tempfile.TemporaryDirectory(prefix="workbench-package-") as temporary:
     executable = Path(temporary) / "workbench"
     goos, goarch = args.target.split("-")
     environment = dict(os.environ, GOOS=goos, GOARCH=goarch, CGO_ENABLED="0")
-    subprocess.run(["go", "build", "-trimpath", "-ldflags", f"-X github.com/Sawmonabo/workbench/internal/cli.buildReleaseVersion={args.version}", "-o", str(executable), "./cmd/workbench"], cwd=root, env=environment, check=True)
+    subprocess.run(["go", "build", "-trimpath", "-ldflags", f"-X github.com/Sawmonabo/workbench/internal/cli.buildReleaseVersion={args.version} -X github.com/Sawmonabo/workbench/internal/machine.releaseSource={source_digest}", "-o", str(executable), "./cmd/workbench"], cwd=root, env=environment, check=True)
     payload["bin/workbench"] = executable.read_bytes()
-requirements = (root / "internal/machine/source-trust.json").read_bytes()
 metadata = {
     "schema_version": 1, "state_version": 1, "release": args.version,
-    "target": args.target, "source_digest": hashlib.sha256(requirements).hexdigest(),
+    "target": args.target, "source_digest": source_digest,
     "files": {name: {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "executable": name == "bin/workbench"} for name, data in sorted(payload.items())},
-    "requirements": json.loads(requirements),
+    "versions": payload["home/.chezmoidata/versions.toml"].decode(),
 }
 payload["release.json"] = (json.dumps(metadata, sort_keys=True, separators=(",", ":")) + "\n").encode()
 args.output.mkdir(parents=True, exist_ok=True)

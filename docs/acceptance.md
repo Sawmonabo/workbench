@@ -74,7 +74,7 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   with no `curl` on `PATH`. Packaging succeeded from an empty module cache.
 - With two releases pinning different TOML Kit versions, installing the newer
   one kept the version the replaced release pins and removed only an unpinned
-  one. A changed or unpinned workflow action failed the source-trust check.
+  one. A changed or unpinned workflow action failed the action pin check.
 - A full read-only plan against this Mac's Homebrew (scratch home, auto-update
   off) listed `update-<app>` effects only for listed apps Homebrew reports as
   outdated by their installed version, skipped current and unlisted ones, and
@@ -140,6 +140,16 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   `HOMEBREW_NO_ASK=1`. With nothing outdated on this Mac, an unattended full
   apply completed every step in 24 seconds without a prompt, and the next plan
   had no edits and no updates.
+- With the committed source fingerprint file removed, a locally packaged
+  bundle carried its source digest in `release.json` and its executable. That
+  executable accepted its own extracted source. It refused the same source when
+  run unstamped, when one file changed with the manifest fixed up to match,
+  and when `release.json` named another digest. An install-only install into
+  disposable Workbench folders planned from the active release without
+  `--source`, refused after an installed file changed, and a second install
+  listed only an unpinned TOML Kit version for removal, reading the kept
+  releases' pins from their `release.json`. A `--source` plan on this Mac had
+  zero edits under the same digest the bundle carried.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
@@ -148,7 +158,7 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
 
 Integrated local checks passed: `golangci-lint fmt`, configuration verification,
 `golangci-lint run ./...` (zero issues), `go build ./...`, `go test ./...` (three
-small safety safeguards), source-trust verification and whitespace checks.
+small safety safeguards), the action pin check and whitespace checks.
 Four macOS/Linux architecture cross-builds passed; they are compilation evidence.
 A final affected personal/pinned render passed after source safeguard changes.
 

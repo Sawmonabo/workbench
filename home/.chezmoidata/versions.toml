@@ -21,6 +21,8 @@ claude = "2.1.263"
 
 # Management acquisition consumes versions.uv and versions.python_pinned[0].
 # These compatibility qualifications do not change user runtime version policy.
+# The Workbench executable builds this file in (versions.go), so a change here
+# takes effect in the next build.
 [management]
 chezmoi = "2.70.3"
 uv_additional = ["0.12.3"]
@@ -34,8 +36,8 @@ chezmoi_sha256 = { "darwin-amd64" = "b1df8211b594375eed78c6685b7e1019e08a0e4e607
 uv_sha256 = { "darwin-amd64" = "f3c8e5708a84b920c18b691214d54d2b0da6b984789caae95d47c95120cb7765", "darwin-arm64" = "1f921d491ba5ffeea774eb04d6681ecee379101341cbb1500394993b541bf3f4", "linux-amd64" = "8c88519b0ef0af9801fcdee419bbb12116bd9e6b18e162ae093c932d8b264050", "linux-arm64" = "88e800834007cc5efd4675f166eb2a51e7e3ad19876d85fa8805a6fb5c922397" }
 
 # GitHub Actions pinned by commit, for the generated project CI job and this
-# repository's workflows. generate-source-trust.py refuses any workflow pin that
-# differs from these.
+# repository's workflows. scripts/check-action-pins.py refuses any workflow pin
+# that differs from these.
 [github_actions]
 "actions/checkout" = { version = "v7.0.1", commit = "3d3c42e5aac5ba805825da76410c181273ba90b1" }
 "actions/setup-go" = { version = "v7.0.0", commit = "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e" }

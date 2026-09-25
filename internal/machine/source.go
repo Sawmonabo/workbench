@@ -2,45 +2,47 @@
 package machine
 
 import (
-	_ "embed"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 
+	"github.com/pelletier/go-toml/v2"
+
+	"github.com/Sawmonabo/workbench"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// Regeneration is an explicit maintainer review boundary, not runtime approval.
-//
-//go:generate python3 ../../scripts/generate-source-trust.py
-//go:embed source-trust.json
-var sourceTrust []byte
+// releaseSource is the machine source digest a release build stamps into its
+// executable (-ldflags -X). It is empty in any other build, which therefore
+// accepts no release source.
+var releaseSource string
 
-// Requirements are the generated management pins and source hashes compiled
-// into the binary from source-trust.json.
+// Requirements are the management pins from home/.chezmoidata/versions.toml.
 type Requirements struct {
-	ChezmoiSHA256  map[string]string `json:"chezmoi_sha256"`
-	UVSHA256       map[string]string `json:"uv_sha256"`
-	Tomlkit        string            `json:"tomlkit"`
-	TomlkitSHA256  string            `json:"tomlkit_sha256"`
-	TomlkitURL     string            `json:"tomlkit_url"`
-	TomlkitLicense string            `json:"tomlkit_license"`
-	Files          map[string]string `json:"files"`
-	Chezmoi        string            `json:"chezmoi"`
-	UV             string            `json:"uv"`
-	UVAdditional   []string          `json:"uv_additional"`
-	Python         string            `json:"python"`
-	PythonMinMinor int               `json:"python_min_minor"`
-	PythonMaxMinor int               `json:"python_max_minor"`
-	GitHubActions  map[string]Action `json:"github_actions"`
+	ChezmoiSHA256  map[string]string
+	UVSHA256       map[string]string
+	Tomlkit        string
+	TomlkitSHA256  string
+	TomlkitURL     string
+	TomlkitLicense string
+	Chezmoi        string
+	UV             string
+	UVAdditional   []string
+	Python         string
+	PythonMinMinor int
+	PythonMaxMinor int
+	GitHubActions  map[string]Action
 }
 
 // Action is a GitHub Action pinned by commit, with the version it tags.
 type Action struct {
-	Version string `json:"version"`
-	Commit  string `json:"commit"`
+	Version string `toml:"version"`
+	Commit  string `toml:"commit"`
 }
 
 // Uses returns the workflow reference for the pinned action name.
@@ -52,23 +54,86 @@ func (r Requirements) Uses(name string) (string, error) {
 	return name + "@" + action.Commit + " # " + action.Version, nil
 }
 
-// ManagementRequirements is generated from the canonical version data. Release
-// tooling and setup must use it rather than maintaining another version list.
+// ManagementRequirements are the pins built into this executable. Release
+// tooling and setup must use them rather than maintaining another version list.
 func ManagementRequirements() Requirements {
-	var requirements Requirements
-	if err := json.Unmarshal(sourceTrust, &requirements); err != nil {
-		panic("invalid compiled machine source trust")
+	requirements, err := ParseRequirements(workbench.Versions)
+	if err != nil {
+		panic("invalid built-in versions.toml: " + err.Error())
 	}
 	return requirements
 }
 
+// ParseRequirements reads the management pins from a versions.toml. Setup
+// management uses versions.uv and the first versions.python_pinned.
+func ParseRequirements(data []byte) (Requirements, error) {
+	var file struct {
+		Versions struct {
+			UV           string   `toml:"uv"`
+			PythonPinned []string `toml:"python_pinned"`
+		} `toml:"versions"`
+		Management struct {
+			Chezmoi        string            `toml:"chezmoi"`
+			ChezmoiSHA256  map[string]string `toml:"chezmoi_sha256"`
+			UVAdditional   []string          `toml:"uv_additional"`
+			UVSHA256       map[string]string `toml:"uv_sha256"`
+			PythonMinMinor int               `toml:"python_min_minor"`
+			PythonMaxMinor int               `toml:"python_max_minor"`
+			Tomlkit        string            `toml:"tomlkit"`
+			TomlkitSHA256  string            `toml:"tomlkit_sha256"`
+			TomlkitURL     string            `toml:"tomlkit_url"`
+			TomlkitLicense string            `toml:"tomlkit_license"`
+		} `toml:"management"`
+		GitHubActions map[string]Action `toml:"github_actions"`
+	}
+	if err := toml.Unmarshal(data, &file); err != nil {
+		return Requirements{}, err
+	}
+	if len(file.Versions.PythonPinned) == 0 {
+		return Requirements{}, fmt.Errorf("versions.python_pinned is empty")
+	}
+	m := file.Management
+	return Requirements{
+		ChezmoiSHA256:  m.ChezmoiSHA256,
+		UVSHA256:       m.UVSHA256,
+		Tomlkit:        m.Tomlkit,
+		TomlkitSHA256:  m.TomlkitSHA256,
+		TomlkitURL:     m.TomlkitURL,
+		TomlkitLicense: m.TomlkitLicense,
+		Chezmoi:        m.Chezmoi,
+		UV:             file.Versions.UV,
+		UVAdditional:   m.UVAdditional,
+		Python:         file.Versions.PythonPinned[0],
+		PythonMinMinor: m.PythonMinMinor,
+		PythonMaxMinor: m.PythonMaxMinor,
+		GitHubActions:  file.GitHubActions,
+	}, nil
+}
+
+// SourceDigest identifies machine source content: the SHA-256 of one
+// "<sha256>  <path>" line per file, sorted by path, as sha256sum prints them.
+// scripts/package-release.py computes the same digest for release.json.
+func SourceDigest(files map[string][]byte) string {
+	names := make([]string, 0, len(files))
+	for name := range files {
+		names = append(names, name)
+	}
+	slices.Sort(names)
+	listing := sha256.New()
+	for _, name := range names {
+		_, _ = fmt.Fprintf(listing, "%s  %s\n", operation.SHA256Hex(files[name]), name)
+	}
+	return hex.EncodeToString(listing.Sum(nil))
+}
+
 // SourceSnapshot reads the machine source at source before any native template
-// evaluation. A release source (one with release.json) must match the reviewed
-// hashes compiled into this executable exactly. Only a developer source, one
-// selected with --source, may lack release.json: that checkout is bound by its
-// actual content instead, and the digest enters the plan the user approves, so
-// editing home/ needs no trust regeneration or rebuild until a release.
-// Repository Git metadata is outside home and never copied or executed.
+// evaluation. A release source (one with release.json) must be exactly the
+// source its release build digested into release.json and stamped into this
+// executable, so no other code runs during a release preview. Only a
+// developer source, one selected with --source, may lack release.json: that
+// checkout is bound by its actual content instead, and the digest enters the
+// plan the user approves, so editing home/ needs no rebuild. Repository Git
+// metadata is outside home and never copied or executed.
 func SourceSnapshot(
 	source string,
 	developer bool,
@@ -84,20 +149,24 @@ func SourceSnapshot(
 	if err != nil {
 		return nil, operation.SourceIdentity{}, err
 	}
-	trusted := operation.SHA256Hex(sourceTrust)
-	release, err := releaseName(source, trusted)
+	identity, err := releaseIdentity(source)
 	switch {
 	case err != nil:
 		return nil, operation.SourceIdentity{}, err
-	case release != "":
-		if err = checkTrusted(files); err != nil {
-			return nil, operation.SourceIdentity{}, err
+	case identity.Release != "":
+		if releaseSource == "" || identity.ContentDigest != releaseSource ||
+			SourceDigest(files) != releaseSource {
+			return nil, operation.SourceIdentity{}, operation.Fail(
+				operation.ExitBlocked,
+				"source_trust",
+				"Release source differs from the source this executable was released with",
+			)
 		}
-		return files, operation.SourceIdentity{Release: release, ContentDigest: trusted}, nil
+		return files, identity, nil
 	case developer:
-		identity := operation.SourceIdentity{
+		identity = operation.SourceIdentity{
 			Release:       "developer",
-			ContentDigest: developerDigest(files),
+			ContentDigest: SourceDigest(files),
 		}
 		return files, identity, nil
 	default:
@@ -164,62 +233,24 @@ func readSource(source string) (map[string][]byte, error) {
 	return files, err
 }
 
-// checkTrusted requires files to be exactly the reviewed set compiled into
-// this executable.
-func checkTrusted(files map[string][]byte) error {
-	reviewed := ManagementRequirements().Files
-	for name, data := range files {
-		if reviewed[name] != operation.SHA256Hex(data) {
-			return operation.Fail(
-				operation.ExitBlocked,
-				"source_trust",
-				"Release source differs from the reviewed hashes compiled into this executable",
-			)
-		}
-	}
-	if len(files) != len(reviewed) {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"source_trust",
-			"Reviewed machine source files are missing",
-		)
-	}
-	return nil
-}
-
-// developerDigest identifies a developer checkout by its file hashes and this
-// executable's management pins.
-func developerDigest(files map[string][]byte) string {
-	hashes := make(map[string]string, len(files))
-	for name, data := range files {
-		hashes[name] = operation.SHA256Hex(data)
-	}
-	encoded, _ := json.Marshal(struct {
-		Files map[string]string `json:"files"`
-		Trust string            `json:"trust"`
-	}{hashes, operation.SHA256Hex(sourceTrust)})
-	return operation.SHA256Hex(encoded)
-}
-
-// releaseName returns the release named by the source's release.json, or ""
-// for a developer checkout without one. Release inspection owns artifact
-// integrity; the already trusted source digest binds this display identity to
-// the same machine payload.
-func releaseName(source, sourceDigest string) (string, error) {
+// releaseIdentity returns the release and source digest named by the source's
+// release.json, or an empty identity for a developer checkout without one.
+// Release inspection owns artifact integrity.
+func releaseIdentity(source string) (operation.SourceIdentity, error) {
 	path := filepath.Join(source, "release.json")
 	info, err := os.Lstat(path)
 	if os.IsNotExist(err) {
-		return "", nil
+		return operation.SourceIdentity{}, nil
 	}
 	if err != nil {
-		return "", operation.Fail(
+		return operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
 			"Cannot inspect selected release identity",
 		)
 	}
 	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return "", operation.Fail(
+		return operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source_trust",
 			"Release identity requires bounded regular metadata",
@@ -227,20 +258,22 @@ func releaseName(source, sourceDigest string) (string, error) {
 	}
 	metadata, err := os.ReadFile(path)
 	if err != nil {
-		return "", err
+		return operation.SourceIdentity{}, err
 	}
 	var release struct {
 		Release      string `json:"release"`
 		SourceDigest string `json:"source_digest"`
 	}
 	if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil ||
-		release.Release == "" ||
-		release.SourceDigest != sourceDigest {
-		return "", operation.Fail(
+		release.Release == "" || !operation.ValidDigest(release.SourceDigest) {
+		return operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source_trust",
-			"Release metadata does not match the compiled machine payload",
+			"Release metadata names no release and source digest",
 		)
 	}
-	return release.Release, nil
+	return operation.SourceIdentity{
+		Release:       release.Release,
+		ContentDigest: release.SourceDigest,
+	}, nil
 }

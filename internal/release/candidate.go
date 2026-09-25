@@ -58,7 +58,7 @@ func selectedCandidate(c operation.Context) (*candidate, error) {
 }
 
 // CandidateHandoff validates and executes a staged runtime without activation,
-// acquisition or persistent writes. Its own compiled source trust handles the
+// acquisition or persistent writes. Its own stamped source digest handles the
 // selected plan/apply; the installed entry point remains unchanged until apply.
 func CandidateHandoff(ctx context.Context, c operation.Context, args []string) error {
 	selected, err := selectedCandidate(c)

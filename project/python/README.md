@@ -55,7 +55,7 @@ select a supported project Python version, and replace its failing final step
 with the project's actual test command. Do not invent pytest ownership. CI setup
 and test execution may run project code and require normal repository review.
 Action pins live in `home/.chezmoidata/versions.toml` under `[github_actions]`;
-the generated job reads them, and `scripts/generate-source-trust.py` refuses any
+the generated job reads them, and `scripts/check-action-pins.py` refuses any
 workflow or example pin that differs. The commits were checked against upstream
 tags on 2026-09-22:
 [checkout v7.0.1](https://github.com/actions/checkout/releases/tag/v7.0.1) and

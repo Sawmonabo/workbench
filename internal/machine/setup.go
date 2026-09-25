@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
-	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
@@ -633,8 +632,8 @@ func StaleSetup(c operation.Context, kept []release.Metadata) ([]operation.Edit,
 }
 
 // staleTools lists private tool versions that no kept release pins and state
-// does not record in use. Each release's metadata carries the requirements
-// compiled into its executable; if one cannot be read, no tool is removed.
+// does not record in use. Each release's metadata carries the versions.toml
+// built into its executable; if one cannot be read, no tool is removed.
 func staleTools(
 	c operation.Context,
 	state *operation.State,
@@ -642,8 +641,8 @@ func staleTools(
 ) ([]operation.Edit, error) {
 	pinned := map[string][]string{}
 	for _, metadata := range kept {
-		var requirements Requirements
-		if json.Unmarshal(metadata.Requirements, &requirements) != nil {
+		requirements, err := ParseRequirements([]byte(metadata.Versions))
+		if err != nil {
 			return nil, nil
 		}
 		pinned["chezmoi"] = append(pinned["chezmoi"], requirements.Chezmoi)
