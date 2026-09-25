@@ -75,7 +75,11 @@ func prepare(
 	if err != nil {
 		return prepared, err
 	}
-	answers, optional, err := prepared.checkPrerequisites(ctx, c)
+	requirements, err := SourceRequirements(files)
+	if err != nil {
+		return prepared, err
+	}
+	answers, optional, err := prepared.checkPrerequisites(ctx, c, requirements)
 	if err != nil {
 		return prepared, err
 	}
@@ -158,6 +162,7 @@ func recoveryLimits() []string {
 func (p *preparation) checkPrerequisites(
 	ctx context.Context,
 	c operation.Context,
+	requirements Requirements,
 ) (Answers, []operation.Effect, error) {
 	plan := &p.Plan
 	state, err := operation.ReadState(c.Paths)
@@ -168,7 +173,7 @@ func (p *preparation) checkPrerequisites(
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	dependencies, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
+	dependencies, results := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 	plan.Dependencies = dependencies
 	for _, result := range results {
 		if result.Status != operation.StatusComplete &&

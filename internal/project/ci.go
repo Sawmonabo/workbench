@@ -53,7 +53,11 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 			"An existing test/tests job with an identifiable test command is required; tests will not be invented",
 		)
 	}
-	addition, desired, err := checkJob(python)
+	requirements, err := machine.ManagementRequirements(c)
+	if err != nil {
+		return err
+	}
+	addition, desired, err := checkJob(python, requirements)
 	if err != nil {
 		return err
 	}
@@ -193,8 +197,10 @@ func runsTests(job *ast.MappingValueNode) bool {
 
 // checkJob renders the owned job for python as a one-entry jobs mapping, with
 // the uv and GitHub Action pins from versions.toml.
-func checkJob(python string) (*ast.File, *ast.MappingNode, error) {
-	requirements := machine.ManagementRequirements()
+func checkJob(
+	python string,
+	requirements machine.Requirements,
+) (*ast.File, *ast.MappingNode, error) {
 	checkout, err := requirements.Uses("actions/checkout")
 	if err != nil {
 		return nil, nil, err

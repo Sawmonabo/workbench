@@ -36,7 +36,6 @@ Native qualification and final acceptance are tracked separately in
 | `internal/cli/` | Cobra command tree, human/JSON presentation and consent selection. |
 | `internal/operation/` | Context, bounded execution, plan revalidation, private state/locks and scoped checkpoints/recovery. |
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
-| `versions.go` | Builds `home/.chezmoidata/versions.toml` into the executable; Go embeds only files at or below the embedding package. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
@@ -185,7 +184,7 @@ Archive-based setup reuses native configuration templating without cloning a rep
 
 The CLI itself does not require a Python installation, but existing modify scripts can. Preflight must account for every rendering prerequisite, including Python with `tomllib`, before claiming clean-machine application works. Installing those prerequisites is an explicitly approved setup stage; previews and configuration-only apply must not install them implicitly.
 
-An optional `--source PATH` developer override selects an existing source tree; ordinary release installation and project configuration work without one. Hash its inputs for every plan and never change the checkout during inspection. Paths and other overrides are defined in the implementation contracts.
+An optional `--source PATH` developer override selects an existing source tree; ordinary release installation and project configuration work without one once a release is installed, since they read tool version pins from the active release. Hash its inputs for every plan and never change the checkout during inspection. Paths and other overrides are defined in the implementation contracts.
 
 The release build digests its machine source into `release.json` and stamps the same digest into its executable. A release source must match it, so unknown source code cannot run during a release preview merely because its filename is familiar. Nothing is generated or committed by hand for this. A `--source` developer checkout is bound by its content digest in the approved plan instead, so template edits preview without a rebuild. Native chezmoi remains the renderer. A narrow private source selection handles role-owned removals that native ignore rules otherwise suppress.
 

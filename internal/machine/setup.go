@@ -32,8 +32,12 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 			"Private tool acquisition and native answer initialization are separate from configuration apply; borrowed installations are retained",
 		},
 	}
-	_, identity, err := SourceSnapshot(c.Native.Source, false)
+	files, identity, err := SourceSnapshot(c.Native.Source, false)
 	plan.Source = identity
+	if err != nil {
+		return plan, err
+	}
+	requirements, err := SourceRequirements(files)
 	if err != nil {
 		return plan, err
 	}
@@ -45,7 +49,7 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	plan.Dependencies, _ = ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
+	plan.Dependencies, _ = ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 	for _, name := range []string{"chezmoi", "uv", "python3"} {
 		if dependency(plan.Dependencies, name) == "" {
 			plan.Effects = append(
@@ -59,7 +63,7 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 			)
 		}
 	}
-	if _, err = TomlkitPath(c); err != nil {
+	if _, err = TomlkitPath(c, requirements); err != nil {
 		plan.Effects = append(
 			plan.Effects,
 			operation.Effect{
@@ -120,8 +124,11 @@ func setupDependencies(
 	if state == nil {
 		state = &operation.State{SchemaVersion: 1}
 	}
-	selected, _ := ResolveDependencies(ctx, c, state.Dependencies, os.Getenv("PATH"))
-	requirements := ManagementRequirements()
+	requirements, err := ManagementRequirements(c)
+	if err != nil {
+		return nil, err
+	}
+	selected, _ := ResolveDependencies(ctx, c, requirements, state.Dependencies, os.Getenv("PATH"))
 	for _, name := range []string{"chezmoi", "uv"} {
 		if dependency(selected, name) != "" {
 			continue
@@ -139,12 +146,12 @@ func setupDependencies(
 		}
 		selected = append(selected, python)
 	}
-	if _, err = TomlkitPath(c); err != nil {
+	if _, err = TomlkitPath(c, requirements); err != nil {
 		if err = acquireTomlkit(ctx, c, requirements); err != nil {
 			return nil, err
 		}
 	}
-	qualified, results := ResolveDependencies(ctx, c, selected, "")
+	qualified, results := ResolveDependencies(ctx, c, requirements, selected, "")
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
 			return nil, operation.Fail(
@@ -463,8 +470,7 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 
 // TomlkitPath is read-only and rechecks the trusted wheel and every installed
 // member before the caller gives that directory to isolated Python.
-func TomlkitPath(c operation.Context) (string, error) {
-	requirements := ManagementRequirements()
+func TomlkitPath(c operation.Context, requirements Requirements) (string, error) {
 	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
 	if err := release.PrivateDirectory(c.Paths.Data, directory, false); err != nil {
 		return "", err

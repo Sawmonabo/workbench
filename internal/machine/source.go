@@ -13,7 +13,6 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/Sawmonabo/workbench"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -21,6 +20,9 @@ import (
 // executable (-ldflags -X). It is empty in any other build, which therefore
 // accepts no release source.
 var releaseSource string
+
+// versionsFile is the machine source file that holds the management pins.
+const versionsFile = "home/.chezmoidata/versions.toml"
 
 // Requirements are the management pins from home/.chezmoidata/versions.toml.
 type Requirements struct {
@@ -54,14 +56,45 @@ func (r Requirements) Uses(name string) (string, error) {
 	return name + "@" + action.Commit + " # " + action.Version, nil
 }
 
-// ManagementRequirements are the pins built into this executable. Release
-// tooling and setup must use them rather than maintaining another version list.
-func ManagementRequirements() Requirements {
-	requirements, err := ParseRequirements(workbench.Versions)
-	if err != nil {
-		panic("invalid built-in versions.toml: " + err.Error())
+// ManagementRequirements reads the pins from the machine source this command
+// uses: --source, else the active release. The source passes the same checks
+// as any other read, so a release's pins are the ones it was released with.
+func ManagementRequirements(c operation.Context) (Requirements, error) {
+	source := c.Native.Source
+	if source == "" {
+		state, err := operation.ReadState(c.Paths)
+		if err != nil {
+			return Requirements{}, err
+		}
+		if state != nil && state.ActiveRelease != nil {
+			source = state.ActiveRelease.Source
+		}
 	}
-	return requirements
+	if source == "" {
+		return Requirements{}, operation.Fail(
+			operation.ExitBlocked,
+			"source",
+			"No machine source to read tool versions from; pass --source or install a release",
+		)
+	}
+	files, _, err := SourceSnapshot(source, c.Native.Developer)
+	if err != nil {
+		return Requirements{}, err
+	}
+	return SourceRequirements(files)
+}
+
+// SourceRequirements reads the pins from a machine source snapshot.
+func SourceRequirements(files map[string][]byte) (Requirements, error) {
+	requirements, err := ParseRequirements(files[versionsFile])
+	if err != nil {
+		return Requirements{}, operation.Fail(
+			operation.ExitInvalid,
+			"source",
+			"The machine source's "+versionsFile+" is invalid: "+err.Error(),
+		)
+	}
+	return requirements, nil
 }
 
 // ParseRequirements reads the management pins from a versions.toml. Setup

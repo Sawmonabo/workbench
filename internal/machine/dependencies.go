@@ -23,12 +23,12 @@ var toolVersion = regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`)
 func ResolveDependencies(
 	ctx context.Context,
 	c operation.Context,
+	requirements Requirements,
 	recorded []operation.Dependency,
 	searchPath string,
 ) ([]operation.Dependency, []operation.Component) {
 	var dependencies []operation.Dependency
 	var results []operation.Component
-	requirements := ManagementRequirements()
 	for _, name := range []string{"chezmoi", "python3", "uv"} {
 		var candidates []operation.Dependency
 		for _, prior := range recorded {
@@ -329,8 +329,17 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	_, results := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
-	results = append([]operation.Component{checkPlatform(ctx, c)}, results...)
+	results := []operation.Component{checkPlatform(ctx, c)}
+	if requirements, requirementsErr := ManagementRequirements(c); requirementsErr != nil {
+		results = append(results, operation.Component{
+			Name:    "tool-versions",
+			Status:  operation.StatusBlocked,
+			Message: requirementsErr.Error(),
+		})
+	} else {
+		_, resolved := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
+		results = append(results, resolved...)
+	}
 	// Plain chezmoi still pointed at another source, such as dotfiles, would
 	// reapply it over the same files Workbench manages.
 	if raw, readErr := os.ReadFile(

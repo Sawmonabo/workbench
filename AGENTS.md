@@ -57,8 +57,9 @@ are not sandboxed and must remain visible in consent.
 a release source that differs. Nothing is committed for this. A developer
 checkout passed with `--source` is instead bound by its actual content digest,
 which the approved plan carries, so `home/` edits preview and apply without a
-rebuild. The executable builds in `home/.chezmoidata/versions.toml` through
-the root `versions.go`. Before committing `home/` changes, run the existing
+rebuild. Tool version pins are read at runtime from that source's
+`home/.chezmoidata/versions.toml` (`--source`, else the active release).
+Before committing `home/` changes, run the existing
 `scripts/render-check.sh ROLE MODE [wsl]` for affected roles/modes. Do not
 weaken the release source check or add a second renderer. The WSL argument is
 static simulation, not Windows qualification.

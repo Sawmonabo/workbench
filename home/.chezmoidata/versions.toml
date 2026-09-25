@@ -21,8 +21,8 @@ claude = "2.1.263"
 
 # Management acquisition consumes versions.uv and versions.python_pinned[0].
 # These compatibility qualifications do not change user runtime version policy.
-# The Workbench executable builds this file in (versions.go), so a change here
-# takes effect in the next build.
+# Workbench reads this file from the selected source (--source, else the active
+# release) each time it runs, so a change here takes effect on the next plan.
 [management]
 chezmoi = "2.70.3"
 uv_additional = ["0.12.3"]

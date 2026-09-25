@@ -67,7 +67,11 @@ func initialize(
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	dependencies, _ := ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
+	requirements, err := ManagementRequirements(c)
+	if err != nil {
+		return nil, err
+	}
+	dependencies, _ := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 	if dependency(dependencies, "chezmoi") == "" || dependency(dependencies, "python3") == "" {
 		return nil, operation.Fail(
 			operation.ExitBlocked,

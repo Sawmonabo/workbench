@@ -242,8 +242,12 @@ func adapterDependency(
 	if state != nil {
 		recorded = state.Dependencies
 	}
-	deps, _ := machine.ResolveDependencies(ctx, c, recorded, os.Getenv("PATH"))
-	library, err := machine.TomlkitPath(c)
+	requirements, err := machine.ManagementRequirements(c)
+	if err != nil {
+		return operation.Dependency{}, "", "", nil, err
+	}
+	deps, _ := machine.ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
+	library, err := machine.TomlkitPath(c, requirements)
 	if err != nil {
 		return operation.Dependency{}, "", "", deps, err
 	}

@@ -150,6 +150,14 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   listed only an unpinned TOML Kit version for removal, reading the kept
   releases' pins from their `release.json`. A `--source` plan on this Mac had
   zero edits under the same digest the bundle carried.
+- Tool version pins are read at runtime from the selected source's
+  `versions.toml`. A scratch source copy pinning chezmoi 2.99.0 made the same
+  unrebuilt executable report Homebrew's 2.70.3 as unqualified. On this Mac,
+  `doctor --source` qualified chezmoi, Python and uv, and `doctor` with no
+  source and no installed release reported blocked tool versions. From a
+  locally installed bundle with no `--source`, `doctor` qualified the tools
+  and `project configure --dry-run` found the TOML Kit folder named by the
+  release's pin; an unstamped build refused that installed release.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
