@@ -129,6 +129,17 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   planned zero edits and a changed enforced value was still restored; a
   zero-edit config-only apply settled a recorded unfinished apply, and one
   recorded for another destination blocked.
+- Homebrew 7 asked "Do you want to proceed with the upgrade?" during that
+  interactive apply because the tmux and ripgrep updates also installed
+  jemalloc and updated pcre2 and libevent. A read-only plan from a copy of the
+  source that also listed glib, watchman and pnpm read Homebrew's dry runs:
+  pnpm was offered with nothing extra, and glib and watchman were held because
+  their updates, once the dependents' own dependencies were included, would
+  also update the python@3.13 Workbench runs. A single glib dry run had not
+  shown that. With a stub `brew`, both upgrade commands ran with
+  `HOMEBREW_NO_ASK=1`. With nothing outdated on this Mac, an unattended full
+  apply completed every step in 24 seconds without a prompt, and the next plan
+  had no edits and no updates.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
