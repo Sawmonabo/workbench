@@ -168,7 +168,8 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   the warning "Homebrew's outdated check failed". An interactive config-only
   apply into a disposable home read `yes`, showed `Rechecking the plan`, wrote
   32 files and exited 0. The terminal color query seen during that apply also
-  comes from native chezmoi in the previous build.
+  comes from native chezmoi in the previous build. Pressing ctrl+c during
+  `Rechecking the plan` after `yes` exited 130 and wrote nothing.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
