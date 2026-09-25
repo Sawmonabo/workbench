@@ -2,7 +2,6 @@ package cli
 
 import (
 	"bufio"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -38,12 +37,12 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 		)
 	}
 	defer func() { _ = terminal.Close() }()
-	if err := json.NewEncoder(terminal).Encode(plan); err != nil {
+	if err := writePlan(terminal, plan); err != nil {
 		return false, err
 	}
 	if _, err := fmt.Fprintf(
 		terminal,
-		"Plan digest: %s\nApprove this exact plan? Type yes: ",
+		"\nPlan digest: %s\nApprove this exact plan? Type yes: ",
 		digest,
 	); err != nil {
 		return false, err

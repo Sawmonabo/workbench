@@ -109,6 +109,13 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   pinned Docker Desktop as held and kept its digest on a rerun; `--config-only`
   listed none. With a stub `brew`, the apps step upgraded only the planned
   formulae, then casks, and reported a failed formula update as a warning.
+- The owner's interactive full apply from zsh finished every step and then
+  stopped (process state `T`) while taking the terminal back from chezmoi:
+  termios(4) sends SIGTTOU to a background process group that sets the
+  foreground. A disposable config-only apply under a job-control shell
+  reproduced the stop; with SIGTTOU ignored for that call it completed and
+  recorded the operation. The same harness showed the readable plan view at
+  the approval prompt and in `plan`, and `--json` still carried the full plan.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

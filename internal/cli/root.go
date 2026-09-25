@@ -210,7 +210,11 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 		if _, err := fmt.Fprintln(out); err != nil {
 			return err
 		}
-		if component.Details != nil {
+		if plan, ok := component.Details.(operation.Plan); ok {
+			if err := writePlan(out, plan); err != nil {
+				return err
+			}
+		} else if component.Details != nil {
 			data, err := json.MarshalIndent(component.Details, "", "  ")
 			if err != nil {
 				return err

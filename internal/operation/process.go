@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"sort"
@@ -159,6 +160,26 @@ type Process struct {
 	Progress io.Writer
 }
 
+// lendTerminal makes the child's process group the terminal's foreground, so
+// sudo and installers can prompt, and returns the function that takes it back.
+// That call comes from a background process group, which the terminal answers
+// with SIGTTOU (termios(4)); by default that stops Workbench under a
+// job-control shell, so the signal is ignored meanwhile.
+func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), error) {
+	fd := int(terminal.Fd())
+	foreground, err := unix.IoctlGetInt(fd, unix.TIOCGPGRP)
+	if err != nil {
+		return nil, Fail(ExitBlocked, "terminal", "Cannot inspect native setup terminal")
+	}
+	attributes.Foreground = true
+	attributes.Ctty = fd
+	return func() {
+		signal.Ignore(syscall.SIGTTOU)
+		defer signal.Reset(syscall.SIGTTOU)
+		_ = unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, foreground)
+	}, nil
+}
+
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
@@ -186,13 +207,11 @@ func Run(
 	cmd.Stdin = bytes.NewReader(request.Input)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if request.Terminal != nil {
-		foreground, terminalErr := unix.IoctlGetInt(int(request.Terminal.Fd()), unix.TIOCGPGRP)
-		if terminalErr != nil {
-			return output, Fail(ExitBlocked, "terminal", "Cannot inspect native setup terminal")
+		restore, err := lendTerminal(cmd.SysProcAttr, request.Terminal)
+		if err != nil {
+			return output, err
 		}
-		cmd.SysProcAttr.Foreground = true
-		cmd.SysProcAttr.Ctty = int(request.Terminal.Fd())
-		defer func() { _ = unix.IoctlSetPointerInt(int(request.Terminal.Fd()), unix.TIOCSPGRP, foreground) }()
+		defer restore()
 	}
 	cmd.Cancel = func() error {
 		err := syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
