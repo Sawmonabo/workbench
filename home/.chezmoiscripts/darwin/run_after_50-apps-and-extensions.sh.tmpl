@@ -65,16 +65,18 @@ else
     brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
 fi
 
+# The approved plan named every package these updates bring with them, so
+# Homebrew is told not to ask again.
 if [ -n "${WORKBENCH_TOOL_UPDATES:-}" ]; then
     read -ra tools <<< "$WORKBENCH_TOOL_UPDATES"
     echo "==> Updating ${tools[*]}..."
-    brew upgrade --formula "${tools[@]}" || skipped+=("updating ${tools[*]} failed (see above)")
+    HOMEBREW_NO_ASK=1 brew upgrade --formula "${tools[@]}" || skipped+=("updating ${tools[*]} failed (see above)")
 fi
 
 if [ -n "${WORKBENCH_APP_UPDATES:-}" ]; then
     read -ra updates <<< "$WORKBENCH_APP_UPDATES"
     echo "==> Updating ${updates[*]}..."
-    brew upgrade --cask "${updates[@]}" || skipped+=("updating ${updates[*]} failed (see above)")
+    HOMEBREW_NO_ASK=1 brew upgrade --cask "${updates[@]}" || skipped+=("updating ${updates[*]} failed (see above)")
 fi
 
 # A skipped app must not cancel the unrelated extension step; report it after.

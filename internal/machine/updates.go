@@ -23,13 +23,23 @@ type brewUpdate struct {
 	cask                    bool
 }
 
+// brewExtra is another formula Homebrew installs or updates along with a
+// planned tool update: a new or outdated dependency, or an outdated dependent.
+type brewExtra struct {
+	name, versions string
+	install        bool
+}
+
 // planUpdates adds one effect per listed package Homebrew can update, so
 // approving the plan approves those updates, and records their names for the
 // apply script. Asking Homebrew without names keeps its own check, which
 // compares the installed app's version for self-updating casks and so never
-// proposes a downgrade; pinned packages are held. Formulae that provide the
-// chezmoi, uv or Python Workbench runs stay at the version it qualified. A
-// failed check only warns.
+// proposes a downgrade; pinned packages are held. A tool update's effect also
+// names what Homebrew's dry run says comes with it, the list Homebrew would
+// otherwise ask about, so the apply script tells Homebrew not to ask. Formulae
+// that provide the chezmoi, uv or Python Workbench runs stay at the version it
+// qualified, and so does any tool whose update would change them. A failed
+// check only warns.
 func (p *preparation) planUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -38,7 +48,7 @@ func (p *preparation) planUpdates(
 	if runtime.GOOS != "darwin" {
 		return
 	}
-	updates, held, err := outdatedPackages(ctx, c, files)
+	updates, held, pinned, err := outdatedPackages(ctx, c, files)
 	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
@@ -53,7 +63,7 @@ func (p *preparation) planUpdates(
 		)
 	}
 	running := workbenchFormulae(p.Plan.Dependencies)
-	var kept []string
+	var kept, carried, unread []string
 	for _, update := range updates {
 		effect := operation.Effect{
 			Name: "update-" + update.name,
@@ -67,20 +77,131 @@ func (p *preparation) planUpdates(
 			effect.Description += "; a running app may be quit"
 			effect.Privilege += "; some apps prompt for sudo"
 			p.appUpdates = append(p.appUpdates, update.name)
+			p.Plan.Effects = append(p.Plan.Effects, effect)
+			continue
 		case slices.Contains(running, update.name):
 			kept = append(kept, update.name)
 			continue
-		default:
-			p.toolUpdates = append(p.toolUpdates, update.name)
 		}
+		extras, err := upgradeExtras(ctx, c, update.name, pinned)
+		if err != nil {
+			unread = append(unread, update.name)
+			continue
+		}
+		var installs, changes, touched []string
+		for _, extra := range extras {
+			switch {
+			case slices.Contains(running, extra.name):
+				touched = append(touched, extra.name)
+			case extra.install:
+				installs = append(installs, extra.name+" "+extra.versions)
+			default:
+				changes = append(changes, extra.name+" "+extra.versions)
+			}
+		}
+		if len(touched) > 0 {
+			carried = append(carried, update.name+" ("+strings.Join(touched, ", ")+")")
+			continue
+		}
+		if len(installs) > 0 {
+			effect.Description += "; also installs " + strings.Join(installs, ", ")
+		}
+		if len(changes) > 0 {
+			effect.Description += "; also updates " + strings.Join(changes, ", ")
+		}
+		p.toolUpdates = append(p.toolUpdates, update.name)
 		p.Plan.Effects = append(p.Plan.Effects, effect)
 	}
-	if len(kept) > 0 {
-		p.Plan.Warnings = append(
-			p.Plan.Warnings,
-			"Kept at the version Workbench runs, not updated: "+strings.Join(kept, ", "),
-		)
+	for _, warning := range []struct {
+		text  string
+		names []string
+	}{
+		{"Kept at the version Workbench runs, not updated: ", kept},
+		{"Not updated, since Homebrew would also update what Workbench runs: ", carried},
+		{"Not updated, Homebrew's dry run could not be read: ", unread},
+	} {
+		if len(warning.names) > 0 {
+			p.Plan.Warnings = append(
+				p.Plan.Warnings,
+				warning.text+strings.Join(warning.names, ", "),
+			)
+		}
 	}
+}
+
+// upgradeExtras returns the other formulae Homebrew installs or updates when
+// it upgrades name. Homebrew's dry run lists new and outdated dependencies and
+// outdated dependents, but not the dependencies a dependent's own upgrade
+// brings, so the dry run is repeated with those dependents requested too
+// until the list stops growing. Pinned formulae, which Homebrew names on a
+// line of their own but never upgrades, are left out. Output that never names
+// the upgrade itself is unreadable.
+func upgradeExtras(
+	ctx context.Context,
+	c operation.Context,
+	name string,
+	pinned []string,
+) ([]brewExtra, error) {
+	requested := []string{name}
+	for {
+		args := append([]string{"upgrade", "--formula", "--dry-run"}, requested...)
+		output, err := brewOutput(ctx, c, homebrew(), args...)
+		if err != nil {
+			return nil, err
+		}
+		extras, found := dryRunExtras(output, name)
+		if !found {
+			return nil, errors.New("unreadable Homebrew dry run")
+		}
+		extras = slices.DeleteFunc(extras, func(extra brewExtra) bool {
+			return slices.Contains(pinned, extra.name)
+		})
+		grown := false
+		for _, extra := range extras {
+			if !extra.install && !slices.Contains(requested, extra.name) {
+				requested = append(requested, extra.name)
+				grown = true
+			}
+		}
+		if !grown {
+			return extras, nil
+		}
+	}
+}
+
+// dryRunExtras reads "brew upgrade --dry-run" output, whose sections look like
+// "==> Would install 1 dependency:" followed by "jemalloc 5.4.0", or
+// "==> Would upgrade 2 dependents" followed by "cairo 1.18.4 -> 1.18.6 (1.6MB)".
+// It returns every package listed except name, and whether name was listed.
+func dryRunExtras(output, name string) ([]brewExtra, bool) {
+	var extras []brewExtra
+	install, listing, found := false, false, false
+	for line := range strings.Lines(output) {
+		fields := strings.Fields(line)
+		if header, ok := strings.CutPrefix(line, "==> "); ok {
+			words := strings.Fields(header)
+			listing = len(words) > 1 && words[0] == "Would"
+			install = listing && words[1] == "install"
+			continue
+		}
+		switch {
+		case !listing || len(fields) < 2:
+		case fields[0] == name:
+			found = true
+		case slices.ContainsFunc(extras, func(extra brewExtra) bool { return extra.name == fields[0] }):
+		case len(fields) >= 4 && fields[2] == "->":
+			extras = append(
+				extras,
+				brewExtra{name: fields[0], versions: fields[1] + " → " + fields[3]},
+			)
+		default:
+			extras = append(
+				extras,
+				brewExtra{name: fields[0], versions: fields[1], install: install},
+			)
+		}
+	}
+	return extras, found
 }
 
 // workbenchFormulae names the Homebrew formulae whose executables Workbench
@@ -97,13 +218,13 @@ func workbenchFormulae(dependencies []operation.Dependency) []string {
 }
 
 // outdatedPackages returns the formulae and casks in packages.toml that
-// Homebrew reports as outdated, and those held by a pin. Without Homebrew there
-// is nothing to update.
+// Homebrew reports as outdated, those held by a pin, and every pinned outdated
+// formula. Without Homebrew there is nothing to update.
 func outdatedPackages(
 	ctx context.Context,
 	c operation.Context,
 	files map[string][]byte,
-) ([]brewUpdate, []string, error) {
+) (updates []brewUpdate, held, pinned []string, err error) {
 	var packages struct {
 		Packages struct {
 			Darwin struct {
@@ -112,13 +233,13 @@ func outdatedPackages(
 			} `toml:"darwin"`
 		} `toml:"packages"`
 	}
-	if err := toml.Unmarshal(files["home/.chezmoidata/packages.toml"], &packages); err != nil {
-		return nil, nil, err
+	if err = toml.Unmarshal(files["home/.chezmoidata/packages.toml"], &packages); err != nil {
+		return nil, nil, nil, err
 	}
 	listed := packages.Packages.Darwin
 	brew := homebrew()
 	if brew == "" || len(listed.Brew)+len(listed.Cask) == 0 {
-		return nil, nil, nil
+		return nil, nil, nil, nil
 	}
 	type entry struct {
 		Name              string   `json:"name"`
@@ -130,18 +251,20 @@ func outdatedPackages(
 		Formulae []entry `json:"formulae"`
 		Casks    []entry `json:"casks"`
 	}
-	if err := runBrew(ctx, c, brew, &outdated, "outdated", "--json=v2"); err != nil {
-		return nil, nil, err
+	if err = runBrew(ctx, c, brew, &outdated, "outdated", "--json=v2"); err != nil {
+		return nil, nil, nil, err
 	}
 	formulae := listed.Brew
 	if len(outdated.Formulae) > 0 && len(formulae) > 0 {
-		var err error
 		if formulae, err = formulaNames(ctx, c, brew, formulae); err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 	}
-	var updates []brewUpdate
-	var held []string
+	for _, formula := range outdated.Formulae {
+		if formula.Pinned {
+			pinned = append(pinned, formula.Name)
+		}
+	}
 	collect := func(entries []entry, names []string, cask bool) {
 		for _, outdated := range entries {
 			switch {
@@ -163,7 +286,7 @@ func outdatedPackages(
 	}
 	collect(outdated.Formulae, formulae, false)
 	collect(outdated.Casks, listed.Cask, true)
-	return updates, held, installedVersions(ctx, c, brew, updates)
+	return updates, held, pinned, installedVersions(ctx, c, brew, updates)
 }
 
 // formulaNames returns Homebrew's own names for the listed formulae, which
@@ -236,8 +359,7 @@ func homebrew() string {
 	return ""
 }
 
-// runBrew runs a read-only Homebrew query and decodes its JSON output. Homebrew
-// refreshes its own metadata first unless the user set HOMEBREW_NO_AUTO_UPDATE.
+// runBrew runs a read-only Homebrew query and decodes its JSON output.
 func runBrew(
 	ctx context.Context,
 	c operation.Context,
@@ -245,6 +367,25 @@ func runBrew(
 	target any,
 	args ...string,
 ) error {
+	output, err := brewOutput(ctx, c, brew, args...)
+	if err != nil {
+		return err
+	}
+	if err = json.Unmarshal([]byte(output), target); err != nil {
+		return errors.New("unreadable Homebrew JSON output")
+	}
+	return nil
+}
+
+// brewOutput runs a read-only Homebrew command and returns its standard output.
+// Homebrew refreshes its own metadata first unless the user set
+// HOMEBREW_NO_AUTO_UPDATE.
+func brewOutput(
+	ctx context.Context,
+	c operation.Context,
+	brew string,
+	args ...string,
+) (string, error) {
 	environment := []string{
 		"HOME=" + c.Home,
 		"PATH=" + filepath.Dir(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin",
@@ -261,12 +402,9 @@ func runBrew(
 		OutputLimit: 8 << 20,
 	})
 	if err != nil {
-		return err
+		return "", err
 	}
-	if err = json.Unmarshal([]byte(output.Stdout), target); err != nil {
-		return errors.New("unreadable Homebrew JSON output")
-	}
-	return nil
+	return output.Stdout, nil
 }
 
 // versionOf drops the build suffix Homebrew appends after a comma, as in

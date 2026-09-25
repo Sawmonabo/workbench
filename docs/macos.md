@@ -25,9 +25,14 @@ naming casks, so an app that updated itself is not reinstalled or downgraded.
 Each one appears as an `update-<app>` effect, and approving the plan updates
 them with `brew upgrade --cask`. Listed command-line tools (formulae) work the
 same way with `brew upgrade --formula`, except the chezmoi, uv and Python that
-Workbench itself runs, which stay at the versions it qualified. `brew pin`
-holds a tool and `brew pin --cask <app>` an app; the plan names held and kept
-packages in its warnings. A failed install or update does not block VS Code
+Workbench itself runs, which stay at the versions it qualified. A tool's effect
+also names what Homebrew's own dry run says the upgrade brings with it: new or
+outdated dependencies and outdated installed packages that depend on it. So the
+plan's approval is the only question and the updates run with
+`HOMEBREW_NO_ASK=1`. A tool whose upgrade would also change Workbench's own
+chezmoi, uv or Python is not updated. `brew pin` holds a tool and
+`brew pin --cask <app>` an app; the plan names held and kept packages in its
+warnings. A failed install or update does not block VS Code
 extension installs; the step still exits nonzero afterwards so the failure
 stays visible.
 Do not delete native script state to force all installers to rerun.

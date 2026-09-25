@@ -100,9 +100,13 @@ steps as effects, and approving the plan approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`
 that Homebrew reports as outdated, for example `Update docker-desktop 4.89.0 →
-4.92.0`. Hold one at its version with `brew pin` (`brew pin --cask <app>` for
-an app; `brew unpin` releases it). The chezmoi, uv and Python that Workbench
-runs stay at the versions it qualified; the plan names them in its warnings.
+4.92.0`. A tool's effect also lists the other packages Homebrew would install
+or update with it, for example `Update tmux 3.6a → 3.7c through Homebrew; also
+installs jemalloc 5.4.0; also updates libevent 2.1.12_1 → 2.1.13`, so Homebrew
+does not ask again during apply. Hold one at its version with `brew pin`
+(`brew pin --cask <app>` for an app; `brew unpin` releases it). The chezmoi, uv
+and Python that Workbench runs stay at the versions it qualified, and so does
+any tool whose update would change them; the plan names them in its warnings.
 
 Windows host steps on WSL run only when named with a repeatable `--effect` on
 both `plan` and `apply` (and `install`/`update`); each appears in the plan and
