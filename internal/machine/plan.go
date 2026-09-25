@@ -30,6 +30,7 @@ func Plan(
 	selection Selection,
 ) (_ operation.Plan, err error) {
 	defer operation.Annotate(&err, "plan machine configuration")
+	defer c.ShowProgress("Planning")()
 	// prepare cleans up after itself when it fails.
 	prepared, err := prepare(ctx, c, selection)
 	if err == nil {
@@ -70,6 +71,14 @@ func prepare(
 			prepared.Close()
 		}
 	}()
+	// Probes whose failure only warns, such as Homebrew's update check, also
+	// fail when interrupted; the interrupt must still end the plan.
+	defer func() {
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		}
+	}()
+	c.Step("reading the machine source")
 	files, identity, err := SourceSnapshot(c.Native.Source, c.Native.Developer)
 	plan.Source = identity
 	if err != nil {
@@ -79,10 +88,12 @@ func prepare(
 	if err != nil {
 		return prepared, err
 	}
+	c.Step("checking chezmoi, uv and Python")
 	answers, optional, err := prepared.checkPrerequisites(ctx, c, requirements)
 	if err != nil {
 		return prepared, err
 	}
+	c.Step("rendering your configuration")
 	if err = prepared.stageNative(c, files, answers); err != nil {
 		return prepared, err
 	}
@@ -115,10 +126,12 @@ func prepare(
 	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
-		prepared.planUpdates(ctx, c, files)
 	}
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
+	}
+	if !selection.ConfigOnly {
+		prepared.planUpdates(ctx, c, files)
 	}
 	plan.Inputs = append(
 		plan.Inputs,

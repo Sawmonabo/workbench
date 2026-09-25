@@ -35,6 +35,7 @@ func Apply(
 		}
 	}()
 	planner := func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
+		defer preview.ShowProgress("Rechecking the plan")()
 		var err error
 		prepared, err = prepare(ctx, preview, selection)
 		return prepared.Plan, err

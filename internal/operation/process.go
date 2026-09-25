@@ -285,7 +285,7 @@ func Run(
 // executable and working directory.
 func (request *Process) admit(c Context, mutation *Mutation) (string, string, error) {
 	if request.Terminal != nil &&
-		(!request.Mutates || len(request.Input) != 0 || !isTerminal(request.Terminal)) {
+		(!request.Mutates || len(request.Input) != 0 || !IsTerminal(request.Terminal)) {
 		return "", "", Fail(
 			ExitBlocked,
 			"terminal",

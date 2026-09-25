@@ -76,7 +76,11 @@ by Workbench`, so an approval never overwrites local edits unnoticed.
 Interactive mutations show the plan and read approval from the terminal: the
 files it changes, then its effects grouped by the privilege they need and what
 recovery can undo, then warnings and recovery limits. `plan` prints the same
-view without asking. An interactive apply then hands the terminal to native
+view without asking. While Workbench plans, rechecks an approved plan or sets up
+chezmoi, uv and Python, a live line on stderr names the current step and the
+time so far, for example `⠧ Planning: asking Homebrew for updates (2s)`; it
+clears before any prompt. Without a terminal, and in JSON or non-interactive
+mode, each step prints as its own line instead. An interactive apply then hands the terminal to native
 provisioning, so sudo and installers can prompt and you see their output as it
 runs, and takes it back when they finish. JSON mode does not
 prompt; it streams redacted provisioning output on stderr. Unattended mutation

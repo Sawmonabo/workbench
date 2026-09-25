@@ -156,7 +156,11 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			err = o.selectSource(cmd.Context(), &resolved)
 		}
 		if err == nil {
+			progress, stop := newProgress(o, cmd.ErrOrStderr())
+			defer stop() // clears the status line on a panic
+			resolved.Progress = progress
 			result, err = run(cmd, resolved)
+			stop()
 		}
 		result.SetError(err)
 		o.rendered = true

@@ -158,6 +158,17 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   locally installed bundle with no `--source`, `doctor` qualified the tools
   and `project configure --dry-run` found the TOML Kit folder named by the
   release's pin; an unstamped build refused that installed release.
+- Planning shows its progress. At a pseudo-terminal, a read-only plan on this
+  Mac drew `Planning: checking chezmoi, uv and Python`, then `rendering your
+  configuration`, then `asking Homebrew for updates (2s)`, and cleared the line
+  before printing the plan. The only terminal sequences it wrote were cursor
+  hide and show, and `stty -a` matched before and after. Without a terminal the
+  same steps printed as plain lines. ctrl+c and SIGINT during the Homebrew
+  check ended the plan with exit 130 and no plan. Before this, they gave exit 0 and
+  the warning "Homebrew's outdated check failed". An interactive config-only
+  apply into a disposable home read `yes`, showed `Rechecking the plan`, wrote
+  32 files and exited 0. The terminal color query seen during that apply also
+  comes from native chezmoi in the previous build.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

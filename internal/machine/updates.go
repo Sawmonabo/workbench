@@ -48,6 +48,7 @@ func (p *preparation) planUpdates(
 	if runtime.GOOS != "darwin" {
 		return
 	}
+	c.Step("asking Homebrew for updates")
 	updates, held, pinned, err := outdatedPackages(ctx, c, files)
 	if err != nil {
 		p.Plan.Warnings = append(
@@ -83,6 +84,7 @@ func (p *preparation) planUpdates(
 			kept = append(kept, update.name)
 			continue
 		}
+		c.Step("checking what updating " + update.name + " brings along")
 		extras, err := upgradeExtras(ctx, c, update.name, pinned)
 		if err != nil {
 			unread = append(unread, update.name)

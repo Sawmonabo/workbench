@@ -33,7 +33,7 @@ Native qualification and final acceptance are tracked separately in
 
 | Owner | Responsibility |
 | --- | --- |
-| `internal/cli/` | Cobra command tree, human/JSON presentation and consent selection. |
+| `internal/cli/` | Cobra command tree, human/JSON presentation, progress display and consent selection. |
 | `internal/operation/` | Context, bounded execution, plan revalidation, private state/locks and scoped checkpoints/recovery. |
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |

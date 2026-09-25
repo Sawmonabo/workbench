@@ -212,6 +212,9 @@ func machinePlan(
 	result := operation.NewResult(cmd.CommandPath())
 	selection := machineSelection(cmd)
 	plan, err := machine.Plan(cmd.Context(), c, selection)
+	if operation.ExitCode(err) == operation.ExitInterrupted {
+		return result, err // an interrupted plan is incomplete; show only the error
+	}
 	status := operation.StatusComplete
 	if err != nil {
 		status = operation.StatusBlocked

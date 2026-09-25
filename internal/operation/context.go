@@ -37,6 +37,8 @@ type Context struct {
 	Home      string
 	Languages []string
 	ReadOnly  bool
+	// Progress shows what a long operation is doing; nil shows nothing.
+	Progress Progress
 }
 
 // Options are the command-line selections [Resolve] turns into a [Context].

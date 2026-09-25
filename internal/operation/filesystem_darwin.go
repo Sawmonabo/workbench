@@ -8,7 +8,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-func isTerminal(file *os.File) bool {
+// IsTerminal reports whether file is a terminal.
+func IsTerminal(file *os.File) bool {
 	_, err := unix.IoctlGetTermios(int(file.Fd()), unix.TIOCGETA)
 	return err == nil
 }

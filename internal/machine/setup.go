@@ -133,6 +133,7 @@ func setupDependencies(
 		if dependency(selected, name) != "" {
 			continue
 		}
+		c.Step("downloading " + name)
 		acquired, acquireErr := acquireTool(ctx, c, name, requirements)
 		if acquireErr != nil {
 			return nil, acquireErr
@@ -140,6 +141,7 @@ func setupDependencies(
 		selected = append(selected, acquired)
 	}
 	if dependency(selected, "python3") == "" {
+		c.Step("installing Python " + requirements.Python)
 		python, pythonErr := acquirePython(ctx, c, m, dependency(selected, "uv"), requirements)
 		if pythonErr != nil {
 			return nil, pythonErr
@@ -147,10 +149,12 @@ func setupDependencies(
 		selected = append(selected, python)
 	}
 	if _, err = TomlkitPath(c, requirements); err != nil {
+		c.Step("downloading TOML Kit")
 		if err = acquireTomlkit(ctx, c, requirements); err != nil {
 			return nil, err
 		}
 	}
+	c.Step("checking the installed tools")
 	qualified, results := ResolveDependencies(ctx, c, requirements, selected, "")
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
@@ -550,7 +554,11 @@ func Setup(
 	terminal *os.File,
 ) (_ operation.Context, err error) {
 	defer operation.Annotate(&err, "set up management tools")
-	if _, err := setupDependencies(ctx, c, m); err != nil {
+	// The questionnaire below prompts, so progress stops first.
+	stop := c.ShowProgress("Setting up chezmoi, uv and Python")
+	_, err = setupDependencies(ctx, c, m)
+	stop()
+	if err != nil {
 		return c, err
 	}
 	files, identity, err := SourceSnapshot(c.Native.Source, false)
