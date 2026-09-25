@@ -8,7 +8,8 @@ Every other key and table in the existing file is kept: Codex records project
 trust, notices, TUI flags and marketplace bookkeeping there itself, and an
 apply must not delete them. Keys Codex adds to a table the managed body
 declares go under that header; tables the managed body lacks go in the
-preserved block at the end, and top-level keys before the first header.
+preserved block at the end, and top-level keys before the first header. When
+the merge changes no value, the existing file is emitted byte for byte.
 """
 
 import datetime
@@ -153,8 +154,11 @@ def main():
     if preserved:
         output += "\n\n" + DELIMITER + "\n".join(preserved)
 
-    tomllib.loads(output)  # Validate before emitting any replacement bytes.
-    sys.stdout.write(output.rstrip("\n") + "\n")
+    # Validate before emitting any replacement bytes.
+    if tomllib.loads(output) == document:
+        sys.stdout.buffer.write(raw)
+    else:
+        sys.stdout.write(output.rstrip("\n") + "\n")
 
 
 if __name__ == "__main__":

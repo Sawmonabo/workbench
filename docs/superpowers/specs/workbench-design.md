@@ -43,8 +43,9 @@ Native qualification and final acceptance are tracked separately in
 | `home/.chezmoitemplates/` | Shared shell/native configuration fragments and merges. |
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Existing role/mode renders, script lint, secret scanning and Go quality gates. |
 
-Global VS Code merging accepts JSONC and preserves unrelated values/rules but
-emits JSON without comments. Project TOML/JSONC/YAML editing has stricter
+Global VS Code merging accepts JSONC and preserves unrelated values/rules; it
+leaves the file untouched when no value changes and otherwise emits JSON
+without comments. Project TOML/JSONC/YAML editing has stricter
 round-trip preservation gates. Invalid machine Codex TOML no longer falls back
 to a replacement body.
 

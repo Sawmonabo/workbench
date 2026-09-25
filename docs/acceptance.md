@@ -116,6 +116,19 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   reproduced the stop; with SIGTTOU ignored for that call it completed and
   recorded the operation. The same harness showed the readable plan view at
   the approval prompt and in `plan`, and `--json` still carried the full plan.
+- Resumed with `fg` the next day, that apply reported `configuration: partial`:
+  every update had installed, but Claude Code had saved `~/.claude/settings.json`
+  during the pause (same values, its own key order), so the final image check
+  failed. The rebuilt binary's interactive rerun from zsh finished without
+  stopping, updated VS Code and cleared the unfinished record. Two minutes
+  later the relaunched VS Code saved its settings the same way, as 0644.
+  With the three merges leaving a file untouched when no value changes and
+  VS Code settings no longer forced to 0600, rendering against this Mac's
+  live Claude, VS Code and Codex files reproduced each byte for byte. In a
+  disposable home, reordered settings, a JSONC comment and VS Code's 0644
+  planned zero edits and a changed enforced value was still restored; a
+  zero-edit config-only apply settled a recorded unfinished apply, and one
+  recorded for another destination blocked.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

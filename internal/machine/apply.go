@@ -115,11 +115,12 @@ func (a *applyRun) activate() error {
 }
 
 func (a *applyRun) withoutCheckpoint(state *operation.State) error {
-	if state != nil && state.PartialOperation != nil {
+	if state != nil && state.PartialOperation != nil && state.PartialOperation.Scope != a.c.Scope {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"recovery",
-			"Resolve the recorded incomplete operation before selecting another configuration release",
+			"Apply "+state.PartialOperation.ID+" to "+state.PartialOperation.Scope.Root+
+				" did not finish; rerun apply for that destination first",
 		)
 	}
 	if err := a.activate(); err != nil {
@@ -135,12 +136,19 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		return err
 	}
 	activated := runtimeChanged(state, current)
-	if activated || !a.selection.ConfigOnly {
+	// A plan with no file changes found every target already as this source
+	// renders it, which settles an earlier apply that stopped before finishing.
+	var settled *operation.PartialOperation
+	if current != nil {
+		settled = current.PartialOperation
+	}
+	if activated || !a.selection.ConfigOnly || settled != nil {
 		if current == nil {
 			current = &operation.State{SchemaVersion: 1}
 		}
 		current.AppliedConfiguration = &a.prepared.Plan.Source
 		current.Dependencies = a.prepared.Plan.Dependencies
+		current.PartialOperation = nil
 		if err = a.m.WriteState(*current); err != nil {
 			return operation.Fail(
 				operation.ExitPartial,
@@ -161,6 +169,13 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		Status:   operation.StatusUnchanged,
 		Recovery: "No target writes or checkpoint allocation",
 	})
+	if settled != nil {
+		a.result.Results = append(a.result.Results, operation.Component{
+			Name:    "unfinished-apply",
+			Status:  operation.StatusComplete,
+			Message: "Apply " + settled.ID + " did not finish earlier; every file now matches this plan",
+		})
+	}
 	if !a.selection.ConfigOnly {
 		a.result.Results = append(a.result.Results, effectResults(a.prepared.Plan.Effects)...)
 	}

@@ -163,6 +163,10 @@ recorded post-image before restoring anything; later user edits, corrupt images
 or unknown interrupted outcomes block. Keep the reported checkpoint ID and
 resolve conflicts manually; do not delete state to bypass a failure.
 
+An apply that stops after it starts writing files is recorded as unfinished.
+Rerun `workbench apply`: once a fresh approved plan finishes, the record is
+cleared, including when that plan changes no files because they already match.
+
 File recovery does not uninstall tools/extensions, undo runtime upgrades or revert
 registry, environment, services, package caches or uncheckpointed script effects.
 Supported bytes/types/modes/groups/link targets are recorded, along with the

@@ -48,8 +48,9 @@ This example is not a WSL/work-role input and does not authorize application.
 
 - `.zshrc.local` and `.bash_aliases` remain unmanaged shell overrides.
 - Global VS Code preferences are owned by `home/.chezmoidata/vscode.json`.
-  The shared merge preserves unrelated nested values and custom color rules,
-  accepts JSONC, and emits JSON without comments.
+  The shared merge preserves unrelated nested values and custom color rules
+  and accepts JSONC. When it changes no value it leaves the file exactly as
+  VS Code wrote it; otherwise it writes JSON without comments.
 - Codex's managed body and application-owned state use the existing native
   modify target; malformed TOML fails rather than replacing unrelated state.
   The body sets no model or reasoning effort, so Codex keeps each machine's.
@@ -62,6 +63,8 @@ This example is not a WSL/work-role input and does not authorize application.
   the repo doesn't know are left alone, and malformed JSON fails the apply.
   Apply only adds and overwrites: an entry or key you drop from `enforced`
   stays in the live `~/.claude/settings.json` until you delete it there.
+- All three merges leave a file untouched when they would change no value, so
+  an app saving its settings in its own key order is not a change to apply.
 - Portable project policy belongs in `project/python/`, not global settings.
   Project editing preserves supported comments/order through format-aware
   libraries and rejects unsupported round trips.

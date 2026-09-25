@@ -1,4 +1,5 @@
 {{- $existing := .chezmoi.stdin | default "{}" | fromJsonc -}}
+{{- $unchanged := toJson $existing -}}
 {{- $managed := deepCopy .vscode.settings -}}
 {{- $tokenKey := "editor.tokenColorCustomizations" -}}
 {{- $theme := "[Dark 2026]" -}}
@@ -11,4 +12,11 @@
   {{- end -}}
 {{- end -}}
 {{- $_ := set (index $managed $tokenKey $theme) "textMateRules" (concat $preservedRules $managedRules) -}}
-{{- mustMergeOverwrite $existing $managed | toPrettyJson }}
+{{- /* Leave the file as VS Code wrote it, comments and key order included,
+       when the merge changes no value. */ -}}
+{{- $merged := mustMergeOverwrite $existing $managed -}}
+{{- if eq (toJson $merged) $unchanged -}}
+{{ .chezmoi.stdin }}
+{{- else -}}
+{{ toPrettyJson $merged }}
+{{ end -}}

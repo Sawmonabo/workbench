@@ -3,12 +3,20 @@
        live values win over them, and enforced policy wins over both.
        Permission lists keep entries granted in a session. The merge only adds
        and overwrites, so an entry dropped from enforced stays in the live
-       file. Invalid JSON fails the apply instead of being replaced. */ -}}
+       file. When the merge changes no value the file is left exactly as
+       Claude Code wrote it, key order included. Invalid JSON fails the apply
+       instead of being replaced. */ -}}
 {{- $live := .chezmoi.stdin | default "{}" | fromJson -}}
+{{- $unchanged := toJson $live -}}
 {{- $enforced := deepCopy .claude.enforced -}}
 {{- range $list := list "allow" "deny" "ask" -}}
   {{- $managed := index $enforced.permissions $list -}}
   {{- $granted := dig "permissions" $list (list) $live -}}
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
 {{- end -}}
-{{- mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced | toPrettyJson -}}
+{{- $merged := mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced -}}
+{{- if eq (toJson $merged) $unchanged -}}
+{{ .chezmoi.stdin }}
+{{- else -}}
+{{ toPrettyJson $merged }}
+{{- end -}}
