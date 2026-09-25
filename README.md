@@ -34,22 +34,23 @@ to move a machine over.
 ## Daily commands
 
 ```sh
-workbench plan --config-only
-workbench apply --config-only --dry-run
-workbench apply --config-only
-workbench revert --list
-workbench project inspect ./apps/api
+workbench apply              # show what would change, ask, then apply
+workbench apply --dry-run    # only show it
+workbench update             # install the latest release, then apply it
+workbench update 0.2.0       # install that release (older goes back)
+workbench version --list     # published releases, marking yours
+workbench doctor             # what is installed and applied, tools, host
+workbench revert             # pick a checkpoint and restore its files
 workbench project configure ./apps/api --language python --dry-run
 workbench project configure ./apps/api --language python
-workbench project revert ./apps/api --list
+workbench project revert ./apps/api
 ```
 
 Machine commands require a verified source and complete private machine answers.
-Mutations display a plan and require approval; unattended use requires its exact
-digest. Missing prerequisites block preview rather than trigger installation.
-`pull` stages a verified bundle; `install` and `update` reuse the same activation,
-setup and apply operations. See [usage](docs/usage.md) for install options,
-separate setup consent, recovery selection and limits.
+Changes are shown as a plan and need a Yes; unattended use requires the plan's
+exact digest. Missing prerequisites block preview rather than trigger
+installation. See [usage](docs/usage.md) for install options, separate setup
+consent, recovery selection and limits.
 
 Python configuration supports existing uv projects/workspaces. Other languages
 are detected and reported, not configured. Shared workspace owners require

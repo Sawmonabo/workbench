@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"cmp"
 	"os"
 	"runtime"
 	"slices"
@@ -174,10 +175,7 @@ func optionalEffectNames() []string {
 
 // AvailableEffects lists this host's optional effect names for messages.
 func AvailableEffects() string {
-	if names := optionalEffectNames(); len(names) > 0 {
-		return strings.Join(names, ", ")
-	}
-	return "none on this host"
+	return strings.Join(optionalEffectNames(), ", ")
 }
 
 // selectedEffects validates names against this host's optional effects.
@@ -214,7 +212,10 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 			return nil, operation.Fail(
 				operation.ExitInvalid,
 				"effect",
-				"Unknown or unavailable effect "+name+"; available here: "+AvailableEffects(),
+				"Unknown or unavailable effect "+name+"; available here: "+cmp.Or(
+					AvailableEffects(),
+					"none",
+				),
 			)
 		}
 	}

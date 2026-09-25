@@ -128,15 +128,13 @@ This table defines the command contract. Exact flags, install options and suppor
 
 | Command | Contract |
 | --- | --- |
-| `workbench doctor` | Local, read-only checks of context, tools, configuration and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
-| `workbench status` | Inspect recorded CLI/configuration/state identities without fetching or applying; complete drift inspection remains unavailable. |
-| `workbench pull [version] --bundle FILE` | Verify a release bundle against its manifest and stage it only. |
-| `workbench plan` | Preview the selected candidate, or the current selected source when no candidate exists. Show file changes, removals, prerequisites and planned external effects. |
-| `workbench apply --dry-run` | Use the same planner and scope as `plan`; no application or provisioning. |
 | `workbench apply` | Preflight, preview, confirm, checkpoint, execute approved operations, validate and record the result. |
+| `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no application or provisioning. |
 | `workbench apply --config-only` | Exclude provisioning scripts and installs. Preview managed configuration removals as well as writes. Missing render prerequisites block rather than trigger installation. |
-| `workbench install` / `workbench update` | Compose shared staging, journaled activation, separate setup and approved apply from a `--bundle` archive; `install.sh` supplies it. |
-| `workbench revert [version]` | Preview configuration recovery using a retained operation checkpoint and its release. Never infer recoverable contents from a version number alone. |
+| `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging, journaled activation, separate setup and approved apply. An older VERSION goes back. An already active release is left alone. |
+| `workbench version [--list]` | Print this version; `--list` reads the published releases from GitHub and marks the latest and the installed one. |
+| `workbench doctor` | Local, read-only checks: the active release, the last applied configuration, any unfinished apply, tools, configuration and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
+| `workbench revert` | Preview and restore configuration from a retained operation checkpoint, chosen at a terminal or by `--checkpoint ID`. Never infer recoverable contents from a version number. |
 | `workbench project inspect [PATH]` | Read-only discovery of languages, project boundaries, tool ownership, shared configuration and unsupported cases. PATH defaults to `.` and must exist. |
 | `workbench project configure [PATH] [--language NAME ...]` | Preview and configure supported tooling in existing projects. Repeated language flags narrow selection; no flags means supported detected languages. |
 | `workbench project configure [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
@@ -160,7 +158,7 @@ Success means the requested supported scope completed and passed its checks. Req
 
 ### Bootstrap
 
-Each tagged release publishes one `install.sh` for macOS, Linux and WSL, stamped with its own tag. It detects the target, downloads the bundle with `gh` (logged in) or `curl`, extracts only the CLI and hands off to `workbench install`; the Go CLI owns manifest verification, extraction and lifecycle operations. No repository clone or separately installed chezmoi is required. `curl` needs a public repository; `gh` also works while it is private.
+Each tagged release publishes one `install.sh` for macOS, Linux and WSL, stamped with its own tag. It detects the target, downloads the bundle with `gh` (logged in) or `curl`, extracts only the CLI and hands off to `workbench update`; the Go CLI owns manifest verification, extraction and lifecycle operations. No repository clone or separately installed chezmoi is required. `curl` needs a public repository; `gh` also works while it is private.
 
 Document required bootstrap utilities and detect them before work. Do not promise operation on a system lacking the required shell/download/checksum utilities. The implemented utility set is documented in [usage](../../usage.md#installation-and-commands); clean native bootstrap qualification remains open. Read interactive answers from the terminal, not the pipe carrying the installer. Without a terminal, require explicit inputs and consent. Offer install-only behavior and a download-and-inspect alternative.
 
@@ -192,7 +190,7 @@ Activation is journaled across the state record and entry-point symlink, not fal
 
 ### Apply state and reproducibility
 
-Distinguish installed CLI version, candidate release and successfully applied configuration release. Record operations as planned, running, complete, partial or failed; do not label a partially configured machine as up to date.
+Distinguish the installed CLI version, the active release and the successfully applied configuration release. Record operations as planned, running, complete, partial or failed; do not label a partially configured machine as up to date.
 
 Plans bind to a release identity, input configuration and the inspected target state. Recheck inputs before mutation and stop or re-plan after a material change. Package effects that cannot be simulated are displayed as intended operations, not fabricated exact results. In latest mode, disclose provider resolution and require renewed consent if it materially expands the approved scope.
 

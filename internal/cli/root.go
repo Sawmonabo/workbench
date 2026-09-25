@@ -18,12 +18,11 @@ type options struct {
 	json, nonInteractive bool
 	approvePlan          string
 	rendered             bool
-	invocation           []string
 }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
 func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics io.Writer) int {
-	o := &options{invocation: append([]string(nil), args...)}
+	o := &options{}
 	root := newRoot(o)
 	root.SetArgs(args)
 	root.SetIn(in)
@@ -65,8 +64,8 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 func newRoot(o *options) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "workbench",
-		Short:         "Inspect developer machines and existing projects",
-		Long:          "Workbench previews and coordinates explicit machine provisioning, recoverable configuration changes and existing-project tooling.",
+		Short:         "Set up and maintain developer machines and existing projects",
+		Long:          "Workbench shows what it will change, asks, then provisions the machine, applies recoverable configuration and configures existing projects.",
 		Version:       version(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -82,30 +81,55 @@ func newRoot(o *options) *cobra.Command {
 		false,
 		"Never prompt; mutations require complete inputs and plan approval",
 	)
-	flags.StringVar(
+	root.AddCommand(
+		applyCommand(o),
+		updateCommand(o),
+		versionCommand(o),
+		doctorCommand(o),
+		revertCommand(o),
+		projectCommand(o),
+		initCommand(o),
+		releaseCheckCommand(o),
+	)
+	return root
+}
+
+// Each command registers only the selections it uses.
+
+func (o *options) approveFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(
 		&o.approvePlan,
 		"approve-plan",
 		"",
-		"Approve exactly the displayed SHA-256 plan digest",
+		"Approve exactly the plan with this SHA-256 digest, for unattended runs",
 	)
-	flags.StringVar(&o.resolve.Source, "source", "", "Select an existing developer source tree")
-	flags.StringVar(
+}
+
+func (o *options) sourceFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(
+		&o.resolve.Source,
+		"source",
+		"",
+		"Use this developer checkout instead of the installed release",
+	)
+}
+
+func (o *options) machineConfigFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(
 		&o.resolve.MachineConfig,
 		"machine-config",
 		"",
-		"Select an existing private native answer file",
+		"Use this private answer file instead of the saved answers",
 	)
-	flags.StringVar(
+}
+
+func (o *options) destinationFlag(cmd *cobra.Command) {
+	cmd.Flags().StringVar(
 		&o.resolve.Destination,
 		"destination",
 		"",
-		"Select an existing configuration destination (default: home)",
+		"Configure this existing folder instead of your home",
 	)
-	root.AddCommand(doctorCommand(o), statusCommand(o), initCommand(o), projectCommand(o))
-	root.AddCommand(recoveryCommand(o))
-	root.AddCommand(machineCommands(o)...)
-	root.AddCommand(releaseCommands(o)...)
-	return root
 }
 
 // showHelp makes a command group runnable. Cobra then rejects an unknown
@@ -121,14 +145,13 @@ type actionKind int
 const (
 	// machineAction runs against the current release selection.
 	machineAction actionKind = iota
-	// nativeAction also selects the machine source: --source, else the staged
-	// candidate, else the active release. It hands off to the candidate's own
-	// runtime when that is not this executable. plan and apply use it.
+	// nativeAction also selects the machine source: --source, else the active
+	// release. apply uses it.
 	nativeAction
 	// projectAction selects the project at PATH, narrowed by --language.
 	projectAction
-	// releaseAction stages, installs or checks a release. It skips validating
-	// the current selection, which an interrupted install resumes to repair.
+	// releaseAction updates to, lists or checks a release. It skips validating
+	// the current selection, which an interrupted update resumes to repair.
 	releaseAction
 )
 
@@ -153,7 +176,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			err = release.ValidateSelection(resolved)
 		}
 		if err == nil && kind == nativeAction {
-			err = o.selectSource(cmd.Context(), &resolved)
+			err = selectSource(&resolved)
 		}
 		if err == nil {
 			progress, stop := newProgress(o, cmd.ErrOrStderr())
@@ -176,26 +199,17 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 	}
 }
 
-// selectSource fills in the machine source for a [nativeAction] and hands off
-// to a staged candidate's runtime.
-func (o *options) selectSource(ctx context.Context, c *operation.Context) error {
-	if c.Native.Source == "" {
-		source, err := release.Candidate(*c)
-		if err != nil {
-			return err
-		}
-		if source == "" {
-			state, err := operation.ReadState(c.Paths)
-			if err != nil {
-				return err
-			}
-			if state != nil && state.ActiveRelease != nil {
-				source = state.ActiveRelease.Source
-			}
-		}
-		c.Native.Source = source
+// selectSource fills in the active release as the machine source of a
+// [nativeAction] run without --source.
+func selectSource(c *operation.Context) error {
+	if c.Native.Source != "" {
+		return nil
 	}
-	return release.CandidateHandoff(ctx, *c, o.invocation)
+	state, err := operation.ReadState(c.Paths)
+	if state != nil && state.ActiveRelease != nil {
+		c.Native.Source = state.ActiveRelease.Source
+	}
+	return err
 }
 
 func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) error {
@@ -214,18 +228,8 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 		if _, err := fmt.Fprintln(out); err != nil {
 			return err
 		}
-		if plan, ok := component.Details.(operation.Plan); ok {
-			if err := writePlan(out, plan); err != nil {
-				return err
-			}
-		} else if component.Details != nil {
-			data, err := json.MarshalIndent(component.Details, "", "  ")
-			if err != nil {
-				return err
-			}
-			if _, err := fmt.Fprintln(out, string(data)); err != nil {
-				return err
-			}
+		if err := writeDetails(out, component.Details); err != nil {
+			return err
 		}
 	}
 	for _, warning := range result.Warnings {
@@ -239,6 +243,27 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 		}
 	}
 	return nil
+}
+
+// writeDetails prints a component's details for people: plans, release and
+// checkpoint lists in their own views, anything else as indented JSON.
+func writeDetails(out io.Writer, details any) error {
+	switch details := details.(type) {
+	case nil:
+		return nil
+	case operation.Plan:
+		return writePlan(out, details)
+	case releaseList:
+		return writeReleases(out, details)
+	case []operation.CheckpointSummary:
+		return writeCheckpoints(out, details)
+	}
+	data, err := json.MarshalIndent(details, "", "  ")
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintln(out, string(data))
+	return err
 }
 
 func version() string {

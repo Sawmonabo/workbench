@@ -6,109 +6,46 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/spf13/cobra"
 )
 
 func doctorCommand(o *options) *cobra.Command {
-	return &cobra.Command{
+	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check native tool versions and local host prerequisites without repair",
+		Short: "Check what is installed and applied, tool versions and the host, without repair",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
 			machineAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
-				var err error
-				result.Results, err = machine.Doctor(cmd.Context(), c)
+				components, err := machine.Doctor(cmd.Context(), c)
+				result.Results = append(
+					[]operation.Component{{
+						Name:    "workbench",
+						Status:  operation.StatusComplete,
+						Message: version(),
+					}},
+					components...,
+				)
 				return result, err
 			},
 		),
 	}
-}
-
-func statusCommand(o *options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "status",
-		Short: "Inspect active, staged and applied identities without network or drift probes",
-		Args:  cobra.NoArgs,
-		RunE: o.action(
-			machineAction,
-			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				result := operation.NewResult(cmd.CommandPath())
-				state, err := operation.ReadState(c.Paths)
-				if err != nil {
-					return result, err
-				}
-				result.Results = append(
-					result.Results,
-					operation.Component{
-						Name:    "cli",
-						Status:  operation.StatusComplete,
-						Message: version(),
-					},
-				)
-				message := "No recorded Workbench state"
-				if state != nil {
-					message = "Current state schema and recorded identities validated"
-				}
-				result.Results = append(
-					result.Results,
-					operation.Component{
-						Name:    "state",
-						Status:  operation.StatusComplete,
-						Message: message,
-						Details: state,
-					},
-				)
-				candidate, err := release.Candidate(c)
-				if err != nil {
-					return result, err
-				}
-				if candidate != "" {
-					metadata, inspectErr := release.Inspect(candidate)
-					if inspectErr != nil {
-						return result, inspectErr
-					}
-					result.Results = append(
-						result.Results,
-						operation.Component{
-							Name:   "candidate",
-							Status: operation.StatusComplete,
-							Details: operation.SourceIdentity{
-								Release:       metadata.Release,
-								ContentDigest: metadata.SourceDigest,
-							},
-						},
-					)
-				} else {
-					result.Results = append(
-						result.Results,
-						operation.Component{
-							Name:    "candidate",
-							Status:  operation.StatusAbsent,
-							Message: "No staged release",
-						},
-					)
-				}
-				result.Warnings = append(
-					result.Warnings,
-					"Target drift and remote updates are not inspected. No state was created or changed.",
-				)
-				return result, nil
-			},
-		),
-	}
+	o.sourceFlag(cmd)
+	return cmd
 }
 
 // initCommand adopts machine answers from an existing chezmoi config once, so a
-// dotfiles machine switches without re-answering the questionnaire.
+// dotfiles machine switches without re-answering the questionnaire. It is
+// hidden: docs/switch-from-dotfiles.md is its only audience.
 func initCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Save machine answers from an existing chezmoi config's [data] table",
-		Args:  cobra.NoArgs,
+		Use:    "init",
+		Short:  "Save machine answers from an existing chezmoi config's [data] table",
+		Args:   cobra.NoArgs,
+		Hidden: true,
 	}
+	o.approveFlag(cmd)
 	cmd.Flags().
 		String("answers-from", "", "Existing chezmoi config, for example ~/.config/chezmoi/chezmoi.toml")
 	cmd.Flags().Bool("dry-run", false, "Show the plan without saving answers")
@@ -157,7 +94,7 @@ func initCommand(o *options) *cobra.Command {
 					operation.Component{
 						Name:    "answers",
 						Status:  operation.StatusComplete,
-						Message: "Saved; plan and apply now use them without --machine-config",
+						Message: "Saved; apply now uses them without --machine-config",
 					},
 				)
 			}
@@ -167,23 +104,12 @@ func initCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// machineCommands returns plan and apply, which share one native planner.
-func machineCommands(o *options) []*cobra.Command {
-	plan := &cobra.Command{
-		Use:   "plan",
-		Short: "Preview native machine changes and prerequisites",
-		Args:  cobra.NoArgs,
-		RunE: o.action(
-			nativeAction,
-			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				return machinePlan(cmd, c, o, false)
-			},
-		),
-	}
-	plan.Flags().Bool("config-only", false, "Preview configuration without provisioning effects")
-	apply := &cobra.Command{
+// applyCommand previews the machine plan and, unless --dry-run, applies it
+// after approval.
+func applyCommand(o *options) *cobra.Command {
+	cmd := &cobra.Command{
 		Use:   "apply",
-		Short: "Apply approved native machine changes with file checkpoints",
+		Short: "Show what would change on this machine, ask, then apply it with file checkpoints",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
@@ -193,12 +119,14 @@ func machineCommands(o *options) []*cobra.Command {
 			},
 		),
 	}
-	apply.Flags().Bool("dry-run", false, "Preview only through the shared machine planner")
-	apply.Flags().
-		Bool("config-only", false, "Apply native configuration without provisioning scripts")
-	addEffectFlag(plan)
-	addEffectFlag(apply)
-	return []*cobra.Command{plan, apply}
+	cmd.Flags().Bool("dry-run", false, "Show the plan without applying it")
+	cmd.Flags().Bool("config-only", false, "Apply configuration files without provisioning scripts")
+	addEffectFlag(cmd)
+	o.sourceFlag(cmd)
+	o.machineConfigFlag(cmd)
+	o.destinationFlag(cmd)
+	o.approveFlag(cmd)
+	return cmd
 }
 
 // machinePlan previews the native machine plan and, when apply is set, applies
@@ -243,9 +171,14 @@ func machinePlan(
 	)
 }
 
+// addEffectFlag offers the optional host steps, hidden where there are none.
 func addEffectFlag(cmd *cobra.Command) {
+	available := machine.AvailableEffects()
 	cmd.Flags().
-		StringArray("effect", nil, "Select an optional WSL host step by name (repeatable); available here: "+machine.AvailableEffects())
+		StringArray("effect", nil, "Select an optional WSL host step by name (repeatable): "+available)
+	if available == "" {
+		_ = cmd.Flags().MarkHidden("effect")
+	}
 }
 
 func machineSelection(cmd *cobra.Command) machine.Selection {

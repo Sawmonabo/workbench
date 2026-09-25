@@ -63,9 +63,9 @@ tags on 2026-09-22:
 Unsupported `--ci` requests report the precise ownership/preservation gate without
 writing a duplicate workflow or changing providers/branch protection.
 
-Application writes use the shared project checkpoint engine. List with
-`workbench project revert PATH --list`; select a checkpoint with
-`workbench project revert PATH --checkpoint UUID` and approve its exact plan.
+Application writes use the shared project checkpoint engine.
+`workbench project revert PATH` lets you pick a checkpoint at a terminal, or
+lists them for `--checkpoint UUID`, then asks you to approve its exact plan.
 Later file edits cause a recovery conflict. Recovery does not invoke old project
 code, reset environments or change machine configuration. Project provenance is
 portable `[tool.workbench]` data with schema 1 and

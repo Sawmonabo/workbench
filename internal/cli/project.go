@@ -78,6 +78,8 @@ func projectConfigureCommand(o *options) *cobra.Command {
 		Bool("allow-build-hooks", false, "Explicitly select potential native build-code execution during dependency resolution")
 	configure.Flags().
 		Bool("ci", false, "Request CI integration; unsupported ownership receives a manual proposal")
+	o.sourceFlag(configure)
+	o.approveFlag(configure)
 	configure.RunE = o.action(
 		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
@@ -145,34 +147,18 @@ func projectConfigureCommand(o *options) *cobra.Command {
 func projectRevertCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "revert [PATH]",
-		Short: "Recover exact project files from a selected checkpoint",
+		Short: "Undo a project configure's file changes from a saved checkpoint",
 		Args:  cobra.MaximumNArgs(1),
 	}
-	cmd.Flags().Bool("list", false, "List checkpoints in exactly the selected project scope")
-	cmd.Flags().String("checkpoint", "", "Select a project checkpoint UUID")
+	cmd.Flags().
+		String("checkpoint", "", "Restore this checkpoint ID instead of choosing from a list")
+	o.approveFlag(cmd)
 	cmd.RunE = o.action(
 		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			list, _ := cmd.Flags().GetBool("list")
-			id, _ := cmd.Flags().GetString("checkpoint")
-			if list || id == "" {
-				items, err := operation.ListCheckpoints(c)
-				result.Results = append(
-					result.Results,
-					operation.Component{
-						Name:    "project-checkpoints",
-						Status:  operation.StatusComplete,
-						Details: items,
-					},
-				)
-				if err == nil && !list {
-					err = operation.Fail(
-						operation.ExitBlocked,
-						"checkpoint",
-						"Select one checkpoint explicitly with --checkpoint",
-					)
-				}
+			id, err := o.checkpointChoice(cmd, c, &result, "project-checkpoints")
+			if err != nil {
 				return result, err
 			}
 			selector := operation.RecoverySelector{Checkpoint: id}

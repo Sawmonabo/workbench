@@ -1,11 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -15,44 +17,130 @@ import (
 
 var buildReleaseVersion = "dev"
 
-func releaseCommands(o *options) []*cobra.Command {
-	commands := []*cobra.Command{}
-	for _, spec := range []struct {
-		name, short string
-		activate    bool
-	}{
-		{"pull", "Verify and stage an immutable release only", false},
-		{"install", "Install a verified runtime and perform separately approved setup", true},
-		{"update", "Stage, plan and apply a verified release through shared lifecycle operations", true},
-	} {
-		cmd := &cobra.Command{
-			Use:   spec.name + " [version]",
-			Args:  cobra.MaximumNArgs(1),
-			Short: spec.short,
-		}
-		cmd.Flags().
-			String("bundle", "", "Release archive: a local file or HTTPS URL (install.sh downloads the right one)")
-		cmd.Flags().
-			Bool("dry-run", false, "Verify the bundle and show only the runtime staging/activation plan")
-		cmd.Flags().
-			Bool("install-only", false, "Install the CLI and sources without management setup or configuration")
-		cmd.Flags().
-			Bool("config-only", false, "Apply configuration without provisioning; missing dependencies remain blocked")
-		addEffectFlag(cmd)
-		cmd.Flags().String("approve-setup", "", "Approve exactly the separate setup plan digest")
-		cmd.Flags().
-			String("approve-apply", "", "Approve exactly the subsequent native target plan digest")
-		cmd.Flags().
-			Bool("runtime-ready", false, "Continue the verified same-process runtime handoff")
-		_ = cmd.Flags().MarkHidden("runtime-ready")
-		cmd.RunE = o.action(
+// updateCommand installs the latest release, or VERSION, then applies it.
+func updateCommand(o *options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update [VERSION]",
+		Short: "Install the latest Workbench release, or VERSION, then apply it",
+		Long: "Install the latest Workbench release, or VERSION (an older one goes back), " +
+			"then set up its tools and apply it, asking before each step. " +
+			"See the releases with workbench version --list.",
+		Args: cobra.MaximumNArgs(1),
+		RunE: o.action(
 			releaseAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				return releaseLifecycle(cmd, c, o, spec.activate)
+				return updateRelease(cmd, c, o)
 			},
-		)
-		commands = append(commands, cmd)
+		),
 	}
+	cmd.Flags().Bool("dry-run", false, "Show the install plan without installing")
+	cmd.Flags().
+		Bool("install-only", false, "Install Workbench without setting up tools or applying")
+	cmd.Flags().
+		Bool("config-only", false, "Apply configuration without provisioning; missing tools stay blocked")
+	addEffectFlag(cmd)
+	o.machineConfigFlag(cmd)
+	o.destinationFlag(cmd)
+	o.approveFlag(cmd)
+	cmd.Flags().String("approve-setup", "", "Approve exactly the tool setup plan with this digest")
+	cmd.Flags().
+		String("approve-apply", "", "Approve exactly the apply plan with this digest")
+	cmd.Flags().String("bundle", "", "Install this release archive, a local file or HTTPS URL")
+	_ = cmd.Flags().MarkHidden("bundle") // install.sh and offline installs
+	cmd.Flags().
+		Bool("runtime-ready", false, "Continue the verified same-process runtime handoff")
+	_ = cmd.Flags().MarkHidden("runtime-ready")
+	return cmd
+}
+
+// versionCommand prints this version, or with --list the published releases.
+func versionCommand(o *options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "version",
+		Short: "Show this Workbench version; --list shows every release",
+		Args:  cobra.NoArgs,
+		RunE: o.action(
+			releaseAction,
+			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+				result := operation.NewResult(cmd.CommandPath())
+				if list, _ := cmd.Flags().GetBool("list"); !list {
+					result.Results = append(result.Results, operation.Component{
+						Name:    "workbench",
+						Status:  operation.StatusComplete,
+						Message: version(),
+					})
+					return result, nil
+				}
+				stop := c.ShowProgress("Asking GitHub for releases")
+				published, err := release.Releases(cmd.Context(), c)
+				stop()
+				if err != nil {
+					return result, err
+				}
+				installed, err := installedRelease(c)
+				if err != nil {
+					return result, err
+				}
+				result.Results = append(result.Results, operation.Component{
+					Name:    "releases",
+					Status:  operation.StatusComplete,
+					Details: releaseList{Releases: published, Installed: installed},
+				})
+				return result, nil
+			},
+		),
+	}
+	cmd.Flags().Bool("list", false, "List the published releases, marking the installed and latest")
+	return cmd
+}
+
+// releaseList is the published releases, newest first, and the installed tag.
+type releaseList struct {
+	Releases  []release.Published `json:"releases"`
+	Installed string              `json:"installed"`
+}
+
+// writeReleases prints one release per line, newest first, marking the
+// latest and the installed one with *.
+func writeReleases(w io.Writer, list releaseList) error {
+	if len(list.Releases) == 0 {
+		_, err := fmt.Fprintln(w, "  No releases published yet")
+		return err
+	}
+	rows := make([][]string, 0, len(list.Releases))
+	for i, published := range list.Releases {
+		mark, notes := " ", []string{}
+		if i == 0 {
+			notes = append(notes, "latest")
+		}
+		if published.Tag == list.Installed {
+			mark = "*"
+			notes = append(notes, "installed")
+		}
+		rows = append(rows, []string{
+			mark + " " + published.Tag,
+			published.Published.Local().Format("Jan 2, 2006"),
+			strings.Join(notes, ", "),
+		})
+	}
+	var b strings.Builder
+	writeColumns(&b, rows)
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// installedRelease returns the active release's tag, or "" without one.
+func installedRelease(c operation.Context) (string, error) {
+	state, err := operation.ReadState(c.Paths)
+	if err != nil || state == nil || state.ActiveRelease == nil {
+		return "", err
+	}
+	return state.ActiveRelease.Identity.Release, nil
+}
+
+// releaseCheckCommand is how a newly staged executable proves, before
+// activation, that it accepts its own source.
+func releaseCheckCommand(o *options) *cobra.Command {
 	check := &cobra.Command{Use: "release-check", Hidden: true, Args: cobra.NoArgs}
 	check.Flags().String("bundle-directory", "", "Verified private extracted bundle")
 	check.RunE = o.action(
@@ -72,7 +160,7 @@ func releaseCommands(o *options) []*cobra.Command {
 				return result, operation.Fail(
 					operation.ExitInvalid,
 					"release_identity",
-					"Candidate executable and source identities differ",
+					"Staged executable and source identities differ",
 				)
 			}
 			result.Results = append(
@@ -86,16 +174,15 @@ func releaseCommands(o *options) []*cobra.Command {
 			return result, nil
 		},
 	)
-	return append(commands, check)
+	return check
 }
 
-// releaseLifecycle verifies and stages a release bundle and, when activate is
-// set, activates it and continues setup and apply in the new runtime.
-func releaseLifecycle(
+// updateRelease downloads (or reads --bundle), verifies, stages and activates
+// a release, then hands off to it to set up tools and apply.
+func updateRelease(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
-	activate bool,
 ) (result operation.Result, resultErr error) {
 	result = operation.NewResult(cmd.CommandPath())
 	defer func() {
@@ -120,23 +207,26 @@ func releaseLifecycle(
 	if ready, _ := cmd.Flags().GetBool("runtime-ready"); ready {
 		return continueInstall(cmd, c, o, result)
 	}
-	location, _ := cmd.Flags().GetString("bundle")
-	if location == "" {
-		return result, operation.Fail(
-			operation.ExitBlocked,
-			"release_unavailable",
-			"Supply --bundle with a release archive; the one-line install.sh downloads one",
-		)
+	tag := ""
+	if args := cmd.Flags().Args(); len(args) > 0 {
+		tag = args[0]
+		// Release tags start with v; accept 0.2.0 for v0.2.0.
+		if tag[0] >= '0' && tag[0] <= '9' {
+			tag = "v" + tag
+		}
 	}
-	version := ""
-	if len(cmd.Flags().Args()) > 0 {
-		version = cmd.Flags().Args()[0]
-	}
-	bundle, err := release.ReadBundle(cmd.Context(), location, version)
-	if err != nil {
+	bundle, err := readRelease(cmd, c, tag)
+	if err != nil || bundle == nil {
+		if err == nil {
+			result.Results = append(result.Results, operation.Component{
+				Name:    "release",
+				Status:  operation.StatusUnchanged,
+				Message: "Already installed; run workbench apply to apply it again",
+			})
+		}
 		return result, err
 	}
-	planner := releasePlanner(c, bundle, activate)
+	planner := releasePlanner(c, *bundle)
 	plan, err := planner(cmd.Context(), c)
 	if err != nil {
 		return result, err
@@ -155,7 +245,7 @@ func releaseLifecycle(
 		plan,
 		consentFor(o, o.approvePlan),
 		planner,
-		stageRelease(cmd, c, bundle, plan, activate),
+		stageRelease(cmd, c, *bundle, plan),
 	)
 	if err != nil {
 		return result, err
@@ -168,8 +258,7 @@ func releaseLifecycle(
 			Message: bundle.String(),
 		},
 	)
-	installOnly, _ := cmd.Flags().GetBool("install-only")
-	if !activate || installOnly {
+	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
 		return result, nil
 	}
 	// No operation locks or transient extraction files survive this boundary.
@@ -180,21 +269,53 @@ func releaseLifecycle(
 	if err != nil {
 		return result, err
 	}
-	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o), "")
+	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o))
 }
 
-// stageRelease stages bundle and, when activate is set, activates it and
-// removes what the approved plan lists as no longer needed.
+// readRelease reads --bundle, or finds and downloads release tag (the latest
+// when empty) for this machine. It returns nil when that release is already
+// the active one, unless an interrupted activation still needs finishing.
+func readRelease(cmd *cobra.Command, c operation.Context, tag string) (*release.Bundle, error) {
+	installed, err := installedRelease(c)
+	if err != nil {
+		return nil, err
+	}
+	current := func(found string) bool {
+		return found == installed && release.ValidateSelection(c) == nil
+	}
+	if location, _ := cmd.Flags().GetString("bundle"); location != "" {
+		bundle, err := release.ReadBundle(cmd.Context(), location, tag)
+		if err != nil || current(bundle.Metadata.Release) {
+			return nil, err
+		}
+		return &bundle, nil
+	}
+	stop := c.ShowProgress("Getting Workbench " + cmp.Or(tag, "latest"))
+	defer stop()
+	c.Step("asking GitHub for the release")
+	remote, err := release.Find(cmd.Context(), c, tag)
+	if err != nil || current(remote.Tag) {
+		return nil, err
+	}
+	c.Step("downloading " + remote.Tag)
+	bundle, err := remote.Bundle(cmd.Context())
+	if err != nil {
+		return nil, err
+	}
+	return &bundle, nil
+}
+
+// stageRelease stages and activates bundle, then removes what the approved
+// plan lists as no longer needed.
 func stageRelease(
 	cmd *cobra.Command,
 	c operation.Context,
 	bundle release.Bundle,
 	plan operation.Plan,
-	activate bool,
 ) func(*operation.Mutation) error {
 	return func(m *operation.Mutation) error {
 		directory, err := release.Stage(c, m, bundle)
-		if err != nil || !activate {
+		if err != nil {
 			return err
 		}
 		if err = release.Activate(cmd.Context(), c, m, bundle, directory); err != nil {
@@ -205,33 +326,30 @@ func stageRelease(
 	}
 }
 
-// releasePlanner previews staging bundle and, unless only pulling, activating
-// it as the workbench command.
+// releasePlanner previews staging bundle and activating it as the workbench
+// command.
 func releasePlanner(
 	c operation.Context,
 	bundle release.Bundle,
-	activate bool,
 ) func(context.Context, operation.Context) (operation.Plan, error) {
 	return func(_ context.Context, current operation.Context) (operation.Plan, error) {
 		plan, planErr := release.StagePlan(current, bundle)
-		if activate {
-			plan.Edits = append(
-				plan.Edits,
-				operation.Edit{
-					Path:        filepath.Join(c.Paths.Bin, "workbench"),
-					Action:      "activate",
-					Description: "Activate this verified CLI/source pair; retain previous runtime and applied-configuration identity",
-				},
-			)
-			plan.RecoveryLimits = append(
-				plan.RecoveryLimits,
-				"Activation spans a journal, state record and entry point; interruption fails closed and requires resuming this installer",
-			)
-			if planErr == nil {
-				var removals []operation.Edit
-				removals, planErr = retentionEdits(current, bundle)
-				plan.Edits = append(plan.Edits, removals...)
-			}
+		plan.Edits = append(
+			plan.Edits,
+			operation.Edit{
+				Path:        filepath.Join(c.Paths.Bin, "workbench"),
+				Action:      "activate",
+				Description: "Activate this verified CLI/source pair; retain previous runtime and applied-configuration identity",
+			},
+		)
+		plan.RecoveryLimits = append(
+			plan.RecoveryLimits,
+			"Activation spans a journal, state record and entry point; interruption fails closed and requires rerunning this update",
+		)
+		if planErr == nil {
+			var removals []operation.Edit
+			removals, planErr = retentionEdits(current, bundle)
+			plan.Edits = append(plan.Edits, removals...)
 		}
 		return plan, planErr
 	}

@@ -3,7 +3,7 @@
 #   curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
 #   gh release download -R Sawmonabo/workbench -p install.sh -O - | sh
 # Options: --version vX.Y.Z (default: this release, or the latest). Every other
-# argument goes to `workbench install`, for example --config-only or --dry-run.
+# argument goes to `workbench update`, for example --config-only or --dry-run.
 # The downloaded CLI verifies the whole bundle before it installs anything.
 set -eu
 repo=Sawmonabo/workbench
@@ -58,7 +58,7 @@ main() {
     fi
     bundle=$tmp/workbench-$version-$os-$arch.tar.gz
     tar -xzf "$bundle" -C "$tmp" bin/workbench
-    "$tmp/bin/workbench" install "$version" --bundle "$bundle" "$@"
+    "$tmp/bin/workbench" update "$version" --bundle "$bundle" "$@"
 }
 
 check_version() {

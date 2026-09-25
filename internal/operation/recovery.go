@@ -9,17 +9,10 @@ import (
 )
 
 // RecoverySelector picks one checkpoint by ID, or by the release it restores.
-type RecoverySelector struct{ Checkpoint, Version string }
+type RecoverySelector struct{ Checkpoint string }
 
 func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, error) {
-	if selector.Checkpoint != "" && selector.Version != "" {
-		return nil, false, Fail(
-			ExitInvalid,
-			"selector",
-			"Select either checkpoint ID or before-release version",
-		)
-	}
-	if selector.Checkpoint == "" && selector.Version == "" {
+	if selector.Checkpoint == "" {
 		return nil, false, Fail(
 			ExitBlocked,
 			"selection",
@@ -32,34 +25,28 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 	}
 	var selected *Checkpoint
 	reverse := true
-	count := 0
 	var choices []string
 	for _, cp := range checkpoints {
 		choices = append(choices, cp.record.ID)
 		if cp.journal.RecoveryCreated {
 			choices = append(choices, cp.record.RecoveryID)
 		}
-		// A forward checkpoint restores its before release; its recovery pair
-		// restores the applied one.
-		before := cp.record.Before != nil && selector.Version == cp.record.Before.Release
-		applied := selector.Version == cp.record.Applied.Release
-		if selector.Checkpoint == cp.record.ID || selector.Version != "" && before {
+		// A forward checkpoint restores the files before its apply; its
+		// recovery pair restores the applied ones.
+		if selector.Checkpoint == cp.record.ID {
 			selected = cp
 			reverse = true
-			count++
 		}
-		pair := selector.Checkpoint == cp.record.RecoveryID || selector.Version != "" && applied
-		if cp.journal.RecoveryCreated && pair {
+		if cp.journal.RecoveryCreated && selector.Checkpoint == cp.record.RecoveryID {
 			selected = cp
 			reverse = false
-			count++
 		}
 	}
-	if count != 1 {
+	if selected == nil {
 		return nil, false, Fail(
 			ExitConflict,
 			"selection",
-			"Selection has zero or multiple matches; choose a checkpoint ID: "+strings.Join(
+			"No checkpoint has that ID; choose one of: "+strings.Join(
 				choices,
 				", ",
 			),

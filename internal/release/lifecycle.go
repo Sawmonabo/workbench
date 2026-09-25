@@ -18,6 +18,15 @@ import (
 
 // Download fetches a bounded public HTTPS resource; callers verify its content.
 func Download(ctx context.Context, location string, limit int64) ([]byte, error) {
+	return get(ctx, location, limit, "application/octet-stream", "")
+}
+
+// errNotFound is get's answer for a resource the server says does not exist.
+var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
+
+// get fetches a bounded HTTPS resource as accept, sending token as a bearer
+// credential when set. Redirects to another host drop the credential.
+func get(ctx context.Context, location string, limit int64, accept, token string) ([]byte, error) {
 	u, err := url.Parse(location)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || limit < 1 ||
 		limit > MaxDownload {
@@ -31,7 +40,10 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 	if err != nil {
 		return nil, err
 	}
-	request.Header.Set("Accept", "application/octet-stream")
+	request.Header.Set("Accept", accept)
+	if token != "" {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	client := &http.Client{
 		Timeout: 2 * time.Minute,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
@@ -50,6 +62,9 @@ func Download(ctx context.Context, location string, limit int64) ([]byte, error)
 		)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusNotFound {
+		return nil, errNotFound
+	}
 	if response.StatusCode != http.StatusOK || response.ContentLength > limit {
 		return nil, operation.Fail(
 			operation.ExitFailed,
@@ -123,7 +138,7 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 }
 
 // Stage extracts b into its release directory, or rechecks an existing one,
-// records it as the candidate and returns the directory.
+// and returns the directory.
 func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err error) {
 	defer operation.Annotate(&err, "stage release %s", b)
 	if err := m.Check(); err != nil {
@@ -134,10 +149,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	if _, err := os.Lstat(directory); err == nil {
-		if err = b.CheckDirectory(directory); err != nil {
-			return "", err
-		}
-		return directory, writeCandidate(c, m, b, directory)
+		return directory, b.CheckDirectory(directory)
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}
@@ -157,60 +169,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 	if err = os.Rename(temporary, directory); err != nil {
 		return "", err
 	}
-	if err = syncDirectory(parent); err != nil {
-		return "", err
-	}
-	return directory, writeCandidate(c, m, b, directory)
-}
-
-func writeCandidate(c operation.Context, m *operation.Mutation, b Bundle, directory string) error {
-	record, _ := json.Marshal(
-		candidateRecord{
-			Directory:      directory,
-			SHA256:         b.ArchiveDigest,
-			Version:        b.Metadata.Release,
-			MetadataSHA256: operation.SHA256Hex(b.Files["release.json"]),
-		},
-	)
-	return m.WritePrivate(filepath.Join(c.Paths.State, "candidate.json"), record)
-}
-
-// Candidate is an offline selection; only pull writes this pointer. Active
-// runtime selection remains in state.json and applied configuration is separate.
-func Candidate(c operation.Context) (string, error) {
-	record, _, err := readCandidate(c)
-	if record == nil || err != nil {
-		return "", err
-	}
-	return record.Directory, nil
-}
-
-// readCandidate strictly decodes and validates candidate.json, returning nil
-// when no candidate is staged, plus the raw bytes that consent binds.
-func readCandidate(c operation.Context) (*candidateRecord, []byte, error) {
-	path := filepath.Join(c.Paths.State, "candidate.json")
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
-		return nil, nil, nil
-	}
-	raw, err := operation.ReadPrivateInput(path, 1<<20)
-	if err != nil {
-		return nil, nil, err
-	}
-	invalid := operation.Fail(operation.ExitInvalid, "candidate", "Invalid staged candidate record")
-	var record candidateRecord
-	if operation.DecodeStrict(raw, &record) != nil {
-		return nil, nil, invalid
-	}
-	valid := operation.ValidDigest(record.SHA256) && operation.ValidDigest(record.MetadataSHA256) &&
-		identifier.MatchString(record.Version)
-	if !valid {
-		return nil, nil, invalid
-	}
-	staged := filepath.Join(c.Paths.Data, "releases", record.Version+"-"+record.SHA256[:16])
-	if record.Directory != staged {
-		return nil, nil, invalid
-	}
-	return &record, raw, nil
+	return directory, syncDirectory(parent)
 }
 
 // Inspect rechecks a staged release directory against its manifest and
@@ -400,7 +359,7 @@ func ValidateSelection(c operation.Context) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"activation_incomplete",
-			"Runtime activation was interrupted; resume install with the same verified bundle and explicit consent",
+			"Runtime activation was interrupted; rerun workbench update for the same release",
 		)
 	}
 	state, err := operation.ReadState(c.Paths)
@@ -412,7 +371,7 @@ func ValidateSelection(c operation.Context) error {
 		return operation.Fail(
 			operation.ExitConflict,
 			"activation_incomplete",
-			"Active runtime and command entry point differ; resume install with the verified bundle and explicit consent",
+			"Active runtime and command entry point differ; rerun workbench update for the same release",
 		)
 	}
 	if state.ActiveRelease.Executable != filepath.Join(
@@ -498,7 +457,7 @@ func (j *activationJournal) write(c operation.Context, m *operation.Mutation) er
 // switchRuntime records the journal's candidate as active and points the entry
 // point at it. The old pointer stays until the replacement link is ready. A
 // failed step restores the previous runtime in state; if even that fails, the
-// journal still requires resuming this install.
+// journal still requires rerunning this update.
 func switchRuntime(
 	c operation.Context,
 	m *operation.Mutation,
@@ -534,14 +493,14 @@ func switchRuntime(
 	if err = os.Rename(pending, filepath.Join(c.Paths.Bin, "workbench")); err != nil {
 		return restore(
 			err,
-			"Entry-point activation failed and state restoration is incomplete; resume install",
+			"Entry-point activation failed and state restoration is incomplete; rerun workbench update",
 		)
 	}
 	if err = syncDirectory(c.Paths.Bin); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"activation_incomplete",
-			"Runtime selector changed but durability could not be confirmed; resume install",
+			"Runtime selector changed but durability could not be confirmed; rerun workbench update",
 		)
 	}
 	journal.Status = activationComplete
@@ -572,7 +531,7 @@ func replacedRuntime(
 			return nil, operation.Fail(
 				operation.ExitConflict,
 				"activation_incomplete",
-				"Resume the interrupted install with its original verified candidate",
+				"Finish the interrupted update first: rerun workbench update "+journal.Candidate.Identity.Release,
 			)
 		}
 		previous = journal.Previous
@@ -626,4 +585,37 @@ func runtimeEnvironment(c operation.Context) []string {
 		"WORKBENCH_CACHE_DIR=" + c.Paths.Cache,
 		"WORKBENCH_BIN_DIR=" + c.Paths.Bin,
 	}
+}
+
+// checkRuntime has the staged executable validate its own source and contract
+// before activation.
+func checkRuntime(ctx context.Context, c operation.Context, executable, directory string) error {
+	probe := c
+	probe.Native.Source = ""
+	output, err := operation.Run(
+		ctx,
+		probe,
+		nil,
+		operation.Process{
+			Executable:  executable,
+			Args:        []string{"release-check", "--bundle-directory", directory, "--json"},
+			Directory:   "/",
+			Environment: runtimeEnvironment(c),
+			OutputLimit: 1 << 20,
+		},
+	)
+	var checked operation.Result
+	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil ||
+		checked.Status != operation.StatusComplete ||
+		len(checked.Errors) != 0 ||
+		len(checked.Results) != 1 ||
+		checked.Results[0].Name != "release-check" ||
+		checked.Results[0].Status != operation.StatusComplete {
+		return operation.Fail(
+			operation.ExitBlocked,
+			"handoff",
+			"Candidate runtime did not validate its source and current contract; installed runtime retained",
+		)
+	}
+	return nil
 }

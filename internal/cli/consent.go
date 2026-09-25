@@ -1,67 +1,30 @@
 package cli
 
 import (
-	"bufio"
-	"fmt"
 	"io"
 	"os"
-	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// consentFor approves a plan by digest when unattended, otherwise by typing yes
-// at the terminal. Callers with incomplete inputs clear CompleteInputs.
+// consentFor approves a plan by digest when unattended, otherwise by a Yes at
+// the terminal. Callers with incomplete inputs clear CompleteInputs.
 func consentFor(o *options, digest string) operation.Consent {
-	unattended := o.nonInteractive || o.json
 	consent := operation.Consent{
 		ApprovedDigest: digest,
-		NonInteractive: unattended,
+		NonInteractive: !o.interactive(),
 		CompleteInputs: true,
 	}
-	if !unattended {
+	if o.interactive() {
 		consent.Confirm = confirmPlan
 	}
 	return consent
 }
 
-// confirmPlan shows the plan on the controlling terminal and asks for approval.
-// Opening /dev/tty requires a controlling terminal; a pipe never approves a plan.
-func confirmPlan(plan operation.Plan, digest string) (bool, error) {
-	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
-	if err != nil {
-		return false, operation.Fail(
-			operation.ExitBlocked,
-			"consent",
-			"No terminal is available; supply complete inputs and --approve-plan",
-		)
-	}
-	defer func() { _ = terminal.Close() }()
-	if err := writePlan(terminal, plan); err != nil {
-		return false, err
-	}
-	if _, err := fmt.Fprintf(
-		terminal,
-		"\nPlan digest: %s\nApprove this exact plan? Type yes: ",
-		digest,
-	); err != nil {
-		return false, err
-	}
-	answer, err := bufio.NewReaderSize(terminal, 128).ReadSlice('\n')
-	if err != nil {
-		return false, operation.Fail(
-			operation.ExitBlocked,
-			"consent",
-			"No complete approval was received",
-		)
-	}
-	return strings.TrimSpace(string(answer)) == "yes", nil
-}
-
 // nativeConsole gives interactive native runs the controlling terminal so sudo
 // and installers can prompt. Unattended runs stream redacted diagnostics.
 func nativeConsole(o *options, diagnostics io.Writer) (*os.File, io.Writer, func()) {
-	if !o.nonInteractive && !o.json {
+	if o.interactive() {
 		if terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
 			return terminal, nil, func() { _ = terminal.Close() }
 		}

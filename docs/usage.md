@@ -14,13 +14,13 @@ gh release download -R Sawmonabo/workbench -p install.sh -O - | sh -s -- --versi
 
 `install.sh` picks the bundle for this OS and CPU and downloads it with `gh`
 when `gh` is installed and logged in, otherwise with `curl`. It extracts only the
-CLI and runs `workbench install VERSION --bundle FILE`, passing every other
+CLI and runs `workbench update VERSION --bundle FILE`, passing every other
 argument through:
 
-- `--install-only` installs the CLI and sources without setup or configuration.
+- `--install-only` installs Workbench without setting up tools or applying.
 - `--config-only` applies configuration without provisioning; it needs existing
   compatible tools and complete answers from `--machine-config`.
-- `--dry-run` verifies the bundle and shows only the staging/activation plan.
+- `--dry-run` verifies the bundle and shows only the install plan.
 - `--effect NAME` selects an optional WSL host step (see below).
 
 The CLI checks every file against the SHA-256 manifest inside the bundle before
@@ -28,43 +28,41 @@ installing. That catches a truncated or corrupted download; it is not a
 signature. The installer needs POSIX `sh`, `uname`, `mktemp`, `tar`, and `curl` or a
 logged-in `gh`. Never run it as root.
 
-To update, rerun the one-liner, optionally with `--version`. `workbench install`
-and `workbench update` also accept `--bundle` with a local archive or HTTPS URL.
-
-## Machine lifecycle
+## Commands
 
 | Command | Behavior |
 | --- | --- |
-| `doctor` | Bounded local tool/host checks; no repair, server startup or remote sessions. |
-| `status` | Inspect private current-state identities; not proof of package health or a drift scan. |
-| `init --answers-from PATH` | Save the `[data]` table of an existing chezmoi config as machine answers; see [switching from dotfiles](switch-from-dotfiles.md). |
-| `pull [version] --bundle FILE` | Verify and stage only; does not activate or configure. |
-| `install [version] --bundle FILE` | Activate the matched runtime/source, then separate setup and apply stages. |
-| `update [version] --bundle FILE` | Compose the same stage/activate/setup/plan/apply owners. |
-| `plan [--config-only] [--effect NAME]` | Offline native target plan; missing render dependencies/answers block. |
-| `apply --dry-run [--config-only] [--effect NAME]` | Same planner as `plan`, no provisioning. |
-| `apply [--config-only] [--effect NAME]` | Revalidate the approved plan, checkpoint files and invoke native apply. |
-| `revert --list` | List machine checkpoints. |
-| `revert --checkpoint ID [--dry-run]` | Preview/restore a selected checkpoint after conflict checks. |
+| `apply` | Show what would change on this machine, ask Yes or No, then checkpoint files and apply. |
+| `apply --dry-run` | Show the same plan without applying. |
+| `update` | Install the latest release, then set up its tools and apply it, asking before each step. |
+| `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
+| `version` | Print this Workbench version, the same as `--version`. |
+| `version --list` | List the published releases, marking the latest and the installed one. |
+| `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks; no repair. |
+| `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
+| `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
 
-`revert VERSION` selects a unique checkpoint whose **before** release matches;
-ambiguous matches fail. With no selector, revert lists choices and requests an
-explicit checkpoint. It does not run an old executable or reverse old scripts.
+`update` and `version --list` read the releases from GitHub. While the repository
+is private they need a logged-in `gh`, whose token Workbench asks `gh auth token`
+for; a public repository needs nothing. `update` stops without changes when that
+release is already installed; run `apply` to apply it again. The hidden
+`--bundle FILE` takes a local archive or HTTPS URL instead, which is what
+`install.sh` passes.
 
-Release commands take `--bundle` with a local archive or HTTPS URL; `install.sh`
-finds the right one for you. Pull also requires plan consent because staging
-writes state.
+`revert` restores files only. It does not run an old executable or reverse old
+scripts. At a terminal it shows the saved checkpoints, newest first, as "undo
+the apply of …" (the files before that apply) or "redo the apply of …" (the
+files a revert replaced). Without a terminal it lists them with their IDs and
+asks for `--checkpoint ID`; `--dry-run` shows the restore plan.
 
-After pull, plan and apply use the candidate's verified executable/source pair.
-Preview does not activate it. The apply plan explicitly includes any runtime
-switch; approval activates that pair through the same journaled installer owner.
-A CLI-only update can activate without allocating a configuration checkpoint.
-
-`--source PATH` selects an existing developer source tree;
-`--machine-config PATH` selects a private native `[data]` answer file;
-`--destination PATH` selects an existing configuration destination. Full
-provisioning requires the real home destination because native scripts have
-external effects. See [configuration ownership](chezmoi-local-overrides.md).
+`apply` and `doctor` take `--source PATH` to use a developer checkout instead of
+the installed release. `apply` and `update` take `--machine-config PATH`, a
+private native `[data]` answer file, and `--destination PATH`, an existing
+folder to configure instead of your home. Full provisioning requires the real
+home destination because native scripts have external effects. See
+[configuration ownership](chezmoi-local-overrides.md). The hidden
+`init --answers-from PATH` saves the `[data]` table of an existing chezmoi
+config as machine answers; see [switching from dotfiles](switch-from-dotfiles.md).
 
 ## Approval and automation
 
@@ -73,10 +71,12 @@ such as `+3 −1 lines` or `mode 0600 → 0644`. It also says when a target was
 `edited outside Workbench since it last wrote it` or is `not previously written
 by Workbench`, so an approval never overwrites local edits unnoticed.
 
-Interactive mutations show the plan and read approval from the terminal: the
+Interactive mutations show the plan, then ask "Approve this exact plan?" with
+Yes and No (y or n, or the arrow keys and Enter). No is selected first, so
+Enter alone approves nothing, and esc or ctrl+c refuses. The plan lists the
 files it changes, then its effects grouped by the privilege they need and what
-recovery can undo, then warnings and recovery limits. `plan` prints the same
-view without asking. While Workbench plans, rechecks an approved plan or sets up
+recovery can undo, then warnings and recovery limits. `apply --dry-run` prints
+the same view without asking. While Workbench plans, rechecks an approved plan or sets up
 chezmoi, uv and Python, a live line on stderr names the current step and the
 time so far, for example `⠧ Planning: asking Homebrew for updates (2s)`; it
 clears before any prompt. Without a terminal, and in JSON or non-interactive
@@ -99,7 +99,7 @@ management setup and target application are separate plans: `--approve-plan`,
 Unattended setup also requires a complete private `--machine-config` file.
 No blanket `--yes` grants unspecified external effects.
 
-On macOS, every full plan (`plan`, `apply`, `install`, `update`) lists its
+On macOS, every full plan (from `apply` or `update`) lists its
 steps as effects, and approving the plan approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`
@@ -113,9 +113,10 @@ and Python that Workbench runs stay at the versions it qualified, and so does
 any tool whose update would change them; the plan names them in its warnings.
 
 Windows host steps on WSL run only when named with a repeatable `--effect` on
-both `plan` and `apply` (and `install`/`update`); each appears in the plan and
-its digest. `workbench plan --help` lists what this host offers. `--effect`
-cannot be combined with `--config-only`.
+`apply` or `update`, both for the dry run and the approved run; each appears in
+the plan and its digest. `workbench apply --help` lists what this host offers,
+and hosts without any do not show the flag. `--effect` cannot be combined with
+`--config-only`.
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
@@ -133,7 +134,7 @@ workbench project inspect .
 workbench project configure ./apps/api --language python --dry-run
 workbench project configure . --language python --extensions --gitignore --dry-run
 workbench project configure . --language python --resolve-dependencies
-workbench project revert . --list
+workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID
 ```
 
@@ -200,15 +201,14 @@ filesystems are in the [contracts](superpowers/specs/workbench-contracts.md#runt
 Do not share these overrides with project-owned directories or Windows mounts.
 
 Activation is journaled, not a multi-file atomic transaction. An interrupted
-entry-point/state switch fails closed while retaining the prior runtime. Resume
-`install` with the same trusted bundle and fresh consent; do not manually edit
+entry-point/state switch fails closed while retaining the prior runtime. Rerun
+`update` for the same release with fresh consent; do not manually edit
 the active-release record. Existing processes retain their inherited environment:
 Workbench never injects PATH changes into running terminals or AI sessions.
 
-Installs keep storage bounded. The activation plan lists, as `remove` edits,
-every staged release except the new one, the one it replaces and a staged
-candidate, plus setup contexts and private tool versions that nothing kept or
-recorded uses. They are deleted after activation succeeds, so the previous
+Updates keep storage bounded. The activation plan lists, as `remove` edits,
+every staged release except the new one and the one it replaces, plus setup
+contexts and private tool versions that nothing kept or recorded uses. They are deleted after activation succeeds, so the previous
 release stays available to reinstall.
 
 ## Releases

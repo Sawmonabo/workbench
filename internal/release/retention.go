@@ -12,16 +12,13 @@ import (
 
 // StaleReleases lists the staged releases that activating bundle leaves
 // unneeded as removal edits, and returns the metadata of the kept ones, whose
-// setup contexts and pinned tools stay. Activation keeps bundle, the release
-// it replaces (the journal's previous one while an interrupted activation is
-// resumed) and a staged candidate, so storage stays bounded while rollback
-// remains possible. If a kept release's records cannot be read, it returns no
-// kept releases: nothing may be removed that an unknown release could need.
+// setup contexts and pinned tools stay. Activation keeps bundle and the
+// release it replaces (the journal's previous one while an interrupted
+// activation is resumed), so storage stays bounded while going back to the
+// previous release stays possible. If a kept release's records cannot be
+// read, it returns no kept releases: nothing may be removed that an unknown
+// release could need.
 func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Metadata, error) {
-	candidate, _, err := readCandidate(c)
-	if err != nil {
-		return nil, nil, nil
-	}
 	journal, err := readActivation(c)
 	if err != nil {
 		return nil, nil, err
@@ -36,9 +33,6 @@ func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Meta
 	}
 	if journal != nil && journal.Status == activationRunning && journal.Previous != nil {
 		keep = append(keep, journal.Previous.Source)
-	}
-	if candidate != nil {
-		keep = append(keep, candidate.Directory)
 	}
 	// The bundle may not be staged yet; its verified metadata is in memory.
 	kept := []Metadata{bundle.Metadata}
@@ -75,7 +69,7 @@ func staleDirectories(c operation.Context, keep []string) ([]operation.Edit, err
 			stale = append(stale, operation.Edit{
 				Path:        directory,
 				Action:      "remove",
-				Description: "Remove an older staged release; the new, replaced and candidate releases stay",
+				Description: "Remove an older staged release; the new and replaced releases stay",
 			})
 		}
 	}

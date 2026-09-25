@@ -18,7 +18,7 @@ import (
 // function clears the status line.
 func newProgress(o *options, diagnostics io.Writer) (operation.Progress, func()) {
 	file, ok := diagnostics.(*os.File)
-	if ok && !o.nonInteractive && !o.json && operation.IsTerminal(file) {
+	if ok && o.interactive() && operation.IsTerminal(file) {
 		status := &statusLine{output: file}
 		return status, status.Stop
 	}

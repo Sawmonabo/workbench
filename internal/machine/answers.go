@@ -144,7 +144,7 @@ func (a Answers) label() string { return fmt.Sprintf("%s/%s", a["machine_role"],
 // config, such as dotfiles' ~/.config/chezmoi/chezmoi.toml, as Workbench's
 // machine answers. Other keys (sourceDir, hooks, commands) are ignored and
 // never run. This is the design's one-time answer adoption, not a
-// compatibility reader: plan and apply read only machine.toml. It returns the
+// compatibility reader: apply reads only machine.toml. It returns the
 // encoded answers to write.
 func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, error) {
 	plan := operation.Plan{

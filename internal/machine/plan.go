@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // Selection is what an apply covers: configuration only, or full provisioning
@@ -148,9 +147,6 @@ func prepare(
 		if retention != nil {
 			plan.Effects = append(plan.Effects, *retention)
 		}
-	}
-	if err = release.PlanCandidate(c, plan); err != nil {
-		return prepared, err
 	}
 	plan.Complete = true
 	return prepared, nil

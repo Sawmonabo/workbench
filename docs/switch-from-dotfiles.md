@@ -11,7 +11,7 @@ over the same files.
    ```
 
    From a checkout instead, build with `go build -o bin/workbench ./cmd/workbench`
-   and add `--source PATH_TO_CHECKOUT` to every `plan` and `apply` below.
+   and add `--source PATH_TO_CHECKOUT` to every `apply` below.
 
 2. **Adopt your existing answers.** This copies only the `[data]` table into
    Workbench's private `machine.toml`. `sourceDir`, hooks and any other keys
@@ -21,17 +21,17 @@ over the same files.
    workbench init --answers-from ~/.config/chezmoi/chezmoi.toml
    ```
 
-   This is a one-time adoption. Plan and apply read only `machine.toml`, so
-   `--machine-config` is no longer needed.
+   This is a one-time adoption, so `init` is left out of `workbench --help`.
+   `apply` reads only `machine.toml`, so `--machine-config` is no longer needed.
 
 3. **Apply configuration only, and review it first.**
 
    ```sh
-   workbench plan --config-only
    workbench apply --config-only
    ```
 
-   Every changed file is checkpointed; `workbench revert --list` shows them.
+   It shows the plan and asks before changing anything. Every changed file is
+   checkpointed; `workbench revert` lists them to restore.
    The first apply sets the managed VS Code keys in
    `home/.chezmoidata/vscode.json` (zoom, confirm prompts, ty/Ruff as the
    Python language tools). Remove any you don't want enforced before applying.
@@ -48,7 +48,6 @@ over the same files.
 5. **Provision when you're ready.**
 
    ```sh
-   workbench plan
    workbench apply
    ```
 

@@ -4,10 +4,8 @@ import (
 	"context"
 	"io"
 	"os"
-	"slices"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // Apply shares native preparation with preview and obtains fresh exact images
@@ -65,29 +63,17 @@ func Apply(
 
 // applyRun is one approved apply holding the operation locks.
 type applyRun struct {
-	ctx            context.Context
-	c              operation.Context
-	m              *operation.Mutation
-	selection      Selection
-	prepared       *preparation
-	terminal       *os.File
-	progress       io.Writer
-	result         *operation.Result
-	runtimeMutated bool
+	ctx       context.Context
+	c         operation.Context
+	m         *operation.Mutation
+	selection Selection
+	prepared  *preparation
+	terminal  *os.File
+	progress  io.Writer
+	result    *operation.Result
 }
 
-func (a *applyRun) apply() (err error) {
-	defer func() {
-		code := operation.ExitCode(err)
-		if a.runtimeMutated && err != nil && code != operation.ExitInterrupted &&
-			code != operation.ExitPartial {
-			err = operation.Fail(
-				operation.ExitPartial,
-				"partial",
-				"Runtime activated; subsequent configuration work did not complete, retained recovery state requires inspection",
-			)
-		}
-	}()
+func (a *applyRun) apply() error {
 	state, err := operation.ReadState(a.c.Paths)
 	if err != nil {
 		return err
@@ -100,21 +86,6 @@ func (a *applyRun) apply() (err error) {
 	return a.withCheckpoint(state)
 }
 
-// activate switches to the planned candidate runtime, if any, and records
-// whether that changed the runtime.
-func (a *applyRun) activate() error {
-	if err := release.ActivateCandidate(a.ctx, a.c, a.m); err != nil {
-		return err
-	}
-	a.runtimeMutated = slices.ContainsFunc(
-		a.prepared.Plan.Effects,
-		func(effect operation.Effect) bool {
-			return effect.Name == "activate-candidate"
-		},
-	)
-	return nil
-}
-
 func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	if state != nil && state.PartialOperation != nil && state.PartialOperation.Scope != a.c.Scope {
 		return operation.Fail(
@@ -123,9 +94,6 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 			"Apply "+state.PartialOperation.ID+" to "+state.PartialOperation.Scope.Root+
 				" did not finish; rerun apply for that destination first",
 		)
-	}
-	if err := a.activate(); err != nil {
-		return err
 	}
 	if !a.selection.ConfigOnly {
 		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil {
@@ -136,14 +104,13 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	if err != nil {
 		return err
 	}
-	activated := runtimeChanged(state, current)
 	// A plan with no file changes found every target already as this source
 	// renders it, which settles an earlier apply that stopped before finishing.
 	var settled *operation.PartialOperation
 	if current != nil {
 		settled = current.PartialOperation
 	}
-	if activated || !a.selection.ConfigOnly || settled != nil {
+	if !a.selection.ConfigOnly || settled != nil {
 		if current == nil {
 			current = &operation.State{SchemaVersion: 1}
 		}
@@ -157,13 +124,6 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 				"Apply completed; configuration identity finalization failed",
 			)
 		}
-	}
-	if activated {
-		a.result.Results = append(a.result.Results, operation.Component{
-			Name:    "runtime",
-			Status:  operation.StatusComplete,
-			Message: "Approved matching runtime activated",
-		})
 	}
 	a.result.Results = append(a.result.Results, operation.Component{
 		Name:     "configuration",
@@ -193,17 +153,6 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		return err
 	}
 	a.result.OperationID = cp.ID
-	if err = a.activate(); err != nil {
-		return err
-	}
-	current, err := operation.ReadState(a.c.Paths)
-	if err != nil {
-		return err
-	}
-	a.runtimeMutated = a.runtimeMutated || runtimeChanged(state, current)
-	if current != nil {
-		state = current
-	}
 	state.PartialOperation = &operation.PartialOperation{ID: cp.ID, Scope: a.c.Scope}
 	if err = a.m.WriteState(*state); err != nil {
 		return err
@@ -276,9 +225,4 @@ func effectResults(effects []operation.Effect) []operation.Component {
 		)
 	}
 	return results
-}
-
-func runtimeChanged(before, after *operation.State) bool {
-	return after != nil && after.ActiveRelease != nil &&
-		(before == nil || before.ActiveRelease == nil || *before.ActiveRelease != *after.ActiveRelease)
 }

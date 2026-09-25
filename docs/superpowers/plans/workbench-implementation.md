@@ -117,11 +117,11 @@ owner pushes a `v*` tag, not when files are implemented.
 
 ### Work
 
-1. Register one Cobra command tree: `doctor`, `status`, `pull`, `plan`, `apply`, `update`, `revert`, `project inspect` and `project configure`.
+1. Register one Cobra command tree: `apply`, `update`, `version`, `doctor`, `revert`, `project inspect`, `project configure` and `project revert`.
 2. Implement explicit PATH resolution, existing-directory validation and repeatable `--language` selection. Omitted project PATH means `.`. Unsupported explicit language requests fail before mutation.
 3. Define one resolved operation context and plan/result model. A plan contains source identity, scope, observed inputs, intended target edits/removals, prerequisites, external effects and recovery limits.
 4. Add one cancellable subprocess runner with argument arrays, controlled environment, bounded output and redaction. Do not build shell command strings from project paths or answers, or introduce a mock framework.
-5. Add shared confirmation and read-only enforcement. The same planner backs `plan` and `apply --dry-run`; missing tools must not trigger repair.
+5. Add shared confirmation and read-only enforcement. The same planner backs `apply --dry-run` and `apply`; missing tools must not trigger repair.
 6. Implement operation locking and atomic private state writes. Distinguish machine, project and shared release/dependency state; prevent overlapping writes without duplicating lock logic.
 7. Add version/help/completion output through Cobra. Keep handlers thin and ensure incomplete handlers return an explicit unsupported/not-implemented result, never a fake success.
 8. Configure `gofmt` and `goimports` plus the standard golangci-lint set in `.golangci.yml`. Reuse the same pinned tool/config locally and in CI. Keep one Go module and create focused `internal` packages only as behavior requires them; no generic `utils`, speculative public packages or layered scaffolding.
@@ -198,9 +198,9 @@ owner pushes a `v*` tag, not when files are implemented.
 
 1. Build per-target bundles containing the CLI, machine sources, project policies, licenses and generated release metadata. Exclude host state and maintainer-only files through an explicit payload definition.
 2. Implement target validation, bounded downloads and archive validation. Reject unsafe members, escaping links, malformed metadata, incompatible state/runtime versions and mismatched integrity data.
-3. Implement `pull` as staging only. It must not activate the runtime, upgrade tools or apply configuration.
-4. Implement preview/apply against the selected immutable candidate. Keep CLI, candidate and applied-configuration versions separate. Validate a runtime handoff before activation and keep the previous working runtime available.
-5. Implement `update` by calling the same pull/plan/apply operations. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
+3. Implement `update [VERSION]`: find the latest release or VERSION on GitHub (or read `--bundle`), then stage, activate and hand off to the new runtime, which runs the same setup and apply operations. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
+4. Keep CLI, active release and applied-configuration versions separate. Validate a runtime handoff before activation and keep the previous working runtime available.
+5. Implement `version --list` from the same GitHub release data.
 6. Implement POSIX bootstrap target detection, minimal prerequisite checks, initial download/verification and handoff. Do not add package lists, machine questions, language setup or revert logic to shell.
 7. Handle interactive piped installation with terminal input, explicit noninteractive consent, install-only behavior and an honest bootstrap-only dry-run. Do not overwrite an unrelated command.
 8. Validate the current state format before activation and preserve working state on rejection. Implement no historical schema readers, converters or backward-compatible runtime paths.
@@ -210,8 +210,8 @@ owner pushes a `v*` tag, not when files are implemented.
 - Fresh installation works without a source checkout, Go compiler, preinstalled Python or manually installed management tools, while declared bootstrap utilities remain prerequisites.
 - Keep a minimal automated release-safety check only for unsafe extraction or unverified executable activation; do not retest library behavior or build a broad download-error matrix.
 - Manually check representative failed installation/activation and an existing command collision in an isolated destination.
-- Pull changes only staging state. Preview and config-only operations never fetch missing dependencies implicitly.
-- A failed candidate does not destroy the working runtime; rollback limitations remain honest.
+- Preview and config-only operations never fetch missing dependencies implicitly.
+- A failed update does not destroy the working runtime; rollback limitations remain honest.
 - A manual installation smoke check from a published-style bundle, not the working tree, verifies the user path.
 
 ## Task 6: Add personal editor and Python machine policy

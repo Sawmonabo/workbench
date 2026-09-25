@@ -170,6 +170,26 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   32 files and exited 0. The terminal color query seen during that apply also
   comes from native chezmoi in the previous build. Pressing ctrl+c during
   `Rechecking the plan` after `yes` exited 130 and wrote nothing.
+- The commands became `apply` (with `--dry-run`), `update [VERSION]`,
+  `version [--list]`, `doctor`, `revert` and `project`; `plan`, `status`,
+  `pull` and `install` were removed, along with the staged-candidate path only
+  `pull` used, so the candidate checks above describe removed behavior.
+  Against the private repository with no releases, `version --list` printed
+  "No releases published yet" through `gh`'s token and, without `gh`, "No
+  published Workbench release found; a private repository needs gh auth
+  login"; `update` and `update 0.2.0` exited 3 naming what was missing. A
+  locally packaged v0.9.0 bundle installed into a disposable home under a
+  pseudo-terminal: `update v0.9.0 --bundle` asked Yes/No, installed, handed off
+  to the new runtime, planned, asked again and applied 32 files, exit 0.
+  Rerunning it reported "Already installed". An unattended `--install-only`
+  update approved by its dry-run digest also installed. At the approval
+  prompt, `n`, Enter alone and esc each refused with exit 3; `y` then ctrl+c
+  during `Rechecking the plan` exited 130, wrote nothing and left `stty -a`
+  unchanged. `revert` showed "undo the apply of release v0.9.0" in its picker
+  and restored the destination; without a terminal it listed both checkpoints
+  with their IDs and exited 3. `doctor` reported the active release, the last
+  applied source and each tool's version, owner and path. The GitHub download
+  of a published bundle is untested until a release exists.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
@@ -209,7 +229,7 @@ support commitments. No silent platform waiver is implied.
 ## Short qualification procedure
 
 Use a disposable user/VM and synthetic credentials. Install a release bundle
-with `install.sh` and without a checkout; inspect doctor/status; preview before approval; apply
+with `install.sh` and without a checkout; run `doctor`; preview with `apply --dry-run`; apply
 configuration twice and compare; exercise unchanged recovery and a later-edit
 conflict. Full provisioning additionally checks actual shell/Git/editor/theme,
 runtime/tool outcomes, denied privilege and optional-effect denial. WSL requires

@@ -7,44 +7,29 @@ import (
 	"syscall"
 )
 
-// Handoff replaces this process only after the caller has released operation
-// locks and verified the activated candidate's release-check response. It is
-// not a forwarding launcher and never grants consent to a later setup/apply.
-func Handoff(c Context, expected ReleaseRecord, args []string, candidateRecordDigest string) error {
+// Handoff replaces this process with the activated runtime only after the
+// caller has released operation locks and verified its release-check
+// response. It is not a forwarding launcher and never grants consent to a
+// later setup/apply.
+func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	state, err := ReadState(c.Paths)
 	if err != nil {
 		return err
 	}
-	if candidateRecordDigest != "" {
-		raw, readErr := ReadPrivateInput(filepath.Join(c.Paths.State, "candidate.json"), 1<<20)
-		if readErr != nil {
-			return readErr
-		}
-		if SHA256Hex(raw) != candidateRecordDigest ||
-			expected.Source != c.Native.Source ||
-			!Within(filepath.Join(c.Paths.Data, "releases"), expected.Source) {
-			return Fail(
-				ExitConflict,
-				"handoff",
-				"Staged candidate changed before offline handoff; select and review it again",
-			)
-		}
-	} else {
-		if state == nil || state.ActiveRelease == nil || *state.ActiveRelease != expected {
-			return Fail(
-				ExitConflict,
-				"handoff",
-				"Activated runtime changed before handoff; inspect state and resume installation",
-			)
-		}
-		entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
-		if err != nil || entry != expected.Executable {
-			return Fail(
-				ExitConflict,
-				"handoff",
-				"Runtime entry point changed before handoff; resume installation",
-			)
-		}
+	if state == nil || state.ActiveRelease == nil || *state.ActiveRelease != expected {
+		return Fail(
+			ExitConflict,
+			"handoff",
+			"Activated runtime changed before handoff; run workbench doctor, then rerun workbench update",
+		)
+	}
+	entry, err := os.Readlink(filepath.Join(c.Paths.Bin, "workbench"))
+	if err != nil || entry != expected.Executable {
+		return Fail(
+			ExitConflict,
+			"handoff",
+			"Runtime entry point changed before handoff; rerun workbench update",
+		)
 	}
 	executable, err := trustedExecutable(expected.Executable, nil)
 	if err != nil {

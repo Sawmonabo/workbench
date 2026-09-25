@@ -80,8 +80,7 @@ func ResolveDependencies(
 			}
 			dependencies = append(dependencies, candidate)
 			component.Status = operation.StatusComplete
-			component.Message = "Qualified existing installation"
-			component.Details = candidate
+			component.Message = version + " (" + candidate.Owner + ") at " + candidate.Path
 			break
 		}
 		results = append(results, component)
@@ -318,18 +317,20 @@ func isWSL() bool {
 	return runtime.GOOS == "linux" && strings.Contains(strings.ToLower(string(data)), "microsoft")
 }
 
-// Doctor probes management versions but does not launch VS Code's CLI: that CLI
+// Doctor reports what Workbench has installed and applied, then probes
+// management versions and the host. It does not launch VS Code's CLI: that CLI
 // may create logs/user state. Host/profile discovery reads the actual locations.
 func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, error) {
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
 		return nil, err
 	}
-	var recorded []operation.Dependency
-	if state != nil {
-		recorded = state.Dependencies
+	if state == nil {
+		state = &operation.State{}
 	}
-	results := []operation.Component{checkPlatform(ctx, c)}
+	recorded := state.Dependencies
+	results := installed(state)
+	results = append(results, checkPlatform(ctx, c))
 	if requirements, requirementsErr := ManagementRequirements(c); requirementsErr != nil {
 		results = append(results, operation.Component{
 			Name:    "tool-versions",
@@ -389,4 +390,39 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		}
 	}
 	return results, nil
+}
+
+// installed reports the active release, the last applied configuration and
+// any apply that did not finish, from recorded state without probing.
+func installed(state *operation.State) []operation.Component {
+	release := operation.Component{
+		Name:    "release",
+		Status:  operation.StatusAbsent,
+		Message: "No release installed; install.sh installs one",
+	}
+	if state.ActiveRelease != nil {
+		release.Status = operation.StatusComplete
+		release.Message = state.ActiveRelease.Identity.Release + " is active"
+	}
+	applied := operation.Component{
+		Name:    "applied",
+		Status:  operation.StatusAbsent,
+		Message: "Nothing applied yet",
+	}
+	if source := state.AppliedConfiguration; source != nil {
+		applied.Status = operation.StatusComplete
+		applied.Message = "Last applied from release " + source.Release
+		if source.Release == "developer" {
+			applied.Message = "Last applied from a developer checkout (" + source.ContentDigest[:12] + ")"
+		}
+	}
+	results := []operation.Component{release, applied}
+	if partial := state.PartialOperation; partial != nil {
+		results = append(results, operation.Component{
+			Name:    "unfinished-apply",
+			Status:  operation.StatusPartial,
+			Message: "Apply " + partial.ID + " to " + partial.Scope.Root + " did not finish; rerun workbench apply",
+		})
+	}
+	return results
 }
