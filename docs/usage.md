@@ -204,6 +204,14 @@ Runtime directories follow platform/XDG defaults; absolute overrides are
 filesystems are in the [contracts](superpowers/specs/workbench-contracts.md#runtime-paths-and-context).
 Do not share these overrides with project-owned directories or Windows mounts.
 
+Workbench runs with your umask plus 022, so nothing it, chezmoi or its tools
+create is writable by other users, even where the login default is 002, as on
+Ubuntu. Missing parents of its directories, such as `~/.config`, are created
+0755. When the configuration sets such a folder to a different safe mode, the
+plan shows it as a `folder-mode-…` effect; revert does not restore that mode.
+A parent that other users can write to stops Workbench with the `chmod go-w`
+that fixes it.
+
 Activation is journaled, not a multi-file atomic transaction. An interrupted
 entry-point/state switch fails closed while retaining the prior runtime. Rerun
 `update` for the same release with fresh consent; do not manually edit

@@ -48,6 +48,8 @@ type preparation struct {
 	// appUpdates and toolUpdates name the casks and formulae the plan's
 	// update effects cover.
 	appUpdates, toolUpdates []string
+	// desired is native's rendered image of every target, by relative path.
+	desired map[string]nativeEntry
 }
 
 func (p *preparation) Close() {
@@ -100,6 +102,9 @@ func prepare(
 	if err != nil {
 		return prepared, err
 	}
+	if err = prepared.readDesired(ctx, c); err != nil {
+		return prepared, err
+	}
 	if err = prepared.planEdits(ctx, c, targets, containers, answers.label()); err != nil {
 		return prepared, err
 	}
@@ -126,7 +131,7 @@ func prepare(
 		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
 		plan.Effects = append(plan.Effects, optional...)
 	}
-	if err = prepared.buildChanges(ctx, c); err != nil {
+	if err = prepared.buildChanges(c); err != nil {
 		return prepared, err
 	}
 	if !selection.ConfigOnly {
@@ -473,11 +478,10 @@ func (p *preparation) planEdits(
 		}
 		target := line[3:]
 		if containers[target] && line[1] != ' ' {
-			return operation.Fail(
-				operation.ExitBlocked,
-				"scope",
-				"Native plan would change a protected ancestor directory; review its mode/type before applying",
-			)
+			if err = p.folderMode(c, target, line[1]); err != nil {
+				return err
+			}
+			continue
 		}
 		if !containers[target] {
 			if err = c.ValidateTarget(target); err != nil {
@@ -517,21 +521,59 @@ func (p *preparation) planEdits(
 	return nil
 }
 
-// buildChanges records each edit's exact before image and the after image
-// native renders, refusing metadata the checkpoint owner cannot preserve.
-func (p *preparation) buildChanges(ctx context.Context, c operation.Context) error {
+// readDesired reads the image native renders for every target.
+func (p *preparation) readDesired(ctx context.Context, c operation.Context) error {
 	rendered, err := p.run(ctx, c, "dump", "--exclude=scripts", "--format=json")
 	if err != nil {
 		return err
 	}
-	var desired map[string]nativeEntry
-	if json.Unmarshal([]byte(rendered), &desired) != nil {
+	if json.Unmarshal([]byte(rendered), &p.desired) != nil {
 		return operation.Fail(
 			operation.ExitFailed,
 			"native",
 			"Unexpected native target-image output",
 		)
 	}
+	return nil
+}
+
+// folderMode allows native to change only the mode of a directory that holds
+// Workbench's own files, such as ~/.config on Linux, and only to one without
+// group or other write. It is a named effect: checkpoints cover files, so
+// revert does not restore the mode. Any other change there is refused.
+func (p *preparation) folderMode(c operation.Context, target string, action byte) error {
+	relative, err := filepath.Rel(c.Native.Destination, target)
+	if err != nil {
+		return err
+	}
+	desired, ok := p.desired[relative]
+	info, statErr := os.Lstat(target)
+	if action != 'M' || !ok || desired.Type != "dir" || desired.Perm&0o022 != 0 ||
+		statErr != nil || !info.IsDir() {
+		return operation.Fail(
+			operation.ExitBlocked,
+			"scope",
+			"Native plan would replace or loosen "+target+", which holds Workbench's own files",
+		)
+	}
+	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
+		Name: "folder-mode-" + relative,
+		Description: fmt.Sprintf(
+			"Set %s from %04o to %04o, as the configuration expects; it holds Workbench's own files",
+			target,
+			info.Mode().Perm(),
+			desired.Perm,
+		),
+		Privilege: "user",
+		Recovery:  "revert does not restore folder modes",
+	})
+	return nil
+}
+
+// buildChanges records each edit's exact before image and the after image
+// native renders, refusing metadata the checkpoint owner cannot preserve.
+func (p *preparation) buildChanges(c operation.Context) error {
+	desired := p.desired
 	last, err := operation.LastApplied(c)
 	if err != nil {
 		return err

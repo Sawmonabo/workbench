@@ -279,12 +279,18 @@ func safeParents(path string) error {
 				return Fail(ExitInvalid, "path", "Workbench path parent is not a directory")
 			}
 			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) ||
-				(info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0) {
+			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					"Workbench path has an unsafe owner or writable parent",
+					current+" belongs to another user; Workbench keeps its files only under folders you or root own",
+				)
+			}
+			if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
+				return Fail(
+					ExitInvalid,
+					"permissions",
+					current+" is writable by other users; run chmod go-w "+current+" and retry",
 				)
 			}
 		} else if !os.IsNotExist(err) {

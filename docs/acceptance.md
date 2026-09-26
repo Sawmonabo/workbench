@@ -218,6 +218,30 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   `project revert` picker restored `pyproject.toml` and `uv.lock` exactly.
   Project checkpoints are now labeled with their project policy, not as a
   release.
+- A follow-up pass in disposable macOS homes checked the remaining rough
+  edges. `workbench version` now prints the `--version` line. `project inspect`
+  and `project configure` print the plan view and the files and projects
+  found, not raw JSON. Declining setup after a fresh install still exited 5,
+  and declining on a rerun exited 3 with "Plan was not approved". With the
+  tools already installed, updating to a new release asked twice (install,
+  apply), a rerun asked once, and an unattended rerun set up and then stopped
+  for `--approve-apply`. With `versions_mode` removed from the saved answers,
+  setup asked for approval again. chezmoi asked only "Install pinned or latest
+  tool versions?" and saved the answer.
+- An Ubuntu 24.04 container on Docker Desktop's Linux kernel, not a native
+  Ubuntu host, ran as a new normal user whose login umask was 0002
+  (`pam_umask` with `USERGROUPS_ENAB yes`). It installed a locally packaged
+  linux-arm64 bundle through unattended digest approvals. Before the fix, setup
+  failed with "python3: Version/capability probe failed": uv had installed
+  `python3.12` at 0775, and Workbench refuses group-writable tools. Workbench
+  now runs with the user's umask plus 022. After the fix, all three tools
+  qualified, and `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state`
+  and `~/.cache` were 0755. A config-only apply wrote 25 files at 0644, and the
+  next plan changed no files. With `~/.config` already at 0700, the plan listed
+  "folder-mode-.config: Set ~/.config from 0700 to 0755". The apply made that
+  change, and the next plan no longer listed it. With `~/.local` already at 0775,
+  the install stopped at once with "~/.local is writable by other users; run
+  chmod go-w ~/.local and retry". Ubuntu stays in the unqualified list below.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
