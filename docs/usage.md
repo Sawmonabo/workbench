@@ -34,7 +34,7 @@ logged-in `gh`. Never run it as root.
 | --- | --- |
 | `apply` | Show what would change on this machine, ask Yes or No, then checkpoint files and apply. |
 | `apply --dry-run` | Show the same plan without applying. |
-| `update` | Install the latest release, then set up its tools and apply it, asking before each step. |
+| `update` | Install the latest release, then set up its tools and apply it, asking before installing, before setup when it installs a tool or needs an answer, and before applying. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
 | `version` | Print this Workbench version, the same as `--version`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
@@ -97,7 +97,10 @@ Keep all source/config/destination/selection flags identical between those calls
 Changed inputs conflict instead of inheriting old consent. Release activation,
 management setup and target application are separate plans: `--approve-plan`,
 `--approve-setup` and `--approve-apply` approve only their respective stages.
-Unattended setup also requires a complete private `--machine-config` file.
+Setup needs its own approval only when it installs a tool or the saved answers
+miss a question. Otherwise it reruns the questions without asking: each asks
+only once, so nothing already answered is asked again or changed. Unattended
+setup also requires a complete private `--machine-config` file.
 No blanket `--yes` grants unspecified external effects.
 
 On macOS, every full plan (from `apply` or `update`) lists its

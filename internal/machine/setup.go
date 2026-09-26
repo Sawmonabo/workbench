@@ -90,14 +90,31 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 	if err != nil {
 		return plan, err
 	}
-	if _, err = parseAnswers(raw); err != nil {
+	answers, err := readAnswers(raw)
+	if err != nil {
 		return plan, err
 	}
-	plan.Inputs = append(
-		plan.Inputs,
-		operation.Input{Name: "answers", Digest: operation.SHA256Hex(raw)},
-	)
+	input := operation.Input{Name: "answers", Digest: operation.SHA256Hex(raw)}
+	if validateAnswers(answers) != nil {
+		// The questionnaire asks for what this release needs and they lack.
+		input.Name = "incomplete-answers"
+	}
+	plan.Inputs = append(plan.Inputs, input)
 	return plan, nil
+}
+
+// SetupNeedsApproval reports whether setup does more than rerun the
+// questionnaire over complete saved answers. Every question asks only once,
+// so that rerun asks nothing and saves the same answers; it needs no approval
+// of its own.
+func SetupNeedsApproval(setup operation.Plan) bool {
+	installs := slices.ContainsFunc(setup.Effects, func(effect operation.Effect) bool {
+		return strings.HasPrefix(effect.Name, "private-")
+	})
+	complete := slices.ContainsFunc(setup.Inputs, func(input operation.Input) bool {
+		return input.Name == "answers"
+	})
+	return installs || !complete
 }
 
 // setupDependencies is the sole management acquisition owner. It is called only

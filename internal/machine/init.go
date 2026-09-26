@@ -144,8 +144,9 @@ func initialize(
 	return answers, nil
 }
 
-// initSeed returns the existing validated answers to seed native init, or an
-// empty [data] table when a terminal can answer the questionnaire.
+// initSeed returns the saved answers to seed native init, complete or not, or
+// an empty [data] table when a terminal can answer the questionnaire. Every
+// question asks once, so init asks only what the seed lacks.
 func initSeed(config string, terminal *os.File) ([]byte, error) {
 	_, err := os.Lstat(config)
 	if os.IsNotExist(err) {
@@ -165,7 +166,7 @@ func initSeed(config string, terminal *os.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = parseAnswers(seed); err != nil {
+	if _, err = readAnswers(seed); err != nil {
 		return nil, err
 	}
 	return seed, nil

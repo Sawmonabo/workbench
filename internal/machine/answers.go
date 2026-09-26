@@ -19,6 +19,16 @@ import (
 type Answers map[string]any
 
 func parseAnswers(raw []byte) (Answers, error) {
+	answers, err := readAnswers(raw)
+	if err != nil {
+		return nil, err
+	}
+	return answers, validateAnswers(answers)
+}
+
+// readAnswers reads a [data]-only machine config without checking that it
+// answers every question; the questionnaire can complete it.
+func readAnswers(raw []byte) (Answers, error) {
 	var config map[string]any
 	if err := toml.Unmarshal(raw, &config); err != nil {
 		return nil, operation.Fail(
@@ -42,8 +52,7 @@ func parseAnswers(raw []byte) (Answers, error) {
 			"Machine [data] must be a table",
 		)
 	}
-	answers := Answers(data)
-	return answers, validateAnswers(answers)
+	return Answers(data), nil
 }
 
 // validateAnswers is also the post-init gate. It never silently defaults missing
@@ -53,7 +62,7 @@ func validateAnswers(a Answers) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Incomplete or invalid machine answers; use the native setup questionnaire",
+			"Incomplete or invalid machine answers; workbench update asks any missing question",
 		)
 	}
 	text := func(key string) string { value, _ := a[key].(string); return value }

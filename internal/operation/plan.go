@@ -149,7 +149,7 @@ func WithMutation(
 			return Fail(
 				ExitBlocked,
 				"consent",
-				"Mutation requires --approve-plan with the displayed digest, or terminal approval",
+				"Approve at a terminal, or pass the displayed digest to --approve-plan (update: --approve-setup or --approve-apply)",
 			)
 		}
 		accepted, err := consent.Confirm(displayed, digest)

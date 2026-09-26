@@ -491,8 +491,8 @@ func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	return args
 }
 
-// configureMachine runs the separately approved setup and apply stages inside
-// the activated runtime.
+// configureMachine runs the setup stage, approved on its own when it installs
+// tools or needs answers, then the apply stage, inside the activated runtime.
 func configureMachine(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -518,12 +518,15 @@ func configureMachine(
 			},
 		)
 		approved, _ := cmd.Flags().GetString("approve-setup")
+		if approved == "" && !machine.SetupNeedsApproval(setup) {
+			approved = setupDigest
+		}
 		if o.nonInteractive || o.json {
 			if _, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr != nil {
 				return result, operation.Fail(
 					operation.ExitBlocked,
 					"answers",
-					"Runtime installed; unattended setup requires complete private answers and a separate --approve-setup digest",
+					"Unattended setup requires saved private answers or --machine-config",
 				)
 			}
 		}
@@ -531,7 +534,7 @@ func configureMachine(
 			return result, operation.Fail(
 				operation.ExitBlocked,
 				"terminal",
-				"Runtime installed; native setup requires a terminal or complete unattended inputs",
+				"Native setup requires a terminal or complete unattended inputs",
 			)
 		}
 		err := operation.WithMutation(
