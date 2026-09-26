@@ -9,6 +9,7 @@ import (
 	"runtime/debug"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/project"
 	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/spf13/cobra"
 )
@@ -245,8 +246,9 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 	return nil
 }
 
-// writeDetails prints a component's details for people: plans, release and
-// checkpoint lists in their own views, anything else as indented JSON.
+// writeDetails prints a component's details for people: plans, project
+// inventories, release and checkpoint lists in their own views, anything else
+// as indented JSON.
 func writeDetails(out io.Writer, details any) error {
 	switch details := details.(type) {
 	case nil:
@@ -257,6 +259,10 @@ func writeDetails(out io.Writer, details any) error {
 		return writeReleases(out, details)
 	case []operation.CheckpointSummary:
 		return writeCheckpoints(out, details)
+	case *project.Inventory:
+		return writeInventory(out, details)
+	case *project.Proposal:
+		return writeProposal(out, details)
 	}
 	data, err := json.MarshalIndent(details, "", "  ")
 	if err != nil {

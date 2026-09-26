@@ -4,11 +4,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"unicode/utf8"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/project"
 )
 
 // writePlan prints a plan for review: where it comes from, the files it
@@ -18,12 +20,8 @@ import (
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
 	title := "Plan for " + plan.Scope.Kind + " " + homePath(plan.Scope.Root)
-	switch plan.Source.Release {
-	case "":
-	case "developer":
-		title += " from developer checkout " + shortDigest(plan.Source.ContentDigest)
-	default:
-		title += " from release " + plan.Source.Release
+	if plan.Source.Release != "" {
+		title += " from " + sourceName(&plan.Source)
 	}
 	b.WriteString(title + "\n")
 	if len(plan.Dependencies) > 0 {
@@ -82,6 +80,72 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	}
 	if !plan.Complete {
 		b.WriteString("\nThis plan is incomplete and cannot be applied as shown.\n")
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// writeProposal prints a project plan, then what inspection found. The
+// proposal's warnings print with the result's.
+func writeProposal(w io.Writer, proposal *project.Proposal) error {
+	if err := writePlan(w, proposal.Plan); err != nil {
+		return err
+	}
+	if proposal.Inventory == nil {
+		return nil
+	}
+	if _, err := fmt.Fprintln(w); err != nil {
+		return err
+	}
+	return writeInventory(w, proposal.Inventory)
+}
+
+// writeInventory prints the candidate files inspection found and the projects
+// they make, each with its language and manager or why it is unsupported.
+func writeInventory(w io.Writer, inventory *project.Inventory) error {
+	var b strings.Builder
+	counts := []string{fmt.Sprintf("%d entries", inventory.Entries)}
+	if inventory.Excluded > 0 {
+		counts = append(counts, fmt.Sprintf("%d excluded", inventory.Excluded))
+	}
+	if inventory.Skipped > 0 {
+		counts = append(counts, fmt.Sprintf("%d skipped", inventory.Skipped))
+	}
+	fmt.Fprintf(
+		&b,
+		"Found in %s (%s):\n",
+		homePath(inventory.Directory),
+		strings.Join(counts, ", "),
+	)
+	if len(inventory.Items) == 0 {
+		b.WriteString("  nothing\n")
+	}
+	rows := make([][]string, 0, len(inventory.Items))
+	for _, item := range inventory.Items {
+		rows = append(rows, []string{item.Path, item.Kind, item.Ecosystem})
+	}
+	writeColumns(&b, rows)
+	if len(inventory.Projects) > 0 {
+		b.WriteString("Projects:\n")
+		rows = rows[:0]
+		for _, found := range inventory.Projects {
+			root, err := filepath.Rel(inventory.Directory, found.Root)
+			if err != nil {
+				root = found.Root
+			}
+			about := found.Language + " with " + found.Manager
+			if !found.Supported {
+				about = found.Language + ": " + found.Reason
+			}
+			rows = append(rows, []string{root, about})
+		}
+		writeColumns(&b, rows)
+	}
+	if len(inventory.Warnings) > 0 {
+		b.WriteString("Warnings:\n")
+		for _, warning := range inventory.Warnings {
+			b.WriteString("  " + warning + "\n")
+		}
 	}
 	_, err := io.WriteString(w, b.String())
 	return err

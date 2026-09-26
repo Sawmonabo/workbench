@@ -47,8 +47,11 @@ func updateCommand(o *options) *cobra.Command {
 		String("approve-apply", "", "Approve exactly the apply plan with this digest")
 	cmd.Flags().String("bundle", "", "Install this release archive, a local file or HTTPS URL")
 	_ = cmd.Flags().MarkHidden("bundle") // install.sh and offline installs
-	cmd.Flags().
-		Bool("runtime-ready", false, "Continue the verified same-process runtime handoff")
+	cmd.Flags().String(
+		"runtime-ready",
+		"",
+		"Continue the verified runtime handoff after an install that is new or unchanged",
+	)
 	_ = cmd.Flags().MarkHidden("runtime-ready")
 	return cmd
 }
@@ -64,6 +67,11 @@ func versionCommand(o *options) *cobra.Command {
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				if list, _ := cmd.Flags().GetBool("list"); !list {
+					if !o.json {
+						// The same line as --version.
+						_, err := fmt.Fprintln(cmd.OutOrStdout(), cmd.Root().Name()+" "+version())
+						return result, err
+					}
 					result.Results = append(result.Results, operation.Component{
 						Name:    "workbench",
 						Status:  operation.StatusComplete,
@@ -204,8 +212,8 @@ func updateRelease(
 		}
 	}()
 	c.ReadOnly = false
-	if ready, _ := cmd.Flags().GetBool("runtime-ready"); ready {
-		return continueInstall(cmd, c, o, result)
+	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
+		return continueInstall(cmd, c, o, result, ready == "unchanged")
 	}
 	tag := ""
 	if args := cmd.Flags().Args(); len(args) > 0 {
@@ -267,7 +275,7 @@ func updateRelease(
 	if err != nil {
 		return result, err
 	}
-	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o))
+	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o, "installed"))
 }
 
 // continueInstalled hands off to the already active release to set up its tools
@@ -298,7 +306,7 @@ func continueInstalled(
 		"Workbench %s is already installed; continuing with setup and apply\n",
 		active.Identity.Release,
 	)
-	return result, operation.Handoff(c, active, handoffArgs(cmd, o))
+	return result, operation.Handoff(c, active, handoffArgs(cmd, o, "unchanged"))
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
@@ -410,13 +418,14 @@ func removeStale(m *operation.Mutation, plan operation.Plan, diagnostics io.Writ
 }
 
 // continueInstall runs in the activated runtime after the handoff. The parent
-// verified, staged and activated this release, so nothing is re-read from the
-// original bundle location.
+// verified, staged and activated this release, or found it already active
+// (unchanged), so nothing is re-read from the original bundle location.
 func continueInstall(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
+	unchanged bool,
 ) (operation.Result, error) {
 	state, stateErr := operation.ReadState(c.Paths)
 	actual, executableErr := os.Executable()
@@ -435,22 +444,26 @@ func continueInstall(
 	if err != nil {
 		return result, err
 	}
-	result.Results = append(
-		result.Results,
-		operation.Component{
-			Name:    "release",
-			Status:  operation.StatusComplete,
-			Message: metadata.Release + " (" + metadata.Target + ")",
-		},
-	)
+	installed := operation.Component{
+		Name:    "release",
+		Status:  operation.StatusComplete,
+		Message: metadata.Release + " (" + metadata.Target + ")",
+	}
+	if unchanged {
+		// Nothing was installed, so a later refusal or failure is not partial.
+		installed.Status = operation.StatusUnchanged
+		installed.Message = metadata.Release + " is already installed"
+	}
+	result.Results = append(result.Results, installed)
 	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
 	return configureMachine(cmd, c, o, result)
 }
 
 // handoffArgs repeats the setup and apply selections for the activated
-// runtime, which continues this install with --runtime-ready.
-func handoffArgs(cmd *cobra.Command, o *options) []string {
-	args := []string{cmd.Name(), "--runtime-ready"}
+// runtime, which continues this install with --runtime-ready and whether the
+// release was installed now or unchanged.
+func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
+	args := []string{cmd.Name(), "--runtime-ready", install}
 	for _, name := range []string{"approve-setup", "approve-apply"} {
 		if value, _ := cmd.Flags().GetString(name); value != "" {
 			args = append(args, "--"+name, value)
