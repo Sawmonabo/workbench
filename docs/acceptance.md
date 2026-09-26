@@ -5,8 +5,8 @@ Implemented handlers are not evidence that every native target is qualified.
 
 ## Observed checks
 
-Native development environment: macOS 27.0 arm64, Go 1.26.4,
-golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
+Native development environment: macOS 27.0 arm64, Go 1.26.4 (1.26.8 from the
+v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
 
 - Isolated native initialization used complete synthetic answers, built-in Git
   and no clone. Repeated initialization preserved configuration. A real terminal
