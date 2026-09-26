@@ -103,7 +103,7 @@ func (image Image) validate(c Context, path string) error {
 		if target == path {
 			return Fail(ExitBlocked, "image", "Self-referential target links are unsupported")
 		}
-		if err := c.ValidateTarget(target); err != nil {
+		if err := c.validateImagePath(target); err != nil {
 			return err
 		}
 		if err := safeParents(target); err != nil {
@@ -144,7 +144,7 @@ func validateImageGroup(c Context, path string, image Image) error {
 // All writes use that descriptor, so a concurrent parent rename cannot redirect
 // them through an escaping symbolic link.
 func imageParent(c Context, path string) (*os.File, string, error) {
-	if err := c.ValidateTarget(path); err != nil {
+	if err := c.validateImagePath(path); err != nil {
 		return nil, "", err
 	}
 	fd, err := unix.Open(
@@ -326,7 +326,7 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 // CreationGroup is also the native planner's group-preservation preflight:
 // an atomic native replacement must not silently change an existing group.
 func CreationGroup(c Context, path string) (uint32, error) {
-	if err := c.ValidateTarget(path); err != nil {
+	if err := c.validateImagePath(path); err != nil {
 		return 0, err
 	}
 	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {

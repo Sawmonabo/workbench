@@ -242,6 +242,19 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   change, and the next plan no longer listed it. With `~/.local` already at 0775,
   the install stopped at once with "~/.local is writable by other users; run
   chmod go-w ~/.local and retry". Ubuntu stays in the unqualified list below.
+- That folder-mode step became a checkpointed edit, so revert restores it. In
+  the same kind of Ubuntu container, with `~/.config` at 0700, the plan listed
+  "modify ~/.config mode 0700 → 0755" under "Folder that holds Workbench's own
+  files; mode only". A config-only apply set it to 0755. `revert` of that
+  checkpoint restored 0700 and removed the files the apply had created, and the
+  next plan offered the change again. In a disposable macOS home with
+  `~/Library/Application Support` at 0700, the same cycle set 0755 and then
+  restored 0700. With the hidden flag on that home's `~/Library`, which a real
+  Mac also carries, the plan stopped with the quoted `chmod 0755` that matches
+  the configuration. A checkpoint cannot record that flag. A real Mac already
+  has these folders at the configuration's modes. A new safeguard test refuses
+  a checkpoint that would remove or replace such a folder, or make it
+  group-writable; removing that check made the test fail.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
@@ -249,7 +262,7 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   not performance budgets, comparative benchmarks or universal guarantees.
 
 Integrated local checks passed: `golangci-lint fmt`, configuration verification,
-`golangci-lint run ./...` (zero issues), `go build ./...`, `go test ./...` (three
+`golangci-lint run ./...` (zero issues), `go build ./...`, `go test ./...` (four
 small safety safeguards), the action pin check and whitespace checks.
 Four macOS/Linux architecture cross-builds passed; they are compilation evidence.
 A final affected personal/pinned render passed after source safeguard changes.

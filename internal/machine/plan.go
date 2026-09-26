@@ -539,8 +539,8 @@ func (p *preparation) readDesired(ctx context.Context, c operation.Context) erro
 
 // folderMode allows native to change only the mode of a directory that holds
 // Workbench's own files, such as ~/.config on Linux, and only to one without
-// group or other write. It is a named effect: checkpoints cover files, so
-// revert does not restore the mode. Any other change there is refused.
+// group or other write. It is an ordinary checkpointed edit, so revert
+// restores the mode; any other change there is refused.
 func (p *preparation) folderMode(c operation.Context, target string, action byte) error {
 	relative, err := filepath.Rel(c.Native.Destination, target)
 	if err != nil {
@@ -556,16 +556,25 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 			"Native plan would replace or loosen "+target+", which holds Workbench's own files",
 		)
 	}
-	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
-		Name: "folder-mode-" + relative,
-		Description: fmt.Sprintf(
-			"Set %s from %04o to %04o, as the configuration expects; it holds Workbench's own files",
-			target,
-			info.Mode().Perm(),
-			desired.Perm,
-		),
-		Privilege: "user",
-		Recovery:  "revert does not restore folder modes",
+	// macOS keeps flags on ~/Library that a checkpoint cannot record; a real
+	// Mac already has these folders at the configuration's modes.
+	if _, err = operation.ReadImage(c, target); err != nil {
+		return operation.Fail(
+			operation.ExitBlocked,
+			"scope",
+			fmt.Sprintf(
+				"%s holds Workbench's own files, and revert could not restore its mode (%v); run chmod %04o %q to match the configuration, then retry",
+				target,
+				err,
+				desired.Perm,
+				target,
+			),
+		)
+	}
+	p.Plan.Edits = append(p.Plan.Edits, operation.Edit{
+		Path:        target,
+		Action:      "modify",
+		Description: "Folder that holds Workbench's own files; mode only",
 	})
 	return nil
 }

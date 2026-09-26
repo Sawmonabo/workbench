@@ -130,7 +130,21 @@ func validateChanges(c Context, changes []TargetChange) error {
 		}
 		seen[change.Path] = true
 		if err := c.ValidateTarget(change.Path); err != nil {
-			return err
+			if c.ValidateContainer(change.Path) != nil {
+				return err
+			}
+			// A directory holding Workbench's own files may change only its
+			// mode, never to one other users can write: replacing or removing
+			// it would take Workbench's state and the user's files with it.
+			for _, image := range []Image{change.Before, change.After} {
+				if image.Kind != ImageDirectory || image.Mode&0o022 != 0 {
+					return Fail(
+						ExitBlocked,
+						"checkpoint",
+						"A folder that holds Workbench's own files may change only its mode, to one other users cannot write",
+					)
+				}
+			}
 		}
 		for _, image := range []Image{change.Before, change.After} {
 			if err := image.validate(c, change.Path); err != nil {

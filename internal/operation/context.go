@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -290,7 +291,9 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					current+" is writable by other users; run chmod go-w "+current+" and retry",
+					current+" is writable by other users; run chmod go-w "+strconv.Quote(
+						current,
+					)+" and retry",
 				)
 			}
 		} else if !os.IsNotExist(err) {
@@ -435,9 +438,10 @@ func (c Context) ValidateTarget(path string) error {
 	return nil
 }
 
-// ValidateContainer permits inspection of an existing unchanged directory above
-// protected paths. This grants no chmod, replacement, removal or recursive-write
-// authority; planners must reject any proposed edit to such a container.
+// ValidateContainer permits an existing directory above protected paths, such
+// as ~/.config holding Workbench's config. Checkpoints may change only such a
+// directory's mode (see validateChanges); nothing may replace, remove or
+// recursively write it.
 func (c Context) ValidateContainer(path string) error {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path || !Within(c.Scope.Root, path) ||
 		path == c.Scope.Root {
@@ -468,6 +472,18 @@ func (c Context) ValidateContainer(path string) error {
 		)
 	}
 	return nil
+}
+
+// validateImagePath is ValidateTarget, plus an existing directory that holds
+// Workbench's own files. Image writes to such a directory change only its
+// mode, group and attributes: writeImage refuses to replace a directory, and
+// removing a non-empty one fails.
+func (c Context) validateImagePath(path string) error {
+	err := c.ValidateTarget(path)
+	if err != nil && c.ValidateContainer(path) == nil {
+		return nil
+	}
+	return err
 }
 
 // Validate checks that s is a known kind rooted at an existing canonical

@@ -134,3 +134,53 @@ func TestRecoveryPreservesUserDataAndEvidence(t *testing.T) {
 		t.Fatal("escaping target ancestry accepted")
 	}
 }
+
+// Prevent loss of Workbench's state and the user's files: a checkpoint may
+// change only the mode of a folder that holds Workbench's own files, such as
+// ~/.config on Linux. Removing or replacing it, or letting other users write
+// to it, must be refused before anything is written.
+func TestCheckpointChangesOnlyTheModeOfWorkbenchFolders(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	home := filepath.Join(root, "home")
+	config := filepath.Join(home, ".config")
+	c := Context{
+		Paths: Paths{
+			Config: filepath.Join(config, "workbench"),
+			State:  filepath.Join(root, "state"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "machine", Root: home},
+	}
+	for _, directory := range []string{home, config, c.Paths.Config} {
+		if err = os.Mkdir(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := ReadImage(c, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	open, loose := before, before
+	open.Mode, loose.Mode = 0o755, 0o775
+	file := Image{Kind: ImageFile, Mode: 0o644, Data: []byte("replaced"), Group: before.Group}
+	for name, after := range map[string]Image{
+		"removal":     {Kind: ImageAbsent},
+		"replacement": file,
+		"group write": loose,
+	} {
+		if validateChanges(c, []TargetChange{{Path: config, Before: before, After: after}}) == nil {
+			t.Errorf("%s of a folder holding Workbench's files was allowed", name)
+		}
+	}
+	if err = validateChanges(
+		c,
+		[]TargetChange{{Path: config, Before: before, After: open}},
+	); err != nil {
+		t.Errorf("mode-only change was refused: %v", err)
+	}
+}
