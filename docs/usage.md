@@ -44,8 +44,9 @@ logged-in `gh`. Never run it as root.
 
 `update` and `version --list` read the releases from GitHub. While the repository
 is private they need a logged-in `gh`, whose token Workbench asks `gh auth token`
-for; a public repository needs nothing. `update` stops without changes when that
-release is already installed; run `apply` to apply it again. The hidden
+for; a public repository needs nothing. When that release is already
+installed, `update` skips installing and still sets up its tools and applies
+it, so rerunning it finishes a setup that was declined or failed. The hidden
 `--bundle FILE` takes a local archive or HTTPS URL instead, which is what
 `install.sh` passes.
 

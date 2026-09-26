@@ -190,6 +190,32 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   with their IDs and exited 3. `doctor` reported the active release, the last
   applied source and each tool's version, owner and path. The GitHub download
   of a published bundle is untested until a release exists.
+- A fresh-machine rerun found two first-install failures, now fixed. In a
+  disposable home with only `~/Library` present and no chezmoi or uv on
+  `PATH`, a locally packaged bundle's own executable ran `update --bundle`
+  under a pseudo-terminal. The install was approved and setup declined, which
+  exited 5. Before the fix, rerunning `update` reported "Already installed",
+  `apply` reported the tools missing, and no command offered setup again. Now
+  the rerun printed "Workbench v0.9.1 is already installed; continuing with
+  setup and apply" and asked for setup. The setup line then showed downloading
+  chezmoi, then uv, installing Python 3.12.12, downloading TOML Kit and
+  checking the tools. Before the fix, the full plan that followed stopped with
+  "Native plan would change a protected ancestor directory". Workbench had
+  created the missing `~/Library/Application Support` with mode 0700, which the
+  source manages at 0755; the same applies to `~/.config` and `~/.local` in a
+  fresh Linux home. Missing parents of Workbench's directories are now created
+  0755, and the plan reached its prompt with 28 files and 11 effects. It was
+  declined, so no provisioning ran. The next rerun went straight to the setup
+  prompt, and `--dry-run` or `--install-only` on the installed release printed
+  "v0.9.1 is already installed", exit 0. A temporary test of the download code
+  against public GitHub parsed a release list and fetched an asset through
+  GitHub's redirect, both with and without a token. A missing tag mapped to
+  "not found". With a scratch `HOME`, `gh` cannot read its keychain token, so
+  that check used the real `HOME` with scratch Workbench directories.
+  `project configure --resolve-dependencies` created a checkpoint, and the
+  `project revert` picker restored `pyproject.toml` and `uv.lock` exactly.
+  Project checkpoints are now labeled with their project policy, not as a
+  release.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

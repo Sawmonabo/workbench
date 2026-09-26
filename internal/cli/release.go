@@ -216,15 +216,13 @@ func updateRelease(
 		}
 	}
 	bundle, err := readRelease(cmd, c, tag)
-	if err != nil || bundle == nil {
-		if err == nil {
-			result.Results = append(result.Results, operation.Component{
-				Name:    "release",
-				Status:  operation.StatusUnchanged,
-				Message: "Already installed; run workbench apply to apply it again",
-			})
-		}
+	if err != nil {
 		return result, err
+	}
+	if bundle == nil {
+		// Already installed: still set up and apply, so rerunning update
+		// finishes a setup that was declined or failed.
+		return continueInstalled(cmd, c, o, result)
 	}
 	planner := releasePlanner(c, *bundle)
 	plan, err := planner(cmd.Context(), c)
@@ -270,6 +268,37 @@ func updateRelease(
 		return result, err
 	}
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o))
+}
+
+// continueInstalled hands off to the already active release to set up its tools
+// and apply it.
+func continueInstalled(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	result operation.Result,
+) (operation.Result, error) {
+	state, err := operation.ReadState(c.Paths)
+	if err != nil {
+		return result, err
+	}
+	active := *state.ActiveRelease
+	result.Results = append(result.Results, operation.Component{
+		Name:    "release",
+		Status:  operation.StatusUnchanged,
+		Message: active.Identity.Release + " is already installed",
+	})
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	installOnly, _ := cmd.Flags().GetBool("install-only")
+	if dryRun || installOnly {
+		return result, nil
+	}
+	_, _ = fmt.Fprintf(
+		cmd.ErrOrStderr(),
+		"Workbench %s is already installed; continuing with setup and apply\n",
+		active.Identity.Release,
+	)
+	return result, operation.Handoff(c, active, handoffArgs(cmd, o))
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest

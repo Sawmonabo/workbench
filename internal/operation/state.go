@@ -226,7 +226,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	for _, base := range []string{m.context.Paths.Config, m.context.Paths.State} {
 		if path != base && Within(base, path) {
 			allowed = true
-			if err := ensurePrivateDirectory(base); err != nil {
+			if err := ensureRoot(base); err != nil {
 				return err
 			}
 		}
@@ -309,6 +309,23 @@ func ensurePrivateDirectory(path string) error {
 	return owned(info)
 }
 
+// ensureRoot creates a missing runtime root 0700. Its missing parents, such as
+// ~/.config or ~/.local on Linux, get the usual 0755 instead: the machine
+// configuration manages some of them, and it refuses to change the mode of a
+// directory that holds Workbench state.
+func ensureRoot(root string) error {
+	if err := safeParents(root); err != nil {
+		return err
+	}
+	if err := privateFilesystem(root); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		return err
+	}
+	return ensurePrivateDirectory(root)
+}
+
 type locks struct{ files []*os.File }
 
 // All writes currently hold an exclusive shared lock before their distinct
@@ -321,7 +338,7 @@ func acquireLocks(c Context) (*locks, error) {
 	if _, err := ReadState(c.Paths); err != nil {
 		return nil, err
 	}
-	if err := ensurePrivateDirectory(c.Paths.State); err != nil {
+	if err := ensureRoot(c.Paths.State); err != nil {
 		return nil, err
 	}
 	directory := filepath.Join(c.Paths.State, "locks")

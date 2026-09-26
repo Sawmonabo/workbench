@@ -194,7 +194,7 @@ func (p *preparation) checkPrerequisites(
 		return nil, nil, operation.Fail(
 			operation.ExitBlocked,
 			"prerequisites",
-			"Qualified rendering/provisioning dependencies are missing; approve setup separately",
+			"Workbench's tools are missing; run workbench update to set them up",
 		)
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {

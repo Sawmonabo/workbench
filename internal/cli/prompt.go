@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
 )
 
 // interactive reports whether this run may prompt at all.
@@ -186,6 +187,8 @@ func sourceName(source *operation.SourceIdentity) string {
 		return "nothing"
 	case source.Release == "developer":
 		return "developer checkout " + shortDigest(source.ContentDigest)
+	case source.Release == pythonpolicy.ID:
+		return "project policy " + source.Release
 	default:
 		return "release " + source.Release
 	}

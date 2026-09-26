@@ -131,7 +131,7 @@ This table defines the command contract. Exact flags, install options and suppor
 | `workbench apply` | Preflight, preview, confirm, checkpoint, execute approved operations, validate and record the result. |
 | `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no application or provisioning. |
 | `workbench apply --config-only` | Exclude provisioning scripts and installs. Preview managed configuration removals as well as writes. Missing render prerequisites block rather than trigger installation. |
-| `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging, journaled activation, separate setup and approved apply. An older VERSION goes back. An already active release is left alone. |
+| `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging, journaled activation, separate setup and approved apply. An older VERSION goes back. An already active release is not reinstalled; its setup and apply still run. |
 | `workbench version [--list]` | Print this version; `--list` reads the published releases from GitHub and marks the latest and the installed one. |
 | `workbench doctor` | Local, read-only checks: the active release, the last applied configuration, any unfinished apply, tools, configuration and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
 | `workbench revert` | Preview and restore configuration from a retained operation checkpoint, chosen at a terminal or by `--checkpoint ID`. Never infer recoverable contents from a version number. |
@@ -170,7 +170,7 @@ Each supported OS/architecture bundle contains the compiled CLI, `.chezmoiroot`,
 
 Resolve a requested release once per operation. Verify version, target compatibility, integrity, expected layout and file types. Reject archive traversal, escaping links, absolute archive members and entries that could overwrite unrelated files. The per-file SHA-256 manifest inside the bundle detects corruption; it is not proof against publisher compromise. Releases are personal and unsigned by decision.
 
-Keep the working runtime and recoverable state intact until activation succeeds. Reinstallation and updates reuse the same CLI operations. The installer's download is the only pre-CLI transport path; the CLI then applies the same metadata and verification contract, not another package list or updater. Updating means rerunning the installer.
+Keep the working runtime and recoverable state intact until activation succeeds. Reinstallation and updates reuse the same CLI operations. The installer's download is the only pre-CLI transport path; the CLI then applies the same metadata and verification contract, not another package list or updater. Updating means `workbench update` or rerunning the installer, which both end in the same command.
 
 ### Runtime context
 

@@ -198,7 +198,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 1. Build per-target bundles containing the CLI, machine sources, project policies, licenses and generated release metadata. Exclude host state and maintainer-only files through an explicit payload definition.
 2. Implement target validation, bounded downloads and archive validation. Reject unsafe members, escaping links, malformed metadata, incompatible state/runtime versions and mismatched integrity data.
-3. Implement `update [VERSION]`: find the latest release or VERSION on GitHub (or read `--bundle`), then stage, activate and hand off to the new runtime, which runs the same setup and apply operations. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
+3. Implement `update [VERSION]`: find the latest release or VERSION on GitHub (or read `--bundle`), then stage, activate and hand off to the new runtime, which runs the same setup and apply operations. When that release is already active, skip staging and hand off to it, so a rerun finishes a declined or failed setup. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
 4. Keep CLI, active release and applied-configuration versions separate. Validate a runtime handoff before activation and keep the previous working runtime available.
 5. Implement `version --list` from the same GitHub release data.
 6. Implement POSIX bootstrap target detection, minimal prerequisite checks, initial download/verification and handoff. Do not add package lists, machine questions, language setup or revert logic to shell.
