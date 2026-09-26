@@ -202,12 +202,14 @@ golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
   checking the tools. Before the fix, the full plan that followed stopped with
   "Native plan would change a protected ancestor directory". Workbench had
   created the missing `~/Library/Application Support` with mode 0700, which the
-  source manages at 0755; the same applies to `~/.config` and `~/.local` in a
-  fresh Linux home. Missing parents of Workbench's directories are now created
-  0755, and the plan reached its prompt with 28 files and 11 effects. It was
-  declined, so no provisioning ran. The next rerun went straight to the setup
-  prompt, and `--dry-run` or `--install-only` on the installed release printed
-  "v0.9.1 is already installed", exit 0. A temporary test of the download code
+  source manages at 0755. The same code would create `~/.config` and `~/.local`
+  that way in a fresh Linux home; that case was not run natively. Missing
+  parents of Workbench's directories are now created 0755, and the plan
+  reached its prompt with 28 files and 11 effects. It was declined, so no
+  provisioning ran. The next rerun, from the installed command and from the
+  bundle's extracted executable as `install.sh` runs it, went straight to the
+  setup prompt. `--dry-run` or `--install-only` on the installed release
+  printed "v0.9.1 is already installed", exit 0. A temporary test of the download code
   against public GitHub parsed a release list and fetched an asset through
   GitHub's redirect, both with and without a token. A missing tag mapped to
   "not found". With a scratch `HOME`, `gh` cannot read its keychain token, so
