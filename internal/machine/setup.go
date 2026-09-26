@@ -173,14 +173,18 @@ func setupDependencies(
 	}
 	c.Step("checking the installed tools")
 	qualified, results := ResolveDependencies(ctx, c, requirements, selected, "")
+	var failed []string
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
-			return nil, operation.Fail(
-				operation.ExitBlocked,
-				"dependency",
-				"Acquired management dependencies did not pass their capability checks",
-			)
+			failed = append(failed, result.Name+": "+result.Message)
 		}
+	}
+	if len(failed) > 0 {
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"dependency",
+			"Acquired tools did not pass their checks; "+strings.Join(failed, "; "),
+		)
 	}
 	state.Dependencies = qualified
 	if err = m.WriteState(*state); err != nil {

@@ -16,6 +16,10 @@ func main() {
 }
 
 func run() int {
+	// Workbench refuses group- or world-writable parents, tools and targets,
+	// so what it and its tools create must never be: keep the user's umask and
+	// add 022 to it, as sudo does. Ubuntu logins default to 002.
+	syscall.Umask(syscall.Umask(0) | 0o022)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	return cli.Execute(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
