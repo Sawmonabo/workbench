@@ -23,6 +23,7 @@ the release is tagged.
 ### Maintenance
 
 - Generate the changelog and release notes when a version is tagged
+
 ## [v0.1.3](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.3) - 2026-09-28
 
 ### Fixes
@@ -34,6 +35,7 @@ the release is tagged.
 
 - Say newerVersion is stricter than Homebrew for non-numeric parts
 - Say which older releases ask twice on update
+
 ## [v0.1.2](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.2) - 2026-09-28
 
 ### Features
@@ -47,6 +49,7 @@ the release is tagged.
 ### Documentation
 
 - Record the v0.1.1 release and the update from v0.1.0
+
 ## [v0.1.1](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.1) - 2026-09-28
 
 ### Fixes
@@ -57,6 +60,7 @@ the release is tagged.
 ### Documentation
 
 - Record v0.1.0 and drop the private-repository hints
+
 ## [v0.1.0](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.0) - 2026-09-26
 
 ### Features
