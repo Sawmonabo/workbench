@@ -250,8 +250,12 @@ release stays available to reinstall.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`. It builds the four
 bundles with `scripts/package-release.py`, stamps the tag into a copy of
-`install.sh`, and publishes all five files as a GitHub release. Build one bundle
-locally with the pinned Go toolchain and Python 3.11+:
+`install.sh`, and publishes all five files as a GitHub release. Its release
+notes are that tag's section of the changelog, which git-cliff builds from the
+conventional commit subjects (`feat:`, `fix:`, `docs:` and so on) with
+[cliff.toml](../cliff.toml). Once the release is out, the workflow commits the
+regenerated [CHANGELOG.md](../CHANGELOG.md) to `main`, so pull before your next
+commit. Build one bundle locally with the pinned Go toolchain and Python 3.11+:
 
 ```sh
 python3 scripts/package-release.py --version v0.2.0 --target darwin-arm64 --output dist

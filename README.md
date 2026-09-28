@@ -4,7 +4,8 @@ One Go CLI for developer-machine configuration and tooling in existing projects.
 Workbench coordinates chezmoi and native package managers; it is not a project
 generator, language server, background service or whole-machine backup tool.
 
-Releases are published on GitHub for personal use. [Acceptance](docs/acceptance.md)
+Releases are published on GitHub for personal use, and
+[CHANGELOG.md](CHANGELOG.md) lists what each one changed. [Acceptance](docs/acceptance.md)
 separates checked behavior from remaining native platform checks.
 
 ## Start here

@@ -78,7 +78,10 @@ Workbench directly. Keep commands aligned with the built CLI and native support
 claims aligned with `docs/acceptance.md`.
 
 Releases are personal: pushing a `v*` tag publishes the four bundles and a
-tag-stamped `install.sh` through `.github/workflows/release.yml`. They are
+tag-stamped `install.sh` through `.github/workflows/release.yml`, with that
+tag's changelog section as release notes, then commits the regenerated
+`CHANGELOG.md` to `main`. Write conventional commit subjects, which become the
+changelog; never edit `CHANGELOG.md` by hand. They are
 unsigned and grant no redistribution rights; add no LICENSE. Only the owner
 pushes release tags. Repository visibility changes, installation on a real
 machine and destructive branch/worktree cleanup still need the owner's explicit

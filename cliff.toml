@@ -1,0 +1,41 @@
+# git-cliff builds CHANGELOG.md and each release's notes from the conventional
+# commit subjects (feat:, fix:, docs:, ...) between tags. The release workflow
+# runs it when a v* tag is pushed; see .github/workflows/release.yml.
+
+[changelog]
+header = """
+# Changelog
+
+Every Workbench release, newest first, generated from its commit messages when
+the release is tagged.
+"""
+body = """
+{% if version -%}
+## [{{ version }}](https://github.com/Sawmonabo/workbench/releases/tag/{{ version }}) - {{ timestamp | date(format="%Y-%m-%d") }}
+{% else -%}
+## Unreleased
+{% endif -%}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group | striptags | trim }}
+{% for commit in commits %}
+- {{ commit.message | upper_first }}
+{%- endfor %}
+{% endfor %}
+"""
+trim = false
+# End the file with exactly one newline.
+postprocessors = [{ pattern = '\n+\z', replace = "\n" }]
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+tag_pattern = "v[0-9]*"
+sort_commits = "newest"
+commit_parsers = [
+  { message = "^feat", group = "<!-- 0 -->Features" },
+  { message = "^fix", group = "<!-- 1 -->Fixes" },
+  { message = "^docs", group = "<!-- 2 -->Documentation" },
+  # The release workflow's own commit of this file.
+  { message = "^chore\\(changelog\\)", skip = true },
+  { message = "^(refactor|style|perf|build|ci|test|chore)", group = "<!-- 3 -->Maintenance" },
+]

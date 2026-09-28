@@ -29,6 +29,9 @@ synthetic answers.
 ### Releases, install and update
 
 - Tag pushes publish four bundles and an `install.sh` stamped with the tag.
+  git-cliff 2.14.2 with `cliff.toml`, run at a tag, rendered every release
+  from the commit history with no unreleased section, and that tag's section
+  alone for its release notes.
   The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
   downloading from GitHub each installed a release.
   `version --list` marks the latest and installed releases. `update` from an
