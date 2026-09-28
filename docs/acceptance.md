@@ -1,6 +1,6 @@
 # Acceptance record
 
-Date: 2026-09-22; updated through the v0.1.0 release on 2026-09-27. Releases publish on `v*` tags for personal use.
+Date: 2026-09-22; updated through the v0.1.1 release on 2026-09-28. Releases publish on `v*` tags for personal use.
 Implemented handlers are not evidence that every native target is qualified.
 
 ## Observed checks
@@ -328,6 +328,13 @@ v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13
     Workbench does not update. These are now folded into one line, "91 other
     installed formulae have newer versions; brew outdated lists them", which
     matches `brew outdated --formula`.
+- v0.1.1 shipped those fixes on Sept 28, 2026. Its release workflow passed
+  all 16 jobs, and `releases/latest/download/install.sh` then stamped
+  `default_version=v0.1.1`. In disposable Workbench directories, the real
+  v0.1.0 executable installed v0.1.0. Its `version --list` showed v0.1.1 as
+  latest, and `update --install-only` downloaded and activated it. The list
+  then marked v0.1.1 "latest, installed", and `update --dry-run` reported it
+  already installed.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
