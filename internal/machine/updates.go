@@ -416,8 +416,8 @@ func brewOutput(
 }
 
 // newerVersion reports whether dotted numeric version a is newer than b.
-// Versions with other characters or a different number of parts are not
-// compared, as Homebrew does not compare them either.
+// Versions with a different number of parts are not compared, as in Homebrew,
+// and parts that are not plain numbers keep Homebrew's record.
 func newerVersion(a, b string) bool {
 	left, right := strings.Split(a, "."), strings.Split(b, ".")
 	if len(left) != len(right) {
