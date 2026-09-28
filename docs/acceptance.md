@@ -255,6 +255,30 @@ v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13
   has these folders at the configuration's modes. A new safeguard test refuses
   a checkpoint that would remove or replace such a folder, or make it
   group-writable; removing that check made the test fail.
+- v0.1.0 was the first release, published on Sept 27, 2026 from the Go
+  1.26.8 commit. One CI job on that commit was never started: GitHub reported
+  "recent account payments have failed or your spending limit needs to be
+  increased". A full-history Gitleaks scan found no leaks, and the only
+  employer host names in the history were already public in the dotfiles
+  repository. The repository was then made public, and the rerun job passed.
+  The tag's release workflow passed all 16 jobs and published four bundles and
+  an `install.sh` stamped `default_version=v0.1.0`. Into disposable Workbench
+  directories on this Mac:
+  - the `curl` one-liner, with no `gh` on `PATH`, installed v0.1.0 with
+    `--install-only`;
+  - `version --list` showed "* v0.1.0  Sep 27, 2026  latest, installed";
+  - `update 0.1.0 --install-only`, with no `--bundle`, downloaded the release
+    from GitHub and installed it;
+  - the `gh` one-liner installed it too;
+  - `update 9.9.9` named the missing release.
+
+  On this Mac itself, the `curl` one-liner with `--install-only` activated
+  `~/.local/bin/workbench` as v0.1.0. `doctor` then passed every check,
+  qualifying Homebrew's chezmoi, Python and uv. The config-only plan changed
+  one file: `~/.claude/settings.json`, whose `permissions.defaultMode` the
+  enforced policy sets to `bypassPermissions` over the live `auto`. The full
+  plan listed nine effects. Neither plan was applied; that approval stays with
+  the owner.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with
@@ -285,7 +309,7 @@ not full machine provisioning or Windows-host qualification.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. Cross-builds and CI rendering are insufficient. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are selected `--effect`s, and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
-| Release | First tagged release and a real `curl`/`gh` one-liner run; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
+| Release | A one-liner run through full provisioning; native capacity qualification. v0.1.0 and its `--install-only` one-liners are observed above. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and
 additional project package managers/language configurators are not implemented

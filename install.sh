@@ -39,7 +39,7 @@ main() {
     case $(uname -m) in arm64 | aarch64) arch=arm64 ;; x86_64 | amd64) arch=amd64 ;; *) fail 'unsupported CPU' ;; esac
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/workbench-install.XXXXXX")
     trap 'rm -rf "$tmp"' EXIT HUP INT TERM
-    # gh works while the repository is private; curl needs it public.
+    # A logged-in gh also works if the repository is ever private again.
     if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
         if [ "$version" = latest ]; then
             version=$(gh release list -R "$repo" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName')

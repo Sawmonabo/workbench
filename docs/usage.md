@@ -7,7 +7,7 @@ its own `install.sh`.
 curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
 curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh -s -- --version v0.2.0
 
-# With gh; this also works while the repository is private.
+# With gh:
 gh release download -R Sawmonabo/workbench -p install.sh -O - | sh
 gh release download -R Sawmonabo/workbench -p install.sh -O - | sh -s -- --version v0.2.0
 ```
@@ -42,9 +42,9 @@ logged-in `gh`. Never run it as root.
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
 
-`update` and `version --list` read the releases from GitHub. While the repository
-is private they need a logged-in `gh`, whose token Workbench asks `gh auth token`
-for; a public repository needs nothing. When that release is already
+`update` and `version --list` read the releases from GitHub. They need no
+login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which
+raises GitHub's rate limit. When that release is already
 installed, `update` skips installing and still sets up its tools and applies
 it, so rerunning it finishes a setup that was declined or failed. The hidden
 `--bundle FILE` takes a local archive or HTTPS URL instead, which is what

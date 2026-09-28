@@ -105,9 +105,6 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		if tag != "" {
 			message = "No Workbench release " + tag + "; see workbench version --list"
 		}
-		if token == "" {
-			message += "; a private repository needs gh auth login"
-		}
 		return operation.Fail(operation.ExitBlocked, "release_unavailable", message)
 	}
 	if err != nil {
@@ -119,8 +116,8 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 	return nil
 }
 
-// githubToken returns the GitHub CLI's token for github.com, which a private
-// repository needs, or "" to ask GitHub anonymously.
+// githubToken returns the GitHub CLI's token for github.com, which raises
+// GitHub's rate limit, or "" to ask GitHub anonymously.
 func githubToken(ctx context.Context, c operation.Context) string {
 	gh, err := operation.FindExecutable("gh", os.Getenv("PATH"), nil)
 	if err != nil {
