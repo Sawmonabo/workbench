@@ -27,6 +27,9 @@ func doctorCommand(o *options) *cobra.Command {
 					}},
 					components...,
 				)
+				if err == nil {
+					result.Summary = "Every check passed"
+				}
 				return result, err
 			},
 		),
@@ -89,6 +92,7 @@ func initCommand(o *options) *cobra.Command {
 				},
 			)
 			if err == nil {
+				shownAtPrompt(o, &result.Results[0])
 				result.Results = append(
 					result.Results,
 					operation.Component{
@@ -97,6 +101,7 @@ func initCommand(o *options) *cobra.Command {
 						Message: "Saved; apply now uses them without --machine-config",
 					},
 				)
+				result.Summary = "Saved your machine answers"
 			}
 			return result, err
 		},
@@ -160,7 +165,7 @@ func machinePlan(
 	}
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
-	return machine.Apply(
+	applied, err := machine.Apply(
 		cmd.Context(),
 		c,
 		selection,
@@ -169,6 +174,18 @@ func machinePlan(
 		terminal,
 		progress,
 	)
+	if err == nil {
+		applied.Summary = matchSummary(selection, plan.Source)
+	}
+	return applied, err
+}
+
+// matchSummary says what a successful apply of source leaves in place.
+func matchSummary(selection machine.Selection, source operation.SourceIdentity) string {
+	if selection.ConfigOnly {
+		return "Your configuration files match " + sourceName(&source)
+	}
+	return "Your machine matches " + sourceName(&source)
 }
 
 // addEffectFlag offers the optional host steps, hidden where there are none.

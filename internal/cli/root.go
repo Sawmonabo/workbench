@@ -6,7 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"os"
 	"runtime/debug"
+	"strings"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/project"
@@ -217,16 +221,13 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 	if asJSON {
 		return json.NewEncoder(out).Encode(result)
 	}
+	paint, warn := newPainter(out), newPainter(diagnostics)
 	for _, component := range result.Results {
-		if _, err := fmt.Fprintf(out, "%s: %s", component.Name, component.Status); err != nil {
-			return err
-		}
+		line := component.Name + ": " + string(component.Status)
 		if component.Message != "" {
-			if _, err := fmt.Fprintf(out, " — %s", component.Message); err != nil {
-				return err
-			}
+			line += " — " + component.Message
 		}
-		if _, err := fmt.Fprintln(out); err != nil {
+		if _, err := fmt.Fprintln(out, paint.mark(component.Status)+line); err != nil {
 			return err
 		}
 		if err := writeDetails(out, component.Details); err != nil {
@@ -234,16 +235,71 @@ func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) er
 		}
 	}
 	for _, warning := range result.Warnings {
-		if _, err := fmt.Fprintln(diagnostics, "Warning:", warning); err != nil {
+		if _, err := fmt.Fprintln(
+			diagnostics,
+			warn.style(yellow, "Warning:"),
+			warning,
+		); err != nil {
 			return err
 		}
 	}
 	for _, problem := range result.Errors {
-		if _, err := fmt.Fprintln(diagnostics, "Error:", problem.Message); err != nil {
+		if _, err := fmt.Fprintln(
+			diagnostics,
+			warn.style(red, "✗ Error:"),
+			problem.Message,
+		); err != nil {
+			return err
+		}
+	}
+	if result.Summary != "" && len(result.Errors) == 0 {
+		if _, err := fmt.Fprintln(
+			out,
+			paint.style(green.Bold(true), "✓ "+result.Summary),
+		); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+var (
+	green  = lipgloss.NewStyle().Foreground(lipgloss.Green)
+	red    = lipgloss.NewStyle().Foreground(lipgloss.Red)
+	yellow = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
+	faint  = lipgloss.NewStyle().Faint(true)
+)
+
+// painter colors text only for a terminal, and never when NO_COLOR is set
+// (no-color.org), so logs and pipes get plain lines.
+type painter bool
+
+func newPainter(w io.Writer) painter {
+	file, ok := w.(*os.File)
+	return painter(ok && operation.IsTerminal(file) && os.Getenv("NO_COLOR") == "")
+}
+
+func (p painter) style(style lipgloss.Style, text string) string {
+	if !p {
+		return strings.TrimPrefix(strings.TrimPrefix(text, "✓ "), "✗ ")
+	}
+	return style.Render(text)
+}
+
+// mark is a colored symbol before a component line at a terminal: ✓ done,
+// · nothing to do, ✗ not done.
+func (p painter) mark(status operation.Status) string {
+	if !p {
+		return ""
+	}
+	switch status {
+	case operation.StatusComplete:
+		return green.Render("✓") + " "
+	case operation.StatusUnchanged, operation.StatusAbsent, operation.StatusSkipped:
+		return faint.Render("·") + " "
+	default:
+		return red.Render("✗") + " "
+	}
 }
 
 // writeDetails prints a component's details for people: plans, project

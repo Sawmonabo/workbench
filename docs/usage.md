@@ -34,7 +34,7 @@ logged-in `gh`. Never run it as root.
 | --- | --- |
 | `apply` | Show what would change on this machine, ask Yes or No, then checkpoint files and apply. |
 | `apply --dry-run` | Show the same plan without applying. |
-| `update` | Install the latest release, then set up its tools and apply it, asking before installing, before setup when it installs a tool or needs an answer, and before applying. |
+| `update` | Install the latest release and set up its tools, then show the plan for this machine and ask before applying it. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
 | `version` | Print this Workbench version, the same as `--version`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
@@ -94,14 +94,21 @@ workbench apply --config-only --non-interactive --approve-plan PLAN_SHA256
 ```
 
 Keep all source/config/destination/selection flags identical between those calls.
-Changed inputs conflict instead of inheriting old consent. Release activation,
-management setup and target application are separate plans: `--approve-plan`,
-`--approve-setup` and `--approve-apply` approve only their respective stages.
-Setup needs its own approval only when it installs a tool or the saved answers
-miss a question. Otherwise it reruns the questions without asking: each asks
-only once, so nothing already answered is asked again or changed. Unattended
-setup also requires a complete private `--machine-config` file.
+Changed inputs conflict instead of inheriting old consent. `update` asks one
+question, about the plan for this machine. Installing Workbench and its pinned
+tools needs no separate approval: running `update` is the go-ahead, both change
+only Workbench's own files, and the replaced release is kept. Setup asks only
+the machine questions your saved answers lack; each asks once, so nothing
+already answered is asked again. Unattended, `update --json` stops at the
+machine plan with its digest, and `update --approve-plan DIGEST` applies it.
+Unattended setup also requires saved answers or `--machine-config`.
 No blanket `--yes` grants unspecified external effects.
+
+At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
+done) in color, and a successful run ends with a green ✓ line saying what it
+achieved, for example `✓ Updated to Workbench v0.1.2, and your machine matches
+it`. Plans already shown at an approval prompt are not repeated. Piped output,
+and `NO_COLOR`, give the same lines without symbols or color.
 
 A plan lists only the steps this apply would actually run: the provisioning
 scripts chezmoi would run (a once-only script that already ran is left out, as

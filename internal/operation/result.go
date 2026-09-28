@@ -117,6 +117,8 @@ type Result struct {
 	Errors        []*Error    `json:"errors"`
 	OperationID   string      `json:"operation_id,omitempty"`
 	PlanDigest    string      `json:"plan_digest,omitempty"`
+	// Summary is one line saying what a successful run achieved.
+	Summary string `json:"summary,omitempty"`
 }
 
 // NewResult returns a complete, empty result for command.

@@ -19,6 +19,14 @@ import (
 // interactive reports whether this run may prompt at all.
 func (o *options) interactive() bool { return !o.nonInteractive && !o.json }
 
+// shownAtPrompt drops a plan component's details after an interactive
+// approval, which already showed the plan; JSON and unattended runs keep them.
+func shownAtPrompt(o *options, component *operation.Component) {
+	if o.interactive() {
+		component.Details = nil
+	}
+}
+
 // openTerminal opens the controlling terminal for a prompt. A run without one
 // never approves or chooses anything.
 func openTerminal() (*os.File, error) {

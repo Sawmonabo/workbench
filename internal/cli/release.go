@@ -23,7 +23,9 @@ func updateCommand(o *options) *cobra.Command {
 		Use:   "update [VERSION]",
 		Short: "Install the latest Workbench release, or VERSION, then apply it",
 		Long: "Install the latest Workbench release, or VERSION (an older one goes back), " +
-			"then set up its tools and apply it, asking before each step. " +
+			"set up its tools, then show the plan for this machine and ask before applying it. " +
+			"Installing Workbench and its own tools changes only Workbench's files and keeps " +
+			"the previous release, so running update is the go-ahead for them. " +
 			"See the releases with workbench version --list.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
@@ -42,9 +44,6 @@ func updateCommand(o *options) *cobra.Command {
 	o.machineConfigFlag(cmd)
 	o.destinationFlag(cmd)
 	o.approveFlag(cmd)
-	cmd.Flags().String("approve-setup", "", "Approve exactly the tool setup plan with this digest")
-	cmd.Flags().
-		String("approve-apply", "", "Approve exactly the apply plan with this digest")
 	cmd.Flags().String("bundle", "", "Install this release archive, a local file or HTTPS URL")
 	_ = cmd.Flags().MarkHidden("bundle") // install.sh and offline installs
 	cmd.Flags().String(
@@ -205,7 +204,7 @@ func updateRelease(
 				resultErr = operation.Fail(
 					operation.ExitPartial,
 					problem.Category,
-					"Runtime installed; requested later stages are incomplete: "+problem.Message,
+					"Workbench is installed, but the rest of the update did not finish: "+problem.Message,
 				)
 				return
 			}
@@ -245,14 +244,19 @@ func updateRelease(
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
 	}
+	// Running update is the go-ahead to install Workbench itself: it changes
+	// only Workbench's own files and keeps the release it replaces. The
+	// recheck under the locks still refuses a plan that changed.
+	stop := c.ShowProgress("Installing Workbench " + bundle.Metadata.Release)
 	err = operation.WithMutation(
 		cmd.Context(),
 		c,
 		plan,
-		consentFor(o, o.approvePlan),
+		operation.Consent{ApprovedDigest: result.PlanDigest, CompleteInputs: true},
 		planner,
 		stageRelease(cmd, c, *bundle, plan),
 	)
+	stop()
 	if err != nil {
 		return result, err
 	}
@@ -265,6 +269,7 @@ func updateRelease(
 		},
 	)
 	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
+		result.Summary = "Installed Workbench " + bundle.Metadata.Release
 		return result, nil
 	}
 	// No operation locks or transient extraction files survive this boundary.
@@ -275,6 +280,11 @@ func updateRelease(
 	if err != nil {
 		return result, err
 	}
+	_, _ = fmt.Fprintf(
+		cmd.ErrOrStderr(),
+		"Installed Workbench %s; continuing with setup and apply\n",
+		bundle.Metadata.Release,
+	)
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o, "installed"))
 }
 
@@ -299,6 +309,9 @@ func continueInstalled(
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 	installOnly, _ := cmd.Flags().GetBool("install-only")
 	if dryRun || installOnly {
+		if installOnly {
+			result.Summary = "Workbench " + active.Identity.Release + " is already installed"
+		}
 		return result, nil
 	}
 	_, _ = fmt.Fprintf(
@@ -464,10 +477,8 @@ func continueInstall(
 // release was installed now or unchanged.
 func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	args := []string{cmd.Name(), "--runtime-ready", install}
-	for _, name := range []string{"approve-setup", "approve-apply"} {
-		if value, _ := cmd.Flags().GetString(name); value != "" {
-			args = append(args, "--"+name, value)
-		}
+	if o.approvePlan != "" {
+		args = append(args, "--approve-plan", o.approvePlan)
 	}
 	if o.nonInteractive {
 		args = append(args, "--non-interactive")
@@ -491,8 +502,8 @@ func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	return args
 }
 
-// configureMachine runs the setup stage, approved on its own when it installs
-// tools or needs answers, then the apply stage, inside the activated runtime.
+// configureMachine sets up Workbench's own tools, then shows the machine plan
+// and asks before applying it, inside the activated runtime.
 func configureMachine(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -503,52 +514,8 @@ func configureMachine(
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
 	if !configOnly {
-		setup, setupErr := machine.SetupPlan(cmd.Context(), c)
-		if setupErr != nil {
-			return result, setupErr
-		}
-		setupDigest := setup.Digest()
-		result.PlanDigest = setupDigest
-		result.Results = append(
-			result.Results,
-			operation.Component{
-				Name:    "setup-plan",
-				Status:  operation.StatusComplete,
-				Details: setup,
-			},
-		)
-		approved, _ := cmd.Flags().GetString("approve-setup")
-		if approved == "" && !machine.SetupNeedsApproval(setup) {
-			approved = setupDigest
-		}
-		if o.nonInteractive || o.json {
-			if _, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr != nil {
-				return result, operation.Fail(
-					operation.ExitBlocked,
-					"answers",
-					"Unattended setup requires saved private answers or --machine-config",
-				)
-			}
-		}
-		if !o.nonInteractive && !o.json && terminal == nil {
-			return result, operation.Fail(
-				operation.ExitBlocked,
-				"terminal",
-				"Native setup requires a terminal or complete unattended inputs",
-			)
-		}
-		err := operation.WithMutation(
-			cmd.Context(),
-			c,
-			setup,
-			consentFor(o, approved),
-			machine.SetupPlan,
-			func(m *operation.Mutation) error {
-				var setupErr error
-				c, setupErr = machine.Setup(cmd.Context(), c, m, terminal)
-				return setupErr
-			},
-		)
+		var err error
+		c, err = setUp(cmd, c, o, terminal, &result)
 		if err != nil {
 			return result, err
 		}
@@ -559,25 +526,107 @@ func configureMachine(
 		return result, err
 	}
 	result.PlanDigest = applyPlan.Digest()
-	result.Results = append(
-		result.Results,
-		operation.Component{
+	if !o.interactive() {
+		// At a terminal the approval prompt shows the plan instead.
+		result.Results = append(result.Results, operation.Component{
 			Name:    "machine-plan",
 			Status:  operation.StatusComplete,
 			Details: applyPlan,
-		},
-	)
-	approved, _ := cmd.Flags().GetString("approve-apply")
+		})
+	}
 	applied, err := machine.Apply(
 		cmd.Context(),
 		c,
 		selection,
 		applyPlan,
-		consentFor(o, approved),
+		consentFor(o, o.approvePlan),
 		terminal,
 		progress,
 	)
 	result.Results = append(result.Results, applied.Results...)
 	result.OperationID = applied.OperationID
+	if err == nil {
+		matches := "your machine matches it"
+		if selection.ConfigOnly {
+			matches = "your configuration files match it"
+		}
+		// The first component is the release this run installed or found.
+		result.Summary = "Updated to Workbench " + applyPlan.Source.Release + ", and " + matches
+		if result.Results[0].Status == operation.StatusUnchanged {
+			result.Summary = "Workbench " + applyPlan.Source.Release + " is current, and " + matches
+		}
+	}
 	return result, err
+}
+
+// setUp installs the pinned tools Workbench runs, when missing, and asks the
+// machine questions that the saved answers lack. Running update is the
+// go-ahead: the tools go into Workbench's own directory, and a question asks
+// only once.
+func setUp(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	terminal *os.File,
+	result *operation.Result,
+) (operation.Context, error) {
+	setup, err := machine.SetupPlan(cmd.Context(), c)
+	if err != nil {
+		return c, err
+	}
+	if !o.interactive() {
+		if _, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr != nil {
+			return c, operation.Fail(
+				operation.ExitBlocked,
+				"answers",
+				"Unattended setup requires saved private answers or --machine-config",
+			)
+		}
+	} else if terminal == nil {
+		return c, operation.Fail(
+			operation.ExitBlocked,
+			"terminal",
+			"Setup requires a terminal or complete unattended inputs",
+		)
+	}
+	err = operation.WithMutation(
+		cmd.Context(),
+		c,
+		setup,
+		operation.Consent{ApprovedDigest: setup.Digest(), CompleteInputs: true},
+		machine.SetupPlan,
+		func(m *operation.Mutation) error {
+			var setupErr error
+			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal)
+			return setupErr
+		},
+	)
+	if err != nil {
+		return c, err
+	}
+	tools := map[string]string{
+		"private-chezmoi": "chezmoi",
+		"private-uv":      "uv",
+		"private-python3": "Python",
+		"private-tomlkit": "TOML Kit",
+	}
+	var installed []string
+	for _, effect := range setup.Effects {
+		if name, ok := tools[effect.Name]; ok {
+			installed = append(installed, name)
+		}
+	}
+	component := operation.Component{
+		Name:    "setup",
+		Status:  operation.StatusComplete,
+		Message: "Tools already in place",
+	}
+	if !o.interactive() {
+		component.Details = setup
+	}
+	if len(installed) > 0 {
+		component.Message = "Installed " + strings.Join(installed, ", ")
+	}
+	result.Results = append(result.Results, component)
+	return c, nil
 }

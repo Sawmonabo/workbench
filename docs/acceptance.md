@@ -335,51 +335,19 @@ v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13
   latest, and `update --install-only` downloaded and activated it. The list
   then marked v0.1.1 "latest, installed", and `update --dry-run` reported it
   already installed.
-- A one-run unoptimized development binary observation reported version startup
-  at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
-  of the checkout scanned 143 entries/four candidates in 0.20 seconds with
-  13,844,480 bytes maximum RSS and zero swaps. These small-scope observations are
-  not performance budgets, comparative benchmarks or universal guarantees.
-
-Integrated local checks passed: `golangci-lint fmt`, configuration verification,
-`golangci-lint run ./...` (zero issues), `go build ./...`, `go test ./...` (four
-small safety safeguards), the action pin check and whitespace checks.
-Four macOS/Linux architecture cross-builds passed; they are compilation evidence.
-A final affected personal/pinned render passed after source safeguard changes.
-
-The final evaluation bundle passed checksum/manifest verification and offline
-staging preview. Gitleaks found no leaks in the checkout or extracted payload
-when run from their respective roots with the narrow canonical keyboard-shortcut
-false-positive rule. Both consolidated code reviews closed their material
-findings. Remote CI outcomes are recorded by the repository's GitHub Actions
-runs; the local evidence here does not substitute for a successful remote run.
-The initial remote run also passed Go quality/build/safety/cross-compilation and
-all 13 existing Ubuntu/macOS role/mode/render jobs. These are native CI checks,
-not full machine provisioning or Windows-host qualification.
-
-## Unqualified release gates
-
-| Area | Remaining evidence or decision |
-| --- | --- |
-| macOS | Complete disposable-user provisioning, minimum OS and Intel runs. Isolated arm64 checks do not qualify all native effects. |
-| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. Cross-builds and CI rendering are insufficient. |
-| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are selected `--effect`s, and no real host run is recorded. |
-| Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
-| Release | A one-liner run through full provisioning; native capacity qualification. v0.1.0 and its `--install-only` one-liners are observed above. Releases stay unsigned with no redistribution license by decision. |
-
-Windows ARM integration, native Windows, arbitrary Linux distributions and
-additional project package managers/language configurators are not implemented
-support commitments. No silent platform waiver is implied.
-
-## Short qualification procedure
-
-Use a disposable user/VM and synthetic credentials. Install a release bundle
-with `install.sh` and without a checkout; run `doctor`; preview with `apply --dry-run`; apply
-configuration twice and compare; exercise unchanged recovery and a later-edit
-conflict. Full provisioning additionally checks actual shell/Git/editor/theme,
-runtime/tool outcomes, denied privilege and optional-effect denial. WSL requires
-real host paths with spaces/non-default drives and Windows permissions.
-
-Never execute restart helpers just to test their installation. Record OS/CPU,
-tool versions, commands, outcome and known limits here. Reuse existing render,
-lint and leak checks; do not add a new lifecycle or benchmark framework.
+- The owner's `workbench update` from v0.1.0 to v0.1.1 asked three times:
+  install, then setup (a one-time TOML Kit download, never installed on this
+  Mac), then the machine plan. After the run, it reprinted the setup and
+  machine plans, and success had no clear marker. `update` now asks one
+  question, about the machine plan. Installing Workbench and its own tools
+  runs on the command's go-ahead, with a progress line. In a disposable home:
+  - a fresh install, with no chezmoi or uv on `PATH`, showed "Installing
+    Workbench", then setup's download line, then one approval prompt;
+  - refusing it exited 5 with "Workbench is installed, but the rest of the
+    update did not finish";
+  - approving a config-only update printed ✓ and · marks and no repeated
+    plan, and ended with a green "✓ Workbench v0.9.30 is current, and your
+    configuration files match it";
+  - `NO_COLOR` and piped runs printed plain lines;
+  - an unattended update stopped at the machine plan with its digest, and
+    `--approve-plan` applied it through the handoff to the new runtime.

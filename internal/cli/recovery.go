@@ -45,7 +45,11 @@ func revertCommand(o *options) *cobra.Command {
 			}
 			consent := consentFor(o, o.approvePlan)
 			consent.CompleteInputs = plan.Complete
-			return machine.Revert(cmd.Context(), c, plan, selector, consent)
+			reverted, err := machine.Revert(cmd.Context(), c, plan, selector, consent)
+			if err == nil {
+				reverted.Summary = "Restored the files from the checkpoint"
+			}
+			return reverted, err
 		},
 	)
 	return cmd

@@ -129,6 +129,10 @@ func projectConfigureCommand(o *options) *cobra.Command {
 			c.ReadOnly = false
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)
 			result.OperationID = checkpoint
+			if err == nil {
+				shownAtPrompt(o, &result.Results[0])
+				result.Summary = "Configured the project at " + homePath(c.Scope.Root)
+			}
 			status := operation.StatusOf(err)
 			result.Results = append(
 				result.Results,
@@ -178,6 +182,10 @@ func projectRevertCommand(o *options) *cobra.Command {
 			c.ReadOnly = false
 			consent := consentFor(o, o.approvePlan)
 			result.OperationID, err = operation.Recover(cmd.Context(), c, plan, selector, consent)
+			if err == nil {
+				shownAtPrompt(o, &result.Results[0])
+				result.Summary = "Restored the project's files from the checkpoint"
+			}
 			return result, err
 		},
 	)
