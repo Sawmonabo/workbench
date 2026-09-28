@@ -19,7 +19,7 @@ every native release acceptance gate has passed.
 | 6 Editor/Python policy | Canonical policy implemented; isolated merge/schema checks passed | Live intended-profile/tool-resolution verification. |
 | 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
 | 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
-| 9 Documentation/artifacts | Current documentation and release packaging complete; v0.1.0 tagged | None beyond the native gates above. |
+| 9 Documentation/artifacts | Current documentation and release packaging complete; releases publish from `v*` tags | None beyond the native gates above. |
 
 [Acceptance](../../acceptance.md) is the maintained evidence record. Do not turn
 cross-compilation, static template checks or source inspection into native support

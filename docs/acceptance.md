@@ -28,9 +28,9 @@ synthetic answers.
 
 ### Releases, install and update
 
-- Tag pushes publish four bundles and an `install.sh` stamped with the tag
-  (v0.1.0 through v0.1.3). The `curl` one-liner without `gh`, the `gh`
-  one-liner, and `update` downloading from GitHub each installed a release.
+- Tag pushes publish four bundles and an `install.sh` stamped with the tag.
+  The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
+  downloading from GitHub each installed a release.
   `version --list` marks the latest and installed releases. `update` from an
   older release installed the latest and then reported it current. From a
   release before v0.1.2 it asks twice: the older runtime asks before

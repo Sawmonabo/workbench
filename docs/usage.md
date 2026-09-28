@@ -110,7 +110,7 @@ No blanket `--yes` grants unspecified external effects.
 
 At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
 done) in color, and a successful run ends with a green ✓ line saying what it
-achieved, for example `✓ Updated to Workbench v0.1.2, and your machine matches
+achieved, for example `✓ Updated to Workbench v0.2.0, and your machine matches
 it`. Plans already shown at an approval prompt are not repeated. Piped output,
 and `NO_COLOR`, give the same lines without symbols or color.
 
