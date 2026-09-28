@@ -20,12 +20,12 @@ argument through:
 - `--install-only` installs Workbench and its tools without applying.
 - `--config-only` applies configuration files without running provisioning
   scripts.
-
-Every install and update puts Workbench's own tools in place first, without
-asking: chezmoi, uv, Python and TOML Kit, pinned by the release, download into
-Workbench's own directory when a qualified one is missing.
 - `--dry-run` verifies the bundle and shows only the install plan.
 - `--effect NAME` selects an optional WSL host step (see below).
+
+Every install, update and apply puts Workbench's own tools in place first,
+without asking: chezmoi, uv, Python and TOML Kit, pinned by the release,
+download into Workbench's own directory when a qualified one is missing.
 
 The CLI checks every file against the SHA-256 manifest inside the bundle before
 installing. That catches a truncated or corrupted download; it is not a

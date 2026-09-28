@@ -145,7 +145,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 1. Pass the same explicit source, configuration, destination and persistent-state context to every native invocation. Preserve role flags and conditional work settings.
 2. Reuse native target enumeration, diff and apply behavior. Audit template functions, hooks and modify scripts before claiming read-only previews.
-3. Preflight rendering dependencies, including Python with `tomllib`, before attempting target rendering. Setup can approve prerequisite installation; config-only apply cannot install it silently.
+3. Preflight rendering dependencies, including Python with `tomllib`, before attempting target rendering. Setup installs Workbench's own pinned tools as part of `apply` and `update`, config-only included; a preview never installs them.
 4. Establish one dependency owner per tool. Coordinate clean installs, existing package-manager installations and privately owned tools. Avoid duplicate chezmoi/uv installations and preserve compatible user-owned tools.
 5. Make destructive maintenance/app replacement separately approved. Correct the macOS scripts' cleanup/recovery-copy behavior at their existing owner; do not add another package/app installer in Go.
 6. Make skips/failures machine-detectable and preserve retry semantics. Audit native run-once/on-change state so a skipped required action is not permanently treated as successful.
@@ -210,7 +210,7 @@ owner pushes a `v*` tag, not when files are implemented.
 - Fresh installation works without a source checkout, Go compiler, preinstalled Python or manually installed management tools, while declared bootstrap utilities remain prerequisites.
 - Keep a minimal automated release-safety check only for unsafe extraction or unverified executable activation; do not retest library behavior or build a broad download-error matrix.
 - Manually check representative failed installation/activation and an existing command collision in an isolated destination.
-- Preview and config-only operations never fetch missing dependencies implicitly.
+- Previews never fetch missing dependencies; config-only apply sets up only Workbench's own tools.
 - A failed update does not destroy the working runtime; rollback limitations remain honest.
 - A manual installation smoke check from a published-style bundle, not the working tree, verifies the user path.
 

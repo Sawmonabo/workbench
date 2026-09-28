@@ -47,11 +47,12 @@ workbench project configure ./apps/api --language python
 workbench project revert ./apps/api
 ```
 
-Machine commands require a verified source and complete private machine answers.
-Changes are shown as a plan and need a Yes; unattended use requires the plan's
-exact digest. `apply` installs Workbench's tools and asks missing questions;
-`--dry-run` previews only and never installs. See [usage](docs/usage.md) for install options, separate setup
-consent, recovery selection and limits.
+Machine commands run from a verified release, or a `--source` checkout.
+`apply` installs Workbench's own tools and asks any machine question your saved
+answers lack; `--dry-run` previews only and never installs or asks. Changes are
+shown as a plan and need a Yes; unattended use requires the plan's exact
+digest. See [usage](docs/usage.md) for install options, recovery selection and
+limits.
 
 Python configuration supports existing uv projects/workspaces. Other languages
 are detected and reported, not configured. Shared workspace owners require
