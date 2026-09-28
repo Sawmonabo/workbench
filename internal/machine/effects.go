@@ -210,6 +210,13 @@ func AvailableEffects() string {
 	return strings.Join(optionalEffectNames(), ", ")
 }
 
+// CheckEffects validates the selected optional effects as planning will, so a
+// command can refuse them before it installs anything.
+func CheckEffects(selection Selection) error {
+	_, err := selectedEffects(selection)
+	return err
+}
+
 // selectedEffects validates names against this host's optional effects.
 func selectedEffects(selection Selection) ([]operation.Effect, error) {
 	if len(selection.Effects) > 0 && selection.ConfigOnly {

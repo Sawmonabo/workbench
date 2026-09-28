@@ -215,6 +215,9 @@ func updateRelease(
 	if err := checkAsk(cmd, c, o); err != nil {
 		return result, err
 	}
+	if err := machine.CheckEffects(machineSelection(cmd)); err != nil {
+		return result, err
+	}
 	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
 		return continueInstall(cmd, c, o, result, ready == "unchanged")
 	}

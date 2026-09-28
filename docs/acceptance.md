@@ -58,7 +58,7 @@ synthetic answers.
   and the Codex work servers, coderabbit and `~/repos` trust, and personal →
   both asked both emails and wrote the two per-directory Git files. An unknown
   key, or `--ask` with `--install-only`, `--dry-run`, `--machine-config` or
-  `--source`, is refused before installing. `apply --dry-run` with a missing
+  `--source`, is refused before installing, as is an unknown `--effect`. `apply --dry-run` with a missing
   answer asks nothing and names the fix. A `--machine-config` file applied a
   `both` role to another destination and left the saved answers byte for
   byte. `apply --source` used the saved answers without setup. The hidden
