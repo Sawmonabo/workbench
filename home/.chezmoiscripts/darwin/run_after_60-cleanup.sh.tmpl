@@ -43,7 +43,15 @@ done
 
 # --- 3. orphans, old versions, cache ---
 brew autoremove
-brew cleanup -s --prune=all
+# Cleanup warns once for every installed formula with a newer version it
+# skips; Workbench updates only the formulae a plan names, so fold those
+# lines into one.
+brew cleanup -s --prune=all 2>&1 | awk '
+    /^Warning: Skipping .*: most recent version .* not installed$/ { skipped++; next }
+    { print; fflush() }
+    END {
+        if (skipped) printf "    %d other installed formulae have newer versions; brew outdated lists them\n", skipped
+    }'
 
 echo "==> Homebrew cleanup done."
 exit 0

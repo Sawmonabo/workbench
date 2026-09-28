@@ -38,6 +38,38 @@ var macOSEffects = []operation.Effect{
 	},
 }
 
+// effectSources names what each effect covers: the scripts that carry it out,
+// by name without chezmoi's prefixes and .sh suffix, and the files it manages,
+// relative to the destination. A plan lists an effect only when one of them is
+// active; an effect without an entry is always listed.
+var effectSources = map[string][]string{
+	"ai-security-settings":    {".claude/settings.json", ".codex/config.toml", ".codex/hooks.json"},
+	"runtime-managers":        {"10-runtime-managers"},
+	"runtimes":                {"20-runtimes"},
+	"global-tools":            {"30-global-tools"},
+	"tmux-plugins":            {"40-tmux-plugins"},
+	"macos-packages":          {"00-packages"},
+	"macos-apps-extensions":   {"50-apps-and-extensions"},
+	"terminal-font":           {".terminal-font-setup.sh"},
+	"brew-maintenance":        {"60-cleanup"},
+	"linux-packages":          {"00-packages"},
+	"linux-editor-extensions": {"35-vscode-extensions"},
+	"work-tools": {
+		"00-packages", "50-apps-and-extensions", "35-vscode-extensions", ".zshrc", ".bashrc",
+	},
+	"windows-files":   {"00-packages-windows", "10-deploy-windows-configs"},
+	"wsl-preferences": {"10-deploy-windows-configs"},
+}
+
+// activeEffects keeps the effects with an active source; see [effectSources].
+func activeEffects(effects []operation.Effect, active map[string]bool) []operation.Effect {
+	return slices.DeleteFunc(effects, func(effect operation.Effect) bool {
+		sources, ok := effectSources[effect.Name]
+		return ok &&
+			!slices.ContainsFunc(sources, func(source string) bool { return active[source] })
+	})
+}
+
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
 func provisioningEffects(answers Answers) []operation.Effect {

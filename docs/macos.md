@@ -15,7 +15,9 @@ Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
 results. Every full apply ends with `brew-maintenance`: tap-sourced
 `packages.toml` formulae move to homebrew/core, unused taps are removed, and
-`brew autoremove` and `brew cleanup -s --prune=all` run. Homebrew's own
+`brew autoremove` and `brew cleanup -s --prune=all` run. Cleanup's one warning
+per outdated formula it skips is folded into a single count; `brew outdated`
+lists them. VS Code extensions install only when missing. Homebrew's own
 automatic cleanup after installs and upgrades stays on, as it is by default.
 
 Apps in `packages.toml` that are missing install at the cask's current version.

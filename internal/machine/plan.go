@@ -118,17 +118,23 @@ func prepare(
 		plan.Inputs,
 		operation.Input{Name: "native-diff", Digest: operation.SHA256Hex([]byte(diff))},
 	)
-	plan.Effects = append(
-		plan.Effects,
-		operation.Effect{
+	effects := []operation.Effect{
+		{
 			Name:        "ai-security-settings",
 			Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply",
 			Privilege:   "user",
 			Recovery:    "configuration files only",
 		},
-	)
+	}
 	if !selection.ConfigOnly {
-		plan.Effects = append(plan.Effects, provisioningEffects(answers)...)
+		effects = append(effects, provisioningEffects(answers)...)
+	}
+	active, err := prepared.activeSources(ctx, c)
+	if err != nil {
+		return prepared, err
+	}
+	plan.Effects = append(plan.Effects, activeEffects(effects, active)...)
+	if !selection.ConfigOnly {
 		plan.Effects = append(plan.Effects, optional...)
 	}
 	if err = prepared.buildChanges(c); err != nil {
@@ -519,6 +525,36 @@ func (p *preparation) planEdits(
 		}
 	}
 	return nil
+}
+
+// activeSources returns what this apply would actually do: the files the plan
+// changes, relative to the destination, and for a full apply the scripts native
+// chezmoi would run, by name without chezmoi's prefixes and .sh suffix. A
+// once-only script that already ran, or an on-change script whose content is
+// unchanged, is not among them. Rendering scripts only reads source files.
+func (p *preparation) activeSources(
+	ctx context.Context,
+	c operation.Context,
+) (map[string]bool, error) {
+	active := map[string]bool{}
+	for _, edit := range p.Plan.Edits {
+		if relative, err := filepath.Rel(c.Native.Destination, edit.Path); err == nil {
+			active[relative] = true
+		}
+	}
+	if p.selection.ConfigOnly {
+		return active, nil
+	}
+	status, err := p.run(ctx, c, "status", "--include=scripts")
+	if err != nil {
+		return nil, err
+	}
+	for line := range strings.SplitSeq(status, "\n") {
+		if len(line) > 3 && line[1] == 'R' {
+			active[strings.TrimSuffix(filepath.Base(line[3:]), ".sh")] = true
+		}
+	}
+	return active, nil
 }
 
 // readDesired reads the image native renders for every target.

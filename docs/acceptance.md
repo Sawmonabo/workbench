@@ -306,6 +306,28 @@ v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13
   file changes still asked to approve a plan that changed nothing. It now
   reports "Every file already matches; nothing to apply", exit 0, unless an
   unfinished apply is recorded, which it would settle.
+- The owner's first full `workbench apply` from v0.1.0 on this Mac, on
+  Sept 28, 2026, finished with every effect complete. It updated oh-my-posh
+  to 31.4.0 and Docker Desktop to 4.93.0 after a password prompt, and ruff
+  reached 0.16.9 among the uv tools. The output showed three problems, now
+  fixed:
+  - The plan listed eleven effects and reported all of them complete, but
+    `runtime-managers`, `macos-packages` and `tmux-plugins` are once-only
+    scripts that had already run, and no file changed. A plan now lists an
+    effect only when chezmoi's `status --include=scripts` says it would run
+    one of the effect's scripts, or when one of its files changes. On this Mac
+    the next full plan listed only `macos-apps-extensions` and
+    `brew-maintenance`, and the config-only plan listed none. A fresh
+    work-role home still listed all ten.
+  - Every VS Code extension printed "already installed" twice over. The step
+    now asks the editor for its installed extensions once and installs only
+    the missing ones. Here it printed "VS Code extensions already
+    installed.". Under macOS's bash 3.2, with a stand-in editor missing one
+    extension, it installed only that one.
+  - `brew cleanup` printed a warning for each of 91 outdated formulae that
+    Workbench does not update. These are now folded into one line, "91 other
+    installed formulae have newer versions; brew outdated lists them", which
+    matches `brew outdated --formula`.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

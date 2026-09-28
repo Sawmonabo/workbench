@@ -103,7 +103,10 @@ only once, so nothing already answered is asked again or changed. Unattended
 setup also requires a complete private `--machine-config` file.
 No blanket `--yes` grants unspecified external effects.
 
-On macOS, every full plan (from `apply` or `update`) lists its
+A plan lists only the steps this apply would actually run: the provisioning
+scripts chezmoi would run (a once-only script that already ran is left out, as
+is an on-change script whose content has not changed) and the steps whose files
+change. On macOS, every full plan (from `apply` or `update`) lists its
 steps as effects, and approving the plan approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`
