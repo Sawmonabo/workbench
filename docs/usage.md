@@ -19,7 +19,7 @@ argument through:
 
 - `--install-only` installs Workbench without setting up tools or applying.
 - `--config-only` applies configuration without provisioning; it needs existing
-  compatible tools and complete answers from `--machine-config`.
+  compatible tools and complete saved answers, or `--machine-config`.
 - `--dry-run` verifies the bundle and shows only the install plan.
 - `--effect NAME` selects an optional WSL host step (see below).
 
@@ -124,8 +124,8 @@ and hosts without any do not show the flag. `--effect` cannot be combined with
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
-Human results use stdout and diagnostics stderr; help/version/completion remain
-text. Exit codes: 0 complete/unchanged, 1 check/execution failure, 2 invalid input
+Human results use stdout and diagnostics stderr; help, completion and the
+`--version` flag remain text. Exit codes: 0 complete/unchanged, 1 check/execution failure, 2 invalid input
 or state, 3 blocked prerequisites/support/consent, 4 conflict, 5 partial mutation,
 130 interruption. Requested skipped work is not complete.
 If release activation already completed before a later setup/apply failure,

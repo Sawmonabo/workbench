@@ -15,11 +15,11 @@ every native release acceptance gate has passed.
 | 1–2 Contracts/shared foundations | Implemented and reviewed | Production qualification remains separate. |
 | 3 Native machine integration | Implemented; WSL host steps are selected effects | Full native provisioning qualification, including a real WSL host run. |
 | 4 Apply/recovery | Implemented and reviewed; isolated recovery checks passed | Unsupported metadata remains blocked. |
-| 5 Release/bootstrap | Tag-triggered release workflow and one-line `install.sh` implemented | First published release and native clean-install qualification. |
+| 5 Release/bootstrap | Tag-triggered release workflow and one-line `install.sh` implemented; v0.1.0 published and installed with `--install-only` | Native clean-install qualification through full provisioning. |
 | 6 Editor/Python policy | Canonical policy implemented; isolated merge/schema checks passed | Live intended-profile/tool-resolution verification. |
 | 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
 | 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
-| 9 Documentation/artifacts | Current documentation and release packaging complete | First tagged release. |
+| 9 Documentation/artifacts | Current documentation and release packaging complete; v0.1.0 tagged | None beyond the native gates above. |
 
 [Acceptance](../../acceptance.md) is the maintained evidence record. Do not turn
 cross-compilation, static template checks or source inspection into native support
@@ -29,7 +29,7 @@ claims. No live-machine application is required to finish code/documentation wor
 
 Deliver one Go/Cobra CLI for developer-machine configuration and existing-project tooling. Install from release bundles through a minimal POSIX bootstrap; reuse chezmoi and existing provisioning owners. Support macOS Apple Silicon/Intel, declared Linux/Ubuntu targets, and WSL with Windows integration. Native Windows without WSL is outside the initial compatibility commitment.
 
-The application must provide doctor, status, pull, plan, apply, configuration-only apply, update, scoped configuration revert, project inspect and project configure. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
+The application must provide apply (with preview and configuration-only modes), update, version, doctor, scoped configuration revert, project inspect, project configure and project revert. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
 
 Do not implement a second package manager, shell CLI, per-language installer, generic plugin framework or task runner. Shared operations own planning, consent, dependency ownership, execution, locking, reporting and checkpoint behavior. Preserve current native tool functionality unless the specification explicitly requires a safety correction.
 
@@ -124,7 +124,7 @@ owner pushes a `v*` tag, not when files are implemented.
 5. Add shared confirmation and read-only enforcement. The same planner backs `apply --dry-run` and `apply`; missing tools must not trigger repair.
 6. Implement operation locking and atomic private state writes. Distinguish machine, project and shared release/dependency state; prevent overlapping writes without duplicating lock logic.
 7. Add version/help/completion output through Cobra. Keep handlers thin and ensure incomplete handlers return an explicit unsupported/not-implemented result, never a fake success.
-8. Configure `gofmt` and `goimports` plus the standard golangci-lint set in `.golangci.yml`. Reuse the same pinned tool/config locally and in CI. Keep one Go module and create focused `internal` packages only as behavior requires them; no generic `utils`, speculative public packages or layered scaffolding.
+8. Configure the formatters and linters in `.golangci.yml` (see below). Reuse the same pinned tool/config locally and in CI. Keep one Go module and create focused `internal` packages only as behavior requires them; no generic `utils`, speculative public packages or layered scaffolding.
 
 ### Verification and gate
 
@@ -310,7 +310,7 @@ Accept static-check output, review and brief reproducible manual observations fo
 
 ### Verification and gate
 
-The README installation command becomes live only after its release assets exist, native smoke checks are recorded, and the minimal safety checks pass. The declared feature/platform matrix, licenses, dependency pins, checksums and applicable signatures agree with the artifacts. No product feature is labeled implemented solely because a design document describes it.
+The README installation command is live since v0.1.0; native smoke checks through full provisioning are still recorded as open gates in [acceptance](../../acceptance.md), and the minimal safety checks pass. The declared feature/platform matrix, licenses, dependency pins, checksums and applicable signatures agree with the artifacts. No product feature is labeled implemented solely because a design document describes it.
 
 ## Validation commands for implementation
 
@@ -328,17 +328,7 @@ golangci-lint run ./...
 go build ./...
 ```
 
-The standard linter set includes `govet`; do not run a redundant standalone vet job. Enabled formatters report formatting issues through `run`, so CI need not rewrite files. The canonical `.golangci.yml` uses:
-
-```yaml
-version: "2"
-linters:
-  default: standard
-formatters:
-  enable:
-    - gofmt
-    - goimports
-```
+The standard linter set includes `govet`; do not run a redundant standalone vet job. Enabled formatters report formatting issues through `run`, so CI need not rewrite files. The canonical `.golangci.yml` keeps the standard set, adds errorlint, exhaustive, forcetypeassert, funlen, gocognit, lll, modernize, nestif, revive and unparam, and formats with gofumpt, goimports and golines (100 columns); the file itself carries the settings.
 
 When justified safety tests exist, run `go test ./...` for that deliberately tiny suite. No coverage thresholds or routine race-testing matrix. Use a targeted race-detector run only when investigating a concrete concurrency risk that could corrupt user data. The existing render entry point remains:
 

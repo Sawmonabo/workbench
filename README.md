@@ -14,7 +14,7 @@ Developers can build with the Go version in [go.mod](go.mod):
 ```sh
 go build -o bin/workbench ./cmd/workbench
 ./bin/workbench --help
-./bin/workbench doctor
+./bin/workbench doctor --source .
 ./bin/workbench project inspect .
 ```
 

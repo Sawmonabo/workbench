@@ -25,7 +25,7 @@ jobs:
         run: shellcheck -s sh install.sh
       - name: Check workflow action pins
         run: python3 scripts/check-action-pins.py
-      - name: Unauthorized execution safeguard
+      - name: Safety safeguards (execution and data loss)
         run: go test ./...
       - name: Compile CLI platform targets (not native provisioning verification)
         run: |

@@ -49,11 +49,12 @@ without comments. Project TOML/JSONC/YAML editing has stricter
 round-trip preservation gates. Invalid machine Codex TOML no longer falls back
 to a replacement body.
 
-Public command details are in [usage](../../usage.md). Status inspects recorded
-identities, not package health or complete drift. Doctor performs bounded local
+Public command details are in [usage](../../usage.md). Doctor reports the
+installed release, the last applied source and any unfinished apply from
+recorded state, not package health or complete drift, and performs bounded local
 checks but does not qualify a live editor profile. Project configuration supports
-uv Python; other languages are discovery-only. No “latest” release channel or
-production-qualified activation exists. WSL full provisioning runs the
+uv Python; other languages are discovery-only. `update` and `install.sh`
+default to GitHub's latest release; no production-qualified activation exists. WSL full provisioning runs the
 Linux scripts plus Windows host steps, with Terminal/PowerShell adoption and
 other host changes as selected optional effects; none of it has run on a real
 Windows host yet. Do not infer native acceptance from code,
@@ -107,7 +108,7 @@ Use one Go module, a thin `cmd/workbench` entry point and focused `internal` pac
 
 ### Formatting, linting and minimal tests
 
-Formatting, static analysis and builds are the routine quality gates. Pin one golangci-lint v2 release compatible with the selected Go toolchain. Use one `.golangci.yml` with `gofmt` and `goimports` formatters and the standard linter set; do not enable every available linter or introduce duplicate standalone analysis jobs. Apply formatting during implementation and check it without rewriting files in CI. The [golangci-lint command reference](https://golangci-lint.run/docs/configuration/cli/) distinguishes `fmt` for formatting from `run` for lint and formatting diagnostics. Keep editor and CI tooling aligned with that configuration.
+Formatting, static analysis and builds are the routine quality gates. Pin one golangci-lint v2 release compatible with the selected Go toolchain. Use one `.golangci.yml`: the standard linter set plus a short list of focused linters (errorlint, exhaustive, forcetypeassert, funlen, gocognit, lll, modernize, nestif, revive, unparam), formatted with gofumpt, goimports and golines; do not enable every available linter or introduce duplicate standalone analysis jobs. Apply formatting during implementation and check it without rewriting files in CI. The [golangci-lint command reference](https://golangci-lint.run/docs/configuration/cli/) distinguishes `fmt` for formatting from `run` for lint and formatting diagnostics. Keep editor and CI tooling aligned with that configuration.
 
 Keep new automated tests close to none. Add a test only for a concrete catastrophic failure: irreversible user-data loss, credential exposure, or unauthorized code execution/system mutation. Examples include destructive apply/revert conflicts, escaping archive paths, and preview paths accidentally running privileged changes. Each test must identify the failure it prevents; do not label ordinary correctness concerns critical to justify expanding the suite.
 
@@ -158,7 +159,7 @@ Success means the requested supported scope completed and passed its checks. Req
 
 ### Bootstrap
 
-Each tagged release publishes one `install.sh` for macOS, Linux and WSL, stamped with its own tag. It detects the target, downloads the bundle with `gh` (logged in) or `curl`, extracts only the CLI and hands off to `workbench update`; the Go CLI owns manifest verification, extraction and lifecycle operations. No repository clone or separately installed chezmoi is required. `curl` needs a public repository; `gh` also works while it is private.
+Each tagged release publishes one `install.sh` for macOS, Linux and WSL, stamped with its own tag. It detects the target, downloads the bundle with `gh` (logged in) or `curl`, extracts only the CLI and hands off to `workbench update`; the Go CLI owns manifest verification, extraction and lifecycle operations. No repository clone or separately installed chezmoi is required. The repository is public, so `curl` needs no login; a logged-in `gh` would also work if it were private.
 
 Document required bootstrap utilities and detect them before work. Do not promise operation on a system lacking the required shell/download/checksum utilities. The implemented utility set is documented in [usage](../../usage.md#installation-and-commands); clean native bootstrap qualification remains open. Read interactive answers from the terminal, not the pipe carrying the installer. Without a terminal, require explicit inputs and consent. Offer install-only behavior and a download-and-inspect alternative.
 
@@ -178,7 +179,7 @@ Resolve runtime locations from the user's supported platform conventions and app
 
 One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets: `workbench init --answers-from` copies only its `[data]` table, under plan consent (see [switching from dotfiles](../../switch-from-dotfiles.md)). Do not maintain two competing active source selectors.
 
-Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization is an approved setup stage, never an implicit effect of pull, doctor or plan. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths and source identity. Do not replace Git with a no-op command or duplicate the questions.
+Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization is an approved setup stage, never an implicit effect of doctor or a preview. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths and source identity. Do not replace Git with a no-op command or duplicate the questions.
 
 The CLI itself does not require a Python installation, but existing modify scripts can. Preflight must account for every rendering prerequisite, including Python with `tomllib`, before claiming clean-machine application works. Installing those prerequisites is an explicitly approved setup stage; previews and configuration-only apply must not install them implicitly.
 
@@ -408,7 +409,7 @@ These are behavioral acceptance requirements, not a mandate for an automated tes
 | --- | --- |
 | Distribution | A clean supported environment installs from a release with no checkout or manual management-tool setup; failure leaves the previous installation usable. |
 | Single ownership | Installer/reinstall/update share operations and canonical metadata; each dependency/configuration has one owner; no per-platform or per-language lifecycle copies. |
-| Read-only behavior | Doctor/status/inspect and previews do not install, repair, execute project code, modify targets or resolve project dependencies. Missing prerequisites are reported. |
+| Read-only behavior | Doctor, inspection and previews do not install, repair, execute project code, modify targets or resolve project dependencies. Missing prerequisites are reported. |
 | Application | Preview and execution bind to the same release/scope/input state; repeated apply/configure converges; changed inputs conflict; failed/skipped requested work is not called success. |
 | Recovery | A minimal destructive-change regression check protects user data and later edits; manual review/checks verify remaining checkpoint behavior and explicit external-effect limits. |
 | Platforms | Record a short native release smoke check on declared macOS architectures, supported Ubuntu targets and real WSL/Windows integration; do not build a full automated lifecycle matrix. Existing role/mode rendering remains available. |

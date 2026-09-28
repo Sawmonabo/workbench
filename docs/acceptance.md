@@ -1,6 +1,6 @@
 # Acceptance record
 
-Date: 2026-09-22. Releases publish on `v*` tags for personal use; none is published yet.
+Date: 2026-09-22; updated through the v0.1.0 release on 2026-09-27. Releases publish on `v*` tags for personal use.
 Implemented handlers are not evidence that every native target is qualified.
 
 ## Observed checks
@@ -279,6 +279,33 @@ v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13
   enforced policy sets to `bypassPermissions` over the live `auto`. The full
   plan listed nine effects. Neither plan was applied; that approval stays with
   the owner.
+- A final pass ran every command of the published v0.1.0 in a disposable home
+  under a pseudo-terminal:
+  - `--version`, `version` (plain and `--json`), `version --list`, and
+    `completion zsh` and `bash`;
+  - the hidden `init --answers-from`;
+  - `update` downloading from GitHub, then asking three times (install, setup
+    with the tool download line, full plan). A rerun asked only for apply, and
+    an unattended rerun applied by its `--approve-apply` digest;
+  - `doctor` and `doctor --source`;
+  - `apply --dry-run`, and `apply` refused by `n`, Enter and esc, then applied
+    by `y`;
+  - `revert` listing, `--dry-run`, the picker, an unattended redo, and an
+    unknown checkpoint;
+  - `project inspect`, and `project configure` with `--extensions`,
+    `--gitignore`, `--ci` and `--resolve-dependencies`. `project revert`
+    restored the files exactly;
+  - switching from v0.1.0 to a local v0.0.9 bundle and back to v0.1.0 from
+    GitHub;
+  - ctrl+c during planning (exit 130).
+
+  Removed commands exited 2. `--ci` refused a project without
+  `.python-version`, then one without a workflow, as documented.
+
+  One issue was found and fixed after v0.1.0: a config-only apply with no
+  file changes still asked to approve a plan that changed nothing. It now
+  reports "Every file already matches; nothing to apply", exit 0, unless an
+  unfinished apply is recorded, which it would settle.
 - A one-run unoptimized development binary observation reported version startup
   at 0.00 seconds displayed precision and 13,041,664 bytes maximum RSS. Inspection
   of the checkout scanned 143 entries/four candidates in 0.20 seconds with

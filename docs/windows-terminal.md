@@ -7,9 +7,10 @@ shortcuts and profile presentation settings. The source is the authority for
 exact values; do not maintain a duplicate settings document.
 
 Windows-host application remains subject to the [WSL qualification gate](wsl.md).
-Existing user profiles and unrelated settings must survive; malformed input
-must stop, not fall back to whole-file replacement. PowerShell profile ownership
-is separate from Terminal JSON ownership.
+An existing `settings.json` is left unchanged unless the `terminal-adoption`
+effect is selected; adoption replaces the whole file with the managed one and
+keeps a dated copy beside it. PowerShell profile ownership is separate from
+Terminal JSON ownership, through `powershell-adoption`.
 
 To change policy, edit the canonical source and use a qualified Workbench
 preview/approval flow. Never delete all

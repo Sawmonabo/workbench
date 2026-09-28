@@ -20,7 +20,7 @@ The canonical WSL scripts describe these effects:
 
 | Target/effect | Boundary |
 | --- | --- |
-| Windows Terminal and PowerShell profiles | Preserve unrelated content; require explicit ownership/adoption. |
+| Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the whole file and keeps a copy beside it. |
 | Prompt engine, themes and font files | Windows user paths, not guessed drive/username paths. |
 | Font registration/loading | Registry/process effects; file recovery does not undo them. |
 | VM preferences and RestartWSL helper files | File changes are distinct from executing a restart or scheduled task. |

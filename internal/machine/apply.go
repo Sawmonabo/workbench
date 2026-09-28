@@ -24,6 +24,22 @@ func Apply(
 	defer operation.Annotate(&err, "apply machine configuration")
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest = displayed.Digest()
+	// A config-only plan without file changes writes nothing, unless it
+	// settles an earlier unfinished apply, so there is nothing to approve.
+	if selection.ConfigOnly && displayed.Complete && len(displayed.Edits) == 0 {
+		state, stateErr := operation.ReadState(c.Paths)
+		if stateErr != nil {
+			return result, stateErr
+		}
+		if state == nil || state.PartialOperation == nil {
+			result.Results = append(result.Results, operation.Component{
+				Name:    "configuration",
+				Status:  operation.StatusUnchanged,
+				Message: "Every file already matches; nothing to apply",
+			})
+			return result, nil
+		}
+	}
 	result.Warnings = append(result.Warnings, displayed.RecoveryLimits...)
 	c.ReadOnly = false
 	var prepared *preparation
