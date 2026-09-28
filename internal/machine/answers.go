@@ -55,6 +55,51 @@ func readAnswers(raw []byte) (Answers, error) {
 	return Answers(data), nil
 }
 
+// derivedAnswers are the answers the questionnaire derives from others rather
+// than asks.
+var derivedAnswers = []string{"has_work", "has_personal", "is_wsl"}
+
+// CheckAsk reports whether every key in ask is a saved answer that the
+// questionnaire asks, so setup can drop it from the seed and ask it again.
+func CheckAsk(config string, ask []string) error {
+	if len(ask) == 0 {
+		return nil
+	}
+	raw, err := operation.ReadPrivateInput(config, 1<<20)
+	if err != nil {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--ask changes saved answers, and this machine has none; workbench update asks every question",
+		)
+	}
+	answers, err := readAnswers(raw)
+	if err != nil {
+		return err
+	}
+	var askable []string
+	for key := range answers {
+		if !slices.Contains(derivedAnswers, key) {
+			askable = append(askable, key)
+		}
+	}
+	slices.Sort(askable)
+	for _, key := range ask {
+		if !slices.Contains(askable, key) {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"ask",
+				fmt.Sprintf(
+					"%q is not one of this machine's answers; --ask takes %s",
+					key,
+					strings.Join(askable, ", "),
+				),
+			)
+		}
+	}
+	return nil
+}
+
 // validateAnswers is also the post-init gate. It never silently defaults missing
 // unattended inputs or normalizes a persisted role/editor/version policy.
 func validateAnswers(a Answers) error {

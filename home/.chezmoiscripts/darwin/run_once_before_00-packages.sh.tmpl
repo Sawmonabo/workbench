@@ -1,8 +1,8 @@
 {{ if eq .chezmoi.os "darwin" -}}
 #!/usr/bin/env bash
 # macOS bootstrap, before-phase: Homebrew, the command-line formulae under
-# [packages.darwin] in .chezmoidata/packages.toml, the oh-my-posh config
-# directory, and TPM. Deliberately limited to what the rc files and the
+# [packages.darwin] in .chezmoidata/packages.toml and the oh-my-posh config
+# directory. Deliberately limited to what the rc files and the
 # after-phase scripts depend on, because anything that fails here blocks the
 # apply before a single file deploys. GUI apps (casks) and VS Code extensions
 # are installed best-effort afterwards by 50-apps-and-extensions.
@@ -65,14 +65,6 @@ brew bundle install --file="$brewfile" --no-upgrade
 
 # --- Oh My Posh config directory ---
 mkdir -p "$HOME/.config/oh-my-posh"
-
-# --- TPM (Tmux Plugin Manager) ---
-# Best effort: shared/40-tmux-plugins already skips gracefully when TPM is
-# absent, so a network hiccup here must not abort the apply.
-if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
-    echo "==> Installing TPM..."
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
-fi
 
 echo "==> macOS bootstrap complete."
 {{ end -}}

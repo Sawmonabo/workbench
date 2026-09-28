@@ -579,11 +579,13 @@ func InstallTools(ctx context.Context, c operation.Context, m *operation.Mutatio
 
 // Setup calls native initialization exactly once, preserving the canonical
 // questionnaire. A terminal enables genuine native prompts, never simulations.
+// The saved answers named in ask are asked again.
 func Setup(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
 	terminal *os.File,
+	ask []string,
 ) (_ operation.Context, err error) {
 	defer operation.Annotate(&err, "set up management tools")
 	// The questionnaire below prompts; InstallTools stops its progress first.
@@ -637,7 +639,7 @@ func Setup(
 	if err != nil {
 		return c, err
 	}
-	if _, err = initialize(ctx, c, m, terminal); err != nil {
+	if _, err = initialize(ctx, c, m, terminal, ask); err != nil {
 		return c, err
 	}
 	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")

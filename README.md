@@ -38,6 +38,7 @@ workbench apply              # show what would change, ask, then apply
 workbench apply --dry-run    # only show it
 workbench update             # install the latest release, then apply it
 workbench update 0.2.0       # install that release (older goes back)
+workbench update --ask machine_role  # change personal/work/both, then apply
 workbench version --list     # published releases, marking yours
 workbench doctor             # what is installed and applied, tools, host
 workbench revert             # pick a checkpoint and restore its files

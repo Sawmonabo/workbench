@@ -103,7 +103,10 @@ question, about the plan for this machine. Installing Workbench and its pinned
 tools needs no separate approval: running `update` is the go-ahead, both change
 only Workbench's own files, and the replaced release is kept. Setup asks only
 the machine questions your saved answers lack; each asks once, so nothing
-already answered is asked again. Unattended, `update --json` stops at the
+already answered is asked again. To change an answer, name it with `--ask`:
+`workbench update --ask machine_role` asks the role again, plus any question
+the new role needs (both emails for `both`, the tokens for `work`), then shows
+the plan. Answers the new role doesn't use are dropped. Unattended, `update --json` stops at the
 machine plan with its digest, and `update --approve-plan DIGEST` applies it.
 Unattended setup also requires saved answers or `--machine-config`.
 No blanket `--yes` grants unspecified external effects.

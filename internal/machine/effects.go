@@ -14,7 +14,7 @@ import (
 var macOSEffects = []operation.Effect{
 	{
 		Name:        "macos-packages",
-		Description: "Homebrew/formulae, ~/.config/oh-my-posh and TPM; already selected chezmoi/uv owners retained",
+		Description: "Homebrew/formulae and ~/.config/oh-my-posh; already selected chezmoi/uv owners retained",
 		Privilege:   "user; initial Homebrew/CLT may require elevation",
 		Recovery:    "package effects external; created files require checkpoints",
 	},
@@ -94,7 +94,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 		},
 		{
 			Name:        "tmux-plugins",
-			Description: "TPM/plugin installation under ~/.tmux/plugins",
+			Description: "TPM and tmux plugin installation under ~/.tmux/plugins",
 			Privilege:   "user; network and executable plugin hooks",
 			Recovery:    "external; no plugin rollback",
 		},
@@ -106,7 +106,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 			effects,
 			operation.Effect{
 				Name:        "linux-packages",
-				Description: "apt base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts, dev/repos directories and TPM",
+				Description: "apt base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and dev/repos directories",
 				Privilege:   "sudo; network and font-cache effects",
 				Recovery:    "packages external; written files/links require checkpoints",
 			},

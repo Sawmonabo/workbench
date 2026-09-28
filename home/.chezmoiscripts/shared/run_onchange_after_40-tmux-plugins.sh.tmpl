@@ -1,5 +1,7 @@
 #!/bin/bash
-# Install tmux plugins via TPM whenever tmux.conf changes (every platform; TPM is installed by each platform's 00-packages bootstrap)
+# Install TPM, then the tmux plugins through it, whenever tmux.conf changes
+# (every platform). A failed download fails only this step, which chezmoi
+# reruns on the next apply because it did not finish.
 # hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
 set -euo pipefail
 # TPM runs tmux itself; Workbench's script PATH has no Homebrew directory.
@@ -9,11 +11,11 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
-if [ -x "$HOME/.tmux/plugins/tpm/bin/install_plugins" ]; then
-    echo "==> Installing tmux plugins..."
-    "$HOME/.tmux/plugins/tpm/bin/install_plugins"
-    echo "    tmux plugins installed."
-else
-    echo "WORKBENCH_EFFECT tmux-plugins blocked: TPM not found" >&2
-    exit 1
+if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
+    echo "==> Installing TPM (Tmux Plugin Manager)..."
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
 fi
+
+echo "==> Installing tmux plugins..."
+"$HOME/.tmux/plugins/tpm/bin/install_plugins"
+echo "    tmux plugins installed."

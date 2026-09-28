@@ -1,6 +1,6 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
-# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, TPM, gh
+# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh
 # (and bitwarden-cli on work machines)
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
@@ -138,7 +138,7 @@ fi
 # Per-user install of the upstream static binary into ~/.local/bin: no sudo,
 # no distro repo (Ubuntu universe lags a year+: 26.04 ships 2.46 vs 2.9x).
 # ~/.local/bin precedes /usr/bin in PATH, so this shadows any apt-installed gh.
-if ! command -v gh &>/dev/null; then
+if [ ! -x "$HOME/.local/bin/gh" ]; then
     require_unused_command gh
     echo "==> Installing gh (GitHub CLI) to ~/.local/bin..."
     case "$(uname -m)" in
@@ -155,6 +155,7 @@ if ! command -v gh &>/dev/null; then
             | tar -xz -C "$GH_TMP"
         mkdir -p "$HOME/.local/bin" "$HOME/.local/share/man/man1"
         install -m 755 "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
+        cp "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/share/man/man1/"*.1 "$HOME/.local/share/man/man1/"
         rm -rf "$GH_TMP"
         echo "    gh installed: $("$HOME/.local/bin/gh" --version | head -1)"
     else
@@ -162,7 +163,7 @@ if ! command -v gh &>/dev/null; then
         exit 1
     fi
 else
-    echo "==> gh already installed ($(gh --version | head -1)), skipping."
+    echo "==> gh already installed ($("$HOME/.local/bin/gh" --version | head -1)), skipping."
 fi
 
 {{ if .has_work -}}
@@ -197,15 +198,6 @@ if ! command -v tmux &>/dev/null; then
     echo "    tmux installed."
 else
     echo "==> tmux already installed, skipping."
-fi
-
-# --- TPM (Tmux Plugin Manager) ---
-if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
-    echo "==> Installing TPM (Tmux Plugin Manager)..."
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
-    echo "    TPM installed."
-else
-    echo "==> TPM already installed, skipping."
 fi
 
 echo "==> Linux/WSL bootstrap complete."

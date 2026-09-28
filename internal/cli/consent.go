@@ -25,7 +25,7 @@ func consentFor(o *options, digest string) operation.Consent {
 // and installers can prompt. Unattended runs stream redacted diagnostics.
 func nativeConsole(o *options, diagnostics io.Writer) (*os.File, io.Writer, func()) {
 	if o.interactive() {
-		if terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0); err == nil {
+		if terminal := operation.StandardTerminal(); terminal != nil {
 			return terminal, nil, func() { _ = terminal.Close() }
 		}
 	}

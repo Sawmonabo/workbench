@@ -40,6 +40,11 @@ func updateCommand(o *options) *cobra.Command {
 		Bool("install-only", false, "Install Workbench and its tools without applying")
 	cmd.Flags().
 		Bool("config-only", false, "Apply configuration files without provisioning scripts")
+	cmd.Flags().StringSlice(
+		"ask",
+		nil,
+		"Ask these saved machine answers again, for example --ask machine_role",
+	)
 	addEffectFlag(cmd)
 	o.machineConfigFlag(cmd)
 	o.destinationFlag(cmd)
@@ -211,6 +216,9 @@ func updateRelease(
 		}
 	}()
 	c.ReadOnly = false
+	if err := checkAsk(cmd, c, o); err != nil {
+		return result, err
+	}
 	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
 		return continueInstall(cmd, c, o, result, ready == "unchanged")
 	}
@@ -502,7 +510,35 @@ func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	for _, effect := range effects {
 		args = append(args, "--effect", effect)
 	}
+	ask, _ := cmd.Flags().GetStringSlice("ask")
+	for _, key := range ask {
+		args = append(args, "--ask", key)
+	}
 	return args
+}
+
+// checkAsk refuses --ask where no question can be asked, before anything is
+// installed.
+func checkAsk(cmd *cobra.Command, c operation.Context, o *options) error {
+	ask, _ := cmd.Flags().GetStringSlice("ask")
+	if len(ask) == 0 {
+		return nil
+	}
+	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--install-only asks no machine questions; drop --ask or --install-only",
+		)
+	}
+	if !o.interactive() {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--ask needs a terminal; unattended runs take answers from --machine-config",
+		)
+	}
+	return machine.CheckAsk(c.Native.Config, ask)
 }
 
 // configureMachine installs Workbench's tools and, unless --install-only, asks
@@ -611,8 +647,9 @@ func setUp(
 			if !questions {
 				return machine.InstallTools(cmd.Context(), c, m)
 			}
+			ask, _ := cmd.Flags().GetStringSlice("ask")
 			var setupErr error
-			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal)
+			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal, ask)
 			return setupErr
 		},
 	)
@@ -632,10 +669,11 @@ func setUp(
 		}
 	}
 	// Setup plans the answers as an input only when they were saved complete,
-	// so without it the questionnaire saved new ones.
+	// so without it, or with --ask, the questionnaire saved new ones.
+	ask, _ := cmd.Flags().GetStringSlice("ask")
 	answered := !questions
 	for _, input := range setup.Inputs {
-		answered = answered || input.Name == "answers"
+		answered = answered || input.Name == "answers" && len(ask) == 0
 	}
 	component := operation.Component{
 		Name:    "setup",

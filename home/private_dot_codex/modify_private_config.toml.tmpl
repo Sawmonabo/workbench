@@ -8,10 +8,12 @@ Every other key and table in the existing file is kept: Codex records project
 trust, notices, TUI flags and marketplace bookkeeping there itself, and an
 apply must not delete them. Keys Codex adds to a table the managed body
 declares go under that header; tables the managed body lacks go in the
-preserved block at the end, and top-level keys before the first header. When
-the merge changes no value, the existing file is emitted byte for byte.
+preserved block at the end, and top-level keys before the first header. The
+only tables removed are those INACTIVE_TABLES names. When the merge changes no
+value, the existing file is emitted byte for byte.
 """
 
+import copy
 import datetime
 import json
 import re
@@ -19,6 +21,21 @@ import sys
 import tomllib
 
 MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
+
+# Tables the managed body writes only for some machine roles. When this
+# machine's role leaves one out, it is removed rather than kept as Codex-owned,
+# so a role change takes work credentials and trust roots with it.
+INACTIVE_TABLES = [
+{{- if not .has_work }}
+    ("mcp_servers", "dispatch-atlassian"),
+    ("mcp_servers", "dispatch-gitlab"),
+    ("plugins", "coderabbit@openai-curated"),
+    ("projects", {{ printf "%s/repos" .chezmoi.homeDir | toJson }}),
+{{- end }}
+{{- if not .has_personal }}
+    ("projects", {{ printf "%s/dev" .chezmoi.homeDir | toJson }}),
+{{- end }}
+]
 
 DELIMITER = "# --- preserved from the existing file (Codex-owned) ---"
 BARE_KEY = re.compile(r"^[A-Za-z0-9_-]+$")
@@ -128,11 +145,18 @@ def added_keys(existing, managed, path):
 def main():
     raw = sys.stdin.buffer.read()
     try:
-        document = tomllib.loads(raw.decode("utf-8")) if raw.strip() else {}
+        existing = tomllib.loads(raw.decode("utf-8")) if raw.strip() else {}
     except (UnicodeDecodeError, tomllib.TOMLDecodeError):
         sys.stderr.write("modify_config.toml: invalid existing TOML; original input preserved\n")
         return 1
     managed = tomllib.loads(MANAGED)
+    document = copy.deepcopy(existing)
+    for parent, name in INACTIVE_TABLES:
+        table = document.get(parent)
+        if isinstance(table, dict):
+            table.pop(name, None)
+            if not table:
+                del document[parent]
 
     lines, first_header = [], None
     for line in MANAGED.rstrip("\n").split("\n"):
@@ -155,7 +179,7 @@ def main():
         output += "\n\n" + DELIMITER + "\n".join(preserved)
 
     # Validate before emitting any replacement bytes.
-    if tomllib.loads(output) == document:
+    if tomllib.loads(output) == existing:
         sys.stdout.buffer.write(raw)
     else:
         sys.stdout.write(output.rstrip("\n") + "\n")

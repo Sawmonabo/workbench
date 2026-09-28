@@ -23,8 +23,11 @@ Roles derive `has_personal` and `has_work`; native host detection derives
 `is_wsl`. Editor choices are `code`/`vim`; version mode is `pinned`/`latest`.
 Mixed role asks for both emails, work roles for local-only service credentials,
 and WSL for its sizing/restart-path inputs. Secrets never belong in source,
-public plans or project provenance. Role changes can remove exact managed
-targets; configuration-only mode still previews/checkpoints those removals.
+public plans or project provenance. Change the role, or any answer, with
+`workbench update --ask machine_role`. Role changes remove the files and the
+Codex entries only the old role used, such as the work MCP servers and their
+tokens, and the `~/repos` trust; configuration-only mode still previews and
+checkpoints those removals.
 
 A minimal personal answer file for macOS or native Linux is:
 
@@ -53,6 +56,7 @@ This example is not a WSL/work-role input and does not authorize application.
   VS Code wrote it; otherwise it writes JSON without comments.
 - Codex's managed body and application-owned state use the existing native
   modify target; malformed TOML fails rather than replacing unrelated state.
+  Tables the managed body writes only for another role are removed.
   The body sets no model or reasoning effort, so Codex keeps each machine's.
 - Claude Code settings are owned by `home/.chezmoidata/claude.json`. Its
   `defaults` (output style, theme and other `/config` choices; no model or

@@ -50,6 +50,7 @@ func initialize(
 	c operation.Context,
 	m *operation.Mutation,
 	terminal *os.File,
+	ask []string,
 ) (Answers, error) {
 	if err := m.Check(); err != nil {
 		return nil, err
@@ -79,7 +80,7 @@ func initialize(
 			"Native setup requires qualified chezmoi and Python before initialization",
 		)
 	}
-	seed, err := initSeed(c.Native.Config, terminal)
+	seed, err := initSeed(c.Native.Config, terminal, ask)
 	if err != nil {
 		return nil, err
 	}
@@ -146,8 +147,9 @@ func initialize(
 
 // initSeed returns the saved answers to seed native init, complete or not, or
 // an empty [data] table when a terminal can answer the questionnaire. Every
-// question asks once, so init asks only what the seed lacks.
-func initSeed(config string, terminal *os.File) ([]byte, error) {
+// question asks once, so init asks only what the seed lacks, and the answers
+// named in ask are left out to be asked again.
+func initSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
 	_, err := os.Lstat(config)
 	if os.IsNotExist(err) {
 		if terminal == nil {
@@ -166,10 +168,14 @@ func initSeed(config string, terminal *os.File) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if _, err = readAnswers(seed); err != nil {
-		return nil, err
+	answers, err := readAnswers(seed)
+	if err != nil || len(ask) == 0 {
+		return seed, err
 	}
-	return seed, nil
+	for _, key := range ask {
+		delete(answers, key)
+	}
+	return toml.Marshal(map[string]any{"data": answers})
 }
 
 // generatedAnswers reads the config native init wrote, allowing only [data]

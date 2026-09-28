@@ -3,6 +3,8 @@
 # Install the canonical local VS Code extension set. This never contacts a
 # remote extension host or selects a non-default profile.
 set -euo pipefail
+status=0
 
 {{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
+exit "$status"
 {{ end -}}

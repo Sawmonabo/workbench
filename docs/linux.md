@@ -7,7 +7,7 @@ builds and template rendering alone do not establish it. Use the shared
 [installation and commands](usage.md).
 
 The existing Linux scripts own apt base prerequisites, shell tools, fonts,
-tmux/TPM, runtime managers and global tools. They consume canonical version
+tmux, runtime managers and global tools. They consume canonical version
 policy; the `packages.apt` inventory is a reference, not a promise that every
 listed package is installed. Missing apt/sudo/network or required tools blocks
 or fails requested work instead of counting as success.

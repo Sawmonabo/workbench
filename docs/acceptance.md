@@ -47,7 +47,13 @@ synthetic answers.
   a rerun exits 3. Unattended, `update --json` stops at the machine plan with
   its digest, and `--approve-plan` applies it through the handoff to the new
   runtime.
-- Setup asks only the machine questions that the saved answers lack. The
+- A fresh interactive setup asked every machine question, including with
+  standard input piped as under `curl | sh`, on macOS and in the Ubuntu
+  container. Setup asks only the questions the saved answers lack, and
+  `update --ask KEY` asks a saved one again: work → personal dropped the tokens
+  and the Codex work servers, coderabbit and `~/repos` trust, and personal →
+  both asked both emails and wrote the two per-directory Git files. An unknown
+  key, or `--ask` with `--install-only`, is refused before installing. The
   hidden `init --answers-from` adopts an existing chezmoi `[data]` table.
 - Successive installs keep only the new and replaced releases, and remove
   setup contexts and tool versions that no kept release uses. An interrupted
@@ -74,6 +80,11 @@ synthetic answers.
   config-only apply with nothing to change asks nothing, unless it settles an
   unfinished apply. Apply wrote the planned files, and the next plan had zero
   edits.
+- In the Ubuntu container, the Linux bootstrap put the current `gh` and its
+  man pages in `~/.local/bin` over an apt-installed one, the tmux step cloned
+  TPM and installed the plugins, and without network it failed only that step.
+  A VS Code extension that fails to install no longer stops the rest; the step
+  reports it and exits nonzero.
 - The Claude, Codex and VS Code merges leave a file byte for byte when no value
   changes. They keep unowned keys, JSONC comments and VS Code's 0644. A
   changed enforced value is restored. Quarantine, Finder info and last-used-date

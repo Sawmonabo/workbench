@@ -49,6 +49,12 @@ done
 if [ ${#missing[@]} -eq 0 ]; then
     echo "==> VS Code extensions already installed."
 fi
+# One failed install must not stop the rest; report every failure at the end.
+failed_extensions=()
 for extension in ${missing[@]+"${missing[@]}"}; do
-    "${code_cli[@]}" --install-extension "$extension"
+    "${code_cli[@]}" --install-extension "$extension" || failed_extensions+=("$extension")
 done
+if [ ${#failed_extensions[@]} -gt 0 ]; then
+    printf '    WARNING: could not install VS Code extension %s\n' "${failed_extensions[@]}" >&2
+    status=1
+fi
