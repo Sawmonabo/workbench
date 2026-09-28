@@ -631,13 +631,24 @@ func setUp(
 			installed = append(installed, name)
 		}
 	}
+	// Setup plans the answers as an input only when they were saved complete,
+	// so without it the questionnaire saved new ones.
+	answered := !questions
+	for _, input := range setup.Inputs {
+		answered = answered || input.Name == "answers"
+	}
 	component := operation.Component{
 		Name:    "setup",
-		Status:  operation.StatusComplete,
+		Status:  operation.StatusUnchanged,
 		Message: "Tools already in place",
 	}
-	if len(installed) > 0 {
+	switch {
+	case len(installed) > 0:
+		component.Status = operation.StatusComplete
 		component.Message = "Installed " + strings.Join(installed, ", ")
+	case !answered:
+		component.Status = operation.StatusComplete
+		component.Message = "Saved your machine answers"
 	}
 	if !o.interactive() {
 		component.Details = setup

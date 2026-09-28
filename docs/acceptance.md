@@ -29,11 +29,13 @@ synthetic answers.
 ### Releases, install and update
 
 - Tag pushes publish four bundles and an `install.sh` stamped with the tag
-  (v0.1.0 and v0.1.1). The `curl` one-liner without `gh`, the `gh` one-liner,
-  and `update` downloading from GitHub each installed a release. `version
-  --list` marks the latest and installed releases. `update` from v0.1.0
-  installed v0.1.1 and then reported it current. Switching to an older bundle
-  and back worked, and `update 9.9.9` names the missing release.
+  (v0.1.0 through v0.1.2). The `curl` one-liner without `gh`, the `gh`
+  one-liner, and `update` downloading from GitHub each installed a release.
+  `version --list` marks the latest and installed releases. `update` from the
+  previous release installed the latest and then reported it current; that
+  first update asks twice, once from the old runtime before installing and
+  once for the machine plan. Switching to an older bundle and back worked, and
+  `update 9.9.9` names the missing release.
 - `update` asks one question, about the machine plan. Installing Workbench and
   its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
   TOML Kit download when missing, with a progress line. Rerunning `update`
@@ -77,7 +79,7 @@ synthetic answers.
 - On an existing macOS 27 arm64 machine with Homebrew, a full apply completed
   every effect: app and formula updates, VS Code extensions, where only missing
   ones install, and Homebrew cleanup, whose per-formula "Skipping" warnings fold
-  into one count. The interactive apply handed the terminal to provisioning
+  into one count. Updating a running app quit it, and Homebrew reopened it. The interactive apply handed the terminal to provisioning
   and took it back without stopping under a job-control shell.
 
 ### Revert and recovery
@@ -111,7 +113,8 @@ synthetic answers.
 ### Output
 
 - `workbench version` prints the `--version` line. At a terminal, each result
-  line carries a colored ✓, · or ✗, plans shown at a prompt are not repeated,
+  line carries a colored ✓, · or ✗, where · marks a step that changed nothing,
+  such as tools already in place. Plans shown at a prompt are not repeated,
   and a successful run ends with a green ✓ summary. Piped output and
   `NO_COLOR` print plain lines.
 
