@@ -21,9 +21,23 @@ import (
 	"github.com/Sawmonabo/workbench/internal/release"
 )
 
-// SetupPlan is offline. Downloads and native initialization are disclosed setup
-// effects; their consent never approves target configuration or provisioning.
-func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err error) {
+// SetupPlan is offline. It lists the tools setup would install and the native
+// questionnaire; neither approves target configuration or provisioning.
+func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error) {
+	return setupPlan(ctx, c, true)
+}
+
+// ToolsPlan is [SetupPlan] without the questionnaire: only the pinned tools
+// Workbench runs that are missing.
+func ToolsPlan(ctx context.Context, c operation.Context) (operation.Plan, error) {
+	return setupPlan(ctx, c, false)
+}
+
+func setupPlan(
+	ctx context.Context,
+	c operation.Context,
+	questions bool,
+) (_ operation.Plan, err error) {
 	defer operation.Annotate(&err, "plan management setup")
 	plan := operation.Plan{
 		Scope:    c.Scope,
@@ -73,6 +87,9 @@ func SetupPlan(ctx context.Context, c operation.Context) (_ operation.Plan, err 
 				Recovery:    "Private library retained",
 			},
 		)
+	}
+	if !questions {
+		return plan, nil
 	}
 	plan.Effects = append(
 		plan.Effects,
@@ -491,7 +508,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
-			"Private TOML Kit is missing; approve setup before project editing",
+			"Workbench's TOML Kit is missing; workbench update installs it",
 		)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))
@@ -552,6 +569,14 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 	return library, nil
 }
 
+// InstallTools installs the pinned tools Workbench runs that are missing.
+func InstallTools(ctx context.Context, c operation.Context, m *operation.Mutation) error {
+	stop := c.ShowProgress("Setting up chezmoi, uv and Python")
+	defer stop()
+	_, err := setupDependencies(ctx, c, m)
+	return err
+}
+
 // Setup calls native initialization exactly once, preserving the canonical
 // questionnaire. A terminal enables genuine native prompts, never simulations.
 func Setup(
@@ -561,11 +586,8 @@ func Setup(
 	terminal *os.File,
 ) (_ operation.Context, err error) {
 	defer operation.Annotate(&err, "set up management tools")
-	// The questionnaire below prompts, so progress stops first.
-	stop := c.ShowProgress("Setting up chezmoi, uv and Python")
-	_, err = setupDependencies(ctx, c, m)
-	stop()
-	if err != nil {
+	// The questionnaire below prompts; InstallTools stops its progress first.
+	if err = InstallTools(ctx, c, m); err != nil {
 		return c, err
 	}
 	files, identity, err := SourceSnapshot(c.Native.Source, false)

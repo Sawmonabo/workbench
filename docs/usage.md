@@ -17,9 +17,13 @@ when `gh` is installed and logged in, otherwise with `curl`. It extracts only th
 CLI and runs `workbench update VERSION --bundle FILE`, passing every other
 argument through:
 
-- `--install-only` installs Workbench without setting up tools or applying.
-- `--config-only` applies configuration without provisioning; it needs existing
-  compatible tools and complete saved answers, or `--machine-config`.
+- `--install-only` installs Workbench and its tools without applying.
+- `--config-only` applies configuration files without running provisioning
+  scripts.
+
+Every install and update puts Workbench's own tools in place first, without
+asking: chezmoi, uv, Python and TOML Kit, pinned by the release, download into
+Workbench's own directory when a qualified one is missing.
 - `--dry-run` verifies the bundle and shows only the install plan.
 - `--effect NAME` selects an optional WSL host step (see below).
 

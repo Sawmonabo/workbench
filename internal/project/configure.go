@@ -165,7 +165,7 @@ func (p *Proposal) addPolicy(
 	if err != nil {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Workbench's private Python and TOML Kit are missing; workbench update without --config-only sets them up",
+			"Workbench's private Python and TOML Kit are missing; workbench update installs them",
 		)
 		return err
 	}

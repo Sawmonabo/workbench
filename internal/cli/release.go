@@ -37,9 +37,9 @@ func updateCommand(o *options) *cobra.Command {
 	}
 	cmd.Flags().Bool("dry-run", false, "Show the install plan without installing")
 	cmd.Flags().
-		Bool("install-only", false, "Install Workbench without setting up tools or applying")
+		Bool("install-only", false, "Install Workbench and its tools without applying")
 	cmd.Flags().
-		Bool("config-only", false, "Apply configuration without provisioning; missing tools stay blocked")
+		Bool("config-only", false, "Apply configuration files without provisioning scripts")
 	addEffectFlag(cmd)
 	o.machineConfigFlag(cmd)
 	o.destinationFlag(cmd)
@@ -268,10 +268,6 @@ func updateRelease(
 			Message: bundle.String(),
 		},
 	)
-	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
-		result.Summary = "Installed Workbench " + bundle.Metadata.Release
-		return result, nil
-	}
 	// No operation locks or transient extraction files survive this boundary.
 	if _, err = release.Inspect(bundle.Directory(c)); err != nil {
 		return result, err
@@ -282,14 +278,23 @@ func updateRelease(
 	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
-		"Installed Workbench %s; continuing with setup and apply\n",
+		"Installed Workbench %s; continuing with %s\n",
 		bundle.Metadata.Release,
+		nextSteps(cmd),
 	)
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o, "installed"))
 }
 
+// nextSteps names what the activated runtime does after the install.
+func nextSteps(cmd *cobra.Command) string {
+	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
+		return "its tools"
+	}
+	return "setup and apply"
+}
+
 // continueInstalled hands off to the already active release to set up its tools
-// and apply it.
+// and, unless --install-only, apply it.
 func continueInstalled(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -306,18 +311,14 @@ func continueInstalled(
 		Status:  operation.StatusUnchanged,
 		Message: active.Identity.Release + " is already installed",
 	})
-	dryRun, _ := cmd.Flags().GetBool("dry-run")
-	installOnly, _ := cmd.Flags().GetBool("install-only")
-	if dryRun || installOnly {
-		if installOnly {
-			result.Summary = "Workbench " + active.Identity.Release + " is already installed"
-		}
+	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
 	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
-		"Workbench %s is already installed; continuing with setup and apply\n",
+		"Workbench %s is already installed; continuing with %s\n",
 		active.Identity.Release,
+		nextSteps(cmd),
 	)
 	return result, operation.Handoff(c, active, handoffArgs(cmd, o, "unchanged"))
 }
@@ -469,7 +470,7 @@ func continueInstall(
 	}
 	result.Results = append(result.Results, installed)
 	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
-	return configureMachine(cmd, c, o, result)
+	return configureMachine(cmd, c, o, result, metadata.Release)
 }
 
 // handoffArgs repeats the setup and apply selections for the activated
@@ -492,8 +493,10 @@ func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	if o.resolve.Destination != "" {
 		args = append(args, "--destination", o.resolve.Destination)
 	}
-	if configOnly, _ := cmd.Flags().GetBool("config-only"); configOnly {
-		args = append(args, "--config-only")
+	for _, name := range []string{"config-only", "install-only"} {
+		if set, _ := cmd.Flags().GetBool(name); set {
+			args = append(args, "--"+name)
+		}
 	}
 	effects, _ := cmd.Flags().GetStringArray("effect")
 	for _, effect := range effects {
@@ -502,23 +505,27 @@ func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
 	return args
 }
 
-// configureMachine sets up Workbench's own tools, then shows the machine plan
-// and asks before applying it, inside the activated runtime.
+// configureMachine installs Workbench's tools and, unless --install-only, asks
+// the missing machine questions, shows the machine plan and asks before
+// applying it, inside the activated runtime. Every install and update puts the
+// tools in place, without asking: Workbench needs them to work.
 func configureMachine(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
+	version string,
 ) (operation.Result, error) {
-	configOnly, _ := cmd.Flags().GetBool("config-only")
+	installOnly, _ := cmd.Flags().GetBool("install-only")
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
-	if !configOnly {
-		var err error
-		c, err = setUp(cmd, c, o, terminal, &result)
-		if err != nil {
-			return result, err
-		}
+	c, err := setUp(cmd, c, o, terminal, &result, !installOnly)
+	if err != nil {
+		return result, err
+	}
+	if installOnly {
+		result.Summary = "Workbench " + version + " and its tools are installed"
+		return result, nil
 	}
 	selection := machineSelection(cmd)
 	applyPlan, err := machine.Plan(cmd.Context(), c, selection)
@@ -551,51 +558,59 @@ func configureMachine(
 			matches = "your configuration files match it"
 		}
 		// The first component is the release this run installed or found.
-		result.Summary = "Updated to Workbench " + applyPlan.Source.Release + ", and " + matches
+		result.Summary = "Updated to Workbench " + version + ", and " + matches
 		if result.Results[0].Status == operation.StatusUnchanged {
-			result.Summary = "Workbench " + applyPlan.Source.Release + " is current, and " + matches
+			result.Summary = "Workbench " + version + " is current, and " + matches
 		}
 	}
 	return result, err
 }
 
-// setUp installs the pinned tools Workbench runs, when missing, and asks the
-// machine questions that the saved answers lack. Running update is the
-// go-ahead: the tools go into Workbench's own directory, and a question asks
-// only once.
+// setUp installs the pinned tools Workbench runs, when missing, and, with
+// questions, asks the machine questions that the saved answers lack. Running
+// update is the go-ahead: the tools go into Workbench's own directory, and a
+// question asks only once.
 func setUp(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	terminal *os.File,
 	result *operation.Result,
+	questions bool,
 ) (operation.Context, error) {
-	setup, err := machine.SetupPlan(cmd.Context(), c)
-	if err != nil {
-		return c, err
-	}
-	if !o.interactive() {
-		if _, readErr := operation.ReadPrivateInput(c.Native.Config, 1<<20); readErr != nil {
+	planner := machine.ToolsPlan
+	if questions {
+		planner = machine.SetupPlan
+		if !o.interactive() {
+			if _, err := operation.ReadPrivateInput(c.Native.Config, 1<<20); err != nil {
+				return c, operation.Fail(
+					operation.ExitBlocked,
+					"answers",
+					"Unattended setup requires saved private answers or --machine-config",
+				)
+			}
+		} else if terminal == nil {
 			return c, operation.Fail(
 				operation.ExitBlocked,
-				"answers",
-				"Unattended setup requires saved private answers or --machine-config",
+				"terminal",
+				"Setup requires a terminal or complete unattended inputs",
 			)
 		}
-	} else if terminal == nil {
-		return c, operation.Fail(
-			operation.ExitBlocked,
-			"terminal",
-			"Setup requires a terminal or complete unattended inputs",
-		)
+	}
+	setup, err := planner(cmd.Context(), c)
+	if err != nil {
+		return c, err
 	}
 	err = operation.WithMutation(
 		cmd.Context(),
 		c,
 		setup,
 		operation.Consent{ApprovedDigest: setup.Digest(), CompleteInputs: true},
-		machine.SetupPlan,
+		planner,
 		func(m *operation.Mutation) error {
+			if !questions {
+				return machine.InstallTools(cmd.Context(), c, m)
+			}
 			var setupErr error
 			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal)
 			return setupErr
@@ -621,11 +636,11 @@ func setUp(
 		Status:  operation.StatusComplete,
 		Message: "Tools already in place",
 	}
-	if !o.interactive() {
-		component.Details = setup
-	}
 	if len(installed) > 0 {
 		component.Message = "Installed " + strings.Join(installed, ", ")
+	}
+	if !o.interactive() {
+		component.Details = setup
 	}
 	result.Results = append(result.Results, component)
 	return c, nil

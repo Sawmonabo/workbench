@@ -1,353 +1,144 @@
 # Acceptance record
 
-Date: 2026-09-22; updated through the v0.1.1 release on 2026-09-28. Releases publish on `v*` tags for personal use.
-Implemented handlers are not evidence that every native target is qualified.
+What Workbench has been checked to do, kept current: when behavior changes,
+replace its entry instead of adding history, which git keeps. Releases publish
+on `v*` tags for personal use. Implemented handlers are not evidence that every
+native target is qualified; the open gates are listed below.
 
-## Observed checks
+## Verified
 
-Native development environment: macOS 27.0 arm64, Go 1.26.4 (1.26.8 from the
-v0.1.0 release on), golangci-lint 2.12.2, chezmoi 2.70.3, uv 0.12.3, Python 3.13.7.
+Checks ran on macOS 27.0 arm64 (Go 1.26.8, golangci-lint 2.12.2, Homebrew
+chezmoi 2.70.3, uv 0.12.3, Python 3.13.7), in an Ubuntu 24.04 container and in
+GitHub Actions. Interactive checks ran under a pseudo-terminal. Unless an entry
+says otherwise, changes went only to disposable homes and destinations with
+synthetic answers.
 
-- Isolated native initialization used complete synthetic answers, built-in Git
-  and no clone. Repeated initialization preserved configuration. A real terminal
-  run also completed all five personal-role native questions and saved validated
-  private answers; no simulated questionnaire substituted for that run.
-- Editor-policy checks accepted the pinned ty/Ruff/basedpyright versions and
-  extension setting schemas. Native user-config discovery worked. A repeated
-  JSONC settings merge preserved unowned nested values/custom rules and bytes.
-- Shared recovery checks refused later edits, corrupt images and escaping paths.
-  Disposable apply/revert/undo restored exact files. At the 20-checkpoint
-  limit, 22 further config-only applies each planned and removed the oldest
-  settled checkpoint; 20 remained listed by `revert --list`.
-- Native uv standalone/workspace resolution and repeated configuration/recovery
-  passed in synthetic projects; no live project or global tool was changed.
-- Native machine configuration applied 34 planned edits, including role-owned
-  removals; repeat preview had zero edits and recovery restored original files,
-  directory permissions and groups. SIGTERM after a durable running journal
-  returned 130; the observed unchanged targets were recoverable. That timing
-  does not qualify every possible mid-write interruption.
-- All seven existing render entry points passed: personal/work/both in pinned
-  and latest modes, plus work/pinned WSL simulation. These rendered synthetic
-  macOS configurations, checked shell syntax/lint and malformed-input preservation,
-  and ran existing leak/status-line checks. No provisioning scripts ran. Fixture
-  freshness warnings were non-failing; WSL remains simulation only.
-- Published-style local bundles passed stage-only, install-only, command-collision
-  preservation and interrupted-activation resumption checks. Restricted-PATH
-  bootstrap acquired private chezmoi/uv/CPython/TOML Kit, saved private native
-  answers, then applied configuration only to a disposable destination. The
-  separate setup/target approvals remained required. Remote download was not
-  exercised against an actual published release.
-- Final candidate checks passed: a changed-source candidate was previewed through
-  the old entry point without changing the active runtime or configuration.
-  Approved apply activated the matched candidate and changed the intended file.
-  A CLI-only candidate activated without allocating a configuration checkpoint.
-- Native apply runner: a streamed run lasted 62 seconds with no deadline and
-  printed its redacted output; under a pseudo-terminal the child owned the
-  foreground process group (stdin was a terminal), so sudo can prompt; a failed
-  captured run reported its redacted stderr. Interactive and unattended
-  config-only applies both completed into a disposable home.
-- `install.sh`, with a local stand-in for the GitHub download, installed a
-  darwin-arm64 bundle built by `scripts/package-release.py`: `--install-only`
-  activated it, then an interactive `--config-only` install continued through
-  the runtime handoff and applied configuration to a disposable home; the next
-  plan had zero edits. With no release published, the real `gh` path reports
-  "no release found".
-- Successive local-bundle installs into a disposable home kept only the new
-  and replaced releases: the third install's plan listed the oldest release, an
-  unused setup context and an unused private tool version as removals, and
-  deleted them after activation; reinstalling an older release kept it and the
-  one it replaced.
-- Plans summarized each edit (for example `+0 −2 lines` or `mode 0600 → 0644`)
-  and flagged a hand-edited managed file as edited outside Workbench. A
-  developer checkout with an edited `home/` template planned and applied
-  without regenerating trust, and editing it again invalidated that approval;
-  a tampered copy of a staged release was still refused.
-- A managed file carrying quarantine, Finder info and last-used-date attributes
-  planned and applied, and revert restored its content and all four attributes.
-- Project configure with extensions, ignore entries, CI and native uv
-  resolution applied to a synthetic uv project; the next plan was unchanged and
-  revert restored every file. Interrupting uv staging exited 130 with no
-  project file changed.
-- Resuming an activation left running in a disposable home kept the release it
-  replaces. A staged release missing its `release.json` was refused, not
-  planned as a developer checkout. The installer ran through a stand-in `gh`
-  with no `curl` on `PATH`. Packaging succeeded from an empty module cache.
-- With two releases pinning different TOML Kit versions, installing the newer
-  one kept the version the replaced release pins and removed only an unpinned
-  one. A changed or unpinned workflow action failed the action pin check.
-- A full read-only plan against this Mac's Homebrew (scratch home, auto-update
-  off) listed `update-<app>` effects only for listed apps Homebrew reports as
-  outdated by their installed version, skipped current and unlisted ones, and
-  kept the same digest on a rerun; `--config-only` listed none. With a stub
-  `brew`, the apps step upgraded only the plan's apps, left an app installed
-  outside Homebrew alone, and still ran the extension step when an update failed.
-- A read-only full plan against this Mac's real home (default Workbench
-  folders, Homebrew auto-update off) completed after accepting Apple's default
-  folder ACLs, keeping `~/Library`, VS Code's data folder, `~/.claude` and
-  `~/.codex` private, and keeping Codex-owned config keys. It created no
-  Workbench folders. The merged Codex config lost no key, and merging it again
-  changed nothing.
-- On this Mac, every full plan listed `brew-maintenance` without a flag, a
-  `--config-only` plan did not, and `--effect brew-maintenance` was rejected
-  because macOS has no optional steps left. Dry runs of `brew autoremove` and
-  `brew cleanup -s --prune=all` showed nothing to remove and about 123 MB of old
-  files to delete.
-- The owner's Mac switched from dotfiles with a checkout build: `init
-  --answers-from` saved the eight answers, a config-only apply wrote 10 files
-  (Claude and Codex values kept, only reordered) and re-planned to zero edits,
-  and doctor was clean once the dotfiles chezmoi config was retired. The full
-  apply ran unattended with an approved digest and Docker Desktop held by
-  `brew pin` (its update needs sudo): it installed Node 26.10.0, uv tools and
-  the ty extension, updated four apps and freed 1.1 GB, then failed at the
-  tmux step because TPM could not find Homebrew's `tmux` on the script PATH.
-  With that fixed, the rerun completed every step and the next plan had no
-  edits and no app updates. A third full apply installed, updated and removed
-  nothing.
-- A read-only plan on the same Mac listed an `update-<name>` effect for each of
-  the 15 outdated `packages.toml` formulae (the `postgresql` alias resolved to
-  `postgresql@18`), kept the Homebrew chezmoi and uv Workbench runs, named the
-  pinned Docker Desktop as held and kept its digest on a rerun; `--config-only`
-  listed none. With a stub `brew`, the apps step upgraded only the planned
-  formulae, then casks, and reported a failed formula update as a warning.
-- The owner's interactive full apply from zsh finished every step and then
-  stopped (process state `T`) while taking the terminal back from chezmoi:
-  termios(4) sends SIGTTOU to a background process group that sets the
-  foreground. A disposable config-only apply under a job-control shell
-  reproduced the stop; with SIGTTOU ignored for that call it completed and
-  recorded the operation. The same harness showed the readable plan view at
-  the approval prompt and in `plan`, and `--json` still carried the full plan.
-- Resumed with `fg` the next day, that apply reported `configuration: partial`:
-  every update had installed, but Claude Code had saved `~/.claude/settings.json`
-  during the pause (same values, its own key order), so the final image check
-  failed. The rebuilt binary's interactive rerun from zsh finished without
-  stopping, updated VS Code and cleared the unfinished record. Two minutes
-  later the relaunched VS Code saved its settings the same way, as 0644.
-  With the three merges leaving a file untouched when no value changes and
-  VS Code settings no longer forced to 0600, rendering against this Mac's
-  live Claude, VS Code and Codex files reproduced each byte for byte. In a
-  disposable home, reordered settings, a JSONC comment and VS Code's 0644
-  planned zero edits and a changed enforced value was still restored; a
-  zero-edit config-only apply settled a recorded unfinished apply, and one
-  recorded for another destination blocked.
-- Homebrew 7 asked "Do you want to proceed with the upgrade?" during that
-  interactive apply because the tmux and ripgrep updates also installed
-  jemalloc and updated pcre2 and libevent. A read-only plan from a copy of the
-  source that also listed glib, watchman and pnpm read Homebrew's dry runs:
-  pnpm was offered with nothing extra, and glib and watchman were held because
-  their updates, once the dependents' own dependencies were included, would
-  also update the python@3.13 Workbench runs. A single glib dry run had not
-  shown that. With a stub `brew`, both upgrade commands ran with
-  `HOMEBREW_NO_ASK=1`. With nothing outdated on this Mac, an unattended full
-  apply completed every step in 24 seconds without a prompt, and the next plan
-  had no edits and no updates.
-- With the committed source fingerprint file removed, a locally packaged
-  bundle carried its source digest in `release.json` and its executable. That
-  executable accepted its own extracted source. It refused the same source when
-  run unstamped, when one file changed with the manifest fixed up to match,
-  and when `release.json` named another digest. An install-only install into
-  disposable Workbench folders planned from the active release without
-  `--source`, refused after an installed file changed, and a second install
-  listed only an unpinned TOML Kit version for removal, reading the kept
-  releases' pins from their `release.json`. A `--source` plan on this Mac had
-  zero edits under the same digest the bundle carried.
-- Tool version pins are read at runtime from the selected source's
-  `versions.toml`. A scratch source copy pinning chezmoi 2.99.0 made the same
-  unrebuilt executable report Homebrew's 2.70.3 as unqualified. On this Mac,
-  `doctor --source` qualified chezmoi, Python and uv, and `doctor` with no
-  source and no installed release reported blocked tool versions. From a
-  locally installed bundle with no `--source`, `doctor` qualified the tools
-  and `project configure --dry-run` found the TOML Kit folder named by the
-  release's pin; an unstamped build refused that installed release.
-- Planning shows its progress. At a pseudo-terminal, a read-only plan on this
-  Mac drew `Planning: checking chezmoi, uv and Python`, then `rendering your
-  configuration`, then `asking Homebrew for updates (2s)`, and cleared the line
-  before printing the plan. The only terminal sequences it wrote were cursor
-  hide and show, and `stty -a` matched before and after. Without a terminal the
-  same steps printed as plain lines. ctrl+c and SIGINT during the Homebrew
-  check ended the plan with exit 130 and no plan. Before this, they gave exit 0 and
-  the warning "Homebrew's outdated check failed". An interactive config-only
-  apply into a disposable home read `yes`, showed `Rechecking the plan`, wrote
-  32 files and exited 0. The terminal color query seen during that apply also
-  comes from native chezmoi in the previous build. Pressing ctrl+c during
-  `Rechecking the plan` after `yes` exited 130 and wrote nothing.
-- The commands became `apply` (with `--dry-run`), `update [VERSION]`,
-  `version [--list]`, `doctor`, `revert` and `project`; `plan`, `status`,
-  `pull` and `install` were removed, along with the staged-candidate path only
-  `pull` used, so the candidate checks above describe removed behavior.
-  Against the private repository with no releases, `version --list` printed
-  "No releases published yet" through `gh`'s token and, without `gh`, "No
-  published Workbench release found; a private repository needs gh auth
-  login"; `update` and `update 0.2.0` exited 3 naming what was missing. A
-  locally packaged v0.9.0 bundle installed into a disposable home under a
-  pseudo-terminal: `update v0.9.0 --bundle` asked Yes/No, installed, handed off
-  to the new runtime, planned, asked again and applied 32 files, exit 0.
-  Rerunning it reported "Already installed". An unattended `--install-only`
-  update approved by its dry-run digest also installed. At the approval
-  prompt, `n`, Enter alone and esc each refused with exit 3; `y` then ctrl+c
-  during `Rechecking the plan` exited 130, wrote nothing and left `stty -a`
-  unchanged. `revert` showed "undo the apply of release v0.9.0" in its picker
-  and restored the destination; without a terminal it listed both checkpoints
-  with their IDs and exited 3. `doctor` reported the active release, the last
-  applied source and each tool's version, owner and path. The GitHub download
-  of a published bundle is untested until a release exists.
-- A fresh-machine rerun found two first-install failures, now fixed. In a
-  disposable home with only `~/Library` present and no chezmoi or uv on
-  `PATH`, a locally packaged bundle's own executable ran `update --bundle`
-  under a pseudo-terminal. The install was approved and setup declined, which
-  exited 5. Before the fix, rerunning `update` reported "Already installed",
-  `apply` reported the tools missing, and no command offered setup again. Now
-  the rerun printed "Workbench v0.9.1 is already installed; continuing with
-  setup and apply" and asked for setup. The setup line then showed downloading
-  chezmoi, then uv, installing Python 3.12.12, downloading TOML Kit and
-  checking the tools. Before the fix, the full plan that followed stopped with
-  "Native plan would change a protected ancestor directory". Workbench had
-  created the missing `~/Library/Application Support` with mode 0700, which the
-  source manages at 0755. The same code would create `~/.config` and `~/.local`
-  that way in a fresh Linux home; that case was not run natively. Missing
-  parents of Workbench's directories are now created 0755, and the plan
-  reached its prompt with 28 files and 11 effects. It was declined, so no
-  provisioning ran. The next rerun, from the installed command and from the
-  bundle's extracted executable as `install.sh` runs it, went straight to the
-  setup prompt. `--dry-run` or `--install-only` on the installed release
-  printed "v0.9.1 is already installed", exit 0. A temporary test of the download code
-  against public GitHub parsed a release list and fetched an asset through
-  GitHub's redirect, both with and without a token. A missing tag mapped to
-  "not found". With a scratch `HOME`, `gh` cannot read its keychain token, so
-  that check used the real `HOME` with scratch Workbench directories.
-  `project configure --resolve-dependencies` created a checkpoint, and the
-  `project revert` picker restored `pyproject.toml` and `uv.lock` exactly.
-  Project checkpoints are now labeled with their project policy, not as a
-  release.
-- A follow-up pass in disposable macOS homes checked the remaining rough
-  edges. `workbench version` now prints the `--version` line. `project inspect`
-  and `project configure` print the plan view and the files and projects
-  found, not raw JSON. Declining setup after a fresh install still exited 5,
-  and declining on a rerun exited 3 with "Plan was not approved". With the
-  tools already installed, updating to a new release asked twice (install,
-  apply), a rerun asked once, and an unattended rerun set up and then stopped
-  for `--approve-apply`. With `versions_mode` removed from the saved answers,
-  setup asked for approval again. chezmoi asked only "Install pinned or latest
-  tool versions?" and saved the answer.
-- An Ubuntu 24.04 container on Docker Desktop's Linux kernel, not a native
-  Ubuntu host, ran as a new normal user whose login umask was 0002
-  (`pam_umask` with `USERGROUPS_ENAB yes`). It installed a locally packaged
-  linux-arm64 bundle through unattended digest approvals. Before the fix, setup
-  failed with "python3: Version/capability probe failed": uv had installed
-  `python3.12` at 0775, and Workbench refuses group-writable tools. Workbench
-  now runs with the user's umask plus 022. After the fix, all three tools
-  qualified, and `~/.config`, `~/.local`, `~/.local/share`, `~/.local/state`
-  and `~/.cache` were 0755. A config-only apply wrote 25 files at 0644, and the
-  next plan changed no files. With `~/.config` already at 0700, the plan listed
-  "folder-mode-.config: Set ~/.config from 0700 to 0755". The apply made that
-  change, and the next plan no longer listed it. With `~/.local` already at 0775,
-  the install stopped at once with "~/.local is writable by other users; run
-  chmod go-w ~/.local and retry". Ubuntu stays in the unqualified list below.
-- That folder-mode step became a checkpointed edit, so revert restores it. In
-  the same kind of Ubuntu container, with `~/.config` at 0700, the plan listed
-  "modify ~/.config mode 0700 → 0755" under "Folder that holds Workbench's own
-  files; mode only". A config-only apply set it to 0755. `revert` of that
-  checkpoint restored 0700 and removed the files the apply had created, and the
-  next plan offered the change again. In a disposable macOS home with
-  `~/Library/Application Support` at 0700, the same cycle set 0755 and then
-  restored 0700. With the hidden flag on that home's `~/Library`, which a real
-  Mac also carries, the plan stopped with the quoted `chmod 0755` that matches
-  the configuration. A checkpoint cannot record that flag. A real Mac already
-  has these folders at the configuration's modes. A new safeguard test refuses
-  a checkpoint that would remove or replace such a folder, or make it
-  group-writable; removing that check made the test fail.
-- v0.1.0 was the first release, published on Sept 27, 2026 from the Go
-  1.26.8 commit. One CI job on that commit was never started: GitHub reported
-  "recent account payments have failed or your spending limit needs to be
-  increased". A full-history Gitleaks scan found no leaks, and the only
-  employer host names in the history were already public in the dotfiles
-  repository. The repository was then made public, and the rerun job passed.
-  The tag's release workflow passed all 16 jobs and published four bundles and
-  an `install.sh` stamped `default_version=v0.1.0`. Into disposable Workbench
-  directories on this Mac:
-  - the `curl` one-liner, with no `gh` on `PATH`, installed v0.1.0 with
-    `--install-only`;
-  - `version --list` showed "* v0.1.0  Sep 27, 2026  latest, installed";
-  - `update 0.1.0 --install-only`, with no `--bundle`, downloaded the release
-    from GitHub and installed it;
-  - the `gh` one-liner installed it too;
-  - `update 9.9.9` named the missing release.
+### Continuous integration
 
-  On this Mac itself, the `curl` one-liner with `--install-only` activated
-  `~/.local/bin/workbench` as v0.1.0. `doctor` then passed every check,
-  qualifying Homebrew's chezmoi, Python and uv. The config-only plan changed
-  one file: `~/.claude/settings.json`, whose `permissions.defaultMode` the
-  enforced policy sets to `bypassPermissions` over the live `auto`. The full
-  plan listed nine effects. Neither plan was applied; that approval stays with
-  the owner.
-- A final pass ran every command of the published v0.1.0 in a disposable home
-  under a pseudo-terminal:
-  - `--version`, `version` (plain and `--json`), `version --list`, and
-    `completion zsh` and `bash`;
-  - the hidden `init --answers-from`;
-  - `update` downloading from GitHub, then asking three times (install, setup
-    with the tool download line, full plan). A rerun asked only for apply, and
-    an unattended rerun applied by its `--approve-apply` digest;
-  - `doctor` and `doctor --source`;
-  - `apply --dry-run`, and `apply` refused by `n`, Enter and esc, then applied
-    by `y`;
-  - `revert` listing, `--dry-run`, the picker, an unattended redo, and an
-    unknown checkpoint;
-  - `project inspect`, and `project configure` with `--extensions`,
-    `--gitignore`, `--ci` and `--resolve-dependencies`. `project revert`
-    restored the files exactly;
-  - switching from v0.1.0 to a local v0.0.9 bundle and back to v0.1.0 from
-    GitHub;
-  - ctrl+c during planning (exit 130).
+- Every push runs `go-quality` (formatting, lint on macOS and Linux targets,
+  build, the four safeguard tests, four cross-builds, the action pin check and
+  shellcheck of `install.sh`), a full-history Gitleaks scan, and
+  `scripts/render-check.sh` for every role and version mode on macOS and
+  Ubuntu, plus the work/pinned WSL simulation. Rendering checks shell syntax,
+  shellcheck, malformed-input preservation and leaks; it runs no provisioning.
+- The safeguard tests cover a preview that tries to run a mutation, a revert
+  blocked by a later edit or tampered evidence, a checkpoint that would remove,
+  replace or loosen a folder holding Workbench's files, and a bundle executable
+  that escapes its archive.
 
-  Removed commands exited 2. `--ci` refused a project without
-  `.python-version`, then one without a workflow, as documented.
+### Releases, install and update
 
-  One issue was found and fixed after v0.1.0: a config-only apply with no
-  file changes still asked to approve a plan that changed nothing. It now
-  reports "Every file already matches; nothing to apply", exit 0, unless an
-  unfinished apply is recorded, which it would settle.
-- The owner's first full `workbench apply` from v0.1.0 on this Mac, on
-  Sept 28, 2026, finished with every effect complete. It updated oh-my-posh
-  to 31.4.0 and Docker Desktop to 4.93.0 after a password prompt, and ruff
-  reached 0.16.9 among the uv tools. The output showed three problems, now
-  fixed:
-  - The plan listed eleven effects and reported all of them complete, but
-    `runtime-managers`, `macos-packages` and `tmux-plugins` are once-only
-    scripts that had already run, and no file changed. A plan now lists an
-    effect only when chezmoi's `status --include=scripts` says it would run
-    one of the effect's scripts, or when one of its files changes. On this Mac
-    the next full plan listed only `macos-apps-extensions` and
-    `brew-maintenance`, and the config-only plan listed none. A fresh
-    work-role home still listed all ten.
-  - Every VS Code extension printed "already installed" twice over. The step
-    now asks the editor for its installed extensions once and installs only
-    the missing ones. Here it printed "VS Code extensions already
-    installed.". Under macOS's bash 3.2, with a stand-in editor missing one
-    extension, it installed only that one.
-  - `brew cleanup` printed a warning for each of 91 outdated formulae that
-    Workbench does not update. These are now folded into one line, "91 other
-    installed formulae have newer versions; brew outdated lists them", which
-    matches `brew outdated --formula`.
-- v0.1.1 shipped those fixes on Sept 28, 2026. Its release workflow passed
-  all 16 jobs, and `releases/latest/download/install.sh` then stamped
-  `default_version=v0.1.1`. In disposable Workbench directories, the real
-  v0.1.0 executable installed v0.1.0. Its `version --list` showed v0.1.1 as
-  latest, and `update --install-only` downloaded and activated it. The list
-  then marked v0.1.1 "latest, installed", and `update --dry-run` reported it
-  already installed.
-- The owner's `workbench update` from v0.1.0 to v0.1.1 asked three times:
-  install, then setup (a one-time TOML Kit download, never installed on this
-  Mac), then the machine plan. After the run, it reprinted the setup and
-  machine plans, and success had no clear marker. `update` now asks one
-  question, about the machine plan. Installing Workbench and its own tools
-  runs on the command's go-ahead, with a progress line. In a disposable home:
-  - a fresh install, with no chezmoi or uv on `PATH`, showed "Installing
-    Workbench", then setup's download line, then one approval prompt;
-  - refusing it exited 5 with "Workbench is installed, but the rest of the
-    update did not finish";
-  - approving a config-only update printed ✓ and · marks and no repeated
-    plan, and ended with a green "✓ Workbench v0.9.30 is current, and your
-    configuration files match it";
-  - `NO_COLOR` and piped runs printed plain lines;
-  - an unattended update stopped at the machine plan with its digest, and
-    `--approve-plan` applied it through the handoff to the new runtime.
+- Tag pushes publish four bundles and an `install.sh` stamped with the tag
+  (v0.1.0 and v0.1.1). The `curl` one-liner without `gh`, the `gh` one-liner,
+  and `update` downloading from GitHub each installed a release. `version
+  --list` marks the latest and installed releases. `update` from v0.1.0
+  installed v0.1.1 and then reported it current. Switching to an older bundle
+  and back worked, and `update 9.9.9` names the missing release.
+- `update` asks one question, about the machine plan. Installing Workbench and
+  its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
+  TOML Kit download when missing, with a progress line. Rerunning `update`
+  finishes a stage that was declined or failed. From a fresh home with no
+  chezmoi or uv on `PATH`, `--install-only` (interactive or unattended, with no
+  saved answers) and `--config-only` each installed all four tools without a
+  prompt; `--install-only` then stops, and `--dry-run` stops before
+  installing. Refusing after a fresh install exits 5, and on
+  a rerun exits 3. Unattended, `update --json` stops at the machine plan with
+  its digest, and `--approve-plan` applies it through the handoff to the new
+  runtime.
+- Setup asks only the machine questions that the saved answers lack. The
+  hidden `init --answers-from` adopts an existing chezmoi `[data]` table.
+- Successive installs keep only the new and replaced releases, and remove
+  setup contexts and tool versions that no kept release uses. An interrupted
+  activation resumes. A staged release with a missing `release.json`, a changed
+  file or another source digest is refused, and an unstamped build refuses any
+  release source. Missing parents of Workbench's directories are created 0755.
+
+### Planning and apply
+
+- A plan shows each changed file with a summary, such as `+0 −2 lines` or
+  `mode 0600 → 0644`, and flags files edited outside Workbench. It lists an
+  effect only when chezmoi would run one of its scripts or change one of its
+  files. A fresh home lists every effect; an up-to-date machine lists only the
+  always-run apps and cleanup steps. Each outdated app or formula in
+  `packages.toml` gets an `update-<name>` effect naming what else Homebrew
+  would install or update. Pinned packages, and the chezmoi, uv and Python
+  Workbench runs, are held, and a rerun keeps the digest. `--config-only`
+  lists no provisioning effects.
+- A live status line shows planning, the recheck after approval and setup.
+  ctrl+c exits 130, writes nothing and leaves `stty -a` unchanged.
+- Approval is a Yes/No prompt: `n`, Enter and esc refuse with exit 3. A
+  config-only apply with nothing to change asks nothing, unless it settles an
+  unfinished apply. Apply wrote the planned files, and the next plan had zero
+  edits.
+- The Claude, Codex and VS Code merges leave a file byte for byte when no value
+  changes. They keep unowned keys, JSONC comments and VS Code's 0644. A
+  changed enforced value is restored. Quarantine, Finder info and last-used-date
+  attributes survive apply and revert.
+- On an existing macOS 27 arm64 machine with Homebrew, a full apply completed
+  every effect: app and formula updates, VS Code extensions, where only missing
+  ones install, and Homebrew cleanup, whose per-formula "Skipping" warnings fold
+  into one count. The interactive apply handed the terminal to provisioning
+  and took it back without stopping under a job-control shell.
+
+### Revert and recovery
+
+- `revert` offers checkpoints newest first as "undo the apply of …" or "redo
+  the apply of …". Without a terminal it lists their IDs and exits 3. It
+  restored exact files, modes and attributes, including a folder mode above
+  Workbench's data. A later edit to any target blocks restoring all of them.
+- At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
+  removal as an effect. A zero-edit apply settles a recorded unfinished apply;
+  one recorded for another destination blocks.
+
+### Linux
+
+- In an Ubuntu 24.04 container, not a native host, a new user with login
+  umask 0002 installed a linux-arm64 bundle. Setup qualified all tools, and a
+  config-only apply wrote files at 0644 and folders at 0755. With `~/.config`
+  at 0700 the plan listed a mode-only edit to 0755, and revert restored 0700.
+  With `~/.local` group-writable, the install stopped with the `chmod go-w`
+  that fixes it.
+
+### Projects
+
+- `project inspect` lists the candidate files and the projects they make.
+  `project configure` applied to a synthetic uv project, with extensions,
+  ignore entries, CI integration and native uv resolution. The next plan was
+  unchanged, and `project revert` restored every file exactly. `--ci` requires
+  an explicit `.python-version` and exactly one workflow. Interrupting uv
+  staging exits 130 with no project file changed.
+
+### Output
+
+- `workbench version` prints the `--version` line. At a terminal, each result
+  line carries a colored ✓, · or ✗, plans shown at a prompt are not repeated,
+  and a successful run ends with a green ✓ summary. Piped output and
+  `NO_COLOR` print plain lines.
+
+## Unqualified release gates
+
+| Area | Remaining evidence or decision |
+| --- | --- |
+| macOS | Complete disposable-user provisioning, minimum OS and Intel runs. |
+| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. |
+| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are selected `--effect`s, and no real host run is recorded. |
+| Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
+| Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
+
+Windows ARM integration, native Windows, arbitrary Linux distributions and
+additional project package managers/language configurators are not implemented
+support commitments. No silent platform waiver is implied.
+
+## Short qualification procedure
+
+Use a disposable user/VM and synthetic credentials. Install a release with
+`install.sh` and without a checkout; run `doctor`; preview with `apply
+--dry-run`; apply configuration twice and compare; exercise unchanged recovery
+and a later-edit conflict. Full provisioning additionally checks actual
+shell/Git/editor/theme, runtime/tool outcomes, denied privilege and
+optional-effect denial. WSL requires real host paths with spaces/non-default
+drives and Windows permissions.
+
+Never execute restart helpers just to test their installation. Record OS/CPU,
+tool versions, commands, outcome and known limits here. Reuse existing render,
+lint and leak checks; do not add a new lifecycle or benchmark framework.

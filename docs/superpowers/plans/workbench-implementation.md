@@ -15,7 +15,7 @@ every native release acceptance gate has passed.
 | 1–2 Contracts/shared foundations | Implemented and reviewed | Production qualification remains separate. |
 | 3 Native machine integration | Implemented; WSL host steps are selected effects | Full native provisioning qualification, including a real WSL host run. |
 | 4 Apply/recovery | Implemented and reviewed; isolated recovery checks passed | Unsupported metadata remains blocked. |
-| 5 Release/bootstrap | Tag-triggered release workflow and one-line `install.sh` implemented; v0.1.0 published and installed with `--install-only` | Native clean-install qualification through full provisioning. |
+| 5 Release/bootstrap | Tag-triggered release workflow and one-line `install.sh` implemented; releases published from `v*` tags | Native clean-install qualification through full provisioning. |
 | 6 Editor/Python policy | Canonical policy implemented; isolated merge/schema checks passed | Live intended-profile/tool-resolution verification. |
 | 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
 | 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
