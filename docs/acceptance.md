@@ -31,11 +31,11 @@ synthetic answers.
 - Tag pushes publish four bundles and an `install.sh` stamped with the tag
   (v0.1.0 through v0.1.2). The `curl` one-liner without `gh`, the `gh`
   one-liner, and `update` downloading from GitHub each installed a release.
-  `version --list` marks the latest and installed releases. `update` from the
-  previous release installed the latest and then reported it current; that
-  first update asks twice, once from the old runtime before installing and
-  once for the machine plan. Switching to an older bundle and back worked, and
-  `update 9.9.9` names the missing release.
+  `version --list` marks the latest and installed releases. `update` from an
+  older release installed the latest and then reported it current. From a
+  release before v0.1.2 it asks twice: the older runtime asks before
+  installing, then the new one asks about the machine plan. Switching to an
+  older bundle and back worked, and `update 9.9.9` names the missing release.
 - `update` asks one question, about the machine plan. Installing Workbench and
   its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
   TOML Kit download when missing, with a progress line. Rerunning `update`
