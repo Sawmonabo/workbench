@@ -36,8 +36,8 @@ synthetic answers.
   release before v0.1.2 it asks twice: the older runtime asks before
   installing, then the new one asks about the machine plan. Switching to an
   older bundle and back worked, and `update 9.9.9` names the missing release.
-- `update` asks one question, about the machine plan. Installing Workbench and
-  its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
+- `apply` and `update` ask one question, about the machine plan. Installing
+  Workbench and its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
   TOML Kit download when missing, with a progress line. Rerunning `update`
   finishes a stage that was declined or failed. From a fresh home with no
   chezmoi or uv on `PATH`, `--install-only` (interactive or unattended, with no
@@ -47,14 +47,19 @@ synthetic answers.
   a rerun exits 3. Unattended, `update --json` stops at the machine plan with
   its digest, and `--approve-plan` applies it through the handoff to the new
   runtime.
-- A fresh interactive setup asked every machine question, including with
-  standard input piped as under `curl | sh`, on macOS and in the Ubuntu
-  container. Setup asks only the questions the saved answers lack, and
-  `update --ask KEY` asks a saved one again: work → personal dropped the tokens
+- A fresh interactive setup asked every machine question, from `update` and,
+  after `update --install-only`, from `apply`, including with standard input
+  piped as under `curl | sh`, on macOS and in the Ubuntu container. Setup asks
+  only the questions the saved answers lack, and `apply --ask KEY` asks a
+  saved one again without network access: work → personal dropped the tokens
   and the Codex work servers, coderabbit and `~/repos` trust, and personal →
   both asked both emails and wrote the two per-directory Git files. An unknown
-  key, or `--ask` with `--install-only`, is refused before installing. The
-  hidden `init --answers-from` adopts an existing chezmoi `[data]` table.
+  key, or `--ask` with `--install-only`, `--dry-run`, `--machine-config` or
+  `--source`, is refused before installing. `apply --dry-run` with a missing
+  answer asks nothing and names the fix. A `--machine-config` file applied a
+  `both` role to another destination and left the saved answers byte for
+  byte. `apply --source` used the saved answers without setup. The hidden
+  `init --answers-from` adopts an existing chezmoi `[data]` table.
 - Successive installs keep only the new and replaced releases, and remove
   setup contexts and tool versions that no kept release uses. An interrupted
   activation resumes. A staged release with a missing `release.json`, a changed
@@ -119,7 +124,8 @@ synthetic answers.
 - `project inspect` lists the candidate files and the projects they make.
   `project configure` applied to a synthetic uv project, with extensions,
   ignore entries, CI integration and native uv resolution. The next plan was
-  unchanged, and `project revert` restored every file exactly. `--ci` requires
+  unchanged; `project revert --dry-run` showed the restore plan and changed
+  nothing, and `project revert` restored every file exactly. `--ci` requires
   an explicit `.python-version` and exactly one workflow. Interrupting uv
   staging exits 130 with no project file changed.
 

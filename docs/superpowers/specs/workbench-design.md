@@ -129,10 +129,10 @@ This table defines the command contract. Exact flags, install options and suppor
 
 | Command | Contract |
 | --- | --- |
-| `workbench apply` | Preflight, preview, confirm, checkpoint, execute approved operations, validate and record the result. |
-| `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no application or provisioning. |
+| `workbench apply` | Set up Workbench's own tools and ask missing machine questions (`--ask KEY` asks a saved one again), then preflight, preview, confirm, checkpoint, execute approved operations, validate and record the result. A `--source` checkout uses the saved answers and tools as they are. |
+| `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no setup, application or provisioning. |
 | `workbench apply --config-only` | Exclude provisioning scripts and installs. Preview managed configuration removals as well as writes. Missing render prerequisites block rather than trigger installation. |
-| `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging, journaled activation and setup of its own tools, which the command itself requests, and the one approval: the machine plan. An older VERSION goes back. An already active release is not reinstalled; its setup and apply still run. `--ask KEY` asks a saved machine answer again. |
+| `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging and journaled activation, and hand off to the new runtime, which runs `apply`. An older VERSION goes back. An already active release is not reinstalled; its `apply` still runs. |
 | `workbench version [--list]` | Print this version; `--list` reads the published releases from GitHub and marks the latest and the installed one. |
 | `workbench doctor` | Local, read-only checks: the active release, the last applied configuration, any unfinished apply, tools, configuration and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
 | `workbench revert` | Preview and restore configuration from a retained operation checkpoint, chosen at a terminal or by `--checkpoint ID`. Never infer recoverable contents from a version number. |

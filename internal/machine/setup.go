@@ -508,7 +508,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
-			"Workbench's TOML Kit is missing; workbench update installs it",
+			"Workbench's TOML Kit is missing; workbench apply installs it",
 		)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))

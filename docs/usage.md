@@ -36,9 +36,10 @@ logged-in `gh`. Never run it as root.
 
 | Command | Behavior |
 | --- | --- |
-| `apply` | Show what would change on this machine, ask Yes or No, then checkpoint files and apply. |
-| `apply --dry-run` | Show the same plan without applying. |
-| `update` | Install the latest release and set up its tools, then show the plan for this machine and ask before applying it. |
+| `apply` | Install Workbench's tools if missing and ask any machine question your answers lack, then show what would change, ask Yes or No, checkpoint files and apply. |
+| `apply --ask KEY` | The same, asking that saved answer again first, e.g. `--ask machine_role`. |
+| `apply --dry-run` | Show the plan only; installs and asks nothing. |
+| `update` | Install the latest release, then run `apply` with it. `update --dry-run` shows only the install step. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
 | `version` | Print this Workbench version, the same as `--version`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
@@ -49,8 +50,8 @@ logged-in `gh`. Never run it as root.
 `update` and `version --list` read the releases from GitHub. They need no
 login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which
 raises GitHub's rate limit. When that release is already
-installed, `update` skips installing and still sets up its tools and applies
-it, so rerunning it finishes a setup that was declined or failed. The hidden
+installed, `update` skips installing and runs `apply`, so rerunning it
+finishes a setup that was declined or failed. The hidden
 `--bundle FILE` takes a local archive or HTTPS URL instead, which is what
 `install.sh` passes.
 
@@ -61,9 +62,10 @@ files a revert replaced). Without a terminal it lists them with their IDs and
 asks for `--checkpoint ID`; `--dry-run` shows the restore plan.
 
 `apply` and `doctor` take `--source PATH` to use a developer checkout instead of
-the installed release. `apply` and `update` take `--machine-config PATH`, a
-private native `[data]` answer file, and `--destination PATH`, an existing
-folder to configure instead of your home. Full provisioning requires the real
+the installed release; with it, `apply` uses your saved answers and tools as
+they are. `apply` and `update` take `--machine-config PATH`, a private native
+`[data]` answer file used as is for that run and never saved, and
+`--destination PATH`, an existing folder to configure instead of your home. Full provisioning requires the real
 home destination because native scripts have external effects. See
 [configuration ownership](chezmoi-local-overrides.md). The hidden
 `init --answers-from PATH` saves the `[data]` table of an existing chezmoi
@@ -98,17 +100,18 @@ workbench apply --config-only --non-interactive --approve-plan PLAN_SHA256
 ```
 
 Keep all source/config/destination/selection flags identical between those calls.
-Changed inputs conflict instead of inheriting old consent. `update` asks one
-question, about the plan for this machine. Installing Workbench and its pinned
-tools needs no separate approval: running `update` is the go-ahead, both change
-only Workbench's own files, and the replaced release is kept. Setup asks only
-the machine questions your saved answers lack; each asks once, so nothing
-already answered is asked again. To change an answer, name it with `--ask`:
-`workbench update --ask machine_role` asks the role again, plus any question
-the new role needs (both emails for `both`, the tokens for `work`), then shows
-the plan. Answers the new role doesn't use are dropped. Unattended, `update --json` stops at the
-machine plan with its digest, and `update --approve-plan DIGEST` applies it.
-Unattended setup also requires saved answers or `--machine-config`.
+Changed inputs conflict instead of inheriting old consent. `apply` and
+`update` ask one question, about the plan for this machine. Installing
+Workbench and its pinned tools needs no separate approval: running the command
+is the go-ahead, they change only Workbench's own files, and `update` keeps the
+replaced release. Setup asks only the machine questions your saved answers
+lack; each asks once, so nothing already answered is asked again. To change an
+answer, name it with `--ask`: `workbench apply --ask machine_role` asks the
+role again, plus any question the new role needs (both emails for `both`, the
+tokens for `work`), then shows the plan. Answers the new role doesn't use are
+dropped. Unattended, `--json` stops at the machine plan with its digest, and
+`--approve-plan DIGEST` applies it. Without a terminal, setup needs saved
+answers or `--machine-config`.
 No blanket `--yes` grants unspecified external effects.
 
 At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
@@ -156,6 +159,7 @@ workbench project inspect .
 workbench project configure ./apps/api --language python --dry-run
 workbench project configure . --language python --extensions --gitignore --dry-run
 workbench project configure . --language python --resolve-dependencies
+workbench project revert . --dry-run
 workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID
 ```

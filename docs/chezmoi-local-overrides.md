@@ -10,7 +10,7 @@ Workbench consent/checkpoints or release identity.
 `home/.chezmoi.toml.tmpl` owns the native questionnaire. Approved setup saves
 validated private `[data]` answers, not arbitrary native hooks, source overrides
 or Git auto-push configuration. `--machine-config PATH` explicitly selects an
-existing private answer file. Complete unattended inputs include identity,
+existing private answer file, used as is for that run and never saved. Complete unattended inputs include identity,
 role, editor, version mode, derived role/platform flags and conditional fields.
 
 | Role | Identity and integration |
@@ -24,7 +24,7 @@ Roles derive `has_personal` and `has_work`; native host detection derives
 Mixed role asks for both emails, work roles for local-only service credentials,
 and WSL for its sizing/restart-path inputs. Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with
-`workbench update --ask machine_role`. Role changes remove the files and the
+`workbench apply --ask machine_role`. Role changes remove the files and the
 Codex entries only the old role used, such as the work MCP servers and their
 tokens, and the `~/repos` trust; configuration-only mode still previews and
 checkpoints those removals.

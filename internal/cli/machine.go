@@ -109,23 +109,37 @@ func initCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// applyCommand previews the machine plan and, unless --dry-run, applies it
-// after approval.
+// applyCommand makes this machine match the installed release, or --source,
+// through applyMachine. --dry-run only shows the plan.
 func applyCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Show what would change on this machine, ask, then apply it with file checkpoints",
-		Args:  cobra.NoArgs,
+		Long: "Install Workbench's tools when missing and ask the machine questions your saved " +
+			"answers lack, then show what would change on this machine and ask before applying " +
+			"it with file checkpoints. --dry-run only shows the plan; it installs and asks nothing.",
+		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				dryRun, _ := cmd.Flags().GetBool("dry-run")
-				return machinePlan(cmd, c, o, !dryRun)
+				if err := checkAsk(cmd, c, o); err != nil {
+					return operation.NewResult(cmd.CommandPath()), err
+				}
+				if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+					return machinePlan(cmd, c)
+				}
+				c.ReadOnly = false
+				result, plan, err := applyMachine(cmd, c, o, operation.NewResult(cmd.CommandPath()))
+				if err == nil {
+					result.Summary = matchSummary(machineSelection(cmd), plan.Source)
+				}
+				return result, err
 			},
 		),
 	}
-	cmd.Flags().Bool("dry-run", false, "Show the plan without applying it")
+	cmd.Flags().Bool("dry-run", false, "Show the plan without installing, asking or applying")
 	cmd.Flags().Bool("config-only", false, "Apply configuration files without provisioning scripts")
+	addAskFlag(cmd)
 	addEffectFlag(cmd)
 	o.sourceFlag(cmd)
 	o.machineConfigFlag(cmd)
@@ -134,17 +148,10 @@ func applyCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// machinePlan previews the native machine plan and, when apply is set, applies
-// it with consent.
-func machinePlan(
-	cmd *cobra.Command,
-	c operation.Context,
-	o *options,
-	apply bool,
-) (operation.Result, error) {
+// machinePlan shows the native machine plan without applying it.
+func machinePlan(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
-	selection := machineSelection(cmd)
-	plan, err := machine.Plan(cmd.Context(), c, selection)
+	plan, err := machine.Plan(cmd.Context(), c, machineSelection(cmd))
 	if operation.ExitCode(err) == operation.ExitInterrupted {
 		return result, err // an interrupted plan is incomplete; show only the error
 	}
@@ -160,11 +167,45 @@ func machinePlan(
 		return result, err
 	}
 	result.PlanDigest = plan.Digest()
-	if !apply {
-		return result, nil
-	}
+	return result, nil
+}
+
+// applyMachine installs Workbench's tools when missing and asks the machine
+// questions the saved answers lack, or --ask names, then shows the machine
+// plan and applies it after its one approval. apply runs it for the installed
+// release; update runs it in the release it just installed. An answer file
+// given with --machine-config is used as is and never saved, and a developer
+// checkout given with --source uses the saved answers and tools as they are:
+// setup runs from a release.
+func applyMachine(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	result operation.Result,
+) (operation.Result, operation.Plan, error) {
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
+	if !c.Native.Developer {
+		var err error
+		c, err = setUp(cmd, c, o, terminal, &result, o.resolve.MachineConfig == "")
+		if err != nil {
+			return result, operation.Plan{}, err
+		}
+	}
+	selection := machineSelection(cmd)
+	plan, err := machine.Plan(cmd.Context(), c, selection)
+	if err != nil {
+		return result, plan, err
+	}
+	result.PlanDigest = plan.Digest()
+	if !o.interactive() {
+		// At a terminal the approval prompt shows the plan instead.
+		result.Results = append(result.Results, operation.Component{
+			Name:    "machine-plan",
+			Status:  operation.StatusComplete,
+			Details: plan,
+		})
+	}
 	applied, err := machine.Apply(
 		cmd.Context(),
 		c,
@@ -174,10 +215,18 @@ func machinePlan(
 		terminal,
 		progress,
 	)
-	if err == nil {
-		applied.Summary = matchSummary(selection, plan.Source)
-	}
-	return applied, err
+	result.Results = append(result.Results, applied.Results...)
+	result.OperationID = applied.OperationID
+	return result, plan, err
+}
+
+// addAskFlag offers asking saved machine answers again.
+func addAskFlag(cmd *cobra.Command) {
+	cmd.Flags().StringSlice(
+		"ask",
+		nil,
+		"Ask these saved machine answers again, for example --ask machine_role",
+	)
 }
 
 // matchSummary says what a successful apply of source leaves in place.

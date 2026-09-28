@@ -70,7 +70,7 @@ func CheckAsk(config string, ask []string) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"--ask changes saved answers, and this machine has none; workbench update asks every question",
+			"--ask changes saved answers, and this machine has none; workbench apply asks every question",
 		)
 	}
 	answers, err := readAnswers(raw)
@@ -107,7 +107,7 @@ func validateAnswers(a Answers) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Incomplete or invalid machine answers; workbench update asks any missing question",
+			"Incomplete or invalid machine answers; workbench apply asks any missing question",
 		)
 	}
 	text := func(key string) string { value, _ := a[key].(string); return value }

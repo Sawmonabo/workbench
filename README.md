@@ -38,7 +38,7 @@ workbench apply              # show what would change, ask, then apply
 workbench apply --dry-run    # only show it
 workbench update             # install the latest release, then apply it
 workbench update 0.2.0       # install that release (older goes back)
-workbench update --ask machine_role  # change personal/work/both, then apply
+workbench apply --ask machine_role   # change personal/work/both, then apply
 workbench version --list     # published releases, marking yours
 workbench doctor             # what is installed and applied, tools, host
 workbench revert             # pick a checkpoint and restore its files
@@ -49,8 +49,8 @@ workbench project revert ./apps/api
 
 Machine commands require a verified source and complete private machine answers.
 Changes are shown as a plan and need a Yes; unattended use requires the plan's
-exact digest. Missing prerequisites block preview rather than trigger
-installation. See [usage](docs/usage.md) for install options, separate setup
+exact digest. `apply` installs Workbench's tools and asks missing questions;
+`--dry-run` previews only and never installs. See [usage](docs/usage.md) for install options, separate setup
 consent, recovery selection and limits.
 
 Python configuration supports existing uv projects/workspaces. Other languages

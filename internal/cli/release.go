@@ -23,10 +23,9 @@ func updateCommand(o *options) *cobra.Command {
 		Use:   "update [VERSION]",
 		Short: "Install the latest Workbench release, or VERSION, then apply it",
 		Long: "Install the latest Workbench release, or VERSION (an older one goes back), " +
-			"set up its tools, then show the plan for this machine and ask before applying it. " +
-			"Installing Workbench and its own tools changes only Workbench's files and keeps " +
-			"the previous release, so running update is the go-ahead for them. " +
-			"See the releases with workbench version --list.",
+			"then run workbench apply with it. Installing Workbench and its own tools changes " +
+			"only Workbench's files and keeps the previous release, so running update is the " +
+			"go-ahead for them. See the releases with workbench version --list.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
 			releaseAction,
@@ -35,16 +34,13 @@ func updateCommand(o *options) *cobra.Command {
 			},
 		),
 	}
-	cmd.Flags().Bool("dry-run", false, "Show the install plan without installing")
+	cmd.Flags().
+		Bool("dry-run", false, "Show the install step only; apply --dry-run shows the machine plan")
 	cmd.Flags().
 		Bool("install-only", false, "Install Workbench and its tools without applying")
 	cmd.Flags().
 		Bool("config-only", false, "Apply configuration files without provisioning scripts")
-	cmd.Flags().StringSlice(
-		"ask",
-		nil,
-		"Ask these saved machine answers again, for example --ask machine_role",
-	)
+	addAskFlag(cmd)
 	addEffectFlag(cmd)
 	o.machineConfigFlag(cmd)
 	o.destinationFlag(cmd)
@@ -524,11 +520,27 @@ func checkAsk(cmd *cobra.Command, c operation.Context, o *options) error {
 	if len(ask) == 0 {
 		return nil
 	}
-	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
+	for _, name := range []string{"install-only", "dry-run"} {
+		if set, _ := cmd.Flags().GetBool(name); set {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"ask",
+				"--"+name+" asks no machine questions; drop --ask or --"+name,
+			)
+		}
+	}
+	if o.resolve.MachineConfig != "" {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"--install-only asks no machine questions; drop --ask or --install-only",
+			"--machine-config uses its answer file as is; drop --ask or --machine-config",
+		)
+	}
+	if c.Native.Developer {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--source uses the saved answers; ask without --source, then apply the checkout",
 		)
 	}
 	if !o.interactive() {
@@ -541,10 +553,10 @@ func checkAsk(cmd *cobra.Command, c operation.Context, o *options) error {
 	return machine.CheckAsk(c.Native.Config, ask)
 }
 
-// configureMachine installs Workbench's tools and, unless --install-only, asks
-// the missing machine questions, shows the machine plan and asks before
-// applying it, inside the activated runtime. Every install and update puts the
-// tools in place, without asking: Workbench needs them to work.
+// configureMachine runs in the activated runtime: it installs Workbench's
+// tools and, unless --install-only, runs applyMachine, as workbench apply
+// does. Every install and update puts the tools in place, without asking:
+// Workbench needs them to work.
 func configureMachine(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -552,45 +564,17 @@ func configureMachine(
 	result operation.Result,
 	version string,
 ) (operation.Result, error) {
-	installOnly, _ := cmd.Flags().GetBool("install-only")
-	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
-	defer closeConsole()
-	c, err := setUp(cmd, c, o, terminal, &result, !installOnly)
-	if err != nil {
+	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
+		_, err := setUp(cmd, c, o, nil, &result, false)
+		if err == nil {
+			result.Summary = "Workbench " + version + " and its tools are installed"
+		}
 		return result, err
 	}
-	if installOnly {
-		result.Summary = "Workbench " + version + " and its tools are installed"
-		return result, nil
-	}
-	selection := machineSelection(cmd)
-	applyPlan, err := machine.Plan(cmd.Context(), c, selection)
-	if err != nil {
-		return result, err
-	}
-	result.PlanDigest = applyPlan.Digest()
-	if !o.interactive() {
-		// At a terminal the approval prompt shows the plan instead.
-		result.Results = append(result.Results, operation.Component{
-			Name:    "machine-plan",
-			Status:  operation.StatusComplete,
-			Details: applyPlan,
-		})
-	}
-	applied, err := machine.Apply(
-		cmd.Context(),
-		c,
-		selection,
-		applyPlan,
-		consentFor(o, o.approvePlan),
-		terminal,
-		progress,
-	)
-	result.Results = append(result.Results, applied.Results...)
-	result.OperationID = applied.OperationID
+	result, _, err := applyMachine(cmd, c, o, result)
 	if err == nil {
 		matches := "your machine matches it"
-		if selection.ConfigOnly {
+		if machineSelection(cmd).ConfigOnly {
 			matches = "your configuration files match it"
 		}
 		// The first component is the release this run installed or found.
@@ -603,9 +587,9 @@ func configureMachine(
 }
 
 // setUp installs the pinned tools Workbench runs, when missing, and, with
-// questions, asks the machine questions that the saved answers lack. Running
-// update is the go-ahead: the tools go into Workbench's own directory, and a
-// question asks only once.
+// questions, asks the machine questions that the saved answers lack or --ask
+// names. Running apply or update is the go-ahead: the tools go into
+// Workbench's own directory, and a question asks only once.
 func setUp(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -615,21 +599,23 @@ func setUp(
 	questions bool,
 ) (operation.Context, error) {
 	planner := machine.ToolsPlan
+	ask, _ := cmd.Flags().GetStringSlice("ask")
 	if questions {
 		planner = machine.SetupPlan
-		if !o.interactive() {
-			if _, err := operation.ReadPrivateInput(c.Native.Config, 1<<20); err != nil {
-				return c, operation.Fail(
-					operation.ExitBlocked,
-					"answers",
-					"Unattended setup requires saved private answers or --machine-config",
-				)
-			}
-		} else if terminal == nil {
+	}
+	if questions && terminal == nil {
+		if len(ask) > 0 {
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"terminal",
-				"Setup requires a terminal or complete unattended inputs",
+				"--ask needs a terminal to ask at",
+			)
+		}
+		if _, err := operation.ReadPrivateInput(c.Native.Config, 1<<20); err != nil {
+			return c, operation.Fail(
+				operation.ExitBlocked,
+				"answers",
+				"Without a terminal, setup needs saved answers or --machine-config",
 			)
 		}
 	}
@@ -647,7 +633,6 @@ func setUp(
 			if !questions {
 				return machine.InstallTools(cmd.Context(), c, m)
 			}
-			ask, _ := cmd.Flags().GetStringSlice("ask")
 			var setupErr error
 			c, setupErr = machine.Setup(cmd.Context(), c, m, terminal, ask)
 			return setupErr
@@ -670,7 +655,6 @@ func setUp(
 	}
 	// Setup plans the answers as an input only when they were saved complete,
 	// so without it, or with --ask, the questionnaire saved new ones.
-	ask, _ := cmd.Flags().GetStringSlice("ask")
 	answered := !questions
 	for _, input := range setup.Inputs {
 		answered = answered || input.Name == "answers" && len(ask) == 0

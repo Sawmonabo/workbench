@@ -156,6 +156,7 @@ func projectRevertCommand(o *options) *cobra.Command {
 	}
 	cmd.Flags().
 		String("checkpoint", "", "Restore this checkpoint ID instead of choosing from a list")
+	cmd.Flags().Bool("dry-run", false, "Show the restore plan without restoring")
 	o.approveFlag(cmd)
 	cmd.RunE = o.action(
 		projectAction,
@@ -179,6 +180,9 @@ func projectRevertCommand(o *options) *cobra.Command {
 					Details: plan,
 				},
 			)
+			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+				return result, nil
+			}
 			c.ReadOnly = false
 			consent := consentFor(o, o.approvePlan)
 			result.OperationID, err = operation.Recover(cmd.Context(), c, plan, selector, consent)
