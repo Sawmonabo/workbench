@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -315,8 +316,12 @@ func formulaNames(
 	return names, nil
 }
 
-// installedVersions replaces each app update's recorded version with the
-// version of the app actually installed, which self-updating apps change.
+// installedVersions replaces an app update's recorded version with the
+// installed app's own version when that is newer, because the app updated
+// itself after Homebrew installed it. Some apps number themselves differently
+// from their Homebrew release, such as Discord 0.0.413 for release 0.0.414, so
+// an older or differently shaped app version keeps Homebrew's record, which
+// its upgrade then prints.
 func installedVersions(
 	ctx context.Context,
 	c operation.Context,
@@ -343,7 +348,8 @@ func installedVersions(
 	}
 	for _, cask := range info.Casks {
 		for i := range updates {
-			if updates[i].cask && updates[i].name == cask.Token && cask.BundleShortVersion != "" {
+			if updates[i].cask && updates[i].name == cask.Token &&
+				newerVersion(cask.BundleShortVersion, updates[i].installed) {
 				updates[i].installed = cask.BundleShortVersion
 			}
 		}
@@ -407,6 +413,27 @@ func brewOutput(
 		return "", err
 	}
 	return output.Stdout, nil
+}
+
+// newerVersion reports whether dotted numeric version a is newer than b.
+// Versions with other characters or a different number of parts are not
+// compared, as Homebrew does not compare them either.
+func newerVersion(a, b string) bool {
+	left, right := strings.Split(a, "."), strings.Split(b, ".")
+	if len(left) != len(right) {
+		return false
+	}
+	for i := range left {
+		x, errX := strconv.ParseUint(left[i], 10, 64)
+		y, errY := strconv.ParseUint(right[i], 10, 64)
+		if errX != nil || errY != nil {
+			return false
+		}
+		if x != y {
+			return x > y
+		}
+	}
+	return false
 }
 
 // versionOf drops the build suffix Homebrew appends after a comma, as in

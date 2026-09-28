@@ -63,7 +63,9 @@ synthetic answers.
   files. A fresh home lists every effect; an up-to-date machine lists only the
   always-run apps and cleanup steps. Each outdated app or formula in
   `packages.toml` gets an `update-<name>` effect naming what else Homebrew
-  would install or update. Pinned packages, and the chezmoi, uv and Python
+  would install or update. Its starting version is Homebrew's record, as the
+  upgrade prints it, even for an app that numbers itself one release behind;
+  an app that updated itself past the record shows its own. Pinned packages, and the chezmoi, uv and Python
   Workbench runs, are held, and a rerun keeps the digest. `--config-only`
   lists no provisioning effects.
 - A live status line shows planning, the recheck after approval and setup.

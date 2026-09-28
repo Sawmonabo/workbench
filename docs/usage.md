@@ -122,7 +122,8 @@ steps as effects, and approving the plan approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`
 that Homebrew reports as outdated, for example `Update docker-desktop 4.89.0 →
-4.92.0`. A tool's effect also lists the other packages Homebrew would install
+4.92.0`. The first version is Homebrew's record, or the app's own version when
+the app updated itself past it. A tool's effect also lists the other packages Homebrew would install
 or update with it, for example `Update tmux 3.6a → 3.7c through Homebrew; also
 installs jemalloc 5.4.0; also updates libevent 2.1.12_1 → 2.1.13`, so Homebrew
 does not ask again during apply. Hold one at its version with `brew pin`
