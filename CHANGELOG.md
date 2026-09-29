@@ -3,6 +3,16 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.5](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.5) - 2026-09-29
+
+### Fixes
+
+- Say the machine questions were cancelled instead of a missing-file error
+
+### Maintenance
+
+- Separate changelog releases with one blank line
+
 ## [v0.1.4](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.4) - 2026-09-28
 
 ### Features
