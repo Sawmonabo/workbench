@@ -52,7 +52,10 @@ synthetic answers.
   runtime.
 - A fresh interactive setup asked every machine question, from `update` and,
   after `update --install-only`, from `apply`, including with standard input
-  piped as under `curl | sh`, on macOS and in the Ubuntu container. Setup asks
+  piped as under `curl | sh`, on macOS and in the Ubuntu container. Esc or
+  ctrl+c at a question exits 3, saves no answers and names `workbench apply`,
+  which then asked every question, including after an update from the previous
+  release was stopped at the first one. Setup asks
   only the questions the saved answers lack, and `apply --ask KEY` asks a
   saved one again without network access: work → personal dropped the tokens
   and the Codex work servers, coderabbit and `~/repos` trust, and personal →

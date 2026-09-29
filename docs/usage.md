@@ -105,7 +105,9 @@ Changed inputs conflict instead of inheriting old consent. `apply` and
 Workbench and its pinned tools needs no separate approval: running the command
 is the go-ahead, they change only Workbench's own files, and `update` keeps the
 replaced release. Setup asks only the machine questions your saved answers
-lack; each asks once, so nothing already answered is asked again. To change an
+lack; each asks once, so nothing already answered is asked again. Esc or ctrl+c
+at a question stops with nothing saved, and the next `workbench apply` asks
+again. To change an
 answer, name it with `--ask`: `workbench apply --ask machine_role` asks the
 role again, plus any question the new role needs (both emails for `both`, the
 tokens for `work`), then shows the plan. Answers the new role doesn't use are

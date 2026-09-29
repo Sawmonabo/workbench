@@ -181,6 +181,15 @@ func initSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
 // generatedAnswers reads the config native init wrote, allowing only [data]
 // and sourceDir, and validates the answers.
 func generatedAnswers(path string) (Answers, error) {
+	// Esc or ctrl+c at a question makes native init exit successfully
+	// without writing its configuration.
+	if _, err := os.Lstat(path); os.IsNotExist(err) {
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"answers",
+			"The machine questions were cancelled, so no answers were saved; run workbench apply to answer them",
+		)
+	}
 	output, err := operation.ReadPrivateInput(path, 1<<20)
 	if err != nil {
 		return nil, err
