@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.6](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.6) - 2026-09-29
+
+### Fixes
+
+- Rerun the runtime and tool installs only when their own pins change
+
 ## [v0.1.5](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.5) - 2026-09-29
 
 ### Fixes
