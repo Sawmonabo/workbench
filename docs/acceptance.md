@@ -78,7 +78,9 @@ synthetic answers.
   `mode 0600 → 0644`, and flags files edited outside Workbench. It lists an
   effect only when chezmoi would run one of its scripts or change one of its
   files. A fresh home lists every effect; an up-to-date machine lists only the
-  always-run apps and cleanup steps. Each outdated app or formula in
+  always-run apps and cleanup steps. A new CI action pin in `versions.toml`
+  leaves the runtimes and global-tools scripts unchanged, while bumping a pin
+  they install changes them. Each outdated app or formula in
   `packages.toml` gets an `update-<name>` effect naming what else Homebrew
   would install or update. Its starting version is Homebrew's record, as the
   upgrade prints it, even for an app that numbers itself one release behind;

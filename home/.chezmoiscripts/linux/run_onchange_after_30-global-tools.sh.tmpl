@@ -1,7 +1,8 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
 # Install GLOBAL command-line tools from .chezmoidata/versions.toml.
-# Re-runs whenever the pins change. versions hash: {{ include ".chezmoidata/versions.toml" | sha256sum }}
+# Re-runs when these pins change, in latest mode too; CI and management pins
+# in versions.toml do not count. pins hash: {{ list .versions.codex .versions.claude .corepack_globals .uv_tools .cargo_tools .go_tools | toJson | sha256sum }}
 set -uo pipefail
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
