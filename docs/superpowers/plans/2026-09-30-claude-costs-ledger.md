@@ -1459,7 +1459,7 @@ rm "$S/rates/rates.json"
 ```
 Expected:
 ```
-claude-costs: …/rates/rates.json: 'claude-opus-5-5' has unknown field 'cache_write'; fields are input, output, cache_write_5m, cache_write_1h, cache_read
+claude-costs: …/rates/rates.json: 'claude-opus-5-5' has unknown field 'cache_write' (cache_write was split into cache_write_5m and cache_write_1h); fields are input, output, cache_write_5m, cache_write_1h, cache_read. Edit the file or move it aside.
 exit=1
   claude-opus-5-5                  1.00    20.00     5.00     8.00    0.200  override
 ```
