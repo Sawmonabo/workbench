@@ -1,17 +1,20 @@
 # claude-costs ledger design
 
-Status: approved design, 2026-09-30. Nothing below is implemented yet. The implementation plan refines a few details
-of it (rates parsing, override validation, refresh back-off). It
-supersedes the transcript-scanning design of the current
+Status: implemented 2026-09-30 on branch `feat/claude-costs-ledger`; observed
+checks are recorded in section 9. The implementation plan refined a few details
+of the approved design (rates parsing, override validation, refresh back-off),
+and checking it against real transcripts added advisor rows (section 4). The
+hooks are not yet applied to any real machine. This design
+supersedes the transcript-scanning design of the earlier
 `home/dot_local/bin/executable_claude-costs` script and the claude-costs row in
 [contracts](workbench-contracts.md).
 
 ## 1. Problem
 
 `claude-costs` reports per-project, per-model Claude Code spend by re-reading
-the session transcripts under `~/.claude/projects` on every run. Observed on the
-owner's machine on 2026-09-30, that gives a total about six times too low, for
-five independent reasons:
+the session transcripts under `~/.claude/projects` on every run. Observed on one
+developer machine on 2026-09-30, that gives a total several times too low, for
+six independent reasons:
 
 1. Discovery globs one directory level, so subagent transcripts under
    `<session>/subagents/` are never read. They held 97% of the files and 86% of
@@ -28,8 +31,8 @@ five independent reasons:
 
 6. Advisor-tool calls run on a different model and their usage appears only in
    `usage.iterations`, never in the top-level counts, so it was never counted.
-   On the owner's machine that is about $2,100 at list prices, roughly a fifth
-   of the corrected total. (Found while checking the implementation; the
+   On the development machine that was roughly a fifth of the corrected
+   total. (Found while checking the implementation; the
    approved design did not mention it.)
 
 Transcripts also carry no account identifier, so per-account reporting is
@@ -300,7 +303,7 @@ rate card age, and whether both hooks are present in the live
 No test suite, per the repository rule: the ledger only inserts and upserts, so
 there is no catastrophic-loss path to guard. Observed checks before commit:
 
-1. Backfill on the owner's machine, then compare the ledger's cost for each
+1. Backfill on a machine with real transcripts, then compare the ledger's cost for each
    session whose transcript still exists against that project's `lastCost` in
    `~/.claude.json`. Agreement within a few percent validates parsing and rates
    together, for sessions that ran once. A resumed session's `lastCost` also
@@ -311,6 +314,45 @@ there is no catastrophic-loss path to guard. Observed checks before commit:
    configuration.
 4. `scripts/render-check.sh` for the affected roles and modes after the
    `claude.json` change.
+
+### Observed 2026-09-30
+
+Backfill of one developer machine's real transcripts into a scratch ledger
+(read-only on `~/.claude`; nothing written to the real ledger paths):
+
+- 1,164 transcript files and 71,138 ledger rows covering six weeks, ingested in
+  5.2 seconds. The official pricing page fetch succeeded and priced 19 models.
+  All rows are sweep-tagged because no hook has run.
+- The ledger total was about eight times the total from the script it replaces
+  and about 1.4 times the sum of the per-project `lastCost` counters, which only
+  describe each project's most recent run.
+- Per-session comparison with the `~/.claude.json` counters, after advisor rows:
+
+| Session | Kind | Cost, ledger / counter | Output tokens, ledger / counter |
+| --- | --- | --- | --- |
+| A | single run | 1.00 | 1.00 |
+| B | single run | 0.96 | 0.99 |
+| C | single run | 0.91 | 0.95 |
+| D | resumed | 1.79 | 1.77 |
+| E | resumed | 2.40 | 2.81 |
+
+  The single-run sessions agree within 9%. The resumed sessions were resumed, so
+  their transcripts hold more than the counters, which describe only the last
+  run. Session C is the lowest and is explained by Claude Code's own short
+  internal calls, which the counters include and no transcript records. Before
+  advisor rows it was 43% low, which is how they were found.
+- Every smoke check in the implementation plan matched its written expectation,
+  including the hook returning in 0.02 seconds with no output, the worker
+  surviving the hook, lock contention, an unwritable data directory, an invalid
+  override file, and a foreign file at the ledger path.
+- `render-check.sh` passed for personal/pinned, work/latest and
+  work/pinned/wsl, and the settings merge kept a user-added hook and theme
+  while adding both enforced events. These ran in a scratch copy with WSL host
+  detection disabled, because the WSL sizing prompts need a terminal.
+
+Not yet verified: a live session with the hooks applied (check 2 above), which
+needs a `workbench` apply of the changed `claude.json`; the same render checks on
+a real WSL host; macOS with its system Python 3.9.
 
 ## 10. Out of scope
 
