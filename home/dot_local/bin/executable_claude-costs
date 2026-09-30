@@ -13,10 +13,13 @@ Run `claude-costs help` for usage. Design: docs/superpowers/specs/
 
 from __future__ import annotations
 
+import contextlib
 import fcntl
 import json
 import os
+import select
 import sqlite3
+import subprocess
 import sys
 import time
 from datetime import date, datetime, timezone
@@ -422,13 +425,52 @@ def cmd_help(opts: SimpleNamespace) -> None:
     )
 
 
+def read_hook_input() -> tuple[str, str]:
+    """Claude Code pipes a JSON object on stdin. A terminal, a closed or empty
+    stdin, or anything unreadable yields ('', ''). Never blocks longer than
+    half a second waiting for the first byte."""
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return "", ""
+        ready, _, _ = select.select([sys.stdin], [], [], 0.5)
+        if not ready:
+            return "", ""
+        h = json.loads(sys.stdin.read() or "{}")
+        return str(h.get("hook_event_name") or ""), str(h.get("transcript_path") or "")
+    except Exception:  # noqa: BLE001 - the hook contract is silence
+        return "", ""
+
+
 def cmd_ingest(opts: SimpleNamespace) -> None:
-    if not opts.worker:
-        die("use `claude-costs ingest --worker`")
     args = opts.rest[1:]  # positional after the subcommand: event, transcript
-    event = args[0] if args else ""
-    transcript = args[1] if len(args) > 1 else ""
-    ingest_worker(event, transcript, progress=not opts.quiet and sys.stderr.isatty())
+    if opts.worker:
+        event = args[0] if args else ""
+        transcript = args[1] if len(args) > 1 else ""
+        ingest_worker(
+            event, transcript, progress=not opts.quiet and sys.stderr.isatty()
+        )
+        return
+    # Hook path: never print, never fail, never wait for the worker.
+    with contextlib.suppress(Exception):
+        event, transcript = read_hook_input()
+        STATE.mkdir(parents=True, exist_ok=True)
+        with LOG.open("ab") as log_fh:
+            subprocess.Popen(
+                [
+                    sys.executable,
+                    os.path.abspath(__file__),
+                    "ingest",
+                    "--worker",
+                    "--quiet",
+                    event,
+                    transcript,
+                ],
+                stdin=subprocess.DEVNULL,
+                stdout=log_fh,
+                stderr=log_fh,
+                start_new_session=True,
+                close_fds=True,
+            )
 
 
 COMMANDS = {"help": cmd_help, "ingest": cmd_ingest}
