@@ -48,26 +48,29 @@ resolve_path() {
     fi
 }
 
-# Merge a key=value into a specific INI section, preserving all other content
+# Merge a key=value into a specific INI section, preserving all other content.
+# WSL reads section and key names case-insensitively, so an existing line is
+# matched that way too; otherwise a hand-written `networkingmode=` would be
+# kept beside a new `networkingMode=`, and WSL would take whichever came last.
 # Usage: merge_ini_key <file> <section> <key> <value>
 merge_ini_key() {
     local file="$1" section="$2" key="$3" value="$4"
 
-    if ! grep -q "^\[${section}\]" "$file" 2>/dev/null; then
+    if ! grep -qi "^\[${section}\]" "$file" 2>/dev/null; then
         printf '\n[%s]\n%s=%s\n' "$section" "$key" "$value" >> "$file"
         return
     fi
 
     awk -v section="[$section]" -v key="$key" -v value="$value" '
-        BEGIN { found = 0; in_section = 0; inserted = 0 }
+        BEGIN { found = 0; in_section = 0; inserted = 0; lkey = tolower(key) }
         /^\[/ {
             if (in_section && !found && !inserted) {
                 print key "=" value
                 inserted = 1
             }
-            in_section = ($0 == section)
+            in_section = (tolower($0) == tolower(section))
         }
-        in_section && $0 ~ "^" key "[[:space:]]*=" {
+        in_section && tolower($0) ~ "^" lkey "[[:space:]]*=" {
             print key "=" value
             found = 1
             next
