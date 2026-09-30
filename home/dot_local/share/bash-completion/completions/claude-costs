@@ -4,14 +4,14 @@ _claude_costs() {
   COMPREPLY=()
   cur=${COMP_WORDS[COMP_CWORD]}
   prev=${COMP_WORDS[COMP_CWORD-1]}
-  cmds="report models json csv rates calibrate clean help"
-  opts="--all --force --compact --top --sort --since --until --no-cache --quiet --dry-run --help"
+  cmds="report ingest rates status help"
+  opts="--by --since --until --all --top --sort --compact --no-rollup --json --csv --refresh --worker --quiet --help"
 
   case "$prev" in
+    --by)   COMPREPLY=($(compgen -W "project model account month" -- "$cur")); return ;;
     --sort) COMPREPLY=($(compgen -W "cost name calls" -- "$cur")); return ;;
     --top)  COMPREPLY=($(compgen -W "5 10 20 50" -- "$cur")); return ;;
     --since|--until)
-      # a few useful anchors; any YYYY-MM-DD is accepted
       COMPREPLY=($(compgen -W "$(date +%Y-01-01) $(date +%Y-%m-01) $(date +%Y-%m-%d)" -- "$cur"))
       return ;;
   esac

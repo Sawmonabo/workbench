@@ -59,6 +59,22 @@
         "command": "python3 ~/.claude/scripts/statusline.py",
         "refreshInterval": 2
       },
+      "hooks": {
+        "SessionStart": [
+          {
+            "hooks": [
+              { "type": "command", "command": "claude-costs ingest", "async": true, "timeout": 10 }
+            ]
+          }
+        ],
+        "SessionEnd": [
+          {
+            "hooks": [
+              { "type": "command", "command": "claude-costs ingest", "async": true, "timeout": 10 }
+            ]
+          }
+        ]
+      },
       "enabledPlugins": {
         "superpowers@claude-plugins-official": true,
         "code-review@claude-plugins-official": true,
