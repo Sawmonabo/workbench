@@ -59,7 +59,7 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{-   if gt $hostCPU 0 }}{{ $cpus = max 2 (div (mul $hostCPU 2) 3) }}{{ end }}
 {{-   $swapGB := max 2 (div $memGB 6) }}
 {{- $_ := set $data "wsl_memory" (promptStringOnce . "wsl_memory" (printf "WSL memory limit (host has %dGB; default 75%%)" $hostGB) (printf "%dGB" $memGB)) -}}
-{{- $_ := set $data "wsl_processors" (promptIntOnce . "wsl_processors" (printf "WSL vCPUs (host has %d; default 2/3)" $hostCPU) $cpus) -}}
+{{- $_ := set $data "wsl_processors" (promptIntOnce . "wsl_processors" (printf "WSL vCPUs (host has %d; default 2/3)" $hostCPU) (int64 $cpus)) -}}
 {{- $_ := set $data "wsl_swap" (promptStringOnce . "wsl_swap" "WSL swap size (default memory/6)" (printf "%dGB" $swapGB)) -}}
 {{- $_ := set $data "restart_wsl_path" (promptStringOnce . "restart_wsl_path" "RestartWSL scripts path (relative to Windows home or a full path e.g. Desktop/RestartWSL)") -}}
 {{- if not (regexMatch "^[1-9][0-9]{0,6}(MB|GB)$" $data.wsl_memory) }}{{ fail "Invalid WSL memory" }}{{ end -}}
