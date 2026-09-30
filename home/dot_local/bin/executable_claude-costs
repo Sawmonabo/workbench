@@ -175,6 +175,10 @@ def open_ledger(create: bool) -> sqlite3.Connection:
 
 # ---------------------------------------------------------------- ingest
 
+# Streamed usage only grows, and Claude Code copies earlier records into the
+# transcript of a resumed or forked session, sometimes mid-stream. The token
+# columns therefore keep the largest value seen, so neither file order nor a
+# later partial or zeroed copy can lower a request's final usage.
 UPSERT = """
 INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
                        input, output, cache_write_5m, cache_write_1h, cache_read)
@@ -182,9 +186,10 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(request_id) DO UPDATE SET
   ts = excluded.ts, model = excluded.model, project = excluded.project,
   session_id = excluded.session_id,
-  input = excluded.input, output = excluded.output,
-  cache_write_5m = excluded.cache_write_5m, cache_write_1h = excluded.cache_write_1h,
-  cache_read = excluded.cache_read,
+  input = MAX(input, excluded.input), output = MAX(output, excluded.output),
+  cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
+  cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
+  cache_read = MAX(cache_read, excluded.cache_read),
   account = CASE WHEN excluded.account_source = 'session' THEN excluded.account ELSE account END,
   account_source = CASE WHEN excluded.account_source = 'session' THEN 'session' ELSE account_source END
 """
@@ -429,6 +434,7 @@ def _ingest_locked(event: str, transcript: str, progress: bool) -> None:
 
 # ---------------------------------------------------------------- rates
 
+SOURCE_ORDER = ("override", "official", "calibrated", "builtin")
 RATE_FIELDS = TOKEN_COLS  # USD per 1,000,000 tokens, same order as the ledger columns
 
 # List prices read from the pricing page on 2026-09-30, in RATE_FIELDS order.
@@ -757,12 +763,24 @@ def load_card() -> dict[str, dict]:
     return card
 
 
-def rate_for(model: str, card: dict) -> dict | None:
+def longest_prefix(model: str, rows: dict) -> dict | None:
     best = None
-    for prefix in card:
+    for prefix in rows:
         if model.startswith(prefix) and (best is None or len(prefix) > len(best)):
             best = prefix
-    return card[best] if best else None
+    return rows[best] if best else None
+
+
+def rate_for(model: str, card: dict) -> dict | None:
+    """The first source in SOURCE_ORDER with a matching prefix decides, and the
+    longest prefix decides within that source."""
+    best = None
+    for prefix, row in card.items():
+        if model.startswith(prefix):
+            key = (SOURCE_ORDER.index(row["source"]), -len(prefix))
+            if best is None or key < best[0]:
+                best = (key, row)
+    return best[1] if best else None
 
 
 def cost_of(tokens: dict, rate: dict) -> float:
@@ -1083,7 +1101,7 @@ def cmd_rates(opts: SimpleNamespace) -> None:
     for m, r in sorted(card.items()):
         flag = ""
         c = calibrated.get(m)
-        o = official["rates"].get(m)
+        o = longest_prefix(m, official["rates"])
         if (
             c
             and o
@@ -1097,7 +1115,8 @@ def cmd_rates(opts: SimpleNamespace) -> None:
             f"{r['cache_write_1h']:>8.2f} {r['cache_read']:>8.3f}  {r['source']}{flag}"
         )
     print(
-        f"\n{DIM}Longest prefix wins. Overrides: {RATES_FILE}. "
+        f"\n{DIM}Sources in order: override, official, calibrated, built-in; longest prefix "
+        f"within a source. Overrides: {RATES_FILE}. "
         f"Refresh: claude-costs rates --refresh{OFF}"
     )
 

@@ -89,10 +89,13 @@ Hooks live under `enforced.hooks` in `home/.chezmoidata/claude.json`:
 
 ```json
 "hooks": {
-  "SessionStart": [{ "hooks": [{ "type": "command", "command": "claude-costs ingest", "async": true, "timeout": 10 }] }],
-  "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "claude-costs ingest", "async": true, "timeout": 10 }] }]
+  "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "async": true, "timeout": 10 }] }],
+  "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "async": true, "timeout": 10 }] }]
 }
 ```
+
+The command names `~/.local/bin` explicitly, so a launcher with a minimal `PATH`
+(a desktop or IDE start) still finds it.
 
 The settings modify template merges maps and replaces arrays, so these two
 event arrays are owned by Workbench and any other hook event in the live file is
@@ -145,9 +148,12 @@ Row semantics:
 
 - `request_id` is the record's `requestId`, else `message.id`, else `uuid`.
   Records with model `<synthetic>` or without a `usage` object are skipped.
-- Insert is an upsert. A later record for the same request replaces every token
-  column, so the final streamed usage wins over a partial one. `account` and
-  `account_source` are replaced only when the new source is `session`.
+- Insert is an upsert. Each token column keeps the largest value seen for the
+  request. Streamed usage only grows, and Claude Code copies earlier records into
+  the transcript of a resumed or forked session, sometimes mid-stream or with
+  zeroed top-level counts, so file order or a later partial copy cannot lower
+  the final usage. `account` and `account_source` are replaced only when the new
+  source is `session`.
 - `cache_write_5m` and `cache_write_1h` come from
   `usage.cache_creation.ephemeral_5m_input_tokens` and
   `ephemeral_1h_input_tokens`. When that object is absent, the whole
@@ -216,9 +222,10 @@ rows carry each source.
 A rate card maps a model-id prefix to five USD-per-million-token fields:
 `input`, `output`, `cache_write_5m`, `cache_write_1h`, `cache_read`. Cost of a
 row is the dot product of its five token columns with those fields. Matching is
-longest prefix, so `claude-opus-5-5` beats `claude-opus`.
+longest prefix within a source, so `claude-opus-5-5` beats `claude-opus`.
 
-Sources, first match per model wins:
+Sources, in this order; the first source with a matching prefix decides, so an
+override keyed `claude-opus` beats an official `claude-opus-5-5` row:
 
 1. `~/.config/claude-costs/rates.json`, the manual override file.
 2. `rates-official.json`, parsed from
