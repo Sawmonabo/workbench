@@ -13,9 +13,12 @@ Run `claude-costs help` for usage. Design: docs/superpowers/specs/
 
 from __future__ import annotations
 
+import fcntl
+import json
 import os
 import sqlite3
 import sys
+import time
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -161,6 +164,241 @@ def open_ledger(create: bool) -> sqlite3.Connection:
     return db
 
 
+# ---------------------------------------------------------------- ingest
+
+UPSERT = """
+INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
+                       input, output, cache_write_5m, cache_write_1h, cache_read)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+ON CONFLICT(request_id) DO UPDATE SET
+  ts = excluded.ts, model = excluded.model, project = excluded.project,
+  session_id = excluded.session_id,
+  input = excluded.input, output = excluded.output,
+  cache_write_5m = excluded.cache_write_5m, cache_write_1h = excluded.cache_write_1h,
+  cache_read = excluded.cache_read,
+  account = CASE WHEN excluded.account_source = 'session' THEN excluded.account ELSE account END,
+  account_source = CASE WHEN excluded.account_source = 'session' THEN 'session' ELSE account_source END
+"""
+
+
+def log(msg: str) -> None:
+    STATE.mkdir(parents=True, exist_ok=True)
+    with LOG.open("a") as fh:
+        fh.write(f"{now()} {msg}\n")
+
+
+def truncate_log() -> None:
+    try:
+        if LOG.stat().st_size > LOG_KEEP:
+            tail = LOG.read_bytes()[-LOG_KEEP:]
+            LOG.write_bytes(tail[tail.find(b"\n") + 1 :])
+    except OSError:
+        pass
+
+
+def current_account() -> str:
+    try:
+        data = json.loads(CLAUDE_JSON.read_text())
+        return (data.get("oauthAccount") or {}).get("emailAddress") or "unknown"
+    except (OSError, ValueError, AttributeError):
+        return "unknown"
+
+
+def discover() -> list[Path]:
+    if not PROJECTS.is_dir():
+        return []
+    return sorted(p for p in PROJECTS.rglob("*.jsonl") if p.is_file())
+
+
+def project_from_path(f: Path) -> str:
+    """Last-resort project for records without a cwd: decode the project
+    directory name. Claude Code encodes '/' as '-', so names containing '-'
+    are ambiguous; records normally carry their own cwd."""
+    try:
+        name = f.relative_to(PROJECTS).parts[0]
+    except ValueError:
+        name = f.parent.name
+    return "/" + name.lstrip("-").replace("-", "/")
+
+
+def row_from_record(r: dict, last_cwd: str | None, fallback: str) -> tuple | None:
+    if r.get("type") != "assistant":
+        return None
+    m = r.get("message") or {}
+    u = m.get("usage")
+    if not isinstance(u, dict):
+        return None
+    model = m.get("model") or "unknown"
+    if model == "<synthetic>":
+        return None
+    rid = r.get("requestId") or m.get("id") or r.get("uuid")
+    if not rid:
+        return None
+    cc = u.get("cache_creation") or {}
+    c5, c1 = cc.get("ephemeral_5m_input_tokens"), cc.get("ephemeral_1h_input_tokens")
+    if c5 is None and c1 is None:
+        c5, c1 = u.get("cache_creation_input_tokens") or 0, 0
+    return (
+        rid,
+        r.get("timestamp") or "",
+        model,
+        r.get("cwd") or last_cwd or fallback,
+        r.get("sessionId") or "",
+        u.get("input_tokens") or 0,
+        u.get("output_tokens") or 0,
+        c5 or 0,
+        c1 or 0,
+        u.get("cache_read_input_tokens") or 0,
+    )
+
+
+def ingest_file(
+    db: sqlite3.Connection, f: Path, account: str, source: str
+) -> int | None:
+    """Ingest new bytes of one transcript in one transaction.
+
+    Returns the number of upserted records, or None when the file was
+    unchanged or has vanished. Stops at the last complete line so a
+    transcript still being written is picked up next run from that offset."""
+    try:
+        st = f.stat()
+    except FileNotFoundError:
+        db.execute("DELETE FROM files WHERE path = ?", (str(f),))
+        db.commit()
+        return None
+    prev = db.execute(
+        "SELECT offset, size, mtime_ns FROM files WHERE path = ?", (str(f),)
+    ).fetchone()
+    offset = 0
+    if prev:
+        if prev[1] == st.st_size and prev[2] == st.st_mtime_ns:
+            return None
+        if st.st_size >= prev[1] and st.st_mtime_ns >= prev[2]:
+            offset = prev[0]
+    fallback = project_from_path(f)
+    last_cwd = None
+    n = 0
+    with f.open("rb") as fh:
+        fh.seek(offset)
+        for raw in fh:
+            if not raw.endswith(b"\n"):
+                break
+            offset += len(raw)
+            if b'"cwd"' not in raw and b'"usage"' not in raw:
+                continue
+            try:
+                r = json.loads(raw)
+            except ValueError:
+                continue  # a malformed line is skipped, as the design says
+            if not isinstance(r, dict):
+                continue
+            if r.get("cwd"):
+                last_cwd = r["cwd"]
+            rec = row_from_record(r, last_cwd, fallback)
+            if rec:
+                db.execute(UPSERT, rec[:5] + (account, source) + rec[5:])
+                n += 1
+    db.execute(
+        "INSERT INTO files (path, offset, size, mtime_ns, last_seen) VALUES (?, ?, ?, ?, ?) "
+        "ON CONFLICT(path) DO UPDATE SET offset = excluded.offset, size = excluded.size, "
+        "mtime_ns = excluded.mtime_ns, last_seen = excluded.last_seen",
+        (str(f), offset, st.st_size, st.st_mtime_ns, now()),
+    )
+    db.commit()
+    return n
+
+
+def belongs_to_session(f: Path, transcript: str) -> bool:
+    """The SessionEnd transcript is <dir>/<sid>.jsonl; its subagents live under
+    <dir>/<sid>/. Both are that session's rows."""
+    if not transcript:
+        return False
+    t = Path(transcript)
+    return f == t or t.with_suffix("") in f.parents
+
+
+def ingest_worker(event: str, transcript: str, progress: bool = False) -> None:
+    """Single-instance ingest. Never raises: every failure goes to the log and,
+    when the ledger could be opened, to meta.last_error."""
+    try:
+        STATE.mkdir(parents=True, exist_ok=True)
+        lock_fh = LOCK.open("w")
+    except OSError as e:
+        print(f"claude-costs: cannot open state dir {STATE}: {e}", file=sys.stderr)
+        return
+    with lock_fh:
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log("skip: another worker holds the lock")
+            return
+        try:
+            _ingest_locked(event, transcript, progress)
+        except SystemExit as e:
+            # die() already printed its reason to stderr, which is the log
+            # when the hook spawned this worker.
+            log(f"error: exit {e.code}")
+        except Exception as e:  # noqa: BLE001 - a background worker records, never raises
+            log(f"error: {type(e).__name__}: {e}")
+
+
+def _ingest_locked(event: str, transcript: str, progress: bool) -> None:
+    truncate_log()
+    t0 = time.time()
+    db = open_ledger(create=True)
+    account = current_account()
+    files = discover()
+    n_files = n_rows = 0
+    errors: list[str] = []
+    for i, f in enumerate(files, 1):
+        if progress:
+            print(
+                f"\r{DIM}  ingesting {i}/{len(files)} {f.parent.name[:40]:<40}{OFF}",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+        source = (
+            "session"
+            if event == "SessionEnd" and belongs_to_session(f, transcript)
+            else "sweep"
+        )
+        try:
+            n = ingest_file(db, f, account, source)
+        except sqlite3.OperationalError as e:
+            # The ledger itself is unusable (locked beyond the timeout, disk
+            # full): stop here, files committed so far stay committed.
+            db.rollback()
+            errors.append(f"{f}: {type(e).__name__}: {e}")
+            break
+        except (OSError, sqlite3.Error, ValueError) as e:
+            db.rollback()
+            errors.append(f"{f}: {type(e).__name__}: {e}")
+            continue
+        if n is not None:
+            n_files += 1
+            n_rows += n
+    if progress:
+        print(file=sys.stderr)
+    rates_msg = refresh_rates_if_needed(db)
+    summary = (
+        f"{event or 'manual'}: {n_files} files, {n_rows} records "
+        f"in {time.time() - t0:.1f}s; {rates_msg}"
+    )
+    set_meta(db, "last_ingest_at", now())
+    set_meta(db, "last_ingest_summary", summary)
+    set_meta(db, "last_error", "; ".join(errors))
+    db.commit()
+    db.close()
+    log(summary + (f"; {len(errors)} errors" if errors else ""))
+    for err in errors:
+        log("error: " + err)
+
+
+def refresh_rates_if_needed(db: sqlite3.Connection) -> str:
+    return "rates: not configured"  # replaced by the rates section in Task 4
+
+
 # ---------------------------------------------------------------- commands
 
 
@@ -184,7 +422,16 @@ def cmd_help(opts: SimpleNamespace) -> None:
     )
 
 
-COMMANDS = {"help": cmd_help}
+def cmd_ingest(opts: SimpleNamespace) -> None:
+    if not opts.worker:
+        die("use `claude-costs ingest --worker`")
+    args = opts.rest[1:]  # positional after the subcommand: event, transcript
+    event = args[0] if args else ""
+    transcript = args[1] if len(args) > 1 else ""
+    ingest_worker(event, transcript, progress=not opts.quiet and sys.stderr.isatty())
+
+
+COMMANDS = {"help": cmd_help, "ingest": cmd_ingest}
 
 
 def parse_opts(args: list[str]) -> SimpleNamespace:
