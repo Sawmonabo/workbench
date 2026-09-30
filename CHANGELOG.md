@@ -3,6 +3,33 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.7](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.7) - 2026-09-30
+
+### Features
+
+- Run claude-costs ingest from async session hooks
+- Report and status from the ledger
+- Layered rate card with best-effort official refresh
+- Silent detached hook entry with single-instance lock
+- Ingest transcripts into the ledger by offset
+- Ledger schema and command skeleton
+
+### Fixes
+
+- Pass an int64 default to promptIntOnce for WSL processors
+- Merge .wslconfig keys case-insensitively
+- Keep the largest usage per request and resolve rates by source order
+- Ledger advisor-tool usage as its own rows
+
+### Documentation
+
+- Record observed ledger checks
+- Match the Task 4 override error text to the code
+- Gate the Task 6 render check on an interactive route
+- Apply review fixes to the ledger plan and spec
+- Add claude-costs ledger implementation plan
+- Add claude-costs ledger design spec
+
 ## [v0.1.6](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.6) - 2026-09-29
 
 ### Fixes
