@@ -230,35 +230,59 @@ def project_from_path(f: Path) -> str:
     return "/" + name.lstrip("-").replace("-", "/")
 
 
-def row_from_record(r: dict, last_cwd: str | None, fallback: str) -> tuple | None:
-    if r.get("type") != "assistant":
-        return None
-    m = r.get("message") or {}
-    u = m.get("usage")
-    if not isinstance(u, dict):
-        return None
-    model = m.get("model") or "unknown"
-    if model == "<synthetic>":
-        return None
-    rid = r.get("requestId") or m.get("id") or r.get("uuid")
-    if not rid:
-        return None
+def _token_counts(u: dict) -> tuple[int, int, int, int, int]:
+    """(input, output, cache write 5m, cache write 1h, cache read) of a usage
+    object or one of its iterations. Without the per-TTL split the whole
+    cache-creation count is a five-minute write."""
     cc = u.get("cache_creation") or {}
     c5, c1 = cc.get("ephemeral_5m_input_tokens"), cc.get("ephemeral_1h_input_tokens")
     if c5 is None and c1 is None:
         c5, c1 = u.get("cache_creation_input_tokens") or 0, 0
     return (
-        rid,
-        r.get("timestamp") or "",
-        model,
-        r.get("cwd") or last_cwd or fallback,
-        r.get("sessionId") or "",
         u.get("input_tokens") or 0,
         u.get("output_tokens") or 0,
         c5 or 0,
         c1 or 0,
         u.get("cache_read_input_tokens") or 0,
     )
+
+
+def rows_from_record(r: dict, last_cwd: str | None, fallback: str) -> list[tuple]:
+    """Ledger rows for one transcript record: the response itself, plus one row
+    per advisor call. An advisor runs on another model and its usage appears
+    only in usage.iterations (type "advisor_message"), never in the top-level
+    counts; it is keyed <request id>:<iteration index>, which stays stable as
+    later records of the same request add iterations."""
+    if r.get("type") != "assistant":
+        return []
+    m = r.get("message") or {}
+    u = m.get("usage")
+    if not isinstance(u, dict):
+        return []
+    model = m.get("model") or "unknown"
+    if model == "<synthetic>":
+        return []
+    rid = r.get("requestId") or m.get("id") or r.get("uuid")
+    if not rid:
+        return []
+    where = (
+        r.get("timestamp") or "",
+        r.get("cwd") or last_cwd or fallback,
+        r.get("sessionId") or "",
+    )
+    rows = [(rid, where[0], model, *where[1:], *_token_counts(u))]
+    for i, it in enumerate(u.get("iterations") or []):
+        if isinstance(it, dict) and it.get("type") == "advisor_message":
+            rows.append(
+                (
+                    f"{rid}:{i}",
+                    where[0],
+                    it.get("model") or model,
+                    *where[1:],
+                    *_token_counts(it),
+                )
+            )
+    return rows
 
 
 def ingest_file(
@@ -303,8 +327,7 @@ def ingest_file(
                 continue
             if r.get("cwd"):
                 last_cwd = r["cwd"]
-            rec = row_from_record(r, last_cwd, fallback)
-            if rec:
+            for rec in rows_from_record(r, last_cwd, fallback):
                 db.execute(UPSERT, rec[:5] + (account, source) + rec[5:])
                 n += 1
     db.execute(

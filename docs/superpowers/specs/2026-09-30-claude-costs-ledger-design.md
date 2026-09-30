@@ -26,6 +26,12 @@ five independent reasons:
    Anything older is gone, and the per-project `lastCost` counters in
    `~/.claude.json` describe only each project's most recent session.
 
+6. Advisor-tool calls run on a different model and their usage appears only in
+   `usage.iterations`, never in the top-level counts, so it was never counted.
+   On the owner's machine that is about $2,100 at list prices, roughly a fifth
+   of the corrected total. (Found while checking the implementation; the
+   approved design did not mention it.)
+
 Transcripts also carry no account identifier, so per-account reporting is
 impossible from them after the fact.
 
@@ -145,6 +151,13 @@ Row semantics:
   `cache_creation_input_tokens` count is stored as `cache_write_5m`.
 - `project` is the record's `cwd`. A record without one inherits the last cwd
   seen in the same file, else the project directory name decoded from the path.
+- Each `usage.iterations` entry of type `advisor_message` becomes its own row,
+  keyed `<request id>:<iteration index>`, with that entry's model and token
+  counts. The index is stable as later records of the same request add
+  iterations, so the upsert fills in rows instead of duplicating them. Entries
+  of type `message` are already inside the top-level counts, and a
+  `fallback_message` record reports the fallback model at the top level, so
+  neither adds a row.
 
 ## 5. Ingest
 
