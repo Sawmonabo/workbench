@@ -1,6 +1,7 @@
 # claude-costs ledger design
 
-Status: approved design, 2026-09-30. Nothing below is implemented yet. It
+Status: approved design, 2026-09-30. Nothing below is implemented yet. The implementation plan refines a few details
+of it (rates parsing, override validation, refresh back-off). It
 supersedes the transcript-scanning design of the current
 `home/dot_local/bin/executable_claude-costs` script and the claude-costs row in
 [contracts](workbench-contracts.md).
@@ -65,7 +66,7 @@ one rate source inside `rates`, and there is no cache to clean.
 | --- | --- |
 | `~/.local/share/claude-costs/ledger.sqlite` | The durable record. User data; the tool never deletes, renames or recreates it. |
 | `~/.local/share/claude-costs/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. |
-| `~/.config/claude-costs/rates.json` | Manual per-model overrides, highest priority. Same file and shape as today. |
+| `~/.config/claude-costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `~/.local/state/claude-costs/ingest.log` | Bounded worker log. |
 | `~/.local/state/claude-costs/ingest.lock` | Single-instance lock. |
 
@@ -165,7 +166,8 @@ The worker:
 3. Discovers every `*.jsonl` recursively under `<config dir>/projects`, where
    the config dir is `CLAUDE_CONFIG_DIR` if set, else `~/.claude`.
 4. Reads the account email from `<config dir>/.claude.json` at
-   `oauthAccount.emailAddress`, else `unknown`. Rows are tagged with source
+   `oauthAccount.emailAddress`, else `unknown`. (Claude Code keeps that file at
+   `~/.claude.json` when `CLAUDE_CONFIG_DIR` is unset.) Rows are tagged with source
    `session` for rows read from the `transcript_path` argument when the event
    argument is `SessionEnd`, and `sweep` for every other row.
 5. For each file whose size or mtime differs from the `files` row, parses from
@@ -215,7 +217,7 @@ Sources, first match per model wins:
 
 Only the background worker fetches, after ingesting, and only when the cached
 card is older than seven days or the ledger contains a model that no source
-prices. The request is a conditional GET carrying the stored ETag and
+prices, and at most one attempt per day whatever the outcome. The request is a conditional GET carrying the stored ETag and
 Last-Modified, with a five-second timeout. A 304 updates only the fetch time.
 Any network error, non-200 status or parse failure leaves the existing card
 untouched and writes one log line. `rates --refresh` runs the same fetch inline
@@ -223,8 +225,10 @@ and reports the outcome.
 
 ### Page parsing
 
-The page is Markdown. The parser reads every table whose header row contains a
-cell matching `input` and one matching `output`. Columns are mapped by header
+The page is Markdown. The parser reads each table whose header row contains a
+cell matching `input` and one matching `output`. The first table that prices a
+model wins; tables under batch or fast-mode headings are skipped, and names with
+parenthesized notes are cleaned while cells naming several models are dropped. Columns are mapped by header
 text: `input`, `output`, `5m` or `write` for the five-minute write, `1h` for
 the one-hour write, `read` for cache read. Missing write columns are derived as
 1.25x and 2x input. A row is accepted when its first cell names a model and the
@@ -286,7 +290,8 @@ there is no catastrophic-loss path to guard. Observed checks before commit:
 1. Backfill on the owner's machine, then compare the ledger's cost for each
    session whose transcript still exists against that project's `lastCost` in
    `~/.claude.json`. Agreement within a few percent validates parsing and rates
-   together.
+   together, for sessions that ran once. A resumed session's `lastCost` also
+   counts earlier runs and is expected to exceed the ledger's figure.
 2. With the hooks applied, start and end a session and confirm `status` shows a
    newer ingest time, with no output or delay in the session.
 3. `python3 -m py_compile` on the script and a Ruff check with the repository's

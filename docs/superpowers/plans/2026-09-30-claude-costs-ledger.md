@@ -19,16 +19,19 @@
 - Network access happens only in the worker's rate refresh or in `rates --refresh`, with a five-second timeout, conditional GET, and silent fallback to the cached card.
 - All smoke checks run against a scratch config directory and scratch ledger via `CLAUDE_CONFIG_DIR`, `CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES`, `CLAUDE_COSTS_PRICING_URL`. Never write to the real `~/.local/share/claude-costs` or apply settings to the live machine without the owner's explicit go-ahead.
 - No test suite (repository rule). Each task ends with an observed smoke check whose expected output is written down.
-- Conventional commit subjects. End commit messages with `Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>`.
-- Ruff: `uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and `uvx ruff format --check` with the same config must pass before each commit that touches the script.
+- Conventional commit subjects. End commit messages with the attribution line your session's instructions specify.
+- Ruff: `uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and `uvx ruff format --check` with the same config must pass before each commit that touches the script. The installed Ruff (0.16.x) applies its own wide default rule set on top of that config's `extend-select = ["I"]` (bugbear, blind-except, datetime-tz, bandit, simplify, pyupgrade and more), so the code blocks below are written to pass it and are already `ruff format` output; paste them verbatim. Each task's block lists the imports it needs, so every stage lints clean without unused imports.
+- Every code block in this plan was assembled in the order given, and each stage was compiled under Python 3.14 and 3.9 and linted; the Task 1 to 5 smoke checks were run under Python 3.14 (the finished script also end to end under 3.9) on 2026-09-30, so their expected outputs are observed outputs with only timestamps and scratch paths abbreviated. Task 6's render-check and positive merge outputs are predicted from those scripts' own success lines, not observed: the review host was WSL, where they need a terminal.
 
 ## Review Focus
 
-1. A transcript still being written ends in a partial JSON line. Ingest must stop at the last newline, store that offset, and pick the completed line up next run without duplicating the earlier rows. Pinned in Task 2, check 3.
-2. Two Claude Code sessions end within the same second and both spawn a worker. One must ingest and the other must exit on the lock, with nothing lost, because every file is re-examined by the next worker. Pinned in Task 3, check 3.
-3. The pricing page changes shape, drops a column, or returns HTML. The worker must keep the previous card, log one line, and the report must keep pricing from calibration or built-in rates. Pinned in Task 4, checks 2 and 4.
-4. A ledger row's model has no rate anywhere. The report must show its tokens with cost zero and an `(unpriced)` flag rather than crash or hide it. Pinned in Task 5, check 3.
-5. The hook runs on a machine where the ledger directory is not writable or SQLite is locked by a long report. The hook still exits zero silently; the worker writes the error to the log, and to `meta.last_error` whenever the ledger itself could be opened. Pinned in Task 3, check 4.
+1. A transcript still being written ends in a partial JSON line. Ingest must stop at the last newline, store that offset, and pick the completed line up next run without duplicating the earlier rows. Pinned in Task 2, step 3.
+2. Two Claude Code sessions end within the same second and both spawn a worker. One must ingest and the other must exit on the lock, with nothing lost, because every file is re-examined by the next worker. Pinned in Task 3, step 3.
+3. The pricing page changes shape, drops a column, or returns HTML. The worker must keep the previous card, log one line, and the report must keep pricing from calibration or built-in rates. Pinned in Task 4, step 4.
+4. A ledger row's model has no rate anywhere. The report must show its tokens with cost zero and an `(unpriced)` flag rather than crash or hide it. Pinned in Task 5, step 5.
+5. The hook runs on a machine where the ledger directory is not writable or SQLite is locked by a long report. The hook still exits zero silently; the worker writes the error to the log, and to `meta.last_error` whenever the ledger itself could be opened. Pinned in Task 3, step 4.
+6. The live pricing page repeats every model name in later tables at other prices (batch at 50%, fast mode at 2x) and wraps some names in notes and links (`Claude Opus 4 ([retired, except on Google Cloud](…))`). The parser must take the standard table only, or Fable 5.1 silently prices at $5 instead of $10. The fixture page carries such a second table; pinned in Task 4, step 4.
+7. The first worker run, before any official card exists, must not fail on the missing card. Pinned in Task 4, step 4 (`rates` before any fetch) and Task 4, step 6.
 
 ## Scratch fixtures used by every task
 
@@ -59,13 +62,20 @@ cat > "$S/pricing.md" <<'EOF'
 | Claude Fable 5.1 | $10 / MTok | $12.50 / MTok | $20 / MTok | $0.25 / MTok | $50 / MTok |
 | Claude Haiku 4.5 | $1 / MTok | $1.25 / MTok | $2 / MTok | $0.10 / MTok | $5 / MTok |
 
+### Fast mode pricing
+
+| Model | Input | Output |
+| --- | --- | --- |
+| Claude Opus 5.5 | $8 / MTok | $40 / MTok |
+| Claude Opus 5 / Claude Opus 4.8 | $10 / MTok | $50 / MTok |
+
 | Tool | Cost |
 | --- | --- |
 | Web search | $10 / 1K searches |
 EOF
 ```
 
-Expected ledger after a full ingest of these fixtures: two `responses` rows (`req-1` with output 500, `req-3`), `req-2` skipped as synthetic, `req-4` not yet ingested because its line has no newline.
+`$S` must be a directory the checks may write to; the whole block is idempotent, so re-running it restores every fixture file. Expected ledger after a full ingest of these fixtures: two `responses` rows (`req-1` with output 500, `req-3`), `req-2` skipped as synthetic, `req-4` not yet ingested because its line has no newline. The second pricing table mirrors the live page's fast-mode table and must not change the three parsed rates.
 
 ---
 
@@ -75,7 +85,8 @@ Expected ledger after a full ingest of these fixtures: two `responses` rows (`re
 - Rewrite: `home/dot_local/bin/executable_claude-costs` (entire file replaced)
 
 **Interfaces:**
-- Produces: module constants `LEDGER`, `STATE`, `RATES_FILE`, `OFFICIAL_RATES`, `PRICING_URL`, `CLAUDE_DIR`, `CLAUDE_JSON`, `PROJECTS`, `LOG`, `LOCK`, `TOKEN_COLS`, `DEFAULT_ROOTS`; functions `die(msg)`, `info(msg)`, `now() -> str`, `open_ledger(create: bool) -> sqlite3.Connection`, `get_meta(db, key) -> str | None`, `set_meta(db, key, value)`, `parse_opts(args) -> SimpleNamespace`, `main(argv)`, and the `COMMANDS` dict that later tasks add entries to.
+- Produces: module constants `LEDGER`, `STATE`, `RATES_FILE`, `OFFICIAL_RATES`, `PRICING_URL`, `CLAUDE_DIR`, `CLAUDE_JSON`, `PROJECTS`, `LOG`, `LOCK`, `LOG_KEEP`, `RATES_MAX_AGE`, `RATES_RETRY`, `FETCH_TIMEOUT`, `TOKEN_COLS`, `DEFAULT_ROOTS`; functions `die(msg)`, `info(msg)`, `now() -> str`, `open_ledger(create: bool) -> sqlite3.Connection`, `get_meta(db, key) -> str | None`, `set_meta(db, key, value)`, `parse_opts(args) -> SimpleNamespace`, `main(argv)`, and the `COMMANDS` dict that later tasks add entries to.
+- The skeleton imports only what it uses. Tasks 2 to 5 each state the import lines they add; keep the import block sorted as shown (Ruff rule `I`).
 
 - [ ] **Step 1: Replace the file with the skeleton**
 
@@ -97,20 +108,10 @@ Run `claude-costs help` for usage. Design: docs/superpowers/specs/
 
 from __future__ import annotations
 
-import csv
-import fcntl
-import json
 import os
-import re
-import select
 import sqlite3
-import subprocess
 import sys
-import time
-import urllib.error
-import urllib.request
-from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -127,7 +128,8 @@ LEDGER = Path(
     or _xdg("XDG_DATA_HOME", ".local/share") / "claude-costs" / "ledger.sqlite"
 )
 STATE = Path(
-    os.environ.get("CLAUDE_COSTS_STATE") or _xdg("XDG_STATE_HOME", ".local/state") / "claude-costs"
+    os.environ.get("CLAUDE_COSTS_STATE")
+    or _xdg("XDG_STATE_HOME", ".local/state") / "claude-costs"
 )
 RATES_FILE = Path(
     os.environ.get("CLAUDE_COSTS_RATES")
@@ -141,12 +143,17 @@ PRICING_URL = (
 CLAUDE_DIR = Path(os.environ.get("CLAUDE_CONFIG_DIR") or HOME / ".claude")
 # Claude Code keeps .claude.json inside CLAUDE_CONFIG_DIR when that is set,
 # and directly in $HOME otherwise.
-CLAUDE_JSON = CLAUDE_DIR / ".claude.json" if os.environ.get("CLAUDE_CONFIG_DIR") else HOME / ".claude.json"
+CLAUDE_JSON = (
+    CLAUDE_DIR / ".claude.json"
+    if os.environ.get("CLAUDE_CONFIG_DIR")
+    else HOME / ".claude.json"
+)
 PROJECTS = CLAUDE_DIR / "projects"
 LOG = STATE / "ingest.log"
 LOCK = STATE / "ingest.lock"
 LOG_KEEP = 200 * 1024
-RATES_MAX_AGE = 7 * 86400
+RATES_MAX_AGE = 7 * 86400  # refetch the official card after this
+RATES_RETRY = 86400  # but never try more often than this
 FETCH_TIMEOUT = 5
 # Default report scope: only projects under these roots. `--all` lifts it.
 DEFAULT_ROOTS = [HOME / "dev", HOME / "repos"]
@@ -218,12 +225,15 @@ def set_meta(db: sqlite3.Connection, key: str, value: str) -> None:
 
 
 def open_ledger(create: bool) -> sqlite3.Connection:
-    """Open the ledger. Never deletes, renames or rebuilds an existing file."""
-    exists = LEDGER.is_file()
+    """Open the ledger. Never deletes, renames or rebuilds an existing file.
+
+    A zero-byte file (a crash between creating the file and writing the
+    schema) holds nothing and is treated as absent."""
+    exists = LEDGER.is_file() and LEDGER.stat().st_size > 0
     if not exists and not create:
         die(f"no ledger at {LEDGER}; run `claude-costs ingest --worker` first")
-    LEDGER.parent.mkdir(parents=True, exist_ok=True)
     try:
+        LEDGER.parent.mkdir(parents=True, exist_ok=True)
         db = sqlite3.connect(str(LEDGER), timeout=5)
         db.execute("PRAGMA journal_mode=WAL")
         if exists:
@@ -234,12 +244,14 @@ def open_ledger(create: bool) -> sqlite3.Connection:
                 die(f"{LEDGER} exists but is not a claude-costs ledger; move it aside")
             version = get_meta(db, "schema_version")
             if version != SCHEMA_VERSION:
-                die(f"{LEDGER}: schema version {version!r}, this tool needs {SCHEMA_VERSION}")
+                die(
+                    f"{LEDGER}: schema version {version!r}, this tool needs {SCHEMA_VERSION}"
+                )
         else:
             db.executescript(SCHEMA)
             set_meta(db, "schema_version", SCHEMA_VERSION)
             db.commit()
-    except sqlite3.Error as e:
+    except (OSError, sqlite3.Error) as e:
         die(f"{LEDGER}: {e}")
     return db
 
@@ -272,30 +284,53 @@ COMMANDS = {"help": cmd_help}
 
 def parse_opts(args: list[str]) -> SimpleNamespace:
     o = SimpleNamespace(
-        by="project", since=None, until=None, all=False, top=0, sort="cost",
-        compact=False, rollup=True, json=False, csv=False, refresh=False,
-        worker=False, quiet=False, rest=[],
+        by="project",
+        since=None,
+        until=None,
+        all=False,
+        top=0,
+        sort="cost",
+        compact=False,
+        rollup=True,
+        json=False,
+        csv=False,
+        refresh=False,
+        worker=False,
+        quiet=False,
+        rest=[],
     )
     it = iter(args)
-    for a in it:
-        def value() -> str:
-            v = next(it, None)
-            if v is None:
-                die(f"{a} needs a value")
-            return v
 
+    def value(flag: str) -> str:
+        v = next(it, None)
+        if v is None:
+            die(f"{flag} needs a value")
+        return v
+
+    def day(flag: str) -> str:
+        v = value(flag)
+        try:
+            date.fromisoformat(v)
+        except ValueError:
+            die(f"{flag} needs a YYYY-MM-DD date")
+        return v
+
+    for a in it:
         if a == "--by":
-            o.by = value()
+            o.by = value(a)
             if o.by not in ("project", "model", "account", "month"):
                 die("--by must be project, model, account or month")
         elif a == "--since":
-            o.since = value()
+            o.since = day(a)
         elif a == "--until":
-            o.until = value()
+            o.until = day(a)
         elif a == "--top":
-            o.top = int(value())
+            v = value(a)
+            if not v.isdigit():
+                die("--top needs a whole number")
+            o.top = int(v)
         elif a == "--sort":
-            o.sort = value()
+            o.sort = value(a)
             if o.sort not in ("cost", "name", "calls"):
                 die("--sort must be cost, name or calls")
         elif a == "--all":
@@ -336,7 +371,9 @@ if __name__ == "__main__":
     try:
         main(sys.argv[1:])
     except KeyboardInterrupt:
-        raise SystemExit(130)
+        raise SystemExit(130) from None
+    except BrokenPipeError:
+        os._exit(0)  # piping into `head` is normal usage
 ```
 
 Until Task 5 registers `report`, running `claude-costs` with no subcommand prints `unknown command 'report'`. That is expected.
@@ -350,7 +387,7 @@ python3 -m py_compile home/dot_local/bin/executable_claude-costs
 uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
 uvx ruff format --check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
 ```
-Expected: no output from py_compile, `All checks passed!` from ruff check. If `ruff format --check` reports the file would be reformatted, run `uvx ruff format --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and re-check.
+Expected: no output from py_compile, `All checks passed!` from ruff check, `1 file already formatted` from ruff format. If `ruff format --check` reports the file would be reformatted, a block was not pasted verbatim: run `uvx ruff format --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs`, re-check, and keep the formatted result. On macOS also run `/usr/bin/python3 -m py_compile home/dot_local/bin/executable_claude-costs` (the system Python 3.9) when it is available.
 
 - [ ] **Step 3: Smoke check the ledger open path**
 
@@ -372,23 +409,24 @@ except SystemExit as e:
 db = sqlite3.connect(os.environ["CLAUDE_COSTS_LEDGER"]); db.execute("UPDATE meta SET value='1' WHERE key='schema_version'"); db.commit()
 EOF
 ```
-Expected:
+Expected (the `claude-costs: …` line goes to stderr, so it may appear before the `tables:` line when both streams share a terminal):
 ```
 claude-costs — Claude Code spend from a durable local ledger
+
+  claude-costs [report] [--by project|model|account|month] [--since D] [--until D]
 tables: ['files', 'meta', 'responses']
 version: 1
 journal: wal
 claude-costs: /…/data/ledger.sqlite: schema version '99', this tool needs 1
 wrong version exits: 1
 ```
+Also confirm `python3 home/dot_local/bin/executable_claude-costs; echo "exit=$?"` prints `claude-costs: unknown command 'report' (see `claude-costs help`)` and `exit=1` at this stage, and that `--top x`, `--since 2026-9-2` and `--bogus` each exit 1 with a one-line reason.
 
 - [ ] **Step 4: Commit**
 
 ```bash
 git add home/dot_local/bin/executable_claude-costs
-git commit -m "feat(claude-costs): ledger schema and command skeleton
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude-costs): ledger schema and command skeleton"
 ```
 
 ---
@@ -396,15 +434,29 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 2: Transcript parsing and the ingest worker
 
 **Files:**
-- Modify: `home/dot_local/bin/executable_claude-costs` (insert a `# ---- ingest` section between the ledger section and the commands section)
+- Modify: `home/dot_local/bin/executable_claude-costs` (insert a `# ---- ingest` section between the ledger section and the commands section; add two imports)
 
 **Interfaces:**
 - Consumes: `open_ledger`, `get_meta`, `set_meta`, `now`, `PROJECTS`, `CLAUDE_JSON`, `LOG`, `LOCK`, `STATE`, `LOG_KEEP`.
-- Produces: `log(msg: str)`, `current_account() -> str`, `discover() -> list[Path]`, `project_from_path(f: Path) -> str`, `row_from_record(r: dict, last_cwd: str | None, fallback: str) -> tuple | None`, `ingest_file(db, f: Path, account: str, source: str) -> int | None`, `ingest_worker(event: str, transcript: str, progress: bool = False) -> None`, `refresh_rates_if_needed(db) -> str` (stub replaced in Task 4; until then returns `"rates: not configured"`).
+- Produces: `UPSERT`, `log(msg: str)`, `truncate_log()`, `current_account() -> str`, `discover() -> list[Path]`, `project_from_path(f: Path) -> str`, `row_from_record(r: dict, last_cwd: str | None, fallback: str) -> tuple | None`, `ingest_file(db, f: Path, account: str, source: str) -> int | None`, `belongs_to_session(f: Path, transcript: str) -> bool`, `ingest_worker(event: str, transcript: str, progress: bool = False) -> None` (takes the lock, never raises) wrapping `_ingest_locked(event, transcript, progress)` (the actual pass), and `refresh_rates_if_needed(db) -> str` (stub replaced in Task 4; until then returns `"rates: not configured"`).
 
 - [ ] **Step 1: Add the ingest section**
 
-Insert after the ledger section (after `open_ledger`) and before `# ---- commands`:
+Replace the import block of the skeleton with this one (two lines added, `fcntl` and `time`):
+
+```python
+import fcntl
+import json
+import os
+import sqlite3
+import sys
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+```
+
+Then insert the following after the ledger section (after `open_ledger`, separated by two blank lines) and before `# ---- commands`:
 
 ```python
 # ---------------------------------------------------------------- ingest
@@ -443,7 +495,7 @@ def current_account() -> str:
     try:
         data = json.loads(CLAUDE_JSON.read_text())
         return (data.get("oauthAccount") or {}).get("emailAddress") or "unknown"
-    except (OSError, ValueError):
+    except (OSError, ValueError, AttributeError):
         return "unknown"
 
 
@@ -495,19 +547,23 @@ def row_from_record(r: dict, last_cwd: str | None, fallback: str) -> tuple | Non
     )
 
 
-def ingest_file(db: sqlite3.Connection, f: Path, account: str, source: str) -> int | None:
+def ingest_file(
+    db: sqlite3.Connection, f: Path, account: str, source: str
+) -> int | None:
     """Ingest new bytes of one transcript in one transaction.
 
-    Returns the number of upserted rows, or None when the file was unchanged
-    or has vanished. Stops at the last complete line so a transcript still
-    being written is picked up next run from that offset."""
+    Returns the number of upserted records, or None when the file was
+    unchanged or has vanished. Stops at the last complete line so a
+    transcript still being written is picked up next run from that offset."""
     try:
         st = f.stat()
     except FileNotFoundError:
         db.execute("DELETE FROM files WHERE path = ?", (str(f),))
         db.commit()
         return None
-    prev = db.execute("SELECT offset, size, mtime_ns FROM files WHERE path = ?", (str(f),)).fetchone()
+    prev = db.execute(
+        "SELECT offset, size, mtime_ns FROM files WHERE path = ?", (str(f),)
+    ).fetchone()
     offset = 0
     if prev:
         if prev[1] == st.st_size and prev[2] == st.st_mtime_ns:
@@ -528,10 +584,12 @@ def ingest_file(db: sqlite3.Connection, f: Path, account: str, source: str) -> i
             try:
                 r = json.loads(raw)
             except ValueError:
+                continue  # a malformed line is skipped, as the design says
+            if not isinstance(r, dict):
                 continue
-            if isinstance(r, dict) and r.get("cwd"):
+            if r.get("cwd"):
                 last_cwd = r["cwd"]
-            rec = row_from_record(r, last_cwd, fallback) if isinstance(r, dict) else None
+            rec = row_from_record(r, last_cwd, fallback)
             if rec:
                 db.execute(UPSERT, rec[:5] + (account, source) + rec[5:])
                 n += 1
@@ -545,10 +603,6 @@ def ingest_file(db: sqlite3.Connection, f: Path, account: str, source: str) -> i
     return n
 
 
-def refresh_rates_if_needed(db: sqlite3.Connection) -> str:
-    return "rates: not configured"
-
-
 def belongs_to_session(f: Path, transcript: str) -> bool:
     """The SessionEnd transcript is <dir>/<sid>.jsonl; its subagents live under
     <dir>/<sid>/. Both are that session's rows."""
@@ -559,26 +613,59 @@ def belongs_to_session(f: Path, transcript: str) -> bool:
 
 
 def ingest_worker(event: str, transcript: str, progress: bool = False) -> None:
-    STATE.mkdir(parents=True, exist_ok=True)
-    lock_fh = LOCK.open("w")
+    """Single-instance ingest. Never raises: every failure goes to the log and,
+    when the ledger could be opened, to meta.last_error."""
     try:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        log("skip: another worker holds the lock")
+        STATE.mkdir(parents=True, exist_ok=True)
+        lock_fh = LOCK.open("w")
+    except OSError as e:
+        print(f"claude-costs: cannot open state dir {STATE}: {e}", file=sys.stderr)
         return
+    with lock_fh:
+        try:
+            fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            log("skip: another worker holds the lock")
+            return
+        try:
+            _ingest_locked(event, transcript, progress)
+        except SystemExit as e:
+            # die() already printed its reason to stderr, which is the log
+            # when the hook spawned this worker.
+            log(f"error: exit {e.code}")
+        except Exception as e:  # noqa: BLE001 - a background worker records, never raises
+            log(f"error: {type(e).__name__}: {e}")
+
+
+def _ingest_locked(event: str, transcript: str, progress: bool) -> None:
     truncate_log()
     t0 = time.time()
     db = open_ledger(create=True)
     account = current_account()
     files = discover()
     n_files = n_rows = 0
-    errors = []
+    errors: list[str] = []
     for i, f in enumerate(files, 1):
         if progress:
-            print(f"\r{DIM}  ingesting {i}/{len(files)} {f.parent.name[:40]:<40}{OFF}", end="", file=sys.stderr, flush=True)
-        source = "session" if event == "SessionEnd" and belongs_to_session(f, transcript) else "sweep"
+            print(
+                f"\r{DIM}  ingesting {i}/{len(files)} {f.parent.name[:40]:<40}{OFF}",
+                end="",
+                file=sys.stderr,
+                flush=True,
+            )
+        source = (
+            "session"
+            if event == "SessionEnd" and belongs_to_session(f, transcript)
+            else "sweep"
+        )
         try:
             n = ingest_file(db, f, account, source)
+        except sqlite3.OperationalError as e:
+            # The ledger itself is unusable (locked beyond the timeout, disk
+            # full): stop here, files committed so far stay committed.
+            db.rollback()
+            errors.append(f"{f}: {type(e).__name__}: {e}")
+            break
         except (OSError, sqlite3.Error, ValueError) as e:
             db.rollback()
             errors.append(f"{f}: {type(e).__name__}: {e}")
@@ -589,27 +676,33 @@ def ingest_worker(event: str, transcript: str, progress: bool = False) -> None:
     if progress:
         print(file=sys.stderr)
     rates_msg = refresh_rates_if_needed(db)
-    summary = f"{event or 'manual'}: {n_files} files, {n_rows} rows in {time.time() - t0:.1f}s; {rates_msg}"
+    summary = (
+        f"{event or 'manual'}: {n_files} files, {n_rows} records "
+        f"in {time.time() - t0:.1f}s; {rates_msg}"
+    )
     set_meta(db, "last_ingest_at", now())
     set_meta(db, "last_ingest_summary", summary)
     set_meta(db, "last_error", "; ".join(errors))
     db.commit()
+    db.close()
     log(summary + (f"; {len(errors)} errors" if errors else ""))
     for err in errors:
         log("error: " + err)
-    db.close()
-    lock_fh.close()
+
+
+def refresh_rates_if_needed(db: sqlite3.Connection) -> str:
+    return "rates: not configured"  # replaced by the rates section in Task 4
 ```
 
 - [ ] **Step 2: Add the `ingest` command, worker path only for now**
 
-In the commands section, before `COMMANDS = {...}`, add:
+In the commands section, after `cmd_help` and before `COMMANDS = {...}`, add (Task 3 replaces this with the hook-aware version):
 
 ```python
 def cmd_ingest(opts: SimpleNamespace) -> None:
     if not opts.worker:
         die("use `claude-costs ingest --worker`")
-    args = [a for a in opts.rest if a != "ingest"]
+    args = opts.rest[1:]  # positional after the subcommand: event, transcript
     event = args[0] if args else ""
     transcript = args[1] if len(args) > 1 else ""
     ingest_worker(event, transcript, progress=not opts.quiet and sys.stderr.isatty())
@@ -627,18 +720,18 @@ sqlite3 "$S/data/ledger.sqlite" "SELECT request_id, model, project, account, acc
 sqlite3 "$S/data/ledger.sqlite" "SELECT substr(path, -30), offset, size FROM files ORDER BY 1;"
 sqlite3 "$S/data/ledger.sqlite" "SELECT key, value FROM meta ORDER BY 1;"
 ```
-Expected (paths abbreviated):
+Expected (`substr(path, -30)` shows the last 30 characters of each path):
 ```
 req-1|claude-opus-5-5|/home/u/dev/app|synthetic@example.test|session|500|40|60|1000
 req-3|claude-fable-5-1|/home/u/dev/app/.worktrees/feat|synthetic@example.test|session|20|300|0|0
--dev-app/s1/subagents/agent-x.jsonl|<size>|<size>
-…/-home-u-dev-app/s1.jsonl|<offset smaller than size>|<size>
+app/s1/subagents/agent-x.jsonl|293|293
+jects/-home-u-dev-app/s1.jsonl|1064|1144
 last_error|
 last_ingest_at|2026-…
-last_ingest_summary|SessionEnd: 2 files, 3 rows in 0.0s; rates: not configured
+last_ingest_summary|SessionEnd: 2 files, 3 records in 0.0s; rates: not configured
 schema_version|1
 ```
-Check 1: `req-1` output is 500, the final record, not 5. Check 2: `req-2` is absent. Check 3: for `s1.jsonl`, `offset` is smaller than `size` by the length of the partial `req-4` line.
+Check 1: `req-1` output is 500, the final record, not 5. Check 2: `req-2` is absent. Check 3: for `s1.jsonl`, `offset` (1064) is smaller than `size` (1144) by the 80 bytes of the partial `req-4` line. The summary counts upserted records (`req-1` twice, `req-3` once), not distinct rows.
 
 - [ ] **Step 4: Check idempotency, the partial-line pickup, and truncation**
 
@@ -654,21 +747,19 @@ sqlite3 "$S/data/ledger.sqlite" "SELECT offset FROM files WHERE path LIKE '%/s1.
 ```
 Expected, in order:
 ```
-manual: 0 files, 0 rows in 0.0s; rates: not configured
+manual: 0 files, 0 records in 0.0s; rates: not configured
 3|522
 sweep
-<offset equal to the length of the first complete line only, i.e. 200 or less>
+133
 ```
-The first line shows unchanged files are skipped. The second shows `req-4` arrived once its newline did and was tagged `sweep` under SessionStart. The last shows a shrunken file was reparsed from zero.
+The first line shows unchanged files are skipped. The second shows `req-4` arrived once its newline did and was tagged `sweep` under SessionStart. The last shows a shrunken file was reparsed from zero: 133 is the length of the first (user) line, the only complete line in the 200-byte file. The ledger still holds 3 rows; nothing is ever deleted from `responses`.
 
 - [ ] **Step 5: Restore the fixture and commit**
 
 Re-run the fixture block from the top of this document to restore `s1.jsonl`, then:
 ```bash
 git add home/dot_local/bin/executable_claude-costs
-git commit -m "feat(claude-costs): ingest transcripts into the ledger by offset
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude-costs): ingest transcripts into the ledger by offset"
 ```
 
 ---
@@ -676,7 +767,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 3: Hook entry point, detach, lock behavior
 
 **Files:**
-- Modify: `home/dot_local/bin/executable_claude-costs` (`cmd_ingest`)
+- Modify: `home/dot_local/bin/executable_claude-costs` (`cmd_ingest` only, plus three imports)
 
 **Interfaces:**
 - Consumes: `ingest_worker`, `STATE`, `LOG`.
@@ -684,72 +775,73 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - [ ] **Step 1: Replace `cmd_ingest`**
 
+Add `contextlib`, `select` and `subprocess` to the import block, which becomes:
+
+```python
+import contextlib
+import fcntl
+import json
+import os
+import select
+import sqlite3
+import subprocess
+import sys
+import time
+from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+```
+
+Then replace the Task 2 `cmd_ingest` with these two functions, in this order, at the same place (after `cmd_help`):
+
 ```python
 def read_hook_input() -> tuple[str, str]:
-    """Claude Code pipes a JSON object on stdin. A terminal or an empty pipe
-    yields ('', ''). Never blocks longer than half a second."""
+    """Claude Code pipes a JSON object on stdin. A terminal, a closed or empty
+    stdin, or anything unreadable yields ('', ''). Never blocks longer than
+    half a second waiting for the first byte."""
     try:
-        if sys.stdin.isatty():
+        if sys.stdin is None or sys.stdin.isatty():
             return "", ""
         ready, _, _ = select.select([sys.stdin], [], [], 0.5)
         if not ready:
             return "", ""
         h = json.loads(sys.stdin.read() or "{}")
         return str(h.get("hook_event_name") or ""), str(h.get("transcript_path") or "")
-    except (OSError, ValueError):
+    except Exception:  # noqa: BLE001 - the hook contract is silence
         return "", ""
 
 
 def cmd_ingest(opts: SimpleNamespace) -> None:
-    args = [a for a in opts.rest if a != "ingest"]
+    args = opts.rest[1:]  # positional after the subcommand: event, transcript
     if opts.worker:
         event = args[0] if args else ""
         transcript = args[1] if len(args) > 1 else ""
-        ingest_worker(event, transcript, progress=not opts.quiet and sys.stderr.isatty())
+        ingest_worker(
+            event, transcript, progress=not opts.quiet and sys.stderr.isatty()
+        )
         return
     # Hook path: never print, never fail, never wait for the worker.
-    try:
+    with contextlib.suppress(Exception):
         event, transcript = read_hook_input()
         STATE.mkdir(parents=True, exist_ok=True)
         with LOG.open("ab") as log_fh:
             subprocess.Popen(
-                [sys.executable, os.path.abspath(__file__), "ingest", "--worker", "--quiet", event, transcript],
+                [
+                    sys.executable,
+                    os.path.abspath(__file__),
+                    "ingest",
+                    "--worker",
+                    "--quiet",
+                    event,
+                    transcript,
+                ],
                 stdin=subprocess.DEVNULL,
                 stdout=log_fh,
                 stderr=log_fh,
                 start_new_session=True,
                 close_fds=True,
             )
-    except Exception:  # noqa: BLE001 - the hook contract is silence
-        pass
 ```
-
-Also make `ingest_worker` robust to the worker being spawned when the ledger directory cannot be created: wrap its body after the lock in `try/except Exception as e:` that calls `log(f"error: {type(e).__name__}: {e}")` and returns. Concretely, change the start of `ingest_worker` to:
-
-```python
-def ingest_worker(event: str, transcript: str, progress: bool = False) -> None:
-    try:
-        STATE.mkdir(parents=True, exist_ok=True)
-        lock_fh = LOCK.open("w")
-    except OSError as e:
-        print(f"claude-costs: cannot open state dir {STATE}: {e}", file=sys.stderr)
-        return
-    try:
-        fcntl.flock(lock_fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        log("skip: another worker holds the lock")
-        return
-    try:
-        _ingest_locked(event, transcript, progress)
-    except SystemExit as e:  # die() inside the worker: already printed to the log stream
-        log(f"error: exit {e.code}")
-    except Exception as e:  # noqa: BLE001 - background worker must record, not raise
-        log(f"error: {type(e).__name__}: {e}")
-    finally:
-        lock_fh.close()
-```
-
-and move everything from `truncate_log()` to `db.close()` into a new function `_ingest_locked(event: str, transcript: str, progress: bool) -> None` unchanged.
 
 - [ ] **Step 2: Compile and lint** as in Task 1 step 2.
 
@@ -757,8 +849,8 @@ and move everything from `truncate_log()` to `db.close()` into a new function `_
 
 ```bash
 rm -f "$S/data/ledger.sqlite"* "$S/state/ingest.log"
-start=$(date +%s%N)
-printf '{"hook_event_name":"SessionStart","transcript_path":"","cwd":"/x"}' | python3 home/dot_local/bin/executable_claude-costs ingest > "$S/out" 2> "$S/err"; echo "exit=$? ms=$(( ($(date +%s%N) - start) / 1000000 ))"
+TIMEFORMAT='hook wall time %Rs'
+time (printf '{"hook_event_name":"SessionStart","transcript_path":"","cwd":"/x"}' | python3 home/dot_local/bin/executable_claude-costs ingest > "$S/out" 2> "$S/err"; echo "exit=$?")
 wc -c "$S/out" "$S/err"
 python3 - <<'EOF'
 import os, sqlite3, time
@@ -781,15 +873,21 @@ import time; time.sleep(0.5)
 EOF
 python3 home/dot_local/bin/executable_claude-costs ingest --worker; tail -1 "$S/state/ingest.log"
 wait
+python3 home/dot_local/bin/executable_claude-costs ingest <&- ; echo "closed-stdin exit=$?"; sleep 1; tail -1 "$S/state/ingest.log"
 ```
-Expected:
+`time` with `TIMEFORMAT` is a bash builtin, so this also works with BSD `date` on macOS. Expected (`wc -c` pads its columns differently on macOS; the byte counts are what matter):
 ```
-exit=0 ms=<under 300>
+exit=0
+hook wall time 0.0…s
 0 …/out
 0 …/err
-worker finished: SessionStart: 2 files, 3 rows in 0.0s; rates: not configured
+0 total
+worker finished: SessionStart: 2 files, 3 records in 0.0s; rates: not configured
 2026-… skip: another worker holds the lock
+closed-stdin exit=0
+2026-… manual: 0 files, 0 records in 0.0s; rates: not configured
 ```
+The wall time is well under 0.3 s (0.023 s observed): the hook returns as soon as the worker is spawned. The last two lines show that a closed stdin still spawns a worker (with no event) instead of aborting the hook.
 
 - [ ] **Step 4: Check an unwritable ledger directory stays silent and is recorded**
 
@@ -800,16 +898,15 @@ printf '{"hook_event_name":"SessionEnd"}' | python3 home/dot_local/bin/executabl
 python3 -c "import time; time.sleep(1)"
 tail -2 "$S/state/ingest.log"
 chmod 700 "$S/data"
+ls "$S/data"
 ```
-Expected: `exit=0` with no other output from the hook, and the log tail contains a line beginning `claude-costs: …/data/ledger.sqlite: unable to open database file` (from `die` inside the worker, whose stderr is the log) followed by `… error: exit 1`. No ledger file was created. Later tasks recreate the ledger on their first worker run.
+Expected: `exit=0` with no other output from the hook, and the log tail contains a line beginning `claude-costs: …/data/ledger.sqlite: unable to open database file` (from `die` inside the worker, whose stderr is the log) followed by `… error: exit 1`. The final `ls` prints nothing: no ledger file was created. Later tasks recreate the ledger on their first worker run.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add home/dot_local/bin/executable_claude-costs
-git commit -m "feat(claude-costs): silent detached hook entry with single-instance lock
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude-costs): silent detached hook entry with single-instance lock"
 ```
 
 ---
@@ -817,123 +914,206 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 4: Rate card: built-in, overrides, calibration, official page, refresh policy
 
 **Files:**
-- Modify: `home/dot_local/bin/executable_claude-costs` (new `# ---- rates` section after the ingest section; replace the `refresh_rates_if_needed` stub; add `cmd_rates`)
+- Modify: `home/dot_local/bin/executable_claude-costs` (new `# ---- rates` section after the ingest section; delete the `refresh_rates_if_needed` stub; add `cmd_rates`; add five imports)
 
 **Interfaces:**
-- Consumes: `CLAUDE_JSON`, `OFFICIAL_RATES`, `RATES_FILE`, `PRICING_URL`, `RATES_MAX_AGE`, `FETCH_TIMEOUT`, `TOKEN_COLS`, `log`, `get_meta`.
-- Produces: `BUILTIN_RATES: dict`, `RATE_FIELDS = TOKEN_COLS`, `normalize_model(name: str) -> str | None`, `parse_pricing_markdown(text: str) -> dict[str, dict[str, float]]`, `refresh_official(force: bool) -> str`, `calibrated_rates() -> dict`, `load_card() -> dict[str, dict]` (each value has the five rate fields plus `"source"`), `rate_for(model: str, card: dict) -> dict | None`, `cost_of(tokens: dict, rate: dict) -> float`, `refresh_rates_if_needed(db) -> str`, `cmd_rates`.
+- Consumes: `CLAUDE_JSON`, `OFFICIAL_RATES`, `RATES_FILE`, `PRICING_URL`, `RATES_MAX_AGE`, `RATES_RETRY`, `FETCH_TIMEOUT`, `TOKEN_COLS`, `die`.
+- Produces: `BUILTIN_RATES: dict`, `RATE_FIELDS = TOKEN_COLS`, `normalize_model(name: str) -> str | None`, `parse_pricing_markdown(text: str) -> dict[str, dict[str, float]]`, `_read_official() -> dict` (always has a `"rates"` dict, empty until a fetch parsed rows), `_write_official(data)`, `refresh_official(force: bool) -> str`, `calibrated_rates() -> dict`, `_read_overrides() -> dict`, `load_card() -> dict[str, dict]` (each value has the five rate fields plus `"source"`), `rate_for(model: str, card: dict) -> dict | None`, `cost_of(tokens: dict, rate: dict) -> float`, `refresh_rates_if_needed(db) -> str`, `cmd_rates`.
+- Policy pinned in this code, beyond the spec's wording: the first pricing table that names a model wins and tables under a batch or fast-mode heading are skipped (Review Focus 6); the manual overrides file accepts only the five rate fields and rejects anything else with the file and key named (no silent ignore, no legacy `cache_write` alias, per the repository's no-compatibility-readers rule); a partial override completes itself from the prefix-matched rate beneath it; calibration keeps a built-in field value where its token column carries under 0.5% of the observed mass and rejects fits whose residual exceeds 5% of the observed cost; the worker fetches when the card is missing, older than seven days, or a ledger model is unpriced, but never more than once a day (`checked_at`), so an offline machine or a permanently unpriced model does not cost a network timeout per session.
 
 - [ ] **Step 1: Add the rates section**
 
-Insert after the ingest section, and delete the stub `refresh_rates_if_needed` from Task 2:
+Add `http.client`, `re`, `urllib.error`, `urllib.request` and `defaultdict` to the import block, which becomes:
+
+```python
+import contextlib
+import fcntl
+import http.client
+import json
+import os
+import re
+import select
+import sqlite3
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from collections import defaultdict
+from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+```
+
+Delete the three-line `refresh_rates_if_needed` stub at the end of the ingest section, then insert the following after the ingest section (before `# ---- commands`):
 
 ```python
 # ---------------------------------------------------------------- rates
 
 RATE_FIELDS = TOKEN_COLS  # USD per 1,000,000 tokens, same order as the ledger columns
 
-# List prices as of 2026-09-30. Longest prefix wins, so a family row is the
-# fallback for ids no specific row covers. Official page and calibration
-# override these at runtime; the manual overrides file wins over everything.
+# List prices read from the pricing page on 2026-09-30, in RATE_FIELDS order.
+# Longest prefix wins, so a family row is the fallback for ids no specific
+# row covers. The official card and calibration override these at runtime;
+# the manual overrides file wins over everything.
 BUILTIN_RATES = {
     "claude-fable-5-1": (10.0, 50.0, 12.5, 20.0, 0.25),
     "claude-fable-5": (10.0, 50.0, 12.5, 20.0, 1.0),
-    "claude-opus-5-5": (4.0, 20.0, 5.0, 8.0, 0.20),
+    "claude-fable": (10.0, 50.0, 12.5, 20.0, 1.0),
+    "claude-mythos-5-1": (10.0, 50.0, 12.5, 20.0, 0.25),
+    "claude-mythos-5": (10.0, 50.0, 12.5, 20.0, 1.0),
+    "claude-opus-5-5": (4.0, 20.0, 5.0, 8.0, 0.2),
     "claude-opus-5": (5.0, 25.0, 6.25, 10.0, 0.5),
+    "claude-opus-4-8": (5.0, 25.0, 6.25, 10.0, 0.5),
+    "claude-opus-4-7": (5.0, 25.0, 6.25, 10.0, 0.5),
+    "claude-opus-4-6": (5.0, 25.0, 6.25, 10.0, 0.5),
+    "claude-opus-4-5": (5.0, 25.0, 6.25, 10.0, 0.5),
     "claude-opus-4-1": (15.0, 75.0, 18.75, 30.0, 1.5),
-    "claude-opus-4": (5.0, 25.0, 6.25, 10.0, 0.5),
+    "claude-opus-4": (15.0, 75.0, 18.75, 30.0, 1.5),
     "claude-opus": (5.0, 25.0, 6.25, 10.0, 0.5),
-    "claude-sonnet-5": (2.0, 10.0, 2.5, 4.0, 0.20),
+    "claude-sonnet-5-5": (2.0, 10.0, 2.5, 4.0, 0.2),
+    "claude-sonnet-5": (2.0, 10.0, 2.5, 4.0, 0.2),
+    "claude-sonnet-4-6": (3.0, 15.0, 3.75, 6.0, 0.3),
+    "claude-sonnet-4-5": (3.0, 15.0, 3.75, 6.0, 0.3),
     "claude-sonnet-4": (3.0, 15.0, 3.75, 6.0, 0.3),
     "claude-sonnet": (3.0, 15.0, 3.75, 6.0, 0.3),
     "claude-haiku-4-5": (1.0, 5.0, 1.25, 2.0, 0.1),
+    "claude-haiku-3-5": (0.8, 4.0, 1.0, 1.6, 0.08),
     "claude-haiku": (1.0, 5.0, 1.25, 2.0, 0.1),
 }
 
 _MONEY = re.compile(r"\$\s*([0-9]+(?:\.[0-9]+)?)")
+_MARKUP = re.compile(
+    r"[`*_]|<[^>]*>|\[|\]\([^)]*\)"
+)  # emphasis, HTML tags, link targets
+_NOTE = re.compile(r"\s*\(.*$")  # a trailing parenthesized note such as "(retired)"
 
 
-def _row(values, source: str) -> dict:
+def _row(values: tuple[float, ...], source: str) -> dict:
     return dict(zip(RATE_FIELDS, values), source=source)
 
 
 def normalize_model(name: str) -> str | None:
-    """'Claude Opus 5.5' -> 'claude-opus-5-5'; an id is returned as is."""
-    s = re.sub(r"[`*_]|\[|\]\([^)]*\)", "", name).strip().lower()
-    if not s.startswith("claude"):
+    """'Claude Opus 5.5' -> 'claude-opus-5-5'; an id is returned as is.
+
+    A cell that names several models ('/', ',', ' and ') or none gives None."""
+    s = _NOTE.sub("", _MARKUP.sub("", name)).strip().lower()
+    if not s.startswith("claude") or "/" in s or "," in s or " and " in s:
         return None
-    if " " not in s and s.startswith("claude-"):
-        return s
-    s = s[len("claude"):].strip()
-    s = re.sub(r"[.\s]+", "-", s).strip("-")
+    if " " not in s:
+        return s if s.startswith("claude-") else None
+    s = re.sub(r"[.\s]+", "-", s[len("claude") :].strip()).strip("-")
     return f"claude-{s}" if s else None
 
 
+def _find_col(
+    headers: list[str], keys: tuple[str, ...], exclude: tuple[str, ...] = ()
+) -> int | None:
+    for j, h in enumerate(headers):
+        if any(k in h for k in keys) and not any(x in h for x in exclude):
+            return j
+    return None
+
+
+def _money(cells: list[str], j: int | None) -> float | None:
+    if j is None or j >= len(cells):
+        return None
+    m = _MONEY.search(cells[j])
+    return float(m.group(1)) if m else None
+
+
 def parse_pricing_markdown(text: str) -> dict[str, dict[str, float]]:
-    """Read every Markdown table with an input and an output column."""
+    """Read every Markdown table with an input and an output column.
+
+    The first table that prices a model wins, and tables under a batch or
+    fast-mode heading are skipped: the page repeats model names there at
+    discounted or premium rates."""
     card: dict[str, dict[str, float]] = {}
     lines = text.splitlines()
+    heading = ""
     i = 0
     while i < len(lines) - 1:
         head, sep = lines[i].strip(), lines[i + 1].strip()
-        if not (head.startswith("|") and sep.startswith("|") and set(sep) <= set("|-: ")):
+        if head.startswith("#"):
+            heading = head.lower()
+        if not (
+            head.startswith("|") and sep.startswith("|") and set(sep) <= set("|-: ")
+        ):
             i += 1
             continue
         headers = [c.strip().lower() for c in head.strip("|").split("|")]
-
-        def col(*keys: str, exclude: tuple[str, ...] = ()) -> int | None:
-            for j, h in enumerate(headers):
-                if any(k in h for k in keys) and not any(x in h for x in exclude):
-                    return j
-            return None
-
-        ci = col("input", exclude=("cache",))
-        co = col("output")
-        c5 = col("5m", "5-minute", exclude=("1h",))
+        ci = _find_col(headers, ("input",), exclude=("cache", "batch", "additional"))
+        co = _find_col(headers, ("output",), exclude=("batch",))
+        c5 = _find_col(headers, ("5m", "5-minute"), exclude=("1h",))
         if c5 is None:
-            c5 = col("write", exclude=("1h",))
-        c1 = col("1h", "1-hour")
-        cr = col("hit", "read", "refresh")
+            c5 = _find_col(headers, ("write",), exclude=("1h",))
+        c1 = _find_col(headers, ("1h", "1-hour"))
+        cr = _find_col(headers, ("hit", "read", "refresh"))
         i += 2
-        if ci is None or co is None:
+        if ci is None or co is None or "batch" in heading or "fast" in heading:
             continue
         while i < len(lines) and lines[i].strip().startswith("|"):
             cells = [c.strip() for c in lines[i].strip().strip("|").split("|")]
             i += 1
             model = normalize_model(cells[0]) if cells else None
-            if not model:
+            if not model or model in card:
                 continue
-
-            def money(j: int | None) -> float | None:
-                if j is None or j >= len(cells):
-                    return None
-                m = _MONEY.search(cells[j])
-                return float(m.group(1)) if m else None
-
-            inp, out = money(ci), money(co)
+            inp, out = _money(cells, ci), _money(cells, co)
             if inp is None or out is None:
                 continue
-            w5 = money(c5) if money(c5) is not None else inp * 1.25
-            w1 = money(c1) if money(c1) is not None else inp * 2
-            rd = money(cr) if money(cr) is not None else inp * 0.1
-            card[model] = dict(zip(RATE_FIELDS, (inp, out, w5, w1, rd)))
+            w5, w1, rd = _money(cells, c5), _money(cells, c1), _money(cells, cr)
+            card[model] = dict(
+                zip(
+                    RATE_FIELDS,
+                    (
+                        inp,
+                        out,
+                        w5 if w5 is not None else inp * 1.25,
+                        w1 if w1 is not None else inp * 2,
+                        rd if rd is not None else inp * 0.1,
+                    ),
+                )
+            )
     return card
 
 
 def _read_official() -> dict:
+    """The cached official card. Always carries a "rates" dict, empty until a
+    fetch has parsed at least one model row."""
     try:
-        return json.loads(OFFICIAL_RATES.read_text())
+        data = json.loads(OFFICIAL_RATES.read_text())
     except (OSError, ValueError):
-        return {}
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    rates = data.get("rates")
+    data["rates"] = (
+        {
+            m: v
+            for m, v in rates.items()
+            if isinstance(v, dict) and all(f in v for f in RATE_FIELDS)
+        }
+        if isinstance(rates, dict)
+        else {}
+    )
+    return data
+
+
+def _write_official(data: dict) -> None:
+    OFFICIAL_RATES.parent.mkdir(parents=True, exist_ok=True)
+    tmp = OFFICIAL_RATES.with_suffix(".tmp")
+    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
+    tmp.replace(OFFICIAL_RATES)
 
 
 def refresh_official(force: bool) -> str:
     """Conditional GET of the pricing page. Best effort: any failure keeps the
-    cached card and returns a one-line reason."""
+    cached card, records the attempt time and returns a one-line reason."""
     cached = _read_official()
     age = time.time() - float(cached.get("fetched_at") or 0)
     if not force and cached.get("rates") and age < RATES_MAX_AGE:
         return f"rates: cached ({age / 86400:.1f}d old)"
+    cached["checked_at"] = time.time()
     req = urllib.request.Request(PRICING_URL, headers={"User-Agent": "claude-costs"})
     if cached.get("etag"):
         req.add_header("If-None-Match", cached["etag"])
@@ -947,29 +1127,39 @@ def refresh_official(force: bool) -> str:
     except urllib.error.HTTPError as e:
         if e.code == 304 and cached.get("rates"):
             cached["fetched_at"] = time.time()
+            msg = "rates: official card not modified"
+        else:
+            msg = f"rates: fetch failed (HTTP {e.code}); keeping cached card"
+        with contextlib.suppress(OSError):
             _write_official(cached)
-            return "rates: official card not modified"
-        return f"rates: fetch failed (HTTP {e.code}); keeping cached card"
-    except (urllib.error.URLError, OSError, ValueError) as e:
+        return msg
+    except (OSError, ValueError, http.client.HTTPException) as e:
+        with contextlib.suppress(OSError):
+            _write_official(cached)
         return f"rates: fetch failed ({type(e).__name__}: {e}); keeping cached card"
     rates = parse_pricing_markdown(body)
     if not rates:
+        with contextlib.suppress(OSError):
+            _write_official(cached)
         return "rates: fetch ok but no model rows parsed; keeping cached card"
     _write_official(
-        {"fetched_at": time.time(), "etag": etag, "last_modified": last_modified, "url": PRICING_URL, "rates": rates}
+        {
+            "fetched_at": time.time(),
+            "checked_at": time.time(),
+            "etag": etag,
+            "last_modified": last_modified,
+            "url": PRICING_URL,
+            "rates": rates,
+        }
     )
     return f"rates: official card updated ({len(rates)} models)"
 
 
-def _write_official(data: dict) -> None:
-    OFFICIAL_RATES.parent.mkdir(parents=True, exist_ok=True)
-    tmp = OFFICIAL_RATES.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, indent=1, sort_keys=True))
-    tmp.replace(OFFICIAL_RATES)
-
-
-def _solve_normal_equations(rows: list[list[float]], costs: list[float]) -> list[float] | None:
-    """Least squares for four rates via A^T A x = A^T b with partial pivoting."""
+def _solve_normal_equations(
+    rows: list[list[float]], costs: list[float]
+) -> list[float] | None:
+    """Least squares for four rates via A^T A x = A^T b, Gauss-Jordan with
+    partial pivoting. None when the system is singular."""
     n = 4
     ata = [[sum(r[i] * r[j] for r in rows) for j in range(n)] for i in range(n)]
     atb = [sum(r[i] * c for r, c in zip(rows, costs)) for i in range(n)]
@@ -988,7 +1178,10 @@ def _solve_normal_equations(rows: list[list[float]], costs: list[float]) -> list
 
 def calibrated_rates() -> dict[str, dict]:
     """Solve rates from Claude Code's own (tokens, costUSD) pairs in
-    lastModelUsage. Those records hold one cache-write count, so the 1h rate
+    lastModelUsage: at least four observations, a non-negative solution and a
+    residual under five percent of the observed cost. A field whose token
+    column carries under 0.5% of the mass cannot be solved and keeps the
+    built-in value. Those records hold one cache-write count, so the 1h rate
     is derived as 1.6x the solved write rate (2.0 / 1.25)."""
     try:
         data = json.loads(CLAUDE_JSON.read_text())
@@ -1006,30 +1199,82 @@ def calibrated_rates() -> dict[str, dict]:
             cost = u.get("costUSD") or 0
             if cost > 0 and any(x):
                 obs[model].append((x, cost))
+    builtin = {m: _row(v, "builtin") for m, v in BUILTIN_RATES.items()}
+    solved_fields = ("input", "output", "cache_write_5m", "cache_read")
     out = {}
     for model, pairs in obs.items():
         if len(pairs) < 4:
             continue
-        sol = _solve_normal_equations([p[0] for p in pairs], [p[1] for p in pairs])
+        rows, costs = [p[0] for p in pairs], [p[1] for p in pairs]
+        sol = _solve_normal_equations(rows, costs)
         if sol is None or min(sol) < 0:
             continue
-        out[model] = _row((sol[0], sol[1], sol[2], sol[2] * 1.6, sol[3]), "calibrated")
+        resid = sum(
+            abs(sum(a * b for a, b in zip(r, sol)) - c) for r, c in zip(rows, costs)
+        )
+        if resid > 0.05 * sum(costs):
+            continue
+        mass = [sum(r[j] for r in rows) for j in range(4)]
+        total = sum(mass) or 1.0
+        fam = rate_for(model, builtin)
+        rate = {}
+        for j, field in enumerate(solved_fields):
+            if mass[j] / total >= 0.005:
+                rate[field] = sol[j]
+            elif fam is not None:
+                rate[field] = fam[field]
+            else:
+                break
+        else:
+            rate["cache_write_1h"] = rate["cache_write_5m"] * 1.6
+            out[model] = dict(rate, source="calibrated")
+    return out
+
+
+def _read_overrides() -> dict[str, dict[str, float]]:
+    """The manual overrides file: {model prefix: {rate field: USD per MTok}}.
+    A key outside RATE_FIELDS or a non-numeric value rejects the whole file;
+    nothing is converted or silently ignored."""
+    if not RATES_FILE.is_file():
+        return {}
+    try:
+        user = json.loads(RATES_FILE.read_text())
+    except (OSError, ValueError) as e:
+        die(f"{RATES_FILE}: {e}")
+    if not isinstance(user, dict):
+        die(f"{RATES_FILE}: top level must be an object of model prefixes")
+    out = {}
+    for m, v in user.items():
+        if not isinstance(v, dict) or not v:
+            die(f"{RATES_FILE}: {m!r} must map rate fields to numbers")
+        for k, x in v.items():
+            if k not in RATE_FIELDS:
+                hint = (
+                    " (cache_write was split into cache_write_5m and cache_write_1h)"
+                    if k == "cache_write"
+                    else ""
+                )
+                die(
+                    f"{RATES_FILE}: {m!r} has unknown field {k!r}{hint}; fields are "
+                    f"{', '.join(RATE_FIELDS)}. Edit the file or move it aside."
+                )
+            if isinstance(x, bool) or not isinstance(x, (int, float)):
+                die(f"{RATES_FILE}: {m!r}.{k} must be a number")
+        out[m] = {k: float(x) for k, x in v.items()}
     return out
 
 
 def load_card() -> dict[str, dict]:
+    """Merged rate card: built-in, then calibration, then the official page,
+    then manual overrides. A partial override completes itself from the
+    prefix-matched rate beneath it."""
     card = {m: _row(v, "builtin") for m, v in BUILTIN_RATES.items()}
     card.update(calibrated_rates())
-    for m, v in (_read_official().get("rates") or {}).items():
+    for m, v in _read_official()["rates"].items():
         card[m] = dict(v, source="official")
-    if RATES_FILE.is_file():
-        try:
-            user = json.loads(RATES_FILE.read_text())
-        except ValueError as e:
-            die(f"{RATES_FILE}: {e}")
-        for m, v in user.items():
-            base = card.get(m) or _row((0.0,) * 5, "override")
-            card[m] = dict(base, **{k: float(v[k]) for k in RATE_FIELDS if k in v}, source="override")
+    for m, v in _read_overrides().items():
+        base = rate_for(m, card) or _row((0.0,) * 5, "override")
+        card[m] = dict(base, **v, source="override")
     return card
 
 
@@ -1046,22 +1291,36 @@ def cost_of(tokens: dict, rate: dict) -> float:
 
 
 def refresh_rates_if_needed(db: sqlite3.Connection) -> str:
-    card = load_card()
+    """Worker-side refresh policy: fetch when the official card is missing or
+    older than RATES_MAX_AGE, or when a ledger model has no rate anywhere; in
+    all cases at most once per RATES_RETRY."""
+    try:
+        card = load_card()
+    except SystemExit:
+        # die() already wrote the reason to stderr, which is the log here.
+        return "rates: overrides file invalid, see `claude-costs rates`"
     models = [r[0] for r in db.execute("SELECT DISTINCT model FROM responses")]
-    unpriced = [m for m in models if rate_for(m, card) is None]
+    unpriced = sorted(m for m in models if rate_for(m, card) is None)
     cached = _read_official()
     age = time.time() - float(cached.get("fetched_at") or 0)
-    if not unpriced and cached.get("rates") and age < RATES_MAX_AGE:
-        return f"rates: cached ({age / 86400:.1f}d old)"
-    msg = refresh_official(force=True)
+    since_check = time.time() - float(cached.get("checked_at") or 0)
+    if not cached.get("rates") or age >= RATES_MAX_AGE or unpriced:
+        if since_check >= RATES_RETRY:
+            msg = refresh_official(force=True)
+        elif cached.get("rates"):
+            msg = f"rates: cached ({age / 86400:.1f}d old), retry in {(RATES_RETRY - since_check) / 3600:.0f}h"
+        else:
+            msg = f"rates: no official card, retry in {(RATES_RETRY - since_check) / 3600:.0f}h"
+    else:
+        msg = f"rates: cached ({age / 86400:.1f}d old)"
     if unpriced:
-        msg += f"; unpriced: {', '.join(sorted(unpriced))}"
+        msg += f"; unpriced: {', '.join(unpriced)}"
     return msg
 ```
 
 - [ ] **Step 2: Add `cmd_rates` and register it**
 
-In the commands section:
+In the commands section, after `cmd_ingest`:
 
 ```python
 def cmd_rates(opts: SimpleNamespace) -> None:
@@ -1071,20 +1330,36 @@ def cmd_rates(opts: SimpleNamespace) -> None:
     official = _read_official()
     calibrated = calibrated_rates()
     fetched = official.get("fetched_at")
-    when = datetime.fromtimestamp(fetched, timezone.utc).date().isoformat() if fetched else "never"
+    when = (
+        datetime.fromtimestamp(fetched, timezone.utc).date().isoformat()
+        if fetched
+        else "never"
+    )
     print(f"{BOLD}USD per 1M tokens{OFF}  {DIM}official card fetched: {when}{OFF}\n")
-    print(f"  {DIM}{'model prefix':<28} {'input':>8} {'output':>8} {'w-5m':>8} {'w-1h':>8} {'read':>8}  source{OFF}")
+    print(
+        f"  {DIM}{'model prefix':<28} {'input':>8} {'output':>8} {'w-5m':>8} "
+        f"{'w-1h':>8} {'read':>8}  source{OFF}"
+    )
     for m, r in sorted(card.items()):
         flag = ""
         c = calibrated.get(m)
-        o = (official.get("rates") or {}).get(m)
-        if c and o and any(abs(c[f] - o[f]) > 0.05 * max(o[f], 1e-9) for f in ("input", "output")):
+        o = official["rates"].get(m)
+        if (
+            c
+            and o
+            and any(
+                abs(c[f] - o[f]) > 0.05 * max(o[f], 1e-9) for f in ("input", "output")
+            )
+        ):
             flag = f"  {YEL}calibrated disagrees >5%{OFF}"
         print(
             f"  {m:<28} {r['input']:>8.2f} {r['output']:>8.2f} {r['cache_write_5m']:>8.2f} "
             f"{r['cache_write_1h']:>8.2f} {r['cache_read']:>8.3f}  {r['source']}{flag}"
         )
-    print(f"\n{DIM}Longest prefix wins. Overrides: {RATES_FILE}. Refresh: claude-costs rates --refresh{OFF}")
+    print(
+        f"\n{DIM}Longest prefix wins. Overrides: {RATES_FILE}. "
+        f"Refresh: claude-costs rates --refresh{OFF}"
+    )
 ```
 
 Register: `COMMANDS = {"help": cmd_help, "ingest": cmd_ingest, "rates": cmd_rates}`.
@@ -1093,14 +1368,18 @@ Register: `COMMANDS = {"help": cmd_help, "ingest": cmd_ingest, "rates": cmd_rate
 
 - [ ] **Step 4: Check the parser, the file-URL refresh, and the failure paths**
 
+`S` must be exported for the first block (`export S`). Run:
 ```bash
+export S
+python3 home/dot_local/bin/executable_claude-costs rates | head -1
 python3 - <<'EOF'
 import os, runpy
 m = runpy.run_path("home/dot_local/bin/executable_claude-costs", run_name="lib")
 card = m["parse_pricing_markdown"](open(os.environ["S"] + "/pricing.md").read())
 for k in sorted(card): print(k, card[k])
 print("html:", m["parse_pricing_markdown"]("<html><body>moved</body></html>"))
-print("norm:", m["normalize_model"]("**Claude Opus 5.5**"), m["normalize_model"]("`claude-haiku-4-5`"), m["normalize_model"]("Web search"))
+n = m["normalize_model"]
+print("norm:", n("**Claude Opus 5.5**"), n("`claude-haiku-4-5`"), n("Web search"), n("Claude Opus 4 ([retired](https://x))"), n("Claude Opus 5 / Claude Opus 4.8"))
 EOF
 CLAUDE_COSTS_PRICING_URL="file://$S/pricing.md" python3 home/dot_local/bin/executable_claude-costs rates --refresh 2>&1 | sed -n '1,8p'
 CLAUDE_COSTS_PRICING_URL="http://127.0.0.1:9/pricing.md" python3 home/dot_local/bin/executable_claude-costs rates --refresh 2>&1 | sed -n '1,2p'
@@ -1108,19 +1387,25 @@ python3 -c "import json,os; d=json.load(open(os.environ['S']+'/data/rates-offici
 ```
 Expected:
 ```
+USD per 1M tokens  official card fetched: never
 claude-fable-5-1 {'input': 10.0, 'output': 50.0, 'cache_write_5m': 12.5, 'cache_write_1h': 20.0, 'cache_read': 0.25}
 claude-haiku-4-5 {'input': 1.0, 'output': 5.0, 'cache_write_5m': 1.25, 'cache_write_1h': 2.0, 'cache_read': 0.1}
 claude-opus-5-5 {'input': 4.0, 'output': 20.0, 'cache_write_5m': 5.0, 'cache_write_1h': 8.0, 'cache_read': 0.2}
 html: {}
-norm: claude-opus-5-5 claude-haiku-4-5 None
+norm: claude-opus-5-5 claude-haiku-4-5 None claude-opus-4 None
 → rates: official card updated (3 models)
 USD per 1M tokens  official card fetched: 2026-09-30
-…
-→ rates: fetch failed (URLError: …); keeping cached card
+
+  model prefix                    input   output     w-5m     w-1h     read  source
+  claude-fable                    10.00    50.00    12.50    20.00    1.000  builtin
+  claude-fable-5                  10.00    50.00    12.50    20.00    1.000  builtin
+  claude-fable-5-1                10.00    50.00    12.50    20.00    0.250  official
+  claude-haiku                     1.00     5.00     1.25     2.00    0.100  builtin
+→ rates: fetch failed (URLError: <urlopen error [Errno 111] Connection refused>); keeping cached card
 USD per 1M tokens  official card fetched: 2026-09-30
 cached models: ['claude-fable-5-1', 'claude-haiku-4-5', 'claude-opus-5-5']
 ```
-The rates table must show `official` as the source for those three models and `builtin` for the rest.
+The first line proves `rates` works before any card was fetched. Opus 5.5 keeps $4/$20 although the fixture's fast-mode table lists it at $8/$40, and the `Claude Opus 5 / Claude Opus 4.8` row is dropped rather than turned into a bogus id. The full rates table shows `official` for the three fixture models and `builtin` for every other row (`errno` wording differs on macOS).
 
 - [ ] **Step 5: Check calibration recovers known rates**
 
@@ -1137,24 +1422,54 @@ json.dump({"oauthAccount": {"emailAddress": "synthetic@example.test"}, "projects
 EOF
 python3 home/dot_local/bin/executable_claude-costs rates | grep claude-test-9
 ```
-Expected: `claude-test-9  4.00  20.00  5.00  8.00  0.200  calibrated` (whitespace aside). Then restore the fixture `.claude.json` from the fixtures block.
+Expected: `claude-test-9  4.00  20.00  5.00  8.00  0.200  calibrated` (whitespace aside). Then restore the fixture `.claude.json`:
+```bash
+cat > "$S/cfg/.claude.json" <<'EOF'
+{"oauthAccount": {"emailAddress": "synthetic@example.test"}, "projects": {}}
+EOF
+```
 
 - [ ] **Step 6: Check the worker's refresh policy**
 
 ```bash
-python3 -c "import json,os; p=os.environ['S']+'/data/rates-official.json'; d=json.load(open(p)); d['fetched_at']=0; json.dump(d,open(p,'w'))"
+python3 -c "import json,os; p=os.environ['S']+'/data/rates-official.json'; d=json.load(open(p)); d['fetched_at']=0; d['checked_at']=0; json.dump(d,open(p,'w'))"
 CLAUDE_COSTS_PRICING_URL="file://$S/pricing.md" python3 home/dot_local/bin/executable_claude-costs ingest --worker --quiet; tail -1 "$S/state/ingest.log"
 python3 home/dot_local/bin/executable_claude-costs ingest --worker --quiet; tail -1 "$S/state/ingest.log"
+sqlite3 "$S/data/ledger.sqlite" "INSERT INTO responses VALUES ('req-x','2026-09-05T00:00:00Z','claude-zeta-1','/home/u/dev/app','s1','synthetic@example.test','sweep',7,0,0,0,0);"
+CLAUDE_COSTS_PRICING_URL="file://$S/pricing.md" python3 home/dot_local/bin/executable_claude-costs ingest --worker --quiet; tail -1 "$S/state/ingest.log"
+python3 -c "import json,os; p=os.environ['S']+'/data/rates-official.json'; d=json.load(open(p)); d['checked_at']=0; json.dump(d,open(p,'w'))"
+CLAUDE_COSTS_PRICING_URL="file://$S/pricing.md" python3 home/dot_local/bin/executable_claude-costs ingest --worker --quiet; tail -1 "$S/state/ingest.log"
+sqlite3 "$S/data/ledger.sqlite" "DELETE FROM responses WHERE request_id='req-x';"
 ```
-Expected: the first log line ends with `rates: official card updated (3 models)` because the card was stale; the second ends with `rates: cached (0.0d old)` because nothing needed fetching and no network call was made.
+Expected log line endings, in order:
+```
+rates: official card updated (3 models)
+rates: cached (0.0d old)
+rates: cached (0.0d old), retry in 24h; unpriced: claude-zeta-1
+rates: official card updated (3 models); unpriced: claude-zeta-1
+```
+The first fetches because the card was stale; the second makes no network call; the third sees an unpriced model but fetched less than a day ago, so it waits; the fourth fetches once the daily retry window has passed. The ledger row `req-x` was ingested by nothing and is removed again here; the worker's first run at this step also recreates the ledger removed in Task 3 step 4 (`manual: 2 files, 3 records`).
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 7: Check the overrides file is validated, not silently trimmed**
+
+```bash
+echo '{"claude-opus-5-5": {"cache_write": 1}}' > "$S/rates/rates.json"; python3 home/dot_local/bin/executable_claude-costs rates >/dev/null; echo "exit=$?"
+echo '{"claude-opus-5-5": {"input": 1}}' > "$S/rates/rates.json"; python3 home/dot_local/bin/executable_claude-costs rates | grep 'claude-opus-5-5 '
+rm "$S/rates/rates.json"
+```
+Expected:
+```
+claude-costs: …/rates/rates.json: 'claude-opus-5-5' has unknown field 'cache_write'; fields are input, output, cache_write_5m, cache_write_1h, cache_read
+exit=1
+  claude-opus-5-5                  1.00    20.00     5.00     8.00    0.200  override
+```
+The old four-field file shape is rejected with the offending key named; a partial override keeps the official values for the fields it does not set.
+
+- [ ] **Step 8: Commit**
 
 ```bash
 git add home/dot_local/bin/executable_claude-costs
-git commit -m "feat(claude-costs): layered rate card with best-effort official refresh
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude-costs): layered rate card with best-effort official refresh"
 ```
 
 ---
@@ -1162,13 +1477,38 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ### Task 5: Report and status from the ledger
 
 **Files:**
-- Modify: `home/dot_local/bin/executable_claude-costs` (new `# ---- report` section; `cmd_report`, `cmd_status`; register both)
+- Modify: `home/dot_local/bin/executable_claude-costs` (new `# ---- report` section after the rates section and before `# ---- commands`; `cmd_report`, `hooks_installed`, `cmd_status`; register both commands; add one import)
 
 **Interfaces:**
-- Consumes: `open_ledger`, `get_meta`, `ingest_worker`, `load_card`, `rate_for`, `cost_of`, `_read_official`, `DEFAULT_ROOTS`, `RATE_FIELDS`, `CLAUDE_DIR`, `LOCK`.
-- Produces: `rollup(project: str) -> str`, `in_scope(project: str, opts) -> bool`, `load_groups(db, opts) -> list[dict]`, `coverage(db) -> dict`, `cmd_report`, `cmd_status`.
+- Consumes: `open_ledger`, `get_meta`, `ingest_worker`, `load_card`, `rate_for`, `cost_of`, `_read_official`, `DEFAULT_ROOTS`, `RATE_FIELDS`, `CLAUDE_DIR`, `LOCK`, `LEDGER`, `RATES_FILE`.
+- Produces: `rollup(project: str) -> str`, `in_scope(project: str, opts) -> bool`, `human(n) -> str`, `short(p) -> str`, `ensure_ingested(db) -> sqlite3.Connection`, `load_groups(db, opts) -> list[dict]`, `aggregate(groups, key) -> list[dict]`, `sort_rows(rows, key, opts) -> list[dict]`, `coverage(db) -> dict`, `print_header`, `print_table`, `print_totals`, `cmd_report`, `hooks_installed() -> dict[str, bool]`, `cmd_status`.
 
 - [ ] **Step 1: Add the report section**
+
+Add `csv` to the import block, which becomes the final one:
+
+```python
+import contextlib
+import csv
+import fcntl
+import http.client
+import json
+import os
+import re
+import select
+import sqlite3
+import subprocess
+import sys
+import time
+import urllib.error
+import urllib.request
+from collections import defaultdict
+from datetime import date, datetime, timezone
+from pathlib import Path
+from types import SimpleNamespace
+```
+
+Then insert the following after the rates section (after `refresh_rates_if_needed`) and before `# ---- commands`:
 
 ```python
 # ---------------------------------------------------------------- report
@@ -1232,8 +1572,14 @@ def load_groups(db: sqlite3.Connection, opts: SimpleNamespace) -> list[dict]:
         rate = rate_for(model, card)
         groups.append(
             {
-                "project": project, "model": model, "account": account, "month": month or "unknown",
-                "calls": calls, "cost": cost_of(t, rate) if rate else 0.0, "priced": rate is not None, **t,
+                "project": project,
+                "model": model,
+                "account": account,
+                "month": month or "unknown",
+                "calls": calls,
+                "cost": cost_of(t, rate) if rate else 0.0,
+                "priced": rate is not None,
+                **t,
             }
         )
     return groups
@@ -1242,7 +1588,16 @@ def load_groups(db: sqlite3.Connection, opts: SimpleNamespace) -> list[dict]:
 def aggregate(groups: list[dict], key: str) -> list[dict]:
     out: dict[str, dict] = {}
     for g in groups:
-        b = out.setdefault(g[key], {key: g[key], "calls": 0, "cost": 0.0, "priced": True, **{f: 0 for f in RATE_FIELDS}})
+        b = out.setdefault(
+            g[key],
+            {
+                key: g[key],
+                "calls": 0,
+                "cost": 0.0,
+                "priced": True,
+                **{f: 0 for f in RATE_FIELDS},
+            },
+        )
         b["calls"] += g["calls"]
         b["cost"] += g["cost"]
         b["priced"] = b["priced"] and g["priced"]
@@ -1252,22 +1607,36 @@ def aggregate(groups: list[dict], key: str) -> list[dict]:
 
 
 def sort_rows(rows: list[dict], key: str, opts: SimpleNamespace) -> list[dict]:
-    order = {"cost": lambda r: -r["cost"], "name": lambda r: r[key], "calls": lambda r: -r["calls"]}[opts.sort]
+    order = {
+        "cost": lambda r: -r["cost"],
+        "name": lambda r: r[key],
+        "calls": lambda r: -r["calls"],
+    }[opts.sort]
     return sorted(rows, key=order)
 
 
 def coverage(db: sqlite3.Connection) -> dict:
-    first, last, rows = db.execute("SELECT MIN(ts), MAX(ts), COUNT(*) FROM responses").fetchone()
-    by_source = dict(db.execute("SELECT account_source, COUNT(*) FROM responses GROUP BY 1"))
-    official = _read_official()
-    fetched = official.get("fetched_at")
+    first, last, rows = db.execute(
+        "SELECT MIN(ts), MAX(ts), COUNT(*) FROM responses"
+    ).fetchone()
+    by_source = dict(
+        db.execute("SELECT account_source, COUNT(*) FROM responses GROUP BY 1")
+    )
+    fetched = _read_official().get("fetched_at")
     return {
-        "first": (first or "")[:10] or "none", "last": (last or "")[:10] or "none", "rows": rows,
-        "session_rows": by_source.get("session", 0), "sweep_rows": by_source.get("sweep", 0),
+        "first": (first or "")[:10] or "none",
+        "last": (last or "")[:10] or "none",
+        "rows": rows,
+        "session_rows": by_source.get("session", 0),
+        "sweep_rows": by_source.get("sweep", 0),
         "last_ingest_at": get_meta(db, "last_ingest_at") or "never",
         "last_ingest_summary": get_meta(db, "last_ingest_summary") or "",
         "last_error": get_meta(db, "last_error") or "",
-        "rates_fetched": datetime.fromtimestamp(fetched, timezone.utc).date().isoformat() if fetched else "never",
+        "rates_fetched": datetime.fromtimestamp(fetched, timezone.utc)
+        .date()
+        .isoformat()
+        if fetched
+        else "never",
     }
 
 
@@ -1276,33 +1645,50 @@ def print_header(cov: dict, card: dict) -> None:
     print(
         f"{DIM}ledger {cov['first']} → {cov['last']}, {cov['rows']:,} responses "
         f"({cov['session_rows']:,} tagged at session end, {cov['sweep_rows']:,} by sweep); "
-        f"last ingest {cov['last_ingest_at']}; rates {'/'.join(sources)}, official card {cov['rates_fetched']}{OFF}"
+        f"last ingest {cov['last_ingest_at']}; rates {'/'.join(sources)}, "
+        f"official card {cov['rates_fetched']}{OFF}"
     )
     print(f"{DIM}figures are list-price equivalents, not subscription charges{OFF}")
 
 
 def print_table(rows: list[dict], key: str, label: str) -> None:
-    print(f"\n{BOLD}{label:<34} {'cost':>12} {'calls':>8} {'input':>9} {'output':>9} {'w-5m':>9} {'w-1h':>9} {'cache-r':>10}{OFF}")
+    print(
+        f"\n{BOLD}{label:<34} {'cost':>12} {'calls':>8} {'input':>9} {'output':>9} "
+        f"{'w-5m':>9} {'w-1h':>9} {'cache-r':>10}{OFF}"
+    )
     for r in rows:
         flag = "" if r["priced"] else f" {YEL}(unpriced){OFF}"
         print(
-            f"  {short(str(r[key]))[:34]:<34} ${r['cost']:>11,.2f} {r['calls']:>8,} {human(r['input']):>9} "
-            f"{human(r['output']):>9} {human(r['cache_write_5m']):>9} {human(r['cache_write_1h']):>9} "
+            f"  {short(str(r[key]))[:34]:<34} ${r['cost']:>11,.2f} {r['calls']:>8,} "
+            f"{human(r['input']):>9} {human(r['output']):>9} "
+            f"{human(r['cache_write_5m']):>9} {human(r['cache_write_1h']):>9} "
             f"{human(r['cache_read']):>10}{flag}"
         )
 
 
-def print_totals(groups: list[dict], shown_n: int, total_n: int, opts: SimpleNamespace) -> None:
+def print_totals(
+    groups: list[dict], shown_n: int, total_n: int, opts: SimpleNamespace
+) -> None:
     print(f"\n{BOLD}{'─' * 96}{OFF}")
-    print_table(sort_rows(aggregate(groups, "model"), "model", opts), "model", "TOTAL BY MODEL")
-    print_table(sort_rows(aggregate(groups, "account"), "account", opts), "account", "TOTAL BY ACCOUNT")
-    tot = {"calls": sum(g["calls"] for g in groups), "cost": sum(g["cost"] for g in groups), "priced": all(g["priced"] for g in groups)}
+    print_table(
+        sort_rows(aggregate(groups, "model"), "model", opts), "model", "TOTAL BY MODEL"
+    )
+    print_table(
+        sort_rows(aggregate(groups, "account"), "account", opts),
+        "account",
+        "TOTAL BY ACCOUNT",
+    )
+    tot = {
+        "calls": sum(g["calls"] for g in groups),
+        "cost": sum(g["cost"] for g in groups),
+    }
     for f in RATE_FIELDS:
         tot[f] = sum(g[f] for g in groups)
     print(f"{BOLD}{'─' * 96}{OFF}")
     print(
-        f"  {BOLD}{'GRAND TOTAL (all accounts)':<34} ${tot['cost']:>11,.2f} {tot['calls']:>8,} {human(tot['input']):>9} "
-        f"{human(tot['output']):>9} {human(tot['cache_write_5m']):>9} {human(tot['cache_write_1h']):>9} "
+        f"  {BOLD}{'GRAND TOTAL (all accounts)':<34} ${tot['cost']:>11,.2f} "
+        f"{tot['calls']:>8,} {human(tot['input']):>9} {human(tot['output']):>9} "
+        f"{human(tot['cache_write_5m']):>9} {human(tot['cache_write_1h']):>9} "
         f"{human(tot['cache_read']):>10}{OFF}"
     )
     hidden = total_n - shown_n
@@ -1313,26 +1699,43 @@ def print_totals(groups: list[dict], shown_n: int, total_n: int, opts: SimpleNam
     )
     unpriced = sorted({g["model"] for g in groups if not g["priced"]})
     if unpriced:
-        print(f"\n{YEL}warning:{OFF} no rate for {', '.join(unpriced)}; tokens counted, cost shown as 0. "
-              f"Run `claude-costs rates --refresh` or add them to {short(str(RATES_FILE))}.")
+        print(
+            f"\n{YEL}warning:{OFF} no rate for {', '.join(unpriced)}; tokens counted, "
+            f"cost shown as 0. Run `claude-costs rates --refresh` or add them to "
+            f"{short(str(RATES_FILE))}."
+        )
 ```
 
 - [ ] **Step 2: Add `cmd_report` and `cmd_status`, register them**
+
+In the commands section, after `cmd_rates`:
 
 ```python
 def cmd_report(opts: SimpleNamespace) -> None:
     db = ensure_ingested(open_ledger(create=True))
     groups = load_groups(db, opts)
     if not groups:
-        print("no responses matched (try `claude-costs --all`, or check `claude-costs status`)")
+        print(
+            "no responses matched (try `claude-costs --all`, or check `claude-costs status`)"
+        )
         return
     key = opts.by
     rows = sort_rows(aggregate(groups, key), key, opts)
     shown = rows[: opts.top] if opts.top else rows
+    grand = sum(r["cost"] for r in rows)
     if opts.json or opts.csv:
         cols = [key, "cost", "calls", *RATE_FIELDS, "priced"]
         if opts.json:
-            json.dump({"by": key, "coverage": coverage(db), "rows": shown, "grand_total": sum(r["cost"] for r in rows)}, sys.stdout, indent=1)
+            json.dump(
+                {
+                    "by": key,
+                    "coverage": coverage(db),
+                    "rows": shown,
+                    "grand_total": grand,
+                },
+                sys.stdout,
+                indent=1,
+            )
             print()
         else:
             w = csv.writer(sys.stdout)
@@ -1343,9 +1746,16 @@ def cmd_report(opts: SimpleNamespace) -> None:
     print_header(coverage(db), load_card())
     if key == "project" and not opts.compact:
         for p in shown:
-            share = p["cost"] / sum(r["cost"] for r in rows) * 100 if rows and sum(r["cost"] for r in rows) else 0
-            print(f"\n{BOLD}{short(p['project'])}{OFF}  {GRN}${p['cost']:,.2f}{OFF}  {DIM}{share:.1f}% of total · {p['calls']:,} calls{OFF}")
-            models = sort_rows(aggregate([g for g in groups if g["project"] == p["project"]], "model"), "model", opts)
+            share = p["cost"] / grand * 100 if grand else 0
+            print(
+                f"\n{BOLD}{short(p['project'])}{OFF}  {GRN}${p['cost']:,.2f}{OFF}  "
+                f"{DIM}{share:.1f}% of total · {p['calls']:,} calls{OFF}"
+            )
+            models = sort_rows(
+                aggregate([g for g in groups if g["project"] == p["project"]], "model"),
+                "model",
+                opts,
+            )
             print_table(models, "model", "  model")
     else:
         print_table(shown, key, key)
@@ -1354,14 +1764,17 @@ def cmd_report(opts: SimpleNamespace) -> None:
 
 def hooks_installed() -> dict[str, bool]:
     try:
-        hooks = json.loads((CLAUDE_DIR / "settings.json").read_text()).get("hooks") or {}
-    except (OSError, ValueError):
+        hooks = (
+            json.loads((CLAUDE_DIR / "settings.json").read_text()).get("hooks") or {}
+        )
+    except (OSError, ValueError, AttributeError):
         hooks = {}
     out = {}
     for event in ("SessionStart", "SessionEnd"):
         out[event] = any(
             "claude-costs ingest" in (h.get("command") or "") and h.get("async") is True
-            for group in hooks.get(event) or [] for h in group.get("hooks") or []
+            for group in hooks.get(event) or []
+            for h in group.get("hooks") or []
         )
     return out
 
@@ -1381,27 +1794,45 @@ def cmd_status(opts: SimpleNamespace) -> None:
     size = LEDGER.stat().st_size if LEDGER.is_file() else 0
     hooks = hooks_installed()
     print(f"{BOLD}ledger{OFF}      {LEDGER} ({human(size)}B)")
-    print(f"{BOLD}coverage{OFF}    {cov['first']} → {cov['last']}, {cov['rows']:,} responses "
-          f"({cov['session_rows']:,} session-tagged, {cov['sweep_rows']:,} sweep-tagged)")
-    print(f"{BOLD}last ingest{OFF} {cov['last_ingest_at']}  {DIM}{cov['last_ingest_summary']}{OFF}")
+    print(
+        f"{BOLD}coverage{OFF}    {cov['first']} → {cov['last']}, {cov['rows']:,} responses "
+        f"({cov['session_rows']:,} session-tagged, {cov['sweep_rows']:,} sweep-tagged)"
+    )
+    print(
+        f"{BOLD}last ingest{OFF} {cov['last_ingest_at']}  {DIM}{cov['last_ingest_summary']}{OFF}"
+    )
     print(f"{BOLD}last error{OFF}  {cov['last_error'] or 'none'}")
     print(f"{BOLD}worker{OFF}      {'running (lock held)' if locked else 'idle'}")
-    print(f"{BOLD}rates{OFF}       official card fetched {cov['rates_fetched']}; overrides {'present' if RATES_FILE.is_file() else 'none'}")
-    print(f"{BOLD}hooks{OFF}       SessionStart {'ok' if hooks['SessionStart'] else 'MISSING'}, "
-          f"SessionEnd {'ok' if hooks['SessionEnd'] else 'MISSING'}  {DIM}({CLAUDE_DIR / 'settings.json'}){OFF}")
+    print(
+        f"{BOLD}rates{OFF}       official card fetched {cov['rates_fetched']}; "
+        f"overrides {'present' if RATES_FILE.is_file() else 'none'}"
+    )
+    print(
+        f"{BOLD}hooks{OFF}       SessionStart {'ok' if hooks['SessionStart'] else 'MISSING'}, "
+        f"SessionEnd {'ok' if hooks['SessionEnd'] else 'MISSING'}  "
+        f"{DIM}({CLAUDE_DIR / 'settings.json'}){OFF}"
+    )
 ```
 
 Register:
 ```python
-COMMANDS = {"help": cmd_help, "ingest": cmd_ingest, "rates": cmd_rates, "report": cmd_report, "status": cmd_status}
+COMMANDS = {
+    "help": cmd_help,
+    "ingest": cmd_ingest,
+    "rates": cmd_rates,
+    "report": cmd_report,
+    "status": cmd_status,
+}
 ```
 
 - [ ] **Step 3: Compile and lint** as in Task 1 step 2.
 
 - [ ] **Step 4: Check the report numbers against hand-computed costs**
 
-With the fixture ledger from Task 4 step 6 (official card holds the three fixture models):
+The fixture ledger from Task 4 step 6 holds `req-1` and `req-3`, and the official card holds the three fixture models. `req-4` is still a partial line (Task 2 step 5 restored the fixture), so complete it first and ingest it, then run the report checks:
 ```bash
+printf ',"timestamp":"2026-09-03T00:00:00Z","message":{"id":"msg-4","model":"claude-opus-5-5","usage":{"input_tokens":1,"output_tokens":2}}}\n' >> "$S/cfg/projects/-home-u-dev-app/s1.jsonl"
+python3 home/dot_local/bin/executable_claude-costs ingest --worker --quiet; tail -1 "$S/state/ingest.log"
 python3 home/dot_local/bin/executable_claude-costs --all 2>/dev/null
 python3 home/dot_local/bin/executable_claude-costs --all --by account --json 2>/dev/null | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['rows'][0]['account'], round(d['grand_total'], 6))"
 python3 home/dot_local/bin/executable_claude-costs --all --by month --csv 2>/dev/null
@@ -1409,7 +1840,12 @@ python3 home/dot_local/bin/executable_claude-costs --all --no-rollup --compact 2
 ```
 Hand computation per million tokens: `req-1` on opus-5-5 is 10×4 + 500×20 + 40×5 + 60×8 + 1000×0.20 = 10,920, so $0.010920. `req-3` on fable-5-1 is 20×50 + 300×12.5 = 4,750, so $0.004750. `req-4` on opus-5-5 is 1×4 + 2×20 = 44, so $0.000044. Grand total $0.015714.
 
-Expected: the project report shows one project `/home/u/dev/app` (the worktree folded in) with two model rows, TOTAL BY MODEL lists `claude-opus-5-5` at $0.01 and `claude-fable-5-1` at $0.00 (two-decimal display), and TOTAL BY ACCOUNT one row `synthetic@example.test`. The JSON line prints `synthetic@example.test 0.015714`. The CSV has a header row and rows for `2026-09`. The last command prints `1`, the worktree shown separately.
+Expected: the ingest line ends `manual: 1 files, 1 records in 0.0s; rates: cached (0.0d old)`. The project report starts with a two-line header (`ledger 2026-09-01 → 2026-09-03, 3 responses (0 tagged at session end, 3 by sweep); …; rates builtin/official, official card 2026-09-30`, then the list-price note), shows one project `/home/u/dev/app` (the worktree folded in) at `$0.02  100.0% of total · 3 calls` with two model rows, `claude-opus-5-5` at `$       0.01` with 2 calls and `claude-fable-5-1` at `$       0.00` (two-decimal display), then TOTAL BY MODEL with the same two rows, TOTAL BY ACCOUNT with one row `synthetic@example.test`, a GRAND TOTAL of `$       0.02` over 3 calls, 11 input, 522 output, 340 w-5m, 60 w-1h, 1.0K cache-r, and `1 of 1 projects shown`. The JSON line prints `synthetic@example.test 0.015714`. The CSV prints:
+```
+month,cost,calls,input,output,cache_write_5m,cache_write_1h,cache_read,priced
+2026-09,0.015714,3,11,522,340,60,1000,True
+```
+The last command prints `1`, the worktree shown separately. Without `--all` the fixture project is out of scope and the report prints only `no responses matched (try `claude-costs --all`, or check `claude-costs status`)` with exit 0; `--all | head -1` exits 0 without a traceback.
 
 - [ ] **Step 5: Check an unpriced model is shown, not hidden**
 
@@ -1427,15 +1863,13 @@ python3 home/dot_local/bin/executable_claude-costs status
 rm -f "$S/data/ledger.sqlite"*
 python3 home/dot_local/bin/executable_claude-costs status 2>&1 | head -3
 ```
-Expected: the first status prints seven labelled lines with `worker idle`, `last error none`, and `hooks SessionStart MISSING, SessionEnd MISSING` (the scratch config has no settings.json). The second run starts with `→ ledger is empty; ingesting transcripts once inline` and then shows coverage `2026-09-01 → 2026-09-03, 3 responses`.
+Expected: the first status prints seven labelled lines (`ledger`, `coverage`, `last ingest`, `last error`, `worker`, `rates`, `hooks`) with `ledger … (41.0KB)`, `coverage 2026-09-01 → 2026-09-03, 3 responses (0 session-tagged, 3 sweep-tagged)`, `worker idle`, `last error none`, `rates official card fetched 2026-09-30; overrides none`, and `hooks SessionStart MISSING, SessionEnd MISSING` (the scratch config has no settings.json). The second run prints `→ ledger is empty; ingesting transcripts once inline` first, then the same `ledger` and `coverage` lines. Two more probes worth one run each: with `rm -f "$S/data/ledger.sqlite"*; echo x > "$S/data/ledger.sqlite"` in place of the ledger, `status` exits 1 with `claude-costs: …/ledger.sqlite: file is not a database` and leaves the file alone (then `rm -f "$S/data/ledger.sqlite"*` and another `status` rebuilds it inline); while a background `flock` holds `$S/state/ingest.lock`, `status` prints `worker      running (lock held)`.
 
 - [ ] **Step 7: Commit**
 
 ```bash
 git add home/dot_local/bin/executable_claude-costs
-git commit -m "feat(claude-costs): report and status from the ledger
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude-costs): report and status from the ledger"
 ```
 
 ---
@@ -1445,7 +1879,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Files:**
 - Modify: `home/.chezmoidata/claude.json` (add `hooks` under `claude.enforced`)
 - Rewrite: `home/dot_local/share/bash-completion/completions/claude-costs`
-- Modify: `docs/superpowers/specs/workbench-contracts.md:134` (the claude-costs row) and the row at line 133 (Claude settings row mentions hooks)
+- Modify: `docs/superpowers/specs/workbench-contracts.md`: the inventory row starting `` | `dot_local/bin/executable_claude-costs`, bash completion | `` and the Claude settings row directly above it (starting `` | `private_dot_claude/{CLAUDE.md.tmpl,modify_private_settings.json,… ``)
 - Modify: `home/dot_local/bin/executable_claude-costs` docstring only if any command name changed (it should not)
 
 **Interfaces:**
@@ -1523,26 +1957,31 @@ scripts/render-check.sh personal pinned
 scripts/render-check.sh work latest
 scripts/render-check.sh work pinned wsl
 ```
-Expected: `claude.json ok` and each render check exits zero (`OK [personal/pinned]` and so on). Then confirm the merged settings carry the hooks without disturbing a hook the user added themselves. `scripts/scratch-init.sh` prints the path of a throwaway chezmoi config; `chezmoi execute-template --with-stdin` feeds stdin to the modify template as `.chezmoi.stdin`:
+Expected: `claude.json ok` and each render check exits zero (`OK [personal/pinned]`, `OK [work/latest]`, `OK [work/pinned/wsl-lint]`). On a WSL host `home/.chezmoi.toml.tmpl` detects WSL from the kernel and prompts for the WSL sizing answers, which `scratch-init.sh` cannot answer non-interactively, so `scripts/render-check.sh` and `scripts/scratch-init.sh` must run from an interactive terminal there (accept the three sizing defaults with Enter and give any path such as `Desktop/RestartWSL`); from an agent shell or any other non-TTY context they fail at `init` with `could not open a new TTY`, and a failed `scratch-init.sh` leaves its `mktemp -d` directory (a `/tmp/tmp.*` holding a copy of `home/`) behind because the config path was never printed; remove it by hand. On Linux and macOS hosts, and in CI, they are non-interactive.
+
+Then confirm the merged settings carry the hooks without disturbing a hook the user added themselves. `scripts/scratch-init.sh` prints the path of a throwaway chezmoi config; `chezmoi execute-template --with-stdin` feeds stdin to the modify template as `.chezmoi.stdin`. The guards matter: if `scratch-init.sh` fails, `config` is empty and `dirname` would yield `.`, so never `rm -rf` an unchecked `$scratch`:
 
 ```bash
-config=$(scripts/scratch-init.sh personal pinned); scratch=$(dirname "$config")
-printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo keep"}]}]},"theme":"light"}' \
+config=$(scripts/scratch-init.sh personal pinned) && scratch=$(dirname "$config") || { echo "scratch-init failed"; scratch=; }
+[ -n "$scratch" ] && printf '{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo keep"}]}]},"theme":"light"}' \
   | chezmoi --config "$config" --source "$PWD" --destination "$scratch/destination" \
       --persistent-state "$scratch/state.boltdb" --cache "$scratch/cache" --no-pager --refresh-externals=never \
       execute-template --with-stdin "$(cat home/private_dot_claude/modify_private_settings.json)" \
-  | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['hooks']), d['hooks']['SessionEnd'][0]['hooks'][0]['async'], d['theme'])"
-rm -rf "$scratch"
+  | python3 -c "import json,sys; d=json.load(sys.stdin); print(sorted(d['hooks']), d['hooks']['PreToolUse'][0]['hooks'][0]['command'], d['theme']); print('SessionEnd async:', d['hooks']['SessionEnd'][0]['hooks'][0]['async'])"
+[ -n "$scratch" ] && rm -rf "$scratch"
 ```
-Expected: `['PreToolUse', 'SessionEnd', 'SessionStart'] True light`, showing the user's own hook and live theme survive and the two enforced events are added.
+Expected:
+```
+['PreToolUse', 'SessionEnd', 'SessionStart'] echo keep light
+SessionEnd async: True
+```
+showing the user's own hook and live theme survive and the two enforced events are added. Against the repository before Step 1, the same pipeline prints `['PreToolUse'] echo keep light` and then fails with `KeyError: 'SessionEnd'`, which is the negative control.
 
 - [ ] **Step 5: Commit**
 
 ```bash
 git add home/.chezmoidata/claude.json home/dot_local/share/bash-completion/completions/claude-costs docs/superpowers/specs/workbench-contracts.md
-git commit -m "feat(claude): run claude-costs ingest from async session hooks
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "feat(claude): run claude-costs ingest from async session hooks"
 ```
 
 ---
@@ -1566,7 +2005,7 @@ export CLAUDE_COSTS_LEDGER="$S/real/ledger.sqlite" CLAUDE_COSTS_STATE="$S/real/s
 python3 home/dot_local/bin/executable_claude-costs ingest --worker
 python3 home/dot_local/bin/executable_claude-costs status
 ```
-Expected: coverage starting at the oldest surviving transcript date (2026-08-18 on 2026-09-30), on the order of 69,000 responses, `last error none`, and the ingest summary ending in either `official card updated` or a `fetch failed … keeping cached card` line if offline. Either is acceptable.
+`unset CLAUDE_CONFIG_DIR` makes the script read the real `~/.claude/projects` and `~/.claude.json` (read-only); everything it writes lands under `$S/real`. Expected: `status` shows coverage starting at the oldest surviving transcript date (2026-08-18 on 2026-09-30), on the order of 69,000 responses, all sweep-tagged, `last error none`, and an ingest summary like `manual: 1164 files, 137829 records in 9.1s; rates: official card updated (19 models)` (observed 2026-09-30; records exceed responses because streamed responses are upserted more than once) or ending in `fetch failed … keeping cached card` when offline. Either fetch outcome is acceptable. `claude-costs rates` then shows `official` for every current model on the pricing page and flags any calibrated row that disagrees with it.
 
 - [ ] **Step 2: Compare per-session cost against Claude Code's own `lastCost`**
 
@@ -1588,7 +2027,7 @@ for proj, e in sorted(cj.get("projects", {}).items()):
     print(f"{proj[-40:]:40} {last:10.2f} {total:10.2f} {(total/last-1)*100:6.1f}%")
 EOF
 ```
-Expected: every printed session within about ±10% of `lastCost`. Larger deviations mean a rate or parsing defect: check `claude-costs rates` for the model in question first.
+`lastCost` and the `lastTotal*` counters describe only the most recent *run* of that session, while a resumed session keeps appending to the same transcript, so the ledger legitimately exceeds them for resumed sessions (1.4x to 2.9x the counters on long sessions in the first run of this check). The comparison is therefore only meaningful for sessions run once, which the token line identifies. Expected: for every session whose ledger output tokens agree with `lastTotalOutputTokens` within a few percent, the ledger cost is within about ±10% of `lastCost` (observed: single-run sessions within 4%). A session that agrees on output tokens but not on cost points at a rate defect: check `claude-costs rates` for the model in question. A session that disagrees on output tokens by a large factor is a resumed session, not a defect.
 
 - [ ] **Step 3: Record the observation in the spec**
 
@@ -1598,11 +2037,9 @@ Change the spec's first line to `Status: implemented 2026-09-30; observed checks
 
 ```bash
 git add docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md
-git commit -m "docs(claude-costs): record observed ledger checks
-
-Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
+git commit -m "docs(claude-costs): record observed ledger checks"
 ```
 
 - [ ] **Step 5: Report to the owner**
 
-State plainly: what the comparison showed, that the real ledger at `~/.local/share/claude-costs` does not exist yet, and that installing the hooks needs a `workbench` apply of the changed `claude.json`, which is their call. After that apply, the first `claude-costs` run backfills inline and every later session keeps the ledger current.
+State plainly: what the comparison showed, that the real ledger at `~/.local/share/claude-costs` does not exist yet, and that installing the hooks needs a `workbench` apply of the changed `claude.json`, which is their call. If an override file written by the old `calibrate` command exists at `~/.config/claude-costs/rates.json`, tell them it uses the removed `cache_write` key and stale solved rates, so the new tool refuses it with a message naming the fix. They should move it aside or rewrite it with the five current fields; do not edit or delete it for them. After that apply, the first `claude-costs` run backfills inline and every later session keeps the ledger current.
