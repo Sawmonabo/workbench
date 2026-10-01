@@ -173,7 +173,8 @@ const headBytes = 64 << 10
 // readFile reads the new bytes of one transcript. It resumes at the stored
 // offset with the source's stored state, unless the file shrank, went back in
 // time or no longer starts with the line it started with (rewritten in place,
-// as `codex migrate-rollouts` does); then it reads from the start with empty
+// as `codex migrate-rollouts` does, including a rewrite caught while its first
+// line is still being written); then it reads from the start with empty
 // state, and since every key is derived from content a re-read rewrites the
 // same rows. It stops at the last complete line, so a transcript still being
 // written is picked up next run from that offset.
@@ -215,7 +216,7 @@ func readFile(ledger *Ledger, tool Tool, path string) fileRead {
 	state := &FileState{Path: path}
 	offset := int64(0)
 	if found && size >= previous.Size && mtime >= previous.ModTimeNanos &&
-		(previous.Head == "" || head == "" || previous.Head == head) {
+		(previous.Head == "" || previous.Head == head) {
 		offset, state.Saved = previous.Offset, previous.State
 	}
 	if _, err := file.Seek(offset, io.SeekStart); err != nil {

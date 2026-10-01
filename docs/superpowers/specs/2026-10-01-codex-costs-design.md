@@ -163,9 +163,11 @@ never verified, access and refresh tokens never read), else `unknown`.
   values, as before, and the time, model, project and session come from the
   earliest occurrence (on a tie, the row read last, as before): a fork's copy,
   stamped with the fork's time and thread, never moves its original.
-- **Rewrite check.** `head` is the SHA-256 of the file's first line. When it
-  differs from the stored one, ingest reads the file from offset 0 with empty
-  state. Every key is derived from content, so a full re-read only rewrites
+- **Rewrite check.** `head` is the SHA-256 of the file's first line, `""`
+  while that line is still being written. When it differs from a stored
+  non-empty one, ingest reads the file from offset 0 with empty state; a
+  rewrite caught mid-first-line so stores offset 0 and is read whole once that
+  line is complete. Every key is derived from content, so a full re-read only rewrites
   the same rows.
 - **Speed.** Files are parsed concurrently (`GOMAXPROCS` workers), up to
   1 GiB of transcript ahead of the commits, and committed one transaction per
