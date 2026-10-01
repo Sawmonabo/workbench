@@ -560,7 +560,8 @@ func costsStatus(info costs.StatusInfo, width int) string {
 		add("coverage"+suffix, fmt.Sprintf(
 			"%s → %s, %s responses", c.First, c.Last, commas(c.Responses),
 		))
-		add("evidence"+suffix, attribution(c))
+		add("email evidence"+suffix, attribution(c.AccountEvidence))
+		add("plan evidence"+suffix, attribution(c.SubscriptionEvidence))
 	}
 	add("last ingest", localTime(info.LastIngestAt)+"  "+faint.Render(info.LastIngestSummary))
 	lastError := info.LastError
@@ -634,18 +635,19 @@ func signedIn(s costs.SignInStatus) string {
 	return "not signed in"
 }
 
-// attribution counts a tool's rows by the evidence that tied each to its
-// account and subscription, strongest first, leaving out the levels with none.
-func attribution(c costs.Coverage) string {
+// attribution counts a tool's rows by the evidence that tied each to one
+// field (its email or its subscription), strongest first, leaving out the
+// levels with none.
+func attribution(e costs.Evidence) string {
 	var parts []string
 	for _, level := range []struct {
 		n    int64
 		name string
 	}{
-		{c.TranscriptRows, "transcript"},
-		{c.SessionRows, "session"},
-		{c.ObservedRows, "observed"},
-		{c.UnknownRows, "unknown"},
+		{e.Transcript, "transcript"},
+		{e.Session, "session"},
+		{e.Observed, "observed"},
+		{e.Unknown, "unknown"},
 	} {
 		if level.n > 0 {
 			parts = append(parts, commas(level.n)+" "+level.name)

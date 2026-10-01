@@ -105,17 +105,37 @@ type Block struct {
 
 // Coverage is what the ledger holds for the tool, and when it last ingested.
 type Coverage struct {
-	First             string `json:"first"` // YYYY-MM-DD, or "none"
-	Last              string `json:"last"`
-	Responses         int64  `json:"responses"`
-	TranscriptRows    int64  `json:"transcript_rows"` // rows by the evidence of their account
-	SessionRows       int64  `json:"session_rows"`
-	ObservedRows      int64  `json:"observed_rows"`
-	UnknownRows       int64  `json:"unknown_rows"`
-	LastIngestAt      string `json:"last_ingest_at"`
-	LastIngestSummary string `json:"last_ingest_summary"`
-	LastError         string `json:"last_error"`
-	RatesFetched      string `json:"rates_fetched"` // YYYY-MM-DD, or "never"
+	First                string   `json:"first"` // YYYY-MM-DD, or "none"
+	Last                 string   `json:"last"`
+	Responses            int64    `json:"responses"`
+	AccountEvidence      Evidence `json:"account_evidence"`      // rows by the evidence of their email
+	SubscriptionEvidence Evidence `json:"subscription_evidence"` // and of their subscription
+	LastIngestAt         string   `json:"last_ingest_at"`
+	LastIngestSummary    string   `json:"last_ingest_summary"`
+	LastError            string   `json:"last_error"`
+	RatesFetched         string   `json:"rates_fetched"` // YYYY-MM-DD, or "never"
+}
+
+// Evidence counts rows by the level of evidence one field of them rests on.
+type Evidence struct {
+	Transcript int64 `json:"transcript"`
+	Session    int64 `json:"session"`
+	Observed   int64 `json:"observed"`
+	Unknown    int64 `json:"unknown"`
+}
+
+// add counts n rows at a level; any other level counts as unknown.
+func (e *Evidence) add(level string, n int64) {
+	switch level {
+	case EvidenceTranscript:
+		e.Transcript += n
+	case EvidenceSession:
+		e.Session += n
+	case EvidenceObserved:
+		e.Observed += n
+	default:
+		e.Unknown += n
+	}
 }
 
 // ReportOptions selects what a report covers; the zero value is the default
@@ -386,28 +406,21 @@ func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) 
 	}
 	c.First, c.Last = dateOf(first), dateOf(last)
 	rows, err := ledger.db.Query(
-		"SELECT account_source, COUNT(*) FROM responses WHERE tool = ? GROUP BY 1", tool,
+		`SELECT account_source, subscription_source, COUNT(*) FROM responses
+		  WHERE tool = ? GROUP BY 1, 2`, tool,
 	)
 	if err != nil {
 		return c, err
 	}
 	defer func() { _ = rows.Close() }()
 	for rows.Next() {
-		var source string
+		var account, subscription string
 		var n int64
-		if err := rows.Scan(&source, &n); err != nil {
+		if err := rows.Scan(&account, &subscription, &n); err != nil {
 			return c, err
 		}
-		switch source {
-		case EvidenceTranscript:
-			c.TranscriptRows = n
-		case EvidenceSession:
-			c.SessionRows = n
-		case EvidenceObserved:
-			c.ObservedRows = n
-		case EvidenceUnknown:
-			c.UnknownRows = n
-		}
+		c.AccountEvidence.add(account, n)
+		c.SubscriptionEvidence.add(subscription, n)
 	}
 	if err := rows.Err(); err != nil {
 		return c, err

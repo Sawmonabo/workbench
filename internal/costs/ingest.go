@@ -3,7 +3,6 @@ package costs
 import (
 	"bufio"
 	"bytes"
-	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -167,7 +166,6 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if tool.Source == nil {
 			continue
 		}
-		signIn := tool.Source.SignIn(paths.Home)
 		var accounts map[string]string
 		if directory, ok := tool.Source.(accountDirectory); ok {
 			accounts = directory.Accounts(paths.Home)
@@ -191,7 +189,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, run, tool, read, signIn, accounts, served[tool.Name])
+				err = commitFile(ctx, ledger, run, tool, read, accounts, served[tool.Name])
 			}
 			switch {
 			case err == nil && read.changed:
@@ -465,7 +463,6 @@ func commitFile(
 	run *Run,
 	tool Tool,
 	read fileRead,
-	signIn SignIn,
 	accounts map[string]string,
 	served func(model, tier string) string,
 ) error {
@@ -478,7 +475,7 @@ func commitFile(
 	return wrapLedger(ledger.Transaction(ctx, run, func(tx *Tx) error {
 		for _, u := range read.usage {
 			u.Tool = tool.Name
-			attribute(&u, signIn, accounts)
+			attribute(&u, accounts)
 			if base, tier := tool.SplitModel(u.Model); served != nil && tier != "" {
 				u.Model = base
 				if tier = served(base, tier); tier != "" {
@@ -503,20 +500,23 @@ func commitFile(
 	}))
 }
 
-// attribute gives a row read from a transcript the account and subscription
-// it is stored with. A row whose transcript decided its subscription
-// (EvidenceTranscript) takes the email of the sign-in that holds its
-// AccountKey, "unknown" when none does; ResolveAccounts fills that in later.
-// Any other row is stamped with the tool's current sign-in under
-// EvidenceUnknown, which ResolveAccounts raises once a binding or observation
-// names the session or time.
-func attribute(u *Usage, signIn SignIn, accounts map[string]string) {
-	if u.Evidence == EvidenceTranscript {
-		u.Account = cmp.Or(accounts[u.AccountKey], "unknown")
-		return
+// attribute sets the account a row is stored with: the email of the sign-in
+// that holds the AccountKey its transcript names (EvidenceTranscript),
+// otherwise "unknown" with no evidence. The tool's current sign-in is not
+// stamped on a row it has no evidence for: ResolveAccounts names an email only
+// from a transcript's account id, a session binding or agreeing observations.
+// The row's subscription is whatever its parser decided from the transcript,
+// else "unknown".
+func attribute(u *Usage, accounts map[string]string) {
+	if email := accounts[u.AccountKey]; u.AccountKey != "" && email != "" {
+		u.Account, u.AccountEvidence = email, EvidenceTranscript
+	} else {
+		u.Account, u.AccountEvidence = "unknown", EvidenceUnknown
 	}
-	u.Account, u.Subscription, u.SubscriptionLabel = signIn.Account, signIn.Subscription, signIn.Label
-	u.Evidence = EvidenceUnknown
+	if u.SubscriptionEvidence != EvidenceTranscript {
+		u.Subscription, u.SubscriptionLabel = "", ""
+		u.SubscriptionEvidence = EvidenceUnknown
+	}
 }
 
 // readAhead bounds how far reads run ahead of the commits: the size of the

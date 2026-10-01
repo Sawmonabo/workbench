@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -155,10 +156,12 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 }
 
 // The report splits spend by the subscription each row names, and a row's
-// attribution is decided by the strongest evidence for it. A weaker copy or a
-// later resolution that overwrote a stronger attribution would move spend to
-// the wrong account or subscription with no error, and the transcript that
-// proved it may be gone by the time anyone notices.
+// email and subscription are each decided by the strongest evidence for them.
+// A weaker copy or a later resolution that overwrote a stronger attribution,
+// or a run cancelled before the resolution that left a row on the wrong
+// session's evidence, would move spend to the wrong account or subscription
+// with no error, and the transcript that proved it may be gone by the time
+// anyone notices.
 func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	ctx := context.Background()
 	ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
@@ -204,7 +207,8 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	store(stamped("started", 2, other))
 	// A row whose transcript named its plan.
 	named := stamped("named", 3, other)
-	named.Account, named.Subscription, named.Evidence = "c@example.test", "codex:pro", EvidenceTranscript
+	named.Account, named.AccountEvidence = "c@example.test", EvidenceTranscript
+	named.Subscription, named.SubscriptionEvidence = "codex:pro", EvidenceTranscript
 	store(named)
 	for _, bind := range []struct {
 		hour int
@@ -234,20 +238,62 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	if err := ledger.ResolveAccounts(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
-	for id, want := range map[string][3]string{
-		"started": {personal.Account, personal.Subscription, EvidenceSession},
-		"resumed": {team.Account, team.Subscription, EvidenceSession},
-		"named":   {"c@example.test", "codex:pro", EvidenceTranscript},
+	// A row whose transcript named its plan but not its account takes the
+	// email of an observation, then of a later binding, and keeps its plan.
+	planOnly := Usage{
+		Tool: "claude", RequestID: "plan-only", Model: "claude-opus-5", Root: "s2",
+		Time: at(3), Input: 1, Subscription: "codex:pro", SubscriptionEvidence: EvidenceTranscript,
+	}
+	store(planOnly)
+	if err := ledger.Transaction(ctx, run, func(tx *Tx) error {
+		return tx.ObserveSignIn("claude", at(10), other)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.ResolveAccounts(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.BindSession(ctx, "claude", "s2", at(1), personal); err != nil {
+		t.Fatal(err)
+	}
+	if err := ledger.ResolveAccounts(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string][4]string{
+		"started": {
+			personal.Account, EvidenceSession, personal.Subscription, EvidenceSession,
+		},
+		"resumed": {team.Account, EvidenceSession, team.Subscription, EvidenceSession},
+		"named": {
+			"c@example.test", EvidenceTranscript, "codex:pro", EvidenceTranscript,
+		},
+		"plan-only": {
+			personal.Account, EvidenceSession, "codex:pro", EvidenceTranscript,
+		},
 	} {
-		var got [3]string
+		var got [4]string
 		if err := ledger.db.QueryRow(
-			"SELECT account, subscription, account_source FROM responses WHERE request_id = ?", id,
-		).Scan(&got[0], &got[1], &got[2]); err != nil {
+			`SELECT account, account_source, subscription, subscription_source
+			   FROM responses WHERE request_id = ?`, id,
+		).Scan(&got[0], &got[1], &got[2], &got[3]); err != nil {
 			t.Fatal(err)
 		}
 		if got != want {
 			t.Errorf("%s is attributed to %v, want %v", id, got, want)
 		}
+	}
+	// A copy with stronger evidence from another session keeps the stored
+	// root, and that is the session a resolution cut short must still name.
+	store(stamped("moved", 5, other))
+	if err := ledger.ResolveAccounts(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	copied := stamped("moved", 6, other)
+	copied.Root, copied.SubscriptionEvidence = "s9", EvidenceTranscript
+	store(copied)
+	if note, err := ledger.Meta(accountsUnresolved); err != nil ||
+		!strings.Contains(note, rootKey("claude", "s1")) {
+		t.Errorf("rows of s1 are not marked for attribution: %q, %v", note, err)
 	}
 }
 

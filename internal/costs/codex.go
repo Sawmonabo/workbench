@@ -314,7 +314,7 @@ func (s *codexState) row(ts, id string) Usage {
 	}
 	if s.Plan != "" { // the plan of the latest rate_limits read, at or before this row
 		u.Subscription, u.SubscriptionLabel = "codex:"+s.Plan, codexPlanLabel(s.Plan)
-		u.Evidence = EvidenceTranscript
+		u.SubscriptionEvidence = EvidenceTranscript
 	}
 	u.AccountKey = s.Account
 	subagent := s.Root != "" && s.Root != s.Thread

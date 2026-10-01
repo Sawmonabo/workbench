@@ -28,7 +28,7 @@ type Source interface {
 
 // SignIn is who a tool is signed in as, and what pays for it: the account (an
 // email, "unknown" when there is none), the subscription (a stable id such as
-// "claude:<organization uuid>" or "codex:plus", "api-key" for an API key, ""
+// "claude:<organization uuid>" or "codex:plus", "api-key" for a Codex API key, ""
 // when unknown) and the label the report shows for that subscription ("Max",
 // "Team (Example Org)", "Plus"; "" when the id says it all). The zero SignIn
 // means nothing is known.
@@ -44,14 +44,15 @@ type accountDirectory interface {
 	Accounts(home string) map[string]string
 }
 
-// The evidence a row's account and subscription rest on, strongest first; the
-// ledger stores it as account_source. A stronger copy of a row replaces a
-// weaker one, an equal one keeps the stored value.
+// The evidence the account (email) and the subscription of a row each rest on,
+// strongest first; the ledger stores them as account_source and
+// subscription_source. A stronger copy of a row replaces a weaker one for that
+// field, an equal one keeps the stored value.
 const (
-	EvidenceTranscript = "transcript" // the transcript named them (Codex: plan and creator account)
+	EvidenceTranscript = "transcript" // the transcript named it (Codex: the plan, the creator account)
 	EvidenceSession    = "session"    // the sign-in a hook bound to the row's root session
 	EvidenceObserved   = "observed"   // the sign-in observed on both sides of the row's time
-	EvidenceUnknown    = "unknown"    // no evidence
+	EvidenceUnknown    = "unknown"    // no evidence (an upgraded row keeps the email an earlier build stored)
 )
 
 // EvidenceRank orders the evidence levels: 3 transcript, 2 session, 1 observed,
@@ -93,7 +94,7 @@ type Usage struct {
 	// SubscriptionLabel its display label (see SignIn); a source sets them
 	// only when its transcript names the plan (Codex), else ingest fills them
 	// from a sign-in. A parser's Subscription is final: re-attribution never
-	// changes the subscription of a row whose Evidence is EvidenceTranscript.
+	// changes the subscription of a row whose SubscriptionEvidence is EvidenceTranscript.
 	Subscription, SubscriptionLabel string
 
 	// Root is the session a hook names for the row: Claude's sessionId (the
@@ -108,10 +109,12 @@ type Usage struct {
 	// "" otherwise. Ingest resolves it to an email through accountDirectory.
 	AccountKey string
 
-	// Evidence is "transcript" when the source decided the subscription from
-	// the transcript itself, "" otherwise. Ingest and the ledger assign every
-	// other level.
-	Evidence string
+	// SubscriptionEvidence is "transcript" when the source decided the
+	// subscription from the transcript itself, "" otherwise. AccountEvidence is
+	// the same for the account, set by ingest when the transcript's AccountKey
+	// names a sign-in. Ingest and the ledger assign every other level, each
+	// field apart: a transcript can name the plan and not the email.
+	SubscriptionEvidence, AccountEvidence string
 
 	// CopyOf, when set, is "<thread>@<time>": the row may repeat a response
 	// of that thread written before that time, under another key. It is

@@ -92,6 +92,7 @@ CREATE TABLE responses (
   account        TEXT NOT NULL,
   account_source TEXT NOT NULL,
   subscription   TEXT NOT NULL DEFAULT 'unknown',
+  subscription_source TEXT NOT NULL DEFAULT 'unknown',
   root           TEXT NOT NULL DEFAULT '',
   input          INTEGER NOT NULL,
   output         INTEGER NOT NULL,
@@ -131,10 +132,12 @@ CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 // subscription, also created by the upgrade of an older ledger. Every time is
 // in timeLayout, so it compares as text with responses.ts.
 //
-// responses.account_source holds the evidence level of account and
-// subscription (EvidenceTranscript, EvidenceSession, EvidenceObserved or
-// EvidenceUnknown); responses.subscription is a subscription id ("unknown"
-// when none) and responses.root the session a hook names for the row.
+// responses.account_source holds the evidence level of account (the email)
+// and responses.subscription_source that of subscription (EvidenceTranscript,
+// EvidenceSession, EvidenceObserved or EvidenceUnknown): each is decided on
+// its own, as a transcript can name a plan without naming an account.
+// responses.subscription is a subscription id ("unknown" when none) and
+// responses.root the session a hook names for the row.
 //
 //   - session_accounts: the sign-in a hook found when a session started (or
 //     resumed) at since, for the root session of a tool; a row of that
@@ -306,6 +309,7 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 				  tier TEXT NOT NULL, PRIMARY KEY (thread_id, ts, tier))`,
 				`CREATE TABLE IF NOT EXISTS tier_pending (request_id TEXT PRIMARY KEY, root TEXT NOT NULL)`,
 				"ALTER TABLE responses ADD COLUMN subscription TEXT NOT NULL DEFAULT 'unknown'",
+				"ALTER TABLE responses ADD COLUMN subscription_source TEXT NOT NULL DEFAULT 'unknown'",
 				"ALTER TABLE responses ADD COLUMN root TEXT NOT NULL DEFAULT ''",
 				"CREATE INDEX IF NOT EXISTS responses_root ON responses (tool, root)",
 				"UPDATE responses SET account_source = '"+EvidenceUnknown+"'",
@@ -469,7 +473,7 @@ func NewRun() *Run {
 type storedRow struct {
 	ts     string
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
-	rank   int      // EvidenceRank of the stored account_source
+	rank   [2]int   // EvidenceRank of the stored account_source and subscription_source
 	root   string   // the stored root session
 }
 
@@ -507,8 +511,8 @@ func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) 
 		if err := fn(t); err != nil {
 			return err
 		}
-		// Rows stored under provisional evidence wait for ResolveAccounts, which
-		// a run cancelled before it would leave for the next one.
+		// Rows stored without evidence wait for ResolveAccounts, which a run
+		// cancelled before it would leave for the next one.
 		if len(t.wrote.roots) > 0 {
 			if err := markAccountsUnresolved(
 				ctx,
@@ -554,9 +558,9 @@ func (t *Tx) prepared(slot **sql.Stmt, query string) (*sql.Stmt, error) {
 // row read last wins, as it always has.
 var upsert = `
 INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
-                       subscription, root,
+                       subscription, subscription_source, root,
                        input, output, cache_write_5m, cache_write_1h, cache_read, tool)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(request_id) DO UPDATE SET
   ts         = CASE WHEN ` + earlier + ` THEN excluded.ts ELSE ts END,
   model      = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
@@ -568,12 +572,14 @@ ON CONFLICT(request_id) DO UPDATE SET
   cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
   cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
   cache_read = MAX(cache_read, excluded.cache_read),
-  account        = CASE WHEN ` + stronger + ` THEN excluded.account ELSE account END,
-  subscription   = CASE WHEN ` + stronger + ` THEN excluded.subscription ELSE subscription END,
-  account_source = CASE WHEN ` + stronger + ` THEN excluded.account_source ELSE account_source END
+  account        = CASE WHEN ` + strongerAccount + ` THEN excluded.account ELSE account END,
+  account_source = CASE WHEN ` + strongerAccount + ` THEN excluded.account_source ELSE account_source END,
+  subscription   = CASE WHEN ` + strongerSubscription + ` THEN excluded.subscription ELSE subscription END,
+  subscription_source = CASE WHEN ` + strongerSubscription + `
+                             THEN excluded.subscription_source ELSE subscription_source END
 RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
   EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id),
-  ` + evidenceRank("account_source") + `, root
+  ` + evidenceRank("account_source") + `, ` + evidenceRank("subscription_source") + `, root
 `
 
 // evidenceRank is the SQL form of EvidenceRank for a column.
@@ -582,10 +588,17 @@ func evidenceRank(column string) string {
 		EvidenceSession + "' THEN 2 WHEN '" + EvidenceObserved + "' THEN 1 ELSE 0 END)"
 }
 
-// stronger is true when the incoming copy rests on stronger evidence than the
-// stored row, which then takes its account and subscription; equal evidence
-// keeps the stored ones. In an UPDATE, account_source is the old value.
-var stronger = evidenceRank("excluded.account_source") + " > " + evidenceRank("account_source")
+// strongerAccount and strongerSubscription are true when the incoming copy
+// rests on stronger evidence than the stored row for that field, which then
+// takes the copy's value; equal evidence keeps the stored one. The two are
+// independent: a copy may name the plan and not the account. In an UPDATE the
+// stored columns are the old values.
+var (
+	strongerAccount = evidenceRank("excluded.account_source") + " > " +
+		evidenceRank("account_source")
+	strongerSubscription = evidenceRank("excluded.subscription_source") + " > " +
+		evidenceRank("subscription_source")
+)
 
 // earlier is true when the incoming copy is at least as old as the stored
 // row, which then takes its attribution. In an UPDATE, ts is the old value.
@@ -662,21 +675,23 @@ func (l *Ledger) DropHeldCopies(
 	})
 }
 
-// Upsert records one response. Its account, subscription and evidence come
-// from the Usage: a source sets Subscription and Evidence only when its
-// transcript names the plan (EvidenceTranscript); otherwise ingest stamps the
-// sign-in it read with EvidenceUnknown, "" counting as unknown and an empty
-// Subscription as "unknown", and ResolveAccounts raises the evidence once a
-// binding or observation names the row's session or time. The account,
-// subscription and evidence of an existing row are replaced only by a copy
-// with stronger evidence. A row priced
+// Upsert records one response. Its account (email), subscription and the
+// evidence of each come from the Usage: a source sets Subscription and
+// SubscriptionEvidence only when its transcript names the plan, and ingest
+// sets Account and AccountEvidence only when the transcript names the account
+// (EvidenceTranscript); every other value is "unknown" with EvidenceUnknown
+// ("" counts as unknown), and ResolveAccounts raises the evidence once a
+// binding or observation names the row's session or time. The account and
+// the subscription of an existing row, each with its evidence, are replaced
+// only by a copy with stronger evidence for that field. A row priced
 // by its root thread's tier waits in tier_pending until ResolveTiers prices it;
 // the pending row follows the copy whose attribution is stored, so a later
 // copy never changes what an earlier one decided.
 func (t *Tx) Upsert(u Usage) error {
 	id := storedID(u)
-	evidence := cmp.Or(u.Evidence, EvidenceUnknown)
-	rank := EvidenceRank(evidence)
+	accountEvidence := cmp.Or(u.AccountEvidence, EvidenceUnknown)
+	subscriptionEvidence := cmp.Or(u.SubscriptionEvidence, EvidenceUnknown)
+	rank := [2]int{EvidenceRank(accountEvidence), EvidenceRank(subscriptionEvidence)}
 	when := ""
 	if !u.Time.IsZero() {
 		when = u.Time.UTC().Format(timeLayout)
@@ -686,9 +701,10 @@ func (t *Tx) Upsert(u Usage) error {
 	// attribution stays, MAX keeps the counts, and the pending tier follows
 	// the stored attribution. A stored time only moves earlier, counts and
 	// evidence only grow, so this holds whatever this transaction wrote since.
-	if seen, ok := t.run.seen[id]; ok && rank <= seen.rank && when != "" && seen.ts != "" &&
-		when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
-		u.CacheWrite5m <= seen.tokens[2] && u.CacheWrite1h <= seen.tokens[3] &&
+	if seen, ok := t.run.seen[id]; ok && rank[0] <= seen.rank[0] && rank[1] <= seen.rank[1] &&
+		when != "" && seen.ts != "" && when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
+		u.CacheWrite5m <= seen.tokens[2] &&
+		u.CacheWrite1h <= seen.tokens[3] &&
 		u.CacheRead <= seen.tokens[4] {
 		return nil
 	}
@@ -706,12 +722,12 @@ func (t *Tx) Upsert(u Usage) error {
 	var pending bool
 	if err := statement.QueryRowContext(
 		t.ctx,
-		id, when, u.Model, u.Project, u.Session, u.Account, evidence,
-		cmp.Or(u.Subscription, "unknown"), u.Root,
+		id, when, u.Model, u.Project, u.Session, cmp.Or(u.Account, "unknown"), accountEvidence,
+		cmp.Or(u.Subscription, "unknown"), subscriptionEvidence, u.Root,
 		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
 	).Scan(
 		&stored.ts, &stored.tokens[0], &stored.tokens[1],
-		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank, &stored.root,
+		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank[0], &stored.rank[1], &stored.root,
 	); err != nil {
 		return err
 	}
@@ -976,8 +992,9 @@ func (t *Tx) ObserveSignIn(tool string, at time.Time, s SignIn) error {
 type (
 	bindingKey  struct{ tool, session string }
 	signInPoint struct{ at, account, subscription string }
-	// attribution is what a row is attributed to: source is its evidence, ""
-	// for no decision, and an empty account keeps the row's own.
+	// attribution is what a row is attributed to: source is the evidence of
+	// both values, "" for no decision. An empty or "unknown" value names
+	// nothing and leaves that field of the row as it is.
 	attribution struct{ account, subscription, source string }
 )
 
@@ -1054,8 +1071,9 @@ func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
 // attribute is what the ledger's evidence says of a row of tool, its root
 // session and its time ts: the binding of its session with the latest since at
 // or before ts; else the sign-in observed on both sides of ts when the two
-// agree; else unknown, where the row keeps its email (no account here) and has
-// no subscription. A row before the first observation is unknown. A row after
+// agree; else unknown, which names no email and no subscription and so changes
+// nothing in a row (a row an earlier build stored keeps its email). A row before
+// the first observation is unknown. A row after
 // the last one has no decision yet (source ""): a later observation may decide it.
 func (b accountBasis) attribute(tool, root, ts string) attribution {
 	if bound := b.bindings[bindingKey{tool, root}]; root != "" {
@@ -1083,37 +1101,40 @@ func (b accountBasis) attribute(tool, root, ts string) attribution {
 }
 
 type accountRow struct {
-	id, tool, ts, root, account, subscription, source string
+	id, tool, ts, root, account, accountSource, subscription, subscriptionSource string
 }
 
 // update is the change that takes a row to what the evidence says, ok false
-// when the row stays. A row decided by its transcript keeps its subscription
-// and evidence and only fills an "unknown" account; any other row is never
-// given weaker evidence than it has.
-func (r accountRow) update(want attribution) (next attribution, ok bool) {
-	if want.source == "" {
-		return attribution{}, false
+// when nothing changes. The email and the subscription are raised each on its
+// own evidence, since a transcript can decide the plan and leave the email to a
+// binding or an observation: a field takes the new value when its evidence is
+// at least as strong as the stored one, never weaker, and a field decided by
+// its transcript never changes. A value that is "unknown" is no evidence and
+// leaves the field as it is, so a row keeps an email an earlier build stored
+// until something names a real one.
+func (r accountRow) update(want attribution) (next accountRow, ok bool) {
+	next = r
+	rank := EvidenceRank(want.source)
+	if rank > 0 && rank >= EvidenceRank(r.accountSource) &&
+		want.account != "" && want.account != "unknown" {
+		next.account, next.accountSource = want.account, want.source
 	}
-	if r.source == EvidenceTranscript {
-		if r.account != "unknown" || want.account == "" || want.account == "unknown" {
-			return attribution{}, false
-		}
-		return attribution{want.account, r.subscription, r.source}, true
+	if rank > 0 && rank >= EvidenceRank(r.subscriptionSource) &&
+		want.subscription != "" && want.subscription != "unknown" {
+		next.subscription, next.subscriptionSource = want.subscription, want.source
 	}
-	if EvidenceRank(want.source) < EvidenceRank(r.source) {
-		return attribution{}, false
-	}
-	next = attribution{cmp.Or(want.account, r.account), want.subscription, want.source}
-	return next, next != attribution{r.account, r.subscription, r.source}
+	return next, next != r
 }
 
-// accountsQuery selects the rows ResolveAccounts attributes: those not decided
-// by their transcript (or decided without an email), all when scope is nil,
+// accountsQuery selects the rows ResolveAccounts attributes: those with a
+// field not decided by its transcript, all when scope is nil,
 // else the rows scope stored, the rows of its sessions and of the sessions in
 // dirty, and each tool's rows after its watermark.
 func accountsQuery(scope *Run, dirty []string, through map[string]string) (string, []any, error) {
-	query := `SELECT request_id, tool, ts, root, account, subscription, account_source FROM responses
-	 WHERE ts <> '' AND (account_source <> '` + EvidenceTranscript + `' OR account = 'unknown')`
+	query := `SELECT request_id, tool, ts, root, account, account_source,
+	  subscription, subscription_source FROM responses
+	 WHERE ts <> '' AND (account_source <> '` + EvidenceTranscript + `'
+	   OR subscription_source <> '` + EvidenceTranscript + `')`
 	if scope == nil {
 		return query, nil, nil
 	}
@@ -1164,14 +1185,17 @@ func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, er
 	return dirty, false, nil
 }
 
-// ResolveAccounts gives each row not decided by its transcript the strongest
-// evidence it has: the session binding with the latest since at or before its
-// time (EvidenceSession), else the sign-in observed on both sides of its time
-// when the two agree (EvidenceObserved), else EvidenceUnknown with the account
-// it was stamped with and subscription "unknown". A row decided by its
-// transcript keeps its subscription and only fills an "unknown" account the
-// same way. A row is never given weaker evidence than it has, and one after a
-// tool's latest observation waits for a later one.
+// ResolveAccounts gives each row the strongest evidence it has for its email
+// and, apart, for its subscription: the session binding with the latest since
+// at or before its time (EvidenceSession), else the sign-in observed on both
+// sides of its time when the two agree (EvidenceObserved), else nothing, and
+// the field stays "unknown" (or the email an earlier build stored). A field
+// decided by its transcript never changes, so a row whose transcript named its
+// plan but not its account still takes the email of a binding or an
+// observation. A field is never given weaker evidence than it has, and a row
+// after a tool's latest observation waits for a later one. Rows of a Codex
+// subagent stored under a spawning parent are first moved to the root thread of
+// the links ingest recorded (moveRowsToRoots).
 //
 // As ResolveTiers prices only what a run could have changed, with scope set
 // only these rows are attributed again: those scope stored, those of the
@@ -1209,13 +1233,14 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 		}
 		type change struct {
 			id   string
-			next attribution
+			next accountRow
 		}
 		var changes []change
 		for rows.Next() {
 			var r accountRow
 			if err := rows.Scan(
-				&r.id, &r.tool, &r.ts, &r.root, &r.account, &r.subscription, &r.source,
+				&r.id, &r.tool, &r.ts, &r.root,
+				&r.account, &r.accountSource, &r.subscription, &r.subscriptionSource,
 			); err != nil {
 				_ = rows.Close()
 				return err
@@ -1232,9 +1257,10 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 		}
 		for _, c := range changes {
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE responses SET account = ?, subscription = ?, account_source = ?
-				  WHERE request_id = ?`,
-				c.next.account, c.next.subscription, c.next.source, c.id); err != nil {
+				`UPDATE responses SET account = ?, account_source = ?,
+				  subscription = ?, subscription_source = ? WHERE request_id = ?`,
+				c.next.account, c.next.accountSource,
+				c.next.subscription, c.next.subscriptionSource, c.id); err != nil {
 				return err
 			}
 		}
@@ -1289,8 +1315,13 @@ func moveRowsToRoots(ctx context.Context, tx *sql.Tx) ([]string, error) {
 		if root == key.session {
 			continue // a cycle in damaged data: no root to move to
 		}
-		result, err := tx.ExecContext(ctx,
-			"UPDATE responses SET root = ? WHERE tool = ? AND root = ?", root, key.tool, key.session)
+		result, err := tx.ExecContext(
+			ctx,
+			"UPDATE responses SET root = ? WHERE tool = ? AND root = ?",
+			root,
+			key.tool,
+			key.session,
+		)
 		if err != nil {
 			return nil, err
 		}
