@@ -221,7 +221,7 @@ A source reports its current sign-in as `SignIn(home)`: the `email` claim of
 `auth.json` (payload decoded, never verified, access and refresh tokens never
 read), the subscription from the same token's plan, else `unknown`. Each row
 is stored with an email, a subscription and the evidence that decided them,
-as section 11 describes; there is no per-run `session` or `sweep` tag.
+as section 10 describes; there is no per-run `session` or `sweep` tag.
 `Observations` is nil: Codex records no cost to calibrate against.
 
 ## 4. Ledger and ingest changes
@@ -277,7 +277,7 @@ as section 11 describes; there is no per-run `session` or `sweep` tag.
   stamped with the fork's time and thread, never moves its original. The
   account, subscription and `account_source` (the evidence) are the exception:
   a copy with stronger evidence replaces them, an equal or weaker one keeps
-  the stored values (section 11).
+  the stored values (section 10).
 - **Accounts.** `responses` also gains `subscription` and `root` (the root
   session a hook names), and `account_source` now holds the evidence level
   (`transcript`, `session`, `observed` or `unknown`); schema 3 adds the tables
@@ -427,7 +427,7 @@ unchanged once the source is set.
 - Timing of the first full ingest on this machine, reported with the result.
 - `render-check.sh` for every role and mode, including `wsl`.
 
-## 11. Subscriptions
+## 10. Subscriptions
 
 One sign-in email can pay through several subscriptions: a Claude Code login
 can switch between a personal Max plan and a team organization, and a ChatGPT
@@ -560,7 +560,7 @@ sign-in that names the id, so a renamed organization relabels its history.
   session, and no other session ended in that window, so the log does not show
   a failed exit.
 
-## 12. Out of scope
+## 11. Out of scope
 
 `.jsonl.zst` rollouts; long-context pricing; Batch pricing (Codex does not
 use the Batch API); `token_count.rate_limits.credits` (an account balance, not
