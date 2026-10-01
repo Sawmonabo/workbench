@@ -185,6 +185,24 @@ synthetic answers.
   the hash Codex had recorded for the existing approved `UserPromptSubmit`
   hook was reproduced exactly.
   Applying them to a real machine is not yet observed.
+- On 2026-10-01, the same host's Claude Code transcripts (1,205 files) and
+  Codex rollouts (2,973) were ingested read-only into an empty scratch ledger
+  in 50 seconds, with the same 72,651 Claude Code and 348,079 Codex rows and
+  the same token totals as the build before subscriptions; no row's time,
+  model, project, session or counts differed. The Codex rows took their plan
+  from their rollouts (Pro, Pro Lite and Plus; 405 rows with no plan in their
+  file kept `unknown`) and the Claude Code rows, read before any sign-in had
+  been observed, stayed `unknown` with the sign-in's email. A simulated
+  `SessionStart` hook for a session whose rows were then written stored one
+  `session_accounts` binding, its hook process returning in 0.12 seconds, and
+  put that session's rows at `session` evidence under Max; a second session with
+  no hook went from `unknown` to `observed` on the next run. A hook naming a
+  Codex rollout bound a Codex session, and one naming a path under neither
+  tool logged that the session was not bound. `costs status` reported Claude
+  Code hooks as `missing (workbench apply)` for a settings file with the old
+  `async` hooks and `ok` for the synchronous ones. The real Claude Code
+  sign-in was not read in this run (a synthetic `oauthAccount` stood in), and
+  a running session's behavior after a `/login` elsewhere is not observed.
 
 ### Output
 

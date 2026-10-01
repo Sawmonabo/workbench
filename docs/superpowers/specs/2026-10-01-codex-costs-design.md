@@ -520,8 +520,12 @@ sign-in that names the id, so a renamed organization relabels its history.
 - Claude Code rows read before this change, or from sessions started with no
   hook installed, rely on rule 3; history from before the first observation
   is `unknown`.
-- Codex files without `rate_limits` (13 of 2,976 on the sample machine) fall
-  back to rules 2–4.
+- Codex rows with no plan in their file (405 of 348,079 on the sample machine:
+  records before the file's first `token_count`, and files without
+  `rate_limits`) fall back to rules 2–4. A row decided by its transcript but
+  whose file names no `creator_account_id` (all but 5,296 of the sample's
+  347,674) has a plan and no email until a binding or observation names it,
+  so history ingested before the first observation reports `unknown · Pro`.
 
 ### Report and status
 
