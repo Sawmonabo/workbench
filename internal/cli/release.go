@@ -17,15 +17,16 @@ import (
 
 var buildReleaseVersion = "dev"
 
-// updateCommand installs the latest release, or VERSION, then applies it.
+// updateCommand installs the latest release, or VERSION, and the tools it
+// pins, then stops. Applying the machine is apply's job.
 func updateCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update [VERSION]",
-		Short: "Install the latest Workbench release, or VERSION, then apply it",
-		Long: "Install the latest Workbench release, or VERSION (an older one goes back), " +
-			"then run workbench apply with it. Installing Workbench and its own tools changes " +
-			"only Workbench's files and keeps the previous release, so running update is the " +
-			"go-ahead for them. See the releases with workbench version --list.",
+		Short: "Install the latest Workbench release, or VERSION, and its tools",
+		Long: "Install the latest Workbench release, or VERSION (an older one goes back), and " +
+			"the chezmoi, uv, Python and TOML Kit it pins. It changes only Workbench's own " +
+			"files and keeps the previous release, so running it is the go-ahead. It never " +
+			"applies the machine; run workbench apply next.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
 			releaseAction,
@@ -36,15 +37,7 @@ func updateCommand(o *options) *cobra.Command {
 	}
 	cmd.Flags().
 		Bool("dry-run", false, "Show the install step only; apply --dry-run shows the machine plan")
-	cmd.Flags().
-		Bool("install-only", false, "Install Workbench and its tools without applying")
-	cmd.Flags().
-		Bool("config-only", false, "Apply configuration files without provisioning scripts")
-	addAskFlag(cmd)
-	addEffectFlag(cmd)
-	o.machineConfigFlag(cmd)
 	o.destinationFlag(cmd)
-	o.approveFlag(cmd)
 	cmd.Flags().String("bundle", "", "Install this release archive, a local file or HTTPS URL")
 	_ = cmd.Flags().MarkHidden("bundle") // install.sh and offline installs
 	cmd.Flags().String(
@@ -186,7 +179,7 @@ func releaseCheckCommand(o *options) *cobra.Command {
 }
 
 // updateRelease downloads (or reads --bundle), verifies, stages and activates
-// a release, then hands off to it to set up tools and apply.
+// a release, then hands off to it to install the tools it pins.
 func updateRelease(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -212,12 +205,6 @@ func updateRelease(
 		}
 	}()
 	c.ReadOnly = false
-	if err := checkAsk(cmd, c, o); err != nil {
-		return result, err
-	}
-	if err := machine.CheckEffects(machineSelection(cmd)); err != nil {
-		return result, err
-	}
 	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
 		return continueInstall(cmd, c, o, result, ready == "unchanged")
 	}
@@ -234,7 +221,7 @@ func updateRelease(
 		return result, err
 	}
 	if bundle == nil {
-		// Already installed: still set up and apply, so rerunning update
+		// Already installed: still install the tools, so rerunning update
 		// finishes a setup that was declined or failed.
 		return continueInstalled(cmd, c, o, result)
 	}
@@ -285,23 +272,14 @@ func updateRelease(
 	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
-		"Installed Workbench %s; continuing with %s\n",
+		"[WorkBench] Installed %s; continuing with its tools\n",
 		bundle.Metadata.Release,
-		nextSteps(cmd),
 	)
-	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(cmd, o, "installed"))
+	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(o, "installed"))
 }
 
-// nextSteps names what the activated runtime does after the install.
-func nextSteps(cmd *cobra.Command) string {
-	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
-		return "its tools"
-	}
-	return "setup and apply"
-}
-
-// continueInstalled hands off to the already active release to set up its tools
-// and, unless --install-only, apply it.
+// continueInstalled hands off to the already active release to install its
+// tools, then stops: update never applies the machine.
 func continueInstalled(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -323,11 +301,10 @@ func continueInstalled(
 	}
 	_, _ = fmt.Fprintf(
 		cmd.ErrOrStderr(),
-		"Workbench %s is already installed; continuing with %s\n",
+		"[WorkBench] %s is already installed; continuing with its tools\n",
 		active.Identity.Release,
-		nextSteps(cmd),
 	)
-	return result, operation.Handoff(c, active, handoffArgs(cmd, o, "unchanged"))
+	return result, operation.Handoff(c, active, handoffArgs(o, "unchanged"))
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
@@ -477,116 +454,45 @@ func continueInstall(
 	}
 	result.Results = append(result.Results, installed)
 	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
-	return configureMachine(cmd, c, o, result, metadata.Release)
+	return installTools(cmd, c, o, result, metadata.Release, unchanged)
 }
 
-// handoffArgs repeats the setup and apply selections for the activated
-// runtime, which continues this install with --runtime-ready and whether the
-// release was installed now or unchanged.
-func handoffArgs(cmd *cobra.Command, o *options, install string) []string {
-	args := []string{cmd.Name(), "--runtime-ready", install}
-	if o.approvePlan != "" {
-		args = append(args, "--approve-plan", o.approvePlan)
-	}
+// handoffArgs repeats the selections for the activated runtime, which
+// continues this install with --runtime-ready and whether the release was
+// installed now or unchanged.
+func handoffArgs(o *options, install string) []string {
+	args := []string{"update", "--runtime-ready", install}
 	if o.nonInteractive {
 		args = append(args, "--non-interactive")
 	}
 	if o.json {
 		args = append(args, "--json")
 	}
-	if o.resolve.MachineConfig != "" {
-		args = append(args, "--machine-config", o.resolve.MachineConfig)
-	}
 	if o.resolve.Destination != "" {
 		args = append(args, "--destination", o.resolve.Destination)
-	}
-	for _, name := range []string{"config-only", "install-only"} {
-		if set, _ := cmd.Flags().GetBool(name); set {
-			args = append(args, "--"+name)
-		}
-	}
-	effects, _ := cmd.Flags().GetStringArray("effect")
-	for _, effect := range effects {
-		args = append(args, "--effect", effect)
-	}
-	ask, _ := cmd.Flags().GetStringSlice("ask")
-	for _, key := range ask {
-		args = append(args, "--ask", key)
 	}
 	return args
 }
 
-// checkAsk refuses --ask where no question can be asked, before anything is
-// installed.
-func checkAsk(cmd *cobra.Command, c operation.Context, o *options) error {
-	ask, _ := cmd.Flags().GetStringSlice("ask")
-	if len(ask) == 0 {
-		return nil
-	}
-	for _, name := range []string{"install-only", "dry-run"} {
-		if set, _ := cmd.Flags().GetBool(name); set {
-			return operation.Fail(
-				operation.ExitInvalid,
-				"ask",
-				"--"+name+" asks no machine questions; drop --ask or --"+name,
-			)
-		}
-	}
-	if o.resolve.MachineConfig != "" {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"ask",
-			"--machine-config uses its answer file as is; drop --ask or --machine-config",
-		)
-	}
-	if c.Native.Developer {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"ask",
-			"--source uses the saved answers; ask without --source, then apply the checkout",
-		)
-	}
-	if !o.interactive() {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"ask",
-			"--ask needs a terminal; unattended runs take answers from --machine-config",
-		)
-	}
-	return machine.CheckAsk(c.Native.Config, ask)
-}
-
-// configureMachine runs in the activated runtime: it installs Workbench's
-// tools and, unless --install-only, runs applyMachine, as workbench apply
-// does. Every install and update puts the tools in place, without asking:
-// Workbench needs them to work.
-func configureMachine(
+// installTools runs in the activated runtime: it puts the pinned tools in
+// place, without asking, and stops. Applying the machine is apply's job.
+func installTools(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
 	version string,
+	unchanged bool,
 ) (operation.Result, error) {
-	if installOnly, _ := cmd.Flags().GetBool("install-only"); installOnly {
-		_, err := setUp(cmd, c, o, nil, &result, false)
-		if err == nil {
-			result.Summary = "Workbench " + version + " and its tools are installed"
-		}
+	_, err := setUp(cmd, c, o, nil, &result, false, nil)
+	if err != nil {
 		return result, err
 	}
-	result, _, err := applyMachine(cmd, c, o, result)
-	if err == nil {
-		matches := "your machine matches it"
-		if machineSelection(cmd).ConfigOnly {
-			matches = "your configuration files match it"
-		}
-		// The first component is the release this run installed or found.
-		result.Summary = "Updated to Workbench " + version + ", and " + matches
-		if result.Results[0].Status == operation.StatusUnchanged {
-			result.Summary = "Workbench " + version + " is current, and " + matches
-		}
+	result.Summary = "[WorkBench] Installed " + version + " and its tools; run workbench apply"
+	if unchanged {
+		result.Summary = "[WorkBench] " + version + " is already installed; run workbench apply"
 	}
-	return result, err
+	return result, nil
 }
 
 // setUp installs the pinned tools Workbench runs, when missing, and, with
@@ -600,9 +506,9 @@ func setUp(
 	terminal *os.File,
 	result *operation.Result,
 	questions bool,
+	ask []string,
 ) (operation.Context, error) {
 	planner := machine.ToolsPlan
-	ask, _ := cmd.Flags().GetStringSlice("ask")
 	if questions {
 		planner = machine.SetupPlan
 	}
@@ -618,7 +524,7 @@ func setUp(
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"answers",
-				"Without a terminal, setup needs saved answers or --machine-config",
+				"Without a terminal, setup needs saved answers; save them with workbench init --answers-from FILE",
 			)
 		}
 	}

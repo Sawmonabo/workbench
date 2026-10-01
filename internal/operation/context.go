@@ -44,10 +44,10 @@ type Context struct {
 
 // Options are the command-line selections [Resolve] turns into a [Context].
 type Options struct {
-	Project                                  bool
-	Path, Source, MachineConfig, Destination string
-	Languages                                []string
-	ReadOnly                                 bool
+	Project                   bool
+	Path, Source, Destination string
+	Languages                 []string
+	ReadOnly                  bool
 }
 
 // Resolve reads paths only: it never creates runtime directories or answers.
@@ -97,15 +97,6 @@ func Resolve(options Options) (Context, error) {
 	}
 	slices.Sort(c.Languages)
 	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")
-	if options.MachineConfig != "" {
-		c.Native.Config, err = filepath.Abs(options.MachineConfig)
-		if err != nil {
-			return c, Fail(ExitInvalid, "input", "Cannot resolve machine answer file")
-		}
-		if err = checkPrivateFile(c.Native.Config); err != nil {
-			return c, err
-		}
-	}
 	c.Native.PersistentState = filepath.Join(c.Paths.State, "chezmoi", "chezmoi.boltdb")
 	c.Native.Cache = c.Paths.Cache
 	if options.Source != "" {

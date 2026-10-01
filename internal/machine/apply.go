@@ -11,6 +11,11 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// NothingToApply is the message of the unchanged configuration result when
+// every file matches and the selection equals the saved one, so Apply returned
+// before approving or writing anything.
+const NothingToApply = "Every file already matches and no effect is checked; nothing to apply"
+
 // Apply shares native preparation with preview and obtains fresh exact images
 // under the operation locks before granting the native engine write authority.
 // An interactive apply gives native chezmoi terminal; otherwise its redacted
@@ -44,7 +49,7 @@ func Apply(
 			result.Results = append(result.Results, operation.Component{
 				Name:    "configuration",
 				Status:  operation.StatusUnchanged,
-				Message: "Every file already matches and no effect is checked; nothing to apply",
+				Message: NothingToApply,
 			})
 			return result, nil
 		}

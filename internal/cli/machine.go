@@ -180,7 +180,7 @@ func applyCommand(o *options) *cobra.Command {
 				c.ReadOnly = false
 				result, plan, err := applyMachine(cmd, c, o, nil)
 				if err == nil {
-					result.Summary = appliedSummary(plan)
+					result.Summary = appliedSummary(result, plan)
 				}
 				return result, err
 			},
@@ -304,8 +304,14 @@ func applyMachine(
 	return result, plan, err
 }
 
-// appliedSummary is the branded result line.
-func appliedSummary(plan operation.Plan) string {
+// appliedSummary is the branded result line. Apply's early return, with no
+// file to write and no selection to save, reports itself by its message.
+func appliedSummary(result operation.Result, plan operation.Plan) string {
+	for _, component := range result.Results {
+		if component.Message == machine.NothingToApply {
+			return "[WorkBench] Nothing to apply; this machine already matches"
+		}
+	}
 	effects, skipped := 0, 0
 	for _, effect := range plan.Effects {
 		switch {
