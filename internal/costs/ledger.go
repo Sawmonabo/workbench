@@ -560,69 +560,71 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	return nil
 }
 
-// AddTierChange records a thread's switch of service tier. A thread has one
-// tier at a time: a change at the same time as a stored one replaces it, so
-// of several snapshots in one millisecond the last one read wins, as the
-// last one written does in Codex.
+// AddTierChange records a thread's switch of service tier, in its selected
+// or its running-turn series. A series has one tier at a time: a change at
+// the same time as a stored one replaces it, so of several snapshots in one
+// millisecond the last one read wins, as the last one written does in Codex.
 func (t *Tx) AddTierChange(c TierChange) error {
 	if c.Thread == "" || c.Time.IsZero() {
 		return nil
 	}
-	when := c.Time.UTC().Format(timeLayout)
+	key, when := c.Thread, c.Time.UTC().Format(timeLayout)
+	if c.Turn {
+		key = turnTierKey(c.Thread)
+	}
 	if _, err := t.tx.ExecContext(t.ctx,
 		"DELETE FROM tier_changes WHERE thread_id = ? AND ts = ? AND tier <> ?",
-		c.Thread, when, c.Tier); err != nil {
+		key, when, c.Tier); err != nil {
 		return err
 	}
 	if _, err := t.tx.ExecContext(t.ctx,
 		"INSERT OR IGNORE INTO tier_changes (thread_id, ts, tier) VALUES (?, ?, ?)",
-		c.Thread, when, c.Tier); err != nil {
+		key, when, c.Tier); err != nil {
 		return err
 	}
-	t.wrote.threads[c.Thread] = true
+	t.wrote.threads[key] = true
 	return nil
 }
 
-// ResolveTiers prices each row waiting on its root thread's service tier at
-// the root's latest tier change at or before the row's time, and stops it
-// waiting. A row whose root has no change by then keeps waiting and is priced
-// at the standard tier meanwhile. Ingest calls it after every file of a run is
-// committed, so the order files are read in does not matter.
+// waitingTier is a row ResolveTiers can price: its tier source's series
+// (key), the time it is priced at when that is not its own (at), and the tier
+// the series holds then.
+type waitingTier struct{ id, model, session, key, at, tier string }
+
+// ResolveTiers prices each row waiting on another thread's service tier (its
+// TierFrom: a series and a time, by default the row's own) at that series'
+// latest change at or before that time, and stops it waiting. A row whose
+// series has no change by then keeps waiting and is priced at the standard
+// tier meanwhile. Ingest calls it after every file of a run is committed, so
+// the order files are read in does not matter.
+//
+// A subagent priced at its parent's running-turn tier when it was spawned ran
+// at that tier until it set its own, so resolving it records that tier at its
+// spawn in its own running-turn series, which its own subagents may need; the
+// check repeats for the rows waiting on such a series.
 //
 // A waiting row's answer changes only when the row is written again or its
-// root gains a tier change, so with run set only the rows run put in
-// tier_pending and those whose root run wrote a change for are checked; a nil
-// run checks every waiting row. Either way it clears tiersUnresolved and
+// series gains a change, so with run set only the rows run put in
+// tier_pending and those whose series run wrote a change to are checked; a
+// nil run checks every waiting row. Either way it clears tiersUnresolved and
 // stores tiersChecked.
 func (l *Ledger) ResolveTiers(ctx context.Context, run *Run) (int, error) {
-	type pending struct{ id, model, tier string }
-	var resolved []pending
-	query, args, err := pendingQuery(run)
-	if err != nil {
-		return 0, err
-	}
-	err = l.transact(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		for rows.Next() {
-			var p pending
-			var tier sql.NullString
-			if err := rows.Scan(&p.id, &p.model, &tier); err != nil {
-				_ = rows.Close()
+	count := 0
+	err := l.transact(ctx, func(tx *sql.Tx) error {
+		for scope := run; ; {
+			resolved, err := waitingTiers(ctx, tx, scope)
+			if err != nil {
 				return err
 			}
-			if tier.Valid {
-				p.tier = tier.String
-				resolved = append(resolved, p)
+			count += len(resolved)
+			spawned, err := priceTiers(ctx, tx, resolved)
+			if err != nil {
+				return err
 			}
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
+			if len(spawned) == 0 {
+				break
+			}
+			scope = &Run{pending: map[string]bool{}, threads: spawned}
 		}
 		if _, err := tx.ExecContext(
 			ctx,
@@ -631,45 +633,90 @@ func (l *Ledger) ResolveTiers(ctx context.Context, run *Run) (int, error) {
 		); err != nil {
 			return err
 		}
-		if err := setMeta(ctx, tx, tiersChecked, "1"); err != nil {
-			return err
-		}
-		if len(resolved) == 0 {
-			return nil
-		}
-		price, err := tx.PrepareContext(ctx, "UPDATE responses SET model = ? WHERE request_id = ?")
-		if err != nil {
-			return err
-		}
-		unpend, err := tx.PrepareContext(ctx, "DELETE FROM tier_pending WHERE request_id = ?")
-		if err != nil {
-			return err
-		}
-		for _, p := range resolved {
-			model, _ := SplitTier(p.model)
-			if p.tier != "" {
-				model += "@" + p.tier
-			}
-			if _, err := price.ExecContext(ctx, model, p.id); err != nil {
-				return err
-			}
-			if _, err := unpend.ExecContext(ctx, p.id); err != nil {
-				return err
-			}
-		}
-		return nil
+		return setMeta(ctx, tx, tiersChecked, "1")
 	})
-	return len(resolved), err
+	return count, err
 }
 
-// pendingQuery selects the waiting rows ResolveTiers checks, with their model
-// and their root's tier at their time: run's, or every one when run is nil.
+// waitingTiers are the waiting rows of scope (every one when nil) whose
+// series has a change by their time.
+func waitingTiers(ctx context.Context, tx *sql.Tx, scope *Run) ([]waitingTier, error) {
+	query, args, err := pendingQuery(scope)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var resolved []waitingTier
+	for rows.Next() {
+		var w waitingTier
+		var tier sql.NullString
+		if err := rows.Scan(&w.id, &w.model, &w.session, &w.key, &w.at, &tier); err != nil {
+			return nil, err
+		}
+		if tier.Valid {
+			w.tier = tier.String
+			resolved = append(resolved, w)
+		}
+	}
+	return resolved, rows.Err()
+}
+
+// priceTiers stores each resolved row's tier in its model and stops it
+// waiting. A row priced at its spawn time records that tier in its own
+// running-turn series at that time, unless the series has a change then; it
+// returns the series that gained one.
+func priceTiers(ctx context.Context, tx *sql.Tx, resolved []waitingTier) (map[string]bool, error) {
+	spawned := map[string]bool{}
+	for _, w := range resolved {
+		model, _ := SplitTier(w.model)
+		if w.tier != "" {
+			model += "@" + w.tier
+		}
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE responses SET model = ? WHERE request_id = ?", model, w.id); err != nil {
+			return nil, err
+		}
+		if _, err := tx.ExecContext(ctx,
+			"DELETE FROM tier_pending WHERE request_id = ?", w.id); err != nil {
+			return nil, err
+		}
+		if w.at == "" || w.session == "" {
+			continue
+		}
+		key := turnTierKey(w.session)
+		result, err := tx.ExecContext(ctx, `INSERT INTO tier_changes (thread_id, ts, tier)
+			SELECT ?, ?, ? WHERE NOT EXISTS
+			  (SELECT 1 FROM tier_changes WHERE thread_id = ? AND ts = ?)`,
+			key, w.at, w.tier, key, w.at)
+		if err != nil {
+			return nil, err
+		}
+		if n, _ := result.RowsAffected(); n > 0 {
+			spawned[key] = true
+		}
+	}
+	return spawned, nil
+}
+
+// pendingQuery selects the waiting rows ResolveTiers checks: run's, or every
+// one when run is nil. A TierFrom "<key>@<time>" is a series and the time it
+// is read at; one without "@" is a series read at the row's own time.
 func pendingQuery(run *Run) (string, []any, error) {
 	query := `
-SELECT p.request_id, r.model,
+WITH p AS (
+  SELECT request_id,
+         CASE WHEN instr(root, '@') > 0 THEN substr(root, 1, instr(root, '@') - 1) ELSE root END AS key,
+         CASE WHEN instr(root, '@') > 0 THEN substr(root, instr(root, '@') + 1) ELSE '' END AS at
+    FROM tier_pending)
+SELECT p.request_id, r.model, r.session_id, p.key, p.at,
        (SELECT c.tier FROM tier_changes c
-         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC LIMIT 1)
-  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`
+         WHERE c.thread_id = p.key AND c.ts <= (CASE WHEN p.at = '' THEN r.ts ELSE p.at END)
+         ORDER BY c.ts DESC LIMIT 1)
+  FROM p JOIN responses r ON r.request_id = p.request_id`
 	if run == nil {
 		return query, nil, nil
 	}
@@ -683,7 +730,7 @@ SELECT p.request_id, r.model,
 	}
 	query += `
  WHERE p.request_id IN (SELECT value FROM json_each(?))
-    OR p.root IN (SELECT value FROM json_each(?))`
+    OR p.key IN (SELECT value FROM json_each(?))`
 	return query, []any{string(ids), string(threads)}, nil
 }
 

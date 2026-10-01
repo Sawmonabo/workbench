@@ -43,10 +43,24 @@ type Usage struct {
 	Time                                                 time.Time
 	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead int64
 
-	// TierFrom is the root thread whose service tier prices this row when
-	// the row's own transcript names none (a Codex subagent's); "" otherwise.
+	// TierFrom is where a row whose tier another thread decides takes it
+	// from (a Codex subagent's); "" otherwise. A thread id prices it at that
+	// thread's selected tier at the row's time; TurnTierFrom prices it at a
+	// thread's running-turn tier at another time.
 	TierFrom string
 }
+
+// The ledger keeps two series of tier changes per thread: when a selected
+// tier was set (keyed by the thread id), and when it took effect for the
+// thread's own turns (keyed turnTierKey(thread)).
+const turnTierPrefix = "turn:"
+
+func turnTierKey(thread string) string { return turnTierPrefix + thread }
+
+// TurnTierFrom is the TierFrom of a row priced at thread's running-turn tier
+// at time at (ledger layout), such as a subagent's tier fixed when it was
+// spawned.
+func TurnTierFrom(thread, at string) string { return turnTierKey(thread) + "@" + at }
 
 // FileState is what a source keeps between the lines of one transcript, and,
 // through Saved, between ingest runs.
@@ -65,11 +79,13 @@ type FileState struct {
 }
 
 // TierChange is a thread switching service tier at a time; Tier is the
-// stored tier name, "" for standard.
+// stored tier name, "" for standard. Turn marks the time the tier took effect
+// for the thread's own turns, rather than when it was selected.
 type TierChange struct {
 	Thread string
 	Time   time.Time
 	Tier   string
+	Turn   bool
 }
 
 // SplitTier splits "gpt-5.6-sol@fast" into the model and its service tier:

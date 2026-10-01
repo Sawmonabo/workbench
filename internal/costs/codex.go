@@ -138,10 +138,15 @@ func (codex) Account(home string) string {
 type codexState struct {
 	Thread  string `json:"thread,omitempty"`   // this file's thread: the first session_meta id
 	Root    string `json:"root,omitempty"`     // the root thread, when this is a subagent's file
+	Parent  string `json:"parent,omitempty"`   // the thread that spawned this one, when a subagent's
+	Spawn   string `json:"spawn,omitempty"`    // when this thread started: its session_meta time, ledger layout
+	Turn    string `json:"turn,omitempty"`     // the running turn: the latest turn_context turn_id
 	Cwd     string `json:"cwd,omitempty"`      // the latest working directory
 	Model   string `json:"model,omitempty"`    // the latest turn_context model, or the first settings one
-	Tier    string `json:"tier,omitempty"`     // the latest service tier, stored name
-	TierSet bool   `json:"tier_set,omitempty"` // whether this file has named a tier
+	Tier    string `json:"tier,omitempty"`     // the running turn's service tier, stored name
+	TierSet bool   `json:"tier_set,omitempty"` // whether a turn of this file has run at a named tier
+	Next    string `json:"next,omitempty"`     // the tier the latest snapshot selected, for the next turn
+	NextSet bool   `json:"next_set,omitempty"` // whether a snapshot is waiting for the next turn
 	Records bool   `json:"records,omitempty"`  // whether this file holds a token_usage_record, its own or a copy
 	Fork    bool   `json:"fork,omitempty"`     // whether this file is a fork's: its session_meta names forked_from_id
 	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
@@ -163,9 +168,18 @@ func (s *codexState) save(file *FileState) {
 	file.Saved, _ = json.Marshal(s)
 }
 
-// row is a usage row of this file at time ts, keyed id. A file that has named
-// no tier of its own and belongs to a subagent is priced by its root's tier.
-func (s *codexState) row(ts, id string) Usage {
+// row is a usage row of this file at time ts, keyed id; record says it comes
+// from a token_usage_record. Its tier is the one Codex sent it at:
+//   - a subagent's record (Codex 0.153 and later) at its root's selected
+//     tier at that time: every subagent request takes the root's current
+//     tier (core session capture_step_context_inner, root_service_tier),
+//     whatever the subagent's own snapshot says;
+//   - any other row of a thread whose turn has started at a named tier at
+//     that tier;
+//   - another row of a subagent (Codex before 0.153) at the tier it was
+//     spawned with: its parent's running-turn tier when it started
+//     (multi_agents apply_spawn_agent_service_tier).
+func (s *codexState) row(ts, id string, record bool) Usage {
 	when, _ := time.Parse(time.RFC3339Nano, ts)
 	u := Usage{
 		Tool:      "codex",
@@ -175,10 +189,17 @@ func (s *codexState) row(ts, id string) Usage {
 		Session:   s.Thread,
 		Time:      when,
 	}
+	subagent := s.Root != "" && s.Root != s.Thread
 	switch {
-	case s.TierSet && s.Tier != "":
-		u.Model += "@" + s.Tier
-	case !s.TierSet && s.Root != "" && s.Root != s.Thread:
+	case subagent && record:
+		u.TierFrom = s.Root
+	case s.TierSet:
+		if s.Tier != "" {
+			u.Model += "@" + s.Tier
+		}
+	case subagent && s.Spawn != "":
+		u.TierFrom = TurnTierFrom(firstNonEmpty(s.Parent, s.Root), s.Spawn)
+	case subagent:
 		u.TierFrom = s.Root
 	}
 	return u
@@ -330,13 +351,19 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 		state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
 		state.Fork = meta.Forked != ""
 		state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
+		state.Parent = codexParent(meta.Source)
+		if when, err := time.Parse(time.RFC3339Nano, rec.Timestamp); err == nil {
+			state.Spawn = when.UTC().Format(timeLayout)
+		}
 		state.save(file)
 	case "turn_context":
 		var turn struct {
-			Model string `json:"model"`
-			Cwd   string `json:"cwd"`
+			TurnID string `json:"turn_id"`
+			Model  string `json:"model"`
+			Cwd    string `json:"cwd"`
 		}
-		if decode(rec.Payload, &turn) && (turn.Model != "" || turn.Cwd != "") {
+		if decode(rec.Payload, &turn) {
+			codexTurn(rec.Timestamp, turn.TurnID, state, file)
 			state.Model = firstNonEmpty(turn.Model, state.Model)
 			state.Cwd = firstNonEmpty(turn.Cwd, state.Cwd)
 			state.save(file)
@@ -362,7 +389,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			state.Root = record.SessionID
 			state.save(file)
 		}
-		u := state.row(rec.Timestamp, record.ResponseID)
+		u := state.row(rec.Timestamp, record.ResponseID, true)
 		record.Usage.fill(&u)
 		return []Usage{u}
 	case "event_msg":
@@ -412,9 +439,12 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 		// A snapshot of the thread's settings. Codex omits service_tier when
 		// the thread requests none, and then sends none: the standard tier.
 		// A copy a fork made of its parent's snapshot names the parent's
-		// thread and is skipped; older snapshots name no thread. A changed
-		// model or cwd applies from the next turn, whose turn_context names
-		// it, so the snapshot's only fill in before the first turn_context.
+		// thread and is skipped; older snapshots name no thread. The settings
+		// are for the turns that start after it ("the running turn keeps its
+		// own"): a changed model or cwd is named by the next turn_context, so
+		// the snapshot's only fill in before the first one, and the tier waits
+		// for the next turn to start. The selected tier is recorded now too:
+		// a subagent's requests take its root's selected tier at once.
 		var event struct {
 			ThreadID string `json:"thread_id"`
 			Settings struct {
@@ -429,11 +459,11 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 		}
 		state.Model = firstNonEmpty(state.Model, event.Settings.Model)
 		state.Cwd = firstNonEmpty(state.Cwd, event.Settings.Cwd)
-		state.Tier, state.TierSet = codexTier(event.Settings.Tier), true
+		state.Next, state.NextSet = codexTier(event.Settings.Tier), true
 		state.save(file)
 		when, _ := time.Parse(time.RFC3339Nano, ts)
 		file.Tiers = append(file.Tiers, TierChange{
-			Thread: firstNonEmpty(event.ThreadID, state.Thread), Time: when, Tier: state.Tier,
+			Thread: firstNonEmpty(event.ThreadID, state.Thread), Time: when, Tier: state.Next,
 		})
 	case "token_count":
 		var event codexTokenInfo
@@ -475,17 +505,34 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	}
 	sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
 		canonicalJSON(event.RateLimits)))
-	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
+	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]), false)
 	last.fill(&u)
 	return []Usage{u}
 }
 
-// codexRoot is the root thread of a subagent's file: the session id when it
-// differs from the thread id, else the spawning parent; "" for a root thread.
-func codexRoot(id, sessionID string, source json.RawMessage) string {
-	if sessionID != "" && sessionID != id {
-		return sessionID
+// codexTurn notes a turn_context: one with a turn id other than the running
+// turn's (or none) starts a turn, which takes the tier the latest snapshot
+// selected; that is recorded as the thread's running-turn tier from then. A
+// turn_context re-emitted in the same turn (after a compaction) changes
+// nothing.
+func codexTurn(ts, turnID string, state *codexState, file *FileState) {
+	if turnID != "" && turnID == state.Turn {
+		return
 	}
+	state.Turn = turnID
+	if !state.NextSet {
+		return
+	}
+	state.Tier, state.TierSet, state.NextSet = state.Next, true, false
+	when, _ := time.Parse(time.RFC3339Nano, ts)
+	file.Tiers = append(file.Tiers, TierChange{
+		Thread: state.Thread, Time: when, Tier: state.Tier, Turn: true,
+	})
+}
+
+// codexParent is the thread that spawned a subagent, from its session_meta
+// source; "" for any other thread.
+func codexParent(source json.RawMessage) string {
 	var spawned struct {
 		Subagent struct {
 			ThreadSpawn struct {
@@ -497,6 +544,15 @@ func codexRoot(id, sessionID string, source json.RawMessage) string {
 		return spawned.Subagent.ThreadSpawn.Parent
 	}
 	return ""
+}
+
+// codexRoot is the root thread of a subagent's file: the session id when it
+// differs from the thread id, else the spawning parent; "" for a root thread.
+func codexRoot(id, sessionID string, source json.RawMessage) string {
+	if sessionID != "" && sessionID != id {
+		return sessionID
+	}
+	return codexParent(source)
 }
 
 // canonicalJSON re-encodes raw with sorted keys and exact numbers, so the same

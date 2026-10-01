@@ -67,17 +67,31 @@ checked against the rollout files of a machine with about 3,000 sessions
   The field is left out when the thread requests no tier, and Codex then
   sends none, which is the standard tier (`protocol.rs`
   `ThreadSettingsSnapshot`, `openai_models.rs` `service_tier_for_request`;
-  the same in 0.146 and 0.159). A subagent's own snapshot carries the tier it
-  was spawned with, so one without a tier ran at standard. The snapshot also
-  names the model and cwd, and a newer one its `thread_id`: a fork's copy of
-  its parent's snapshot keeps the parent's.
+  the same in 0.146 and 0.159). The snapshot also names the model and cwd,
+  and a newer one its `thread_id`: a fork's copy of its parent's snapshot
+  keeps the parent's.
+- **When a tier applies.** A snapshot holds the settings for the turns that
+  start after it: "standalone updates change the settings inherited by future
+  turns", and "the running turn keeps its own" (`protocol.rs`
+  `ThreadSettingsOverrides`, `core/src/session/mod.rs`). A turn starts with a
+  `turn_context` naming a new `turn_id` (a compaction re-emits the running
+  turn's), after the snapshot that applies to it. A subagent's requests are
+  sent at another tier: in Codex 0.153 and later (the record era) every
+  request of a spawned subagent takes its root's selected tier at that moment,
+  which a root's snapshot updates at once (`capture_step_context_inner`
+  replaces the step's tier with `root_service_tier`; `set_root_service_tier`
+  runs when the root's settings change), whatever the subagent's own snapshot
+  says. Before 0.153 a subagent's tier was fixed when it was spawned: its
+  parent's running-turn tier (`multi_agents` `apply_spawn_agent_service_tier`
+  with `turn.config.service_tier`); its own snapshot, when it has one,
+  carries that tier. A change made with the app-server's
+  `turn/settings/update` reaches only the running turn and leaves no line in
+  the rollout; no client on the sample machine sends it.
   OpenAI renamed priority processing to Fast mode on 2026-07-30; the price
   page's "Fast pricing data" table prices `priority`/`fast` and its
-  "Ultrafast pricing data" table prices `ultrafast`. Subagents run at their
-  root thread's current tier (`core/src/agent/control/service_tier.rs`,
-  `child_config.rs` `apply_spawn_agent_service_tier`) and their files carry no
-  tier of their own: in one month of record-era files 6,167 of 6,501
-  responses without a tier in their own file were subagents'. Of that
+  "Ultrafast pricing data" table prices `ultrafast`. In one month of
+  record-era files 6,167 of 6,501 responses without a tier in their own file
+  were subagents'. Of that
   month's 26,007 responses, 112 ran at `priority`; 279 rollout files set
   `priority` at some point. The rollout records the tier Codex requested,
   not the one OpenAI served; the API's served tier is not saved.
@@ -110,15 +124,16 @@ with any other head is decoded if it contains one of those five names.
 
 - `session_meta`: the first one sets `Thread` and `Cwd`; later ones are copies
   from a parent and are ignored.
-- `turn_context`: sets `Model` and `Cwd`.
+- `turn_context`: sets `Model` and `Cwd`. One with a `turn_id` other than the
+  running turn's (or none) starts a turn: a tier a snapshot selected becomes
+  `Tier`, and a change of the thread's running-turn tier is recorded at this
+  time.
 - `thread_settings_applied`: one that names another thread is a fork's copy
-  and is skipped. Otherwise it sets `Tier` from `service_tier` (standard when
-  it is left out), records a tier change `(Thread, timestamp, tier)`, and
-  sets `Model` and `Cwd` while no `turn_context` has: Codex applies a changed
-  model to the turns that start after the snapshot (`ThreadSettingsOverrides`
-  "change the settings inherited by future turns"), and each turn's
-  `turn_context` names it, so a model switched mid-turn must not relabel the
-  rest of the running turn.
+  and is skipped. Otherwise it selects a tier for the next turn from
+  `service_tier` (standard when it is left out), records a change of the
+  thread's selected tier at its own time, and sets `Model` and `Cwd` while no
+  `turn_context` has: a model switched mid-turn, like a tier, applies from the
+  next turn, which names it.
 - `token_usage_record` whose `thread_id` is `Thread`: one row keyed
   `response_id`. A record with another `thread_id` is a copy and is skipped
   (its original is ingested from the parent's file). Any record in the file,
@@ -149,8 +164,11 @@ with any other head is decoded if it contains one of those five names.
   `token_count` is a copy has that response recorded in another file.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
-`Thread`, `Time` = the line's timestamp, `Tier` = `Tier`, or for a file that
-has no tier of its own, `inherit` with the root thread id. Token mapping, so
+`Thread`, `Time` = the line's timestamp. Its tier, as section 1 says Codex
+sent it: a subagent's `token_usage_record` row inherits its root's selected
+tier at the row's time; any other row whose turn started at a named tier has
+`Tier`; any other subagent row inherits its parent's running-turn tier at the
+subagent's `session_meta` time. Token mapping, so
 that the report's prompt total (input + writes + reads) is right:
 
 | Ledger column | Codex value |
@@ -181,18 +199,24 @@ never verified, access and refresh tokens never read), else `unknown`.
   that id unchanged, apart from the lookup rule in section 5 and the label in
   section 7. The ledger gains `tier_changes (thread_id, ts, tier)`, written in
   the same transaction as the file's rows, and `tier_pending (request_id,
-  root)`. `Usage` gains `TierFrom` (the root thread, for a row whose own file
-  names no tier) and `FileState` collects the file's tier changes. A thread
-  has one tier at a time: a change at the same millisecond as a stored one
-  replaces it, so of several snapshots in one millisecond the last in the file
-  wins. After every ingest, each pending row takes the root's latest tier
-  change at or before its time and stops waiting; one whose root has no change
-  yet stays pending and is priced at the standard tier meanwhile. So a
-  subagent is priced at the tier its root had when it ran, whatever order the
-  files are read in. A pending row's answer changes only when the row is
-  written again or its root gains a change, so the check after a run covers
-  only the rows that run put in `tier_pending` and those whose root it wrote a
-  change for. A transaction that writes either stores the `tiers_unresolved`
+  root)`. Each thread has two series of changes there: its selected tier,
+  keyed by the thread id and dated at the snapshot, and its running-turn
+  tier, keyed `turn:<thread>` and dated at the turn start. `Usage` gains
+  `TierFrom` for a row another thread prices: a thread id (that thread's
+  selected tier at the row's time), or `turn:<thread>@<time>` (that thread's
+  running-turn tier at that time), stored as `tier_pending.root`; and
+  `FileState` collects the file's tier changes. A series has one tier at a
+  time: a change at the same millisecond as a stored one replaces it, so of
+  several snapshots in one millisecond the last in the file wins. After every
+  ingest, each pending row takes its series' latest change at or before its
+  time and stops waiting; one whose series has no change yet stays pending
+  and is priced at the standard tier meanwhile. So a subagent is priced at the
+  tier it ran at, whatever order the files are read in. A subagent priced at
+  its spawn records that tier at its spawn in its own running-turn series,
+  for its own subagents; the check repeats for rows waiting on such a series.
+  A pending row's answer changes only when the row is written again or its
+  series gains a change, so the check after a run covers only the rows that
+  run put in `tier_pending` and those whose series it wrote a change to. A transaction that writes either stores the `tiers_unresolved`
   note and the check clears it and stores `tiers_checked`. A run checks every
   pending row when it finds `tiers_unresolved` set (an earlier run stopped
   before its check) or `tiers_checked` absent (a new or upgraded ledger, or
