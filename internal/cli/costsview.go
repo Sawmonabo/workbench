@@ -124,10 +124,10 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		switch {
 		case key == "ctrl+c", key == "q", key == "esc" && m.focus == nil:
 			return m, tea.Quit
-		case key == "esc", key == "backspace":
-			if m.focus != nil {
-				m.back()
-			}
+		case m.focus != nil && (key == "esc" || key == "backspace" || key == "left" || key == "h"):
+			// On a page, left means back, not the next tool.
+			m.back()
+		case m.focus != nil && (key == "right" || key == "l"):
 		case key == "tab", key == "right", key == "l":
 			m.switchTab(1)
 		case key == "shift+tab", key == "left", key == "h":
@@ -187,15 +187,12 @@ func (m *costsView) keyLine() string {
 	}, [][2]string{{"←/→", "tool"}, {"↑/↓", "select"}, {"enter", "open"}, {"q", "quit"}}
 	if m.focus != nil {
 		full = [][2]string{
-			{
-				"esc",
-				"back",
-			},
+			{"← esc", "back"},
 			{"↑/↓ pgup/pgdn", "scroll"},
-			{"←/→ tab/shift+tab", "switch tool"},
+			{"tab/shift+tab", "switch tool"},
 			{"q", "quit"},
 		}
-		short = [][2]string{{"esc", "back"}, {"↑/↓", "scroll"}, {"q", "quit"}}
+		short = [][2]string{{"← esc", "back"}, {"↑/↓", "scroll"}, {"q", "quit"}}
 	}
 	if text := line(full); lipgloss.Width(text) <= m.width {
 		return text
