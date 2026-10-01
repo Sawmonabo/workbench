@@ -801,10 +801,10 @@ func setLabel(ctx context.Context, x execer, id, label string) error {
 
 // BindSession records the sign-in s a tool's session started or resumed under
 // at time at: a session_accounts row for (tool, session, at), replacing one at
-// the same time. The SessionStart and SessionEnd hook process calls it, in its
-// own short transaction, before it detaches the worker; session is the root
-// session the hook names (Usage.Root). It also stores s's subscription label
-// in subscriptions.
+// the same time. The worker a SessionStart or SessionEnd hook started calls
+// it, in its own short transaction, before it contends for the ingest lock;
+// session is the root session the hook names (Usage.Root). It also stores s's
+// subscription label in subscriptions.
 //
 // It holds nothing across calls, so it is safe before the ingest lock is taken:
 // the write waits on the busy timeout behind a running worker. A sign-in that

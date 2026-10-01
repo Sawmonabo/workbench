@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -27,8 +28,8 @@ const logKeep = 200 * 1024
 // IngestOptions says what the worker was started for.
 type IngestOptions struct {
 	Event      string             // the hook event ("SessionStart", "SessionEnd"); "" for a manual run
-	Transcript string             // the hook's transcript_path; ingest no longer reads it
-	SessionID  string             // the hook's session_id: the root session whose binding the hook stored
+	Transcript string             // the hook's transcript_path: names the tool the hook fired for
+	SessionID  string             // the hook's session_id: the root session the worker binds to the sign-in
 	Progress   operation.Progress // optional: a step per transcript
 }
 
@@ -37,11 +38,16 @@ type IngestOptions struct {
 // runs at a time: while another holds the lock this one logs that and returns.
 // Every failure is also written to the log and, once the ledger is open, to
 // its last_error note; committed files are not reprocessed next time.
+//
+// A worker started by a hook first binds the hook's session to the tool's
+// current sign-in, before it contends for the lock, so a worker that skips
+// because another is running loses no binding.
 func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error) {
 	paths, err := Locations()
 	if err != nil {
 		return "", err
 	}
+	bindSession(ctx, paths, opts)
 	release, held, err := operation.TryLock(paths.lock())
 	if err != nil {
 		return "", fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
@@ -57,6 +63,89 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 		writeLog(paths, "error: "+err.Error())
 	}
 	return summary, err
+}
+
+// transcriptRooter is a source that says where its transcripts live, so a
+// hook's transcript path names the tool it fired for.
+type transcriptRooter interface {
+	TranscriptRoots(home string) []string
+}
+
+// toolOfTranscript is the tool whose transcript root contains path.
+func toolOfTranscript(home, path string) (Tool, bool) {
+	if path == "" {
+		return Tool{}, false
+	}
+	for _, tool := range Tools {
+		rooter, ok := tool.Source.(transcriptRooter)
+		if !ok {
+			continue
+		}
+		for _, root := range rooter.TranscriptRoots(home) {
+			if within(root, path) {
+				return tool, true
+			}
+		}
+	}
+	return Tool{}, false
+}
+
+// within reports whether path is inside root, comparing resolved symlinks too
+// (the path need not exist yet: a session's transcript is written after its
+// SessionStart hook fires).
+func within(root, path string) bool {
+	inside := func(root, path string) bool {
+		rel, err := filepath.Rel(root, path)
+		return err == nil && rel != "." && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+	if inside(filepath.Clean(root), filepath.Clean(path)) {
+		return true
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	// Resolve the longest existing directory part of path.
+	dir, rest := filepath.Dir(filepath.Clean(path)), filepath.Base(path)
+	for dir != filepath.Dir(dir) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return inside(realRoot, filepath.Join(real, rest))
+		}
+		dir, rest = filepath.Dir(dir), filepath.Join(filepath.Base(dir), rest)
+	}
+	return false
+}
+
+// bindSession stores the sign-in the hook's session runs under:
+// session_accounts(tool, session, now, sign-in). It runs in the detached
+// worker, before the ingest lock, so the hook process itself stays within
+// Codex's 3 s SessionEnd cap and a worker that skips for the lock still leaves
+// the binding. The tool comes from the transcript path; a failure is logged
+// and the session's rows fall back to observed sign-ins.
+func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
+	if opts.SessionID == "" {
+		return
+	}
+	tool, ok := toolOfTranscript(paths.Home, opts.Transcript)
+	if !ok {
+		writeLog(
+			paths,
+			"session not bound: no tool owns transcript path "+strconv.Quote(opts.Transcript),
+		)
+		return
+	}
+	// Read the sign-in before the ledger can make this process wait.
+	signIn := tool.Source.SignIn(paths.Home)
+	at := time.Now()
+	ledger, err := OpenLedger(paths.Ledger, true)
+	if err == nil {
+		err = ledger.BindSession(ctx, tool.Name, opts.SessionID, at, signIn)
+		_ = ledger.Close()
+	}
+	if err != nil {
+		writeLog(paths, "session not bound: "+err.Error())
+	}
 }
 
 func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string, error) {
@@ -132,14 +221,11 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	if full {
 		run = nil
 	}
-	if _, err := ledger.ResolveTiers(ctx, run, served); err != nil {
-		// Cancelled while pricing tiers: tiersUnresolved stays set, so the
-		// next run checks every row; stop before the rates refresh.
-		if ctx.Err() != nil {
-			return "", ctx.Err()
-		}
-		errs = append(errs, "service tiers: "+err.Error())
+	resolved, err := resolveRun(ctx, ledger, paths.Home, run, served)
+	if err != nil {
+		return "", err
 	}
+	errs = append(errs, resolved...)
 	rates := refreshIfNeeded(ctx, ledger, paths)
 	event := opts.Event
 	if event == "" {
@@ -154,6 +240,55 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		rates,
 	)
 	return summary, finishIngest(ledger, paths, summary, errs)
+}
+
+// resolveRun is what a run does once every transcript is committed: observe
+// the sign-ins, then attribute rows to accounts and price their tiers. A
+// cancelled run stops with ctx's error before the rates refresh and leaves the
+// work marked for the next one; other failures come back as messages.
+func resolveRun(
+	ctx context.Context,
+	ledger *Ledger,
+	home string,
+	run *Run,
+	served map[string]func(model, tier string) string,
+) (errs []string, err error) {
+	for _, step := range []struct {
+		name string
+		do   func() error
+	}{
+		{"sign-ins", func() error { return observeSignIns(ctx, ledger, home) }},
+		{"accounts", func() error { return ledger.ResolveAccounts(ctx, run) }},
+		{"service tiers", func() error { _, err := ledger.ResolveTiers(ctx, run, served); return err }},
+	} {
+		if err := step.do(); err != nil {
+			// Cancelled mid-way: accounts_unresolved and tiers_unresolved stay
+			// set, so the next run attributes and prices every row it left.
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			errs = append(errs, step.name+": "+err.Error())
+		}
+	}
+	return errs, nil
+}
+
+// observeSignIns records every tool's current sign-in at this moment, after the
+// run has read its transcripts, so every row it stored lies between this
+// observation and an earlier run's. A tool with no transcripts is observed too.
+func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
+	now := time.Now()
+	return ledger.Transaction(ctx, nil, func(tx *Tx) error {
+		for _, tool := range Tools {
+			if tool.Source == nil {
+				continue
+			}
+			if err := tx.ObserveSignIn(tool.Name, now, tool.Source.SignIn(home)); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 }
 
 // finishIngest stores a run's notes in the ledger and writes them to the log.

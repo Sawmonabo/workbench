@@ -38,10 +38,16 @@ func claudeJSON(home string) string {
 	return filepath.Join(home, ".claude.json")
 }
 
+// claudeProjects is the directory Claude Code writes its transcripts under.
+func claudeProjects(home string) string { return filepath.Join(claudeDir(home), "projects") }
+
+// TranscriptRoots is where this tool's transcripts live.
+func (claude) TranscriptRoots(home string) []string { return []string{claudeProjects(home)} }
+
 // Transcripts lists every *.jsonl under projects/, subagent transcripts
 // included.
 func (claude) Transcripts(home string) ([]string, error) {
-	root := filepath.Join(claudeDir(home), "projects")
+	root := claudeProjects(home)
 	if info, err := os.Stat(root); err != nil || !info.IsDir() {
 		return nil, nil
 	}

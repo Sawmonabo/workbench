@@ -47,11 +47,19 @@ func codexDir(home string) string {
 	return dir
 }
 
+// TranscriptRoots is where this tool's transcripts live.
+func (codex) TranscriptRoots(home string) []string {
+	return []string{
+		filepath.Join(codexDir(home), "sessions"),
+		filepath.Join(codexDir(home), "archived_sessions"),
+	}
+}
+
 // Transcripts lists every *.jsonl under sessions/ and archived_sessions/.
 func (codex) Transcripts(home string) ([]string, error) {
 	var files []string
-	for _, root := range []string{"sessions", "archived_sessions"} {
-		found, err := codexWalk(filepath.Join(codexDir(home), root), ".jsonl")
+	for _, root := range (codex{}).TranscriptRoots(home) {
+		found, err := codexWalk(root, ".jsonl")
 		if err != nil {
 			return files, err
 		}
