@@ -1,6 +1,6 @@
 # Codex costs design
 
-Status: proposed, 2026-10-01. Extends section 11 of the
+Status: implemented, 2026-10-01. Extends section 11 of the
 [claude-costs ledger design](2026-09-30-claude-costs-ledger-design.md): the
 Codex tab of `workbench costs` gets a `Source`, so Codex responses land in the
 same ledger, are priced from OpenAI's live price page and appear in the same
@@ -200,7 +200,8 @@ never verified, access and refresh tokens never read), else `unknown`.
 ingest` (`SessionEnd` with `"timeout": 3`, its maximum), and the existing
 `UserPromptSubmit` entry stays inside `{{ if .has_work }}`. `render-check.sh`
 drops its "hooks.json deployed on personal" leak check; its personal-role
-`promptctl` grep still catches the real leak.
+`promptctl` grep still catches the real leak. `.codex/hooks.json` is no longer
+listed in `home/.chezmoidata/role-targets.json`, so every role receives it.
 
 **Trust is written by Workbench, so Codex never asks.** Codex keys trust as
 `[hooks.state."<hooks.json path>:<event>:<group>:<handler>"]` with
@@ -216,9 +217,10 @@ itself recorded when the existing `UserPromptSubmit` hook was approved: it
 matches exactly. `modify_private_config.toml.tmpl` includes the rendered
 hooks.json, computes the hash of every handler in it and writes `enabled =
 true` and `trusted_hash` for each key as managed values, so whatever hooks
-Workbench installs are trusted on the same apply and none it removed stay
-trusted. `Hooks(home)` reports an event as installed when `hooks.json` has the
-command and the recorded `trusted_hash` equals the hash computed the same way;
+Workbench installs are trusted on the same apply; an entry left for a hook
+Workbench removed trusts nothing, since that hook no longer exists.
+`Hooks(home)` reports an event as installed when `hooks.json` has the command
+and the recorded `trusted_hash` equals the hash computed the same way;
 a mismatch (Codex changed its normalization) shows as `untrusted` in
 `costs status`.
 
