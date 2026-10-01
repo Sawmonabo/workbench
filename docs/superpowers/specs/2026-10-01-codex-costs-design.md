@@ -15,7 +15,9 @@ checked against the rollout files of a machine with about 3,000 sessions
 - **Only the rollout files record per-response usage.** Codex writes one JSONL
   file per thread under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`
   (`CODEX_HOME` defaults to `~/.codex`; archived threads move to the flat
-  `archived_sessions/`). Its SQLite databases do not help: `state_*.sqlite`
+  `archived_sessions/`). Codex resolves a set `CODEX_HOME` to its real
+  absolute path and uses `~/.codex` as is otherwise; Workbench does the same
+  for the rollouts, `auth.json` and the hooks trust keys. Its SQLite databases do not help: `state_*.sqlite`
   `threads.tokens_used` is one unsplit integer per thread with no model, and
   `thread_history_*.sqlite` is a projection of the rollout without usage. The
   Codex CLI has no usage or cost command and ships no prices

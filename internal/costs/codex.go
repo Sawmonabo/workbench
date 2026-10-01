@@ -29,11 +29,21 @@ type codex struct{}
 
 func (codex) Name() string { return "codex" }
 
+// codexDir is the Codex home as Codex resolves it (codex-rs utils/home-dir
+// find_codex_home): CODEX_HOME made absolute with its symlinks resolved, else
+// ~/.codex as is. The hooks trust keys Codex writes start with this path.
 func codexDir(home string) string {
-	if dir := os.Getenv("CODEX_HOME"); dir != "" {
-		return dir
+	dir := os.Getenv("CODEX_HOME")
+	if dir == "" {
+		return filepath.Join(home, ".codex")
 	}
-	return filepath.Join(home, ".codex")
+	if abs, err := filepath.Abs(dir); err == nil {
+		dir = abs
+	}
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	}
+	return dir
 }
 
 // Transcripts lists every *.jsonl under sessions/ and archived_sessions/.
