@@ -1,0 +1,30 @@
+{{- $ingest := printf "%s/.local/bin/workbench" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s' costs ingest" -}}
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 10 }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 3 }
+        ]
+      }
+    ]{{ if .has_work }},
+    "UserPromptSubmit": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": {{ printf "%s/.promptctl/bin/codex-prefix-hook" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" | toJson }}
+          }
+        ]
+      }
+    ]{{ end }}
+  }
+}

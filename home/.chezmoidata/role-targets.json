@@ -1,6 +1,5 @@
 {
   "role_targets": [
-    {"source": "private_dot_codex/private_hooks.json.tmpl", "target": ".codex/hooks.json", "roles": ["work", "both"]},
     {"source": "dot_gitconfig-personal.tmpl", "target": ".gitconfig-personal", "roles": ["both"]},
     {"source": "dot_gitconfig-work.tmpl", "target": ".gitconfig-work", "roles": ["both"]}
   ]

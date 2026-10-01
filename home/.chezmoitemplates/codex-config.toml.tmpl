@@ -4,8 +4,9 @@
 # authoritative for the keys it sets. It leaves out the model and reasoning
 # effort so each machine keeps its own choice; those keys and the tables Codex
 # rewrites itself (notice.model_migrations, tui.model_availability_nux, hooks,
-# and the last_updated/last_revision keys under [marketplaces]) are carried
-# over from the existing file so `chezmoi diff` stays quiet. The static
+# except the trust of the hooks Workbench installs, which the modify template
+# writes, and the last_updated/last_revision keys under [marketplaces]) are
+# carried over from the existing file so `chezmoi diff` stays quiet. The static
 # marketplace source IS managed because the deep-research plugin cannot
 # resolve without it.
 

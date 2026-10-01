@@ -15,12 +15,28 @@ value, the existing file is emitted byte for byte.
 
 import copy
 import datetime
+import hashlib
 import json
 import re
 import sys
 import tomllib
 
 MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
+
+# The hooks.json chezmoi writes beside this file, and where Codex finds it.
+# Codex runs a hook from hooks.json only when [hooks.state."<path>:<event>:
+# <group>:<handler>"] holds its trusted_hash, so every hook Workbench installs
+# gets that entry here as a managed value and Codex never asks.
+HOOKS = json.loads({{ includeTemplate "codex-hooks.json.tmpl" . | toJson }})
+HOOKS_PATH = {{ printf "%s/.codex/hooks.json" .chezmoi.homeDir | toJson }}
+HOOK_EVENTS = {
+    "PreToolUse": "pre_tool_use", "PermissionRequest": "permission_request",
+    "PostToolUse": "post_tool_use", "PreCompact": "pre_compact", "PostCompact": "post_compact",
+    "SessionStart": "session_start", "SessionEnd": "session_end",
+    "UserPromptSubmit": "user_prompt_submit", "SubagentStart": "subagent_start",
+    "SubagentStop": "subagent_stop", "Stop": "stop", "Interrupt": "interrupt",
+}
+NO_MATCHER_EVENTS = {"UserPromptSubmit", "Stop", "Interrupt"}
 
 # Tables the managed body writes only for some machine roles. When this
 # machine's role leaves one out, it is removed rather than kept as Codex-owned,
@@ -142,7 +158,48 @@ def added_keys(existing, managed, path):
     ]
 
 
+def hook_hash(event, group, handler):
+    """Codex's trust hash for a command hook: SHA-256 of the compact, key-sorted
+    JSON of its normalized identity (codex-rs hooks/src/engine/discovery.rs
+    hook_hash; internal/costs/codex.go codexHookHash checks the same rule)."""
+    unsupported = set(handler) - {"type", "command", "timeout", "async", "statusMessage"}
+    if handler.get("type") != "command" or unsupported:
+        raise ValueError("cannot trust hook {} {}: unsupported fields".format(event, sorted(unsupported)))
+    timeout = handler.get("timeout")
+    if event in ("SessionEnd", "Interrupt"):
+        timeout = min(max(1 if timeout is None else timeout, 1), 3)
+    else:
+        timeout = max(600 if timeout is None else timeout, 1)
+    normalized = {"type": "command", "command": handler["command"], "timeout": timeout,
+                  "async": bool(handler.get("async", False))}
+    if handler.get("statusMessage") is not None:
+        normalized["statusMessage"] = handler["statusMessage"]
+    identity = {"event_name": HOOK_EVENTS[event], "hooks": [normalized]}
+    if group.get("matcher") is not None and event not in NO_MATCHER_EVENTS:
+        identity["matcher"] = group["matcher"]
+    text = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+    return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def trust_tables():
+    """The managed [hooks.state] entry of every hook in HOOKS."""
+    lines = []
+    for event, groups in HOOKS.get("hooks", {}).items():
+        for group_index, group in enumerate(groups):
+            for handler_index, handler in enumerate(group.get("hooks", [])):
+                key = "{}:{}:{}:{}".format(HOOKS_PATH, HOOK_EVENTS[event], group_index, handler_index)
+                lines += [
+                    "",
+                    "[hooks.state.{}]".format(json.dumps(key, ensure_ascii=False)),
+                    "enabled = true",
+                    "trusted_hash = {}".format(json.dumps(hook_hash(event, group, handler))),
+                ]
+    return lines
+
+
 def main():
+    global MANAGED
+    MANAGED = MANAGED.rstrip("\n") + "\n" + "\n".join(trust_tables()) + "\n"
     raw = sys.stdin.buffer.read()
     try:
         existing = tomllib.loads(raw.decode("utf-8")) if raw.strip() else {}

@@ -128,7 +128,6 @@ if [ "$role" = personal ]; then
     if grep -rIl -e fortressinfosec -e dispatch-atlassian -e gitlab -e coderabbit -e promptctl "$dest"; then
         echo "LEAK: work-only content rendered for machine_role=personal"; fail=1
     fi
-    [ -e "$dest/.codex/hooks.json" ] && { echo "LEAK: .codex/hooks.json deployed on personal"; fail=1; }
     [ -e "$dest/.gitconfig-work" ] && { echo "LEAK: .gitconfig-work deployed on personal"; fail=1; }
 fi
 if [ "$role" != both ]; then
@@ -143,6 +142,13 @@ fi
 if grep -rIn -E '"[a-z0-9-]+@[0-9.]+"' "$repo/home/.chezmoidata/packages.toml"; then
     echo "LEAK: versioned package name in packages.toml"; fail=1
 fi
+
+echo "==> [$role/$mode] codex ingest hooks are installed and trusted"
+for event in session_start session_end; do
+    grep -q "costs ingest" "$dest/.codex/hooks.json" \
+        && grep -q "hooks.json:$event:0:0" "$dest/.codex/config.toml" \
+        || { echo "HOOKS FAIL: codex $event hook or its trust missing"; fail=1; }
+done
 
 echo "==> [$role/$mode] claude code status line"
 python3 -m py_compile "$dest/.claude/scripts/statusline.py" || { echo "STATUSLINE FAIL: statusline.py does not compile"; fail=1; }
