@@ -3,6 +3,81 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.9](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.9) - 2026-10-01
+
+### Features
+
+- Give each row's email its own evidence, apart from its subscription's
+- Bind sessions and observe sign-ins on every ingest run
+- Report accounts by email and subscription, show sign-ins and evidence in status
+- Read each Codex row's plan, account and root session from its rollout
+- Read each tool's subscription from its sign-in
+- Attribute rows from session bindings and observed sign-ins
+- Say why each unpriced model has no rate and where to add one
+- Status names each hook's state, and wrapped values stay in their column
+- Any service tier word prices from its own table, and a snapshot without one is standard
+- Apply ends by reading new Claude Code and Codex usage into the costs ledger
+- Codex runs the costs ingest hooks on every role, trusted by the config merge
+- The codex tab shows one cache-write column and names each service tier
+- Record codex responses from rollout files, priced at the service tier they ran at
+- Ingest reads transcripts in parallel, keeps per-file source state and spots rewritten files
+- Ledger schema 3 keeps per-file source state and service tier changes
+
+### Fixes
+
+- Label a Claude organization type as Max, Team or Enterprise
+- Resolve a nested Codex subagent's rows to its root thread
+- Refuse a development ledger at schema 3 instead of reading half of it
+- Mark the stored root of an upserted row for re-attribution
+- Run the session hooks synchronously and pass the session id to the worker
+- Attribute rows of a run cancelled before ResolveAccounts
+- Keep a fork's copied response until its parent's rollout is read
+- Price tiers again when a change arrives late, through rowless subagents, and as Codex served them
+- Read Codex forks and versions as Codex wrote them
+- Split a service tier only off model ids Codex composed
+- Price each Codex response at the tier Codex sent it at
+- A ledger no tier check of this build has seen gets one full check
+- A fork's first copied token_count no longer counts its parent's response twice
+- Apply trusts Workbench's hooks without re-enabling one turned off
+- The last tier snapshot in a millisecond wins, and the tier check covers only what a run wrote
+- Resolve CODEX_HOME to its real path as Codex does
+- Cancelling an ingest stops its transcript reads at once
+- A transcript caught mid-rewrite is read again from the start
+- The report reads a tool's transcripts inline when the ledger has none of its rows yet
+- The codex config merge names the type of a hook it cannot trust
+- Tier changes stamped in the same millisecond resolve in file order, and a tool without cache-write columns keeps the report aligned
+- A hook workbench no longer installs loses its codex trust
+- Status labels line up when more than one tool is recorded
+- A codex file with any usage record, copied or its own, never counts token_count events
+- A pending service tier follows the copy whose attribution the ledger keeps
+- Render checks run unattended on a WSL host
+
+### Documentation
+
+- Specify per-field email evidence, subscription labels and the nested-subagent root walk
+- Number the subscriptions section after verification
+- Say what a mid-session login and a SessionEnd-only binding do
+- Record the subscription verification and what still falls to unknown
+- Describe per-row accounts and what a running session does after a login
+- Specify per-row subscription attribution
+- Codex first ingest observed on the host's disk
+- Codex first ingest re-observed at 18 seconds, and the spec says what bounds it
+- Codex costs observed on a WSL host
+- Codex costs implementation plan
+- Codex costs out-of-scope list matches tier pricing
+- Price codex responses at the service tier they ran at
+- Workbench trusts its own codex hooks
+- Codex costs design
+
+### Maintenance
+
+- Fix the per-row subscription contract
+- Check each Codex session event's ingest hook and its own trust entry
+- A later copy with larger usage is never skipped as a no-op
+- The ledger skips the disk sync at each commit, and read-ahead counts only the bytes left to read
+- Codex lines are typed by their head and decoded once, and reads run further ahead
+- The ledger prepares its statements once per file and skips copies that change nothing
+
 ## [v0.1.8](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.8) - 2026-10-01
 
 ### Features
