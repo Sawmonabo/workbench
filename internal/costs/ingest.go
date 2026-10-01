@@ -521,15 +521,18 @@ func truncateLog(paths Paths) {
 	_ = os.WriteFile(paths.log(), tail[bytes.IndexByte(tail, '\n')+1:], 0o600)
 }
 
-// Hook is the hook entry. Claude Code pipes a JSON object (hook_event_name,
-// transcript_path) on stdin; Hook starts `workbench costs ingest --worker`
-// detached with those two values and returns. It prints nothing and never
+// Hook is the hook entry. Claude Code and Codex pipe a JSON object
+// (hook_event_name, transcript_path, session_id) on stdin; Hook starts
+// `workbench costs ingest --worker` detached with those three values and
+// returns. The hooks run synchronously (Claude Code stops a background hook
+// that is still running when a headless session ends), which costs a session
+// the few milliseconds of one process spawn. Hook prints nothing and never
 // fails: a terminal, a closed or empty stdin, or anything unreadable just
 // means no event, and the worker then sweeps everything. Reading stdin gives
 // up after half a second.
 func Hook(stdin *os.File) {
 	defer func() { _ = recover() }()
-	event, transcript := readHookInput(stdin)
+	event, transcript, session := readHookInput(stdin)
 	paths, err := Locations()
 	if err != nil || os.MkdirAll(paths.State, 0o700) != nil {
 		return
@@ -543,16 +546,17 @@ func Hook(stdin *os.File) {
 	if err != nil {
 		return
 	}
+	// "--" keeps a value that starts with a dash from being read as a flag.
 	_ = operation.StartDetached(
 		executable,
-		[]string{"costs", "ingest", "--worker", "--quiet", event, transcript},
+		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},
 		logFile,
 	)
 }
 
-func readHookInput(stdin *os.File) (event, transcript string) {
+func readHookInput(stdin *os.File) (event, transcript, session string) {
 	if stdin == nil || operation.IsTerminal(stdin) {
-		return "", ""
+		return "", "", ""
 	}
 	read := make(chan []byte, 1)
 	go func() {
@@ -564,12 +568,13 @@ func readHookInput(stdin *os.File) (event, transcript string) {
 		var input struct {
 			Event      string `json:"hook_event_name"`
 			Transcript string `json:"transcript_path"`
+			Session    string `json:"session_id"`
 		}
 		if json.Unmarshal(data, &input) != nil {
-			return "", ""
+			return "", "", ""
 		}
-		return input.Event, input.Transcript
+		return input.Event, input.Transcript, input.Session
 	case <-time.After(500 * time.Millisecond):
-		return "", ""
+		return "", "", ""
 	}
 }

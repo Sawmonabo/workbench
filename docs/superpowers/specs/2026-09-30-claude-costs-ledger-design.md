@@ -48,7 +48,7 @@ their current retention.
 Decouple the record from the transcripts. A background ingest copies each API
 response's usage into a durable SQLite ledger while the transcript still exists.
 Reports read the ledger only. The ingest is triggered by Claude Code hooks
-marked `async`, so it never blocks or touches a session.
+that return within milliseconds, so they neither wait for the ingest nor touch a session.
 
 Rejected alternatives:
 
@@ -89,8 +89,8 @@ Hooks live under `enforced.hooks` in `home/.chezmoidata/claude.json`:
 
 ```json
 "hooks": {
-  "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "async": true, "timeout": 10 }] }],
-  "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "async": true, "timeout": 10 }] }]
+  "SessionStart": [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "timeout": 5 }] }],
+  "SessionEnd":   [{ "hooks": [{ "type": "command", "command": "~/.local/bin/claude-costs ingest", "timeout": 5 }] }]
 }
 ```
 
@@ -177,9 +177,11 @@ Row semantics:
 with no stdin also works), spawns `claude-costs ingest --worker` with those two
 values as arguments in a new session with stdin, stdout and stderr redirected
 to the null device and the log, and exits zero. It prints nothing
-under any circumstance. With `async: true` Claude Code already discards hook
-output and exit status; the detach makes the worker outlive a SessionEnd and
-keeps the hook's own runtime to a process spawn on every Claude Code version.
+under any circumstance. Claude Code discards a SessionEnd hook's output and
+exit status; the detach makes the worker outlive the session and keeps the
+hook's own runtime to a process spawn on every Claude Code version. The hook
+is synchronous: Claude Code kills a background (`async`) hook still running
+when a headless `claude -p` session ends, so the ingest would race the exit.
 
 The worker:
 

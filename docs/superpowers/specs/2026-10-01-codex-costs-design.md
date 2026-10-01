@@ -505,13 +505,20 @@ sign-in that names the id, so a renamed organization relabels its history.
 - `SessionStart` must pass `session_id` and the current sign-in to the
   worker; `SessionEnd` likewise, so a session's final rows are read under the
   subscription it ran on and not by the next session's sweep.
-- The installed Claude Code `SessionEnd` hook produced one ingest run in the
-  worker log since installation, three seconds before a `SessionStart` (the
-  shape of a `/clear`), and none when a session exited, against nine
-  `SessionStart` runs. It is configured `async`. The cause is established by
-  reproduction (an isolated `CLAUDE_CONFIG_DIR` session ended normally and by
-  Ctrl-C) and fixed; `costs.Hook` detaches in well under a second, so running
-  it synchronously costs nothing at exit.
+- Both hooks are synchronous (no `async`), with a 5 second `timeout` on
+  Claude Code and, on Codex, `SessionStart` 10 and `SessionEnd` 3 (Codex's
+  cap; it also runs `SessionEnd` synchronously even with `async: true`).
+  `costs.Hook` returns in about 75 ms, so a synchronous hook costs a session
+  nothing noticeable. Claude Code documents that a background hook still
+  running when a headless (`-p`) session ends is killed, and a 1-second
+  background hook was observed to lose its `SessionEnd` run that way.
+  The "no `SessionEnd` on exit" observation was not reproduced:
+  interactive sessions in an isolated `CLAUDE_CONFIG_DIR` logged a
+  `SessionEnd` worker line on `/exit`, Ctrl-C, Ctrl-D, hang-up and TERM, with
+  or without `async`. In the owner's worker log six of the nine
+  `SessionStart` runs match `compact_boundary` records of the one long
+  session, and no other session ended in that window, so the log does not show
+  a failed exit.
 
 ## 12. Out of scope
 

@@ -335,12 +335,13 @@ func ingestProgress(o *options, diagnostics io.Writer) (operation.Progress, func
 func costsIngestCommand(o *options) *cobra.Command {
 	var worker, quiet bool
 	cmd := &cobra.Command{
-		Use:   "ingest [EVENT [TRANSCRIPT]]",
+		Use:   "ingest [EVENT [TRANSCRIPT [SESSION]]]",
 		Short: "Hook entry: start a detached worker that copies new usage into the ledger",
-		Long: "Without --worker this is the hook command: it reads the hook's JSON from stdin, starts " +
-			"`workbench costs ingest --worker` detached and returns at once, printing nothing whatever " +
+		Long: "Without --worker this is the hook command: it reads the hook's JSON from stdin " +
+			"(hook_event_name, transcript_path, session_id), starts " +
+			"`workbench costs ingest --worker` detached with them and returns at once, printing nothing whatever " +
 			"happens. --worker runs the ingest in the foreground.",
-		Args: cobra.MaximumNArgs(2),
+		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !worker {
 				if stdin, ok := cmd.InOrStdin().(*os.File); ok {
@@ -357,6 +358,9 @@ func costsIngestCommand(o *options) *cobra.Command {
 				}
 				if len(args) > 1 {
 					opts.Transcript = args[1]
+				}
+				if len(args) > 2 {
+					opts.SessionID = args[2]
 				}
 				if !quiet {
 					var stop func()

@@ -298,8 +298,10 @@ func (claude) Observations(home string) []Observation {
 }
 
 // Hooks reports, for each session event, whether Claude Code's settings.json
-// runs the ingest hook asynchronously: HookOK, else HookMissing. Claude Code
-// has no hook trust or per-hook switch.
+// runs the ingest hook synchronously: HookOK, else HookMissing. An async hook
+// does not count: Claude Code kills a background hook still running when a
+// session ends in headless (-p) mode, and the ingest hook returns within
+// milliseconds anyway. Claude Code has no hook trust or per-hook switch.
 func (claude) Hooks(home string) map[string]string {
 	var settings struct {
 		Hooks map[string][]struct {
@@ -320,7 +322,7 @@ func (claude) Hooks(home string) map[string]string {
 				// "claude-costs ingest", the replaced script, also contains
 				// "costs ingest", so the Workbench command is matched whole.
 				installed = installed ||
-					(strings.Contains(hook.Command, "workbench costs ingest") && hook.Async)
+					(strings.Contains(hook.Command, "workbench costs ingest") && !hook.Async)
 			}
 		}
 		out[event] = HookMissing
