@@ -73,11 +73,14 @@ func (m *checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // rows is the spec's rows with the cursor and boxes of the present state.
+// Other rows hold a space in the cursor column, so a stacked row's box lines
+// up with the cursor row's.
 func (m *checklistModel) rows() [][]string {
 	rows := make([][]string, len(m.spec.Rows))
 	for i, row := range m.spec.Rows {
 		row = append([]string(nil), row...)
-		if !m.done && i == m.cursor {
+		row[0] = " "
+		if i == m.cursor {
 			row[0] = ">"
 			row[2] = bold.Render(row[2])
 		}
@@ -92,20 +95,36 @@ func (m *checklistModel) rows() [][]string {
 
 var bold = lipgloss.NewStyle().Bold(true)
 
-func (m *checklistModel) View() tea.View {
-	var header strings.Builder
-	if !m.done {
-		writeText(&header, m.width, 0, checklistTitle)
-		writeText(&header, m.width, 0, checklistDescription)
+// decided is the approved list as printed after the program ends: no title,
+// no cursor, the plan's effect columns at width.
+func (m *checklistModel) decided(width int) string {
+	spec := tableSpec{Cols: m.spec.Cols[1:]}
+	for i, row := range m.spec.Rows {
+		row = append([]string(nil), row[1:]...)
+		row[0] = "[ ]"
+		if m.checked[i] {
+			row[0] = "[x]"
+		}
+		spec.Rows = append(spec.Rows, row)
 	}
+	var b strings.Builder
+	writeText(&b, width, 0, "Effects")
+	writeTable(&b, width, 4, spec)
+	return b.String()
+}
+
+// View is the live list. Once done it is empty, so the inline frame is
+// cleared and choosePlan prints the decided list as ordinary output, with no
+// viewport padding and nothing cut to the terminal's height.
+func (m *checklistModel) View() tea.View {
+	if m.done {
+		return tea.NewView("")
+	}
+	var header strings.Builder
+	writeText(&header, m.width, 0, checklistTitle)
+	writeText(&header, m.width, 0, checklistDescription)
 	spec := m.spec
 	spec.Rows = m.rows()
-	if m.done {
-		spec.Cols = spec.Cols[1:]
-		for i, row := range spec.Rows {
-			spec.Rows[i] = row[1:]
-		}
-	}
 	var lines []string
 	cursorLine := 0
 	for i, block := range fitBlocks(m.width, 2, spec) {
@@ -117,7 +136,7 @@ func (m *checklistModel) View() tea.View {
 	title := strings.Count(header.String(), "\n")
 	m.view.SetWidth(m.width)
 	m.view.SetHeight(len(lines))
-	if m.height > 0 && !m.done {
+	if m.height > 0 {
 		m.view.SetHeight(max(min(len(lines), m.height-title), 1))
 	}
 	m.view.SetContent(strings.Join(lines, "\n"))

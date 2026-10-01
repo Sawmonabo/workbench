@@ -94,7 +94,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 // writeMachinePlan prints the checklist view: changed files with their line
 // counts, then one line per effect with its probed delta, a privilege tag and
 // whether a skip was saved. Recovery text and limits are verbose.
-func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
+func writeMachinePlan(w io.Writer, plan operation.Plan, verbose, effects bool) error {
 	var b strings.Builder
 	width := terminalWidth(w)
 	title := "[WorkBench] Plan for this machine"
@@ -122,20 +122,8 @@ func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
 		4,
 		tableSpec{Cols: []column{{Clip: true, ClipLeft: true}, {}}, Rows: rows},
 	)
-	b.WriteString("\n")
-	writeText(&b, width, 0, "Effects")
-	rows = rows[:0]
-	for _, effect := range plan.Effects {
-		rows = append(rows, effectRow(effect))
-	}
-	if len(rows) == 0 {
-		writeText(&b, width, 2, "none")
-	}
-	effects := tableSpec{Cols: effectColumns[1:], Rows: rows}
-	if verbose {
-		writeFull(&b, width, 4, effects)
-	} else {
-		writeTable(&b, width, 4, effects)
+	if effects {
+		writeEffects(&b, width, plan.Effects, verbose)
 	}
 	if verbose && len(plan.Effects) > 0 {
 		b.WriteString("\n")
@@ -169,6 +157,26 @@ func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
 	}
 	_, err := lipgloss.Fprint(w, b.String())
 	return err
+}
+
+// writeEffects writes the Effects section of the plan: every effect's box,
+// name, delta, privilege and saved note, in full under verbose.
+func writeEffects(b *strings.Builder, width int, effects []operation.Effect, verbose bool) {
+	b.WriteString("\n")
+	writeText(b, width, 0, "Effects")
+	rows := make([][]string, 0, len(effects))
+	for _, effect := range effects {
+		rows = append(rows, effectRow(effect))
+	}
+	if len(rows) == 0 {
+		writeText(b, width, 2, "none")
+	}
+	spec := tableSpec{Cols: effectColumns[1:], Rows: rows}
+	if verbose {
+		writeFull(b, width, 4, spec)
+	} else {
+		writeTable(b, width, 4, spec)
+	}
 }
 
 // editSummary keeps the counts and mode of an edit's summary and drops the

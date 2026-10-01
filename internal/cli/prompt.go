@@ -105,11 +105,8 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 		return nil, false, err
 	}
 	defer func() { _ = terminal.Close() }()
-	if err := writeMachinePlan(terminal, operation.Plan{
-		Source: plan.Source, Scope: plan.Scope, Edits: plan.Edits,
-		UnchangedTargets: plan.UnchangedTargets, Prerequisites: plan.Prerequisites,
-		Warnings: plan.Warnings, RecoveryLimits: plan.RecoveryLimits, Complete: plan.Complete,
-	}, verbose); err != nil {
+	// The effects are the checklist below, so the plan prints without them.
+	if err := writeMachinePlan(terminal, plan, verbose, false); err != nil {
 		return nil, false, err
 	}
 	var (
@@ -153,6 +150,9 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	list, ok := final.(*checklistModel)
 	if !ok || !list.approved {
 		return nil, false, nil
+	}
+	if _, err := lipgloss.Fprint(terminal, list.decided(terminalWidth(terminal))); err != nil {
+		return nil, false, err
 	}
 	selected := fixed
 	for i, name := range names {

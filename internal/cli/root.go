@@ -240,7 +240,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		// The machine plan prints as its own branded view, so its component
 		// line would only put "machine-plan: complete" before the brand.
 		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
-			if err := writeMachinePlan(out, plan, verbose); err != nil {
+			if err := writeMachinePlan(out, plan, verbose, true); err != nil {
 				return err
 			}
 			continue
@@ -249,7 +249,9 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		if component.Message != "" {
 			line += " — " + component.Message
 		}
-		if _, err := fmt.Fprintln(out, paint.mark(component.Status)+line); err != nil {
+		var wrapped strings.Builder
+		writeText(&wrapped, terminalWidth(out), 0, paint.mark(component.Status)+line)
+		if _, err := lipgloss.Fprint(out, wrapped.String()); err != nil {
 			return err
 		}
 		if err := writeDetails(out, component.Details); err != nil {

@@ -83,6 +83,7 @@ func chooseGlyphs(getenv func(string) string) glyphSet {
 // an ASCII stand-in.
 var asciiText = strings.NewReplacer(
 	"→", "->",
+	"—", "-",
 	"·", "-",
 	"−", "-",
 	"…", "...",
@@ -270,11 +271,12 @@ func naturalWidths(t tableSpec) []int {
 func renderTable(indent int, t tableSpec, active, widths []int) []string {
 	// Faint cells are styled here, not in StyleFunc, so an empty one adds no
 	// escape codes and its line still ends without spaces once colors strip.
-	cells := func(row []string, head bool) []string {
+	// Only data rows clip from the left: a head or total label is not a path.
+	cells := func(row []string, head, total bool) []string {
 		out := make([]string, len(active))
 		for n, i := range active {
 			if i < len(row) && row[i] != "" {
-				out[n] = fit(row[i], widths[i], t.Cols[i].ClipLeft)
+				out[n] = fit(row[i], widths[i], t.Cols[i].ClipLeft && !head && !total)
 				if t.Cols[i].Faint && !head {
 					out[n] = faint.Render(out[n])
 				}
@@ -306,14 +308,14 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 		for i, c := range t.Cols {
 			heads[i] = c.Head
 		}
-		tbl = tbl.Headers(cells(heads, true)...)
+		tbl = tbl.Headers(cells(heads, true, false)...)
 	}
 	for _, row := range t.Rows {
-		tbl = tbl.Row(cells(row, false)...)
+		tbl = tbl.Row(cells(row, false, false)...)
 	}
 	if t.Total != nil {
 		totalRow = len(t.Rows)
-		tbl = tbl.Row(cells(t.Total, false)...)
+		tbl = tbl.Row(cells(t.Total, false, true)...)
 	}
 	if !t.Header && len(t.Rows) == 0 && t.Total == nil {
 		return nil
@@ -374,7 +376,8 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 			lines = append(lines, prefix+part)
 		}
 	}
-	for _, row := range rows {
+	for r, row := range rows {
+		label := t.Total != nil && r == len(rows)-1 // the total's label is not a path
 		cell := func(i int) string {
 			if i < len(row) {
 				return row[i]
@@ -387,7 +390,7 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 				first = append(first, text)
 			}
 		}
-		add(pad, strings.Join(first, "  "), lead == 1 && t.Cols[active[0]].ClipLeft)
+		add(pad, strings.Join(first, "  "), lead == 1 && t.Cols[active[0]].ClipLeft && !label)
 		for _, i := range active[min(lead, len(active)):] {
 			text := cell(i)
 			if text == "" {
@@ -396,7 +399,8 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 			if head := t.Cols[i].Head; head != "" {
 				text = faint.Render(head) + " " + text
 			}
-			add(pad+"  ", text, t.Cols[i].ClipLeft)
+			// A path clips from the left only when no head label precedes it.
+			add(pad+"  ", text, t.Cols[i].ClipLeft && t.Cols[i].Head == "" && !label)
 		}
 	}
 	return lines

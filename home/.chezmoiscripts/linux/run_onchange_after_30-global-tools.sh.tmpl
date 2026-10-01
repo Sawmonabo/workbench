@@ -16,7 +16,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         # shellcheck source=/dev/null
         source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1 || true
         node_default=$(nvm version default 2>/dev/null || true)
-        [ -n "$node_default" ] && [ "$node_default" != N/A ] && export PATH="$NVM_DIR/versions/node/$node_default/bin:$PATH"
+        [ -n "$node_default" ] && [ "$node_default" != N/A ] && export PATH="${NVM_DIR:-$HOME/.nvm}/versions/node/$node_default/bin:$PATH"
     fi
     missing=()
     for tool in codex claude corepack; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
