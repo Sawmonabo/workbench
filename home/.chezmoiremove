@@ -3,3 +3,6 @@
 {{ .target }}
 {{ end }}
 {{ end }}
+{{/* Replaced by `workbench costs`; its hooks now call the Workbench command. */}}
+.local/bin/claude-costs
+.local/share/bash-completion/completions/claude-costs
