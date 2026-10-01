@@ -440,17 +440,30 @@ source is one file plus one line.
 
 | Command | Replaces | Does |
 | --- | --- | --- |
-| `workbench costs` | `claude-costs [report]` | The section 7 report. |
+| `workbench costs` | `claude-costs [report]` | The section 7 report; at a terminal, one tab per tool. |
 | `workbench costs ingest` | `claude-costs ingest` | Hook entry: silent, exit 0, starts a detached worker. `--worker` runs it inline. |
 | `workbench costs rates` | `claude-costs rates` | Merged rate card; `--refresh` refetches. |
 | `workbench costs status` | `claude-costs status` | Ledger coverage, last ingest, hooks, rate card age. |
 
-Report flags are section 7's, plus `--by tool` and `--tool NAME`. Every screen
+Report flags are section 7's, plus `--tool NAME`. Every screen
 starts with the `[WorkBench]` brand like the other commands; `--json` emits the
 Workbench result envelope with the rows as details, and `--csv` stays. Cobra
 generates completions, so the bash completion file is removed with the script.
 Hooks in `home/.chezmoidata/claude.json` call `~/.local/bin/workbench costs
 ingest`, the release symlink Workbench installs.
+
+### Tabs
+
+At a terminal (stdin and stdout both terminals, no `--json` or `--csv`),
+`workbench costs` opens a full-screen view with one tab per tool:
+`Claude Code` and `Codex`. Tab and the arrow keys switch, the report scrolls,
+q or esc quits and leaves the last tab's report printed in the scrollback.
+Every resize refits the table. The Codex tab says `Codex costs are not
+implemented yet.` until a Codex source exists. Off a terminal the command
+prints one tool's report, `--tool NAME` (default `claude`); `--tool codex`
+prints `[WorkBench] Codex costs are not implemented yet` and exits 0. Tabs are
+the split by tool, so there is no `--by tool`; flags set what every tab shows,
+and keys only switch, scroll and quit.
 
 ### Package shape
 
@@ -463,8 +476,9 @@ internal/costs/
   rates.go    card resolution: override, official, calibrated, built-in; longest prefix
   report.go   groups, rollup, scope, totals; returns rows and prints nothing
 internal/cli/
-  costs.go    the four commands and their flags
-  table.go    terminal-width tables, shared with the apply checklist
+  costs.go      the four commands and their flags; the plain report
+  costsview.go  the tabbed terminal view
+  table.go      terminal-width tables, shared with the apply checklist
 ```
 
 ```go
@@ -489,7 +503,17 @@ type Usage struct {
 	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead int64
 }
 
-var sources = []Source{claude{}} // a new tool appends here
+// Tool is one tab. A nil Source is a tool Workbench knows of but does not
+// record yet: its tab says so and ingest skips it.
+type Tool struct {
+	Name, Title string // "codex", "Codex"
+	Source      Source
+}
+
+var Tools = []Tool{
+	{Name: "claude", Title: "Claude Code", Source: claude{}},
+	{Name: "codex", Title: "Codex"}, // adding Codex is setting its Source
+}
 ```
 
 Rules:
@@ -552,3 +576,9 @@ writes, choosing the terminal's color profile: plain text to a pipe or for
 `TERM=dumb`, and no color (bold and faint stay) under `NO_COLOR`. The result
 marks (`✓`, `✗`) follow the same profile. Workbench owns only the fit rule
 above, which lipgloss does not have.
+
+Characters follow the locale: under a UTF-8 locale (the first of `LC_ALL`,
+`LC_CTYPE`, `LANG` that is set) output uses `─ … → · ✓ ✗`; otherwise it uses
+`- ... -> - + x`, swapped before anything is measured so the fit rule still
+holds. Interactive views (the apply checklist, the costs tabs) lay out again
+on every resize.

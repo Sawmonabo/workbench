@@ -4,9 +4,9 @@
 
 **Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown; `claude-costs` prints one readable line per repository and then becomes `workbench costs` behind a generic source interface; every table fits the terminal.
 
-**Architecture:** `operation.Effect` gains probed `Delta`, `Checked`, `Fixed` and `SavedSkip` fields so the plan digest covers the selection. The machine planner runs every active provisioning script in a read-only `WORKBENCH_PROBE=1` mode to fill the deltas, and apply removes the script sources of unchecked effects from its private chezmoi copy so chezmoi never runs or records them. The CLI replaces the Yes/No prompt with a `huh` multi-select, saves skips to `machine.toml`'s `[effects]` table, and `update` stops after installing the release and its tools.
+**Architecture:** `operation.Effect` gains probed `Delta`, `Checked`, `Fixed` and `SavedSkip` fields so the plan digest covers the selection. The machine planner runs every active provisioning script in a read-only `WORKBENCH_PROBE=1` mode to fill the deltas, and apply removes the script sources of unchecked effects from its private chezmoi copy so chezmoi never runs or records them. The CLI replaces the Yes/No prompt with a checklist (a `huh` multi-select until Task 9 makes it a Bubble Tea list that refits on resize), saves skips to `machine.toml`'s `[effects]` table, and `update` stops after installing the release and its tools.
 
-**Tech Stack:** Go 1.26 (cobra, charm.land/huh v2, charm.land/lipgloss v2 and its table, charmbracelet/x/term and x/ansi, go-toml v2), chezmoi 2.70.3 (`dump --include=scripts`), bash script templates, shellcheck, Python 3 for render checks.
+**Tech Stack:** Go 1.26 (cobra, charm.land/huh v2, charm.land/bubbletea v2 and bubbles v2 (viewport, help), charm.land/lipgloss v2 and its table, charmbracelet/x/term and x/ansi, go-toml v2), chezmoi 2.70.3 (`dump --include=scripts`), bash script templates, shellcheck, Python 3 for render checks.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md`; Task 8 implements section 7 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`
 
@@ -42,7 +42,7 @@
 4. `--approve-plan DIGEST` from a dry run with saved skips, then a hand edit of `machine.toml` changing the skips, must exit 4 (conflict), never apply the old selection. Pinned in Task 1 step 5 (Go test) and Task 7 step 2.
 5. `update` with no terminal, `--json`, or run from `install.sh` must never plan or apply the machine; its last line names `workbench apply`. Pinned in Task 5 step 6.
 6. Two effects sharing one script (`linux-packages` and `work-tools`; `windows-files` and `wsl-preferences`) must be independently skippable: unchecking one must not run its section. Pinned in Task 2 step 3 (per-effect gates) and Task 3 step 4 (every effect exported).
-7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report; a wide terminal must not spread the columns; a pipe or `TERM=dumb` must get no escape codes and `NO_COLOR` no color. Pinned in Task 9 step 6 and Task 10 step 7.
+7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report, including after a resize while the checklist or the costs tabs are open; a wide terminal must not spread the columns; a pipe or `TERM=dumb` must get no escape codes and `NO_COLOR` no color; a non-UTF-8 locale must get only ASCII. Pinned in Task 9 step 6 and Task 10 step 7.
 8. Opening the existing version 1 ledger must keep every row; a re-copied record with smaller counts must never lower the stored usage. Pinned in Task 10 step 2 (Go test) and step 7 (real-ledger copy).
 
 ---
@@ -2496,18 +2496,18 @@ git commit -m "feat(claude-costs): one line per repository, plain column names, 
 
 Added 2026-09-30 after review: the checklist rows were about 170 characters wide and the claude-costs table overflowed below 72 columns, probes left Go telemetry counters and Node's compile cache behind, and Ctrl-C during probing showed effects as `unprobed` instead of stopping. The width rule is section 11 "Terminal width" of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`; the probe and Ctrl-C rules are in sections 4 and 7 of the apply spec.
 
-The rendering is the module's existing Charm stack, not hand-built padding: `github.com/charmbracelet/x/term` reads the terminal size (Unix ioctl, Windows console API), `charm.land/lipgloss/v2/table` lays out, aligns and styles the cells, `github.com/charmbracelet/x/ansi` measures, clips and wraps by display cell, and `lipgloss.Fprint` writes, which picks the terminal's color profile and strips styling for pipes, `NO_COLOR` and `TERM=dumb`. Workbench owns only the fit policy lipgloss lacks: which column drops first, which column clips and from which side, and when rows stack. Never call `table.Width`: when the table is narrower than that width it spreads the columns across the whole terminal.
+The rendering is the module's existing Charm stack, not hand-built padding. Every character drawn is chosen once from the locale (`glyphs`): Unicode under a UTF-8 locale, ASCII otherwise (`-`, `...`, `->`, `+`, `x`), converted before anything is measured. The stack: `github.com/charmbracelet/x/term` reads the terminal size (Unix ioctl, Windows console API), `charm.land/lipgloss/v2/table` lays out, aligns and styles the cells, `github.com/charmbracelet/x/ansi` measures, clips and wraps by display cell, and `lipgloss.Fprint` writes, which picks the terminal's color profile and strips styling for pipes, `NO_COLOR` and `TERM=dumb`. Workbench owns only the fit policy lipgloss lacks: which column drops first, which column clips and from which side, and when rows stack. Never call `table.Width`: when the table is narrower than that width it spreads the columns across the whole terminal.
 
 **Files:**
-- Create: `internal/cli/table.go`
+- Create: `internal/cli/table.go`, `internal/cli/checklist.go`
 - Modify: `internal/cli/planview.go` (delete `writeColumns`; `writeMachinePlan` uses `writeTable` and `writeText` and writes through `lipgloss.Fprint`), `internal/cli/prompt.go` (checklist labels), every other `writeColumns` caller (`planview.go`, `prompt.go`, `release.go`)
 - Modify: `internal/machine/probe.go` (probe environment, interruption), `internal/machine/plan.go` (`selectEffects` returns the interruption)
 - Modify: `home/.chezmoiscripts/linux/run_once_after_10-runtime-managers.sh.tmpl` (Go version from its VERSION file), `home/.chezmoiscripts/linux/run_onchange_after_30-global-tools.sh.tmpl` and `home/.chezmoiscripts/darwin/run_onchange_after_30-global-tools.sh.tmpl` (no `nvm use` in the probe)
-- Modify: `internal/cli/root.go` (`newPainter` uses the same color-profile test as lipgloss)
+- Modify: `internal/cli/root.go` (`newPainter` uses the same color-profile test as lipgloss; marks use `glyphs`)
 - Modify: `go.mod` (`github.com/charmbracelet/x/ansi`, `github.com/charmbracelet/x/term` and `github.com/charmbracelet/colorprofile` become direct requirements; all are already in the module graph through lipgloss)
 
 **Interfaces:**
-- Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft, Faint bool}`, `tableSpec{Cols []column; Rows [][]string; Header bool; Total []string}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, t tableSpec) []string`, `writeTable(b *strings.Builder, width, indent int, t tableSpec)`, `writeFull(b *strings.Builder, width, indent int, t tableSpec)`, `writeText(b *strings.Builder, width, indent int, text string)`, `fit(s string, width int, left bool) string`. Output holding any of these is written with `lipgloss.Fprint(w, b.String())`, never `io.WriteString` or `fmt.Fprint`. Task 10's costs report uses all of them.
+- Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft, Faint bool}`, `tableSpec{Cols []column; Rows [][]string; Header bool; Total []string}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, t tableSpec) []string`, `writeTable(b *strings.Builder, width, indent int, t tableSpec)`, `writeFull(b *strings.Builder, width, indent int, t tableSpec)`, `writeText(b *strings.Builder, width, indent int, text string)`, `fitBlocks(width, indent int, t tableSpec) [][]string`, `fit(s string, width int, left bool) string`, `glyphs` (`Rule`, `Ellipsis`, `Check`, `Cross`). Output holding any of these is written with `lipgloss.Fprint(w, b.String())`, never `io.WriteString` or `fmt.Fprint`. Task 10's costs report uses all of them.
 
 - [ ] **Step 1: Create `internal/cli/table.go`**
 
@@ -2552,6 +2552,80 @@ type tableSpec struct {
 	Total  []string
 }
 
+// glyphSet is what output draws with: Unicode when the locale is UTF-8,
+// ASCII otherwise, so a terminal that cannot draw ─ … → · − ✓ ✗ never shows
+// mojibake.
+type glyphSet struct {
+	Rule, Ellipsis, Check, Cross string
+	border                       lipgloss.Border
+	text                         *strings.Replacer // applied to every cell and prose line
+}
+
+// glyphs is chosen once, from the first of LC_ALL, LC_CTYPE and LANG that is
+// set, the order the C library uses.
+var glyphs = chooseGlyphs(os.Getenv)
+
+func chooseGlyphs(getenv func(string) string) glyphSet {
+	locale := ""
+	for _, name := range []string{"LC_ALL", "LC_CTYPE", "LANG"} {
+		if locale = getenv(name); locale != "" {
+			break
+		}
+	}
+	locale = strings.ToLower(locale)
+	if strings.Contains(locale, "utf-8") || strings.Contains(locale, "utf8") {
+		return glyphSet{
+			Rule:     "─",
+			Ellipsis: "…",
+			Check:    "✓",
+			Cross:    "✗",
+			border:   lipgloss.NormalBorder(),
+			text:     strings.NewReplacer(),
+		}
+	}
+	return glyphSet{
+		Rule:     "-",
+		Ellipsis: "...",
+		Check:    "+",
+		Cross:    "x",
+		border:   lipgloss.ASCIIBorder(),
+		text:     asciiText,
+	}
+}
+
+// asciiText swaps each non-ASCII character Workbench and its probes print for
+// an ASCII stand-in.
+var asciiText = strings.NewReplacer(
+	"→", "->",
+	"·", "-",
+	"−", "-",
+	"…", "...",
+	"─", "-",
+	"✓", "+",
+	"✗", "x",
+)
+
+// plain rewrites every cell for the terminal's glyphs before anything is
+// measured, since an ASCII stand-in can be wider than what it replaces.
+func (t tableSpec) plain() tableSpec {
+	convert := func(row []string) []string {
+		if row == nil {
+			return nil
+		}
+		out := make([]string, len(row))
+		for i, cell := range row {
+			out[i] = glyphs.text.Replace(cell)
+		}
+		return out
+	}
+	rows := make([][]string, len(t.Rows))
+	for i, row := range t.Rows {
+		rows[i] = convert(row)
+	}
+	t.Rows, t.Total = rows, convert(t.Total)
+	return t
+}
+
 // minClip is the narrowest a clipped column gets before rows stack.
 const minClip = 12
 
@@ -2572,13 +2646,42 @@ func terminalWidth(w io.Writer) int {
 	return 100
 }
 
-// fitRows lays t out so that no line, indent included, is wider than width:
-// it shortens the Clip column to its Keep width, drops columns by priority,
-// shortens the Clip column further, and below minClip prints each row as a
-// stacked block. lipgloss renders whatever fits.
+// fitRows lays t out so that no line, indent included, is wider than width.
+// lipgloss renders whatever fits; below minClip each row is a stacked block.
 func fitRows(width, indent int, t tableSpec) []string {
+	t = t.plain()
+	active, widths, stack := layout(width, indent, t)
+	if stack {
+		return stacked(width, indent, t, active, false)
+	}
+	return renderTable(indent, t, active, widths)
+}
+
+// fitBlocks is fitRows split by row, for a caller that must know which lines
+// belong to which row (the checklist's cursor). t has no Header and no Total.
+func fitBlocks(width, indent int, t tableSpec) [][]string {
+	t = t.plain()
+	active, widths, stack := layout(width, indent, t)
+	blocks := make([][]string, len(t.Rows))
+	if !stack {
+		for i, line := range renderTable(indent, t, active, widths) {
+			blocks[i] = []string{line}
+		}
+		return blocks
+	}
+	for i, row := range t.Rows {
+		one := tableSpec{Cols: t.Cols, Rows: [][]string{row}}
+		blocks[i] = stacked(width, indent, one, active, false)
+	}
+	return blocks
+}
+
+// layout decides which columns survive and how wide each is: it shortens the
+// Clip column to its Keep width, drops columns by priority, then shortens the
+// Clip column further. stack reports that even minClip does not fit.
+func layout(width, indent int, t tableSpec) (active, widths []int, stack bool) {
 	cols := t.Cols
-	active := make([]int, len(cols))
+	active = make([]int, len(cols))
 	clip := -1
 	for i, c := range cols {
 		active[i] = i
@@ -2586,7 +2689,7 @@ func fitRows(width, indent int, t tableSpec) []string {
 			clip = i
 		}
 	}
-	widths := naturalWidths(t)
+	widths = naturalWidths(t)
 	total := func() int {
 		sum := indent + gap*max(len(active)-1, 0)
 		for _, i := range active {
@@ -2611,11 +2714,11 @@ func fitRows(width, indent int, t tableSpec) []string {
 	}
 	if over := total() - width; over > 0 {
 		if clip < 0 || widths[clip]-over < minClip {
-			return stacked(width, indent, t, active, false)
+			return active, widths, true
 		}
 		widths[clip] -= over
 	}
-	return renderTable(indent, t, active, widths)
+	return active, widths, false
 }
 
 // writeTable writes fitRows' lines to b.
@@ -2628,6 +2731,7 @@ func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
 // writeFull writes every row as a stacked block with each value wrapped, not
 // clipped, so nothing is lost and nothing is wider than width (--verbose).
 func writeFull(b *strings.Builder, width, indent int, t tableSpec) {
+	t = t.plain()
 	active := make([]int, len(t.Cols))
 	for i := range active {
 		active[i] = i
@@ -2641,6 +2745,7 @@ func writeFull(b *strings.Builder, width, indent int, t tableSpec) {
 // than the line is broken.
 func writeText(b *strings.Builder, width, indent int, text string) {
 	pad := strings.Repeat(" ", indent)
+	text = glyphs.text.Replace(text)
 	for line := range strings.SplitSeq(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
 		b.WriteString(strings.TrimRight(pad+line, " ") + "\n")
 	}
@@ -2688,7 +2793,7 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 	}
 	totalRow := -1
 	tbl := table.New().
-		Border(lipgloss.NormalBorder()).BorderStyle(faint).
+		Border(glyphs.border).BorderStyle(faint).
 		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false).
 		BorderColumn(false).BorderHeader(t.Header).
 		StyleFunc(func(row, col int) lipgloss.Style {
@@ -2733,7 +2838,7 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 		for _, line := range lines {
 			widest = max(widest, ansi.StringWidth(line)-indent)
 		}
-		rule := pad + faint.Render(strings.Repeat("─", widest))
+		rule := pad + faint.Render(strings.Repeat(glyphs.Rule, widest))
 		lines = append(lines[:len(lines)-1], rule, lines[len(lines)-1])
 	}
 	return lines
@@ -2795,16 +2900,17 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 	return lines
 }
 
-// fit shortens s to width display cells with an ellipsis, from the left or
-// the right.
+// fit shortens s to width display cells with the ellipsis glyph, from the
+// left or the right.
 func fit(s string, width int, left bool) string {
 	if ansi.StringWidth(s) <= width {
 		return s
 	}
 	if left {
-		return ansi.TruncateLeft(s, ansi.StringWidth(s)-width+1, "…")
+		cut := ansi.StringWidth(s) - width + ansi.StringWidth(glyphs.Ellipsis)
+		return ansi.TruncateLeft(s, cut, glyphs.Ellipsis)
 	}
-	return ansi.Truncate(s, width, "…")
+	return ansi.Truncate(s, width, glyphs.Ellipsis)
 }
 ```
 
@@ -2821,9 +2927,35 @@ Delete `writeColumns` from `planview.go`. Each caller passes `terminalWidth(w)` 
 
 `newPainter` in `root.go` adopts lipgloss's own test so the two never disagree: `return painter(colorprofile.Detect(w, os.Environ()) > colorprofile.Ascii)` (`github.com/charmbracelet/colorprofile`, already in the graph, becomes a direct requirement). That is a terminal that allows color: a pipe, `TERM=dumb` and `NO_COLOR` all turn the painter's colored marks off, as `IsTerminal` and the `NO_COLOR` check did, and `CLICOLOR_FORCE=1` now turns them on, as it does for lipgloss. `NO_COLOR` removes color only; bold and faint stay, per no-color.org and lipgloss.
 
-- [ ] **Step 3: Checklist labels fit too**
+- [ ] **Step 3: The checklist is a Bubble Tea list that refits on resize**
 
-In `choosePlan`, build the option labels with `fitRows(terminalWidth(terminal)-6, 0, tableSpec{Cols: cols, Rows: rows})` over `[name, delta, privilege, note]` rows, with the same columns as the dry-run checklist but none `Faint`, so the labels are plain text inside huh's own styling (the multi-select draws a cursor and a box in about six cells). When `fitRows` stacks (more lines than rows), use `fit(name+"  "+delta, width-6, false)` for each label instead. Delete the `fmt.Sprintf("%-24s %s  (%s)", ...)` label code. huh options are fixed strings, so the labels fit the width the prompt opened at; a resize while it is open does not refit them. huh wraps its own title and description.
+huh's multi-select takes finished label strings, so it cannot refit them when the terminal is resized. Replace it with a small Bubble Tea model, the same stack `progress.go` already runs and huh itself is built on. Create `internal/cli/checklist.go`:
+
+```go
+// checklistModel is the effect checklist. Every View lays the rows out with
+// fitBlocks at the width of the last WindowSizeMsg, so a resize refits them,
+// and a viewport keeps the cursor's row on screen when the rows are taller
+// than the terminal.
+type checklistModel struct {
+	spec          tableSpec // [cursor, box, name, delta, privilege, note]
+	names         []string
+	checked       []bool
+	cursor        int
+	width, height int
+	view          viewport.Model
+	approved      bool
+	done          bool
+}
+```
+
+- Columns: cursor `{}` (`>` on the cursor's row, else empty), box `{}` (`[x]`/`[ ]`, rebuilt from `checked` each View), name `{}`, delta `{Clip: true}`, privilege `{Drop: 2, Faint: true}`, note `{Drop: 1, Faint: true}`: the dry-run checklist's columns plus the cursor.
+- `Update`: `tea.WindowSizeMsg` sets `width` and `height`. `tea.KeyPressMsg`, matched on `msg.String()`: `up`/`k` and `down`/`j` move the cursor; `space` toggles the cursor's row; `enter` sets `approved` and `done` and returns `tea.Quit`; `esc`, `q` and `ctrl+c` set `done` and return `tea.Quit`.
+- `View`: `writeText` for the title `[WorkBench] Effects: space toggles, enter applies, esc quits` and the description `Unchecked effects are remembered for this machine; apply --reset forgets them.`, then `fitBlocks(width, 2, spec)` joined into the viewport (`SetWidth`, `SetHeight(height-<title lines>)`, `SetContent`, then `EnsureVisible` on the cursor row's first line, counting the lines of the blocks before it). The cursor row's name is bold. Once `done`, View drops the cursor column and the title so the final frame left in the scrollback is the decided list.
+- Run it with `tea.NewProgram(model, tea.WithInput(terminal), tea.WithOutput(terminal), tea.WithoutSignalHandler())` inline, not on the alternate screen, so the file list printed above it stays visible. main owns SIGINT, as in `progress.go`; `ctrl+c` arrives as a key. Not approved returns `nil, false, nil` exactly as `ask`'s abort did.
+
+`choosePlan` keeps everything else: fixed effects, the huh `Confirm` when there are no selectable effects, the error mapping and the `Applying N of M effects` line. The `windows-files` dependency stays in `internal/machine/effects.go`, applied to the returned selection as now; the model is a plain cursor, space, enter, esc list. Delete the `fmt.Sprintf("%-24s %s  (%s)", ...)` label code and the multi-select.
+
+`painter` draws its marks with `glyphs.Check` and `glyphs.Cross` (and strips `glyphs.Check+" "` and `glyphs.Cross+" "`), so a non-UTF-8 terminal gets `+` and `x`.
 
 - [ ] **Step 4: Probes write nothing**
 
@@ -2869,7 +3001,9 @@ for w in 160 120 80 60 40 30; do
 done
 ```
 
-Expected: every `max` is at most its width. At 80 the privilege tags are gone and the deltas end in `…`; at 30 each effect is a stacked block whose first line is `[x]  name`. `awk length` (gawk, UTF-8 locale) counts characters, and every character here is one cell wide; an escape code leaking into the pipe would inflate it.
+Repeat the loop with `LANG=C LC_ALL=` before `bin/workbench`, then `LANG=C bin/workbench apply --dry-run --local-build | grep -cP '[^\x00-\x7F]'`.
+
+Expected: every `max` is at most its width, and the `LANG=C` count is `0` (rules `-`, ellipsis `...`, arrows `->`). At 80 the privilege tags are gone and the deltas end in `…`; at 30 each effect is a stacked block whose first line is `[x]  name`. `awk length` (gawk, UTF-8 locale) counts characters, and every character here is one cell wide; an escape code leaking into the pipe would inflate it.
 
 Wide and plain terminals, read-only:
 
@@ -2894,6 +3028,8 @@ Expected: no output (Workbench's own state and cache, and the running Claude ses
 Ctrl-C: `bin/workbench apply --dry-run --local-build & sleep 3; kill -INT %1; wait %1; echo "exit=$?"`
 Expected: `exit=130`, and no `unprobed` line.
 
+Resize, by the owner, not applied: run `bin/workbench apply --local-build` in a wide window, narrow it to about 40 columns while the checklist is open, widen it again, then press esc. Expected: the rows refit on every resize (tags drop, deltas clip, rows stack, then return), the cursor row stays on screen, and esc applies nothing. An implementer may try `printf '\033' | script -qec 'COLUMNS=40 bin/workbench apply --local-build' /dev/null` once to see the narrow layout; if keys do not pass through `script`, the owner check stands.
+
 - [ ] **Step 7: Commit**
 
 ```bash
@@ -2909,7 +3045,7 @@ Implements section 11 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-
 
 **Files:**
 - Create: `internal/costs/source.go`, `claude.go`, `ledger.go`, `ingest.go`, `rates.go`, `report.go`, `ledger_test.go`
-- Create: `internal/cli/costs.go`
+- Create: `internal/cli/costs.go`, `internal/cli/costsview.go`
 - Modify: `internal/cli/root.go` (register `costsCommand`)
 - Modify: `internal/operation/state.go` (`TryLock`), `internal/operation/process.go` (`StartDetached`)
 - Modify: `home/.chezmoidata/claude.json` (hook commands), `go.mod`/`go.sum` (`modernc.org/sqlite`)
@@ -2917,8 +3053,8 @@ Implements section 11 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-
 - Modify: `docs/superpowers/specs/workbench-contracts.md` (claude-costs row), `docs/usage.md` and `README.md` wherever `claude-costs` is named, the ledger spec's status line
 
 **Interfaces:**
-- Consumes: `column`, `tableSpec`, `terminalWidth`, `fitRows`, `writeTable`, `writeText`, `fit` (Task 9), and its rule that styled output is written with `lipgloss.Fprint`.
-- Produces: `costs.Source`, `costs.Usage`, `costs.FileState`, `costs.RateCard`, `costs.Observation`; `costs.OpenLedger(path string, create bool) (*Ledger, error)`; `costs.Ingest(ctx, opts IngestOptions) (summary string, err error)`; `costs.Report(ctx, ledger, ReportOptions) (Report, error)`; `costs.Rates(ctx, refresh bool) (Card, error)`; `costs.Status(ctx) (StatusInfo, error)`; `operation.TryLock(path string) (release func(), held bool, err error)`; `operation.StartDetached(executable string, args []string, log *os.File) error`.
+- Consumes: `column`, `tableSpec`, `terminalWidth`, `fitRows`, `writeTable`, `writeText`, `fit`, `glyphs` (Task 9), and its rule that styled output is written with `lipgloss.Fprint`.
+- Produces: `costs.Tool`, `costs.Tools`, `costs.Source`, `costs.Usage`, `costs.FileState`, `costs.RateCard`, `costs.Observation`; `costs.OpenLedger(path string, create bool) (*Ledger, error)`; `costs.Ingest(ctx, opts IngestOptions) (summary string, err error)`; `costs.Report(ctx, ledger, ReportOptions) (Report, error)`; `costs.Rates(ctx, refresh bool) (Card, error)`; `costs.Status(ctx) (StatusInfo, error)`; `operation.TryLock(path string) (release func(), held bool, err error)`; `operation.StartDetached(executable string, args []string, log *os.File) error`.
 
 | Script function(s) | Go home |
 | --- | --- |
@@ -2958,7 +3094,19 @@ type Observation struct {
 	Cost   float64
 }
 
-var sources = []Source{claude{}}
+// Tool is one tab of the report. A nil Source is a tool Workbench knows of
+// but does not record yet: its tab says so, and ingest skips it.
+type Tool struct {
+	Name   string // "claude", "codex": the ledger's tool column and --tool
+	Title  string // "Claude Code", "Codex": the tab label
+	Source Source
+}
+
+// Tools is every tab, in order. Adding Codex is setting its Source.
+var Tools = []Tool{
+	{Name: "claude", Title: "Claude Code", Source: claude{}},
+	{Name: "codex", Title: "Codex"},
+}
 ```
 
 Create `claude.go` implementing every method from the script functions in the table. Paths honour `CLAUDE_CONFIG_DIR` exactly as the script does (`projects/` under it; `.claude.json` inside it when set, else `~/.claude.json`). `Parse` checks `bytes.Contains(line, []byte("\"usage\""))` or `"cwd"` before decoding JSON, as the script does, updates `file.LastCwd`, and returns the response row plus one row per `advisor_message` iteration keyed `<request id>:<index>`. `Hooks` reports an event as installed when a hook command contains `costs ingest` and `async` is true.
@@ -2989,13 +3137,41 @@ In `internal/operation/process.go` add `StartDetached(executable string, args []
 
 - [ ] **Step 4: Ingest and rates**
 
-`ingest.go` ports the worker over `sources`: lock, log truncation to 200 KB, per-file offsets in one transaction per file, `session` tagging for the hook's `transcript_path` on `SessionEnd`, the rate refresh check, and the meta summary. The hook entry reads stdin JSON with a 0.5 s limit, starts `<workbench> costs ingest --worker --quiet EVENT TRANSCRIPT` through `StartDetached`, prints nothing and returns success whatever happens.
+`ingest.go` ports the worker over the `Tools` whose `Source` is set: lock, log truncation to 200 KB, per-file offsets in one transaction per file, `session` tagging for the hook's `transcript_path` on `SessionEnd`, the rate refresh check, and the meta summary. The hook entry reads stdin JSON with a 0.5 s limit, starts `<workbench> costs ingest --worker --quiet EVENT TRANSCRIPT` through `StartDetached`, prints nothing and returns success whatever happens.
 
 `rates.go` ports resolution (override, official, calibrated, builtin; longest prefix inside a source), the conditional GET with ETag, Last-Modified, the 7-day refresh, the 1-day retry back-off, the cache file (`rates-official.json` for `claude`, `rates-official-<tool>.json` otherwise), override validation, and calibration (normal equations, at least four observations, non-negative, residual under 5 %, mass under 0.5 % keeps the built-in, 1h write = 1.6 × the solved write).
 
 - [ ] **Step 5: Report and the CLI**
 
-`report.go` returns rows (project, model, tool, account, month), totals and coverage; it prints nothing. `internal/cli/costs.go` adds `costs` with `ingest`, `rates`, `status`, and the report flags `--by project|model|tool|account|month`, `--tool NAME`, `--since`, `--until`, `--all`, `--top N`, `--sort cost|name|calls`, `--detail`, `--tokens`, `--no-rollup`, `--csv`, plus the global `--json`. The header is `[WorkBench] Costs · <first> → <last> · <N> responses`. Tables use `writeTable` with `Header: true`, the grand total as `Total` (bold under a faint rule, as the script printed it), and columns: name `{Clip, ClipLeft, Keep: 24}` (repository names shorten to 24 cells before any number column drops), cost `{Right}`, share `{Right, Drop: 2}`, calls `{Right, Drop: 1}`, tokens `{Right, Drop: 3}`, cached `{Right, Drop: 4}`; with `--tokens`: input, output `{Right}`, cache 5m `{Right, Drop: 3}`, cache 1h `{Right, Drop: 4}`, cache read `{Right, Drop: 2}`; last, the unpriced flag `{Drop: 5}`, its cell `yellow.Render("unpriced")` or empty. The header line and footer notes go through `writeText`, so they wrap instead of overflowing; footer notes follow section 7. The whole report is built in one `strings.Builder` and written with `lipgloss.Fprint(cmd.OutOrStdout(), b.String())`. `--json` puts the report in the result envelope's details; `--csv` writes the rows. Register `costsCommand(o)` in `root.go`.
+`report.go` returns one tool's rows (project, model, account, month; `ReportOptions.Tool` filters on the ledger's `tool` column), totals and coverage; it prints nothing. `internal/cli/costs.go` adds `costs` with `ingest`, `rates`, `status`, and the report flags `--by project|model|account|month`, `--tool NAME` (the tab to open on, or the tool to print; default `claude`; a name not in `costs.Tools` exits 2), `--since`, `--until`, `--all`, `--top N`, `--sort cost|name|calls`, `--detail`, `--tokens`, `--no-rollup`, `--csv`, plus the global `--json`. The header is `[WorkBench] Costs · <first> → <last> · <N> responses`. Tables use `writeTable` with `Header: true`, the grand total as `Total` (bold under a faint rule, as the script printed it), and columns: name `{Clip, ClipLeft, Keep: 24}` (repository names shorten to 24 cells before any number column drops), cost `{Right}`, share `{Right, Drop: 2}`, calls `{Right, Drop: 1}`, tokens `{Right, Drop: 3}`, cached `{Right, Drop: 4}`; with `--tokens`: input, output `{Right}`, cache 5m `{Right, Drop: 3}`, cache 1h `{Right, Drop: 4}`, cache read `{Right, Drop: 2}`; last, the unpriced flag `{Drop: 5}`, its cell `yellow.Render("unpriced")` or empty. The header line and footer notes go through `writeText`, so they wrap instead of overflowing; footer notes follow section 7. The whole report is built in one `strings.Builder` by `costsReport(tool costs.Tool, report costs.Report, width int) string` and written with `lipgloss.Fprint(cmd.OutOrStdout(), b.String())`. For a tool with no `Source`, `costsReport` is the one line `[WorkBench] <Title> costs are not implemented yet` and the command exits 0; `--json` gives details `{"tool": "<name>", "implemented": false}`.
+
+- [ ] **Step 5b: Tabs at a terminal**
+
+When stdin and stdout are both terminals, `o.interactive()` holds and neither `--json` nor `--csv` is set, `workbench costs` opens a tabbed view; otherwise it prints `--tool`'s report as Step 5 says, so pipes, hooks, `--json`, `--csv` and the width checks never see the view. Start the view only after the ingest progress line's `Stop()` has returned: one Bubble Tea program owns the terminal at a time.
+
+Create `internal/cli/costsview.go`:
+
+```go
+// costsView is the interactive report: one tab per costs.Tools entry, the
+// active tab's report in a viewport, refit at every resize, and a help line.
+type costsView struct {
+	tools   []costs.Tool
+	reports map[string]costs.Report // computed before the view starts; absent for a tool without a Source
+	active  int
+	width   int
+	height  int
+	view    viewport.Model
+	help    help.Model
+}
+```
+
+- Tab bar: each `Title` padded by one space; the active tab bold and underlined, the others faint, separated by a faint `│` (`|` without UTF-8); clipped with `fit` when narrower than the bar.
+- Body: `costsReport` for the active tool at the current width, minus its `[WorkBench]` header line, which the tab bar replaces. A tool without a `Source` shows a faint `<Title> costs are not implemented yet.`
+- `Update`: `tea.WindowSizeMsg` sets the size and re-renders the body (`SetWidth`, `SetHeight(height-2)` for the tab bar and help line, `SetContent`). `tea.KeyPressMsg` on `msg.String()`: `tab`, `right`, `l` next tab; `shift+tab`, `left`, `h` previous (both wrap, and reset the scroll); `q`, `esc`, `ctrl+c` quit; anything else goes to the viewport (`up`, `down`, `pgup`, `pgdown`, `home`, `end`).
+- `View`: `tea.View` with `AltScreen = true`, content = tab bar, viewport, and `help.ShortHelpView` of the bindings (`tab switch · ↑/↓ scroll · q quit`, with `glyphs` text), each line within the width. Without UTF-8, set the help model's `ShortSeparator` to ` - ` and the key labels to `up/down`.
+- Run with `tea.NewProgram(model, tea.WithInput(os.Stdin), tea.WithOutput(os.Stdout), tea.WithoutSignalHandler())`. The alternate screen leaves nothing behind, so after `Run` returns, print the active tab's full `costsReport` (header included) at `terminalWidth(os.Stdout)` with `lipgloss.Fprint`.
+
+Flags set the view (`--by`, `--tokens`, `--detail`, `--all`, `--since`, `--until`, `--top`, `--sort`); keys only switch tabs, scroll and quit. `--json` puts the report in the result envelope's details; `--csv` writes the rows. Register `costsCommand(o)` in `root.go`.
 
 - [ ] **Step 6: Hooks, removals and docs**
 
@@ -3008,7 +3184,11 @@ Expected: clean; `ok` for `internal/costs`.
 
 Synthetic ledger: rerun Task 8 step 6's fixture with `CC="bin/workbench costs"` (same `CLAUDE_COSTS_*` and `CLAUDE_CONFIG_DIR` overrides; the hook subcommand is `costs ingest --worker --quiet`). Expected: the same figures as Task 8's expected outputs (`$0.01`, `100.0%`, `3` calls, `2.1K`, `78.5%`; `/srv/elsewhere/app` only with `--all`; three rows with `--no-rollup`; JSON `hidden_projects` 1 and grand total 0.00675), the header now `[WorkBench] Costs · …`, and `--compact` rejected as an unknown flag.
 
-Width: `for w in 200 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width; at 200 the table is no wider than at 120 (natural widths, never spread); at 60 the name ends or starts with `…` before any number column is gone. `bin/workbench costs | grep -c $'\e'` prints `0`; `script -qec 'NO_COLOR=1 bin/workbench costs' /dev/null | grep -oE $'\e\[[0-9;]*m' | sort -u` shows bold, faint and resets but no color, so the `unpriced` flag loses its yellow; without `NO_COLOR` the head line is bold, the rules faint and `unpriced` yellow.
+Not implemented: `bin/workbench costs --tool codex < /dev/null | cat; echo "exit=${PIPESTATUS[0]}"` prints `[WorkBench] Codex costs are not implemented yet` and `exit=0`; `bin/workbench costs --by tool` is rejected as an invalid value; `--tool nope` exits 2.
+
+Tabs, by the owner: run `bin/workbench costs` in a terminal. Expected: the `Claude Code` tab is bold, the report scrolls with the arrow keys, Tab shows `Codex costs are not implemented yet.`, narrowing and widening the window refits the table, and q leaves the last tab's report printed. An implementer may try `printf '\tq' | script -qec 'bin/workbench costs' /dev/null | tail -3` once; if keys do not pass through `script`, the owner check stands.
+
+Width: `for w in 200 120 80 60 40 30; do COLUMNS=$w bin/workbench costs < /dev/null 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width; at 200 the table is no wider than at 120 (natural widths, never spread); at 60 the name ends or starts with `…` before any number column is gone. `bin/workbench costs | grep -c $'\e'` prints `0`; `script -qec 'NO_COLOR=1 bin/workbench costs' /dev/null | grep -oE $'\e\[[0-9;]*m' | sort -u` shows bold, faint and resets but no color, so the `unpriced` flag loses its yellow; without `NO_COLOR` the head line is bold, the rules faint and `unpriced` yellow.
 
 Real ledger, read-only: copy `~/.local/share/claude-costs/ledger.sqlite` to a scratch directory, point `CLAUDE_COSTS_LEDGER` at the copy, run `bin/workbench costs`. Expected: the copy upgrades to version 2, the response count and grand total equal what the Python script printed for the same copy before the upgrade, and the real ledger is untouched (`cmp` against a second copy taken before).
 
