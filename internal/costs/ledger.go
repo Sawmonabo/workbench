@@ -497,6 +497,16 @@ func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) 
 		if err := fn(t); err != nil {
 			return err
 		}
+		// Rows stored under provisional evidence wait for ResolveAccounts, which
+		// a run cancelled before it would leave for the next one.
+		if len(t.wrote.roots) > 0 {
+			if err := markAccountsUnresolved(
+				ctx,
+				tx,
+				slices.Collect(maps.Keys(t.wrote.roots))...); err != nil {
+				return err
+			}
+		}
 		if !run.marked && (len(t.wrote.pending) > 0 || len(t.wrote.threads) > 0) {
 			t.wrote.marked = true
 			return setMeta(ctx, tx, tiersUnresolved, "1")
@@ -696,9 +706,7 @@ func (t *Tx) Upsert(u Usage) error {
 		return err
 	}
 	t.wrote.seen[id] = stored
-	if u.Root != "" {
-		t.wrote.roots[rootKey(u.Tool, u.Root)] = true
-	}
+	t.wrote.roots[rootKey(u.Tool, u.Root)] = true // "" for the rows of a tool that name no session
 	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
@@ -843,8 +851,8 @@ func (l *Ledger) BindSession(
 	})
 }
 
-// markAccountsUnresolved adds a session to accountsUnresolved.
-func markAccountsUnresolved(ctx context.Context, tx *sql.Tx, key string) error {
+// markAccountsUnresolved adds sessions to accountsUnresolved.
+func markAccountsUnresolved(ctx context.Context, tx *sql.Tx, keys ...string) error {
 	note, err := metaIn(ctx, tx, accountsUnresolved)
 	if err != nil || note == dirtyRootsAll {
 		return err
@@ -853,8 +861,10 @@ func markAccountsUnresolved(ctx context.Context, tx *sql.Tx, key string) error {
 	if note != "" && json.Unmarshal([]byte(note), &listed) != nil {
 		return setMeta(ctx, tx, accountsUnresolved, dirtyRootsAll) // unreadable: every row
 	}
-	if !slices.Contains(listed, key) {
-		listed = append(listed, key)
+	for _, key := range keys {
+		if !slices.Contains(listed, key) {
+			listed = append(listed, key)
+		}
 	}
 	value := dirtyRootsAll
 	if len(listed) <= maxDirtyRoots {
