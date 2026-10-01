@@ -26,10 +26,10 @@ MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
 # The hooks.json chezmoi writes beside this file, and where Codex finds it.
 # Codex runs a hook from hooks.json only when [hooks.state."<path>:<event>:
 # <group>:<handler>"] holds its trusted_hash, so every hook Workbench installs
-# gets that entry here as a managed value and Codex never asks. Workbench owns
-# the trust of every hook in its hooks.json, including enabled = true (a hook
-# disabled in Codex is re-enabled on apply), so the entries of a hook it no
-# longer installs are dropped and do not stay trusted.
+# gets that trusted_hash here as a managed value and Codex never asks. The
+# entry's enabled key is the user's: a hook turned off in Codex stays off
+# across applies. The entries of a hook Workbench no longer installs are
+# dropped, so they do not stay trusted.
 HOOKS = json.loads({{ includeTemplate "codex-hooks.json.tmpl" . | toJson }})
 HOOKS_PATH = {{ printf "%s/.codex/hooks.json" .chezmoi.homeDir | toJson }}
 HOOK_EVENTS = {
@@ -186,6 +186,16 @@ def hook_hash(event, group, handler):
     return "sha256:" + hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
+def hook_keys():
+    """The [hooks.state] key of every hook in HOOKS."""
+    return {
+        "{}:{}:{}:{}".format(HOOKS_PATH, HOOK_EVENTS[event], group_index, handler_index)
+        for event, groups in HOOKS.get("hooks", {}).items()
+        for group_index, group in enumerate(groups)
+        for handler_index, _ in enumerate(group.get("hooks", []))
+    }
+
+
 def trust_tables():
     """The managed [hooks.state] entry of every hook in HOOKS."""
     lines = []
@@ -196,7 +206,6 @@ def trust_tables():
                 lines += [
                     "",
                     "[hooks.state.{}]".format(json.dumps(key, ensure_ascii=False)),
-                    "enabled = true",
                     "trusted_hash = {}".format(json.dumps(hook_hash(event, group, handler))),
                 ]
     return lines
@@ -222,7 +231,8 @@ def main():
     hooks = document.get("hooks")
     state = hooks.get("state") if isinstance(hooks, dict) else None
     if isinstance(state, dict):
-        for key in [key for key in state if key.startswith(HOOKS_PATH + ":")]:
+        current = hook_keys()
+        for key in [key for key in state if key.startswith(HOOKS_PATH + ":") and key not in current]:
             del state[key]
         if not state:
             del hooks["state"]

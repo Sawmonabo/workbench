@@ -264,10 +264,12 @@ one>, "hooks": [{"type": "command", "command": ..., "timeout": <normalized:
 "statusMessage": <only when set>}]}`. This was checked against the hash Codex
 itself recorded when the existing `UserPromptSubmit` hook was approved: it
 matches exactly. `modify_private_config.toml.tmpl` includes the rendered
-hooks.json, computes the hash of every handler in it and writes `enabled =
-true` and `trusted_hash` for each key as managed values, so whatever hooks
-Workbench installs are trusted on the same apply; an entry left for a hook
-Workbench removed trusts nothing, since that hook no longer exists.
+hooks.json, computes the hash of every handler in it and writes
+`trusted_hash` for each key as a managed value, so whatever hooks Workbench
+installs are trusted on the same apply. The entry's `enabled` key stays the
+user's: a hook turned off in Codex (`enabled = false`) stays off across
+applies. The entries of a hook Workbench no longer installs are dropped, so
+they do not stay trusted. A second apply changes nothing.
 `Hooks(home)` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
 recorded hash matches): `ok` when `hooks.json` has the command and its entry
