@@ -1,7 +1,9 @@
 # claude-costs ledger design
 
 Status: implemented 2026-09-30 on branch `feat/claude-costs-ledger`; observed
-checks are recorded in section 9. The implementation plan refined a few details
+checks are recorded in section 9. Section 7 (report view) was revised on
+2026-09-30 and is implemented by Task 8 of
+`../plans/2026-09-30-apply-plan-selection.md`. The implementation plan refined a few details
 of the approved design (rates parsing, override validation, refresh back-off),
 and checking it against real transcripts added advisor rows (section 4). The
 hooks are not yet applied to any real machine. This design
@@ -268,29 +270,86 @@ rates differ by more than five percent.
 
 ## 7. Reporting
 
-`claude-costs [report]` reads the ledger only.
+Revised 2026-09-30 after the first report on a six-week ledger: 150 lines,
+one block per working directory, sub-directories of one repository listed as
+separate projects, lines wider than the terminal, columns named `w-5m`,
+`w-1h`, `cache-r`, and a scope note printed even when nothing was hidden.
+
+`claude-costs [report]` reads the ledger only. The default view is one line
+per repository:
+
+```
+claude-costs · 2026-08-18 → 2026-09-30 · 71,280 responses
+list-price equivalents, not subscription charges
+
+  project                           cost   share    calls   tokens  cached
+  ~/dev/app                    $7,717.52   76.6%   57,278     8.5B   95.3%
+  ~/repos/service              $1,832.37   18.2%   11,798     2.2B   95.6%
+  ~/dev                          $319.86    3.2%    1,238   189.8M   94.6%
+  ~/dev/tools                    $112.22    1.1%      478    86.4M   97.0%
+  ──────────────────────────────────────────────────────────────────────────
+  total · 4 projects          $9,981.97  100.0%   70,792    10.9B   95.4%
+
+  model                             cost   share    calls   tokens  cached
+  claude-opus-5                $5,369.66   53.8%   41,896     5.7B   95.1%
+  claude-fable-5-1             $2,816.89   28.2%    7,236     1.8B   92.4%
+
+  ingested Sep 30 8:47 PM · rates official, calibrated, builtin (official card 2026-09-30)
+```
+
+Rules:
+
+- Rollup: a session's working directory folds into the first directory below
+  a scope root (`~/dev/<name>`, `~/repos/<name>`); elsewhere a path containing
+  `/.worktrees/<name>` folds into the path before that segment. `--no-rollup`
+  keeps every working directory separate.
+- Columns: `cost`, `share` of the grand total, `calls`, `tokens` (all five
+  token kinds summed) and `cached` (share of prompt tokens served from the
+  cache: `cache read / (input + cache writes + cache read)`). `--tokens`
+  replaces `share`, `tokens` and `cached` with `input`, `output`, `cache 5m`,
+  `cache 1h`, `cache read` and adds a one-line legend to the footer.
+- Width: lines are sized to the terminal (`shutil.get_terminal_size`, 100 when
+  not a terminal). The name column takes what the numeric columns leave, at
+  least 24, and long names are clipped from the left with `…` so the
+  distinguishing tail survives. Nothing wraps.
+- Sections: the main table ends with a rule and a bold `total · N <key>s` row.
+  A `model` table follows unless `--by model`; an `account` table follows only
+  when the ledger holds more than one account and `--by` is not `account`.
+  `--detail` (project view only) prints one block per project, header
+  `<project>  $cost  share · calls`, with its own model table, then a
+  `model (all projects)` table carrying the total row.
+- Footer: `ingested <local time>` and `rates <sources> (official card <date>)`
+  always; `N of M <key>s shown; totals cover all` only under `--top`;
+  `N projects outside ~/dev and ~/repos hidden (--all)` only when N > 0; the
+  `--tokens` legend only under `--tokens`. Notes join with ` · ` on one line
+  when that fits the terminal, otherwise one per line.
+- Empty result: `no responses matched (check \`claude-costs status\`)`, or
+  when the scope hid projects, `no responses matched in ~/dev and ~/repos;
+  N projects elsewhere (--all shows them)`. Exit 0.
+- `rates` uses the same column names: `input`, `output`, `cache 5m`,
+  `cache 1h`, `cache read`.
+- Ingest statistics (session-tagged versus sweep rows, last ingest summary,
+  last error) stay in `claude-costs status`; the report header no longer
+  repeats them.
 
 | Flag | Meaning |
 | --- | --- |
-| `--by project` | Default. One block per project with nested model rows. |
-| `--by model`, `--by account`, `--by month` | Flat table on that dimension. |
+| `--by project` | Default. One line per repository. |
+| `--by model`, `--by account`, `--by month` | One line per value of that dimension. |
 | `--since`, `--until` | Inclusive `YYYY-MM-DD` bounds on the response timestamp. |
 | `--all` | Include projects outside `~/dev` and `~/repos`. |
-| `--top N`, `--sort cost|name|calls`, `--compact` | As today. |
-| `--no-rollup` | Keep git worktrees separate. By default a path containing `/.worktrees/<name>` folds into the path before that segment. |
-| `--json`, `--csv` | Machine output of the same rows. |
+| `--top N` | Show the first N rows; totals and shares still cover every row. |
+| `--sort cost\|name\|calls` | Row order; cost descending by default. |
+| `--detail` | Per-project blocks with model rows (project view). |
+| `--tokens` | The five token columns instead of `share`, `tokens`, `cached`. |
+| `--no-rollup` | Keep every working directory separate. |
+| `--json`, `--csv` | Machine output of the same rows; JSON adds `hidden_projects`. |
 
-Every human report ends with totals by model, totals by account, and the grand
-total across all accounts. Percentages and the grand total always cover every
-in-scope row, not only the rows shown by `--top`.
+`--compact` is removed: the default view is the compact one.
 
-The header shows: earliest and latest response, row count, rows by account
-source, last ingest time, rate card date and sources, and one line noting that
-figures are list-price equivalents, not subscription charges.
-
-`claude-costs status` shows the ledger path and size, the same coverage lines,
-last ingest summary, last error, whether a worker currently holds the lock,
-rate card age, and whether both hooks are present in the live
+`claude-costs status` shows the ledger path and size, coverage, rows by
+account source, last ingest summary, last error, whether a worker currently
+holds the lock, rate card age, and whether both hooks are present in the live
 `<config dir>/settings.json`.
 
 ## 8. Failure handling

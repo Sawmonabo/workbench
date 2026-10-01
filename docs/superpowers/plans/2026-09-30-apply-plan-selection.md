@@ -2,13 +2,13 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown.
+**Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown; `claude-costs` prints one readable line per repository.
 
 **Architecture:** `operation.Effect` gains probed `Delta`, `Checked`, `Fixed` and `SavedSkip` fields so the plan digest covers the selection. The machine planner runs every active provisioning script in a read-only `WORKBENCH_PROBE=1` mode to fill the deltas, and apply removes the script sources of unchecked effects from its private chezmoi copy so chezmoi never runs or records them. The CLI replaces the Yes/No prompt with a `huh` multi-select, saves skips to `machine.toml`'s `[effects]` table, and `update` stops after installing the release and its tools.
 
 **Tech Stack:** Go 1.26 (cobra, charm.land/huh v2, go-toml v2), chezmoi 2.70.3 (`dump --include=scripts`), bash script templates, shellcheck, Python 3 for render checks.
 
-**Spec:** `docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md`
+**Spec:** `docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md`; Task 8 implements section 7 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`
 
 ## Global Constraints
 
@@ -22,6 +22,7 @@
 - Tests stay near zero: one Go test for the consent boundary (digest covers selection); everything else is observed smoke checks recorded in the ledger.
 - Gates before every commit touching Go: `go build ./...`, `go vet ./...`, `go test ./...`; before every commit touching `home/`: `scripts/render-check.sh` for `personal pinned`, `work latest`, `work pinned wsl` (on a WSL host run them against a scratch copy with the `microsoft` detection string disabled, as the previous plan did).
 - Tracked docs and commit messages carry no personal repo names, project paths, account identifiers or absolute checkout paths.
+- claude-costs report lines never exceed the terminal width; `--compact`, `w-5m`, `w-1h` and `cache-r` are gone; footer notes appear only when they report something (hidden projects, `--top`, the `--tokens` legend).
 
 ## Review Focus
 
@@ -1936,4 +1937,403 @@ Expected: all green.
 ```bash
 git add docs/acceptance.md docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md
 git commit -m "docs(acceptance): observed checklist, remembered skips and update/apply split on a WSL host"
+```
+
+### Task 8: claude-costs report view
+
+The current report prints one block per working directory, each with a
+seven-column model table, a 200-character header line and a footer that
+mentions the default scope even when nothing is hidden. On a six-week ledger
+that is 150 lines, wider than most terminals, with sub-directories of one
+repository listed as separate projects and columns named `w-5m`, `w-1h`,
+`cache-r`. This task implements section 7 of
+`docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md` as revised
+on 2026-09-30: one line per repository sized to the terminal, plain column
+names, the token breakdown behind `--tokens`, the per-model blocks behind
+`--detail`, and footer notes only when they say something.
+
+**Files:**
+- Modify: `home/dot_local/bin/executable_claude-costs` (scope and rollup, `load_groups`, the report rendering, `cmd_report`, `cmd_rates` headers, `parse_opts`, `cmd_help`)
+- Modify: `home/dot_local/share/bash-completion/completions/claude-costs` (flag list)
+- Modify: `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md` (status line only; section 7 is already the revised design)
+
+**Interfaces:**
+- Consumes: nothing from Tasks 1–7; this task is independent and can run first or last.
+- Produces: `load_groups(db, opts) -> tuple[list[dict], int]` (groups, hidden project count); `print_table(rows, key, label, opts, grand, total=None)`; `print_footer(cov, card, hidden, shown_n, total_n, opts)`; `print_unpriced(groups)`; `total_row(rows, key, label)`; `cached_share(r)`; `table_columns(opts, grand)`; `clip(s, width)`; `columns()`; `local_time(iso)`; options `detail` and `tokens` replace `compact`.
+
+- [ ] **Step 1: Roll sessions up to their repository and count what the scope hides**
+
+Add `import shutil` after `import select` in the import block. Replace `rollup` and add three helpers after `short`:
+
+```python
+def rollup(project: str) -> str:
+    """Fold a session's working directory into its repository: the first
+    directory below a scope root, else the path before `/.worktrees/`."""
+    p = Path(project)
+    for root in DEFAULT_ROOTS:
+        if root in p.parents:
+            return str(root / p.relative_to(root).parts[0])
+    return project.split("/.worktrees/")[0]
+```
+
+```python
+def clip(s: str, width: int) -> str:
+    """Keep the end of a path, which is the part that tells projects apart."""
+    return s if len(s) <= width else "…" + s[-(width - 1) :]
+
+
+def columns() -> int:
+    return shutil.get_terminal_size((100, 24)).columns if sys.stdout.isatty() else 100
+
+
+def local_time(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%b %-d %-I:%M %p")
+    except ValueError:
+        return iso
+```
+
+Replace `load_groups` so it returns the groups and how many rolled-up projects the default scope left out:
+
+```python
+def load_groups(
+    db: sqlite3.Connection, opts: SimpleNamespace
+) -> tuple[list[dict], int]:
+    """One dict per (project, model, account, month) with tokens, calls, cost,
+    plus how many projects the default scope left out."""
+    where, params = [], []
+    if opts.since:
+        where.append("substr(ts, 1, 10) >= ?")
+        params.append(opts.since)
+    if opts.until:
+        where.append("substr(ts, 1, 10) <= ?")
+        params.append(opts.until)
+    sql = (
+        "SELECT project, model, account, substr(ts, 1, 7), COUNT(*), "
+        + ", ".join(f"SUM({c})" for c in RATE_FIELDS)
+        + " FROM responses"
+        + (" WHERE " + " AND ".join(where) if where else "")
+        + " GROUP BY 1, 2, 3, 4"
+    )
+    card = load_card()
+    groups, hidden = [], set()
+    for project, model, account, month, calls, *tokens in db.execute(sql, params):
+        project = rollup(project) if opts.rollup else project
+        if not in_scope(project, opts):
+            hidden.add(project)
+            continue
+        t = dict(zip(RATE_FIELDS, tokens))
+        rate = rate_for(model, card)
+        groups.append(
+            {
+                "project": project,
+                "model": model,
+                "account": account,
+                "month": month or "unknown",
+                "calls": calls,
+                "cost": cost_of(t, rate) if rate else 0.0,
+                "priced": rate is not None,
+                **t,
+            }
+        )
+    return groups, len(hidden)
+```
+
+- [ ] **Step 2: Replace the rendering**
+
+Delete `print_header`, `print_table` and `print_totals`. In their place, between `coverage` and the `# ---- commands` marker, add:
+
+```python
+def total_row(rows: list[dict], key: str, label: str) -> dict:
+    t = {key: label, "calls": 0, "cost": 0.0, "priced": True}
+    for f in RATE_FIELDS:
+        t[f] = 0
+    for r in rows:
+        t["calls"] += r["calls"]
+        t["cost"] += r["cost"]
+        t["priced"] = t["priced"] and r["priced"]
+        for f in RATE_FIELDS:
+            t[f] += r[f]
+    return t
+
+
+def cached_share(r: dict) -> str:
+    """Share of prompt tokens served from the cache instead of re-read."""
+    prompt = r["input"] + r["cache_write_5m"] + r["cache_write_1h"] + r["cache_read"]
+    return f"{r['cache_read'] / prompt * 100:.1f}%" if prompt else "—"
+
+
+def table_columns(opts: SimpleNamespace, grand: float) -> list[tuple]:
+    """(header, width, cell) for every column after the name column."""
+    cost = ("cost", 11, lambda r: f"${r['cost']:,.2f}")
+    calls = ("calls", 8, lambda r: f"{r['calls']:,}")
+    if opts.tokens:
+        return [
+            cost,
+            calls,
+            ("input", 9, lambda r: human(r["input"])),
+            ("output", 9, lambda r: human(r["output"])),
+            ("cache 5m", 9, lambda r: human(r["cache_write_5m"])),
+            ("cache 1h", 9, lambda r: human(r["cache_write_1h"])),
+            ("cache read", 11, lambda r: human(r["cache_read"])),
+        ]
+    return [
+        cost,
+        ("share", 7, lambda r: f"{r['cost'] / grand * 100:.1f}%" if grand else "—"),
+        calls,
+        ("tokens", 8, lambda r: human(sum(r[f] for f in RATE_FIELDS))),
+        ("cached", 7, cached_share),
+    ]
+
+
+def print_table(
+    rows: list[dict],
+    key: str,
+    label: str,
+    opts: SimpleNamespace,
+    grand: float,
+    total: dict | None = None,
+) -> None:
+    """One line per row, sized to the terminal so nothing wraps; the name
+    column takes what the numeric columns leave."""
+    cols = table_columns(opts, grand)
+    name_w = max(24, columns() - sum(w + 1 for _, w, _ in cols) - 2)
+
+    def line(r: dict, style: str) -> str:
+        name = clip(short(str(r[key])), name_w)
+        cells = "".join(f" {cell(r):>{w}}" for _, w, cell in cols)
+        flag = "" if r["priced"] else f" {YEL}unpriced{OFF}"
+        return f"  {style}{name:<{name_w}}{cells}{OFF}{flag}"
+
+    heads = "".join(f" {h:>{w}}" for h, w, _ in cols)
+    print(f"\n  {BOLD}{label:<{name_w}}{heads}{OFF}")
+    for r in rows:
+        print(line(r, ""))
+    if total is not None:
+        print(f"  {DIM}{'─' * (name_w + len(heads))}{OFF}")
+        print(line(total, BOLD))
+
+
+def print_footer(
+    cov: dict,
+    card: dict,
+    hidden: int,
+    shown_n: int,
+    total_n: int,
+    opts: SimpleNamespace,
+) -> None:
+    sources = sorted({r["source"] for r in card.values()})
+    notes = [
+        f"ingested {local_time(cov['last_ingest_at'])}",
+        f"rates {', '.join(sources)} (official card {cov['rates_fetched']})",
+    ]
+    if opts.tokens:
+        notes.append(
+            "cache 5m / 1h: prompt tokens written to the cache with that lifetime; "
+            "cache read: prompt tokens served from it"
+        )
+    if total_n > shown_n:
+        notes.append(f"{shown_n} of {total_n} {opts.by}s shown; totals cover all")
+    if hidden:
+        notes.append(
+            f"{hidden} project{'s' if hidden != 1 else ''} outside ~/dev and ~/repos "
+            f"hidden (--all)"
+        )
+    joined = " · ".join(notes)
+    print()
+    for n in [joined] if len(joined) + 2 <= columns() else notes:
+        print(f"  {DIM}{n}{OFF}")
+
+
+def print_unpriced(groups: list[dict]) -> None:
+    unpriced = sorted({g["model"] for g in groups if not g["priced"]})
+    if unpriced:
+        print(
+            f"\n{YEL}warning:{OFF} no rate for {', '.join(unpriced)}; tokens counted, "
+            f"cost shown as 0. Run `claude-costs rates --refresh` or add them to "
+            f"{short(str(RATES_FILE))}."
+        )
+```
+
+- [ ] **Step 3: Replace `cmd_report`**
+
+```python
+def cmd_report(opts: SimpleNamespace) -> None:
+    db = ensure_ingested(open_ledger(create=True))
+    groups, hidden = load_groups(db, opts)
+    if not groups:
+        print(
+            f"no responses matched in ~/dev and ~/repos; {hidden} projects elsewhere "
+            "(--all shows them)"
+            if hidden
+            else "no responses matched (check `claude-costs status`)"
+        )
+        return
+    key = opts.by
+    rows = sort_rows(aggregate(groups, key), key, opts)
+    shown = rows[: opts.top] if opts.top else rows
+    grand = sum(r["cost"] for r in rows)
+    if opts.json or opts.csv:
+        cols = [key, "cost", "calls", *RATE_FIELDS, "priced"]
+        if opts.json:
+            json.dump(
+                {
+                    "by": key,
+                    "coverage": coverage(db),
+                    "rows": shown,
+                    "grand_total": grand,
+                    "hidden_projects": hidden,
+                },
+                sys.stdout,
+                indent=1,
+            )
+            print()
+        else:
+            w = csv.writer(sys.stdout)
+            w.writerow(cols)
+            for r in shown:
+                w.writerow([r[c] for c in cols])
+        return
+    cov, card = coverage(db), load_card()
+    print(
+        f"{BOLD}claude-costs{OFF} · {cov['first']} → {cov['last']} · "
+        f"{cov['rows']:,} responses"
+    )
+    print(f"{DIM}list-price equivalents, not subscription charges{OFF}")
+    label = f"total · {len(rows)} {key}{'s' if len(rows) != 1 else ''}"
+    by_model = sort_rows(aggregate(groups, "model"), "model", opts)
+    by_account = sort_rows(aggregate(groups, "account"), "account", opts)
+    if key == "project" and opts.detail:
+        for p in shown:
+            share = p["cost"] / grand * 100 if grand else 0
+            print(
+                f"\n{BOLD}{short(p['project'])}{OFF}  {GRN}${p['cost']:,.2f}{OFF}  "
+                f"{DIM}{share:.1f}% · {p['calls']:,} calls{OFF}"
+            )
+            models = sort_rows(
+                aggregate([g for g in groups if g["project"] == p["project"]], "model"),
+                "model",
+                opts,
+            )
+            print_table(models, "model", "model", opts, grand)
+        print_table(
+            by_model,
+            "model",
+            "model (all projects)",
+            opts,
+            grand,
+            total_row(by_model, "model", label),
+        )
+    else:
+        print_table(shown, key, key, opts, grand, total_row(rows, key, label))
+        if key != "model":
+            print_table(by_model, "model", "model", opts, grand)
+    if key != "account" and len(by_account) > 1:
+        print_table(by_account, "account", "account", opts, grand)
+    print_footer(cov, card, hidden, len(shown), len(rows), opts)
+    print_unpriced(groups)
+```
+
+- [ ] **Step 4: Column names in `rates`, the two new flags, help and completion**
+
+In `cmd_rates` replace the header and row prints with:
+
+```python
+    print(
+        f"  {DIM}{'model prefix':<28} {'input':>8} {'output':>8} {'cache 5m':>9} "
+        f"{'cache 1h':>9} {'cache read':>10}  source{OFF}"
+    )
+```
+
+and
+
+```python
+        print(
+            f"  {m:<28} {r['input']:>8.2f} {r['output']:>8.2f} {r['cache_write_5m']:>9.2f} "
+            f"{r['cache_write_1h']:>9.2f} {r['cache_read']:>10.3f}  {r['source']}{flag}"
+        )
+```
+
+In `parse_opts` replace `compact=False,` with `detail=False,` and `tokens=False,` on two lines, and replace the `--compact` branch with:
+
+```python
+        elif a == "--detail":
+            o.detail = True
+        elif a == "--tokens":
+            o.tokens = True
+```
+
+In `cmd_help` replace the usage line `[--all] [--top N] [--sort cost|name|calls] [--compact] [--no-rollup]` with:
+
+```
+               [--all] [--top N] [--sort cost|name|calls] [--detail] [--tokens]
+               [--no-rollup]
+```
+
+In `home/dot_local/share/bash-completion/completions/claude-costs` replace `--compact` in `opts=` with `--detail --tokens`.
+
+Run: `rg -n "compact|w-5m|w-1h|cache-r|print_header|print_totals" home/dot_local/bin/executable_claude-costs home/dot_local/share/bash-completion/completions/claude-costs`
+Expected: no output.
+
+- [ ] **Step 5: Compile and lint**
+
+Run:
+```bash
+cd "$(git rev-parse --show-toplevel)"
+python3 -m py_compile home/dot_local/bin/executable_claude-costs
+uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+uvx ruff format --check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+```
+Expected: `All checks passed!` and `1 file already formatted`. If `ruff format --check` reports a reformat, run `uvx ruff format --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and rerun the check.
+
+- [ ] **Step 6: Check every view against a synthetic ledger**
+
+The fixture lives under a scratch directory and the script's own `CLAUDE_COSTS_*` and `CLAUDE_CONFIG_DIR` overrides keep it away from the real ledger. The working directories are under the real `$HOME/dev` so the default scope and the rollup apply; the directories need not exist.
+
+```bash
+S=$(mktemp -d); mkdir -p "$S/cfg/projects/-home-u-dev-app" "$S/data" "$S/state" "$S/rates"
+echo '{"email":"synthetic@example.test"}' > "$S/cfg/.claude.json"
+cat > "$S/cfg/projects/-home-u-dev-app/s1.jsonl" <<EOF
+{"type":"assistant","cwd":"$HOME/dev/zz-fixture/sub/dir","sessionId":"s1","requestId":"req-1","timestamp":"2026-09-01T10:00:00Z","message":{"id":"m1","model":"claude-opus-5-5","usage":{"input_tokens":100,"output_tokens":200,"cache_creation":{"ephemeral_5m_input_tokens":300,"ephemeral_1h_input_tokens":0},"cache_read_input_tokens":1000}}}
+{"type":"assistant","cwd":"$HOME/dev/zz-fixture/.worktrees/w1","sessionId":"s2","requestId":"req-2","timestamp":"2026-09-02T10:00:00Z","message":{"id":"m2","model":"claude-opus-5-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":500}}}
+{"type":"assistant","cwd":"$HOME/dev/zz-fixture","sessionId":"s3","requestId":"req-3","timestamp":"2026-09-03T10:00:00Z","message":{"id":"m3","model":"claude-fable-5-1","usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":0}}}
+{"type":"assistant","cwd":"/srv/elsewhere/app","sessionId":"s4","requestId":"req-4","timestamp":"2026-09-03T11:00:00Z","message":{"id":"m4","model":"claude-opus-5-5","usage":{"input_tokens":5,"output_tokens":5}}}
+EOF
+export CLAUDE_CONFIG_DIR="$S/cfg" CLAUDE_COSTS_LEDGER="$S/data/ledger.sqlite" CLAUDE_COSTS_STATE="$S/state" CLAUDE_COSTS_RATES="$S/rates/rates.json" CLAUDE_COSTS_PRICING_URL=http://127.0.0.1:9/none NO_COLOR=1
+CC=home/dot_local/bin/executable_claude-costs
+python3 $CC ingest --worker --quiet
+python3 $CC | sed "s#$HOME#~#g"
+python3 $CC --all | sed "s#$HOME#~#g" | sed -n 4,9p
+python3 $CC --no-rollup | sed "s#$HOME#~#g" | sed -n 5,7p
+python3 $CC --tokens | sed "s#$HOME#~#g" | sed -n 4,5p
+python3 $CC --detail | sed "s#$HOME#~#g" | sed -n 4,14p
+python3 $CC --since 2030-01-01
+python3 $CC --json | python3 -c "import json,sys; d=json.load(sys.stdin); print(d['hidden_projects'], len(d['rows']), round(d['grand_total'], 6))"
+python3 $CC --compact; echo "exit=$?"
+python3 $CC | awk '{ if (length($0) > m) m = length($0) } END { print "max", m }'
+unset CLAUDE_CONFIG_DIR CLAUDE_COSTS_LEDGER CLAUDE_COSTS_STATE CLAUDE_COSTS_RATES CLAUDE_COSTS_PRICING_URL NO_COLOR
+```
+
+Expected, in order:
+
+1. The default report is two header lines (`claude-costs · 2026-09-01 → 2026-09-03 · 4 responses`, then `list-price equivalents, not subscription charges`), a `project` table with one row `~/dev/zz-fixture  $0.01  100.0%  3  2.1K  78.5%` (the sub-directory and the worktree folded in), a rule and `total · 1 project` with the same figures, a `model` table with `claude-opus-5-5  $0.01  98.4%  2  2.1K  78.5%` and `claude-fable-5-1  $0.00  1.6%  1  3  0.0%`, then three footer lines: `ingested <local time>`, `rates builtin (official card never)`, `1 project outside ~/dev and ~/repos hidden (--all)`. No `TOTAL BY`, no `scope:` line, no `w-5m`.
+2. `--all` adds the row `/srv/elsewhere/app  $0.00  1.7%  1  10  0.0%` and the total reads `total · 2 projects … 4 … 78.3%`.
+3. `--no-rollup` lists `~/dev/zz-fixture/sub/dir`, `~/dev/zz-fixture/.worktrees/w1` and `~/dev/zz-fixture` as three rows.
+4. `--tokens` prints the header `project  cost  calls  input  output  cache 5m  cache 1h  cache read` and the row `~/dev/zz-fixture  $0.01  3  111  222  300  0  1.5K`.
+5. `--detail` prints the block header `~/dev/zz-fixture  $0.01  100.0% · 3 calls`, its two model rows, then a `model (all projects)` table with the same two rows and the total.
+6. The empty run prints exactly `no responses matched (check \`claude-costs status\`)` and exits 0.
+7. The JSON line prints `1 1 0.00675`.
+8. `--compact` prints `claude-costs: unknown flag --compact (see \`claude-costs help\`)` and `exit=1`.
+9. `max 100`: no line of the non-terminal report exceeds 100 characters. At a terminal the name column shrinks to the window instead (`columns()`), and in a window narrower than the token columns need, names are clipped from the left with `…`.
+
+- [ ] **Step 7: Render check and commit**
+
+Run: `scripts/render-check.sh personal pinned && scripts/render-check.sh work latest && scripts/render-check.sh work pinned wsl` (on a WSL host against the scratch copy, as the Global Constraints say).
+Expected: all pass; the script is deployed verbatim, so only its presence is rendered.
+
+Change the status line of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md` to begin `Status: implemented 2026-09-30; report view of section 7 revised and implemented 2026-09-30.`
+
+```bash
+git add home/dot_local/bin/executable_claude-costs home/dot_local/share/bash-completion/completions/claude-costs docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md
+git commit -m "feat(claude-costs): one line per repository, plain column names, --detail and --tokens"
 ```
