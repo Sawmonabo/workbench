@@ -217,6 +217,7 @@ func loadGroups(
 	home string,
 	opts ReportOptions,
 ) ([]group, int, error) {
+	tool, _ := Lookup(opts.Tool)
 	where, args := []string{"tool = ?"}, []any{opts.Tool}
 	if opts.Since != "" {
 		where, args = append(where, "substr(ts, 1, 10) >= ?"), append(args, opts.Since)
@@ -253,7 +254,7 @@ func loadGroups(
 		if g.month == "" {
 			g.month = "unknown"
 		}
-		rate, priced := card.Rows.Lookup(g.model)
+		rate, priced := card.Rows.Lookup(g.model, tool.Tiers)
 		g.Priced = priced
 		if priced {
 			g.Cost = rate.Cost(g.Tokens)

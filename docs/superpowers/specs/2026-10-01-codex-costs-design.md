@@ -265,7 +265,10 @@ never verified, access and refresh tokens never read), else `unknown`.
   "Priority pricing data" table would give `@fast`. A tier in a model id is
   the word after its last `@` (a lowercase letter, then lowercase letters,
   digits, `_` or `-`), so a tier OpenAI adds later needs no code change, and
-  `@` followed by a digit stays a dated snapshot. A rate prices a model only
+  `@` followed by a digit stays a dated snapshot. Only a tool whose source
+  composes such ids (`Tool.Tiers`, Codex) has its ids split: every other
+  tool's model id, such as a vendor's `foo@latest`, is read whole by the
+  rate lookup, the report and the unpriced note. A rate prices a model only
   at the same tier, and only when its key is the whole model id or is followed by `-` or `@` and a
   digit, so `gpt-5` prices a dated `gpt-5-2025-08-07` but neither
   `gpt-5-mini` nor `gpt-5.3-codex-spark`; a `priority` or `fast` row is priced from

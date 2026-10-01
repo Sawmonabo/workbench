@@ -88,7 +88,8 @@ type TierChange struct {
 	Turn   bool
 }
 
-// SplitTier splits "gpt-5.6-sol@fast" into the model and its service tier:
+// SplitTier splits "gpt-5.6-sol@fast", an id a Tiers tool's source composed,
+// into the model and its service tier:
 // the word after the last "@", a lowercase letter then lowercase letters,
 // digits, "_" or "-". An id without one is all model, tier "", so a dated
 // snapshot such as "claude-sonnet-4@20250514" keeps its date.
@@ -138,6 +139,19 @@ type Tool struct {
 	CacheWrites []string // the report's cache-write column heads: one per cache lifetime the tool bills
 	PriceNote   string   // what the figures are, under the total
 	PricePage   string   // whose price page PricingURL is, for the unpriced note
+	// Tiers is whether the tool's model ids carry a service tier after "@",
+	// which only its source composes; any other tool's ids are read as they
+	// are, so a vendor id such as "foo@latest" is never split.
+	Tiers bool
+}
+
+// SplitModel splits a model id of the tool into its model and service tier;
+// the whole id with tier "" when the tool's ids carry no tier.
+func (t Tool) SplitModel(model string) (base, tier string) {
+	if !t.Tiers {
+		return model, ""
+	}
+	return SplitTier(model)
 }
 
 // Tools is every tab, in order.
@@ -153,6 +167,7 @@ var Tools = []Tool{
 		CacheWrites: []string{"cache write"},
 		PriceNote:   "OpenAI API list-price equivalent, not a ChatGPT plan bill",
 		PricePage:   "OpenAI's price page",
+		Tiers:       true,
 	},
 }
 

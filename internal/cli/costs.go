@@ -613,10 +613,10 @@ func costsStatus(info costs.StatusInfo, width int) string {
 	return b.String()
 }
 
-// rowName is how a report row is named: a path under the home directory as
-// ~/..., and a model at a service tier as "gpt-5.6-sol (fast)".
-func rowName(name string) string {
-	if base, tier := costs.SplitTier(name); tier != "" {
+// rowName is how a report row of tool is named: a path under the home
+// directory as ~/..., and a model at a service tier as "gpt-5.6-sol (fast)".
+func rowName(tool costs.Tool, name string) string {
+	if base, tier := tool.SplitModel(name); tier != "" {
 		return base + " (" + tier + ")"
 	}
 	return shortPath(name)
@@ -748,7 +748,7 @@ func costsPage(
 		mark = unmarked
 	}
 	base := reportSpec{
-		grand: grand, tokens: opts.Tokens, cacheHeads: tool.CacheWrites,
+		grand: grand, tokens: opts.Tokens, cacheHeads: tool.CacheWrites, tool: tool,
 		width: width, pal: pal, mark: mark,
 	}
 	var sections []reportSpec
@@ -825,7 +825,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 	if report.By != "project" || focus.Kind == "model" {
 		back = "report"
 	}
-	writeText(&b, width, 0, faint.Render("‹ "+back)+"   "+bold.Render(rowName(focus.Name)))
+	writeText(&b, width, 0, faint.Render("‹ "+back)+"   "+bold.Render(rowName(tool, focus.Name)))
 	b.WriteString("\n")
 	var notes []string
 	if report.GrandTotal > 0 {
@@ -857,6 +857,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 		grand:      focus.Total.Cost,
 		tokens:     report.Options.Tokens,
 		cacheHeads: tool.CacheWrites,
+		tool:       tool,
 		width:      width,
 		pal:        pal,
 		mark:       noMarks,
@@ -866,12 +867,12 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 	daysSection.head, daysSection.rows = "day", days
 	writeSections(&b, width, []reportSpec{partsSection, daysSection})
 	b.WriteString("\n")
-	writeTable(&b, width, 2, sessionTable(focus.Sessions, pal))
+	writeTable(&b, width, 2, sessionTable(tool, focus.Sessions, pal))
 	return b.String()
 }
 
 // sessionTable lists a focus's sessions, costliest first.
-func sessionTable(sessions []costs.Session, pal palette) tableSpec {
+func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableSpec {
 	spec := tableSpec{Header: true, Cols: []column{
 		{Head: "session"},
 		{Head: "started", Clip: true},
@@ -894,7 +895,7 @@ func sessionTable(sessions []costs.Session, pal palette) tableSpec {
 			length = duration(session.End.Sub(session.Start))
 		}
 		spec.Rows = append(spec.Rows, []string{
-			faint.Render(id), started, faint.Render(length), rowName(session.Model),
+			faint.Render(id), started, faint.Render(length), rowName(tool, session.Model),
 			costStyle.Render(money(session.Cost)), faint.Render(commas(session.Calls)),
 		})
 	}
@@ -960,6 +961,7 @@ type reportSpec struct {
 	tokens  bool
 	// cacheHeads are the tool's cache-write column heads under --tokens.
 	cacheHeads []string
+	tool       costs.Tool // whose rows: how a model id names its tier
 	total      *costs.Row
 	label      string
 	width      int
@@ -1009,7 +1011,7 @@ func reportTable(r reportSpec) tableSpec {
 		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
 	}
 	for i, row := range r.rows {
-		name := rowName(row.Name)
+		name := rowName(r.tool, row.Name)
 		if r.kind != "" && i == r.mark {
 			name = r.pal.accent.Bold(true).Render(name)
 		}
@@ -1136,7 +1138,7 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 		writeText(b, width, 0, yellow.Render("warning:")+
 			" no rate for these models; their tokens count, their cost shows as 0:")
 		for _, u := range report.Unpriced {
-			writeText(b, width, 2, rowName(u.Model)+" — "+u.Reason)
+			writeText(b, width, 2, rowName(tool, u.Model)+" — "+u.Reason)
 		}
 		writeText(b, width, 0, fmt.Sprintf(
 			"Add a rate for each to the rates overrides file (%s).", shortPath(report.Overrides),

@@ -46,9 +46,13 @@ func (r *Rate) set(name string, v float64) {
 // dated snapshot). So "claude-opus" prices "claude-opus-5-5" and "gpt-5"
 // prices "gpt-5-2025-08-07", but "gpt-5" prices neither "gpt-5-mini" nor
 // "gpt-5.3-codex-spark", and no standard rate prices a "@fast" model.
-func matchesRate(model, prefix string) bool {
-	modelBase, modelTier := SplitTier(model)
-	prefixBase, prefixTier := SplitTier(prefix)
+func matchesRate(model, prefix string, tiers bool) bool {
+	modelBase, modelTier := model, ""
+	prefixBase, prefixTier := prefix, ""
+	if tiers {
+		modelBase, modelTier = SplitTier(model)
+		prefixBase, prefixTier = SplitTier(prefix)
+	}
 	if modelTier != prefixTier || !strings.HasPrefix(modelBase, prefixBase) {
 		return false
 	}
@@ -57,12 +61,13 @@ func matchesRate(model, prefix string) bool {
 		(len(rest) >= 2 && (rest[0] == '-' || rest[0] == '@') && rest[1] >= '0' && rest[1] <= '9')
 }
 
-// Lookup returns the rate that prices model.
-func (c RateCard) Lookup(model string) (Rate, bool) {
+// Lookup returns the rate that prices model, a model id of a tool whose ids
+// carry a service tier when tiers is set.
+func (c RateCard) Lookup(model string, tiers bool) (Rate, bool) {
 	var best Rate
 	bestKey, found := [2]int{}, false
 	for prefix, rate := range c {
-		if !matchesRate(model, prefix) {
+		if !matchesRate(model, prefix, tiers) {
 			continue
 		}
 		key := [2]int{slices.Index(sourceOrder, rate.Source), -len(prefix)}
@@ -110,8 +115,9 @@ func (c Card) Sources() []string {
 func (c Card) Disagreements() map[string]bool {
 	out := map[string]bool{}
 	for model, calibrated := range c.Calibrated {
-		for _, official := range c.Official {
-			if o, ok := longestPrefix(model, official); ok &&
+		for name, official := range c.Official {
+			tool, _ := Lookup(name)
+			if o, ok := longestPrefix(model, official, tool.Tiers); ok &&
 				(math.Abs(calibrated.Input-o.Input) > 0.05*math.Max(o.Input, 1e-9) ||
 					math.Abs(calibrated.Output-o.Output) > 0.05*math.Max(o.Output, 1e-9)) {
 				out[model] = true
@@ -121,10 +127,10 @@ func (c Card) Disagreements() map[string]bool {
 	return out
 }
 
-func longestPrefix(model string, card RateCard) (Rate, bool) {
+func longestPrefix(model string, card RateCard, tiers bool) (Rate, bool) {
 	best, found := "", false
 	for prefix := range card {
-		if matchesRate(model, prefix) && (!found || len(prefix) > len(best)) {
+		if matchesRate(model, prefix, tiers) && (!found || len(prefix) > len(best)) {
 			best, found = prefix, true
 		}
 	}
@@ -185,7 +191,12 @@ func loadCard(paths Paths) (Card, error) {
 	}
 	card.HasOverrides = len(overrides) > 0
 	for _, prefix := range slices.Sorted(maps.Keys(overrides)) {
-		base, _ := card.Rows.Lookup(prefix)
+		// The key's tool is not known: a tier id completes from its tier's
+		// rate, anything else from the rate its plain prefix finds.
+		base, found := card.Rows.Lookup(prefix, true)
+		if !found {
+			base, _ = card.Rows.Lookup(prefix, false)
+		}
 		for field, value := range overrides[prefix] {
 			base.set(field, value)
 		}
@@ -452,9 +463,9 @@ type Unpriced struct {
 // no model, the price page has the model but not at its tier, or the page
 // does not have it at all.
 func (c Card) unpriced(tool Tool, model string) Unpriced {
-	base, tier := SplitTier(model)
+	base, tier := tool.SplitModel(model)
 	reason := "not on " + tool.PricePage
-	switch _, standard := c.Rows.Lookup(base); {
+	switch _, standard := c.Rows.Lookup(base, tool.Tiers); {
 	case base == "unknown":
 		reason = "the transcript names no model"
 	case tier != "" && standard:
@@ -482,7 +493,7 @@ func unpricedModels(ledger *Ledger, card Card, tool Tool) []Unpriced {
 	for rows.Next() {
 		var model string
 		if rows.Scan(&model) == nil {
-			if _, ok := card.Rows.Lookup(model); !ok {
+			if _, ok := card.Rows.Lookup(model, tool.Tiers); !ok {
 				out = append(out, card.unpriced(tool, model))
 			}
 		}
@@ -511,7 +522,7 @@ func calibrated(home string) RateCard {
 		}
 		builtin := tool.Source.Builtin()
 		for model, observed := range byModel {
-			if rate, ok := calibrate(model, observed, builtin); ok {
+			if rate, ok := calibrate(model, observed, builtin, tool.Tiers); ok {
 				out[model] = rate
 			}
 		}
@@ -519,7 +530,7 @@ func calibrated(home string) RateCard {
 	return out
 }
 
-func calibrate(model string, observed []Observation, builtin RateCard) (Rate, bool) {
+func calibrate(model string, observed []Observation, builtin RateCard, tiers bool) (Rate, bool) {
 	if len(observed) < 4 {
 		return Rate{}, false
 	}
@@ -561,7 +572,7 @@ func calibrate(model string, observed []Observation, builtin RateCard) (Rate, bo
 	if sum == 0 {
 		sum = 1
 	}
-	family, haveFamily := builtin.Lookup(model)
+	family, haveFamily := builtin.Lookup(model, tiers)
 	var rate Rate
 	for j, field := range []string{"input", "output", "cache_write_5m", "cache_read"} {
 		switch {

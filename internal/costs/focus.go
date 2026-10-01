@@ -42,6 +42,7 @@ func FocusOn(
 	kind, name string,
 ) (Focus, error) {
 	focus := Focus{Kind: kind, Name: name}
+	tool, _ := Lookup(opts.Tool)
 	paths, err := Locations()
 	if err != nil {
 		return focus, err
@@ -85,7 +86,7 @@ func FocusOn(
 			(kind == "project" && g.project != name) {
 			continue
 		}
-		rate, priced := card.Rows.Lookup(g.model)
+		rate, priced := card.Rows.Lookup(g.model, tool.Tiers)
 		g.Priced = priced
 		if priced {
 			g.Cost = rate.Cost(g.Tokens)
