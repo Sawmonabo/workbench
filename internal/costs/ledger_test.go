@@ -58,10 +58,10 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	}
 	// One run's record of committed rows lets ingest skip a later copy that
 	// changes nothing; a skip that also swallowed larger usage would lose spend.
-	seen := Seen{}
+	run := NewRun()
 	record := func(output, cacheRead int64, minute int) {
 		t.Helper()
-		err := ledger.Transaction(context.Background(), seen, func(tx *Tx) error {
+		err := ledger.Transaction(context.Background(), run, func(tx *Tx) error {
 			return tx.Upsert(Usage{
 				Tool:         "claude",
 				RequestID:    "req-1",

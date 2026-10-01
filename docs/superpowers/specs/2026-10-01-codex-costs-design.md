@@ -171,11 +171,19 @@ never verified, access and refresh tokens never read), else `unknown`.
   section 7. The ledger gains `tier_changes (thread_id, ts, tier)`, written in
   the same transaction as the file's rows, and `tier_pending (request_id,
   root)`. `Usage` gains `TierFrom` (the root thread, for a row whose own file
-  names no tier) and `FileState` collects the file's tier changes. After every
-  ingest, each pending row takes the root's latest tier change at or before
-  its time and stops waiting; one whose root has no change yet stays pending
-  and is priced at the standard tier meanwhile. So a subagent is priced at the
-  tier its root had when it ran, whatever order the files are read in.
+  names no tier) and `FileState` collects the file's tier changes. A thread
+  has one tier at a time: a change at the same millisecond as a stored one
+  replaces it, so of several snapshots in one millisecond the last in the file
+  wins. After every ingest, each pending row takes the root's latest tier
+  change at or before its time and stops waiting; one whose root has no change
+  yet stays pending and is priced at the standard tier meanwhile. So a
+  subagent is priced at the tier its root had when it ran, whatever order the
+  files are read in. A pending row's answer changes only when the row is
+  written again or its root gains a change, so the check after a run covers
+  only the rows that run put in `tier_pending` and those whose root it wrote a
+  change for. A transaction that writes either stores the `tiers_unresolved`
+  note and the check clears it; a run that finds it set (an earlier run
+  stopped before its check) checks every pending row.
 - **Attribution.** On a repeated key the token columns keep their largest
   values, as before, and the time, model, project and session come from the
   earliest occurrence (on a tie, the row read last, as before): a fork's copy,

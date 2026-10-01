@@ -66,7 +66,13 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	defer func() { _ = ledger.Close() }()
 	var errs []string
 	files, rows := 0, 0
-	seen := Seen{}
+	// An earlier run that stopped before ResolveTiers leaves rows that only a
+	// check of every waiting row reaches.
+	leftover, err := ledger.Meta(tiersUnresolved)
+	if err != nil {
+		return "", err
+	}
+	run := NewRun()
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
@@ -92,7 +98,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, seen, tool, read, account, source)
+				err = commitFile(ctx, ledger, run, tool, read, account, source)
 			}
 			switch {
 			case err == nil && read.changed:
@@ -116,7 +122,11 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			break
 		}
 	}
-	if _, err := ledger.ResolveTiers(ctx); err != nil {
+	scope := run
+	if leftover != "" {
+		scope = nil
+	}
+	if _, err := ledger.ResolveTiers(ctx, scope); err != nil {
 		errs = append(errs, "service tiers: "+err.Error())
 	}
 	rates := refreshIfNeeded(ctx, ledger, paths)
@@ -288,12 +298,12 @@ func firstLineDigest(file *os.File) (string, error) {
 }
 
 // commitFile stores one read in one transaction: its rows, its tier changes
-// and where it stopped. A vanished file is forgotten. seen is the run's record
-// of committed rows.
+// and where it stopped. A vanished file is forgotten. run is the run's record
+// of committed writes.
 func commitFile(
 	ctx context.Context,
 	ledger *Ledger,
-	seen Seen,
+	run *Run,
 	tool Tool,
 	read fileRead,
 	account, source string,
@@ -304,7 +314,7 @@ func commitFile(
 	if !read.changed {
 		return nil
 	}
-	return wrapLedger(ledger.Transaction(ctx, seen, func(tx *Tx) error {
+	return wrapLedger(ledger.Transaction(ctx, run, func(tx *Tx) error {
 		for _, u := range read.usage {
 			u.Tool, u.Account = tool.Name, account
 			if err := tx.Upsert(u, source); err != nil {

@@ -3,12 +3,14 @@ package costs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
@@ -356,32 +358,66 @@ type Tx struct {
 	// The statements Upsert runs, prepared on first use: SQLite parses each
 	// once per transaction instead of once per row.
 	upsert, pend, unpend *sql.Stmt
-	seen                 Seen // what earlier transactions of this run stored
-	wrote                Seen // what this one stored, added to seen once it commits
+	run                  *Run // what earlier transactions of this run stored
+	wrote                *Run // what this one stored, added to run once it commits
 }
 
-// Seen is what one ingest run has committed: each response's stored time and
-// token counts. Most rows of a first run are copies a fork made of its
-// parent's usage; Upsert skips a copy that it can tell would change nothing.
-// It is filled only after a commit succeeds, so it never holds a row that a
-// rolled-back transaction wrote.
-type Seen map[string]storedRow
+// Run is what one ingest run has committed. It is filled only after a commit
+// succeeds, so it never holds what a rolled-back transaction wrote.
+type Run struct {
+	// seen is each response's stored time and token counts. Most rows of a
+	// first run are copies a fork made of its parent's usage; Upsert skips a
+	// copy that it can tell would change nothing.
+	seen map[string]storedRow
+	// pending and threads are what ResolveTiers checks again: the rows put
+	// in tier_pending and the threads whose tier changes were written.
+	pending, threads map[string]bool
+	// marked is whether tiersUnresolved has been stored this run.
+	marked bool
+}
+
+// NewRun is the empty record of an ingest run.
+func NewRun() *Run {
+	return &Run{
+		seen:    map[string]storedRow{},
+		pending: map[string]bool{},
+		threads: map[string]bool{},
+	}
+}
 
 type storedRow struct {
 	ts     string
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
 }
 
-// Transaction runs fn and commits, or rolls back when fn fails. seen is the
-// run's record of committed rows, or nil.
-func (l *Ledger) Transaction(ctx context.Context, seen Seen, fn func(*Tx) error) error {
-	t := &Tx{ctx: ctx, seen: seen, wrote: Seen{}}
+// tiersUnresolved is the meta note a transaction that writes tier_pending or
+// tier_changes stores, and ResolveTiers clears: while it is set, rows of an
+// earlier run that stopped before ResolveTiers may still wait unchecked.
+const tiersUnresolved = "tiers_unresolved"
+
+// Transaction runs fn and commits, or rolls back when fn fails. run is the
+// ingest run's record of committed writes, or nil.
+func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) error {
+	if run == nil {
+		run = NewRun()
+	}
+	t := &Tx{ctx: ctx, run: run, wrote: NewRun()}
 	err := l.transact(ctx, func(tx *sql.Tx) error {
 		t.tx = tx
-		return fn(t)
+		if err := fn(t); err != nil {
+			return err
+		}
+		if !run.marked && (len(t.wrote.pending) > 0 || len(t.wrote.threads) > 0) {
+			t.wrote.marked = true
+			return setMeta(ctx, tx, tiersUnresolved, "1")
+		}
+		return nil
 	})
-	if err == nil && seen != nil {
-		maps.Copy(seen, t.wrote)
+	if err == nil {
+		maps.Copy(run.seen, t.wrote.seen)
+		maps.Copy(run.pending, t.wrote.pending)
+		maps.Copy(run.threads, t.wrote.threads)
+		run.marked = run.marked || t.wrote.marked
 	}
 	return err
 }
@@ -458,7 +494,7 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	// pending tier follows the stored attribution. A stored time only moves
 	// earlier and counts only grow, so this holds whatever this transaction
 	// wrote since.
-	if seen, ok := t.seen[id]; ok && source != "session" && when != "" && seen.ts != "" &&
+	if seen, ok := t.run.seen[id]; ok && source != "session" && when != "" && seen.ts != "" &&
 		when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
 		u.CacheWrite5m <= seen.tokens[2] && u.CacheWrite1h <= seen.tokens[3] &&
 		u.CacheRead <= seen.tokens[4] {
@@ -480,7 +516,7 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	); err != nil {
 		return err
 	}
-	t.wrote[id] = stored
+	t.wrote.seen[id] = stored
 	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
@@ -500,19 +536,34 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	if err != nil {
 		return err
 	}
-	_, err = statement.ExecContext(t.ctx, id, u.TierFrom)
-	return err
+	if _, err = statement.ExecContext(t.ctx, id, u.TierFrom); err != nil {
+		return err
+	}
+	t.wrote.pending[id] = true
+	return nil
 }
 
-// AddTierChange records a thread's switch of service tier.
+// AddTierChange records a thread's switch of service tier. A thread has one
+// tier at a time: a change at the same time as a stored one replaces it, so
+// of several snapshots in one millisecond the last one read wins, as the
+// last one written does in Codex.
 func (t *Tx) AddTierChange(c TierChange) error {
 	if c.Thread == "" || c.Time.IsZero() {
 		return nil
 	}
-	_, err := t.tx.ExecContext(t.ctx,
+	when := c.Time.UTC().Format(timeLayout)
+	if _, err := t.tx.ExecContext(t.ctx,
+		"DELETE FROM tier_changes WHERE thread_id = ? AND ts = ? AND tier <> ?",
+		c.Thread, when, c.Tier); err != nil {
+		return err
+	}
+	if _, err := t.tx.ExecContext(t.ctx,
 		"INSERT OR IGNORE INTO tier_changes (thread_id, ts, tier) VALUES (?, ?, ?)",
-		c.Thread, c.Time.UTC().Format(timeLayout), c.Tier)
-	return err
+		c.Thread, when, c.Tier); err != nil {
+		return err
+	}
+	t.wrote.threads[c.Thread] = true
+	return nil
 }
 
 // ResolveTiers prices each row waiting on its root thread's service tier at
@@ -520,15 +571,20 @@ func (t *Tx) AddTierChange(c TierChange) error {
 // waiting. A row whose root has no change by then keeps waiting and is priced
 // at the standard tier meanwhile. Ingest calls it after every file of a run is
 // committed, so the order files are read in does not matter.
-func (l *Ledger) ResolveTiers(ctx context.Context) (int, error) {
+//
+// A waiting row's answer changes only when the row is written again or its
+// root gains a tier change, so with run set only the rows run put in
+// tier_pending and those whose root run wrote a change for are checked; a nil
+// run checks every waiting row. Either way it clears tiersUnresolved.
+func (l *Ledger) ResolveTiers(ctx context.Context, run *Run) (int, error) {
 	type pending struct{ id, model, tier string }
 	var resolved []pending
-	err := l.transact(ctx, func(tx *sql.Tx) error {
-		rows, err := tx.QueryContext(ctx, `
-SELECT p.request_id, r.model,
-       (SELECT c.tier FROM tier_changes c
-         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC, c.rowid DESC LIMIT 1)
-  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`)
+	query, args, err := pendingQuery(run)
+	if err != nil {
+		return 0, err
+	}
+	err = l.transact(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, query, args...)
 		if err != nil {
 			return err
 		}
@@ -548,6 +604,13 @@ SELECT p.request_id, r.model,
 			return err
 		}
 		if err := rows.Err(); err != nil {
+			return err
+		}
+		if _, err := tx.ExecContext(
+			ctx,
+			"DELETE FROM meta WHERE key = ?",
+			tiersUnresolved,
+		); err != nil {
 			return err
 		}
 		if len(resolved) == 0 {
@@ -576,6 +639,31 @@ SELECT p.request_id, r.model,
 		return nil
 	})
 	return len(resolved), err
+}
+
+// pendingQuery selects the waiting rows ResolveTiers checks, with their model
+// and their root's tier at their time: run's, or every one when run is nil.
+func pendingQuery(run *Run) (string, []any, error) {
+	query := `
+SELECT p.request_id, r.model,
+       (SELECT c.tier FROM tier_changes c
+         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC LIMIT 1)
+  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`
+	if run == nil {
+		return query, nil, nil
+	}
+	ids, err := json.Marshal(slices.Collect(maps.Keys(run.pending)))
+	if err != nil {
+		return "", nil, err
+	}
+	threads, err := json.Marshal(slices.Collect(maps.Keys(run.threads)))
+	if err != nil {
+		return "", nil, err
+	}
+	query += `
+ WHERE p.request_id IN (SELECT value FROM json_each(?))
+    OR p.root IN (SELECT value FROM json_each(?))`
+	return query, []any{string(ids), string(threads)}, nil
 }
 
 // SetFile stores where ingest stopped in a transcript.
