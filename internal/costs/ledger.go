@@ -399,7 +399,9 @@ func storedID(u Usage) string {
 
 // Upsert records one response; source is "session" or "sweep". The account and
 // source of an existing row are replaced only by a "session" one. A row priced
-// by its root thread's tier waits in tier_pending until ResolveTiers prices it.
+// by its root thread's tier waits in tier_pending until ResolveTiers prices it;
+// the pending row follows the copy whose attribution is stored, so a later
+// copy never changes what an earlier one decided.
 func (t *Tx) Upsert(u Usage, source string) error {
 	id := storedID(u)
 	when := ""
@@ -413,8 +415,18 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	); err != nil {
 		return err
 	}
+	var stored string
+	if err := t.tx.QueryRowContext(
+		t.ctx, "SELECT ts FROM responses WHERE request_id = ?", id,
+	).Scan(&stored); err != nil {
+		return err
+	}
+	if stored != when {
+		return nil // an earlier copy's attribution is kept, and so is its tier
+	}
 	if u.TierFrom == "" {
-		return nil
+		_, err := t.tx.ExecContext(t.ctx, "DELETE FROM tier_pending WHERE request_id = ?", id)
+		return err
 	}
 	_, err := t.tx.ExecContext(t.ctx,
 		`INSERT INTO tier_pending (request_id, root) VALUES (?, ?)
