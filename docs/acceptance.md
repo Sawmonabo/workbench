@@ -165,19 +165,23 @@ synthetic answers.
 
 ### Costs
 
-- On 2026-10-01, the Codex rollouts of a WSL2 host (with its Claude Code
-  transcripts, about 4,000 files in all) were ingested into a scratch ledger
-  in 3 minutes 5 seconds at a peak of 249 MB; the next run read only
-  the file being written. Per-model response and token counts matched an
-  independent Python count for one record-era month (September 2026) and one
-  legacy month (May 2026). September differed only by 259 responses in three
-  sessions whose UTC timestamps fall on October 1 while their files sit in the
-  local September 30 folder; those rows equal the ledger's October totals
-  exactly. A re-ingest from empty gave the same Codex rows as the incremental
-  ledger. The Codex hooks rendered from the `both` role were all `trusted` in
-  Codex's own `hooks/list` (app server 0.159), with `currentHash` equal to the
-  `trusted_hash` the config merge wrote, and the hash Codex had recorded for
-  the existing approved `UserPromptSubmit` hook was reproduced exactly.
+- On 2026-10-01, the 2,969 Codex rollouts (23 GB) of a 16-core WSL2 host
+  were ingested into an empty scratch ledger in 18 seconds at 450% CPU and a
+  peak of 472 MB, against 2 minutes 54 seconds for the previous build; its
+  responses and tier tables were byte-identical, as were those of a ledger
+  built in two runs whose second finished four half-written rollouts. A
+  second run with nothing new took 0.3 seconds. Per-model response and token
+  counts matched an independent Python count for one record-era month
+  (September 2026) and one legacy month (May 2026). The script takes a
+  response's month from its rollout's dated folder and the ledger from its
+  UTC time, so September differed by 259 responses timestamped October 1 UTC
+  in three sessions whose rollouts sit in September folders (two in
+  September 30, one spread over September 22 to 30); those 259 are exactly
+  the ledger's October 2026 rows. The Codex hooks rendered from the `both`
+  role were all `trusted` in Codex's own `hooks/list` (app server 0.159),
+  with `currentHash` equal to the `trusted_hash` the config merge wrote, and
+  the hash Codex had recorded for the existing approved `UserPromptSubmit`
+  hook was reproduced exactly.
   Applying them to a real machine is not yet observed.
 
 ### Output

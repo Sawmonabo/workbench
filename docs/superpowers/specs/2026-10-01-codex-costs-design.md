@@ -86,12 +86,16 @@ below.
 by default) are not read; `costs status` reports how many were skipped.
 
 `Parse` keeps per-file state: `Thread` (the first `session_meta.id`), `Root`
-(the root thread: the record's `session_id`, or `session_meta.source.subagent.
-thread_spawn` up the chain), `Cwd`, `Model`, `Tier`, `Records` (whether this file holds a record, its own or a copied one) and
-`LastTotal` (the last `token_count` running total). Before decoding, a line
-must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
-`"token_count"` or `"thread_settings_applied"`; every other line, most of the
-22 GB, is skipped by a byte search.
+(the root thread: the record's `session_id`, or
+`session_meta.source.subagent.thread_spawn` up the chain), `Cwd`, `Model`,
+`Tier`, `Records` (whether this file holds a record, its own or a copied one)
+and `LastTotal` (the last `token_count` running total). Codex starts every
+line `{"timestamp":…,["ordinal":N,]"type":…`, and an `event_msg` continues
+`"payload":{"type":…`, so `Parse` reads the line's type from those first
+bytes and decodes only `session_meta`, `turn_context`, `token_usage_record`
+lines and `token_count` and `thread_settings_applied` events; every other
+line, most of a rollout's bytes, is skipped unread past its head. A line
+with any other head is decoded if it contains one of those five names.
 
 - `session_meta`: the first one sets `Thread` and `Cwd`; later ones are copies
   from a parent and are ignored.
@@ -103,11 +107,14 @@ must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
   (its original is ingested from the parent's file). Any record in the file,
   its own or a copied one, sets `Records`, so a fork's copied `token_count`
   lines beside a copied record are not counted again.
-- `token_count` while `Records` is false (no record of any kind in the file yet), `info` is non-null, the running total
-  differs from `LastTotal`, and `last_token_usage` has non-zero input or
-  output: one row from `last_token_usage`, keyed `tc:` plus the SHA-256 of the
-  canonical JSON (Go-marshalled, sorted keys) of `total_token_usage`,
-  `last_token_usage` and `rate_limits`. The key holds no timestamp or file, so
+- `token_count` while `Records` is false (no record of any kind in the file
+  yet), `info` is non-null, the running total differs from `LastTotal`, and
+  `last_token_usage` has non-zero input or output: one row from
+  `last_token_usage`, keyed `tc:` plus the SHA-256 of the canonical JSON
+  (exactly what Go's `encoding/json` writes for the value decoded with
+  `UseNumber`: sorted keys, numbers as written) of `total_token_usage`,
+  `last_token_usage` and `rate_limits`. These bytes are part of every stored
+  key and never change. The key holds no timestamp or file, so
   a fork's copy has its original's key and the ledger's upsert keeps one row;
   `rate_limits` separates unrelated threads that happen to reach the same
   totals. On the sample machine this key leaves 347,339 rows; keying on the
@@ -160,11 +167,17 @@ never verified, access and refresh tokens never read), else `unknown`.
   differs from the stored one, ingest reads the file from offset 0 with empty
   state. Every key is derived from content, so a full re-read only rewrites
   the same rows.
-- **Speed.** Files are parsed concurrently (`GOMAXPROCS` workers) and committed
-  one transaction per file in list order, so a crash still leaves every
-  committed file consistent. With the byte prefilter the first full read of the
-  sample machine should be bounded by disk speed: `rg` scans the same 22 GB in
-  4.5 s with a warm page cache. Later runs read only appended bytes.
+- **Speed.** Files are parsed concurrently (`GOMAXPROCS` workers), up to
+  1 GiB of transcript ahead of the commits, and committed one transaction per
+  file in list order, so a crash still leaves every committed file consistent.
+  Each transaction prepares its statements once, and a run remembers what it
+  committed so a fork's copy that would change nothing never reaches SQLite.
+  The first full read is then bounded by the single SQLite writer storing each
+  distinct response once, not by reading: on the sample machine (2,969 files,
+  23 GB, 16 cores, warm page cache) it takes 18 s, of which reading is about
+  45 CPU-seconds spread over the cores and the writer about 15 s of the wall
+  time; `rg` scans the same files in 4.5 s. Later runs read only appended
+  bytes; a run with nothing new takes 0.3 s.
 
 ## 5. Rates
 
@@ -232,9 +245,10 @@ and `costs ingest` catch up in any case.
 
 The model table shows a non-standard tier as part of the name
 (`gpt-5.6-sol (fast)` beside `gpt-5.6-sol`), so the faster turns and their
-cost are visible on their own. The Codex tab shows one `cache write` column instead of `cache 5m` and
-`cache 1h` (`Tool` gains the cache-write column labels), and its footer reads
-`list-price equivalents at OpenAI API prices, not ChatGPT plan charges`.
+cost are visible on their own. The Codex tab shows one `cache write` column
+instead of `cache 5m` and `cache 1h` (`Tool` gains the cache-write column
+labels), and its footer reads
+`OpenAI API list-price equivalent, not a ChatGPT plan bill`.
 Everything else (tabs, drill-down, `--tool codex`, JSON and CSV output) works
 unchanged once the source is set.
 
