@@ -92,6 +92,8 @@ var asciiText = strings.NewReplacer(
 	"✗", "x",
 	"█", "#",
 	"←", "<-",
+	"‹", "<",
+	"›", ">",
 	"↑", "up",
 	"↓", "down",
 	"░", "-",

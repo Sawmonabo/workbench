@@ -6,29 +6,45 @@ import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 )
 
 // costsView is the interactive report: a tab bar with one tab per
 // costs.Tools entry, the active tab's report in a viewport, refit at every
-// resize, and a key line.
+// resize, and a key line. ↑/↓ select a project or model row and enter opens
+// its page; esc goes back.
 type costsView struct {
-	tools   []costs.Tool
-	reports map[string]costs.Statement // computed before the view starts; absent for a tool without a Source
-	active  int
-	width   int
-	height  int
-	view    viewport.Model
+	tools    []costs.Tool
+	reports  map[string]costs.Statement // computed before the view starts; absent for a tool without a Source
+	load     focusLoader
+	active   int
+	selected int
+	targets  []target
+	focus    *costs.Focus
+	problem  string // why the last page could not open
+	width    int
+	height   int
+	view     viewport.Model
 }
+
+// focusLoader reads one project's or model's page from the ledger.
+type focusLoader func(tool costs.Tool, kind, name string) (costs.Focus, error)
 
 // costsChrome is the lines around the viewport: tab bar, rule and key line.
 const costsChrome = 3
 
-func newCostsView(tools []costs.Tool, reports map[string]costs.Statement, active int) *costsView {
+func newCostsView(
+	tools []costs.Tool,
+	reports map[string]costs.Statement,
+	active int,
+	load focusLoader,
+) *costsView {
 	m := &costsView{
 		tools:   tools,
 		reports: reports,
+		load:    load,
 		active:  active,
 		width:   terminalWidthDefault,
 		height:  24,
@@ -40,20 +56,62 @@ func newCostsView(tools []costs.Tool, reports map[string]costs.Statement, active
 
 func (m *costsView) Init() tea.Cmd { return nil }
 
-// render lays the active tab's report out again at the present size, with a
-// blank line above it.
+// render lays the active page out again at the present size, with a blank
+// line above it, and keeps the selected row on screen.
 func (m *costsView) render() {
 	tool := m.tools[m.active]
 	m.view.SetWidth(m.width)
 	m.view.SetHeight(max(m.height-costsChrome, 1))
-	m.view.SetContent("\n" + costsBody(tool, m.reports[tool.Name], m.width))
+	if m.focus != nil {
+		m.view.SetContent("\n" + focusBody(tool, *m.focus, m.reports[tool.Name], m.width))
+		return
+	}
+	body, targets := costsPage(tool, m.reports[tool.Name], m.width, m.selected)
+	m.targets = targets
+	if m.problem != "" {
+		body = yellow.Render(m.problem) + "\n" + body
+	}
+	m.view.SetContent("\n" + body)
+	marker := glyphs.text.Replace("›")
+	for i, line := range strings.Split("\n"+body, "\n") {
+		if strings.HasPrefix(strings.TrimLeft(ansi.Strip(line), " "), marker) {
+			m.view.EnsureVisible(i, 0, 0)
+			break
+		}
+	}
 }
 
-// switchTab moves by step tabs, wrapping, and starts the new tab at the top.
+// switchTab moves by step tabs, wrapping, and starts the new tab at the top
+// of its report.
 func (m *costsView) switchTab(step int) {
 	m.active = (m.active + step + len(m.tools)) % len(m.tools)
-	m.render()
+	m.selected, m.focus, m.problem = 0, nil, ""
 	m.view.GotoTop()
+	m.render()
+}
+
+// open shows the selected row's page.
+func (m *costsView) open() {
+	if m.selected >= len(m.targets) || m.load == nil {
+		return
+	}
+	pick := m.targets[m.selected]
+	focus, err := m.load(m.tools[m.active], pick.kind, pick.name)
+	if err != nil {
+		m.problem = "Could not open " + shortPath(pick.name) + ": " + err.Error()
+		m.render()
+		return
+	}
+	m.focus, m.problem = &focus, ""
+	m.view.GotoTop()
+	m.render()
+}
+
+// back returns from a page to the report, at the row it opened.
+func (m *costsView) back() {
+	m.focus = nil
+	m.view.GotoTop()
+	m.render()
 }
 
 func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -62,16 +120,29 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.width, m.height = msg.Width, msg.Height
 		m.render()
 	case tea.KeyPressMsg:
-		switch msg.String() {
-		case "tab", "right", "l":
-			m.switchTab(1)
-		case "shift+tab", "left", "h":
-			m.switchTab(-1)
-		case "q", "esc", "ctrl+c":
+		key := msg.String()
+		switch {
+		case key == "ctrl+c", key == "q", key == "esc" && m.focus == nil:
 			return m, tea.Quit
-		case "home":
+		case key == "esc", key == "backspace":
+			if m.focus != nil {
+				m.back()
+			}
+		case key == "tab", key == "right", key == "l":
+			m.switchTab(1)
+		case key == "shift+tab", key == "left", key == "h":
+			m.switchTab(-1)
+		case m.focus == nil && (key == "up" || key == "k"):
+			m.selected = max(m.selected-1, 0)
+			m.render()
+		case m.focus == nil && (key == "down" || key == "j"):
+			m.selected = max(min(m.selected+1, len(m.targets)-1), 0)
+			m.render()
+		case m.focus == nil && key == "enter":
+			m.open()
+		case key == "home":
 			m.view.GotoTop()
-		case "end":
+		case key == "end":
 			m.view.GotoBottom()
 		default:
 			var cmd tea.Cmd
@@ -107,17 +178,29 @@ func (m *costsView) keyLine() string {
 		}
 		return strings.Join(parts, faint.Render(glyphs.text.Replace("  ·  ")))
 	}
-	full := line([][2]string{
-		{"←/→ tab/shift+tab", "switch tool"}, {"↑/↓ pgup/pgdn", "scroll"}, {"q", "quit"},
-	})
-	if lipgloss.Width(full) <= m.width {
-		return full
+	full, short := [][2]string{
+		{"←/→ tab/shift+tab", "switch tool"},
+		{"↑/↓", "select"},
+		{"enter", "open"},
+		{"pgup/pgdn", "scroll"},
+		{"q", "quit"},
+	}, [][2]string{{"←/→", "tool"}, {"↑/↓", "select"}, {"enter", "open"}, {"q", "quit"}}
+	if m.focus != nil {
+		full = [][2]string{
+			{
+				"esc",
+				"back",
+			},
+			{"↑/↓ pgup/pgdn", "scroll"},
+			{"←/→ tab/shift+tab", "switch tool"},
+			{"q", "quit"},
+		}
+		short = [][2]string{{"esc", "back"}, {"↑/↓", "scroll"}, {"q", "quit"}}
 	}
-	return fit(
-		line([][2]string{{"←/→", "switch"}, {"↑/↓", "scroll"}, {"q", "quit"}}),
-		m.width,
-		false,
-	)
+	if text := line(full); lipgloss.Width(text) <= m.width {
+		return text
+	}
+	return fit(line(short), m.width, false)
 }
 
 func (m *costsView) View() tea.View {

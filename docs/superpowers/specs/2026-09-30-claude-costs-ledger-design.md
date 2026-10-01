@@ -474,8 +474,15 @@ Every resize refits the table. The Codex tab says `Codex costs are not
 implemented yet.` until a Codex source exists. Off a terminal the command
 prints one tool's report, `--tool NAME` (default `claude`); `--tool codex`
 prints `[WorkBench] Codex costs are not implemented yet` and exits 0. Tabs are
-the split by tool, so there is no `--by tool`; flags set what every tab shows,
-and keys only switch, scroll and quit.
+the split by tool, so there is no `--by tool`; flags set what every tab shows.
+
+In the view, ↑/↓ move a `›` marker over the project and model rows and Enter
+opens that row's page; Esc or Backspace goes back. A project's page shows its
+total and share, its cost by model, by day (active days, newest first) and
+by session (start, length, the model that cost the most, cost, calls),
+costliest first. A model's page shows the same with its cost by project.
+Pages read the ledger with the report's period, scope and rollup, and quitting
+from one leaves that page printed.
 
 ### Package shape
 

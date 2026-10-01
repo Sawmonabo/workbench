@@ -48,7 +48,7 @@ logged-in `gh`. Never run it as root.
 | `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
-| `costs` | What Claude Code spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code, and Codex, which is not implemented yet): Tab and Shift+Tab switch, the arrow keys scroll, q quits and leaves the report printed. Without a terminal, `--tool NAME` prints one tool's report. |
+| `costs` | What Claude Code spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code, and Codex, which is not implemented yet): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), Esc goes back, q quits and leaves the page printed. Without a terminal, `--tool NAME` prints one tool's report. |
 | `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until DATE`, `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code runs on session start and end: silent, exits 0, starts a detached worker. `--worker` ingests in the foreground. |

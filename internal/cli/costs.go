@@ -185,7 +185,14 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	case f.csv:
 		return writeCostsCSV(out, reports[tool.Name])
 	case tabs:
-		return runCostsView(cmd, tool, reports)
+		return runCostsView(
+			cmd,
+			tool,
+			reports,
+			func(t costs.Tool, kind, name string) (costs.Focus, error) {
+				return costs.FocusOn(cmd.Context(), ledger, f.options(t), kind, name)
+			},
+		)
 	default:
 		return printCosts(out, costsReport(tool, reports[tool.Name], width))
 	}
@@ -228,9 +235,14 @@ func writeCostsCSV(out io.Writer, report costs.Statement) error {
 // report, since the alternate screen leaves nothing in the scrollback. It runs
 // after every progress line has stopped: one Bubble Tea program owns the
 // terminal at a time.
-func runCostsView(cmd *cobra.Command, start costs.Tool, reports map[string]costs.Statement) error {
+func runCostsView(
+	cmd *cobra.Command,
+	start costs.Tool,
+	reports map[string]costs.Statement,
+	load focusLoader,
+) error {
 	active := slices.IndexFunc(costs.Tools, func(t costs.Tool) bool { return t.Name == start.Name })
-	model := newCostsView(costs.Tools, reports, active)
+	model := newCostsView(costs.Tools, reports, active, load)
 	program := tea.NewProgram(
 		model,
 		tea.WithInput(os.Stdin),
@@ -243,7 +255,14 @@ func runCostsView(cmd *cobra.Command, start costs.Tool, reports map[string]costs
 		return err
 	}
 	tool := costs.Tools[model.active]
-	return printCosts(os.Stdout, costsReport(tool, reports[tool.Name], terminalWidth(os.Stdout)))
+	width := terminalWidth(os.Stdout)
+	if model.focus != nil {
+		var b strings.Builder
+		writeStyled(&b, width, 0, "[WorkBench] "+tool.Title+" costs", bold)
+		b.WriteString(focusBody(tool, *model.focus, reports[tool.Name], width))
+		return printCosts(os.Stdout, b.String())
+	}
+	return printCosts(os.Stdout, costsReport(tool, reports[tool.Name], width))
 }
 
 // ensureIngested fills an empty ledger inline before the first report, so the
@@ -628,19 +647,34 @@ func emptyReport(report costs.Statement) string {
 	return "no responses matched (check `workbench costs status`)"
 }
 
+// target is a row the tab view can open: a project or a model.
+type target struct{ kind, name string }
+
 // costsBody is the report under the brand line, which the tabs replace with
 // their tab bar: the total and its period, then the tables, then only the
 // notes that report something. A tool without a source, or without rows,
 // says so.
 func costsBody(tool costs.Tool, report costs.Statement, width int) string {
+	body, _ := costsPage(tool, report, width, -1)
+	return body
+}
+
+// costsPage is costsBody for the tab view when selected >= 0: the project and
+// model rows it can open get a marker column, the selected one marked, and
+// targets lists them in order.
+func costsPage(
+	tool costs.Tool,
+	report costs.Statement,
+	width, selected int,
+) (string, []target) {
 	var b strings.Builder
 	switch {
 	case tool.Source == nil:
 		writeFaint(&b, width, 0, tool.Title+" costs are not implemented yet.")
-		return b.String()
+		return b.String(), nil
 	case report.Empty():
 		writeFaint(&b, width, 0, emptyReport(report))
-		return b.String()
+		return b.String(), nil
 	}
 	pal := toolPalette(tool.Name)
 	opts := report.Options
@@ -659,11 +693,25 @@ func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 	grand := report.GrandTotal
 	label := fmt.Sprintf("total · %d %s%s", report.RowCount, report.By, plural(report.RowCount))
 	total := report.Total
-	base := reportSpec{grand: grand, tokens: opts.Tokens, width: width, pal: pal}
+	mark := noMarks
+	if selected >= 0 {
+		mark = unmarked
+	}
+	base := reportSpec{grand: grand, tokens: opts.Tokens, width: width, pal: pal, mark: mark}
 	var sections []reportSpec
-	add := func(heading, head string, rows []costs.Row, total *costs.Row, label string) {
+	var targets []target
+	add := func(heading, head, kind string, rows []costs.Row, total *costs.Row, label string) {
 		section := base
 		section.heading, section.head, section.rows, section.total, section.label = heading, head, rows, total, label
+		if selected >= 0 && kind != "" {
+			section.kind = kind
+			if offset := selected - len(targets); offset >= 0 && offset < len(rows) {
+				section.mark = offset
+			}
+			for _, row := range rows {
+				targets = append(targets, target{kind, row.Name})
+			}
+		}
 		sections = append(sections, section)
 	}
 	if opts.Detail && report.By == "project" {
@@ -675,20 +723,30 @@ func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 			add(bold.Render(shortPath(block.Project.Name))+"  "+
 				costStyle.Render(money(block.Project.Cost))+"  "+
 				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
-				"model", block.Models, nil, "")
+				"model", "", block.Models, nil, "")
 		}
-		add("", "model (all projects)", report.Models, &total, label)
+		add("", "model (all projects)", "model", report.Models, &total, label)
 	} else {
-		add("", report.By, report.Rows, &total, label)
+		kind := ""
+		if report.By == "project" || report.By == "model" {
+			kind = report.By
+		}
+		add("", report.By, kind, report.Rows, &total, label)
 		if report.By != "model" {
-			add("", "model", report.Models, nil, "")
+			add("", "model", "model", report.Models, nil, "")
 		}
 	}
 	if report.By != "account" && len(report.Accounts) > 1 {
-		add("", "account", report.Accounts, nil, "")
+		add("", "account", "", report.Accounts, nil, "")
 	}
-	// One bar width for every table, so bars compare across them: all the
-	// width the widest table leaves.
+	writeSections(&b, width, sections)
+	writeFooter(&b, width, report)
+	return b.String(), targets
+}
+
+// writeSections writes report tables with one bar width for all of them, so
+// bars compare across tables: all the width the widest table leaves.
+func writeSections(b *strings.Builder, width int, sections []reportSpec) {
 	bar := width
 	for _, section := range sections {
 		bar = min(bar, width-tableWidth(2, reportTable(section))-1)
@@ -696,15 +754,111 @@ func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 	for _, section := range sections {
 		b.WriteString("\n")
 		if section.heading != "" {
-			writeText(&b, width, 0, section.heading)
+			writeText(b, width, 0, section.heading)
 		}
 		if bar >= minBar {
 			section.bar = bar
 		}
-		writeTable(&b, width, 2, reportTable(section))
+		writeTable(b, width, 2, reportTable(section))
 	}
-	writeFooter(&b, width, report)
+}
+
+// focusBody is the page of one project or model: the way back, its total and
+// share, then its cost by model (or project), by day and by session.
+func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width int) string {
+	var b strings.Builder
+	pal := toolPalette(tool.Name)
+	back := "projects"
+	if report.By != "project" || focus.Kind == "model" {
+		back = "report"
+	}
+	writeText(&b, width, 0, faint.Render("‹ "+back)+"   "+bold.Render(shortPath(focus.Name)))
+	b.WriteString("\n")
+	var notes []string
+	if report.GrandTotal > 0 {
+		notes = append(
+			notes,
+			fmt.Sprintf("%.1f%% of the total", focus.Total.Cost/report.GrandTotal*100),
+		)
+	}
+	notes = append(notes, commas(focus.Total.Calls)+" calls")
+	dated := slices.DeleteFunc(
+		slices.Clone(focus.Days),
+		func(d costs.Row) bool { return d.Name == "unknown" },
+	)
+	if n := len(dated); n > 0 {
+		notes = append(notes, day(dated[n-1].Name)+" → "+day(dated[0].Name))
+	}
+	writeText(&b, width, 0, pal.accent.Bold(true).Render(money(focus.Total.Cost)))
+	writeNotes(&b, width, 0, notes)
+	parts := "model"
+	if focus.Kind == "model" {
+		parts = "project"
+	}
+	days := make([]costs.Row, len(focus.Days))
+	for i, d := range focus.Days {
+		d.Name = day(d.Name)
+		days[i] = d
+	}
+	base := reportSpec{
+		grand:  focus.Total.Cost,
+		tokens: report.Options.Tokens,
+		width:  width,
+		pal:    pal,
+		mark:   noMarks,
+	}
+	partsSection, daysSection := base, base
+	partsSection.head, partsSection.rows = parts, focus.Parts
+	daysSection.head, daysSection.rows = "day", days
+	writeSections(&b, width, []reportSpec{partsSection, daysSection})
+	b.WriteString("\n")
+	writeTable(&b, width, 2, sessionTable(focus.Sessions, pal))
 	return b.String()
+}
+
+// sessionTable lists a focus's sessions, costliest first.
+func sessionTable(sessions []costs.Session, pal palette) tableSpec {
+	spec := tableSpec{Header: true, Cols: []column{
+		{Head: "session"},
+		{Head: "started", Clip: true},
+		{Head: "length", Right: true, Drop: 2},
+		{Head: "model", Drop: 3},
+		{Head: "cost", Right: true},
+		{Head: "calls", Right: true, Drop: 1},
+	}}
+	for i := range spec.Cols {
+		spec.Cols[i].Head = pal.accent.Render(spec.Cols[i].Head)
+	}
+	for _, session := range sessions {
+		id := session.ID
+		if len(id) > 8 {
+			id = id[:8]
+		}
+		started, length := "-", "-"
+		if !session.Start.IsZero() {
+			started = session.Start.Local().Format("Jan 2 3:04 PM")
+			length = duration(session.End.Sub(session.Start))
+		}
+		spec.Rows = append(spec.Rows, []string{
+			faint.Render(id), started, faint.Render(length), session.Model,
+			costStyle.Render(money(session.Cost)), faint.Render(commas(session.Calls)),
+		})
+	}
+	return spec
+}
+
+// duration is a session length as "5d 7h", "3h 10m", "52m" or "<1m". A
+// resumed session spans from its first response to its last.
+func duration(d time.Duration) string {
+	switch {
+	case d < time.Minute:
+		return "<1m"
+	case d < time.Hour:
+		return fmt.Sprintf("%dm", int(d.Minutes()))
+	case d < 24*time.Hour:
+		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
+	}
+	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
 // writeNotes writes faint notes on one line, joined by a dot, when they fit,
@@ -752,6 +906,8 @@ func plural(n int) string {
 type reportSpec struct {
 	heading string
 	bar     int
+	kind    string // "project" or "model" when the tab view can open the rows
+	mark    int    // the marked row, or unmarked or noMarks
 	head    string
 	rows    []costs.Row
 	grand   float64
@@ -761,6 +917,13 @@ type reportSpec struct {
 	width   int
 	pal     palette
 }
+
+// The mark of a reportSpec: noMarks prints no marker column (a pipe, or a
+// table the tab view cannot open), unmarked a column with no row marked.
+const (
+	noMarks  = -2
+	unmarked = -1
+)
 
 // reportTable lays one table out: the name, cost and number columns, and,
 // where the terminal has room, a share bar that uses the spare width.
@@ -796,8 +959,12 @@ func reportTable(r reportSpec) tableSpec {
 	if flagged {
 		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
 	}
-	for _, row := range r.rows {
-		spec.Rows = append(spec.Rows, reportCells(r, shortPath(row.Name), row, flagged, false))
+	for i, row := range r.rows {
+		name := shortPath(row.Name)
+		if r.kind != "" && i == r.mark {
+			name = r.pal.accent.Bold(true).Render(name)
+		}
+		spec.Rows = append(spec.Rows, reportCells(r, name, row, flagged, false))
 	}
 	if r.total != nil {
 		spec.Total = reportCells(r, r.label, *r.total, flagged, true)
@@ -807,6 +974,9 @@ func reportTable(r reportSpec) tableSpec {
 	}
 	if !r.tokens && r.bar > 0 && r.grand > 0 {
 		addShareBars(&spec, r)
+	}
+	if r.mark != noMarks && r.kind != "" {
+		addMarker(&spec, r)
 	}
 	return spec
 }
@@ -861,6 +1031,22 @@ func addShareBars(spec *tableSpec, r reportSpec) {
 	spec.Cols[share].Right = false
 	if spec.Total != nil {
 		spec.Total[share] = strings.Repeat(" ", r.bar+1) + fmt.Sprintf("%6s", spec.Total[share])
+	}
+}
+
+// addMarker puts a column in front for the tab view's cursor: the selected
+// row's marker, a space elsewhere, so stacked rows line up too.
+func addMarker(spec *tableSpec, r reportSpec) {
+	spec.Cols = slices.Insert(spec.Cols, 0, column{})
+	for i, row := range spec.Rows {
+		mark := " "
+		if i == r.mark {
+			mark = r.pal.accent.Bold(true).Render("›")
+		}
+		spec.Rows[i] = slices.Insert(row, 0, mark)
+	}
+	if spec.Total != nil {
+		spec.Total = slices.Insert(spec.Total, 0, " ")
 	}
 }
 
