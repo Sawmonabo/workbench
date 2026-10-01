@@ -21,6 +21,7 @@ import json
 import os
 import re
 import select
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -819,6 +820,12 @@ def refresh_rates_if_needed(db: sqlite3.Connection) -> str:
 
 
 def rollup(project: str) -> str:
+    """Fold a session's working directory into its repository: the first
+    directory below a scope root, else the path before `/.worktrees/`."""
+    p = Path(project)
+    for root in DEFAULT_ROOTS:
+        if root in p.parents:
+            return str(root / p.relative_to(root).parts[0])
     return project.split("/.worktrees/")[0]
 
 
@@ -840,6 +847,22 @@ def short(p: str) -> str:
     return p.replace(str(HOME), "~")
 
 
+def clip(s: str, width: int) -> str:
+    """Keep the end of a path, which is the part that tells projects apart."""
+    return s if len(s) <= width else "…" + s[-(width - 1) :]
+
+
+def columns() -> int:
+    return shutil.get_terminal_size((100, 24)).columns if sys.stdout.isatty() else 100
+
+
+def local_time(iso: str) -> str:
+    try:
+        return datetime.fromisoformat(iso).astimezone().strftime("%b %-d %-I:%M %p")
+    except ValueError:
+        return iso
+
+
 def ensure_ingested(db: sqlite3.Connection) -> sqlite3.Connection:
     """First run before the hooks exist: fill the ledger inline."""
     if db.execute("SELECT 1 FROM responses LIMIT 1").fetchone():
@@ -850,8 +873,11 @@ def ensure_ingested(db: sqlite3.Connection) -> sqlite3.Connection:
     return open_ledger(create=True)
 
 
-def load_groups(db: sqlite3.Connection, opts: SimpleNamespace) -> list[dict]:
-    """One dict per (project, model, account, month) with tokens, calls, cost."""
+def load_groups(
+    db: sqlite3.Connection, opts: SimpleNamespace
+) -> tuple[list[dict], int]:
+    """One dict per (project, model, account, month) with tokens, calls, cost,
+    plus how many projects the default scope left out."""
     where, params = [], []
     if opts.since:
         where.append("substr(ts, 1, 10) >= ?")
@@ -867,10 +893,11 @@ def load_groups(db: sqlite3.Connection, opts: SimpleNamespace) -> list[dict]:
         + " GROUP BY 1, 2, 3, 4"
     )
     card = load_card()
-    groups = []
+    groups, hidden = [], set()
     for project, model, account, month, calls, *tokens in db.execute(sql, params):
         project = rollup(project) if opts.rollup else project
         if not in_scope(project, opts):
+            hidden.add(project)
             continue
         t = dict(zip(RATE_FIELDS, tokens))
         rate = rate_for(model, card)
@@ -886,7 +913,7 @@ def load_groups(db: sqlite3.Connection, opts: SimpleNamespace) -> list[dict]:
                 **t,
             }
         )
-    return groups
+    return groups, len(hidden)
 
 
 def aggregate(groups: list[dict], key: str) -> list[dict]:
@@ -944,63 +971,108 @@ def coverage(db: sqlite3.Connection) -> dict:
     }
 
 
-def print_header(cov: dict, card: dict) -> None:
-    sources = sorted({r["source"] for r in card.values()})
-    print(
-        f"{DIM}ledger {cov['first']} → {cov['last']}, {cov['rows']:,} responses "
-        f"({cov['session_rows']:,} tagged at session end, {cov['sweep_rows']:,} by sweep); "
-        f"last ingest {cov['last_ingest_at']}; rates {'/'.join(sources)}, "
-        f"official card {cov['rates_fetched']}{OFF}"
-    )
-    print(f"{DIM}figures are list-price equivalents, not subscription charges{OFF}")
-
-
-def print_table(rows: list[dict], key: str, label: str) -> None:
-    print(
-        f"\n{BOLD}{label:<34} {'cost':>12} {'calls':>8} {'input':>9} {'output':>9} "
-        f"{'w-5m':>9} {'w-1h':>9} {'cache-r':>10}{OFF}"
-    )
-    for r in rows:
-        flag = "" if r["priced"] else f" {YEL}(unpriced){OFF}"
-        print(
-            f"  {short(str(r[key]))[:34]:<34} ${r['cost']:>11,.2f} {r['calls']:>8,} "
-            f"{human(r['input']):>9} {human(r['output']):>9} "
-            f"{human(r['cache_write_5m']):>9} {human(r['cache_write_1h']):>9} "
-            f"{human(r['cache_read']):>10}{flag}"
-        )
-
-
-def print_totals(
-    groups: list[dict], shown_n: int, total_n: int, opts: SimpleNamespace
-) -> None:
-    print(f"\n{BOLD}{'─' * 96}{OFF}")
-    print_table(
-        sort_rows(aggregate(groups, "model"), "model", opts), "model", "TOTAL BY MODEL"
-    )
-    print_table(
-        sort_rows(aggregate(groups, "account"), "account", opts),
-        "account",
-        "TOTAL BY ACCOUNT",
-    )
-    tot = {
-        "calls": sum(g["calls"] for g in groups),
-        "cost": sum(g["cost"] for g in groups),
-    }
+def total_row(rows: list[dict], key: str, label: str) -> dict:
+    t = {key: label, "calls": 0, "cost": 0.0, "priced": True}
     for f in RATE_FIELDS:
-        tot[f] = sum(g[f] for g in groups)
-    print(f"{BOLD}{'─' * 96}{OFF}")
-    print(
-        f"  {BOLD}{'GRAND TOTAL (all accounts)':<34} ${tot['cost']:>11,.2f} "
-        f"{tot['calls']:>8,} {human(tot['input']):>9} {human(tot['output']):>9} "
-        f"{human(tot['cache_write_5m']):>9} {human(tot['cache_write_1h']):>9} "
-        f"{human(tot['cache_read']):>10}{OFF}"
-    )
-    hidden = total_n - shown_n
-    print(
-        f"  {DIM}{shown_n} of {total_n} {opts.by}s shown"
-        f"{f' ({hidden} hidden by --top, counted above)' if hidden else ''}"
-        f"{'' if opts.all else ' · scope: ~/dev and ~/repos (--all for every project)'}{OFF}"
-    )
+        t[f] = 0
+    for r in rows:
+        t["calls"] += r["calls"]
+        t["cost"] += r["cost"]
+        t["priced"] = t["priced"] and r["priced"]
+        for f in RATE_FIELDS:
+            t[f] += r[f]
+    return t
+
+
+def cached_share(r: dict) -> str:
+    """Share of prompt tokens served from the cache instead of re-read."""
+    prompt = r["input"] + r["cache_write_5m"] + r["cache_write_1h"] + r["cache_read"]
+    return f"{r['cache_read'] / prompt * 100:.1f}%" if prompt else "—"
+
+
+def table_columns(opts: SimpleNamespace, grand: float) -> list[tuple]:
+    """(header, width, cell) for every column after the name column."""
+    cost = ("cost", 11, lambda r: f"${r['cost']:,.2f}")
+    calls = ("calls", 8, lambda r: f"{r['calls']:,}")
+    if opts.tokens:
+        return [
+            cost,
+            calls,
+            ("input", 9, lambda r: human(r["input"])),
+            ("output", 9, lambda r: human(r["output"])),
+            ("cache 5m", 9, lambda r: human(r["cache_write_5m"])),
+            ("cache 1h", 9, lambda r: human(r["cache_write_1h"])),
+            ("cache read", 11, lambda r: human(r["cache_read"])),
+        ]
+    return [
+        cost,
+        ("share", 7, lambda r: f"{r['cost'] / grand * 100:.1f}%" if grand else "—"),
+        calls,
+        ("tokens", 8, lambda r: human(sum(r[f] for f in RATE_FIELDS))),
+        ("cached", 7, cached_share),
+    ]
+
+
+def print_table(
+    rows: list[dict],
+    key: str,
+    label: str,
+    opts: SimpleNamespace,
+    grand: float,
+    total: dict | None = None,
+) -> None:
+    """One line per row, sized to the terminal so nothing wraps; the name
+    column takes what the numeric columns leave."""
+    cols = table_columns(opts, grand)
+    name_w = max(24, columns() - sum(w + 1 for _, w, _ in cols) - 2)
+
+    def line(r: dict, style: str) -> str:
+        name = clip(short(str(r[key])), name_w)
+        cells = "".join(f" {cell(r):>{w}}" for _, w, cell in cols)
+        flag = "" if r["priced"] else f" {YEL}unpriced{OFF}"
+        return f"  {style}{name:<{name_w}}{cells}{OFF}{flag}"
+
+    heads = "".join(f" {h:>{w}}" for h, w, _ in cols)
+    print(f"\n  {BOLD}{label:<{name_w}}{heads}{OFF}")
+    for r in rows:
+        print(line(r, ""))
+    if total is not None:
+        print(f"  {DIM}{'─' * (name_w + len(heads))}{OFF}")
+        print(line(total, BOLD))
+
+
+def print_footer(
+    cov: dict,
+    card: dict,
+    hidden: int,
+    shown_n: int,
+    total_n: int,
+    opts: SimpleNamespace,
+) -> None:
+    sources = sorted({r["source"] for r in card.values()})
+    notes = [
+        f"ingested {local_time(cov['last_ingest_at'])}",
+        f"rates {', '.join(sources)} (official card {cov['rates_fetched']})",
+    ]
+    if opts.tokens:
+        notes.append(
+            "cache 5m / 1h: prompt tokens written to the cache with that lifetime; "
+            "cache read: prompt tokens served from it"
+        )
+    if total_n > shown_n:
+        notes.append(f"{shown_n} of {total_n} {opts.by}s shown; totals cover all")
+    if hidden:
+        notes.append(
+            f"{hidden} project{'s' if hidden != 1 else ''} outside ~/dev and ~/repos "
+            f"hidden (--all)"
+        )
+    joined = " · ".join(notes)
+    print()
+    for n in [joined] if len(joined) + 2 <= columns() else notes:
+        print(f"  {DIM}{n}{OFF}")
+
+
+def print_unpriced(groups: list[dict]) -> None:
     unpriced = sorted({g["model"] for g in groups if not g["priced"]})
     if unpriced:
         print(
@@ -1018,8 +1090,8 @@ def cmd_help(opts: SimpleNamespace) -> None:
         f"""{BOLD}claude-costs{OFF} — Claude Code spend from a durable local ledger
 
   claude-costs [report] [--by project|model|account|month] [--since D] [--until D]
-               [--all] [--top N] [--sort cost|name|calls] [--compact] [--no-rollup]
-               [--json | --csv]
+               [--all] [--top N] [--sort cost|name|calls] [--detail] [--tokens]
+               [--no-rollup] [--json | --csv]
   claude-costs ingest              hook entry: spawn a detached worker, exit at once
   claude-costs ingest --worker     run the worker inline (used by hooks and for checks)
   claude-costs rates [--refresh]   show the merged rate card and its sources
@@ -1095,8 +1167,8 @@ def cmd_rates(opts: SimpleNamespace) -> None:
     )
     print(f"{BOLD}USD per 1M tokens{OFF}  {DIM}official card fetched: {when}{OFF}\n")
     print(
-        f"  {DIM}{'model prefix':<28} {'input':>8} {'output':>8} {'w-5m':>8} "
-        f"{'w-1h':>8} {'read':>8}  source{OFF}"
+        f"  {DIM}{'model prefix':<28} {'input':>8} {'output':>8} {'cache 5m':>9} "
+        f"{'cache 1h':>9} {'cache read':>10}  source{OFF}"
     )
     for m, r in sorted(card.items()):
         flag = ""
@@ -1111,8 +1183,8 @@ def cmd_rates(opts: SimpleNamespace) -> None:
         ):
             flag = f"  {YEL}calibrated disagrees >5%{OFF}"
         print(
-            f"  {m:<28} {r['input']:>8.2f} {r['output']:>8.2f} {r['cache_write_5m']:>8.2f} "
-            f"{r['cache_write_1h']:>8.2f} {r['cache_read']:>8.3f}  {r['source']}{flag}"
+            f"  {m:<28} {r['input']:>8.2f} {r['output']:>8.2f} {r['cache_write_5m']:>9.2f} "
+            f"{r['cache_write_1h']:>9.2f} {r['cache_read']:>10.3f}  {r['source']}{flag}"
         )
     print(
         f"\n{DIM}Sources in order: override, official, calibrated, built-in; longest prefix "
@@ -1123,10 +1195,13 @@ def cmd_rates(opts: SimpleNamespace) -> None:
 
 def cmd_report(opts: SimpleNamespace) -> None:
     db = ensure_ingested(open_ledger(create=True))
-    groups = load_groups(db, opts)
+    groups, hidden = load_groups(db, opts)
     if not groups:
         print(
-            "no responses matched (try `claude-costs --all`, or check `claude-costs status`)"
+            f"no responses matched in ~/dev and ~/repos; {hidden} projects elsewhere "
+            "(--all shows them)"
+            if hidden
+            else "no responses matched (check `claude-costs status`)"
         )
         return
     key = opts.by
@@ -1142,6 +1217,7 @@ def cmd_report(opts: SimpleNamespace) -> None:
                     "coverage": coverage(db),
                     "rows": shown,
                     "grand_total": grand,
+                    "hidden_projects": hidden,
                 },
                 sys.stdout,
                 indent=1,
@@ -1153,23 +1229,44 @@ def cmd_report(opts: SimpleNamespace) -> None:
             for r in shown:
                 w.writerow([r[c] for c in cols])
         return
-    print_header(coverage(db), load_card())
-    if key == "project" and not opts.compact:
+    cov, card = coverage(db), load_card()
+    print(
+        f"{BOLD}claude-costs{OFF} · {cov['first']} → {cov['last']} · "
+        f"{cov['rows']:,} responses"
+    )
+    print(f"{DIM}list-price equivalents, not subscription charges{OFF}")
+    label = f"total · {len(rows)} {key}{'s' if len(rows) != 1 else ''}"
+    by_model = sort_rows(aggregate(groups, "model"), "model", opts)
+    by_account = sort_rows(aggregate(groups, "account"), "account", opts)
+    if key == "project" and opts.detail:
         for p in shown:
             share = p["cost"] / grand * 100 if grand else 0
             print(
                 f"\n{BOLD}{short(p['project'])}{OFF}  {GRN}${p['cost']:,.2f}{OFF}  "
-                f"{DIM}{share:.1f}% of total · {p['calls']:,} calls{OFF}"
+                f"{DIM}{share:.1f}% · {p['calls']:,} calls{OFF}"
             )
             models = sort_rows(
                 aggregate([g for g in groups if g["project"] == p["project"]], "model"),
                 "model",
                 opts,
             )
-            print_table(models, "model", "  model")
+            print_table(models, "model", "model", opts, grand)
+        print_table(
+            by_model,
+            "model",
+            "model (all projects)",
+            opts,
+            grand,
+            total_row(by_model, "model", label),
+        )
     else:
-        print_table(shown, key, key)
-    print_totals(groups, len(shown), len(rows), opts)
+        print_table(shown, key, key, opts, grand, total_row(rows, key, label))
+        if key != "model":
+            print_table(by_model, "model", "model", opts, grand)
+    if key != "account" and len(by_account) > 1:
+        print_table(by_account, "account", "account", opts, grand)
+    print_footer(cov, card, hidden, len(shown), len(rows), opts)
+    print_unpriced(groups)
 
 
 def hooks_installed() -> dict[str, bool]:
@@ -1241,7 +1338,8 @@ def parse_opts(args: list[str]) -> SimpleNamespace:
         all=False,
         top=0,
         sort="cost",
-        compact=False,
+        detail=False,
+        tokens=False,
         rollup=True,
         json=False,
         csv=False,
@@ -1286,8 +1384,10 @@ def parse_opts(args: list[str]) -> SimpleNamespace:
                 die("--sort must be cost, name or calls")
         elif a == "--all":
             o.all = True
-        elif a == "--compact":
-            o.compact = True
+        elif a == "--detail":
+            o.detail = True
+        elif a == "--tokens":
+            o.tokens = True
         elif a == "--no-rollup":
             o.rollup = False
         elif a == "--json":

@@ -1,9 +1,8 @@
 # claude-costs ledger design
 
-Status: implemented 2026-09-30 on branch `feat/claude-costs-ledger`; observed
-checks are recorded in section 9. Section 7 (report view) was revised on
-2026-09-30 and is implemented by Task 8 of
-`../plans/2026-09-30-apply-plan-selection.md`. The implementation plan refined a few details
+Status: implemented 2026-09-30; report view of section 7 revised and
+implemented 2026-09-30. Observed checks are recorded in section 9. The
+implementation plan refined a few details
 of the approved design (rates parsing, override validation, refresh back-off),
 and checking it against real transcripts added advisor rows (section 4). The
 hooks are not yet applied to any real machine. This design
