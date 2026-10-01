@@ -167,11 +167,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 		if current == nil {
 			current = &operation.State{SchemaVersion: 1}
 		}
-		now := time.Now().UTC()
-		current.AppliedConfiguration = &plan.Source
-		current.AppliedAt = &now
-		current.Dependencies = plan.Dependencies
-		current.PartialOperation = nil
+		recordApplied(a.c, current, plan)
 		if err = a.m.WriteState(*current); err != nil {
 			return operation.Fail(
 				operation.ExitPartial,
@@ -239,11 +235,7 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		})
 		return err
 	}
-	now := time.Now().UTC()
-	state.AppliedConfiguration = &plan.Source
-	state.AppliedAt = &now
-	state.Dependencies = plan.Dependencies
-	state.PartialOperation = nil
+	recordApplied(a.c, state, plan)
 	if err = a.m.WriteState(*state); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
@@ -261,6 +253,21 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 	})
 	a.result.Results = append(a.result.Results, effectResults(checkedEffects(plan.Effects))...)
 	return nil
+}
+
+// recordApplied finishes the machine state after an apply: the operation is
+// no longer partial, and for the real home the applied source, its time and
+// its dependencies are recorded. An isolated destination records none of
+// them, so it never changes what the machine reports as applied.
+func recordApplied(c operation.Context, state *operation.State, plan operation.Plan) {
+	state.PartialOperation = nil
+	if !c.RecordsHome() {
+		return
+	}
+	now := time.Now().UTC()
+	state.AppliedConfiguration = &plan.Source
+	state.AppliedAt = &now
+	state.Dependencies = plan.Dependencies
 }
 
 // saveSelection remembers what the approved apply checked, in machine.toml. An

@@ -246,22 +246,33 @@ func Recover(
 			if err = cp.applyImages(ctx, reverse); err != nil {
 				return err
 			}
-			if state != nil {
-				state.AppliedConfiguration = &cp.record.Applied
-				if reverse {
-					state.AppliedConfiguration = cp.record.Before
-				}
-				state.PartialOperation = nil
-				if err = m.WriteState(*state); err != nil {
-					return Fail(
-						ExitPartial,
-						"state",
-						"Files restored; current-state finalization failed; retained checkpoint remains available",
-					)
-				}
-			}
-			return nil
+			return finishRecovery(c, m, state, cp, reverse)
 		},
 	)
 	return operationID, err
+}
+
+// finishRecovery records the restored configuration in a machine scope's
+// state: what the checkpoint applied, or with reverse what it replaced. An
+// isolated destination only clears its partial operation; it never changes
+// what the machine reports as applied.
+func finishRecovery(c Context, m *Mutation, state *State, cp *Checkpoint, reverse bool) error {
+	if state == nil {
+		return nil
+	}
+	if c.RecordsHome() {
+		state.AppliedConfiguration = &cp.record.Applied
+		if reverse {
+			state.AppliedConfiguration = cp.record.Before
+		}
+	}
+	state.PartialOperation = nil
+	if err := m.WriteState(*state); err != nil {
+		return Fail(
+			ExitPartial,
+			"state",
+			"Files restored; current-state finalization failed; retained checkpoint remains available",
+		)
+	}
+	return nil
 }

@@ -21,6 +21,12 @@ type Scope struct {
 	Root string `json:"root"`
 }
 
+// RecordsHome reports whether this scope is the real home: the only
+// destination whose applied configuration the machine state records. An
+// isolated destination (apply --destination) is a disposable copy, so applying
+// or reverting there leaves the machine's record alone.
+func (c Context) RecordsHome() bool { return c.Scope.Root == c.Home }
+
 // NativeContext is the source, answers, destination, state and cache that
 // every native chezmoi call receives. Developer marks a source selected with
 // --source, which may be a checkout bound by its content instead of a release.
