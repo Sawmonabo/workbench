@@ -157,12 +157,30 @@ never verified, access and refresh tokens never read), else `unknown`.
 
 `home/private_dot_codex/private_hooks.json.tmpl` renders for every role: the
 `SessionStart` and `SessionEnd` entries run `~/.local/bin/workbench costs
-ingest`, and the existing `UserPromptSubmit` entry stays inside
-`{{ if .has_work }}`. `render-check.sh` drops its "hooks.json deployed on
-personal" leak check; its personal-role `promptctl` grep still catches the real
-leak. `Hooks(home)` reports an event as installed when `hooks.json` has the
-command and `config.toml` has an enabled `[hooks.state]` entry with a
-`trusted_hash` for it.
+ingest` (`SessionEnd` with `"timeout": 3`, its maximum), and the existing
+`UserPromptSubmit` entry stays inside `{{ if .has_work }}`. `render-check.sh`
+drops its "hooks.json deployed on personal" leak check; its personal-role
+`promptctl` grep still catches the real leak.
+
+**Trust is written by Workbench, so Codex never asks.** Codex keys trust as
+`[hooks.state."<hooks.json path>:<event>:<group>:<handler>"]` with
+`trusted_hash = "sha256:<hex>"`, where the hex is the SHA-256 of the compact,
+key-sorted JSON of the hook's normalized identity (`codex-rs/hooks/src/engine/
+discovery.rs` `hook_hash`, `codex-rs/config/src/fingerprint.rs`
+`version_for_toml`):
+`{"event_name": "<snake_case event>", "matcher": <only when the event uses
+one>, "hooks": [{"type": "command", "command": ..., "timeout": <normalized:
+600 by default, SessionEnd 1 by default and at most 3>, "async": <bool>,
+"statusMessage": <only when set>}]}`. This was checked against the hash Codex
+itself recorded when the existing `UserPromptSubmit` hook was approved: it
+matches exactly. `modify_private_config.toml.tmpl` includes the rendered
+hooks.json, computes the hash of every handler in it and writes `enabled =
+true` and `trusted_hash` for each key as managed values, so whatever hooks
+Workbench installs are trusted on the same apply and none it removed stay
+trusted. `Hooks(home)` reports an event as installed when `hooks.json` has the
+command and the recorded `trusted_hash` equals the hash computed the same way;
+a mismatch (Codex changed its normalization) shows as `untrusted` in
+`costs status`.
 
 Claude Code's hooks already run an ingest that sweeps every tool, so Codex
 hooks only matter while Codex is used without Claude Code; `workbench costs`
@@ -178,11 +196,7 @@ unchanged once the source is set.
 
 ## 8. Open decisions for the owner
 
-1. **Hook trust.** Codex runs a hook only after it is trusted. Either (a)
-   install the hooks untrusted and have `costs status` say "trust them in
-   Codex" until they are (recommended: it keeps Codex's own review, and the
-   hash algorithm is not documented), or (b) have the chezmoi `config.toml`
-   template write the `trusted_hash`, which skips that review.
+1. **Hook trust.** Decided 2026-10-01: Workbench writes the trust (section 6).
 2. **Priority tier.** Either (a) price priority turns at standard rates and
    keep the tier only in the per-file state (recommended for now: eleven turns
    on the sample machine), or (b) store the model as `<model>@priority` and
