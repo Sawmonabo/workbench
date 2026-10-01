@@ -104,14 +104,15 @@ func (claude) SignIn(home string) SignIn {
 	return out
 }
 
-// claudePlanLabel is the report label of an organizationType: "Max" for
-// claude_max, otherwise the value as written. A personal plan (claude_max,
-// claude_pro) is named by its type alone; any other type adds the organization,
-// "claude_team (Example Org)", because many organizations share one type.
+// claudePlanLabel is the report label of an organizationType: the type without
+// its "claude_" prefix and with the first letter capitalised, so claude_max is
+// "Max" and claude_team is "Team". A personal plan (claude_max, claude_pro) is
+// named by that alone; any other type adds the organization, "Team (Example
+// Org)", because many organizations share one type.
 func claudePlanLabel(orgType, orgName string) string {
-	label := orgType
-	if orgType == "claude_max" {
-		label = "Max"
+	label := strings.TrimPrefix(orgType, "claude_")
+	if label != "" {
+		label = strings.ToUpper(label[:1]) + label[1:]
 	}
 	if orgType == "claude_max" || orgType == "claude_pro" || orgName == "" {
 		return label
