@@ -311,7 +311,8 @@ func continueInstalled(
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
 // when empty) for this machine. It returns nil when that release is already
-// the active one, unless an interrupted activation still needs finishing.
+// the active one, unless an interrupted activation still needs finishing, and
+// when tag is empty and the active release is newer than the latest.
 func readRelease(cmd *cobra.Command, c operation.Context, tag string) (*release.Bundle, error) {
 	installed, err := installedRelease(c)
 	if err != nil {
@@ -331,7 +332,9 @@ func readRelease(cmd *cobra.Command, c operation.Context, tag string) (*release.
 	defer stop()
 	c.Step("asking GitHub for the release")
 	remote, err := release.Find(cmd.Context(), c, tag)
-	if err != nil || current(remote.Tag) {
+	// Without a VERSION, update only moves forward: an installed release newer
+	// than the latest published one (a local build) is kept.
+	if err != nil || current(remote.Tag) || (tag == "" && release.Newer(installed, remote.Tag)) {
 		return nil, err
 	}
 	c.Step("downloading " + remote.Tag)

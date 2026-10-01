@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -141,4 +142,79 @@ func githubToken(ctx context.Context, c operation.Context) string {
 		return ""
 	}
 	return strings.TrimSpace(output.Stdout)
+}
+
+// Newer reports whether release tag a is a later version than b, both of the
+// form vMAJOR.MINOR.PATCH with an optional -prerelease, which comes before the
+// release it precedes (v0.1.8-dev.1 is newer than v0.1.7, older than v0.1.8).
+// Tags that do not parse are never newer.
+func Newer(a, b string) bool {
+	left, okA := parseTag(a)
+	right, okB := parseTag(b)
+	if !okA || !okB {
+		return false
+	}
+	for i := range 3 {
+		if left.core[i] != right.core[i] {
+			return left.core[i] > right.core[i]
+		}
+	}
+	switch {
+	case left.pre == right.pre:
+		return false
+	case left.pre == "":
+		return true
+	case right.pre == "":
+		return false
+	}
+	return prereleaseNewer(strings.Split(left.pre, "."), strings.Split(right.pre, "."))
+}
+
+type tag struct {
+	core [3]uint64
+	pre  string
+}
+
+func parseTag(s string) (tag, bool) {
+	var t tag
+	rest, ok := strings.CutPrefix(s, "v")
+	if !ok {
+		return t, false
+	}
+	core, pre, _ := strings.Cut(rest, "-")
+	core, _, _ = strings.Cut(core, "+")
+	parts := strings.Split(core, ".")
+	if len(parts) != 3 {
+		return t, false
+	}
+	for i, part := range parts {
+		n, err := strconv.ParseUint(part, 10, 64)
+		if err != nil {
+			return t, false
+		}
+		t.core[i] = n
+	}
+	t.pre, _, _ = strings.Cut(pre, "+")
+	return t, true
+}
+
+// prereleaseNewer compares dot-separated prerelease identifiers as semantic
+// versioning does: numbers numerically and below words, words by text, and a
+// longer list newer when every shared identifier is equal.
+func prereleaseNewer(a, b []string) bool {
+	for i := range min(len(a), len(b)) {
+		x, errX := strconv.ParseUint(a[i], 10, 64)
+		y, errY := strconv.ParseUint(b[i], 10, 64)
+		switch {
+		case errX == nil && errY == nil && x != y:
+			return x > y
+		case errX == nil && errY != nil:
+			return false
+		case errX != nil && errY == nil:
+			return true
+		case errX != nil && a[i] != b[i]:
+			return a[i] > b[i]
+		}
+	}
+	return len(a) > len(b)
 }
