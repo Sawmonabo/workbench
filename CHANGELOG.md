@@ -3,6 +3,56 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.8](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.8) - 2026-10-01
+
+### Features
+
+- Select a project or model and open its page by model, day and session
+- A colored report with share bars, a headline total and a full key line
+- Workbench costs replaces the claude-costs script behind a generic source interface
+- One line per repository, plain column names, --detail and --tokens
+- Update installs the release and its tools only; apply owns the machine
+- Branded apply checklist with remembered effect skips, --yes, --reset and --local-build
+- Probe effect deltas, check effects by saved selection and skip their scripts
+- WORKBENCH_PROBE mode prints each effect's delta without changing anything
+- Effect selection model saved in machine.toml [effects]
+
+### Fixes
+
+- The editor scripts probe the work editor extension, so work-tools is never unprobed
+- Update without a version never installs a release older than the active one
+- No local VS Code desktop is nothing to do, not a failed apply
+- Setup leaves machine.toml untouched when its answers and skips are unchanged
+- Status reports the hooks installed only when they call workbench costs ingest
+- An isolated destination never records itself as the machine's applied configuration
+- --approve-plan refuses a stale digest even when nothing would apply
+- Left goes back from a project page instead of switching tools
+- Share bars fill the terminal's whole width
+- Apply removes the replaced claude-costs script and its completion
+- The checklist leaves exactly its decided list on screen
+- Align and clear the checklist, keep labels readable, wrap result lines
+- Fit every table to the terminal; probes write nothing and stop on Ctrl-C
+- Approve the selection the recheck computes under --reset
+- Rerun partially skipped scripts, keep foreign skips and save all-unchecked selections
+
+### Documentation
+
+- Observed checklist, remembered skips and update/apply split on a WSL host
+- Shift+tab switches the costs tabs; synthetic figures in the report example
+- Costs tabs per tool, a resize-aware checklist and an ASCII fallback
+- One color-profile test for tables and result marks; lint-clean table code
+- Render terminal-width tables through lipgloss and charmbracelet/x/term
+- Lock in workbench costs with a generic source interface and terminal-width tables
+- Apply checklist, remembered skips, update/apply split and the unattended recipe
+- Fix the apply plan selection spec and plan after review
+- Revise the claude-costs report view and add its implementation task
+- Add apply plan selection implementation plan
+- Add apply plan selection and update/apply split design spec
+
+### Maintenance
+
+- Pin golangci-lint v2.14.0, which runs on Go 1.27
+
 ## [v0.1.7](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.7) - 2026-09-30
 
 ### Features
