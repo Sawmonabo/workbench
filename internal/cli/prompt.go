@@ -132,6 +132,13 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 			Affirmative("Yes").Negative("No").Value(&approved))
 		return fixed, answered && approved && askErr == nil, nil
 	}
+	var title strings.Builder
+	width := terminalWidth(terminal)
+	writeText(&title, width, 0, checklistTitle)
+	writeText(&title, width, 0, checklistDescription)
+	if _, err := lipgloss.Fprint(terminal, title.String()); err != nil {
+		return nil, false, err
+	}
 	// Inline, so the file list above stays visible. main owns SIGINT; ctrl+c
 	// arrives as a key.
 	final, err := tea.NewProgram(
@@ -150,9 +157,6 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	list, ok := final.(*checklistModel)
 	if !ok || !list.approved {
 		return nil, false, nil
-	}
-	if _, err := lipgloss.Fprint(terminal, list.decided(terminalWidth(terminal))); err != nil {
-		return nil, false, err
 	}
 	selected := fixed
 	for i, name := range names {
