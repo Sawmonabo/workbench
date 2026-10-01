@@ -231,6 +231,8 @@ type codexState struct {
 	Fork    string `json:"fork,omitempty"`     // the thread this one forked from: session_meta forked_from_id
 	Copies  int    `json:"copies,omitempty"`   // a fork's history: 0 not known yet, 1 copied into this file, 2 not
 	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
+	Plan    string `json:"plan,omitempty"`     // the latest rate_limits plan_type read in this file
+	Account string `json:"account,omitempty"`  // the session_meta creator_account_id (the ChatGPT account id)
 }
 
 // Codex versions, as codexState.Version holds them.
@@ -299,8 +301,14 @@ func (s *codexState) row(ts, id string) Usage {
 		Model:     firstNonEmpty(s.Model, "unknown"),
 		Project:   firstNonEmpty(s.Cwd, "unknown"),
 		Session:   s.Thread,
+		Root:      firstNonEmpty(s.Root, s.Thread),
 		Time:      when,
 	}
+	if s.Plan != "" { // the plan of the latest rate_limits read, at or before this row
+		u.Subscription, u.SubscriptionLabel = "codex:"+s.Plan, codexPlanLabel(s.Plan)
+		u.Evidence = EvidenceTranscript
+	}
+	u.AccountKey = s.Account
 	subagent := s.Root != "" && s.Root != s.Thread
 	switch {
 	case subagent && s.Spawned && s.Version >= codexRootTier:
@@ -315,6 +323,21 @@ func (s *codexState) row(ts, id string) Usage {
 		u.TierFrom = s.Root
 	}
 	return u
+}
+
+// readPlan keeps the plan_type of a token_count's rate_limits as the file's
+// latest. A null, absent or empty plan_type changes nothing.
+func (s *codexState) readPlan(rateLimits json.RawMessage, file *FileState) {
+	if !bytes.Contains(rateLimits, []byte(`"plan_type"`)) {
+		return
+	}
+	var limits struct {
+		Plan string `json:"plan_type"`
+	}
+	if decode(rateLimits, &limits) && limits.Plan != "" && limits.Plan != s.Plan {
+		s.Plan = limits.Plan
+		s.save(file)
+	}
 }
 
 // ServedTier is the tier Codex sends a model's request at when tier is
@@ -534,6 +557,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			state.save(file)
 		}
 		u := state.row(rec.Timestamp, record.ResponseID)
+		u.Root = firstNonEmpty(record.SessionID, u.Root) // the root session the record names
 		record.Usage.fill(&u)
 		return []Usage{u}
 	case "event_msg":
@@ -635,6 +659,7 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 // fork that copied nothing carries its parent's total into its own first
 // token_count, which is its own response.
 func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *FileState) []Usage {
+	state.readPlan(event.RateLimits, file) // every token_count names the plan, counted or not
 	if state.Records || state.Version >= codexRecords || event.Info == nil ||
 		len(event.Info.Total) == 0 || len(event.Info.Last) == 0 {
 		return nil
@@ -672,6 +697,7 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 		Forked    string          `json:"forked_from_id"`
 		Version   string          `json:"cli_version"`
 		Cwd       string          `json:"cwd"`
+		Account   string          `json:"creator_account_id"`
 		Source    json.RawMessage `json:"source"`
 	}
 	if !decode(payload, &meta) || meta.ID == "" {
@@ -679,6 +705,7 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 	}
 	state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
 	state.Fork, state.Version = meta.Forked, codexVersion(meta.Version)
+	state.Account = meta.Account
 	state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
 	state.Parent = codexParent(meta.Source)
 	state.Spawned = state.Parent != ""
