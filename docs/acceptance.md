@@ -41,16 +41,23 @@ synthetic answers.
   `[WorkBench] Installed vX and its tools; run workbench apply`; when that
   release is already active it says `[WorkBench] vX is already installed; run
   workbench apply`. `install.sh` installs through `update` and applies nothing,
-  and `update --dry-run` stops before installing. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+  and `update --dry-run` stops before installing. Observed on a WSL2 Ubuntu
+  26.04 host from a local bundle: install, the already-installed line, and
+  `update` without a version keeping a local build newer than the latest
+  published release; `install.sh` was not run there.
 - Installing Workbench and its pinned tools needs no separate approval: from a
   fresh home with no chezmoi or uv on `PATH`, `update` downloads chezmoi, uv,
   Python 3.12.12 and TOML Kit with a progress line and without a prompt, and
-  rerunning it finishes a stage that was declined or failed. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+  rerunning it finishes a stage that was declined or failed. (target; not yet
+  observed from a fresh home)
 - `apply` shows the checklist and asks once, about the checked selection.
   Unattended, `apply --dry-run --json` prints the plan with its digest, and
   `apply --approve-plan DIGEST` applies exactly that plan or exits 4 when the
   machine, release or saved selection changed; `init --answers-from FILE`
-  works the same way. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+  works the same way. Observed on the WSL2 host: the approved digest applied
+  exactly its checked effects, a digest taken before a saved-skip change exited
+  4 with nothing applied and `machine.toml` byte-identical, and a stale digest
+  exits 4 even when nothing would apply; `init --answers-from` was not rerun.
 - A fresh interactive setup asks every machine question from `apply`,
   including with standard input piped as under `curl | sh`. Esc or ctrl+c at
   a question exits 3, saves no answers and names `workbench apply`, which
@@ -62,7 +69,8 @@ synthetic answers.
   `--ask` with `--dry-run` or without a terminal, is refused before installing.
   `apply --dry-run` with a missing answer asks nothing and names the fix. A
   `--local-build` apply uses the saved answers without setup, and the hidden
-  `init --answers-from` adopts an existing chezmoi `[data]` table. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+  `init --answers-from` adopts an existing chezmoi `[data]` table. (target;
+  the questions were not re-asked on a real host)
 - Successive installs keep only the new and replaced releases, and remove
   setup contexts and tool versions that no kept release uses. An interrupted
   activation resumes. A staged release with a missing `release.json`, a changed
@@ -84,7 +92,7 @@ synthetic answers.
   an app that updated itself past the record shows its own. Pinned packages, and the chezmoi, uv and Python
   Workbench runs, are held, and a rerun keeps the digest.
   Unchecking every effect applies files only and is saved like any other
-  selection (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7).
+  selection. (target; not yet observed on a real host)
 - A live status line shows planning, the recheck after approval and setup.
   ctrl+c exits 130, writes nothing and leaves `stty -a` unchanged.
 - `revert` and `project` approve with a Yes/No prompt: `n`, Enter and esc
@@ -93,7 +101,8 @@ synthetic answers.
 - An `apply` whose files all match, with no effect checked and no changed
   selection to save, asks nothing and says
   `[WorkBench] Nothing to apply; this machine already matches`, unless it
-  settles an unfinished apply (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7).
+  settles an unfinished apply. Observed on the WSL2 host, including the
+  settling: an apply stopped by a failed step finished on the next run.
 - In the Ubuntu container, the Linux bootstrap put the current `gh` and its
   man pages in `~/.local/bin` over an apt-installed one, the tmux step cloned
   TPM and installed the plugins, and without network it failed only that step.
@@ -108,6 +117,21 @@ synthetic answers.
   ones install, and Homebrew cleanup, whose per-formula "Skipping" warnings fold
   into one count. Updating a running app quit it, and Homebrew reopened it. The interactive apply handed the terminal to provisioning
   and took it back without stopping under a job-control shell.
+
+### On a WSL2 host
+
+- On WSL2 with Ubuntu 26.04, from a local `v0.1.8-dev` bundle, `apply` planned
+  real deltas (Go 1.27.0 → 1.27.1, the Node default 22 → 26, missing tools,
+  the `.wslconfig` change marked as asking) with nothing unprobed, and probes
+  wrote nothing under the home directory. The approved apply installed `fd`,
+  switched the Node default, installed the missing tools, refreshed the tmux
+  plugins, moved the costs hooks to `workbench costs ingest` and removed the
+  replaced `claude-costs` script and its completion. A skipped `run_once_`
+  script was not recorded by chezmoi and ran on a later apply once unchecked.
+  Saved skips held under `--yes`, `apply --dry-run --reset` showed every effect checked,
+  and `doctor` printed the applied release, date and saved skips. With no
+  local VS Code desktop the editor step says it has nothing to do. The
+  Windows-side effects were skipped; they remain unqualified (below).
 
 ### Revert and recovery
 
@@ -127,7 +151,7 @@ synthetic answers.
   fixes it.
 - On the same umask, an apply with every effect unchecked writes files at 0644
   and folders at 0755. With `~/.config` at 0700 the plan lists a mode-only edit
-  to 0755, and revert restores 0700. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+  to 0755, and revert restores 0700. (target; not yet observed)
 
 ### Projects
 
@@ -145,7 +169,9 @@ synthetic answers.
   line carries a colored ✓, · or ✗, where · marks a step that changed nothing,
   such as tools already in place. Plans shown at a prompt are not repeated,
   and a successful run ends with a green ✓ summary. Piped output and
-  `NO_COLOR` print plain lines.
+  `TERM=dumb` print plain lines, `NO_COLOR` drops color but keeps bold and
+  faint, and a non-UTF-8 locale gets ASCII in place of ─ … → ✓ ✗. Tables fit
+  the terminal from 20 columns up.
 
 ## Unqualified release gates
 

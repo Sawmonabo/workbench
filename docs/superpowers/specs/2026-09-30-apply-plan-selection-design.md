@@ -1,6 +1,6 @@
 # Apply plan, effect selection and the update/apply split
 
-Status: design approved 2026-09-30; not implemented.
+Status: implemented 2026-09-30; observed checks in docs/acceptance.md.
 
 ## 1. Problem
 
