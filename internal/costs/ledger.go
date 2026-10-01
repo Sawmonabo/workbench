@@ -461,6 +461,7 @@ type storedRow struct {
 	ts     string
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
 	rank   int      // EvidenceRank of the stored account_source
+	root   string   // the stored root session
 }
 
 // tiersUnresolved is the meta note a transaction that writes tier_pending or
@@ -563,7 +564,7 @@ ON CONFLICT(request_id) DO UPDATE SET
   account_source = CASE WHEN ` + stronger + ` THEN excluded.account_source ELSE account_source END
 RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
   EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id),
-  ` + evidenceRank("account_source") + `
+  ` + evidenceRank("account_source") + `, root
 `
 
 // evidenceRank is the SQL form of EvidenceRank for a column.
@@ -701,12 +702,16 @@ func (t *Tx) Upsert(u Usage) error {
 		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
 	).Scan(
 		&stored.ts, &stored.tokens[0], &stored.tokens[1],
-		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank,
+		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank, &stored.root,
 	); err != nil {
 		return err
 	}
 	t.wrote.seen[id] = stored
-	t.wrote.roots[rootKey(u.Tool, u.Root)] = true // "" for the rows of a tool that name no session
+	// The stored root, not the incoming one: a copy with stronger evidence
+	// changes the row's account but keeps the root of the copy that set it,
+	// and that is the session a late resolution must look at. "" for the
+	// rows of a tool that name no session.
+	t.wrote.roots[rootKey(u.Tool, stored.root)] = true
 	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
