@@ -360,8 +360,11 @@ func acquireLocks(c Context) (*locks, error) {
 			result.close()
 			return nil, err
 		}
-		if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if held, err := flockNonBlocking(f); held || err != nil {
 			result.close()
+			if err != nil {
+				return nil, Fail(ExitBlocked, "lock", "Cannot lock the private operation lock")
+			}
 			return nil, Fail(
 				ExitBlocked,
 				"locked",
@@ -387,6 +390,44 @@ func acquireLocks(c Context) (*locks, error) {
 		return nil, err
 	}
 	return result, nil
+}
+
+// flockNonBlocking takes an exclusive lock on f without waiting. held is true
+// when another process has it, which is not an error.
+func flockNonBlocking(f *os.File) (held bool, err error) {
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		switch {
+		case err == nil:
+			return false, nil
+		case errors.Is(err, syscall.EINTR):
+		case errors.Is(err, syscall.EWOULDBLOCK):
+			return true, nil
+		default:
+			return false, err
+		}
+	}
+}
+
+// TryLock takes an exclusive lock on the file at path without waiting, for a
+// background job that must run once at a time (the costs ingest worker). The
+// file and its parent directory are created when missing (the directory 0700)
+// and the file is never removed: the lock ends when release is called or the
+// process dies. held is true, with no error, when another process has it.
+func TryLock(path string) (release func(), held bool, err error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, false, err
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	if err != nil {
+		return nil, false, err
+	}
+	held, err = flockNonBlocking(f)
+	if held || err != nil {
+		_ = f.Close()
+		return nil, held, err
+	}
+	return func() { _ = f.Close() }, false, nil
 }
 
 func (l *locks) close() {

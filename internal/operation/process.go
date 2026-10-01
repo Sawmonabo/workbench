@@ -201,6 +201,27 @@ func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), e
 	}, nil
 }
 
+// StartDetached starts executable with args in a new session and returns at
+// once: stdin is the null device, stdout and stderr go to log, and the child
+// is released, so it outlives the caller and nobody waits for it. It is only
+// for Workbench re-executing itself (os.Executable), as the costs hook does to
+// start its ingest worker; it takes no environment or working directory and
+// never runs a third-party tool. Tools go through [Run].
+func StartDetached(executable string, args []string, log *os.File) error {
+	null, err := os.Open(os.DevNull)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = null.Close() }()
+	cmd := exec.Command(executable, args...)
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, log, log
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return cmd.Process.Release()
+}
+
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 

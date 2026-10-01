@@ -48,6 +48,10 @@ logged-in `gh`. Never run it as root.
 | `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
+| `costs` | What Claude Code spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code, and Codex, which is not implemented yet): Tab and Shift+Tab switch, the arrow keys scroll, q quits and leaves the report printed. Without a terminal, `--tool NAME` prints one tool's report. |
+| `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until DATE`, `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
+| `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
+| `costs ingest` | The hook command Claude Code runs on session start and end: silent, exits 0, starts a detached worker. `--worker` ingests in the foreground. |
 
 `update` and `version --list` read the releases from GitHub. They need no
 login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which
@@ -76,6 +80,16 @@ saves the `[data]` table of an existing chezmoi config as machine answers, and
 `init --ask KEY` asks one saved answer again; see
 [switching from dotfiles](switch-from-dotfiles.md). `init --ask` needs a
 terminal and refuses `--dry-run`, because it saves what it asks.
+
+`costs` figures are list-price equivalents, not subscription charges. The
+ledger lives at `~/.local/share/claude-costs/ledger.sqlite` (override
+`CLAUDE_COSTS_LEDGER`), because Claude Code deletes transcripts after about 30
+days and the ledger is the only lasting record; Workbench only adds to it.
+The first `costs` on a machine with an empty ledger ingests the transcripts
+once inline. Manual rate overrides go in `~/.config/claude-costs/rates.json`
+(`CLAUDE_COSTS_RATES`), keyed by model prefix, with any of `input`, `output`,
+`cache_write_5m`, `cache_write_1h` and `cache_read` in USD per million tokens.
+See the [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md).
 
 ## Approval and automation
 

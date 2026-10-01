@@ -1,18 +1,13 @@
 # claude-costs ledger design
 
-Status: implemented 2026-09-30 as a Python script; report view of section 7
-revised and implemented 2026-09-30. Section 11 (decided 2026-09-30) moves the
-tool into the Workbench CLI as `workbench costs`, behind a generic source
-interface; it supersedes the script, command names and paths of sections 3, 5
-and 7 where they differ, and is implemented by Tasks 9 and 10 of
-`../plans/2026-09-30-apply-plan-selection.md`. Observed checks are recorded in section 9. The
-implementation plan refined a few details
-of the approved design (rates parsing, override validation, refresh back-off),
-and checking it against real transcripts added advisor rows (section 4). The
-hooks are not yet applied to any real machine. This design
-supersedes the transcript-scanning design of the earlier
-`home/dot_local/bin/executable_claude-costs` script and the claude-costs row in
-[contracts](workbench-contracts.md).
+Status: implemented 2026-09-30 as `workbench costs` (section 11); the Python
+script it replaced and the command names and paths of sections 3, 5 and 7 are
+superseded where section 11 differs. Observed checks are recorded in section 9.
+The implementation plan refined a few details of the approved design (rates
+parsing, override validation, refresh back-off), and checking it against real
+transcripts added advisor rows (section 4). The hooks are not yet applied to
+any real machine. This design supersedes the transcript-scanning design of the
+earlier `claude-costs` script and its row in [contracts](workbench-contracts.md).
 
 ## 1. Problem
 
@@ -369,8 +364,10 @@ holds the lock, rate card age, and whether both hooks are present in the live
 
 ## 9. Verification
 
-No test suite, per the repository rule: the ledger only inserts and upserts, so
-there is no catastrophic-loss path to guard. Observed checks before commit:
+One test, per the repository rule: `internal/costs/ledger_test.go` guards the
+only catastrophic-loss path, a resumed session's smaller copy lowering stored
+usage or the version 2 upgrade dropping rows. Everything else is observed
+checks before commit:
 
 1. Backfill on a machine with real transcripts, then compare the ledger's cost for each
    session whose transcript still exists against that project's `lastCost` in
@@ -379,8 +376,7 @@ there is no catastrophic-loss path to guard. Observed checks before commit:
    counts earlier runs and is expected to exceed the ledger's figure.
 2. With the hooks applied, start and end a session and confirm `status` shows a
    newer ingest time, with no output or delay in the session.
-3. `python3 -m py_compile` on the script and a Ruff check with the repository's
-   configuration.
+3. The repository's Go gates (`go build`, `go vet`, `go test`, golangci-lint).
 4. `scripts/render-check.sh` for the affected roles and modes after the
    `claude.json` change.
 
@@ -495,6 +491,7 @@ type Source interface {
 	ParsePricing(page string) RateCard          // that page's prices
 	Observations(home string) []Observation     // the tool's own (tokens, cost) pairs, for calibration; nil when none
 	Hooks(home string) map[string]bool          // hook event → whether the ingest hook is installed
+	Session(file, transcript string) bool       // is file part of the session the hook's transcript names
 }
 
 // Usage is one billed response, whatever tool produced it.
@@ -533,8 +530,9 @@ Rules:
   are generic. The Claude cache stays `rates-official.json`; another source
   caches to `rates-official-<tool>.json`. Overrides stay one `rates.json` keyed
   by model prefix.
-- The hook passes `transcript_path`; ingest asks each source whether the path is
-  one of its transcripts to tag that file's rows `session`.
+- The hook passes `transcript_path`; ingest asks each source (`Session`) whether
+  a file belongs to the session that transcript names, to tag that file's rows
+  `session`.
 - No registration API, no configuration-driven source list, no sub-package per
   tool ([AGENTS.md](../../../AGENTS.md): no speculative frameworks).
 

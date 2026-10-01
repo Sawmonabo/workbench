@@ -58,7 +58,7 @@ still bound by its actual content digest.
 Files (3 changed, 17 unchanged)
   ~/.bashrc                 +7 −19
   ~/.claude/settings.json   +37 −11, mode 0644 → 0600
-  ~/.local/bin/claude-costs +1122 −448
+  ~/.gitconfig              +4 −1
 
 Effects
   [x] runtimes          Node 22.23 → 26.1 (default alias); Python 3.14 ok; Rust stable ok     user, network

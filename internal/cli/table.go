@@ -321,7 +321,7 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 	pad := strings.Repeat(" ", indent)
 	var lines []string
 	for line := range strings.SplitSeq(tbl.Render(), "\n") {
-		lines = append(lines, pad+strings.TrimRight(line, " "))
+		lines = append(lines, pad+trimEnd(line))
 	}
 	if t.Total != nil {
 		// The rule spans the table and sits above the total row.
@@ -333,6 +333,17 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 		lines = append(lines[:len(lines)-1], rule, lines[len(lines)-1])
 	}
 	return lines
+}
+
+// trimEnd drops the spaces that end a line even when escape codes follow
+// them, as they do after an empty bold cell (a head or total row's empty last
+// column), so the line still ends without spaces once colors strip.
+func trimEnd(line string) string {
+	visible := ansi.Strip(line)
+	if trimmed := strings.TrimRight(visible, " "); trimmed != visible {
+		return ansi.Truncate(line, ansi.StringWidth(trimmed), "")
+	}
+	return line
 }
 
 // stacked prints each row as a block: a first line joining the cells before

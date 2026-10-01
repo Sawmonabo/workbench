@@ -103,6 +103,7 @@ func newRoot(o *options) *cobra.Command {
 		projectCommand(o),
 		initCommand(o),
 		releaseCheckCommand(o),
+		costsCommand(o),
 	)
 	return root
 }

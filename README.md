@@ -43,6 +43,7 @@ workbench init --ask machine_role   # change personal/work/both, then run apply
 workbench version --list     # published releases, marking yours
 workbench doctor             # what is installed and applied, tools, host
 workbench revert             # pick a checkpoint and restore its files
+workbench costs              # what Claude Code spent, one tab per tool
 workbench project configure ./apps/api --language python --dry-run
 workbench project configure ./apps/api --language python
 workbench project revert ./apps/api
