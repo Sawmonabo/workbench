@@ -1,17 +1,25 @@
 # Resolve the actual desktop installation without launching an editor/server.
 # Explicit directories below select its local default profile, never a remote.
+# Exit 3 means there is no local desktop to install into (none on PATH, or the
+# code on PATH is a remote, Windows or other CLI): nothing to do, not a
+# failure. Any other refusal is about a real desktop and fails the step.
+desktop_status=0
 code_desktop=$(python3 - <<'PY'
 import json, os, pathlib, shutil, sys
 candidate = shutil.which('code')
 if not candidate:
-    sys.exit('Local VS Code desktop CLI unavailable')
+    print('no VS Code on PATH', file=sys.stderr)
+    sys.exit(3)
 cli = pathlib.Path(candidate).resolve()
 if sys.platform == 'darwin':
     allowed = [pathlib.Path('/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code')]
 else:
     allowed = [pathlib.Path('/usr/share/code/bin/code'), pathlib.Path('/snap/code/current/usr/share/code/bin/code').resolve()]
-if cli not in allowed or not cli.is_file() or not os.access(cli, os.X_OK):
-    sys.exit('Unqualified VS Code CLI; remote, Windows, portable and custom installations require explicit host qualification')
+if cli not in allowed:
+    print('the code on PATH is not a local desktop install (remote, Windows, portable or custom)', file=sys.stderr)
+    sys.exit(3)
+if not cli.is_file() or not os.access(cli, os.X_OK):
+    sys.exit('Local VS Code desktop CLI is not an executable file')
 app = cli.parent.parent
 try:
     product = json.loads((app / 'product.json').read_text())
@@ -31,30 +39,36 @@ for directory in (data, home / '.vscode/extensions'):
             sys.exit('Local VS Code profile or extension directory aliases require explicit ownership qualification')
 print(cli)
 PY
-)
-{{ if eq .chezmoi.os "darwin" -}}
-code_user_data="$HOME/Library/Application Support/Code"
-{{ else -}}
-code_user_data="$HOME/.config/Code"
-{{ end -}}
-code_cli=(env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER "$code_desktop" --user-data-dir "$code_user_data" --extensions-dir "$HOME/.vscode/extensions")
-# Install only what is missing; extension IDs compare without case.
-installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]')
-missing=()
-for extension in{{ range .packages.vscode_extensions }} '{{ . }}'{{ end }}{{ if .has_work }} jasonn-porch.gitlab-mr{{ end }}; do
-    if ! printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
-        missing+=("$extension")
-    fi
-done
-if [ ${#missing[@]} -eq 0 ]; then
-    echo "==> VS Code extensions already installed."
-fi
-# One failed install must not stop the rest; report every failure at the end.
-failed_extensions=()
-for extension in ${missing[@]+"${missing[@]}"}; do
-    "${code_cli[@]}" --install-extension "$extension" || failed_extensions+=("$extension")
-done
-if [ ${#failed_extensions[@]} -gt 0 ]; then
-    printf '    WARNING: could not install VS Code extension %s\n' "${failed_extensions[@]}" >&2
+) || desktop_status=$?
+if [ "$desktop_status" -eq 3 ]; then
+    echo "==> VS Code extensions skipped: no local VS Code desktop to install into."
+elif [ "$desktop_status" -ne 0 ]; then
     status=1
+else
+{{ if eq .chezmoi.os "darwin" -}}
+    code_user_data="$HOME/Library/Application Support/Code"
+{{ else -}}
+    code_user_data="$HOME/.config/Code"
+{{ end -}}
+    code_cli=(env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER "$code_desktop" --user-data-dir "$code_user_data" --extensions-dir "$HOME/.vscode/extensions")
+    # Install only what is missing; extension IDs compare without case.
+    installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]')
+    missing=()
+    for extension in{{ range .packages.vscode_extensions }} '{{ . }}'{{ end }}{{ if .has_work }} jasonn-porch.gitlab-mr{{ end }}; do
+        if ! printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
+            missing+=("$extension")
+        fi
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "==> VS Code extensions already installed."
+    fi
+    # One failed install must not stop the rest; report every failure at the end.
+    failed_extensions=()
+    for extension in ${missing[@]+"${missing[@]}"}; do
+        "${code_cli[@]}" --install-extension "$extension" || failed_extensions+=("$extension")
+    done
+    if [ ${#failed_extensions[@]} -gt 0 ]; then
+        printf '    WARNING: could not install VS Code extension %s\n' "${failed_extensions[@]}" >&2
+        status=1
+    fi
 fi
