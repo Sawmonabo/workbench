@@ -68,22 +68,9 @@ func (claude) Transcripts(home string) ([]string, error) {
 	return files, err
 }
 
-// Session reports whether file is part of the session transcript belongs to:
-// the SessionEnd transcript is <dir>/<sid>.jsonl and its subagents live under
-// <dir>/<sid>/. Both are that session's rows.
-func (claude) Session(file, transcript string) bool {
-	if transcript == "" {
-		return false
-	}
-	return file == transcript ||
-		strings.HasPrefix(
-			file,
-			strings.TrimSuffix(transcript, filepath.Ext(transcript))+string(filepath.Separator),
-		)
-}
-
-// Account is the email Claude Code is signed in with.
-func (claude) Account(home string) string {
+// SignIn is the sign-in Claude Code keeps in ~/.claude.json: the email of
+// oauthAccount, "unknown" when there is none. The subscription is not read yet.
+func (claude) SignIn(home string) SignIn {
 	var data struct {
 		OAuthAccount struct {
 			EmailAddress string `json:"emailAddress"`
@@ -91,9 +78,9 @@ func (claude) Account(home string) string {
 	}
 	raw, err := os.ReadFile(claudeJSON(home))
 	if err != nil || json.Unmarshal(raw, &data) != nil || data.OAuthAccount.EmailAddress == "" {
-		return "unknown"
+		return SignIn{Account: "unknown"}
 	}
-	return data.OAuthAccount.EmailAddress
+	return SignIn{Account: data.OAuthAccount.EmailAddress}
 }
 
 // projectFromPath is the last-resort project for records without a cwd: the
@@ -217,6 +204,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		Time:      when,
 		Project:   firstNonEmpty(rec.Cwd, file.LastCwd, file.Fallback),
 		Session:   rec.SessionID,
+		Root:      rec.SessionID,
 		RequestID: id,
 		Model:     model,
 	}

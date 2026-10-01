@@ -3,6 +3,7 @@ package costs
 import (
 	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -26,7 +27,8 @@ const logKeep = 200 * 1024
 // IngestOptions says what the worker was started for.
 type IngestOptions struct {
 	Event      string             // the hook event ("SessionStart", "SessionEnd"); "" for a manual run
-	Transcript string             // the hook's transcript_path, whose session's rows are tagged "session"
+	Transcript string             // the hook's transcript_path; ingest no longer reads it
+	SessionID  string             // the hook's session_id: the root session whose binding the hook stored
 	Progress   operation.Progress // optional: a step per transcript
 }
 
@@ -76,7 +78,11 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if tool.Source == nil {
 			continue
 		}
-		account := tool.Source.Account(paths.Home)
+		signIn := tool.Source.SignIn(paths.Home)
+		var accounts map[string]string
+		if directory, ok := tool.Source.(accountDirectory); ok {
+			accounts = directory.Accounts(paths.Home)
+		}
 		if s, ok := tool.Source.(tierServer); ok {
 			served[tool.Name] = s.ServedTier(paths.Home)
 		}
@@ -94,13 +100,9 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 					clipRunes(filepath.Base(filepath.Dir(read.path)), 40),
 				))
 			}
-			source := "sweep"
-			if opts.Event == "SessionEnd" && tool.Source.Session(read.path, opts.Transcript) {
-				source = "session"
-			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, run, tool, read, account, source, served[tool.Name])
+				err = commitFile(ctx, ledger, run, tool, read, signIn, accounts, served[tool.Name])
 			}
 			switch {
 			case err == nil && read.changed:
@@ -327,7 +329,8 @@ func commitFile(
 	run *Run,
 	tool Tool,
 	read fileRead,
-	account, source string,
+	signIn SignIn,
+	accounts map[string]string,
 	served func(model, tier string) string,
 ) error {
 	if read.vanished {
@@ -338,14 +341,15 @@ func commitFile(
 	}
 	return wrapLedger(ledger.Transaction(ctx, run, func(tx *Tx) error {
 		for _, u := range read.usage {
-			u.Tool, u.Account = tool.Name, account
+			u.Tool = tool.Name
+			attribute(&u, signIn, accounts)
 			if base, tier := tool.SplitModel(u.Model); served != nil && tier != "" {
 				u.Model = base
 				if tier = served(base, tier); tier != "" {
 					u.Model += "@" + tier
 				}
 			}
-			if err := tx.Upsert(u, source); err != nil {
+			if err := tx.Upsert(u); err != nil {
 				return err
 			}
 		}
@@ -356,6 +360,22 @@ func commitFile(
 		}
 		return tx.SetFile(read.path, read.row)
 	}))
+}
+
+// attribute gives a row read from a transcript the account and subscription
+// it is stored with. A row whose transcript decided its subscription
+// (EvidenceTranscript) takes the email of the sign-in that holds its
+// AccountKey, "unknown" when none does; ResolveAccounts fills that in later.
+// Any other row is stamped with the tool's current sign-in under
+// EvidenceUnknown, which ResolveAccounts raises once a binding or observation
+// names the session or time.
+func attribute(u *Usage, signIn SignIn, accounts map[string]string) {
+	if u.Evidence == EvidenceTranscript {
+		u.Account = cmp.Or(accounts[u.AccountKey], "unknown")
+		return
+	}
+	u.Account, u.Subscription, u.SubscriptionLabel = signIn.Account, signIn.Subscription, signIn.Label
+	u.Evidence = EvidenceUnknown
 }
 
 // readAhead bounds how far reads run ahead of the commits: the size of the

@@ -74,7 +74,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 				Output:       output,
 				CacheWrite5m: 300,
 				CacheRead:    cacheRead,
-			}, "sweep")
+			})
 		})
 		if err != nil {
 			t.Fatal(err)

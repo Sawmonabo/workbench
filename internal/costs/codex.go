@@ -96,16 +96,16 @@ func codexWalk(root, ext string) ([]string, error) {
 	return files, err
 }
 
-// Session reports whether file is the rollout the hook named. Codex's
-// SessionEnd fires for root threads only, so a subagent's rows are sweep rows.
-func (codex) Session(file, transcript string) bool {
-	return transcript != "" && file == transcript
+// SignIn is the sign-in Codex keeps in auth.json: the email claim of its ID
+// token, "unknown" when there is none. The subscription is not read yet.
+func (codex) SignIn(home string) SignIn {
+	return SignIn{Account: codexEmail(home)}
 }
 
-// Account is the email claim of the ID token Codex keeps in auth.json. The
+// codexEmail is the email claim of the ID token Codex keeps in auth.json. The
 // token is only decoded, never verified; the access and refresh tokens are
 // never read. API-key and keyring sign-ins have no email there.
-func (codex) Account(home string) string {
+func codexEmail(home string) string {
 	var auth struct {
 		Tokens struct {
 			IDToken string `json:"id_token"`

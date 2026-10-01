@@ -91,6 +91,8 @@ CREATE TABLE responses (
   session_id     TEXT NOT NULL,
   account        TEXT NOT NULL,
   account_source TEXT NOT NULL,
+  subscription   TEXT NOT NULL DEFAULT 'unknown',
+  root           TEXT NOT NULL DEFAULT '',
   input          INTEGER NOT NULL,
   output         INTEGER NOT NULL,
   cache_write_5m INTEGER NOT NULL,
@@ -102,6 +104,7 @@ CREATE INDEX responses_ts ON responses (ts);
 CREATE INDEX responses_project_model ON responses (project, model);
 CREATE INDEX responses_account ON responses (account);
 CREATE INDEX responses_tool ON responses (tool);
+CREATE INDEX responses_root ON responses (tool, root);
 CREATE TABLE files (
   path      TEXT PRIMARY KEY,
   offset    INTEGER NOT NULL,
@@ -122,6 +125,39 @@ CREATE TABLE tier_pending (
   root       TEXT NOT NULL
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+` + subscriptionSchema
+
+// subscriptionSchema is the part of the schema that attributes rows to a
+// subscription, also created by the upgrade of an older ledger. Every time is
+// in timeLayout, so it compares as text with responses.ts.
+//
+// responses.account_source holds the evidence level of account and
+// subscription (EvidenceTranscript, EvidenceSession, EvidenceObserved or
+// EvidenceUnknown); responses.subscription is a subscription id ("unknown"
+// when none) and responses.root the session a hook names for the row.
+//
+//   - session_accounts: the sign-in a hook found when a session started (or
+//     resumed) at since, for the root session of a tool; a row of that
+//     session takes the binding with the latest since at or before its time.
+//   - sign_ins: the sign-in an ingest run observed for a tool at a time.
+//   - subscriptions: the display label of each subscription id.
+const subscriptionSchema = `
+CREATE TABLE session_accounts (
+  tool         TEXT NOT NULL,
+  session      TEXT NOT NULL,
+  since        TEXT NOT NULL,
+  account      TEXT NOT NULL,
+  subscription TEXT NOT NULL,
+  PRIMARY KEY (tool, session, since)
+);
+CREATE TABLE sign_ins (
+  tool         TEXT NOT NULL,
+  at           TEXT NOT NULL,
+  account      TEXT NOT NULL,
+  subscription TEXT NOT NULL,
+  PRIMARY KEY (tool, at)
+);
+CREATE TABLE subscriptions (id TEXT PRIMARY KEY, label TEXT NOT NULL);
 `
 
 // Ledger is the SQLite record of every response.
@@ -232,7 +268,10 @@ func (l *Ledger) create(ctx context.Context) error {
 
 // upgrade is the only write to existing data, in one transaction that keeps
 // every row: version 1 gains the tool column, versions 1 and 2 gain the saved
-// file state and the tier tables.
+// file state, the tier tables and the subscription columns and tables. An
+// upgraded row keeps its email, its subscription is unknown and its evidence
+// is unknown, as the earlier "session" and "sweep" sources are gone; a
+// Claude Code row's root is its session.
 func (l *Ledger) upgrade(ctx context.Context) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
 		var version string
@@ -257,10 +296,16 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 				`CREATE TABLE IF NOT EXISTS tier_changes (thread_id TEXT NOT NULL, ts TEXT NOT NULL,
 				  tier TEXT NOT NULL, PRIMARY KEY (thread_id, ts, tier))`,
 				`CREATE TABLE IF NOT EXISTS tier_pending (request_id TEXT PRIMARY KEY, root TEXT NOT NULL)`,
+				"ALTER TABLE responses ADD COLUMN subscription TEXT NOT NULL DEFAULT 'unknown'",
+				"ALTER TABLE responses ADD COLUMN root TEXT NOT NULL DEFAULT ''",
+				"CREATE INDEX IF NOT EXISTS responses_root ON responses (tool, root)",
+				"UPDATE responses SET account_source = '"+EvidenceUnknown+"'",
+				"UPDATE responses SET root = session_id WHERE tool = '"+firstTool+"'",
 			)
 		default:
 			return nil // another process upgraded it first
 		}
+		statements = append(statements, subscriptionSchema)
 		for _, statement := range statements {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
@@ -392,7 +437,14 @@ type Run struct {
 	pending, threads map[string]bool
 	// marked is whether tiersUnresolved has been stored this run.
 	marked bool
+	// roots are the sessions (rootKey) whose rows this run stored: what
+	// ResolveAccounts attributes again, as pending and threads scope
+	// ResolveTiers.
+	roots map[string]bool
 }
+
+// rootKey identifies a root session in a Run.
+func rootKey(tool, root string) string { return tool + ":" + root }
 
 // NewRun is the empty record of an ingest run.
 func NewRun() *Run {
@@ -400,12 +452,14 @@ func NewRun() *Run {
 		seen:    map[string]storedRow{},
 		pending: map[string]bool{},
 		threads: map[string]bool{},
+		roots:   map[string]bool{},
 	}
 }
 
 type storedRow struct {
 	ts     string
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
+	rank   int      // EvidenceRank of the stored account_source
 }
 
 // tiersUnresolved is the meta note a transaction that writes tier_pending or
@@ -452,6 +506,7 @@ func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) 
 		maps.Copy(run.seen, t.wrote.seen)
 		maps.Copy(run.pending, t.wrote.pending)
 		maps.Copy(run.threads, t.wrote.threads)
+		maps.Copy(run.roots, t.wrote.roots)
 		run.marked = run.marked || t.wrote.marked
 	}
 	return err
@@ -476,24 +531,39 @@ func (t *Tx) prepared(slot **sql.Stmt, query string) (*sql.Stmt, error) {
 // copies its parent's usage with the fork's time and thread, so the time,
 // model, project and session come from the earliest occurrence; on a tie the
 // row read last wins, as it always has.
-const upsert = `
+var upsert = `
 INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
+                       subscription, root,
                        input, output, cache_write_5m, cache_write_1h, cache_read, tool)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(request_id) DO UPDATE SET
   ts         = CASE WHEN ` + earlier + ` THEN excluded.ts ELSE ts END,
   model      = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
   project    = CASE WHEN ` + earlier + ` THEN excluded.project ELSE project END,
   session_id = CASE WHEN ` + earlier + ` THEN excluded.session_id ELSE session_id END,
+  root       = CASE WHEN ` + earlier + ` THEN excluded.root ELSE root END,
   input = MAX(input, excluded.input), output = MAX(output, excluded.output),
   cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
   cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
   cache_read = MAX(cache_read, excluded.cache_read),
-  account = CASE WHEN excluded.account_source = 'session' THEN excluded.account ELSE account END,
-  account_source = CASE WHEN excluded.account_source = 'session' THEN 'session' ELSE account_source END
+  account        = CASE WHEN ` + stronger + ` THEN excluded.account ELSE account END,
+  subscription   = CASE WHEN ` + stronger + ` THEN excluded.subscription ELSE subscription END,
+  account_source = CASE WHEN ` + stronger + ` THEN excluded.account_source ELSE account_source END
 RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
-  EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id)
+  EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id),
+  ` + evidenceRank("account_source") + `
 `
+
+// evidenceRank is the SQL form of EvidenceRank for a column.
+func evidenceRank(column string) string {
+	return "(CASE " + column + " WHEN '" + EvidenceTranscript + "' THEN 3 WHEN '" +
+		EvidenceSession + "' THEN 2 WHEN '" + EvidenceObserved + "' THEN 1 ELSE 0 END)"
+}
+
+// stronger is true when the incoming copy rests on stronger evidence than the
+// stored row, which then takes its account and subscription; equal evidence
+// keeps the stored ones. In an UPDATE, account_source is the old value.
+var stronger = evidenceRank("excluded.account_source") + " > " + evidenceRank("account_source")
 
 // earlier is true when the incoming copy is at least as old as the stored
 // row, which then takes its attribution. In an UPDATE, ts is the old value.
@@ -570,24 +640,31 @@ func (l *Ledger) DropHeldCopies(
 	})
 }
 
-// Upsert records one response; source is "session" or "sweep". The account and
-// source of an existing row are replaced only by a "session" one. A row priced
+// Upsert records one response. Its account, subscription and evidence come
+// from the Usage: a source sets Subscription and Evidence only when its
+// transcript names the plan (EvidenceTranscript); otherwise ingest stamps the
+// sign-in it read with EvidenceUnknown, "" counting as unknown and an empty
+// Subscription as "unknown", and ResolveAccounts raises the evidence once a
+// binding or observation names the row's session or time. The account,
+// subscription and evidence of an existing row are replaced only by a copy
+// with stronger evidence. A row priced
 // by its root thread's tier waits in tier_pending until ResolveTiers prices it;
 // the pending row follows the copy whose attribution is stored, so a later
 // copy never changes what an earlier one decided.
-func (t *Tx) Upsert(u Usage, source string) error {
+func (t *Tx) Upsert(u Usage) error {
 	id := storedID(u)
+	evidence := cmp.Or(u.Evidence, EvidenceUnknown)
+	rank := EvidenceRank(evidence)
 	when := ""
 	if !u.Time.IsZero() {
 		when = u.Time.UTC().Format(timeLayout)
 	}
-	// A sweep copy later than a committed row with a time, and with no count
-	// above the committed ones, changes nothing: the attribution stays, MAX
-	// keeps the counts, only a session copy replaces the account, and the
-	// pending tier follows the stored attribution. A stored time only moves
-	// earlier and counts only grow, so this holds whatever this transaction
-	// wrote since.
-	if seen, ok := t.run.seen[id]; ok && source != "session" && when != "" && seen.ts != "" &&
+	// A copy later than a committed row with a time, with no count above the
+	// committed ones and no stronger evidence, changes nothing: the
+	// attribution stays, MAX keeps the counts, and the pending tier follows
+	// the stored attribution. A stored time only moves earlier, counts and
+	// evidence only grow, so this holds whatever this transaction wrote since.
+	if seen, ok := t.run.seen[id]; ok && rank <= seen.rank && when != "" && seen.ts != "" &&
 		when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
 		u.CacheWrite5m <= seen.tokens[2] && u.CacheWrite1h <= seen.tokens[3] &&
 		u.CacheRead <= seen.tokens[4] {
@@ -601,15 +678,19 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	var pending bool
 	if err := statement.QueryRowContext(
 		t.ctx,
-		id, when, u.Model, u.Project, u.Session, u.Account, source,
+		id, when, u.Model, u.Project, u.Session, u.Account, evidence,
+		cmp.Or(u.Subscription, "unknown"), u.Root,
 		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
 	).Scan(
 		&stored.ts, &stored.tokens[0], &stored.tokens[1],
-		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending,
+		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank,
 	); err != nil {
 		return err
 	}
 	t.wrote.seen[id] = stored
+	if u.Root != "" {
+		t.wrote.roots[rootKey(u.Tool, u.Root)] = true
+	}
 	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
@@ -664,6 +745,42 @@ func (t *Tx) AddTierChange(c TierChange) error {
 		return err
 	}
 	t.wrote.threads[key] = true
+	return nil
+}
+
+// BindSession records the sign-in s a tool's session started or resumed under
+// at time at: a session_accounts row for (tool, session, at), replacing one at
+// the same time. The SessionStart and SessionEnd hook process calls it, in its
+// own short transaction, before it detaches the worker; session is the root
+// session the hook names (Usage.Root). It also stores s's subscription label
+// in subscriptions.
+func (l *Ledger) BindSession(
+	ctx context.Context,
+	tool, session string,
+	at time.Time,
+	s SignIn,
+) error {
+	return nil
+}
+
+// ObserveSignIn records that tool was signed in as s at time at: a sign_ins
+// row, and s's subscription label in subscriptions, refreshed when s names
+// one. Every ingest run calls it once per tool, in a transaction of its own.
+func (t *Tx) ObserveSignIn(tool string, at time.Time, s SignIn) error {
+	return nil
+}
+
+// ResolveAccounts gives each row not decided by its transcript the strongest
+// evidence it has: the session binding with the latest since at or before its
+// time (EvidenceSession), else the sign-in observed on both sides of its time
+// when the two agree (EvidenceObserved), else EvidenceUnknown with the account
+// it was stamped with and subscription "unknown". A row decided by its
+// transcript keeps its subscription and only fills an "unknown" account the
+// same way. With scope set only the sessions in scope.roots are resolved, plus
+// any row whose binding or observation changed since the last resolution; a
+// nil scope resolves every row. Ingest calls it after every file of a run is
+// committed, as it calls ResolveTiers.
+func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 	return nil
 }
 

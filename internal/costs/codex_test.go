@@ -45,7 +45,7 @@ func TestCodexForkCountsEveryResponseOnce(t *testing.T) {
 			for _, line := range c.lines {
 				for _, u := range (codex{}).Parse([]byte(line), file) {
 					u.Tool, u.Account = "codex", "unknown"
-					if err := tx.Upsert(u, "sweep"); err != nil {
+					if err := tx.Upsert(u); err != nil {
 						return err
 					}
 				}

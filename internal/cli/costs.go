@@ -545,8 +545,14 @@ func costsStatus(info costs.StatusInfo, width int) string {
 		}
 		c := tool.Coverage
 		add("coverage"+suffix, fmt.Sprintf(
-			"%s → %s, %s responses (%s session-tagged, %s sweep-tagged)",
-			c.First, c.Last, commas(c.Responses), commas(c.SessionRows), commas(c.SweepRows),
+			"%s → %s, %s responses (%s transcript, %s session, %s observed, %s unknown account evidence)",
+			c.First,
+			c.Last,
+			commas(c.Responses),
+			commas(c.TranscriptRows),
+			commas(c.SessionRows),
+			commas(c.ObservedRows),
+			commas(c.UnknownRows),
 		))
 	}
 	add("last ingest", localTime(info.LastIngestAt)+"  "+faint.Render(info.LastIngestSummary))

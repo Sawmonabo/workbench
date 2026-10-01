@@ -63,8 +63,10 @@ type Coverage struct {
 	First             string `json:"first"` // YYYY-MM-DD, or "none"
 	Last              string `json:"last"`
 	Responses         int64  `json:"responses"`
+	TranscriptRows    int64  `json:"transcript_rows"` // rows by the evidence of their account
 	SessionRows       int64  `json:"session_rows"`
-	SweepRows         int64  `json:"sweep_rows"`
+	ObservedRows      int64  `json:"observed_rows"`
+	UnknownRows       int64  `json:"unknown_rows"`
 	LastIngestAt      string `json:"last_ingest_at"`
 	LastIngestSummary string `json:"last_ingest_summary"`
 	LastError         string `json:"last_error"`
@@ -343,10 +345,14 @@ func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) 
 			return c, err
 		}
 		switch source {
-		case "session":
+		case EvidenceTranscript:
+			c.TranscriptRows = n
+		case EvidenceSession:
 			c.SessionRows = n
-		case "sweep":
-			c.SweepRows = n
+		case EvidenceObserved:
+			c.ObservedRows = n
+		case EvidenceUnknown:
+			c.UnknownRows = n
 		}
 	}
 	if err := rows.Err(); err != nil {

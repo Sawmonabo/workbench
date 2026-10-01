@@ -14,19 +14,59 @@ type Source interface {
 	Name() string                               // "claude", "codex"
 	Transcripts(home string) ([]string, error)  // files to ingest
 	Parse(line []byte, file *FileState) []Usage // usage rows in one line
-	Account(home string) string                 // who was signed in, or "unknown"
-	Builtin() RateCard                          // prices shipped with Workbench
-	PricingURL() string                         // official price page, "" when none
-	ParsePricing(page string) RateCard          // that page's prices
+	SignIn(
+		home string,
+	) SignIn // the tool's current sign-in; the zero SignIn when none
+	Builtin() RateCard                 // prices shipped with Workbench
+	PricingURL() string                // official price page, "" when none
+	ParsePricing(page string) RateCard // that page's prices
 	Observations(
 		home string,
 	) []Observation // the tool's own (tokens, cost) pairs, for calibration; nil when none
 	Hooks(home string) map[string]string // hook event → a Hook* state
+}
 
-	// Session reports whether file belongs to the session whose transcript is
-	// transcript (the SessionEnd hook passes it), so that session's rows are
-	// tagged "session" and not "sweep". A session may span several files.
-	Session(file, transcript string) bool
+// SignIn is who a tool is signed in as, and what pays for it: the account (an
+// email, "unknown" when there is none), the subscription (a stable id such as
+// "claude:<organization uuid>" or "codex:plus", "api-key" for an API key, ""
+// when unknown) and the label the report shows for that subscription ("Max",
+// "Team (Example Org)", "Plus"; "" when the id says it all). The zero SignIn
+// means nothing is known.
+type SignIn struct {
+	Account, Subscription, Label string
+}
+
+// accountDirectory is a source whose transcripts name an account by the tool's
+// own id (Usage.AccountKey): Accounts maps each such id to the email of the
+// sign-in that holds it, for every sign-in the tool keeps, not only the
+// current one. Ingest uses it for rows whose transcript names the account.
+type accountDirectory interface {
+	Accounts(home string) map[string]string
+}
+
+// The evidence a row's account and subscription rest on, strongest first; the
+// ledger stores it as account_source. A stronger copy of a row replaces a
+// weaker one, an equal one keeps the stored value.
+const (
+	EvidenceTranscript = "transcript" // the transcript named them (Codex: plan and creator account)
+	EvidenceSession    = "session"    // the sign-in a hook bound to the row's root session
+	EvidenceObserved   = "observed"   // the sign-in observed on both sides of the row's time
+	EvidenceUnknown    = "unknown"    // no evidence
+)
+
+// EvidenceRank orders the evidence levels: 3 transcript, 2 session, 1 observed,
+// 0 unknown or anything else.
+func EvidenceRank(evidence string) int {
+	switch evidence {
+	case EvidenceTranscript:
+		return 3
+	case EvidenceSession:
+		return 2
+	case EvidenceObserved:
+		return 1
+	default:
+		return 0
+	}
 }
 
 // The states of a tool's ingest hook for one event, as Hooks reports them.
@@ -48,6 +88,28 @@ type Usage struct {
 	// thread's selected tier at the row's time; TurnTierFrom prices it at a
 	// thread's running-turn tier at another time.
 	TierFrom string
+
+	// Subscription is the stable id of what paid for the row, and
+	// SubscriptionLabel its display label (see SignIn); a source sets them
+	// only when its transcript names the plan (Codex), else ingest fills them
+	// from a sign-in. A parser's Subscription is final: re-attribution never
+	// changes the subscription of a row whose Evidence is EvidenceTranscript.
+	Subscription, SubscriptionLabel string
+
+	// Root is the session a hook names for the row: Claude's sessionId (the
+	// same for a subagent's file), Codex's root thread. "" when unknown; the
+	// ledger matches session bindings on it.
+	Root string
+
+	// AccountKey is the tool's own id of the account that answered, when the
+	// transcript names it (Codex's creator_account_id, the ChatGPT account id),
+	// "" otherwise. Ingest resolves it to an email through accountDirectory.
+	AccountKey string
+
+	// Evidence is "transcript" when the source decided the subscription from
+	// the transcript itself, "" otherwise. Ingest and the ledger assign every
+	// other level.
+	Evidence string
 
 	// CopyOf, when set, is "<thread>@<time>": the row may repeat a response
 	// of that thread written before that time, under another key. It is
