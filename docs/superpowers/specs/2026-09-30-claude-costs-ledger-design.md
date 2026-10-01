@@ -531,10 +531,23 @@ bundles still cross-compile without a C toolchain.
 ### Terminal width
 
 Every table, here and in the apply checklist, fits the terminal: width from the
-terminal, else `COLUMNS`, else 100 when not a terminal. Each column has a drop
-priority; while a row is too wide the next column drops (report: `cached`,
-then `tokens`, then `share`, then `calls`; checklist: privilege tag, then the
-saved note). Then the name or delta column clips, paths from the left and
-deltas from the right, with `…`, down to 12 characters. Below that every row
-prints as a stacked block, one value per line, each clipped to the width. No
-line is wider than the terminal at any width.
+terminal, else `COLUMNS`, else 100 when not a terminal. The report's name
+column first shortens to 24 characters. Then, while a row is too wide, the
+next column drops by priority (report: `cached`, then `tokens`, then `share`,
+then `calls`; checklist: privilege tag, then the saved note). Then the name or
+delta column clips further, paths from the left and deltas from the right,
+with `…`, down to 12 characters. Below that every row prints as a stacked
+block: its leading cells (`[x]  runtimes`) on one line, then one value per
+line, each clipped to the width. Headings and notes wrap at word boundaries.
+No line is wider than the terminal at any width, and a wide terminal does not
+spread the columns: they keep their natural widths, two spaces apart.
+
+Rendering is the Charm stack the CLI already uses, so it behaves the same in
+every terminal Workbench runs in: `charmbracelet/x/term` reads the size,
+`lipgloss/v2/table` lays out and styles the cells (bold head over a faint
+rule, numbers right-aligned, a bold total under a faint rule, secondary
+columns faint), `charmbracelet/x/ansi` measures, clips and wraps by display
+cell, so wide characters and escape codes count correctly, and `lipgloss.Fprint`
+writes, choosing the terminal's color profile and printing plain text to a
+pipe, under `NO_COLOR` or for `TERM=dumb`. Workbench owns only the fit rule
+above, which lipgloss does not have.

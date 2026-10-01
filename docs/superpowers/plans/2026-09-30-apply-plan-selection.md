@@ -6,7 +6,7 @@
 
 **Architecture:** `operation.Effect` gains probed `Delta`, `Checked`, `Fixed` and `SavedSkip` fields so the plan digest covers the selection. The machine planner runs every active provisioning script in a read-only `WORKBENCH_PROBE=1` mode to fill the deltas, and apply removes the script sources of unchecked effects from its private chezmoi copy so chezmoi never runs or records them. The CLI replaces the Yes/No prompt with a `huh` multi-select, saves skips to `machine.toml`'s `[effects]` table, and `update` stops after installing the release and its tools.
 
-**Tech Stack:** Go 1.26 (cobra, charm.land/huh v2, go-toml v2), chezmoi 2.70.3 (`dump --include=scripts`), bash script templates, shellcheck, Python 3 for render checks.
+**Tech Stack:** Go 1.26 (cobra, charm.land/huh v2, charm.land/lipgloss v2 and its table, charmbracelet/x/term and x/ansi, go-toml v2), chezmoi 2.70.3 (`dump --include=scripts`), bash script templates, shellcheck, Python 3 for render checks.
 
 **Spec:** `docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md`; Task 8 implements section 7 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`
 
@@ -42,7 +42,7 @@
 4. `--approve-plan DIGEST` from a dry run with saved skips, then a hand edit of `machine.toml` changing the skips, must exit 4 (conflict), never apply the old selection. Pinned in Task 1 step 5 (Go test) and Task 7 step 2.
 5. `update` with no terminal, `--json`, or run from `install.sh` must never plan or apply the machine; its last line names `workbench apply`. Pinned in Task 5 step 6.
 6. Two effects sharing one script (`linux-packages` and `work-tools`; `windows-files` and `wsl-preferences`) must be independently skippable: unchecking one must not run its section. Pinned in Task 2 step 3 (per-effect gates) and Task 3 step 4 (every effect exported).
-7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report. Pinned in Task 9 step 6 and Task 10 step 7.
+7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report; a wide terminal must not spread the columns; a pipe, `NO_COLOR` or `TERM=dumb` must get no escape codes. Pinned in Task 9 step 6 and Task 10 step 7.
 8. Opening the existing version 1 ledger must keep every row; a re-copied record with smaller counts must never lower the stored usage. Pinned in Task 10 step 2 (Go test) and step 7 (real-ledger copy).
 
 ---
@@ -2496,15 +2496,17 @@ git commit -m "feat(claude-costs): one line per repository, plain column names, 
 
 Added 2026-09-30 after review: the checklist rows were about 170 characters wide and the claude-costs table overflowed below 72 columns, probes left Go telemetry counters and Node's compile cache behind, and Ctrl-C during probing showed effects as `unprobed` instead of stopping. The width rule is section 11 "Terminal width" of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`; the probe and Ctrl-C rules are in sections 4 and 7 of the apply spec.
 
+The rendering is the module's existing Charm stack, not hand-built padding: `github.com/charmbracelet/x/term` reads the terminal size (Unix ioctl, Windows console API), `charm.land/lipgloss/v2/table` lays out, aligns and styles the cells, `github.com/charmbracelet/x/ansi` measures, clips and wraps by display cell, and `lipgloss.Fprint` writes, which picks the terminal's color profile and strips styling for pipes, `NO_COLOR` and `TERM=dumb`. Workbench owns only the fit policy lipgloss lacks: which column drops first, which column clips and from which side, and when rows stack. Never call `table.Width`: when the table is narrower than that width it spreads the columns across the whole terminal.
+
 **Files:**
 - Create: `internal/cli/table.go`
-- Modify: `internal/cli/planview.go` (delete `writeColumns`; `writeMachinePlan` uses `writeTable`), `internal/cli/prompt.go` (checklist labels), every other `writeColumns` caller (`planview.go`, `prompt.go`, `release.go`)
+- Modify: `internal/cli/planview.go` (delete `writeColumns`; `writeMachinePlan` uses `writeTable` and `writeText` and writes through `lipgloss.Fprint`), `internal/cli/prompt.go` (checklist labels), every other `writeColumns` caller (`planview.go`, `prompt.go`, `release.go`)
 - Modify: `internal/machine/probe.go` (probe environment, interruption), `internal/machine/plan.go` (`selectEffects` returns the interruption)
 - Modify: `home/.chezmoiscripts/linux/run_once_after_10-runtime-managers.sh.tmpl` (Go version from its VERSION file), `home/.chezmoiscripts/linux/run_onchange_after_30-global-tools.sh.tmpl` and `home/.chezmoiscripts/darwin/run_onchange_after_30-global-tools.sh.tmpl` (no `nvm use` in the probe)
-- Modify: `go.mod` (`github.com/charmbracelet/x/ansi` becomes a direct requirement; it is already in the module graph)
+- Modify: `go.mod` (`github.com/charmbracelet/x/ansi` and `github.com/charmbracelet/x/term` become direct requirements; both are already in the module graph through lipgloss)
 
 **Interfaces:**
-- Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft bool}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, cols []column, rows [][]string, header bool) []string`, `writeTable(b *strings.Builder, width, indent int, cols []column, rows [][]string, header bool)`. Task 10's costs report uses all of them.
+- Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft, Faint bool}`, `tableSpec{Cols []column; Rows [][]string; Header bool; Total []string}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, t tableSpec) []string`, `writeTable(b *strings.Builder, width, indent int, t tableSpec)`, `writeFull(b *strings.Builder, width, indent int, t tableSpec)`, `writeText(b *strings.Builder, width, indent int, text string)`, `fit(s string, width int, left bool) string`. Output holding any of these is written with `lipgloss.Fprint(w, b.String())`, never `io.WriteString` or `fmt.Fprint`. Task 10's costs report uses all of them.
 
 - [ ] **Step 1: Create `internal/cli/table.go`**
 
@@ -2517,34 +2519,50 @@ import (
 	"strconv"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/ansi"
-	"golang.org/x/sys/unix"
+	"github.com/charmbracelet/x/term"
 )
 
-// column describes one table column. Columns with Drop > 0 are removed when
-// the terminal is too narrow, highest Drop first. The one Clip column then
-// shortens with an ellipsis: from the left for paths (ClipLeft), so the part
-// that tells them apart survives, otherwise from the right.
+// column describes one table column. When the terminal is too narrow the one
+// Clip column first shortens to Keep cells (when Keep > 0), then columns with
+// Drop > 0 are removed, highest Drop first, then the Clip column shortens
+// further. It
+// clips with an ellipsis: from the left for paths (ClipLeft), so the part that
+// tells them apart survives, otherwise from the right. Faint columns are
+// secondary detail and print dimmed.
 type column struct {
 	Head     string
 	Right    bool
 	Drop     int
 	Clip     bool
 	ClipLeft bool
+	Keep     int
+	Faint    bool
+}
+
+// tableSpec is one table: its columns, its rows, whether a bold, underlined
+// head line comes first, and an optional bold total row set off by a rule.
+type tableSpec struct {
+	Cols   []column
+	Rows   [][]string
+	Header bool
+	Total  []string
 }
 
 // minClip is the narrowest a clipped column gets before rows stack.
 const minClip = 12
 
-// gap separates columns.
-const gap = "  "
+// gap is the space between columns.
+const gap = 2
 
-// terminalWidth is the width a table must fit: the terminal's, else COLUMNS,
+// terminalWidth is the width output must fit: the terminal's, else COLUMNS,
 // else 100 when the output is not a terminal.
 func terminalWidth(w io.Writer) int {
 	if file, ok := w.(*os.File); ok {
-		if size, err := unix.IoctlGetWinsize(int(file.Fd()), unix.TIOCGWINSZ); err == nil && size.Col > 0 {
-			return int(size.Col)
+		if width, _, err := term.GetSize(file.Fd()); err == nil && width > 0 {
+			return width
 		}
 	}
 	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
@@ -2553,25 +2571,30 @@ func terminalWidth(w io.Writer) int {
 	return 100
 }
 
-// fitRows lays rows out under cols so that no line, indent included, is wider
-// than width: it drops columns by priority, then clips the Clip column, and
-// below minClip prints each row as a stacked block. With header, the first
-// line holds the column heads.
-func fitRows(width, indent int, cols []column, rows [][]string, header bool) []string {
+// fitRows lays t out so that no line, indent included, is wider than width:
+// it shortens the Clip column to its Keep width, drops columns by priority,
+// shortens the Clip column further, and below minClip prints each row as a
+// stacked block. lipgloss renders whatever fits.
+func fitRows(width, indent int, t tableSpec) []string {
+	cols := t.Cols
 	active := make([]int, len(cols))
-	for i := range cols {
+	clip := -1
+	for i, c := range cols {
 		active[i] = i
+		if c.Clip {
+			clip = i
+		}
 	}
-	widths := naturalWidths(cols, rows, header)
+	widths := naturalWidths(t)
 	total := func() int {
-		sum := indent
-		for n, i := range active {
-			if n > 0 {
-				sum += len(gap)
-			}
+		sum := indent + gap*max(len(active)-1, 0)
+		for _, i := range active {
 			sum += widths[i]
 		}
 		return sum
+	}
+	if over := total() - width; over > 0 && clip >= 0 && cols[clip].Keep > 0 {
+		widths[clip] -= min(over, max(widths[clip]-max(cols[clip].Keep, minClip), 0))
 	}
 	for total() > width {
 		drop, highest := -1, 0
@@ -2586,103 +2609,193 @@ func fitRows(width, indent int, cols []column, rows [][]string, header bool) []s
 		active = append(active[:drop], active[drop+1:]...)
 	}
 	if over := total() - width; over > 0 {
-		clip := -1
-		for _, i := range active {
-			if cols[i].Clip {
-				clip = i
-			}
-		}
 		if clip < 0 || widths[clip]-over < minClip {
-			return stacked(width, indent, cols, active, rows)
+			return stacked(width, indent, t, active, false)
 		}
 		widths[clip] -= over
 	}
-	pad := strings.Repeat(" ", indent)
-	var lines []string
-	if header {
-		heads := make([]string, len(cols))
-		for i, c := range cols {
-			heads[i] = c.Head
-		}
-		lines = append(lines, pad+joinCells(cols, active, widths, heads))
-	}
-	for _, row := range rows {
-		lines = append(lines, pad+joinCells(cols, active, widths, row))
-	}
-	return lines
+	return renderTable(indent, t, active, widths)
 }
 
 // writeTable writes fitRows' lines to b.
-func writeTable(b *strings.Builder, width, indent int, cols []column, rows [][]string, header bool) {
-	for _, line := range fitRows(width, indent, cols, rows, header) {
+func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
+	for _, line := range fitRows(width, indent, t) {
 		b.WriteString(line + "\n")
 	}
 }
 
-func naturalWidths(cols []column, rows [][]string, header bool) []int {
-	widths := make([]int, len(cols))
-	for i, c := range cols {
-		if header {
-			widths[i] = ansi.StringWidth(c.Head)
-		}
+// writeFull writes every row as a stacked block with each value wrapped, not
+// clipped, so nothing is lost and nothing is wider than width (--verbose).
+func writeFull(b *strings.Builder, width, indent int, t tableSpec) {
+	active := make([]int, len(t.Cols))
+	for i := range active {
+		active[i] = i
 	}
-	for _, row := range rows {
-		for i := range cols {
+	for _, line := range stacked(width, indent, t, active, true) {
+		b.WriteString(line + "\n")
+	}
+}
+
+// writeText writes prose word-wrapped to width under indent; a word longer
+// than the line is broken.
+func writeText(b *strings.Builder, width, indent int, text string) {
+	pad := strings.Repeat(" ", indent)
+	for _, line := range strings.Split(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
+		b.WriteString(strings.TrimRight(pad+line, " ") + "\n")
+	}
+}
+
+// naturalWidths is each column's widest cell in display cells.
+func naturalWidths(t tableSpec) []int {
+	widths := make([]int, len(t.Cols))
+	measure := func(row []string) {
+		for i := range t.Cols {
 			if i < len(row) {
 				widths[i] = max(widths[i], ansi.StringWidth(row[i]))
 			}
 		}
 	}
+	if t.Header {
+		for i, c := range t.Cols {
+			widths[i] = ansi.StringWidth(c.Head)
+		}
+	}
+	for _, row := range t.Rows {
+		measure(row)
+	}
+	measure(t.Total)
 	return widths
 }
 
-func joinCells(cols []column, active, widths []int, row []string) string {
-	var b strings.Builder
-	for n, i := range active {
-		cell := ""
-		if i < len(row) {
-			cell = fit(row[i], widths[i], cols[i].ClipLeft)
-		}
-		if n > 0 {
-			b.WriteString(gap)
-		}
-		padding := strings.Repeat(" ", widths[i]-ansi.StringWidth(cell))
-		if cols[i].Right {
-			b.WriteString(padding + cell)
-		} else if n < len(active)-1 {
-			b.WriteString(cell + padding)
-		} else {
-			b.WriteString(cell)
-		}
-	}
-	return strings.TrimRight(b.String(), " ")
-}
-
-// stacked prints each row as its first active cell, then one indented
-// "head value" line per other active cell, every line clipped to width.
-func stacked(width, indent int, cols []column, active []int, rows [][]string) []string {
-	pad := strings.Repeat(" ", indent)
-	var lines []string
-	for _, row := range rows {
+// renderTable hands the surviving columns, clipped to widths, to lipgloss. Cells
+// are clipped first so lipgloss's natural width is the fitted width; the
+// table's own Width is never set because it would spread narrow tables.
+func renderTable(indent int, t tableSpec, active, widths []int) []string {
+	// Faint cells are styled here, not in StyleFunc, so an empty one adds no
+	// escape codes and its line still ends without spaces once colors strip.
+	cells := func(row []string, head bool) []string {
+		out := make([]string, len(active))
 		for n, i := range active {
-			if i >= len(row) || row[i] == "" {
-				continue
-			}
-			text := row[i]
-			prefix := pad
-			if n > 0 {
-				prefix = pad + "  "
-				if cols[i].Head != "" {
-					text = cols[i].Head + " " + text
+			if i < len(row) && row[i] != "" {
+				out[n] = fit(row[i], widths[i], t.Cols[i].ClipLeft)
+				if t.Cols[i].Faint && !head {
+					out[n] = faint.Render(out[n])
 				}
 			}
-			lines = append(lines, prefix+fit(text, max(width-ansi.StringWidth(prefix), 1), cols[i].ClipLeft))
+		}
+		return out
+	}
+	totalRow := -1
+	tbl := table.New().
+		Border(lipgloss.NormalBorder()).BorderStyle(faint).
+		BorderTop(false).BorderBottom(false).BorderLeft(false).BorderRight(false).
+		BorderColumn(false).BorderHeader(t.Header).
+		StyleFunc(func(row, col int) lipgloss.Style {
+			c := t.Cols[active[col]]
+			style := lipgloss.NewStyle()
+			if col < len(active)-1 {
+				style = style.PaddingRight(gap)
+			}
+			if c.Right {
+				style = style.Align(lipgloss.Right)
+			}
+			if row == table.HeaderRow || row == totalRow {
+				style = style.Bold(true)
+			}
+			return style
+		})
+	if t.Header {
+		heads := make([]string, len(t.Cols))
+		for i, c := range t.Cols {
+			heads[i] = c.Head
+		}
+		tbl = tbl.Headers(cells(heads, true)...)
+	}
+	for _, row := range t.Rows {
+		tbl = tbl.Row(cells(row, false)...)
+	}
+	if t.Total != nil {
+		totalRow = len(t.Rows)
+		tbl = tbl.Row(cells(t.Total, false)...)
+	}
+	if !t.Header && len(t.Rows) == 0 && t.Total == nil {
+		return nil
+	}
+	pad := strings.Repeat(" ", indent)
+	var lines []string
+	for _, line := range strings.Split(tbl.Render(), "\n") {
+		lines = append(lines, pad+strings.TrimRight(line, " "))
+	}
+	if t.Total != nil {
+		// The rule spans the table and sits above the total row.
+		widest := 0
+		for _, line := range lines {
+			widest = max(widest, ansi.StringWidth(line)-indent)
+		}
+		rule := pad + faint.Render(strings.Repeat("─", widest))
+		lines = append(lines[:len(lines)-1], rule, lines[len(lines)-1])
+	}
+	return lines
+}
+
+// stacked prints each row as a block: a first line joining the cells before
+// the Clip column (or the Clip cell when it comes first), then one indented
+// "head value" line per other cell. Values clip to width, or with wrap they
+// wrap onto further lines.
+func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
+	pad := strings.Repeat(" ", indent)
+	rows := t.Rows
+	if t.Total != nil {
+		rows = append(rows[:len(rows):len(rows)], t.Total)
+	}
+	lead := 1
+	for n, i := range active {
+		if t.Cols[i].Clip {
+			lead = max(n, 1)
+			break
+		}
+	}
+	var lines []string
+	add := func(prefix, text string, left bool) {
+		room := max(width-ansi.StringWidth(prefix), 1)
+		if !wrap {
+			lines = append(lines, prefix+fit(text, room, left))
+			return
+		}
+		for _, part := range strings.Split(ansi.Wrap(text, room, ""), "\n") {
+			lines = append(lines, prefix+part)
+		}
+	}
+	for _, row := range rows {
+		cell := func(i int) string {
+			if i < len(row) {
+				return row[i]
+			}
+			return ""
+		}
+		var first []string
+		for _, i := range active[:min(lead, len(active))] {
+			if text := cell(i); text != "" {
+				first = append(first, text)
+			}
+		}
+		add(pad, strings.Join(first, "  "), lead == 1 && t.Cols[active[0]].ClipLeft)
+		for _, i := range active[min(lead, len(active)):] {
+			text := cell(i)
+			if text == "" {
+				continue
+			}
+			if head := t.Cols[i].Head; head != "" {
+				text = faint.Render(head) + " " + text
+			}
+			add(pad+"  ", text, t.Cols[i].ClipLeft)
 		}
 	}
 	return lines
 }
 
-// fit shortens s to width with an ellipsis, from the left or the right.
+// fit shortens s to width display cells with an ellipsis, from the left or
+// the right.
 func fit(s string, width int, left bool) string {
 	if ansi.StringWidth(s) <= width {
 		return s
@@ -2694,20 +2807,20 @@ func fit(s string, width int, left bool) string {
 }
 ```
 
-Check `ansi.TruncateLeft`'s signature in the module cache (`go doc github.com/charmbracelet/x/ansi TruncateLeft`); it cuts N cells from the left and prepends the tail string. Adjust the call if its parameters differ and record the deviation. Run `go mod tidy` so the import becomes a direct requirement.
+`faint` is the existing `lipgloss.NewStyle().Faint(true)` in `root.go`. `ansi.TruncateLeft(s, n, prefix)` removes `n` cells from the left and prepends `prefix` (checked against v0.11.8 with `go doc`). Run `go mod tidy` so both `x/ansi` and `x/term` become direct requirements.
 
-- [ ] **Step 2: Move every table onto `writeTable`**
+- [ ] **Step 2: Move every table and heading onto table.go**
 
-Delete `writeColumns` from `planview.go`. Each caller passes `terminalWidth(w)` for the writer it renders to, indent 4, and columns:
+Delete `writeColumns` from `planview.go`. Each caller passes `terminalWidth(w)` for the writer it renders to and indent 4, writes its heading and note lines with `writeText` (indent 0 for headings like `[WorkBench] Plan for this machine (…)`, `Files (…)`, `Effects`; 2 for `none` and the notes), and ends with `_, err := lipgloss.Fprint(w, b.String())` instead of `io.WriteString`. Columns:
 
-- `writeMachinePlan` files: `{Head: "", Clip: true, ClipLeft: true}` (path), `{Head: ""}` (summary). Effects: `{}` (box), `{}` (name), `{Clip: true}` (delta), `{Drop: 2}` (privilege), `{Drop: 1}` (saved note); no header. With `verbose`, pass `width = 1 << 30` for the effects so deltas print in full.
+- `writeMachinePlan` files: `tableSpec{Cols: []column{{Clip: true, ClipLeft: true}, {}}}` (path, summary). Effects: `{}` (box), `{}` (name), `{Clip: true}` (delta), `{Drop: 2, Faint: true}` (privilege), `{Drop: 1, Faint: true}` (saved note); no header. With `verbose`, effects go through `writeFull` instead, so deltas print in full, wrapped, and still fit; the recovery text goes through `writeText`.
 - The other callers keep their columns, with their last free-text column `Clip: true` and every column before it plain.
 
-`writeMachinePlan` takes the writer it renders to, so `render` and `choosePlan` both pass theirs.
+`writeMachinePlan` takes the writer it renders to, so `render` and `choosePlan` both pass theirs. The existing `painter` stays as it is: it already colors only at a terminal without `NO_COLOR`, the same condition under which `lipgloss.Fprint` keeps styles, so the two never disagree.
 
 - [ ] **Step 3: Checklist labels fit too**
 
-In `choosePlan`, build the option labels with `fitRows(terminalWidth(terminal)-6, 0, cols, rows, false)` over `[name, delta, privilege, note]` rows (the multi-select draws a cursor and a box in about six cells). When `fitRows` stacks (more lines than rows), use `fit(name+"  "+delta, width-6, false)` for each label instead. Delete the `fmt.Sprintf("%-24s %s  (%s)", ...)` label code.
+In `choosePlan`, build the option labels with `fitRows(terminalWidth(terminal)-6, 0, tableSpec{Cols: cols, Rows: rows})` over `[name, delta, privilege, note]` rows, with the same columns as the dry-run checklist but none `Faint`, so the labels are plain text inside huh's own styling (the multi-select draws a cursor and a box in about six cells). When `fitRows` stacks (more lines than rows), use `fit(name+"  "+delta, width-6, false)` for each label instead. Delete the `fmt.Sprintf("%-24s %s  (%s)", ...)` label code. huh options are fixed strings, so the labels fit the width the prompt opened at; a resize while it is open does not refit them. huh wraps its own title and description.
 
 - [ ] **Step 4: Probes write nothing**
 
@@ -2753,7 +2866,18 @@ for w in 160 120 80 60 40 30; do
 done
 ```
 
-Expected: every `max` is at most its width. At 80 the privilege tags are gone and the deltas end in `…`; at 30 each effect is a stacked block. `awk length` counts characters, and every character here is one cell wide.
+Expected: every `max` is at most its width. At 80 the privilege tags are gone and the deltas end in `…`; at 30 each effect is a stacked block whose first line is `[x]  name`. `awk length` (gawk, UTF-8 locale) counts characters, and every character here is one cell wide; an escape code leaking into the pipe would inflate it.
+
+Wide and plain terminals, read-only:
+
+```bash
+COLUMNS=200 bin/workbench apply --dry-run --local-build 2>/dev/null | sed -n '/^Effects/,/^$/p'
+bin/workbench apply --dry-run --local-build 2>/dev/null | grep -c $'\e' || true
+script -qec 'NO_COLOR=1 bin/workbench apply --dry-run --local-build' /dev/null | grep -c $'\e\[[0-9;]*m' || true
+script -qec 'TERM=dumb bin/workbench apply --dry-run --local-build' /dev/null | grep -c $'\e\[[0-9;]*m' || true
+```
+
+Expected: at 200 the columns sit at their natural widths two cells apart, not spread across the line; the three counts are `0` (a pipe, `NO_COLOR` at a terminal and `TERM=dumb` at a terminal all print without styling). Without either variable, the same `script` run shows the faint privilege tags.
 
 Probe side writes, read-only:
 
@@ -2790,7 +2914,7 @@ Implements section 11 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-
 - Modify: `docs/superpowers/specs/workbench-contracts.md` (claude-costs row), `docs/usage.md` and `README.md` wherever `claude-costs` is named, the ledger spec's status line
 
 **Interfaces:**
-- Consumes: `column`, `terminalWidth`, `fitRows`, `writeTable`, `fit` (Task 9).
+- Consumes: `column`, `tableSpec`, `terminalWidth`, `fitRows`, `writeTable`, `writeText`, `fit` (Task 9), and its rule that styled output is written with `lipgloss.Fprint`.
 - Produces: `costs.Source`, `costs.Usage`, `costs.FileState`, `costs.RateCard`, `costs.Observation`; `costs.OpenLedger(path string, create bool) (*Ledger, error)`; `costs.Ingest(ctx, opts IngestOptions) (summary string, err error)`; `costs.Report(ctx, ledger, ReportOptions) (Report, error)`; `costs.Rates(ctx, refresh bool) (Card, error)`; `costs.Status(ctx) (StatusInfo, error)`; `operation.TryLock(path string) (release func(), held bool, err error)`; `operation.StartDetached(executable string, args []string, log *os.File) error`.
 
 | Script function(s) | Go home |
@@ -2868,7 +2992,7 @@ In `internal/operation/process.go` add `StartDetached(executable string, args []
 
 - [ ] **Step 5: Report and the CLI**
 
-`report.go` returns rows (project, model, tool, account, month), totals and coverage; it prints nothing. `internal/cli/costs.go` adds `costs` with `ingest`, `rates`, `status`, and the report flags `--by project|model|tool|account|month`, `--tool NAME`, `--since`, `--until`, `--all`, `--top N`, `--sort cost|name|calls`, `--detail`, `--tokens`, `--no-rollup`, `--csv`, plus the global `--json`. The header is `[WorkBench] Costs · <first> → <last> · <N> responses`. Tables use `writeTable` with columns: name `{Clip, ClipLeft}`, cost `{Right}`, share `{Right, Drop: 2}`, calls `{Right, Drop: 1}`, tokens `{Right, Drop: 3}`, cached `{Right, Drop: 4}`; with `--tokens`: input, output `{Right}`, cache 5m `{Right, Drop: 3}`, cache 1h `{Right, Drop: 4}`, cache read `{Right, Drop: 2}`. Footer notes follow section 7. `--json` puts the report in the result envelope's details; `--csv` writes the rows. Register `costsCommand(o)` in `root.go`.
+`report.go` returns rows (project, model, tool, account, month), totals and coverage; it prints nothing. `internal/cli/costs.go` adds `costs` with `ingest`, `rates`, `status`, and the report flags `--by project|model|tool|account|month`, `--tool NAME`, `--since`, `--until`, `--all`, `--top N`, `--sort cost|name|calls`, `--detail`, `--tokens`, `--no-rollup`, `--csv`, plus the global `--json`. The header is `[WorkBench] Costs · <first> → <last> · <N> responses`. Tables use `writeTable` with `Header: true`, the grand total as `Total` (bold under a faint rule, as the script printed it), and columns: name `{Clip, ClipLeft, Keep: 24}` (repository names shorten to 24 cells before any number column drops), cost `{Right}`, share `{Right, Drop: 2}`, calls `{Right, Drop: 1}`, tokens `{Right, Drop: 3}`, cached `{Right, Drop: 4}`; with `--tokens`: input, output `{Right}`, cache 5m `{Right, Drop: 3}`, cache 1h `{Right, Drop: 4}`, cache read `{Right, Drop: 2}`; last, the unpriced flag `{Drop: 5}`, its cell `yellow.Render("unpriced")` or empty. The header line and footer notes go through `writeText`, so they wrap instead of overflowing; footer notes follow section 7. The whole report is built in one `strings.Builder` and written with `lipgloss.Fprint(cmd.OutOrStdout(), b.String())`. `--json` puts the report in the result envelope's details; `--csv` writes the rows. Register `costsCommand(o)` in `root.go`.
 
 - [ ] **Step 6: Hooks, removals and docs**
 
@@ -2881,7 +3005,7 @@ Expected: clean; `ok` for `internal/costs`.
 
 Synthetic ledger: rerun Task 8 step 6's fixture with `CC="bin/workbench costs"` (same `CLAUDE_COSTS_*` and `CLAUDE_CONFIG_DIR` overrides; the hook subcommand is `costs ingest --worker --quiet`). Expected: the same figures as Task 8's expected outputs (`$0.01`, `100.0%`, `3` calls, `2.1K`, `78.5%`; `/srv/elsewhere/app` only with `--all`; three rows with `--no-rollup`; JSON `hidden_projects` 1 and grand total 0.00675), the header now `[WorkBench] Costs · …`, and `--compact` rejected as an unknown flag.
 
-Width: `for w in 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width.
+Width: `for w in 200 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width; at 200 the table is no wider than at 120 (natural widths, never spread); at 60 the name ends or starts with `…` before any number column is gone. `script -qec 'NO_COLOR=1 bin/workbench costs' /dev/null | grep -c $'\e\[[0-9;]*m'` prints `0`; without `NO_COLOR` the head line is bold and the rule faint.
 
 Real ledger, read-only: copy `~/.local/share/claude-costs/ledger.sqlite` to a scratch directory, point `CLAUDE_COSTS_LEDGER` at the copy, run `bin/workbench costs`. Expected: the copy upgrades to version 2, the response count and grand total equal what the Python script printed for the same copy before the upgrade, and the real ledger is untouched (`cmp` against a second copy taken before).
 

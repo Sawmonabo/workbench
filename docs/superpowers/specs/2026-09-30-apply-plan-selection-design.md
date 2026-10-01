@@ -78,8 +78,11 @@ Rules:
   when there is one; unchanged ones counted.
 - Width: every line fits the terminal. The privilege tag drops first, then the
   saved note, then the delta clips with `…`; below that each effect prints as
-  a short stacked block. The rule and the shared table code are in section 11
-  of the claude-costs ledger design. `--verbose` prints deltas in full.
+  a short stacked block. The rule and the shared table code, rendered through
+  lipgloss, are in section 11 of the claude-costs ledger design. `--verbose`
+  prints deltas in full, wrapped onto stacked lines rather than overflowing.
+  The interactive checklist's labels are fitted to the width the prompt opens
+  at.
 - Effects: `[x]`/`[ ]`, name, delta, privilege tag (`user`, `sudo`, `Windows`,
   with `network` when the script fetches), and `skipped (saved)` when the skip
   came from `machine.toml`. Each effect's recovery text and the recovery
