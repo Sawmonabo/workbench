@@ -68,7 +68,7 @@ func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
 
 const (
-	schemaVersion = "2"
+	schemaVersion = "3"
 
 	// firstTool is the tool of every row written before the tool column
 	// existed, and the column's default: its request IDs are stored as they
@@ -101,7 +101,19 @@ CREATE TABLE files (
   offset    INTEGER NOT NULL,
   size      INTEGER NOT NULL,
   mtime_ns  INTEGER NOT NULL,
-  last_seen TEXT NOT NULL
+  last_seen TEXT NOT NULL,
+  state     TEXT NOT NULL DEFAULT '',
+  head      TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE tier_changes (
+  thread_id TEXT NOT NULL,
+  ts        TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  PRIMARY KEY (thread_id, ts, tier)
+);
+CREATE TABLE tier_pending (
+  request_id TEXT PRIMARY KEY,
+  root       TEXT NOT NULL
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 `
@@ -113,11 +125,11 @@ type Ledger struct {
 }
 
 // OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
-// an existing file: a version 1 ledger gains the tool column in one
-// transaction, any other version fails with the path and version and writes
-// nothing. A zero-byte file (a crash between creating the file and writing the
-// schema) holds nothing and is treated as absent. create makes a missing
-// ledger instead of failing.
+// an existing file: a version 1 or 2 ledger is upgraded in one transaction
+// that keeps every row, any other version fails with the path and version and
+// writes nothing. A zero-byte file (a crash between creating the file and
+// writing the schema) holds nothing and is treated as absent. create makes a
+// missing ledger instead of failing.
 func OpenLedger(path string, create bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -172,7 +184,7 @@ func (l *Ledger) prepare(exists bool) error {
 		}
 		switch version {
 		case schemaVersion:
-		case "1":
+		case "1", "2":
 			if err := l.upgrade(ctx); err != nil {
 				return fmt.Errorf("%s: %w", l.Path, err)
 			}
@@ -209,8 +221,9 @@ func (l *Ledger) create(ctx context.Context) error {
 	})
 }
 
-// upgrade is the only write to existing data: the tool column, its index and
-// the new version, in one transaction that keeps every row.
+// upgrade is the only write to existing data, in one transaction that keeps
+// every row: version 1 gains the tool column, versions 1 and 2 gain the saved
+// file state and the tier tables.
 func (l *Ledger) upgrade(ctx context.Context) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
 		var version string
@@ -219,13 +232,27 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 		).Scan(&version); err != nil {
 			return err
 		}
-		if version != "1" {
+		var statements []string
+		switch version {
+		case "1":
+			statements = append(statements,
+				"ALTER TABLE responses ADD COLUMN tool TEXT NOT NULL DEFAULT 'claude'",
+				"CREATE INDEX IF NOT EXISTS responses_tool ON responses (tool)",
+			)
+			fallthrough
+		case "2":
+			statements = append(
+				statements,
+				"ALTER TABLE files ADD COLUMN state TEXT NOT NULL DEFAULT ''",
+				"ALTER TABLE files ADD COLUMN head TEXT NOT NULL DEFAULT ''",
+				`CREATE TABLE IF NOT EXISTS tier_changes (thread_id TEXT NOT NULL, ts TEXT NOT NULL,
+				  tier TEXT NOT NULL, PRIMARY KEY (thread_id, ts, tier))`,
+				`CREATE TABLE IF NOT EXISTS tier_pending (request_id TEXT PRIMARY KEY, root TEXT NOT NULL)`,
+			)
+		default:
 			return nil // another process upgraded it first
 		}
-		for _, statement := range []string{
-			"ALTER TABLE responses ADD COLUMN tool TEXT NOT NULL DEFAULT 'claude'",
-			"CREATE INDEX IF NOT EXISTS responses_tool ON responses (tool)",
-		} {
+		for _, statement := range statements {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
 			}
@@ -288,18 +315,26 @@ func (l *Ledger) Empty() (bool, error) {
 	return false, err
 }
 
-// FileRow is where ingest stopped in one transcript.
+// FileRow is where ingest stopped in one transcript: the offset, the size and
+// time it had then, the source's saved state there, and a digest of its
+// first line, which tells a file rewritten in place from one that grew.
 type FileRow struct {
 	Offset, Size, ModTimeNanos int64
+	State                      []byte
+	Head                       string
 }
 
 // File is the stored position of a transcript.
 func (l *Ledger) File(path string) (row FileRow, found bool, err error) {
+	var state string
 	err = l.db.QueryRow(
-		"SELECT offset, size, mtime_ns FROM files WHERE path = ?", path,
-	).Scan(&row.Offset, &row.Size, &row.ModTimeNanos)
+		"SELECT offset, size, mtime_ns, state, head FROM files WHERE path = ?", path,
+	).Scan(&row.Offset, &row.Size, &row.ModTimeNanos, &state, &row.Head)
 	if errors.Is(err, sql.ErrNoRows) {
 		return row, false, nil
+	}
+	if state != "" {
+		row.State = []byte(state)
 	}
 	return row, err == nil, err
 }
@@ -324,14 +359,19 @@ func (l *Ledger) Transaction(ctx context.Context, fn func(*Tx) error) error {
 // Streamed usage only grows, and Claude Code copies earlier records into the
 // transcript of a resumed or forked session, sometimes mid-stream. The token
 // columns therefore keep the largest value seen, so neither file order nor a
-// later partial or zeroed copy can lower a request's final usage.
+// later partial or zeroed copy can lower a request's final usage. A Codex fork
+// copies its parent's usage with the fork's time and thread, so the time,
+// model, project and session come from the earliest occurrence; on a tie the
+// row read last wins, as it always has.
 const upsert = `
 INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
                        input, output, cache_write_5m, cache_write_1h, cache_read, tool)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 ON CONFLICT(request_id) DO UPDATE SET
-  ts = excluded.ts, model = excluded.model, project = excluded.project,
-  session_id = excluded.session_id,
+  ts         = CASE WHEN ` + earlier + ` THEN excluded.ts ELSE ts END,
+  model      = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
+  project    = CASE WHEN ` + earlier + ` THEN excluded.project ELSE project END,
+  session_id = CASE WHEN ` + earlier + ` THEN excluded.session_id ELSE session_id END,
   input = MAX(input, excluded.input), output = MAX(output, excluded.output),
   cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
   cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
@@ -340,37 +380,129 @@ ON CONFLICT(request_id) DO UPDATE SET
   account_source = CASE WHEN excluded.account_source = 'session' THEN 'session' ELSE account_source END
 `
 
+// earlier is true when the incoming copy is at least as old as the stored
+// row, which then takes its attribution. In an UPDATE, ts is the old value.
+const earlier = `(ts = '' OR (excluded.ts <> '' AND excluded.ts <= ts))`
+
 // timeLayout is how a response's time is stored: the form Claude Code writes,
 // UTC with milliseconds, which sorts as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
-// Upsert records one response; source is "session" or "sweep". The account and
-// source of an existing row are replaced only by a "session" one.
-func (t *Tx) Upsert(u Usage, source string) error {
-	id := u.RequestID
-	if u.Tool != firstTool {
-		id = u.Tool + ":" + id
+// storedID is the ledger key of a response: Claude's id as is, every other
+// tool's as <tool>:<id>.
+func storedID(u Usage) string {
+	if u.Tool == firstTool {
+		return u.RequestID
 	}
+	return u.Tool + ":" + u.RequestID
+}
+
+// Upsert records one response; source is "session" or "sweep". The account and
+// source of an existing row are replaced only by a "session" one. A row priced
+// by its root thread's tier waits in tier_pending until ResolveTiers prices it.
+func (t *Tx) Upsert(u Usage, source string) error {
+	id := storedID(u)
 	when := ""
 	if !u.Time.IsZero() {
 		when = u.Time.UTC().Format(timeLayout)
 	}
-	_, err := t.tx.ExecContext(
+	if _, err := t.tx.ExecContext(
 		t.ctx, upsert,
 		id, when, u.Model, u.Project, u.Session, u.Account, source,
 		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
-	)
+	); err != nil {
+		return err
+	}
+	if u.TierFrom == "" {
+		return nil
+	}
+	_, err := t.tx.ExecContext(t.ctx,
+		`INSERT INTO tier_pending (request_id, root) VALUES (?, ?)
+		 ON CONFLICT(request_id) DO UPDATE SET root = excluded.root`, id, u.TierFrom)
 	return err
+}
+
+// AddTierChange records a thread's switch of service tier.
+func (t *Tx) AddTierChange(c TierChange) error {
+	if c.Thread == "" || c.Time.IsZero() {
+		return nil
+	}
+	_, err := t.tx.ExecContext(t.ctx,
+		"INSERT OR IGNORE INTO tier_changes (thread_id, ts, tier) VALUES (?, ?, ?)",
+		c.Thread, c.Time.UTC().Format(timeLayout), c.Tier)
+	return err
+}
+
+// ResolveTiers prices each row waiting on its root thread's service tier at
+// the root's latest tier change at or before the row's time, and stops it
+// waiting. A row whose root has no change by then keeps waiting and is priced
+// at the standard tier meanwhile. Ingest calls it after every file of a run is
+// committed, so the order files are read in does not matter.
+func (l *Ledger) ResolveTiers(ctx context.Context) (int, error) {
+	type pending struct{ id, model, tier string }
+	var resolved []pending
+	err := l.transact(ctx, func(tx *sql.Tx) error {
+		rows, err := tx.QueryContext(ctx, `
+SELECT p.request_id, r.model,
+       (SELECT c.tier FROM tier_changes c
+         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC LIMIT 1)
+  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`)
+		if err != nil {
+			return err
+		}
+		for rows.Next() {
+			var p pending
+			var tier sql.NullString
+			if err := rows.Scan(&p.id, &p.model, &tier); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			if tier.Valid {
+				p.tier = tier.String
+				resolved = append(resolved, p)
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, p := range resolved {
+			model, _ := SplitTier(p.model)
+			if p.tier != "" {
+				model += "@" + p.tier
+			}
+			if _, err := tx.ExecContext(ctx,
+				"UPDATE responses SET model = ? WHERE request_id = ?", model, p.id); err != nil {
+				return err
+			}
+			if _, err := tx.ExecContext(ctx,
+				"DELETE FROM tier_pending WHERE request_id = ?", p.id); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	return len(resolved), err
 }
 
 // SetFile stores where ingest stopped in a transcript.
 func (t *Tx) SetFile(path string, row FileRow) error {
 	_, err := t.tx.ExecContext(
 		t.ctx,
-		`INSERT INTO files (path, offset, size, mtime_ns, last_seen) VALUES (?, ?, ?, ?, ?)
+		`INSERT INTO files (path, offset, size, mtime_ns, last_seen, state, head)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)
 		 ON CONFLICT(path) DO UPDATE SET offset = excluded.offset, size = excluded.size,
-		   mtime_ns = excluded.mtime_ns, last_seen = excluded.last_seen`,
-		path, row.Offset, row.Size, row.ModTimeNanos, stamp(time.Now()),
+		   mtime_ns = excluded.mtime_ns, last_seen = excluded.last_seen,
+		   state = excluded.state, head = excluded.head`,
+		path,
+		row.Offset,
+		row.Size,
+		row.ModTimeNanos,
+		stamp(time.Now()),
+		string(row.State),
+		row.Head,
 	)
 	return err
 }

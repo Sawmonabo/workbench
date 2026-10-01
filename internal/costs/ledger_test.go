@@ -59,13 +59,25 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	if version, err = ledger.Meta("schema_version"); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 2 || tools != 2 || version != "2" {
+	if rows != 2 || tools != 2 || version != "3" {
 		t.Fatalf(
-			"upgrade kept %d rows (%d tagged claude) at version %q, want 2, 2, \"2\"",
+			"upgrade kept %d rows (%d tagged claude) at version %q, want 2, 2, \"3\"",
 			rows,
 			tools,
 			version,
 		)
+	}
+	var stateCol, headCol, tierTables int
+	if err := ledger.db.QueryRow(`SELECT
+	    (SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'state'),
+	    (SELECT COUNT(*) FROM pragma_table_info('files') WHERE name = 'head'),
+	    (SELECT COUNT(*) FROM sqlite_master WHERE name IN ('tier_changes', 'tier_pending'))`).
+		Scan(&stateCol, &headCol, &tierTables); err != nil {
+		t.Fatal(err)
+	}
+	if stateCol != 1 || headCol != 1 || tierTables != 2 {
+		t.Fatalf("upgrade left files.state=%d files.head=%d tier tables=%d, want 1, 1, 2",
+			stateCol, headCol, tierTables)
 	}
 
 	record := func(output, cacheRead int64) {
@@ -112,6 +124,61 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 			"a larger copy stored output=%d cache_read=%d, want 250 and 1500",
 			output,
 			cacheRead,
+		)
+	}
+}
+
+// A version 2 ledger (the Workbench ledger before Codex) holds rows and file
+// offsets; its upgrade must keep both.
+func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "ledger.sqlite")
+	old, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, statement := range []string{
+		`CREATE TABLE responses (
+		  request_id TEXT PRIMARY KEY, ts TEXT NOT NULL, model TEXT NOT NULL,
+		  project TEXT NOT NULL, session_id TEXT NOT NULL, account TEXT NOT NULL,
+		  account_source TEXT NOT NULL, input INTEGER NOT NULL, output INTEGER NOT NULL,
+		  cache_write_5m INTEGER NOT NULL, cache_write_1h INTEGER NOT NULL, cache_read INTEGER NOT NULL,
+		  tool TEXT NOT NULL DEFAULT 'claude')`,
+		`CREATE TABLE files (path TEXT PRIMARY KEY, offset INTEGER NOT NULL, size INTEGER NOT NULL,
+		  mtime_ns INTEGER NOT NULL, last_seen TEXT NOT NULL)`,
+		`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+		`INSERT INTO meta VALUES ('schema_version', '2')`,
+		`INSERT INTO responses VALUES ('req-1', '2026-09-01T10:00:00.000Z', 'claude-opus-5', '/w/a', 's1',
+		  'a@example.test', 'sweep', 100, 200, 300, 0, 1000, 'claude')`,
+		`INSERT INTO files VALUES ('/w/t.jsonl', 4096, 4096, 1, '2026-09-01T10:00:00+00:00')`,
+	} {
+		if _, err := old.Exec(statement); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+	ledger, err := OpenLedger(path, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ledger.Close() }()
+	var rows int
+	if err := ledger.db.QueryRow("SELECT COUNT(*) FROM responses").Scan(&rows); err != nil {
+		t.Fatal(err)
+	}
+	file, found, err := ledger.File("/w/t.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if version, _ := ledger.Meta("schema_version"); rows != 1 || !found || file.Offset != 4096 ||
+		file.Head != "" || version != "3" {
+		t.Fatalf(
+			"upgrade kept %d rows, file %v (found %v), version %q; want 1 row, offset 4096, version 3",
+			rows,
+			file,
+			found,
+			version,
 		)
 	}
 }

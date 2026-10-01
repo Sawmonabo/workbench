@@ -3,7 +3,11 @@
 // ledger, ingest, rates and report code never parse a transcript.
 package costs
 
-import "time"
+import (
+	"slices"
+	"strings"
+	"time"
+)
 
 // Source is one AI tool whose transcripts the ledger records. Everything a
 // source knows is about its own files and prices; it never writes.
@@ -31,13 +35,47 @@ type Usage struct {
 	Tool, RequestID, Model, Project, Session, Account    string
 	Time                                                 time.Time
 	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead int64
+
+	// TierFrom is the root thread whose service tier prices this row when
+	// the row's own transcript names none (a Codex subagent's); "" otherwise.
+	TierFrom string
 }
 
-// FileState is what a source keeps between the lines of one transcript.
+// FileState is what a source keeps between the lines of one transcript, and,
+// through Saved, between ingest runs.
 type FileState struct {
 	Path     string // the transcript
 	Fallback string // project decoded from the path, for records without a cwd
 	LastCwd  string // Claude: the last cwd seen in this file
+
+	// Saved is the source's own state at the stored offset; ingest stores it
+	// with the offset and hands it back when it resumes the file.
+	Saved []byte
+	// Tiers are the service tier changes read this run; ingest stores them.
+	Tiers []TierChange
+
+	cache any //nolint:unused // the Codex reader keeps its decoded Saved here (a later task)
+}
+
+// TierChange is a thread switching service tier at a time; Tier is the
+// stored tier name, "" for standard.
+type TierChange struct {
+	Thread string
+	Time   time.Time
+	Tier   string
+}
+
+// tiers are the service tiers a model id can carry after "@"; each has its
+// own price table.
+var tiers = []string{"fast", "flex", "ultrafast"}
+
+// SplitTier splits "gpt-5.6-sol@fast" into the model and its service tier.
+// An id without a known tier suffix is all model, tier "".
+func SplitTier(model string) (base, tier string) {
+	if i := strings.LastIndex(model, "@"); i >= 0 && slices.Contains(tiers, model[i+1:]) {
+		return model[:i], model[i+1:]
+	}
+	return model, ""
 }
 
 // Rate is USD per million tokens for each token kind.
