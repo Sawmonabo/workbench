@@ -21,13 +21,21 @@ type Source interface {
 	Observations(
 		home string,
 	) []Observation // the tool's own (tokens, cost) pairs, for calibration; nil when none
-	Hooks(home string) map[string]bool // hook event → whether the ingest hook is installed
+	Hooks(home string) map[string]string // hook event → a Hook* state
 
 	// Session reports whether file belongs to the session whose transcript is
 	// transcript (the SessionEnd hook passes it), so that session's rows are
 	// tagged "session" and not "sweep". A session may span several files.
 	Session(file, transcript string) bool
 }
+
+// The states of a tool's ingest hook for one event, as Hooks reports them.
+const (
+	HookOK        = "ok"        // installed, and the tool runs it
+	HookMissing   = "missing"   // not installed as Workbench installs it
+	HookUntrusted = "untrusted" // installed, but the tool has not recorded it as trusted
+	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
+)
 
 // Usage is one billed response, whatever tool produced it.
 type Usage struct {

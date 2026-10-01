@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"encoding/csv"
 	"fmt"
 	"io"
@@ -578,17 +579,17 @@ func costsStatus(info costs.StatusInfo, width int) string {
 				),
 			)
 			var hooks []string
+			fixable := false
 			for _, event := range []string{"SessionStart", "SessionEnd"} {
-				state := "MISSING"
-				if tool.Name == "codex" {
-					state = "MISSING or untrusted (workbench apply)"
-				}
-				if tool.Hooks[event] {
-					state = "ok"
-				}
+				state := cmp.Or(tool.Hooks[event], costs.HookMissing)
+				fixable = fixable || state == costs.HookMissing || state == costs.HookUntrusted
 				hooks = append(hooks, event+" "+state)
 			}
-			add("hooks"+suffix, strings.Join(hooks, ", "))
+			line := strings.Join(hooks, ", ")
+			if fixable {
+				line += " (workbench apply)"
+			}
+			add("hooks"+suffix, line)
 			if tool.Skipped > 0 {
 				add(
 					"skipped"+suffix,
@@ -601,8 +602,13 @@ func costsStatus(info costs.StatusInfo, width int) string {
 	for _, row := range rows {
 		labelWidth = max(labelWidth, len(row[0])+2)
 	}
+	// A value wraps under itself, not under the labels.
 	for _, row := range rows {
-		writeText(&b, width, 0, bold.Render(fmt.Sprintf("%-*s", labelWidth, row[0]))+row[1])
+		var value strings.Builder
+		writeText(&value, width, labelWidth, row[1])
+		first, rest, _ := strings.Cut(value.String(), "\n")
+		b.WriteString(bold.Render(fmt.Sprintf("%-*s", labelWidth, row[0])) +
+			strings.TrimLeft(first, " ") + "\n" + rest)
 	}
 	return b.String()
 }

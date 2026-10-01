@@ -268,10 +268,16 @@ hooks.json, computes the hash of every handler in it and writes `enabled =
 true` and `trusted_hash` for each key as managed values, so whatever hooks
 Workbench installs are trusted on the same apply; an entry left for a hook
 Workbench removed trusts nothing, since that hook no longer exists.
-`Hooks(home)` reports an event as installed when `hooks.json` has the command
-and the recorded `trusted_hash` equals the hash computed the same way;
-a mismatch (Codex changed its normalization) shows as `untrusted` in
-`costs status`.
+`Hooks(home)` reports a state per event, as Codex decides whether to run a
+hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
+recorded hash matches): `ok` when `hooks.json` has the command and its entry
+records the hash computed the same way, `disabled` when the entry sets
+`enabled = false`, `untrusted` when it records no hash or another one (as
+after Codex changed its normalization), and `missing` without the command.
+Claude Code's `Hooks` reports `ok` or `missing`. `costs status` prints the
+state words, adding `(workbench apply)` once to a hooks line with a `missing`
+or `untrusted` event, and `costs status --json` gives each event's state as a
+string.
 
 Claude Code's hooks already run an ingest that sweeps every tool, so Codex
 hooks only matter while Codex is used without Claude Code; `workbench costs`

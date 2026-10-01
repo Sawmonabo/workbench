@@ -277,8 +277,9 @@ func (claude) Observations(home string) []Observation {
 }
 
 // Hooks reports, for each session event, whether Claude Code's settings.json
-// runs the ingest hook asynchronously.
-func (claude) Hooks(home string) map[string]bool {
+// runs the ingest hook asynchronously: HookOK, else HookMissing. Claude Code
+// has no hook trust or per-hook switch.
+func (claude) Hooks(home string) map[string]string {
 	var settings struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
@@ -290,7 +291,7 @@ func (claude) Hooks(home string) map[string]bool {
 	if raw, err := os.ReadFile(filepath.Join(claudeDir(home), "settings.json")); err == nil {
 		decode(raw, &settings)
 	}
-	out := map[string]bool{}
+	out := map[string]string{}
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
 		installed := false
 		for _, group := range settings.Hooks[event] {
@@ -301,7 +302,10 @@ func (claude) Hooks(home string) map[string]bool {
 					(strings.Contains(hook.Command, "workbench costs ingest") && hook.Async)
 			}
 		}
-		out[event] = installed
+		out[event] = HookMissing
+		if installed {
+			out[event] = HookOK
+		}
 	}
 	return out
 }

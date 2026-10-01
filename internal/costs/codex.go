@@ -735,8 +735,12 @@ func codexHookHash(event string, group codexGroup, hook codexHook) string {
 }
 
 // Hooks reports, for each session event, whether hooks.json runs the ingest
-// hook and config.toml trusts that exact hook: Codex ignores an untrusted one.
-func (codex) Hooks(home string) map[string]bool {
+// hook and Codex runs it: HookOK when config.toml trusts that exact hook and
+// does not disable it, HookDisabled when it sets enabled = false, HookUntrusted
+// when it records no trusted_hash or another one (Codex ignores the hook then),
+// and HookMissing without the hook. Of several ingest hooks for an event the
+// best state counts.
+func (codex) Hooks(home string) map[string]string {
 	dir := codexDir(home)
 	path := filepath.Join(dir, "hooks.json")
 	var file struct {
@@ -756,9 +760,11 @@ func (codex) Hooks(home string) map[string]bool {
 	if raw, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
 		_ = toml.Unmarshal(raw, &config) // an unreadable config trusts nothing
 	}
-	out := map[string]bool{}
+	// Better states come first.
+	rank := []string{HookOK, HookDisabled, HookUntrusted, HookMissing}
+	out := map[string]string{}
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
-		trusted := false
+		best := HookMissing
 		for gi, group := range file.Hooks[event] {
 			for hi, hook := range group.Hooks {
 				if hook.Type != "command" || !strings.Contains(hook.Command, "workbench") ||
@@ -766,11 +772,19 @@ func (codex) Hooks(home string) map[string]bool {
 					continue
 				}
 				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", path, codexEvents[event], gi, hi)]
-				trusted = trusted || ((state.Enabled == nil || *state.Enabled) &&
-					state.TrustedHash == codexHookHash(event, group, hook))
+				found := HookOK
+				switch {
+				case state.Enabled != nil && !*state.Enabled:
+					found = HookDisabled
+				case state.TrustedHash != codexHookHash(event, group, hook):
+					found = HookUntrusted
+				}
+				if slices.Index(rank, found) < slices.Index(rank, best) {
+					best = found
+				}
 			}
 		}
-		out[event] = trusted
+		out[event] = best
 	}
 	return out
 }

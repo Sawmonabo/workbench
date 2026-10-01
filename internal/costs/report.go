@@ -379,12 +379,12 @@ type StatusInfo struct {
 
 // ToolStatus is one tool's coverage and hooks.
 type ToolStatus struct {
-	Name        string          `json:"name"`
-	Title       string          `json:"title"`
-	Implemented bool            `json:"implemented"`
-	Coverage    Coverage        `json:"coverage"`
-	Hooks       map[string]bool `json:"hooks,omitempty"`         // event → ingest hook installed
-	Skipped     int             `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
+	Name        string            `json:"name"`
+	Title       string            `json:"title"`
+	Implemented bool              `json:"implemented"`
+	Coverage    Coverage          `json:"coverage"`
+	Hooks       map[string]string `json:"hooks,omitempty"`         // event → a Hook* state
+	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
 // Status reads the ledger and the live hook settings; it changes nothing.
