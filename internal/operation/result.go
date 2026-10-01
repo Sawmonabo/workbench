@@ -42,8 +42,7 @@ func ExitCode(err error) Exit {
 	if errors.Is(err, context.Canceled) {
 		return ExitInterrupted
 	}
-	var problem *Error
-	if errors.As(err, &problem) {
+	if problem, ok := errors.AsType[*Error](err); ok {
 		return problem.Code
 	}
 	return ExitFailed
@@ -147,8 +146,7 @@ func (r *Result) SetError(err error) {
 	if problem.Code == ExitInterrupted {
 		problem.Category, problem.Message = "interrupted", "Operation interrupted; inspect any recorded partial operation before retrying"
 	}
-	var known *Error
-	if errors.As(err, &known) {
+	if known, ok := errors.AsType[*Error](err); ok {
 		problem = known
 	}
 	r.Errors = append(r.Errors, problem)

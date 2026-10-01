@@ -3,6 +3,7 @@ package cli
 import (
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -374,7 +375,7 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 	pad := strings.Repeat(" ", indent)
 	rows := t.Rows
 	if t.Total != nil {
-		rows = append(rows[:len(rows):len(rows)], t.Total)
+		rows = append(slices.Clip(rows), t.Total)
 	}
 	lead := 1
 	for n, i := range active {
