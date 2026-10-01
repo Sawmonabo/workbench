@@ -265,8 +265,8 @@ func runCostsView(
 	return printCosts(os.Stdout, costsReport(tool, reports[tool.Name], width))
 }
 
-// ensureIngested fills an empty ledger inline before the first report, so the
-// command works before the hooks are applied.
+// ensureIngested reads a tool's transcripts inline before its first report, so
+// the command works before the hooks are applied.
 func ensureIngested(cmd *cobra.Command, o *options) error {
 	paths, err := costs.Locations()
 	if err != nil {
@@ -276,14 +276,34 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 	if err != nil {
 		return err
 	}
-	empty, err := ledger.Empty()
+	// A tool with transcripts but no rows has never been read: the ledger is
+	// new, or Workbench learned the tool after its hooks were installed.
+	var missing []string
+	for _, tool := range costs.Tools {
+		if tool.Source == nil {
+			continue
+		}
+		empty, err := ledger.Empty(tool.Name)
+		if err != nil {
+			_ = ledger.Close()
+			return err
+		}
+		if transcripts, _ := tool.Source.Transcripts(paths.Home); empty && len(transcripts) > 0 {
+			missing = append(missing, tool.Title)
+		}
+	}
 	_ = ledger.Close()
-	if err != nil || !empty {
-		return err
+	if len(missing) == 0 {
+		return nil
 	}
 	_, _ = fmt.Fprintln(
 		cmd.ErrOrStderr(),
-		glyphs.text.Replace("→ ledger is empty; ingesting transcripts once inline"),
+		glyphs.text.Replace(
+			"→ no "+strings.Join(
+				missing,
+				" or ",
+			)+" usage in the ledger yet; ingesting transcripts once inline",
+		),
 	)
 	progress, stop := ingestProgress(o, cmd.ErrOrStderr())
 	defer stop()

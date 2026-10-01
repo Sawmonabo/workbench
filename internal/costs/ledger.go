@@ -309,10 +309,10 @@ func (l *Ledger) SetMeta(key, value string) error {
 	return setMeta(context.Background(), l.db, key, value)
 }
 
-// Empty reports whether the ledger holds no responses.
-func (l *Ledger) Empty() (bool, error) {
+// Empty reports whether the ledger holds no responses of tool.
+func (l *Ledger) Empty(tool string) (bool, error) {
 	var one int
-	err := l.db.QueryRow("SELECT 1 FROM responses LIMIT 1").Scan(&one)
+	err := l.db.QueryRow("SELECT 1 FROM responses WHERE tool = ? LIMIT 1", tool).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return true, nil
 	}
