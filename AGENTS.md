@@ -26,7 +26,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
   selection changed since. `workbench init --answers-from FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
   the saved selection, not for a caller that did not read the plan. From a
-  checkout, add `--local-build` to both calls.
+  checkout, add `--local-build` to both `apply` calls.
 - Use isolated destinations and synthetic credentials for smoke checks. Never
   provision the developer's live machine to validate code.
 

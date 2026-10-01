@@ -87,7 +87,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 
 // writeMachinePlan prints the checklist view: changed files with their line
 // counts, then one line per effect with its probed delta, a privilege tag and
-// whether a skip was saved. Recovery text and unchanged files are verbose.
+// whether a skip was saved. Recovery text and limits are verbose.
 func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
 	var b strings.Builder
 	b.WriteString("[WorkBench] Plan for this machine")

@@ -281,8 +281,10 @@ func applyMachine(
 			}
 		}
 		selection = machine.SelectionOf(plan.Effects)
-		// With --reset nothing is "saved" for this run, so no row is tagged.
-		saved, savedErr := machineSelection(c, o)
+		// Tag saved skips from machine.toml even under --reset: Apply's recheck
+		// reads the file the same way, and SavedSkip is part of the digest the
+		// approval must equal.
+		saved, savedErr := machine.ReadSelection(c.Native.Config)
 		if savedErr != nil {
 			return result, plan, savedErr
 		}

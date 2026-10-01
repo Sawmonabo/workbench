@@ -85,7 +85,7 @@ func newRoot(o *options) *cobra.Command {
 		&o.verbose,
 		"verbose",
 		false,
-		"Show unchanged files, recovery text and limits in plans",
+		"Show each effect's recovery text and the recovery limits in plans",
 	)
 	flags.BoolVar(
 		&o.nonInteractive,
