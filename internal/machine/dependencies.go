@@ -330,6 +330,27 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	recorded := state.Dependencies
 	results := installed(state)
+	selection, selectionErr := ReadSelection(c.Native.Config)
+	effects := operation.Component{
+		Name:    "effects",
+		Status:  operation.StatusUnchanged,
+		Message: "none skipped",
+	}
+	switch {
+	case selectionErr != nil:
+		effects.Status, effects.Message = operation.StatusBlocked, selectionErr.Error()
+	case len(selection.Skip) > 0 || len(selection.Select) > 0:
+		effects.Status = operation.StatusComplete
+		var parts []string
+		if len(selection.Skip) > 0 {
+			parts = append(parts, "skipped "+strings.Join(selection.Skip, ", ")+" (saved)")
+		}
+		if len(selection.Select) > 0 {
+			parts = append(parts, "selected "+strings.Join(selection.Select, ", ")+" (saved)")
+		}
+		effects.Message = strings.Join(parts, "; ")
+	}
+	results = append(results, effects)
 	results = append(results, checkPlatform(ctx, c))
 	if requirements, requirementsErr := ManagementRequirements(c); requirementsErr != nil {
 		results = append(results, operation.Component{
@@ -414,6 +435,9 @@ func installed(state *operation.State) []operation.Component {
 		applied.Message = "Last applied from release " + source.Release
 		if source.Release == "developer" {
 			applied.Message = "Last applied from a developer checkout (" + source.ContentDigest[:12] + ")"
+		}
+		if state.AppliedAt != nil {
+			applied.Message += " on " + state.AppliedAt.Local().Format("Jan 2, 2006")
 		}
 	}
 	results := []operation.Component{release, applied}

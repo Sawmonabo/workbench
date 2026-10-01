@@ -71,6 +71,7 @@ func (p *preparation) planUpdates(
 			Name: "update-" + update.name,
 			Description: "Update " + update.name + " " + update.installed + " → " +
 				update.latest + " through Homebrew",
+			Delta:     update.installed + " → " + update.latest,
 			Privilege: "user; network",
 			Recovery:  "external; the previous version is not kept",
 		}

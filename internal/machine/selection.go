@@ -15,11 +15,6 @@ import (
 type Selection struct {
 	Skip   []string `toml:"skip,omitempty"`
 	Select []string `toml:"select,omitempty"`
-
-	// ConfigOnly and Effects are the pre-selection apply flags' shape, kept
-	// only until the checklist replaces their callers; never saved.
-	ConfigOnly bool     `toml:"-"`
-	Effects    []string `toml:"-"`
 }
 
 func (s Selection) empty() bool { return len(s.Skip) == 0 && len(s.Select) == 0 }

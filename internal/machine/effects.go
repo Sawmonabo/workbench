@@ -57,8 +57,14 @@ var effectSources = map[string][]string{
 	"work-tools": {
 		"00-packages", "50-apps-and-extensions", "35-vscode-extensions", ".zshrc", ".bashrc",
 	},
-	"windows-files":   {"00-packages-windows", "10-deploy-windows-configs"},
-	"wsl-preferences": {"10-deploy-windows-configs"},
+	"windows-files":       {"00-packages-windows", "10-deploy-windows-configs"},
+	"wsl-preferences":     {"10-deploy-windows-configs"},
+	"sysctl":              {"20-sysctl"},
+	"terminal-adoption":   {"00-packages-windows"},
+	"powershell-adoption": {"00-packages-windows"},
+	"font-registry":       {"00-packages-windows"},
+	"default-distro":      {"10-deploy-windows-configs"},
+	"windows-path":        {"10-deploy-windows-configs"},
 }
 
 // activeEffects keeps the effects with an active source; see [effectSources].
@@ -193,8 +199,8 @@ var optionalEffects = []operation.Effect{
 	},
 }
 
-// optionalEffectNames lists the effects selectable on this host.
-func optionalEffectNames() []string {
+// optionalNames lists this host's optional effects.
+func optionalNames() []string {
 	if !isWSL() {
 		return nil
 	}
@@ -206,49 +212,22 @@ func optionalEffectNames() []string {
 }
 
 // AvailableEffects lists this host's optional effect names for messages.
-func AvailableEffects() string {
-	return strings.Join(optionalEffectNames(), ", ")
-}
+func AvailableEffects() string { return strings.Join(optionalNames(), ", ") }
 
-// CheckEffects validates the selected optional effects as planning will, so a
-// command can refuse them before it installs anything.
-func CheckEffects(selection Selection) error {
-	_, err := selectedEffects(selection)
-	return err
-}
-
-// selectedEffects validates names against this host's optional effects.
-func selectedEffects(selection Selection) ([]operation.Effect, error) {
-	if len(selection.Effects) > 0 && selection.ConfigOnly {
-		return nil, operation.Fail(
-			operation.ExitInvalid,
+// CheckSelection refuses an optional effect this host does not offer. Skips
+// are not validated: a skip saved on another platform is kept and ignored.
+func CheckSelection(selection Selection) error {
+	available := optionalNames()
+	if slices.Contains(selection.Select, "default-distro") && os.Getenv("WSL_DISTRO_NAME") == "" {
+		return operation.Fail(
+			operation.ExitBlocked,
 			"effect",
-			"Optional effects are provisioning steps; they cannot be combined with --config-only",
+			"default-distro requires WSL_DISTRO_NAME from a WSL session",
 		)
 	}
-	available := optionalEffectNames()
-	var effects []operation.Effect
-	for _, effect := range optionalEffects {
-		if slices.Contains(selection.Effects, effect.Name) &&
-			slices.Contains(available, effect.Name) {
-			// Name the distribution so consent never covers an implicit choice.
-			if effect.Name == "default-distro" {
-				distribution := os.Getenv("WSL_DISTRO_NAME")
-				if distribution == "" {
-					return nil, operation.Fail(
-						operation.ExitBlocked,
-						"effect",
-						"default-distro requires WSL_DISTRO_NAME from a WSL session",
-					)
-				}
-				effect.Description = "Make " + distribution + " the default WSL distribution"
-			}
-			effects = append(effects, effect)
-		}
-	}
-	for _, name := range selection.Effects {
+	for _, name := range selection.Select {
 		if !slices.Contains(available, name) {
-			return nil, operation.Fail(
+			return operation.Fail(
 				operation.ExitInvalid,
 				"effect",
 				"Unknown or unavailable effect "+name+"; available here: "+cmp.Or(
@@ -258,7 +237,99 @@ func selectedEffects(selection Selection) ([]operation.Effect, error) {
 			)
 		}
 	}
-	return effects, nil
+	return nil
+}
+
+// hostOptionalEffects lists every optional effect this host offers, naming
+// the distribution for default-distro so consent never covers an implicit
+// choice.
+func hostOptionalEffects() []operation.Effect {
+	if !isWSL() {
+		return nil
+	}
+	effects := slices.Clone(optionalEffects)
+	for i := range effects {
+		if effects[i].Name == "default-distro" {
+			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
+				effects[i].Description = "Make " + distribution + " the default WSL distribution"
+			}
+		}
+	}
+	return effects
+}
+
+// applySelection marks each effect checked or not: fixed effects always,
+// optional effects only when selected, every other effect unless skipped.
+// SavedSkip tells the checklist which skips came from machine.toml.
+func applySelection(effects []operation.Effect, selection, saved Selection) []operation.Effect {
+	optional := optionalNames()
+	for i := range effects {
+		effect := &effects[i]
+		switch {
+		case effect.Fixed:
+			effect.Checked, effect.SavedSkip = true, false
+		case slices.Contains(optional, effect.Name):
+			effect.Checked, effect.SavedSkip = slices.Contains(selection.Select, effect.Name), false
+		default:
+			effect.Checked = !slices.Contains(selection.Skip, effect.Name)
+			effect.SavedSkip = !effect.Checked && slices.Contains(saved.Skip, effect.Name)
+		}
+	}
+	// The Windows adoptions and the font registry act on files that
+	// windows-files writes; without it they have nothing to do.
+	filesChecked := slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+		return effect.Name == "windows-files" && effect.Checked
+	})
+	for i := range effects {
+		if !filesChecked && slices.Contains(windowsFileEffects, effects[i].Name) {
+			effects[i].Checked, effects[i].Delta = false, "needs windows-files"
+		}
+	}
+	return effects
+}
+
+// windowsFileEffects are the optional effects that act on windows-files' output.
+var windowsFileEffects = []string{"terminal-adoption", "powershell-adoption", "font-registry"}
+
+// Reselect returns plan with its effects checked as selection says; the
+// checklist uses it so the approved digest is the one the planner recomputes.
+func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
+	plan.Effects = applySelection(slices.Clone(plan.Effects), selection, saved)
+	return plan
+}
+
+// SelectionOf is the selection a checklist produced: skipped default
+// effects and selected optional ones.
+func SelectionOf(effects []operation.Effect) Selection {
+	optional := optionalNames()
+	var selection Selection
+	for _, effect := range effects {
+		switch {
+		case effect.Fixed:
+		case slices.Contains(optional, effect.Name):
+			if effect.Checked {
+				selection.Select = append(selection.Select, effect.Name)
+			}
+		case !effect.Checked:
+			selection.Skip = append(selection.Skip, effect.Name)
+		}
+	}
+	slices.Sort(selection.Skip)
+	slices.Sort(selection.Select)
+	return selection
+}
+
+// scriptEffects lists the effects a provisioning script carries out, by its
+// name without chezmoi's prefixes and .sh suffix.
+func scriptEffects(script string) []string {
+	var names []string
+	for name, sources := range effectSources {
+		if slices.Contains(sources, script) {
+			names = append(names, name)
+		}
+	}
+	slices.Sort(names)
+	return names
 }
 
 // effectVariable is the script switch for an optional effect, for example

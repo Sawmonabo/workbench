@@ -1,9 +1,12 @@
 package machine
 
 import (
+	"cmp"
 	"context"
 	"io"
 	"os"
+	"slices"
+	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -24,9 +27,10 @@ func Apply(
 	defer operation.Annotate(&err, "apply machine configuration")
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest = displayed.Digest()
-	// A config-only plan without file changes writes nothing, unless it
-	// settles an earlier unfinished apply, so there is nothing to approve.
-	if selection.ConfigOnly && displayed.Complete && len(displayed.Edits) == 0 {
+	// A plan without file changes and without a checked effect writes nothing,
+	// unless it settles an earlier unfinished apply, so there is nothing to
+	// approve.
+	if displayed.Complete && len(displayed.Edits) == 0 && !hasProvisioning(displayed.Effects) {
 		state, stateErr := operation.ReadState(c.Paths)
 		if stateErr != nil {
 			return result, stateErr
@@ -35,7 +39,7 @@ func Apply(
 			result.Results = append(result.Results, operation.Component{
 				Name:    "configuration",
 				Status:  operation.StatusUnchanged,
-				Message: "Every file already matches; nothing to apply",
+				Message: "Every file already matches and no effect is checked; nothing to apply",
 			})
 			return result, nil
 		}
@@ -51,7 +55,19 @@ func Apply(
 	planner := func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
 		defer preview.ShowProgress("Rechecking the plan")()
 		var err error
-		prepared, err = prepare(ctx, preview, selection)
+		prepared, err = prepare(ctx, preview, selection, false)
+		if err == nil {
+			// The recheck does not probe; carry the shown deltas so the
+			// result messages keep them. The digest ignores these fields.
+			for i, effect := range prepared.Plan.Effects {
+				if j := slices.IndexFunc(displayed.Effects, func(shown operation.Effect) bool {
+					return shown.Name == effect.Name
+				}); j >= 0 {
+					prepared.Plan.Effects[i].Delta = displayed.Effects[j].Delta
+					prepared.Plan.Effects[i].Probe = displayed.Effects[j].Probe
+				}
+			}
+		}
 		return prepared.Plan, err
 	}
 	err = operation.WithMutation(
@@ -111,7 +127,9 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 				" did not finish; rerun apply for that destination first",
 		)
 	}
-	if !a.selection.ConfigOnly {
+	plan := a.prepared.Plan
+	provisioning := hasProvisioning(plan.Effects)
+	if provisioning {
 		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil {
 			return provisioningFailure(err)
 		}
@@ -126,12 +144,14 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	if current != nil {
 		settled = current.PartialOperation
 	}
-	if !a.selection.ConfigOnly || settled != nil {
+	if provisioning || settled != nil {
 		if current == nil {
 			current = &operation.State{SchemaVersion: 1}
 		}
-		current.AppliedConfiguration = &a.prepared.Plan.Source
-		current.Dependencies = a.prepared.Plan.Dependencies
+		now := time.Now().UTC()
+		current.AppliedConfiguration = &plan.Source
+		current.AppliedAt = &now
+		current.Dependencies = plan.Dependencies
 		current.PartialOperation = nil
 		if err = a.m.WriteState(*current); err != nil {
 			return operation.Fail(
@@ -139,6 +159,9 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 				"state",
 				"Apply completed; configuration identity finalization failed",
 			)
+		}
+		if err = a.saveSelection(plan); err != nil {
+			return err
 		}
 	}
 	a.result.Results = append(a.result.Results, operation.Component{
@@ -153,9 +176,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 			Message: "Apply " + settled.ID + " did not finish earlier; every file now matches this plan",
 		})
 	}
-	if !a.selection.ConfigOnly {
-		a.result.Results = append(a.result.Results, effectResults(a.prepared.Plan.Effects)...)
-	}
+	a.result.Results = append(a.result.Results, effectResults(checkedEffects(plan.Effects))...)
 	return nil
 }
 
@@ -164,6 +185,7 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		state = &operation.State{SchemaVersion: 1}
 	}
 	plan := a.prepared.Plan
+	provisioning := hasProvisioning(plan.Effects)
 	cp, err := operation.BeginCheckpoint(a.m, plan, state.AppliedConfiguration, a.prepared.Changes)
 	if err != nil {
 		return err
@@ -180,7 +202,7 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 	if runErr == nil {
 		runErr = cp.FinalizeNative()
 	}
-	if !a.selection.ConfigOnly && runErr != nil {
+	if provisioning && runErr != nil {
 		runErr = provisioningFailure(runErr)
 	}
 	if err = cp.Finish(runErr); err != nil {
@@ -196,7 +218,9 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		})
 		return err
 	}
+	now := time.Now().UTC()
 	state.AppliedConfiguration = &plan.Source
+	state.AppliedAt = &now
 	state.Dependencies = plan.Dependencies
 	state.PartialOperation = nil
 	if err = a.m.WriteState(*state); err != nil {
@@ -206,13 +230,49 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 			"Configuration applied; state finalization failed, retained checkpoint remains available",
 		)
 	}
+	if err = a.saveSelection(plan); err != nil {
+		return err
+	}
 	a.result.Results = append(a.result.Results, operation.Component{
 		Name:     "configuration",
 		Status:   operation.StatusComplete,
 		Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
 	})
-	a.result.Results = append(a.result.Results, effectResults(plan.Effects)...)
+	a.result.Results = append(a.result.Results, effectResults(checkedEffects(plan.Effects))...)
 	return nil
+}
+
+// saveSelection remembers what the approved apply checked, in machine.toml. An
+// isolated destination is skipped: its plan unchecked every effect, and saving
+// that would skip everything on the real machine.
+func (a *applyRun) saveSelection(plan operation.Plan) error {
+	if a.c.Native.Destination != a.c.Home {
+		return nil
+	}
+	if err := WriteSelection(a.m, a.c.Native.Config, SelectionOf(plan.Effects)); err != nil {
+		return operation.Fail(
+			operation.ExitPartial,
+			"state",
+			"Applied; saving the effect selection failed",
+		)
+	}
+	return nil
+}
+
+// hasProvisioning reports whether any non-fixed effect is checked, which is
+// when native must run the provisioning scripts.
+func hasProvisioning(effects []operation.Effect) bool {
+	return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+		return effect.Checked && !effect.Fixed
+	})
+}
+
+// checkedEffects keeps the effects this apply ran.
+func checkedEffects(effects []operation.Effect) []operation.Effect {
+	return slices.DeleteFunc(
+		slices.Clone(effects),
+		func(effect operation.Effect) bool { return !effect.Checked },
+	)
 }
 
 // provisioningFailure keeps the native cause; external effects are not rolled back.
@@ -235,7 +295,7 @@ func effectResults(effects []operation.Effect) []operation.Component {
 			operation.Component{
 				Name:     effect.Name,
 				Status:   operation.StatusComplete,
-				Message:  effect.Description,
+				Message:  cmp.Or(effect.Delta, effect.Description),
 				Recovery: effect.Recovery,
 			},
 		)

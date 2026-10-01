@@ -24,7 +24,7 @@ func Plan(
 	defer operation.Annotate(&err, "plan machine configuration")
 	defer c.ShowProgress("Planning")()
 	// prepare cleans up after itself when it fails.
-	prepared, err := prepare(ctx, c, selection)
+	prepared, err := prepare(ctx, c, selection, true)
 	if err == nil {
 		prepared.Close()
 	}
@@ -38,6 +38,9 @@ type preparation struct {
 	scratch, executable  string
 	environment, secrets []string
 	selection            Selection
+	// active names the files and scripts this apply would change or run; see
+	// activeSources.
+	active map[string]bool
 	// appUpdates and toolUpdates name the casks and formulae the plan's
 	// update effects cover.
 	appUpdates, toolUpdates []string
@@ -56,6 +59,7 @@ func prepare(
 	ctx context.Context,
 	c operation.Context,
 	selection Selection,
+	probe bool,
 ) (prepared *preparation, err error) {
 	prepared = &preparation{selection: selection}
 	plan := &prepared.Plan
@@ -83,7 +87,7 @@ func prepare(
 		return prepared, err
 	}
 	c.Step("checking chezmoi, uv and Python")
-	answers, optional, err := prepared.checkPrerequisites(ctx, c, requirements)
+	answers, err := prepared.checkPrerequisites(ctx, c, requirements)
 	if err != nil {
 		return prepared, err
 	}
@@ -117,24 +121,22 @@ func prepare(
 			Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply",
 			Privilege:   "user",
 			Recovery:    "configuration files only",
+			Fixed:       true,
 		},
 	}
-	if !selection.ConfigOnly {
-		effects = append(effects, provisioningEffects(answers)...)
-	}
-	active, err := prepared.activeSources(ctx, c)
+	effects = append(effects, provisioningEffects(answers)...)
+	prepared.active, err = prepared.activeSources(ctx, c)
 	if err != nil {
 		return prepared, err
 	}
-	plan.Effects = append(plan.Effects, activeEffects(effects, active)...)
-	if !selection.ConfigOnly {
-		plan.Effects = append(plan.Effects, optional...)
-	}
+	plan.Effects = append(plan.Effects, activeEffects(effects, prepared.active)...)
+	plan.Effects = append(plan.Effects, hostOptionalEffects()...)
 	if err = prepared.buildChanges(c); err != nil {
 		return prepared, err
 	}
-	if !selection.ConfigOnly {
-		prepared.planUpdates(ctx, c, files)
+	prepared.planUpdates(ctx, c, files)
+	if err = prepared.selectEffects(ctx, c, selection, probe); err != nil {
+		return prepared, err
 	}
 	plan.Inputs = append(
 		plan.Inputs,
@@ -149,11 +151,43 @@ func prepare(
 			return prepared, retentionErr
 		}
 		if retention != nil {
+			retention.Fixed, retention.Checked = true, true
 			plan.Effects = append(plan.Effects, *retention)
 		}
 	}
 	plan.Complete = true
 	return prepared, nil
+}
+
+// selectEffects probes the active scripts for their deltas, then checks each
+// effect as the selection and the saved skips say. An isolated destination
+// gets files only: scripts provision the real home.
+func (p *preparation) selectEffects(
+	ctx context.Context,
+	c operation.Context,
+	selection Selection,
+	probe bool,
+) error {
+	if probe {
+		p.probeEffects(ctx, c)
+	}
+	saved, err := ReadSelection(c.Native.Config)
+	if err != nil {
+		return err
+	}
+	p.Plan.Effects = applySelection(p.Plan.Effects, selection, saved)
+	if c.Native.Destination != c.Home {
+		for i := range p.Plan.Effects {
+			if !p.Plan.Effects[i].Fixed {
+				p.Plan.Effects[i].Checked = false
+			}
+		}
+		p.Plan.Warnings = append(
+			p.Plan.Warnings,
+			"Isolated destination: provisioning effects are unchecked and only files apply",
+		)
+	}
+	return nil
 }
 
 func recoveryLimits() []string {
@@ -176,11 +210,11 @@ func (p *preparation) checkPrerequisites(
 	ctx context.Context,
 	c operation.Context,
 	requirements Requirements,
-) (Answers, []operation.Effect, error) {
+) (Answers, error) {
 	plan := &p.Plan
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	var recorded []operation.Dependency
 	if state != nil {
@@ -189,13 +223,12 @@ func (p *preparation) checkPrerequisites(
 	dependencies, results := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 	plan.Dependencies = dependencies
 	for _, result := range results {
-		if result.Status != operation.StatusComplete &&
-			(result.Name != "uv" || !p.selection.ConfigOnly) {
+		if result.Status != operation.StatusComplete {
 			plan.Prerequisites = append(plan.Prerequisites, result.Name+": "+result.Message)
 		}
 	}
 	if len(plan.Prerequisites) > 0 {
-		return nil, nil, operation.Fail(
+		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"prerequisites",
 			"Workbench's tools are missing; workbench apply installs them",
@@ -203,37 +236,29 @@ func (p *preparation) checkPrerequisites(
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
-		return nil, nil, operation.Fail(operation.ExitBlocked, "platform", platform.Message)
+		return nil, operation.Fail(operation.ExitBlocked, "platform", platform.Message)
 	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
-		return nil, nil, operation.Fail(
+		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"answers",
-			"Provide a complete private [data] answer file through --machine-config; preview does not initialize answers",
+			"Machine answers are missing; run workbench apply at a terminal to answer them, or workbench init --answers-from FILE",
 		)
 	}
 	answers, err := parseAnswers(answersRaw)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	plan.Inputs = append(
 		plan.Inputs,
 		operation.Input{Name: "machine-answers", Digest: operation.SHA256Hex(answersRaw)},
 	)
-	if !p.selection.ConfigOnly && c.Native.Destination != c.Home {
-		return nil, nil, operation.Fail(
-			operation.ExitBlocked,
-			"scope",
-			"Full provisioning requires the actual user's home; use --config-only for an isolated destination",
-		)
-	}
-	optional, err := selectedEffects(p.selection)
-	if err != nil {
-		return nil, nil, err
+	if err = CheckSelection(p.selection); err != nil {
+		return nil, err
 	}
 	p.executable, p.secrets = dependency(dependencies, "chezmoi"), answers.secrets()
-	return answers, optional, nil
+	return answers, nil
 }
 
 // stageNative copies the role-selected sources, answers and native state into
@@ -517,7 +542,31 @@ func (p *preparation) planEdits(
 			)
 		}
 	}
+	p.countUnchanged(c, targets, containers)
 	return nil
+}
+
+// countUnchanged counts the managed files and links the plan leaves as they
+// are. Native status lists only entries that differ, so this counts them from
+// the managed list instead of from status lines.
+func (p *preparation) countUnchanged(
+	c operation.Context,
+	targets []string,
+	containers map[string]bool,
+) {
+	changing := map[string]bool{}
+	for _, edit := range p.Plan.Edits {
+		changing[edit.Path] = true
+	}
+	for _, target := range targets {
+		relative, err := filepath.Rel(c.Native.Destination, target)
+		if err != nil || changing[target] || containers[target] {
+			continue
+		}
+		if kind := p.desired[relative].Type; kind == "file" || kind == "symlink" {
+			p.Plan.UnchangedTargets++
+		}
+	}
 }
 
 // activeSources returns what this apply would actually do: the files the plan
@@ -534,9 +583,6 @@ func (p *preparation) activeSources(
 		if relative, err := filepath.Rel(c.Native.Destination, edit.Path); err == nil {
 			active[relative] = true
 		}
-	}
-	if p.selection.ConfigOnly {
-		return active, nil
 	}
 	status, err := p.run(ctx, c, "status", "--include=scripts")
 	if err != nil {
@@ -759,24 +805,33 @@ func (p *preparation) Apply(
 	}
 	args = append(args, "apply", "--force")
 	environment := p.environment
-	if p.selection.ConfigOnly {
+	if c.Native.Destination != c.Home {
+		// An isolated destination gets files only, rendered under the same
+		// environment as the preview; its scripts provision the real home.
 		args = append(args, "--exclude=scripts")
 	} else {
+		if err = p.removeSkippedScripts(); err != nil {
+			return err
+		}
 		environment = scriptEnvironment(c, p.Plan.Dependencies)
-		for _, name := range p.selection.Effects {
-			environment = append(environment, effectVariable(name)+"=1")
+		// Every effect is gated on its own: a shared script runs only the
+		// sections whose effect is checked, and the optional ones keep their
+		// existing == 1 checks.
+		for _, effect := range p.Plan.Effects {
+			if effect.Fixed {
+				continue
+			}
+			value := "0"
+			if effect.Checked {
+				value = "1"
+			}
+			environment = append(environment, effectVariable(effect.Name)+"="+value)
 		}
-		if len(p.appUpdates) > 0 {
-			environment = append(
-				environment,
-				"WORKBENCH_APP_UPDATES="+strings.Join(p.appUpdates, " "),
-			)
+		if updates := p.checkedUpdates(p.appUpdates); len(updates) > 0 {
+			environment = append(environment, "WORKBENCH_APP_UPDATES="+strings.Join(updates, " "))
 		}
-		if len(p.toolUpdates) > 0 {
-			environment = append(
-				environment,
-				"WORKBENCH_TOOL_UPDATES="+strings.Join(p.toolUpdates, " "),
-			)
+		if updates := p.checkedUpdates(p.toolUpdates); len(updates) > 0 {
+			environment = append(environment, "WORKBENCH_TOOL_UPDATES="+strings.Join(updates, " "))
 		}
 		for i, value := range environment {
 			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
@@ -798,4 +853,45 @@ func (p *preparation) Apply(
 	}
 	_, err = operation.Run(ctx, c, m, request)
 	return err
+}
+
+// removeSkippedScripts deletes, from the private source copy, every script
+// whose effects are all unchecked, so native neither runs it nor records it
+// as run; a later apply with the effect checked runs it as if new.
+func (p *preparation) removeSkippedScripts() error {
+	checked := map[string]bool{}
+	for _, effect := range p.Plan.Effects {
+		checked[effect.Name] = effect.Checked
+	}
+	root := filepath.Join(p.native.Source, "home", ".chezmoiscripts")
+	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
+		if err != nil || entry.IsDir() {
+			return err
+		}
+		base := entry.Name()
+		if !strings.HasPrefix(base, "run_") || !strings.HasSuffix(base, ".sh.tmpl") {
+			return nil
+		}
+		script := strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".sh.tmpl")
+		owners := scriptEffects(script)
+		if len(owners) == 0 ||
+			slices.ContainsFunc(owners, func(name string) bool { return checked[name] }) {
+			return nil
+		}
+		return os.Remove(path)
+	})
+}
+
+// checkedUpdates keeps the Homebrew updates whose update-<name> effect is
+// checked.
+func (p *preparation) checkedUpdates(names []string) []string {
+	var kept []string
+	for _, name := range names {
+		for _, effect := range p.Plan.Effects {
+			if effect.Name == "update-"+name && effect.Checked {
+				kept = append(kept, name)
+			}
+		}
+	}
+	return kept
 }
