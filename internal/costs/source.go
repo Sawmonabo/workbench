@@ -97,8 +97,10 @@ type Usage struct {
 	Subscription, SubscriptionLabel string
 
 	// Root is the session a hook names for the row: Claude's sessionId (the
-	// same for a subagent's file), Codex's root thread. "" when unknown; the
-	// ledger matches session bindings on it.
+	// same for a subagent's file), Codex's root thread, or for an older
+	// subagent the thread that spawned it (its file names no more); the ledger
+	// walks ThreadParent links from that to the root. "" when unknown; the
+	// ledger matches session bindings on the root.
 	Root string
 
 	// AccountKey is the tool's own id of the account that answered, when the
@@ -142,9 +144,16 @@ type FileState struct {
 	Saved []byte
 	// Tiers are the service tier changes read this run; ingest stores them.
 	Tiers []TierChange
+	// Parents are the spawning links read this run; ingest stores them.
+	Parents []ThreadParent
 
 	cache any // the source's decoded Saved during one read
 }
+
+// ThreadParent is a thread the file names as spawned by another: its
+// immediate parent, which is not always the root. The ledger walks these links
+// to the root thread that a hook binds a session under.
+type ThreadParent struct{ Thread, Parent string }
 
 // TierChange is a thread switching service tier at a time; Tier is the
 // stored tier name, "" for standard. Turn marks the time the tier took effect

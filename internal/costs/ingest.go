@@ -330,6 +330,7 @@ type fileRead struct {
 	changed  bool // new bytes were read
 	usage    []Usage
 	tiers    []TierChange
+	parents  []ThreadParent
 	row      FileRow
 	err      error
 }
@@ -426,7 +427,7 @@ func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileR
 		read.usage = append(read.usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
 		long = long[:0]
 	}
-	read.changed, read.tiers = true, state.Tiers
+	read.changed, read.tiers, read.parents = true, state.Tiers, state.Parents
 	read.row = FileRow{
 		Offset:       offset,
 		Size:         size,
@@ -455,8 +456,8 @@ func firstLineDigest(file *os.File) (string, error) {
 	return hex.EncodeToString(sum[:]), nil
 }
 
-// commitFile stores one read in one transaction: its rows, its tier changes
-// and where it stopped. A vanished file is forgotten. run is the run's record
+// commitFile stores one read in one transaction: its rows, its tier changes,
+// its thread links and where it stopped. A vanished file is forgotten. run is the run's record
 // of committed writes.
 func commitFile(
 	ctx context.Context,
@@ -490,6 +491,11 @@ func commitFile(
 		}
 		for _, change := range read.tiers {
 			if err := tx.AddTierChange(change); err != nil {
+				return err
+			}
+		}
+		for _, link := range read.parents {
+			if err := tx.AddThreadParent(tool.Name, link); err != nil {
 				return err
 			}
 		}

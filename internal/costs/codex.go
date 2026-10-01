@@ -717,6 +717,9 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 	state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
 	state.Parent = codexParent(meta.Source)
 	state.Spawned = state.Parent != ""
+	if state.Spawned {
+		file.Parents = append(file.Parents, ThreadParent{Thread: meta.ID, Parent: state.Parent})
+	}
 	when, err := time.Parse(time.RFC3339Nano, ts)
 	if err == nil {
 		state.Spawn = when.UTC().Format(timeLayout)
@@ -797,7 +800,9 @@ func codexParent(source json.RawMessage) string {
 }
 
 // codexRoot is the root thread of a subagent's file: the session id when it
-// differs from the thread id, else the spawning parent; "" for a root thread.
+// differs from the thread id, else the spawning parent, which for a deeper
+// subagent of an older Codex is not yet the root (the ledger walks the
+// parents' links, see ThreadParent); "" for a root thread.
 func codexRoot(id, sessionID string, source json.RawMessage) string {
 	if sessionID != "" && sessionID != id {
 		return sessionID
