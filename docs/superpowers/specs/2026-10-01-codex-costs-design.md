@@ -217,10 +217,11 @@ that the report's prompt total (input + writes + reads) is right:
 | `cache_write_1h` | 0 |
 | `output` | `output_tokens` (reasoning is already inside it) |
 
-`Session(file, transcript)` is `file == transcript`: a Codex `SessionEnd` names
-the root thread's rollout, so subagent files ingested in the same run are
-tagged `sweep`. `Account` is the `email` claim of `auth.json` (payload decoded,
-never verified, access and refresh tokens never read), else `unknown`.
+A source reports its current sign-in as `SignIn(home)`: the `email` claim of
+`auth.json` (payload decoded, never verified, access and refresh tokens never
+read), the subscription from the same token's plan, else `unknown`. Each row
+is stored with an email, a subscription and the evidence that decided them,
+as section 11 describes; there is no per-run `session` or `sweep` tag.
 `Observations` is nil: Codex records no cost to calibrate against.
 
 ## 4. Ledger and ingest changes
@@ -273,7 +274,23 @@ never verified, access and refresh tokens never read), else `unknown`.
 - **Attribution.** On a repeated key the token columns keep their largest
   values, as before, and the time, model, project and session come from the
   earliest occurrence (on a tie, the row read last, as before): a fork's copy,
-  stamped with the fork's time and thread, never moves its original.
+  stamped with the fork's time and thread, never moves its original. The
+  account, subscription and `account_source` (the evidence) are the exception:
+  a copy with stronger evidence replaces them, an equal or weaker one keeps
+  the stored values (section 11).
+- **Accounts.** `responses` also gains `subscription` and `root` (the root
+  session a hook names), and `account_source` now holds the evidence level
+  (`transcript`, `session`, `observed` or `unknown`); schema 3 adds the tables
+  `session_accounts`, `sign_ins` and `subscriptions`. A version 1 or 2 ledger
+  keeps every row's email with subscription and evidence `unknown`. A row is
+  stored with the tool's current sign-in as a provisional answer; after every
+  run `ResolveAccounts` raises it to the strongest evidence, by the same
+  targeted pass as the tier check: the rows the run stored, those of sessions
+  a binding or the run named, and those after a tool's latest observation. A
+  transaction that stores a row under provisional evidence stores the
+  `accounts_unresolved` note and `ResolveAccounts` clears it, so a run
+  cancelled before it leaves the work to the next run; a missing
+  `accounts_checked` forces every row.
 - **Rewrite check.** `head` is the SHA-256 of the file's first line, `""`
   while that line is still being written. When it differs from a stored
   non-empty one, ingest reads the file from offset 0 with empty state; a
@@ -375,7 +392,7 @@ state words, adding `(workbench apply)` once to a hooks line with a `missing`
 or `untrusted` event, and `costs status --json` gives each event's state as a
 string.
 
-Claude Code's hooks already run an ingest that sweeps every tool, so Codex
+Claude Code's hooks already run an ingest that reads every tool, so Codex
 hooks only matter while Codex is used without Claude Code; `workbench costs`
 and `costs ingest` catch up in any case.
 
@@ -425,9 +442,8 @@ email and subscription, for example `you@example.com · Max` and
   assistant record carries only the model, usage, `service_tier` and
   request ids. The current sign-in is `~/.claude.json` `oauthAccount`:
   `emailAddress`, `organizationUuid`, `organizationName`, `organizationType`
-  (`claude_max` observed; other values are shown as written). Whether
-  a running session follows a `/login` made elsewhere is confirmed against
-  Claude Code before relying on rule 2 for it. The `SessionStart` hook receives `session_id` on stdin, and a
+  (`claude_max` observed; other values are shown as written). The
+  `SessionStart` hook receives `session_id` on stdin, and a
   subagent's records (`<session>/subagents/agent-*.jsonl`) carry its parent's
   `sessionId`, so one binding covers the session and its subagents.
 - **Codex.** Every `token_count` carries `rate_limits.plan_type` (`plus`,
@@ -452,13 +468,14 @@ evidence replaces a weaker one; equal evidence keeps the stored value.
    the email from the sign-in whose `chatgpt_account_id` equals the file's
    `creator_account_id`. Without that id, the plan stays per response and the
    email comes from rule 2 or 3.
-2. `session`: the sign-in a session started under. The `SessionStart` hook
-   reads the tool's current sign-in before it detaches and passes it to the
-   worker with the session id. The hook process itself stores
+2. `session`: the sign-in a session started under. The hook passes the
+   worker its `session_id` and transcript path (which names the tool). The
+   detached worker reads the tool's current sign-in and stores
    `session_accounts(tool, session, since, account, subscription)` in one
-   short transaction before it detaches the worker, so a worker that skips
-   because another holds the ingest lock loses no binding; a hook that
-   cannot open the ledger in time logs it and the row falls to rule 3. Rows
+   short transaction before it contends for the ingest lock, so a worker that
+   skips because another holds the lock loses no binding, and the hook process
+   itself stays instant within Codex's 3 s `SessionEnd` cap; a worker that
+   cannot store it logs that and the row falls to rule 3. Rows
    match on the root session: Claude's `sessionId`, Codex's root thread. A row of
    that session takes the binding with the latest `since` at or before its
    time, so a session resumed later under another subscription changes from
@@ -485,6 +502,21 @@ sign-in that names the id, so a renamed organization relabels its history.
 - A Claude Code `/login` to another organization inside a running session is
   not written anywhere Workbench can read until the next hook run; that
   session's rows stay with the subscription it started under.
+- Whether a running Claude Code session follows a `/login` made in another
+  terminal is not stated by the official docs, which say only that parallel
+  sessions on one machine "share a saved login and coordinate its renewal so
+  that only one process refreshes the token at a time" (Troubleshoot
+  installation and login, "Not logged in or token expired",
+  <https://code.claude.com/docs/en/troubleshoot-install>); the
+  Authentication page says only that running `/login` with
+  `CLAUDE_CODE_OAUTH_TOKEN` set "switches the current session to the new
+  login" (<https://code.claude.com/docs/en/authentication>, "Authentication
+  precedence"). Upstream reports the opposite for a long-running session: its
+  in-memory token is not re-read after a `/login` elsewhere
+  (`anthropics/claude-code` issue 95262, v2.1.268). Workbench therefore
+  assumes a running session keeps the login it started or resumed under, which
+  is what rule 2 records; it does not claim the docs confirm it. A session
+  started or resumed after the `/login` is bound to the new sign-in.
 - Claude Code rows read before this change, or from sessions started with no
   hook installed, rely on rule 3; history from before the first observation
   is `unknown`.
@@ -502,9 +534,10 @@ sign-in that names the id, so a renamed organization relabels its history.
 
 ### Hooks this depends on
 
-- `SessionStart` must pass `session_id` and the current sign-in to the
-  worker; `SessionEnd` likewise, so a session's final rows are read under the
-  subscription it ran on and not by the next session's sweep.
+- `SessionStart` must pass `session_id` and the transcript path to the
+  worker, which binds the session to the tool's current sign-in; `SessionEnd`
+  likewise, so a session's final rows are read under the subscription it ran
+  on and not by a later run's guess.
 - Both hooks are synchronous (no `async`), with a 5 second `timeout` on
   Claude Code and, on Codex, `SessionStart` 10 and `SessionEnd` 3 (Codex's
   cap; it also runs `SessionEnd` synchronously even with `async: true`).
