@@ -123,6 +123,9 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if stop {
 			break
 		}
+		if err := ledger.DropHeldCopies(ctx, tool.Name, holdsIn(ledger, transcripts)); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: copies: %v", tool.Name, err))
+		}
 	}
 	if full {
 		run = nil
@@ -207,13 +210,7 @@ const headBytes = 64 << 10
 // same rows. It stops at the last complete line, so a transcript still being
 // written is picked up next run from that offset. It gives up with ctx's error
 // within about readUnit bytes of ctx being cancelled.
-func readFile(
-	ctx context.Context,
-	ledger *Ledger,
-	tool Tool,
-	path string,
-	holds func(thread, since string) bool,
-) fileRead {
+func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileRead {
 	read := fileRead{path: path}
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -248,7 +245,7 @@ func readFile(
 		read.err = err
 		return read
 	}
-	state := &FileState{Path: path, Holds: holds}
+	state := &FileState{Path: path}
 	offset := int64(0)
 	if found && size >= previous.Size && mtime >= previous.ModTimeNanos &&
 		(previous.Head == "" || previous.Head == head) {
@@ -372,10 +369,10 @@ const (
 	readUnit  = 1 << 20
 )
 
-// holdsIn is FileState.Holds for a run reading paths: a transcript holds a
-// thread's lines up to a time when it is listed this run, as every listed one
-// is read in full, or the ledger read it after it was last written at or
-// after that time.
+// holdsIn reports, for a run that read paths, whether a transcript holds a
+// thread's lines up to a time: it is listed this run, as every listed one is
+// read in full, or the ledger read it after it was last written at or after
+// that time.
 func holdsIn(ledger *Ledger, paths []string) func(thread, since string) bool {
 	return func(thread, since string) bool {
 		if thread == "" {
@@ -400,7 +397,6 @@ func readEach(
 	paths []string,
 	commit func(int, fileRead) bool,
 ) {
-	holds := holdsIn(ledger, paths)
 	workers := runtime.GOMAXPROCS(0)
 	var wg sync.WaitGroup
 	defer wg.Wait() // after cancel below: deferred calls run last-in first-out
@@ -446,7 +442,7 @@ func readEach(
 			for i := range jobs {
 				read := fileRead{path: paths[i], err: ctx.Err()}
 				if read.err == nil {
-					read = readFile(ctx, ledger, tool, paths[i], holds)
+					read = readFile(ctx, ledger, tool, paths[i])
 				}
 				results[i] <- read
 			}

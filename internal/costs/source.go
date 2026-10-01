@@ -48,6 +48,12 @@ type Usage struct {
 	// thread's selected tier at the row's time; TurnTierFrom prices it at a
 	// thread's running-turn tier at another time.
 	TierFrom string
+
+	// CopyOf, when set, is "<thread>@<time>": the row may repeat a response
+	// of that thread written before that time, under another key. It is
+	// stored apart and dropped once that thread's transcript is read past
+	// that time; until then it is the only trace of the response.
+	CopyOf string
 }
 
 // The ledger keeps two series of tier changes per thread: when a selected
@@ -74,10 +80,6 @@ type FileState struct {
 	Saved []byte
 	// Tiers are the service tier changes read this run; ingest stores them.
 	Tiers []TierChange
-	// Holds reports whether another transcript holds a thread's lines up to
-	// a time: it is listed this run, or the ledger read it when it had been
-	// written at or after that time. It may be nil.
-	Holds func(thread string, since string) bool
 
 	cache any // the source's decoded Saved during one read
 }

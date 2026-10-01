@@ -551,11 +551,12 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 // parent's events, and its first token_count whose total is more than its
 // last response is one of them: a response of the parent's history. It may
 // copy an event the parent re-emitted for a rate-limit update, whose key
-// (rate_limits differ) matches no row of the parent's; so while the parent's
-// rollout holds that response (FileState.Holds), the copy only sets the
-// running total. Later copies follow it as in the parent and land on the
-// parent's rows. A fork that copied nothing carries its parent's total into
-// its own first token_count, which counts.
+// (rate_limits differ) matches no row of the parent's, so its row is marked a
+// copy of the parent's (CopyOf): ingest drops it once the parent's rollout is
+// read, and keeps it as the only trace of that response while it is not.
+// Later copies follow it as in the parent and land on the parent's rows. A
+// fork that copied nothing carries its parent's total into its own first
+// token_count, which is its own response.
 func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *FileState) []Usage {
 	if state.Records || state.Version >= codexRecords || event.Info == nil ||
 		len(event.Info.Total) == 0 || len(event.Info.Last) == 0 {
@@ -568,10 +569,6 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	first := state.Total == ""
 	state.Total = total
 	state.save(file)
-	if first && state.Copies == 1 && total != canonicalJSON(event.Info.Last) &&
-		file.Holds != nil && file.Holds(state.Fork, state.Spawn) {
-		return nil // the parent's, copied into the fork
-	}
 	var last codexCounts
 	if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
 		return nil // a synthetic estimate after compaction
@@ -579,6 +576,9 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
 		canonicalJSON(event.RateLimits)))
 	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
+	if first && state.Copies == 1 && total != canonicalJSON(event.Info.Last) {
+		u.CopyOf = state.Fork + "@" + state.Spawn // the parent's, copied into the fork
+	}
 	last.fill(&u)
 	return []Usage{u}
 }

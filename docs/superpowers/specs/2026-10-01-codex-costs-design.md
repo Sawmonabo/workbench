@@ -179,11 +179,13 @@ with any other head is decoded if it contains one of those five names.
   `token_count` whose total is more than its `last_token_usage` is a copy of
   its parent's history. It may copy an event the parent re-emitted for a
   rate-limit update (same total, other `rate_limits`), which the parent
-  skipped and which matches none of the parent's keys, so while the parent's
-  rollout holds that response it records no row and only sets the running
-  total. The parent's rollout holds it when it is listed in the same run, or
-  the ledger read it after it was last written at or after the fork's start.
-  Otherwise the copy is the only trace of that response and counts. A fork
+  skipped and which matches none of the parent's keys. Its row is stored
+  apart, keyed `<tool>:copy:<parent>@<fork start>:` and its key, and dropped
+  at the end of a run once the parent's rollout holds that response: it is
+  listed in that run, or the ledger read it after it was last written at or
+  after the fork's start. Until then the copy is the only trace of the
+  response and counts, and the result does not depend on which file is read
+  first. A fork
   that copied nothing starts its counts from the parent's total, and its first
   `token_count` is its own response. On the sample machine
   (2,971 files) the `token_count` rows number 321,557 with this key without

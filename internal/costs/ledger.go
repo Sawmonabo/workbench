@@ -506,10 +506,68 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 // storedID is the ledger key of a response: Claude's id as is, every other
 // tool's as <tool>:<id>.
 func storedID(u Usage) string {
-	if u.Tool == firstTool {
-		return u.RequestID
+	id := u.RequestID
+	if u.CopyOf != "" {
+		id = copyMark + u.CopyOf + ":" + id
 	}
-	return u.Tool + ":" + u.RequestID
+	if u.Tool == firstTool {
+		return id
+	}
+	return u.Tool + ":" + id
+}
+
+// copyMark starts the stored key of a row with a CopyOf, after the tool.
+const copyMark = "copy:"
+
+// DropHeldCopies deletes tool's rows stored with a CopyOf whose thread's
+// transcript now holds the response, by holds: the original's row counts it.
+func (l *Ledger) DropHeldCopies(
+	ctx context.Context,
+	tool string,
+	holds func(thread, since string) bool,
+) error {
+	prefix := tool + ":" + copyMark
+	if tool == firstTool {
+		prefix = copyMark
+	}
+	// A key range on the primary key: every key that starts with prefix.
+	end := prefix[:len(prefix)-1] + string(rune(prefix[len(prefix)-1]+1))
+	rows, err := l.db.QueryContext(ctx,
+		"SELECT request_id FROM responses WHERE request_id >= ? AND request_id < ?",
+		prefix, end)
+	if err != nil {
+		return err
+	}
+	var held []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		// The key is "<thread>@<time>:<id>", the time in timeLayout.
+		thread, rest, ok := strings.Cut(strings.TrimPrefix(id, prefix), "@")
+		if ok && len(rest) > len(timeLayout) && holds(thread, rest[:len(timeLayout)]) {
+			held = append(held, id)
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(held) == 0 {
+		return rows.Err()
+	}
+	return l.transact(ctx, func(tx *sql.Tx) error {
+		for _, id := range held {
+			for _, table := range []string{"responses", "tier_pending"} {
+				if _, err := tx.ExecContext(ctx,
+					"DELETE FROM "+table+" WHERE request_id = ?", id); err != nil {
+					return err
+				}
+			}
+		}
+		return nil
+	})
 }
 
 // Upsert records one response; source is "session" or "sweep". The account and
