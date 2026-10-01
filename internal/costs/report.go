@@ -383,7 +383,8 @@ type ToolStatus struct {
 	Title       string          `json:"title"`
 	Implemented bool            `json:"implemented"`
 	Coverage    Coverage        `json:"coverage"`
-	Hooks       map[string]bool `json:"hooks,omitempty"` // event → ingest hook installed
+	Hooks       map[string]bool `json:"hooks,omitempty"`         // event → ingest hook installed
+	Skipped     int             `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
 // Status reads the ledger and the live hook settings; it changes nothing.
@@ -428,6 +429,9 @@ func Status(_ context.Context) (StatusInfo, error) {
 				return info, err
 			}
 			status.Hooks = tool.Source.Hooks(paths.Home)
+			if counter, ok := tool.Source.(interface{ Skipped(string) int }); ok {
+				status.Skipped = counter.Skipped(paths.Home)
+			}
 		}
 		info.Tools = append(info.Tools, status)
 	}

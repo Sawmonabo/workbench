@@ -1,0 +1,622 @@
+package costs
+
+import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
+	"regexp"
+	"slices"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/pelletier/go-toml/v2"
+)
+
+// codex is the Codex source: the rollout JSONL files under
+// $CODEX_HOME/sessions/YYYY/MM/DD and $CODEX_HOME/archived_sessions, where
+// CODEX_HOME defaults to ~/.codex. Each line is {timestamp, type, payload}.
+// Codex 0.153 and later write a token_usage_record per response; older files
+// have only token_count events, and a legacy fork copies its parent's lines,
+// usage included, into its own file.
+type codex struct{}
+
+func (codex) Name() string { return "codex" }
+
+func codexDir(home string) string {
+	if dir := os.Getenv("CODEX_HOME"); dir != "" {
+		return dir
+	}
+	return filepath.Join(home, ".codex")
+}
+
+// Transcripts lists every *.jsonl under sessions/ and archived_sessions/.
+func (codex) Transcripts(home string) ([]string, error) {
+	var files []string
+	for _, root := range []string{"sessions", "archived_sessions"} {
+		found, err := codexWalk(filepath.Join(codexDir(home), root), ".jsonl")
+		if err != nil {
+			return files, err
+		}
+		files = append(files, found...)
+	}
+	sort.Strings(files)
+	return files, nil
+}
+
+// Skipped counts the compressed rollouts (.jsonl.zst) Workbench does not read.
+func (codex) Skipped(home string) int {
+	n := 0
+	for _, root := range []string{"sessions", "archived_sessions"} {
+		found, _ := codexWalk(filepath.Join(codexDir(home), root), ".zst")
+		n += len(found)
+	}
+	return n
+}
+
+func codexWalk(root, ext string) ([]string, error) {
+	if info, err := os.Stat(root); err != nil || !info.IsDir() {
+		return nil, nil
+	}
+	var files []string
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		switch {
+		case err != nil:
+			if entry != nil && entry.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
+		case filepath.Ext(path) != ext:
+		case entry.Type().IsRegular():
+			files = append(files, path)
+		case entry.Type()&fs.ModeSymlink != 0:
+			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+				files = append(files, path)
+			}
+		}
+		return nil
+	})
+	return files, err
+}
+
+// Session reports whether file is the rollout the hook named. Codex's
+// SessionEnd fires for root threads only, so a subagent's rows are sweep rows.
+func (codex) Session(file, transcript string) bool {
+	return transcript != "" && file == transcript
+}
+
+// Account is the email claim of the ID token Codex keeps in auth.json. The
+// token is only decoded, never verified; the access and refresh tokens are
+// never read. API-key and keyring sign-ins have no email there.
+func (codex) Account(home string) string {
+	var auth struct {
+		Tokens struct {
+			IDToken string `json:"id_token"`
+		} `json:"tokens"`
+	}
+	raw, err := os.ReadFile(filepath.Join(codexDir(home), "auth.json"))
+	if err != nil || !decode(raw, &auth) {
+		return "unknown"
+	}
+	parts := strings.Split(auth.Tokens.IDToken, ".")
+	if len(parts) != 3 {
+		return "unknown"
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return "unknown"
+	}
+	var claims struct {
+		Email   string `json:"email"`
+		Profile struct {
+			Email string `json:"email"`
+		} `json:"https://api.openai.com/profile"`
+	}
+	if !decode(payload, &claims) {
+		return "unknown"
+	}
+	return firstNonEmpty(claims.Email, claims.Profile.Email, "unknown")
+}
+
+// codexState is a rollout's state at the stored offset, saved between runs.
+type codexState struct {
+	Thread  string `json:"thread,omitempty"`   // this file's thread: the first session_meta id
+	Root    string `json:"root,omitempty"`     // the root thread, when this is a subagent's file
+	Cwd     string `json:"cwd,omitempty"`      // the latest working directory
+	Model   string `json:"model,omitempty"`    // the latest turn_context model
+	Tier    string `json:"tier,omitempty"`     // the latest service tier, stored name
+	TierSet bool   `json:"tier_set,omitempty"` // whether this file has named a tier
+	Records bool   `json:"records,omitempty"`  // whether this file has a token_usage_record of its own
+	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
+}
+
+func codexStateOf(file *FileState) *codexState {
+	if state, ok := file.cache.(*codexState); ok {
+		return state
+	}
+	state := &codexState{}
+	if len(file.Saved) > 0 {
+		_ = json.Unmarshal(file.Saved, state) // damaged state reads as empty
+	}
+	file.cache = state
+	return state
+}
+
+func (s *codexState) save(file *FileState) {
+	file.Saved, _ = json.Marshal(s)
+}
+
+// row is a usage row of this file at time ts, keyed id. A file that has named
+// no tier of its own and belongs to a subagent is priced by its root's tier.
+func (s *codexState) row(ts, id string) Usage {
+	when, _ := time.Parse(time.RFC3339Nano, ts)
+	u := Usage{
+		Tool:      "codex",
+		RequestID: id,
+		Model:     firstNonEmpty(s.Model, "unknown"),
+		Project:   firstNonEmpty(s.Cwd, "unknown"),
+		Session:   s.Thread,
+		Time:      when,
+	}
+	switch {
+	case s.TierSet && s.Tier != "":
+		u.Model += "@" + s.Tier
+	case !s.TierSet && s.Root != "" && s.Root != s.Thread:
+		u.TierFrom = s.Root
+	}
+	return u
+}
+
+// codexTier is the stored name of a Codex service tier: priority (renamed
+// Fast mode on 2026-07-30) and fast are "fast", the standard tier is "".
+func codexTier(raw string) string {
+	switch tier := strings.ToLower(strings.TrimSpace(raw)); tier {
+	case "priority", "fast":
+		return "fast"
+	case "", "default", "auto", "standard":
+		return ""
+	default:
+		return tier
+	}
+}
+
+// codexCounts are a response's token counts. Cached and cache-write input are
+// part of input_tokens; reasoning is part of output_tokens.
+type codexCounts struct {
+	Input      int64 `json:"input_tokens"`
+	Cached     int64 `json:"cached_input_tokens"`
+	CacheWrite int64 `json:"cache_write_input_tokens"`
+	Output     int64 `json:"output_tokens"`
+}
+
+func (c codexCounts) fill(u *Usage) {
+	u.Input = max(c.Input-c.Cached-c.CacheWrite, 0)
+	u.CacheRead, u.CacheWrite5m, u.Output = c.Cached, c.CacheWrite, c.Output
+}
+
+// codexMarks are the line types Parse reads; every other line, almost all of
+// a rollout's bytes, is skipped without decoding.
+var codexMarks = [][]byte{
+	[]byte("session_meta"), []byte("turn_context"), []byte("token_usage_record"),
+	[]byte("token_count"), []byte("thread_settings_applied"),
+}
+
+// Parse returns the usage rows of one rollout line. A token_usage_record of
+// this file's thread is one row keyed by its response id; a copied record
+// (another thread's) is skipped, its original being in the parent's file. A
+// file without records is read from its token_count events: one row per
+// change of the running total that is not a synthetic estimate, keyed by a
+// digest of the event's counts and rate limits, so a fork's copy of an event
+// lands on the original's row.
+func (codex) Parse(line []byte, file *FileState) []Usage {
+	if !slices.ContainsFunc(
+		codexMarks,
+		func(mark []byte) bool { return bytes.Contains(line, mark) },
+	) {
+		return nil
+	}
+	var rec struct {
+		Timestamp string          `json:"timestamp"`
+		Type      string          `json:"type"`
+		Payload   json.RawMessage `json:"payload"`
+	}
+	if !decode(line, &rec) || len(rec.Payload) == 0 {
+		return nil
+	}
+	state := codexStateOf(file)
+	switch rec.Type {
+	case "session_meta":
+		if state.Thread != "" {
+			return nil // a parent's, copied by a fork
+		}
+		var meta struct {
+			ID        string          `json:"id"`
+			SessionID string          `json:"session_id"`
+			Cwd       string          `json:"cwd"`
+			Source    json.RawMessage `json:"source"`
+		}
+		if !decode(rec.Payload, &meta) || meta.ID == "" {
+			return nil
+		}
+		state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
+		state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
+		state.save(file)
+	case "turn_context":
+		var turn struct {
+			Model string `json:"model"`
+			Cwd   string `json:"cwd"`
+		}
+		if decode(rec.Payload, &turn) && (turn.Model != "" || turn.Cwd != "") {
+			state.Model = firstNonEmpty(turn.Model, state.Model)
+			state.Cwd = firstNonEmpty(turn.Cwd, state.Cwd)
+			state.save(file)
+		}
+	case "token_usage_record":
+		var record struct {
+			ThreadID   string      `json:"thread_id"`
+			SessionID  string      `json:"session_id"`
+			ResponseID string      `json:"response_id"`
+			Usage      codexCounts `json:"usage"`
+		}
+		if !decode(rec.Payload, &record) || record.ResponseID == "" ||
+			(state.Thread != "" && record.ThreadID != state.Thread) {
+			return nil
+		}
+		subagent := record.SessionID != "" && record.SessionID != record.ThreadID
+		if !state.Records || (state.Root == "" && subagent) {
+			state.Records = true
+			if state.Root == "" && subagent {
+				state.Root = record.SessionID
+			}
+			state.save(file)
+		}
+		u := state.row(rec.Timestamp, record.ResponseID)
+		record.Usage.fill(&u)
+		return []Usage{u}
+	case "event_msg":
+		return codexEvent(rec.Timestamp, rec.Payload, state, file)
+	}
+	return nil
+}
+
+func codexEvent(ts string, payload json.RawMessage, state *codexState, file *FileState) []Usage {
+	var head struct {
+		Type string `json:"type"`
+	}
+	if !decode(payload, &head) {
+		return nil
+	}
+	switch head.Type {
+	case "thread_settings_applied":
+		var event struct {
+			ThreadID string `json:"thread_id"`
+			Settings struct {
+				Tier *string `json:"service_tier"`
+			} `json:"thread_settings"`
+		}
+		if !decode(payload, &event) || event.Settings.Tier == nil {
+			return nil
+		}
+		state.Tier, state.TierSet = codexTier(*event.Settings.Tier), true
+		state.save(file)
+		when, _ := time.Parse(time.RFC3339Nano, ts)
+		file.Tiers = append(file.Tiers, TierChange{
+			Thread: firstNonEmpty(event.ThreadID, state.Thread), Time: when, Tier: state.Tier,
+		})
+	case "token_count":
+		if state.Records {
+			return nil
+		}
+		var event struct {
+			Info *struct {
+				Total json.RawMessage `json:"total_token_usage"`
+				Last  json.RawMessage `json:"last_token_usage"`
+			} `json:"info"`
+			RateLimits json.RawMessage `json:"rate_limits"`
+		}
+		if !decode(payload, &event) || event.Info == nil || len(event.Info.Total) == 0 ||
+			len(event.Info.Last) == 0 {
+			return nil
+		}
+		total := canonicalJSON(event.Info.Total)
+		if total == state.Total {
+			return nil // re-emitted for a rate-limit update
+		}
+		state.Total = total
+		state.save(file)
+		var last codexCounts
+		if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
+			return nil // a synthetic estimate after compaction
+		}
+		sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
+			canonicalJSON(event.RateLimits)))
+		u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
+		last.fill(&u)
+		return []Usage{u}
+	}
+	return nil
+}
+
+// codexRoot is the root thread of a subagent's file: the session id when it
+// differs from the thread id, else the spawning parent; "" for a root thread.
+func codexRoot(id, sessionID string, source json.RawMessage) string {
+	if sessionID != "" && sessionID != id {
+		return sessionID
+	}
+	var spawned struct {
+		Subagent struct {
+			ThreadSpawn struct {
+				Parent string `json:"parent_thread_id"`
+			} `json:"thread_spawn"`
+		} `json:"subagent"`
+	}
+	if len(source) > 0 && source[0] == '{' && decode(source, &spawned) {
+		return spawned.Subagent.ThreadSpawn.Parent
+	}
+	return ""
+}
+
+// canonicalJSON re-encodes raw with sorted keys and exact numbers, so the same
+// value gives the same text however Codex spaced or ordered it.
+func canonicalJSON(raw json.RawMessage) string {
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var value any
+	if decoder.Decode(&value) != nil {
+		return string(raw)
+	}
+	out, err := json.Marshal(value)
+	if err != nil {
+		return string(raw)
+	}
+	return string(out)
+}
+
+// Observations is nil: Codex records no cost to calibrate against.
+func (codex) Observations(string) []Observation { return nil }
+
+// codexEvents are Codex's hook events and the labels its trust keys use.
+var codexEvents = map[string]string{
+	"PreToolUse": "pre_tool_use", "PermissionRequest": "permission_request",
+	"PostToolUse": "post_tool_use", "PreCompact": "pre_compact", "PostCompact": "post_compact",
+	"SessionStart": "session_start", "SessionEnd": "session_end",
+	"UserPromptSubmit": "user_prompt_submit", "SubagentStart": "subagent_start",
+	"SubagentStop": "subagent_stop", "Stop": "stop", "Interrupt": "interrupt",
+}
+
+type codexHook struct {
+	Type          string  `json:"type"`
+	Command       string  `json:"command"`
+	Timeout       *int64  `json:"timeout"`
+	Async         bool    `json:"async"`
+	StatusMessage *string `json:"statusMessage"`
+}
+
+type codexGroup struct {
+	Matcher *string     `json:"matcher"`
+	Hooks   []codexHook `json:"hooks"`
+}
+
+// codexHookHash is the trust hash Codex records for a command hook: the
+// SHA-256 of the compact, key-sorted JSON of its normalized identity
+// (codex-rs hooks/src/engine/discovery.rs hook_hash and config/src/
+// fingerprint.rs version_for_toml). Timeouts are normalized as Codex does,
+// and the matcher counts only for events that use one. The same rule is in
+// home/private_dot_codex/modify_private_config.toml.tmpl, which writes it.
+func codexHookHash(event string, group codexGroup, hook codexHook) string {
+	timeout := int64(600)
+	if hook.Timeout != nil {
+		timeout = *hook.Timeout
+	}
+	switch event {
+	case "SessionEnd", "Interrupt":
+		if hook.Timeout == nil {
+			timeout = 1
+		}
+		timeout = min(max(timeout, 1), 3)
+	default:
+		timeout = max(timeout, 1)
+	}
+	handler := map[string]any{
+		"type": "command", "command": hook.Command, "timeout": timeout, "async": hook.Async,
+	}
+	if hook.StatusMessage != nil {
+		handler["statusMessage"] = *hook.StatusMessage
+	}
+	identity := map[string]any{"event_name": codexEvents[event], "hooks": []any{handler}}
+	if group.Matcher != nil &&
+		!slices.Contains([]string{"UserPromptSubmit", "Stop", "Interrupt"}, event) {
+		identity["matcher"] = *group.Matcher
+	}
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
+	encoder.SetEscapeHTML(false)
+	_ = encoder.Encode(identity)
+	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
+	return "sha256:" + hex.EncodeToString(sum[:])
+}
+
+// Hooks reports, for each session event, whether hooks.json runs the ingest
+// hook and config.toml trusts that exact hook: Codex ignores an untrusted one.
+func (codex) Hooks(home string) map[string]bool {
+	dir := codexDir(home)
+	path := filepath.Join(dir, "hooks.json")
+	var file struct {
+		Hooks map[string][]codexGroup `json:"hooks"`
+	}
+	if raw, err := os.ReadFile(path); err == nil {
+		decode(raw, &file)
+	}
+	var config struct {
+		Hooks struct {
+			State map[string]struct {
+				Enabled     *bool  `toml:"enabled"`
+				TrustedHash string `toml:"trusted_hash"`
+			} `toml:"state"`
+		} `toml:"hooks"`
+	}
+	if raw, err := os.ReadFile(filepath.Join(dir, "config.toml")); err == nil {
+		_ = toml.Unmarshal(raw, &config) // an unreadable config trusts nothing
+	}
+	out := map[string]bool{}
+	for _, event := range []string{"SessionStart", "SessionEnd"} {
+		trusted := false
+		for gi, group := range file.Hooks[event] {
+			for hi, hook := range group.Hooks {
+				if hook.Type != "command" || !strings.Contains(hook.Command, "workbench") ||
+					!strings.HasSuffix(hook.Command, " costs ingest") {
+					continue
+				}
+				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", path, codexEvents[event], gi, hi)]
+				trusted = trusted || ((state.Enabled == nil || *state.Enabled) &&
+					state.TrustedHash == codexHookHash(event, group, hook))
+			}
+		}
+		out[event] = trusted
+	}
+	return out
+}
+
+// PricingURL is OpenAI's price page in Markdown; CODEX_COSTS_PRICING_URL
+// replaces it for checks that must not reach the network.
+func (codex) PricingURL() string {
+	if url := os.Getenv("CODEX_COSTS_PRICING_URL"); url != "" {
+		return url
+	}
+	return "https://developers.openai.com/api/docs/pricing.md"
+}
+
+// codexBuiltin is the OpenAI price page read on 2026-10-01, short-context
+// columns: input, output, cache write, cache read per million tokens; a "-"
+// price was filled with the input price. A tier row is "<model>@<tier>". The
+// official card overrides these at runtime and the overrides file wins.
+var codexBuiltin = map[string][4]float64{
+	"gpt-6-astra": {10, 50, 12.5, 1}, "gpt-6.1-sol": {2, 10, 2.5, 0.1},
+	"gpt-6-luna": {0.1, 0.5, 0.125, 0.01}, "gpt-6-sol": {2, 10, 2.5, 0.2},
+	"gpt-5.6-sol": {4, 20, 5, 0.4}, "gpt-5.6-terra": {2, 12, 2.5, 0.2},
+	"gpt-5.6-luna": {0.2, 1.2, 0.25, 0.02}, "gpt-5.5": {5, 30, 5, 0.5},
+	"gpt-5.5-pro": {30, 180, 30, 30}, "gpt-5.4": {2.5, 15, 2.5, 0.25},
+	"gpt-5.4-mini": {0.75, 4.5, 0.75, 0.075}, "gpt-5.4-nano": {0.2, 1.25, 0.2, 0.02},
+	"gpt-5.4-pro": {30, 180, 30, 30}, "gpt-5.2": {1.75, 14, 1.75, 0.175},
+	"gpt-5.2-pro": {21, 168, 21, 21}, "gpt-5.1": {1.25, 10, 1.25, 0.125},
+	"gpt-5": {1.25, 10, 1.25, 0.125}, "gpt-5-mini": {0.25, 2, 0.25, 0.025},
+	"gpt-5-nano": {0.05, 0.4, 0.05, 0.005}, "gpt-5-pro": {15, 120, 15, 15},
+	"gpt-6-astra@flex": {5, 25, 6.25, 0.5}, "gpt-6.1-sol@flex": {1, 5, 1.25, 0.05},
+	"gpt-6-luna@flex": {0.05, 0.25, 0.0625, 0.005}, "gpt-6-sol@flex": {1, 5, 1.25, 0.1},
+	"gpt-5.6-sol@flex": {2, 10, 2.5, 0.2}, "gpt-5.6-terra@flex": {1, 6, 1.25, 0.1},
+	"gpt-5.6-luna@flex": {0.1, 0.6, 0.125, 0.01}, "gpt-5.5@flex": {2.5, 15, 2.5, 0.25},
+	"gpt-5.5-pro@flex": {15, 90, 15, 15}, "gpt-5.4@flex": {1.25, 7.5, 1.25, 0.13},
+	"gpt-5.4-mini@flex": {0.375, 2.25, 0.375, 0.0375}, "gpt-5.4-nano@flex": {0.1, 0.625, 0.1, 0.01},
+	"gpt-5.4-pro@flex": {15, 90, 15, 15}, "gpt-5.2@flex": {0.875, 7, 0.875, 0.0875},
+	"gpt-5.1@flex": {0.625, 5, 0.625, 0.0625}, "gpt-5@flex": {0.625, 5, 0.625, 0.0625},
+	"gpt-5-mini@flex": {0.125, 1, 0.125, 0.0125}, "gpt-5-nano@flex": {0.025, 0.2, 0.025, 0.0025},
+	"gpt-6-astra@fast": {20, 100, 25, 2}, "gpt-6.1-sol@fast": {4, 20, 5, 0.2},
+	"gpt-6-luna@fast": {0.2, 1, 0.25, 0.02}, "gpt-6-sol@fast": {4, 20, 5, 0.4},
+	"gpt-5.6-sol@fast": {8, 40, 10, 0.8}, "gpt-5.6-terra@fast": {4, 24, 5, 0.4},
+	"gpt-5.6-luna@fast": {0.4, 2.4, 0.5, 0.04}, "gpt-5.5@fast": {12.5, 75, 12.5, 1.25},
+	"gpt-5.4@fast": {5, 30, 5, 0.5}, "gpt-5.4-mini@fast": {1.5, 9, 1.5, 0.15},
+	"gpt-5.2@fast": {3.5, 28, 3.5, 0.35}, "gpt-5.1@fast": {2.5, 20, 2.5, 0.25},
+	"gpt-5@fast": {2.5, 20, 2.5, 0.25}, "gpt-5-mini@fast": {0.45, 3.6, 0.45, 0.045},
+	"gpt-6-astra@ultrafast": {60, 300, 75, 6},
+}
+
+func (codex) Builtin() RateCard {
+	card := RateCard{}
+	for prefix, v := range codexBuiltin {
+		card[prefix] = Rate{
+			Input: v[0], Output: v[1], CacheWrite5m: v[2], CacheWrite1h: v[2], CacheRead: v[3],
+			Source: "builtin",
+		}
+	}
+	return card
+}
+
+// codexTables are the price page's tables Workbench reads, by heading, and
+// the tier suffix each gives its rows. Batch is not read: Codex does not use
+// the Batch API.
+var codexTables = map[string]string{
+	"standard pricing data":  "",
+	"flex pricing data":      "@flex",
+	"fast pricing data":      "@fast",
+	"ultrafast pricing data": "@ultrafast",
+}
+
+var codexModelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.\-]*$`)
+
+// ParsePricing reads the short-context columns of the Standard, Flex, Fast
+// and Ultrafast tables. A "-" cached-input or cache-write price bills those
+// tokens at the input price. The first row of a model in a table wins.
+func (codex) ParsePricing(page string) RateCard {
+	card := RateCard{}
+	lines := strings.Split(page, "\n")
+	suffix, inTable := "", false
+	for i := 0; i < len(lines)-1; {
+		head, sep := strings.TrimSpace(lines[i]), strings.TrimSpace(lines[i+1])
+		if strings.HasPrefix(head, "#") {
+			suffix, inTable = "", false
+			if s, ok := codexTables[strings.ToLower(strings.TrimSpace(strings.TrimLeft(head, "#")))]; ok {
+				suffix, inTable = s, true
+			}
+		}
+		if !strings.HasPrefix(head, "|") || !strings.HasPrefix(sep, "|") ||
+			strings.Trim(sep, "|-: ") != "" {
+			i++
+			continue
+		}
+		var headers []string
+		for h := range strings.SplitSeq(strings.Trim(head, "|"), "|") {
+			headers = append(headers, strings.ToLower(strings.TrimSpace(h)))
+		}
+		i += 2
+		if !inTable {
+			continue
+		}
+		column := func(name string) int { return slices.Index(headers, "short context "+name) }
+		ci, cc, cw, co := column(
+			"input",
+		), column(
+			"cached input",
+		), column(
+			"cache writes",
+		), column(
+			"output",
+		)
+		if ci < 0 || co < 0 {
+			continue
+		}
+		for ; i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|"); i++ {
+			var cells []string
+			for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(lines[i]), "|"), "|") {
+				cells = append(cells, strings.TrimSpace(c))
+			}
+			model := strings.ToLower(strings.TrimSpace(notePattern.ReplaceAllString(cells[0], "")))
+			if !codexModelPattern.MatchString(model) {
+				continue
+			}
+			key := model + suffix
+			if _, seen := card[key]; seen {
+				continue
+			}
+			in, okIn := money(cells, ci)
+			out, okOut := money(cells, co)
+			if !okIn || !okOut {
+				continue
+			}
+			rate := Rate{Input: in, Output: out, CacheWrite5m: in, CacheWrite1h: in, CacheRead: in}
+			if v, ok := money(cells, cw); ok {
+				rate.CacheWrite5m, rate.CacheWrite1h = v, v
+			}
+			if v, ok := money(cells, cc); ok {
+				rate.CacheRead = v
+			}
+			card[key] = rate
+		}
+	}
+	return card
+}

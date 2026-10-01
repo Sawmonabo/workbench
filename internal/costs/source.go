@@ -12,7 +12,7 @@ import (
 // Source is one AI tool whose transcripts the ledger records. Everything a
 // source knows is about its own files and prices; it never writes.
 type Source interface {
-	Name() string                               // "claude"; later "codex"
+	Name() string                               // "claude", "codex"
 	Transcripts(home string) ([]string, error)  // files to ingest
 	Parse(line []byte, file *FileState) []Usage // usage rows in one line
 	Account(home string) string                 // who was signed in, or "unknown"
@@ -54,7 +54,7 @@ type FileState struct {
 	// Tiers are the service tier changes read this run; ingest stores them.
 	Tiers []TierChange
 
-	cache any //nolint:unused // the Codex reader keeps its decoded Saved here (a later task)
+	cache any // the source's decoded Saved during one read
 }
 
 // TierChange is a thread switching service tier at a time; Tier is the
@@ -103,10 +103,10 @@ type Tool struct {
 	Source Source
 }
 
-// Tools is every tab, in order. Adding Codex is setting its Source.
+// Tools is every tab, in order.
 var Tools = []Tool{
 	{Name: "claude", Title: "Claude Code", Source: claude{}},
-	{Name: "codex", Title: "Codex"},
+	{Name: "codex", Title: "Codex", Source: codex{}},
 }
 
 // Lookup returns the tool named name.

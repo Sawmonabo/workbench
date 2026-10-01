@@ -25,7 +25,7 @@ const (
 )
 
 // sourceOrder ranks where a rate came from: the first source with a matching
-// prefix decides, and the longest prefix decides within a source.
+// rate decides, and the longest prefix decides within a source; see matchesRate.
 var sourceOrder = []string{"override", "official", "calibrated", "builtin"}
 
 // rateFields are the keys of a rate in the overrides and the official cache,
@@ -40,12 +40,29 @@ func (r *Rate) set(name string, v float64) {
 	*[...]*float64{&r.Input, &r.Output, &r.CacheWrite5m, &r.CacheWrite1h, &r.CacheRead}[slices.Index(rateFields, name)] = v
 }
 
+// matchesRate reports whether the rate keyed prefix prices model: both carry
+// the same service tier (none for standard), and the prefix is the whole model
+// id or is followed by "-" or "@" and a digit (a version within a family, or a
+// dated snapshot). So "claude-opus" prices "claude-opus-5-5" and "gpt-5"
+// prices "gpt-5-2025-08-07", but "gpt-5" prices neither "gpt-5-mini" nor
+// "gpt-5.3-codex-spark", and no standard rate prices a "@fast" model.
+func matchesRate(model, prefix string) bool {
+	modelBase, modelTier := SplitTier(model)
+	prefixBase, prefixTier := SplitTier(prefix)
+	if modelTier != prefixTier || !strings.HasPrefix(modelBase, prefixBase) {
+		return false
+	}
+	rest := modelBase[len(prefixBase):]
+	return rest == "" ||
+		(len(rest) >= 2 && (rest[0] == '-' || rest[0] == '@') && rest[1] >= '0' && rest[1] <= '9')
+}
+
 // Lookup returns the rate that prices model.
 func (c RateCard) Lookup(model string) (Rate, bool) {
 	var best Rate
 	bestKey, found := [2]int{}, false
 	for prefix, rate := range c {
-		if !strings.HasPrefix(model, prefix) {
+		if !matchesRate(model, prefix) {
 			continue
 		}
 		key := [2]int{slices.Index(sourceOrder, rate.Source), -len(prefix)}
@@ -107,7 +124,7 @@ func (c Card) Disagreements() map[string]bool {
 func longestPrefix(model string, card RateCard) (Rate, bool) {
 	best, found := "", false
 	for prefix := range card {
-		if strings.HasPrefix(model, prefix) && (!found || len(prefix) > len(best)) {
+		if matchesRate(model, prefix) && (!found || len(prefix) > len(best)) {
 			best, found = prefix, true
 		}
 	}
