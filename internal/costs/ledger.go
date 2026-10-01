@@ -421,8 +421,9 @@ type Tx struct {
 	// The statements Upsert runs, prepared on first use: SQLite parses each
 	// once per transaction instead of once per row.
 	upsert, pend, unpend *sql.Stmt
-	run                  *Run // what earlier transactions of this run stored
-	wrote                *Run // what this one stored, added to run once it commits
+	run                  *Run              // what earlier transactions of this run stored
+	wrote                *Run              // what this one stored, added to run once it commits
+	labels               map[string]string // the subscription labels Upsert stored, by id
 }
 
 // Run is what one ingest run has committed. It is filled only after a commit
@@ -490,7 +491,7 @@ func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) 
 	if run == nil {
 		run = NewRun()
 	}
-	t := &Tx{ctx: ctx, run: run, wrote: NewRun()}
+	t := &Tx{ctx: ctx, run: run, wrote: NewRun(), labels: map[string]string{}}
 	err := l.transact(ctx, func(tx *sql.Tx) error {
 		t.tx = tx
 		if err := fn(t); err != nil {
@@ -541,7 +542,8 @@ ON CONFLICT(request_id) DO UPDATE SET
   model      = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
   project    = CASE WHEN ` + earlier + ` THEN excluded.project ELSE project END,
   session_id = CASE WHEN ` + earlier + ` THEN excluded.session_id ELSE session_id END,
-  root       = CASE WHEN ` + earlier + ` THEN excluded.root ELSE root END,
+  root       = CASE WHEN excluded.root <> '' AND (root = '' OR ` + earlier + `)
+                    THEN excluded.root ELSE root END,
   input = MAX(input, excluded.input), output = MAX(output, excluded.output),
   cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
   cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
@@ -670,6 +672,12 @@ func (t *Tx) Upsert(u Usage) error {
 		u.CacheRead <= seen.tokens[4] {
 		return nil
 	}
+	if u.Subscription != "" && t.labels[u.Subscription] != u.SubscriptionLabel {
+		if err := setLabel(t.ctx, t.tx, u.Subscription, u.SubscriptionLabel); err != nil {
+			return err
+		}
+		t.labels[u.Subscription] = u.SubscriptionLabel
+	}
 	statement, err := t.prepared(&t.upsert, upsert)
 	if err != nil {
 		return err
@@ -748,26 +756,374 @@ func (t *Tx) AddTierChange(c TierChange) error {
 	return nil
 }
 
+// The meta notes of ResolveAccounts. accountsUnresolved lists the sessions
+// (rootKey, as a JSON array) that BindSession bound since the last
+// resolution, "*" when too many to list; ResolveAccounts attributes their rows
+// again and clears it. accountsChecked is stored by every ResolveAccounts:
+// without it no resolution has run on the ledger (it is new or upgraded), so
+// every row may be waiting. accountsThrough+tool is the latest sign-in
+// observation of a tool at the end of the last resolution: a row after it had
+// no observation on its far side then, so a later one may decide it.
+const (
+	accountsUnresolved = "accounts_unresolved"
+	accountsChecked    = "accounts_checked"
+	accountsThrough    = "accounts_through:"
+	dirtyRootsAll      = "*"
+	maxDirtyRoots      = 256
+)
+
+// noSignIn reports whether s names nothing: no evidence of any account.
+func noSignIn(s SignIn) bool {
+	return (s.Account == "" || s.Account == "unknown") && s.Subscription == ""
+}
+
+// setLabel stores or refreshes the display label of a subscription id.
+func setLabel(ctx context.Context, x execer, id, label string) error {
+	if id == "" || label == "" {
+		return nil
+	}
+	_, err := x.ExecContext(
+		ctx,
+		`INSERT INTO subscriptions (id, label) VALUES (?, ?)
+		 ON CONFLICT(id) DO UPDATE SET label = excluded.label`,
+		id, label,
+	)
+	return err
+}
+
 // BindSession records the sign-in s a tool's session started or resumed under
 // at time at: a session_accounts row for (tool, session, at), replacing one at
 // the same time. The SessionStart and SessionEnd hook process calls it, in its
 // own short transaction, before it detaches the worker; session is the root
 // session the hook names (Usage.Root). It also stores s's subscription label
 // in subscriptions.
+//
+// It holds nothing across calls, so it is safe before the ingest lock is taken:
+// the write waits on the busy timeout behind a running worker. A sign-in that
+// names nothing is not a binding (the session's rows then fall to an
+// observation), and one that repeats the binding already in effect at at
+// changes no row's answer and is not stored. A stored binding marks its
+// session in accountsUnresolved, so the next ResolveAccounts attributes rows of
+// that session read earlier.
 func (l *Ledger) BindSession(
 	ctx context.Context,
 	tool, session string,
 	at time.Time,
 	s SignIn,
 ) error {
-	return nil
+	if tool == "" || session == "" || at.IsZero() || noSignIn(s) {
+		return nil
+	}
+	since := at.UTC().Format(timeLayout)
+	account, subscription := cmp.Or(s.Account, "unknown"), cmp.Or(s.Subscription, "unknown")
+	return l.transact(ctx, func(tx *sql.Tx) error {
+		if err := setLabel(ctx, tx, s.Subscription, s.Label); err != nil {
+			return err
+		}
+		var inEffect, inEffectSubscription string
+		err := tx.QueryRowContext(ctx,
+			`SELECT account, subscription FROM session_accounts
+			  WHERE tool = ? AND session = ? AND since <= ? ORDER BY since DESC LIMIT 1`,
+			tool, session, since).Scan(&inEffect, &inEffectSubscription)
+		if err == nil && inEffect == account && inEffectSubscription == subscription {
+			return nil
+		}
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO session_accounts (tool, session, since, account, subscription)
+			 VALUES (?, ?, ?, ?, ?)
+			 ON CONFLICT(tool, session, since) DO UPDATE SET
+			   account = excluded.account, subscription = excluded.subscription`,
+			tool, session, since, account, subscription); err != nil {
+			return err
+		}
+		return markAccountsUnresolved(ctx, tx, rootKey(tool, session))
+	})
+}
+
+// markAccountsUnresolved adds a session to accountsUnresolved.
+func markAccountsUnresolved(ctx context.Context, tx *sql.Tx, key string) error {
+	note, err := metaIn(ctx, tx, accountsUnresolved)
+	if err != nil || note == dirtyRootsAll {
+		return err
+	}
+	var listed []string
+	if note != "" && json.Unmarshal([]byte(note), &listed) != nil {
+		return setMeta(ctx, tx, accountsUnresolved, dirtyRootsAll) // unreadable: every row
+	}
+	if !slices.Contains(listed, key) {
+		listed = append(listed, key)
+	}
+	value := dirtyRootsAll
+	if len(listed) <= maxDirtyRoots {
+		encoded, err := json.Marshal(listed)
+		if err != nil {
+			return err
+		}
+		value = string(encoded)
+	}
+	return setMeta(ctx, tx, accountsUnresolved, value)
+}
+
+// metaIn is a stored note read inside a transaction, "" when absent.
+func metaIn(ctx context.Context, tx *sql.Tx, key string) (string, error) {
+	var value string
+	err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
 }
 
 // ObserveSignIn records that tool was signed in as s at time at: a sign_ins
 // row, and s's subscription label in subscriptions, refreshed when s names
 // one. Every ingest run calls it once per tool, in a transaction of its own.
+//
+// A run of equal consecutive observations only needs its first and its last
+// (the sign-ins on both sides of a time agree whichever of them it falls
+// between), so an observation that repeats the latest two moves the latest one
+// forward instead of adding a row.
 func (t *Tx) ObserveSignIn(tool string, at time.Time, s SignIn) error {
-	return nil
+	if tool == "" || at.IsZero() {
+		return nil
+	}
+	when := at.UTC().Format(timeLayout)
+	account, subscription := cmp.Or(s.Account, "unknown"), cmp.Or(s.Subscription, "unknown")
+	if err := setLabel(t.ctx, t.tx, s.Subscription, s.Label); err != nil {
+		return err
+	}
+	rows, err := t.tx.QueryContext(t.ctx,
+		"SELECT at, account, subscription FROM sign_ins WHERE tool = ? ORDER BY at DESC LIMIT 2",
+		tool)
+	if err != nil {
+		return err
+	}
+	var latest string
+	repeats := 0
+	for rows.Next() {
+		var rowAt, rowAccount, rowSubscription string
+		if err := rows.Scan(&rowAt, &rowAccount, &rowSubscription); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if rowAccount == account && rowSubscription == subscription && rowAt < when {
+			if repeats == 0 {
+				latest = rowAt
+			}
+			repeats++
+		}
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if repeats == 2 {
+		if _, err := t.tx.ExecContext(t.ctx,
+			"DELETE FROM sign_ins WHERE tool = ? AND at = ?", tool, latest); err != nil {
+			return err
+		}
+	}
+	_, err = t.tx.ExecContext(t.ctx,
+		`INSERT INTO sign_ins (tool, at, account, subscription) VALUES (?, ?, ?, ?)
+		 ON CONFLICT(tool, at) DO UPDATE SET account = excluded.account,
+		   subscription = excluded.subscription`,
+		tool, when, account, subscription)
+	return err
+}
+
+type (
+	bindingKey  struct{ tool, session string }
+	signInPoint struct{ at, account, subscription string }
+	// attribution is what a row is attributed to: source is its evidence, ""
+	// for no decision, and an empty account keeps the row's own.
+	attribution struct{ account, subscription, source string }
+)
+
+// accountBasis is what rows are attributed from: the session bindings and the
+// sign-in observations of the ledger, each in time order.
+type accountBasis struct {
+	bindings map[bindingKey][]signInPoint
+	observed map[string][]signInPoint
+	through  map[string]string // each tool's watermark of the last resolution
+}
+
+func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
+	basis := accountBasis{
+		bindings: map[bindingKey][]signInPoint{},
+		observed: map[string][]signInPoint{},
+		through:  map[string]string{},
+	}
+	rows, err := tx.QueryContext(ctx,
+		"SELECT tool, session, since, account, subscription FROM session_accounts ORDER BY since")
+	if err != nil {
+		return basis, err
+	}
+	for rows.Next() {
+		var key bindingKey
+		var p signInPoint
+		if err := rows.Scan(
+			&key.tool,
+			&key.session,
+			&p.at,
+			&p.account,
+			&p.subscription,
+		); err != nil {
+			_ = rows.Close()
+			return basis, err
+		}
+		basis.bindings[key] = append(basis.bindings[key], p)
+	}
+	if err := rows.Close(); err != nil {
+		return basis, err
+	}
+	if err := rows.Err(); err != nil {
+		return basis, err
+	}
+	rows, err = tx.QueryContext(
+		ctx,
+		"SELECT tool, at, account, subscription FROM sign_ins ORDER BY at",
+	)
+	if err != nil {
+		return basis, err
+	}
+	for rows.Next() {
+		var tool string
+		var p signInPoint
+		if err := rows.Scan(&tool, &p.at, &p.account, &p.subscription); err != nil {
+			_ = rows.Close()
+			return basis, err
+		}
+		basis.observed[tool] = append(basis.observed[tool], p)
+	}
+	if err := rows.Close(); err != nil {
+		return basis, err
+	}
+	if err := rows.Err(); err != nil {
+		return basis, err
+	}
+	for tool := range basis.observed {
+		if basis.through[tool], err = metaIn(ctx, tx, accountsThrough+tool); err != nil {
+			return basis, err
+		}
+	}
+	return basis, nil
+}
+
+// attribute is what the ledger's evidence says of a row of tool, its root
+// session and its time ts: the binding of its session with the latest since at
+// or before ts; else the sign-in observed on both sides of ts when the two
+// agree; else unknown, where the row keeps its email (no account here) and has
+// no subscription. A row before the first observation is unknown. A row after
+// the last one has no decision yet (source ""): a later observation may decide it.
+func (b accountBasis) attribute(tool, root, ts string) attribution {
+	if bound := b.bindings[bindingKey{tool, root}]; root != "" {
+		if i := sort.Search(len(bound), func(i int) bool { return bound[i].at > ts }); i > 0 {
+			return attribution{bound[i-1].account, bound[i-1].subscription, EvidenceSession}
+		}
+	}
+	seen := b.observed[tool]
+	i := sort.Search(len(seen), func(i int) bool { return seen[i].at > ts }) // the first after ts
+	if i == 0 {
+		return attribution{subscription: "unknown", source: EvidenceUnknown}
+	}
+	before, after := seen[i-1], seen[i-1]
+	if before.at < ts {
+		if i == len(seen) {
+			return attribution{}
+		}
+		after = seen[i]
+	}
+	if before.account != after.account || before.subscription != after.subscription ||
+		before.account == "unknown" && before.subscription == "unknown" {
+		return attribution{subscription: "unknown", source: EvidenceUnknown}
+	}
+	return attribution{before.account, before.subscription, EvidenceObserved}
+}
+
+type accountRow struct {
+	id, tool, ts, root, account, subscription, source string
+}
+
+// update is the change that takes a row to what the evidence says, ok false
+// when the row stays. A row decided by its transcript keeps its subscription
+// and evidence and only fills an "unknown" account; any other row is never
+// given weaker evidence than it has.
+func (r accountRow) update(want attribution) (next attribution, ok bool) {
+	if want.source == "" {
+		return attribution{}, false
+	}
+	if r.source == EvidenceTranscript {
+		if r.account != "unknown" || want.account == "" || want.account == "unknown" {
+			return attribution{}, false
+		}
+		return attribution{want.account, r.subscription, r.source}, true
+	}
+	if EvidenceRank(want.source) < EvidenceRank(r.source) {
+		return attribution{}, false
+	}
+	next = attribution{cmp.Or(want.account, r.account), want.subscription, want.source}
+	return next, next != attribution{r.account, r.subscription, r.source}
+}
+
+// accountsQuery selects the rows ResolveAccounts attributes: those not decided
+// by their transcript (or decided without an email), all when scope is nil,
+// else the rows scope stored, the rows of its sessions and of the sessions in
+// dirty, and each tool's rows after its watermark.
+func accountsQuery(scope *Run, dirty []string, through map[string]string) (string, []any, error) {
+	query := `SELECT request_id, tool, ts, root, account, subscription, account_source FROM responses
+	 WHERE ts <> '' AND (account_source <> '` + EvidenceTranscript + `' OR account = 'unknown')`
+	if scope == nil {
+		return query, nil, nil
+	}
+	ids, err := json.Marshal(slices.Collect(maps.Keys(scope.seen)))
+	if err != nil {
+		return "", nil, err
+	}
+	conds, args := []string{"request_id IN (SELECT value FROM json_each(?))"}, []any{string(ids)}
+	roots := map[string][]string{}
+	for _, key := range slices.Concat(slices.Collect(maps.Keys(scope.roots)), dirty) {
+		if tool, root, ok := strings.Cut(key, ":"); ok {
+			roots[tool] = append(roots[tool], root)
+		}
+	}
+	for _, tool := range slices.Sorted(maps.Keys(roots)) {
+		encoded, err := json.Marshal(roots[tool])
+		if err != nil {
+			return "", nil, err
+		}
+		conds = append(conds, "(tool = ? AND root IN (SELECT value FROM json_each(?)))")
+		args = append(args, tool, string(encoded))
+	}
+	for _, tool := range slices.Sorted(maps.Keys(through)) {
+		conds = append(conds, "(tool = ? AND ts > ?)")
+		args = append(args, tool, through[tool])
+	}
+	return query + " AND (" + strings.Join(conds, " OR ") + ")", args, nil
+}
+
+// accountsDue reads which sessions BindSession bound since the last
+// resolution, and whether every row is due instead: no resolution has run on
+// the ledger, or the note lists too many sessions or cannot be read.
+func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, err error) {
+	checked, err := metaIn(ctx, tx, accountsChecked)
+	if err != nil {
+		return nil, false, err
+	}
+	note, err := metaIn(ctx, tx, accountsUnresolved)
+	if err != nil {
+		return nil, false, err
+	}
+	if checked == "" || note == dirtyRootsAll {
+		return nil, true, nil
+	}
+	if note != "" && json.Unmarshal([]byte(note), &dirty) != nil {
+		return nil, true, nil
+	}
+	return dirty, false, nil
 }
 
 // ResolveAccounts gives each row not decided by its transcript the strongest
@@ -776,12 +1132,89 @@ func (t *Tx) ObserveSignIn(tool string, at time.Time, s SignIn) error {
 // when the two agree (EvidenceObserved), else EvidenceUnknown with the account
 // it was stamped with and subscription "unknown". A row decided by its
 // transcript keeps its subscription and only fills an "unknown" account the
-// same way. With scope set only the sessions in scope.roots are resolved, plus
-// any row whose binding or observation changed since the last resolution; a
-// nil scope resolves every row. Ingest calls it after every file of a run is
-// committed, as it calls ResolveTiers.
+// same way. A row is never given weaker evidence than it has, and one after a
+// tool's latest observation waits for a later one.
+//
+// As ResolveTiers prices only what a run could have changed, with scope set
+// only these rows are attributed again: those scope stored, those of the
+// sessions it stored rows of or that BindSession bound since the last
+// resolution, and those after a tool's latest observation at the last
+// resolution. A nil scope, or a ledger no resolution has run on, attributes
+// every row. Either way it clears accountsUnresolved and stores
+// accountsChecked. Ingest calls it after every file of a run is committed, as
+// it calls ResolveTiers.
 func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
-	return nil
+	return l.transact(ctx, func(tx *sql.Tx) error {
+		dirty, full, err := accountsDue(ctx, tx)
+		if err != nil {
+			return err
+		}
+		basis, err := loadAccountBasis(ctx, tx)
+		if err != nil {
+			return err
+		}
+		if full {
+			scope = nil
+		}
+		query, args, err := accountsQuery(scope, dirty, basis.through)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, query, args...)
+		if err != nil {
+			return err
+		}
+		type change struct {
+			id   string
+			next attribution
+		}
+		var changes []change
+		for rows.Next() {
+			var r accountRow
+			if err := rows.Scan(
+				&r.id, &r.tool, &r.ts, &r.root, &r.account, &r.subscription, &r.source,
+			); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			if next, ok := r.update(basis.attribute(r.tool, r.root, r.ts)); ok {
+				changes = append(changes, change{r.id, next})
+			}
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		for _, c := range changes {
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE responses SET account = ?, subscription = ?, account_source = ?
+				  WHERE request_id = ?`,
+				c.next.account, c.next.subscription, c.next.source, c.id); err != nil {
+				return err
+			}
+		}
+		return finishAccounts(ctx, tx, basis)
+	})
+}
+
+// finishAccounts stores that a resolution ran: each tool's latest observation
+// as its watermark, and no session left to attribute.
+func finishAccounts(ctx context.Context, tx *sql.Tx, basis accountBasis) error {
+	for tool, points := range basis.observed {
+		if err := setMeta(ctx, tx, accountsThrough+tool, points[len(points)-1].at); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(
+		ctx,
+		"DELETE FROM meta WHERE key = ?",
+		accountsUnresolved,
+	); err != nil {
+		return err
+	}
+	return setMeta(ctx, tx, accountsChecked, "1")
 }
 
 // tierSeries are the ledger's tier changes, by series key, in time order.

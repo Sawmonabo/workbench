@@ -154,6 +154,103 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 	}
 }
 
+// The report splits spend by the subscription each row names, and a row's
+// attribution is decided by the strongest evidence for it. A weaker copy or a
+// later resolution that overwrote a stronger attribution would move spend to
+// the wrong account or subscription with no error, and the transcript that
+// proved it may be gone by the time anyone notices.
+func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
+	ctx := context.Background()
+	ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ledger.Close() }()
+	at := func(hour int) time.Time { return time.Date(2026, 9, 1, hour, 0, 0, 0, time.UTC) }
+	personal := SignIn{Account: "a@example.test", Subscription: "claude:personal", Label: "Max"}
+	team := SignIn{
+		Account:      "a@example.test",
+		Subscription: "claude:team",
+		Label:        "Team (Example Org)",
+	}
+	other := SignIn{Account: "b@example.test", Subscription: "claude:other", Label: "Max"}
+	stamped := func(id string, hour int, s SignIn) Usage {
+		return Usage{
+			Tool:              "claude",
+			RequestID:         id,
+			Model:             "claude-opus-5",
+			Root:              "s1",
+			Time:              at(hour),
+			Input:             1,
+			Account:           s.Account,
+			Subscription:      s.Subscription,
+			SubscriptionLabel: s.Label,
+		}
+	}
+	run := NewRun()
+	store := func(u Usage) {
+		t.Helper()
+		if err := ledger.Transaction(
+			ctx,
+			run,
+			func(tx *Tx) error { return tx.Upsert(u) },
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A session started under the personal plan and was resumed under the team
+	// plan; rows were read before either binding existed.
+	store(stamped("resumed", 5, other))
+	store(stamped("started", 2, other))
+	// A row whose transcript named its plan.
+	named := stamped("named", 3, other)
+	named.Account, named.Subscription, named.Evidence = "c@example.test", "codex:pro", EvidenceTranscript
+	store(named)
+	for _, bind := range []struct {
+		hour int
+		in   SignIn
+	}{{1, personal}, {4, team}} {
+		if err := ledger.BindSession(ctx, "claude", "s1", at(bind.hour), bind.in); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := ledger.Transaction(ctx, run, func(tx *Tx) error {
+		return tx.ObserveSignIn("claude", at(0), other)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Later copies of the same rows, stamped with a sign-in that is not theirs.
+	store(stamped("resumed", 6, other))
+	store(stamped("started", 7, other))
+	store(stamped("named", 8, other))
+	if err := ledger.ResolveAccounts(ctx, run); err != nil {
+		t.Fatal(err)
+	}
+	store(stamped("resumed", 9, other))
+	store(stamped("started", 9, other))
+	store(
+		stamped("started", 0, other),
+	) // a copy from before the binding moves the row's time earlier
+	if err := ledger.ResolveAccounts(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string][3]string{
+		"started": {personal.Account, personal.Subscription, EvidenceSession},
+		"resumed": {team.Account, team.Subscription, EvidenceSession},
+		"named":   {"c@example.test", "codex:pro", EvidenceTranscript},
+	} {
+		var got [3]string
+		if err := ledger.db.QueryRow(
+			"SELECT account, subscription, account_source FROM responses WHERE request_id = ?", id,
+		).Scan(&got[0], &got[1], &got[2]); err != nil {
+			t.Fatal(err)
+		}
+		if got != want {
+			t.Errorf("%s is attributed to %v, want %v", id, got, want)
+		}
+	}
+}
+
 // oldLedger writes a ledger of an earlier schema with statements and returns
 // its path.
 func oldLedger(t *testing.T, statements ...string) string {
