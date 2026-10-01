@@ -246,7 +246,7 @@ unchanged once the source is set.
 
 ## 10. Out of scope
 
-`.jsonl.zst` rollouts; long-context pricing; Batch and Flex pricing (Codex
-does not use them); `token_count.rate_limits.credits` (an account balance, not
+`.jsonl.zst` rollouts; long-context pricing; Batch pricing (Codex does not
+use the Batch API); `token_count.rate_limits.credits` (an account balance, not
 a per-response cost); usage from Codex Cloud tasks, which run remotely and
 leave no local rollout.
