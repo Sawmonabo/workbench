@@ -74,6 +74,10 @@ type FileState struct {
 	Saved []byte
 	// Tiers are the service tier changes read this run; ingest stores them.
 	Tiers []TierChange
+	// Holds reports whether another transcript holds a thread's lines up to
+	// a time: it is listed this run, or the ledger read it when it had been
+	// written at or after that time. It may be nil.
+	Holds func(thread string, since string) bool
 
 	cache any // the source's decoded Saved during one read
 }

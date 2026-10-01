@@ -345,6 +345,21 @@ func (l *Ledger) File(path string) (row FileRow, found bool, err error) {
 	return row, err == nil, err
 }
 
+// readSince reports whether the ledger read a transcript whose path contains
+// text when that transcript had been written at or after since (ledger
+// layout).
+func (l *Ledger) readSince(text, since string) bool {
+	when, err := time.Parse(timeLayout, since)
+	if err != nil {
+		return false
+	}
+	var one int
+	return l.db.QueryRow(
+		"SELECT 1 FROM files WHERE instr(path, ?) > 0 AND mtime_ns >= ? LIMIT 1",
+		text, when.UnixNano(),
+	).Scan(&one) == nil
+}
+
 // DeleteFile forgets a transcript that no longer exists.
 func (l *Ledger) DeleteFile(path string) error {
 	_, err := l.db.Exec("DELETE FROM files WHERE path = ?", path)

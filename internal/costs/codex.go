@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -148,8 +149,39 @@ type codexState struct {
 	Next    string `json:"next,omitempty"`     // the tier the latest snapshot selected, for the next turn
 	NextSet bool   `json:"next_set,omitempty"` // whether a snapshot is waiting for the next turn
 	Records bool   `json:"records,omitempty"`  // whether this file holds a token_usage_record, its own or a copy
-	Fork    bool   `json:"fork,omitempty"`     // whether this file is a fork's: its session_meta names forked_from_id
+	Version int    `json:"version,omitempty"`  // the session_meta cli_version, as major*1000+minor
+	Spawned bool   `json:"spawned,omitempty"`  // whether a spawn_agent tool call started this thread
+	Fork    string `json:"fork,omitempty"`     // the thread this one forked from: session_meta forked_from_id
+	Copies  int    `json:"copies,omitempty"`   // a fork's history: 0 not known yet, 1 copied into this file, 2 not
 	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
+}
+
+// Codex versions, as codexState.Version holds them.
+const (
+	// codexRecords is the first Codex that writes a token_usage_record for
+	// every response it records usage for (core session
+	// record_observed_response_completed, before every token info update in
+	// turn.rs and compact.rs), so its token_count lines never add a response.
+	codexRecords = 153
+	// codexRootTier is the first Codex whose spawned subagents send every
+	// request at their root's selected tier (openai/codex dc2ccc6843 "Make
+	// subagents follow the root service tier", first tagged in 0.152.0).
+	codexRootTier = 152
+)
+
+// codexVersion reads "0.152.1" or "0.160.0-alpha.3" as major*1000+minor; 0
+// when unreadable.
+func codexVersion(text string) int {
+	parts := strings.SplitN(text, ".", 3)
+	if len(parts) < 2 {
+		return 0
+	}
+	major, err1 := strconv.Atoi(parts[0])
+	minor, err2 := strconv.Atoi(strings.SplitN(parts[1], "-", 2)[0])
+	if err1 != nil || err2 != nil {
+		return 0
+	}
+	return major*1000 + minor
 }
 
 func codexStateOf(file *FileState) *codexState {
@@ -168,18 +200,18 @@ func (s *codexState) save(file *FileState) {
 	file.Saved, _ = json.Marshal(s)
 }
 
-// row is a usage row of this file at time ts, keyed id; record says it comes
-// from a token_usage_record. Its tier is the one Codex sent it at:
-//   - a subagent's record (Codex 0.153 and later) at its root's selected
-//     tier at that time: every subagent request takes the root's current
-//     tier (core session capture_step_context_inner, root_service_tier),
-//     whatever the subagent's own snapshot says;
+// row is a usage row of this file at time ts, keyed id. Its tier is the one
+// Codex selected for it:
+//   - a spawned subagent's row (Codex 0.152 and later) at its root's
+//     selected tier at that time: every spawned subagent's request takes the
+//     root's current tier (core session capture_step_context_inner,
+//     root_service_tier), whatever the subagent's own snapshot says;
 //   - any other row of a thread whose turn has started at a named tier at
 //     that tier;
-//   - another row of a subagent (Codex before 0.153) at the tier it was
-//     spawned with: its parent's running-turn tier when it started
-//     (multi_agents apply_spawn_agent_service_tier).
-func (s *codexState) row(ts, id string, record bool) Usage {
+//   - another subagent's row at the tier it started with: its parent's
+//     running-turn tier when it started (multi_agents
+//     apply_spawn_agent_service_tier).
+func (s *codexState) row(ts, id string) Usage {
 	when, _ := time.Parse(time.RFC3339Nano, ts)
 	u := Usage{
 		Tool:      "codex",
@@ -191,7 +223,7 @@ func (s *codexState) row(ts, id string, record bool) Usage {
 	}
 	subagent := s.Root != "" && s.Root != s.Thread
 	switch {
-	case subagent && record:
+	case subagent && s.Spawned && s.Version >= codexRootTier:
 		u.TierFrom = s.Root
 	case s.TierSet:
 		if s.Tier != "" {
@@ -304,6 +336,9 @@ func codexString(b []byte) (text, rest []byte, ok bool) {
 // limits, so a fork's copy of an event lands on the original's row.
 func (codex) Parse(line []byte, file *FileState) []Usage {
 	kind, event, ok := codexLineType(line)
+	if state := codexStateOf(file); state.Fork != "" && state.Copies == 0 {
+		codexForkCopies(line, string(event), state, file)
+	}
 	switch {
 	case !ok: // an unusual head: decode the line if it names a type Parse reads
 		named := false
@@ -335,27 +370,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 	state := codexStateOf(file)
 	switch rec.Type {
 	case "session_meta":
-		if state.Thread != "" {
-			return nil // a parent's, copied by a fork
-		}
-		var meta struct {
-			ID        string          `json:"id"`
-			SessionID string          `json:"session_id"`
-			Forked    string          `json:"forked_from_id"`
-			Cwd       string          `json:"cwd"`
-			Source    json.RawMessage `json:"source"`
-		}
-		if !decode(rec.Payload, &meta) || meta.ID == "" {
-			return nil
-		}
-		state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
-		state.Fork = meta.Forked != ""
-		state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
-		state.Parent = codexParent(meta.Source)
-		if when, err := time.Parse(time.RFC3339Nano, rec.Timestamp); err == nil {
-			state.Spawn = when.UTC().Format(timeLayout)
-		}
-		state.save(file)
+		codexMeta(rec.Timestamp, rec.Payload, state, file)
 	case "turn_context":
 		var turn struct {
 			TurnID string `json:"turn_id"`
@@ -389,7 +404,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			state.Root = record.SessionID
 			state.save(file)
 		}
-		u := state.row(rec.Timestamp, record.ResponseID, true)
+		u := state.row(rec.Timestamp, record.ResponseID)
 		record.Usage.fill(&u)
 		return []Usage{u}
 	case "event_msg":
@@ -475,18 +490,23 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 	return nil
 }
 
-// codexTokenCount is the row of a token_count event, if it counts.
+// codexTokenCount is the row of a token_count event, if it counts. A file
+// Codex 0.153 or later started records every response it counts, so its
+// token_count lines count none (a subagent fork copies its parent's
+// token_count lines but not its records: spawn.rs keep_forked_rollout_item).
 //
-// A fork's file starts with copies of its parent's events, and its first
-// token_count whose total is more than its last response is one of them: a
-// response of the parent's history, which the parent's file records. It may
+// A fork whose history was copied into its file starts with copies of its
+// parent's events, and its first token_count whose total is more than its
+// last response is one of them: a response of the parent's history. It may
 // copy an event the parent re-emitted for a rate-limit update, whose key
-// (rate_limits differ) matches no row of the parent's, so it only sets the
+// (rate_limits differ) matches no row of the parent's; so while the parent's
+// rollout holds that response (FileState.Holds), the copy only sets the
 // running total. Later copies follow it as in the parent and land on the
-// parent's rows.
+// parent's rows. A fork that copied nothing carries its parent's total into
+// its own first token_count, which counts.
 func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *FileState) []Usage {
-	if state.Records || event.Info == nil || len(event.Info.Total) == 0 ||
-		len(event.Info.Last) == 0 {
+	if state.Records || state.Version >= codexRecords || event.Info == nil ||
+		len(event.Info.Total) == 0 || len(event.Info.Last) == 0 {
 		return nil
 	}
 	total := canonicalJSON(event.Info.Total)
@@ -496,7 +516,8 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	first := state.Total == ""
 	state.Total = total
 	state.save(file)
-	if first && state.Fork && total != canonicalJSON(event.Info.Last) {
+	if first && state.Copies == 1 && total != canonicalJSON(event.Info.Last) &&
+		file.Holds != nil && file.Holds(state.Fork, state.Spawn) {
 		return nil // the parent's, copied into the fork
 	}
 	var last codexCounts
@@ -505,9 +526,63 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	}
 	sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
 		canonicalJSON(event.RateLimits)))
-	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]), false)
+	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
 	last.fill(&u)
 	return []Usage{u}
+}
+
+// codexMeta reads a session_meta line: the first one names this file's
+// thread; later ones are copies a fork made of its parent's.
+func codexMeta(ts string, payload json.RawMessage, state *codexState, file *FileState) {
+	if state.Thread != "" {
+		return // a parent's, copied by a fork
+	}
+	var meta struct {
+		ID        string          `json:"id"`
+		SessionID string          `json:"session_id"`
+		Forked    string          `json:"forked_from_id"`
+		Version   string          `json:"cli_version"`
+		Cwd       string          `json:"cwd"`
+		Source    json.RawMessage `json:"source"`
+	}
+	if !decode(payload, &meta) || meta.ID == "" {
+		return
+	}
+	state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
+	state.Fork, state.Version = meta.Forked, codexVersion(meta.Version)
+	state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
+	state.Parent = codexParent(meta.Source)
+	state.Spawned = state.Parent != ""
+	if when, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+		state.Spawn = when.UTC().Format(timeLayout)
+	}
+	state.save(file)
+}
+
+// codexForkCopies decides, at the first line after a fork's own session_meta,
+// whether the fork copied its parent's history into its file. Codex writes a
+// fork that references its parent's history, or a paginated subagent, with
+// its own thread_settings_applied first; a fork that copies starts with the
+// copied lines and appends that snapshot after them (core session
+// InitialHistory::Forked and ForkPersistence, 0.146 and later; earlier forks
+// always copy).
+func codexForkCopies(line []byte, event string, state *codexState, file *FileState) {
+	if state.Thread == "" {
+		return // the fork's own session_meta is not read yet
+	}
+	state.Copies = 1
+	if event == "thread_settings_applied" {
+		var rec struct {
+			Payload struct {
+				ThreadID string `json:"thread_id"`
+			} `json:"payload"`
+		}
+		if decode(line, &rec) &&
+			(rec.Payload.ThreadID == "" || rec.Payload.ThreadID == state.Thread) {
+			state.Copies = 2
+		}
+	}
+	state.save(file)
 }
 
 // codexTurn notes a turn_context: one with a turn id other than the running

@@ -30,7 +30,13 @@ checked against the rollout files of a machine with about 3,000 sessions
 - **`token_usage_record`** (Codex 0.153 and later) is written once per
   completed response: `thread_id`, `turn_id`, `response_id`, and `usage`, the
   response's own counts. It carries no model; the model is the latest
-  `turn_context.model`.
+  `turn_context.model`. From 0.153 every update of the token counts with a
+  response's usage follows its record (`record_observed_response_completed`
+  before the update in `session/turn.rs` and `compact.rs`; checked in 0.153,
+  0.154, 0.156 and 0.159), so a file such a Codex started counts its responses
+  by record alone. A subagent fork copies its parent's `token_count` lines but
+  not its records (`agent/control/spawn.rs` `keep_forked_rollout_item`:
+  `TokenUsageRecord => false`, `EventMsg => true`).
 - **`token_count`** is all an older file has: `info.total_token_usage` (running
   sum) and `info.last_token_usage` (latest response). It is re-emitted with an
   unchanged total on rate-limit updates, `info` can be null, and after
@@ -38,7 +44,13 @@ checked against the rollout files of a machine with about 3,000 sessions
 - **Token kinds overlap.** `input_tokens` includes `cached_input_tokens` and
   `cache_write_input_tokens`; `output_tokens` includes
   `reasoning_output_tokens`.
-- **Forks copy usage.** A legacy-mode fork re-writes its parent's lines into
+- **Forks copy usage.** A fork that copies its history (`ForkPersistence::
+  Copied`) re-writes its parent's lines into the child file and appends its
+  own `thread_settings_applied` after them; one that references the parent's
+  history, or a paginated subagent, writes its own `thread_settings_applied`
+  first and copies nothing, but starts its token counts from the parent's
+  total (`session/mod.rs` `InitialHistory::Forked`, 0.146 and later; earlier
+  forks always copy). A legacy-mode fork re-writes its parent's lines into
   the child file (a fresh `session_meta` first, then the parent's, then the
   parent's history with new timestamps), and a legacy subagent file keeps the
   parent's `token_count` lines. On the sample machine 3,335,720 `token_count`
@@ -76,12 +88,14 @@ checked against the rollout files of a machine with about 3,000 sessions
   `ThreadSettingsOverrides`, `core/src/session/mod.rs`). A turn starts with a
   `turn_context` naming a new `turn_id` (a compaction re-emits the running
   turn's), after the snapshot that applies to it. A subagent's requests are
-  sent at another tier: in Codex 0.153 and later (the record era) every
+  sent at another tier: in Codex 0.152 and later every
   request of a spawned subagent takes its root's selected tier at that moment,
   which a root's snapshot updates at once (`capture_step_context_inner`
   replaces the step's tier with `root_service_tier`; `set_root_service_tier`
   runs when the root's settings change), whatever the subagent's own snapshot
-  says. Before 0.153 a subagent's tier was fixed when it was spawned: its
+  says (openai/codex dc2ccc6843 "Make subagents follow the root service
+  tier", in 0.152.0 and not in 0.151.0). Before 0.152 a subagent's tier was
+  fixed when it was spawned: its
   parent's running-turn tier (`multi_agents` `apply_spawn_agent_service_tier`
   with `turn.config.service_tier`); its own snapshot, when it has one,
   carries that tier. A change made with the app-server's
@@ -140,7 +154,8 @@ with any other head is decoded if it contains one of those five names.
   its own or a copied one, sets `Records`, so a fork's copied `token_count`
   lines beside a copied record are not counted again.
 - `token_count` while `Records` is false (no record of any kind in the file
-  yet), `info` is non-null, the running total differs from `LastTotal`, and
+  yet) and the file's `session_meta` names a Codex before 0.153, `info` is
+  non-null, the running total differs from `LastTotal`, and
   `last_token_usage` has non-zero input or output: one row from
   `last_token_usage`, keyed `tc:` plus the SHA-256 of the canonical JSON
   (exactly what Go's `encoding/json` writes for the value decoded with
@@ -149,26 +164,37 @@ with any other head is decoded if it contains one of those five names.
   key and never change. The key holds no timestamp or file, so
   a fork's copy has its original's key and the ledger's upsert keeps one row;
   `rate_limits` separates unrelated threads that happen to reach the same
-  totals. A fork's first `token_count` whose total is more than its
-  `last_token_usage` is a copy of its parent's history and records no row;
-  it only sets the running total. It may copy an event the parent re-emitted
-  for a rate-limit update (same total, other `rate_limits`), which the parent
-  skipped and which matches none of the parent's keys. On the sample machine
+  totals. In a fork that copied its history (the line after its own
+  `session_meta` is not its own `thread_settings_applied`), the first
+  `token_count` whose total is more than its `last_token_usage` is a copy of
+  its parent's history. It may copy an event the parent re-emitted for a
+  rate-limit update (same total, other `rate_limits`), which the parent
+  skipped and which matches none of the parent's keys, so while the parent's
+  rollout holds that response it records no row and only sets the running
+  total. The parent's rollout holds it when it is listed in the same run, or
+  the ledger read it after it was last written at or after the fork's start.
+  Otherwise the copy is the only trace of that response and counts. A fork
+  that copied nothing starts its counts from the parent's total, and its first
+  `token_count` is its own response. On the sample machine
   (2,971 files) the `token_count` rows number 321,557 with this key without
   the fork rule, 321,551 with it, and 321,547 keyed on the totals alone. The
   six the fork rule removes are exactly such copies, each a second row with
-  no model for a response the parent's file records. Keying on the totals
-  alone would also merge four pairs of distinct responses: the first
+  no model for a response the parent's file records: for each, the parent's
+  file holds an earlier event with the same total and last usage but other
+  `rate_limits`, whose row the ledger holds with the parent's model, and a
+  later re-emission with the copy's `rate_limits`, which has no row.
+  Keying on the totals alone would also merge four pairs of distinct responses: the first
   responses of two sibling subagents started with the same prompt, with equal
   counts minutes apart. Every one of the 159 fork files whose first
   `token_count` is a copy has that response recorded in another file.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
 `Thread`, `Time` = the line's timestamp. Its tier, as section 1 says Codex
-sent it: a subagent's `token_usage_record` row inherits its root's selected
-tier at the row's time; any other row whose turn started at a named tier has
-`Tier`; any other subagent row inherits its parent's running-turn tier at the
-subagent's `session_meta` time. Token mapping, so
+selected it: a spawned subagent's row whose `session_meta` names Codex 0.152
+or later inherits its root's selected tier at the row's time; any other row
+whose turn started at a named tier has `Tier`; any other subagent row
+inherits its parent's running-turn tier at the subagent's `session_meta`
+time. Token mapping, so
 that the report's prompt total (input + writes + reads) is right:
 
 | Ledger column | Codex value |
