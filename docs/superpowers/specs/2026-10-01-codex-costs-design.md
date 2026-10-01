@@ -139,14 +139,21 @@ never verified, access and refresh tokens never read), else `unknown`.
   `FileState` gains an opaque `Saved []byte` that a source fills and ingest
   stores with the offset; Codex saves its fields as JSON and Claude saves
   nothing.
-- **Tier.** `responses` gains `tier TEXT NOT NULL DEFAULT ''` (`''` is
-  standard pricing; every Claude row keeps it) and the ledger gains
-  `tier_changes (thread_id, ts, tier)`, written in the same transaction as the
-  file's rows. `Usage` gains `Tier`, and `FileState` collects the file's tier
-  changes for ingest to store. After every ingest, rows marked `inherit` take
-  the root thread's latest tier change at or before their timestamp (a
-  standard tier when none), so a subagent is priced at the tier its root had
-  when it ran even when the files are read in another order.
+- **Tier.** A response's tier rides in its model id: `gpt-5.6-sol@fast`, no
+  suffix for standard. Reports, the focus page and the rate lookup work on
+  that id unchanged, apart from the lookup rule in section 5 and the label in
+  section 7. The ledger gains `tier_changes (thread_id, ts, tier)`, written in
+  the same transaction as the file's rows, and `tier_pending (request_id,
+  root)`. `Usage` gains `TierFrom` (the root thread, for a row whose own file
+  names no tier) and `FileState` collects the file's tier changes. After every
+  ingest, each pending row takes the root's latest tier change at or before
+  its time and stops waiting; one whose root has no change yet stays pending
+  and is priced at the standard tier meanwhile. So a subagent is priced at the
+  tier its root had when it ran, whatever order the files are read in.
+- **Attribution.** On a repeated key the token columns keep their largest
+  values, as before, and the time, model, project and session come from the
+  earliest occurrence (on a tie, the row read last, as before): a fork's copy,
+  stamped with the fork's time and thread, never moves its original.
 - **Rewrite check.** `head` is the SHA-256 of the file's first line. When it
   differs from the stored one, ingest reads the file from offset 0 with empty
   state. Every key is derived from content, so a full re-read only rewrites
@@ -171,7 +178,10 @@ never verified, access and refresh tokens never read), else `unknown`.
   input price. Long-context columns are not read; section 1 shows no Codex
   request reaching 272K. The "Fast pricing data" and "Ultrafast pricing
   data" tables are read the same way into `<model>@fast` and
-  `<model>@ultrafast` rows; a `priority` or `fast` row is priced from
+  `<model>@ultrafast` rows. A rate prices a model only at the same tier, and
+  only when its key is the whole model id or is followed by `-` or `@` and a
+  digit, so `gpt-5` prices a dated `gpt-5-2025-08-07` but neither
+  `gpt-5-mini` nor `gpt-5.3-codex-spark`; a `priority` or `fast` row is priced from
   `@fast`, an `ultrafast` row from `@ultrafast`, `flex` from the Flex table
   (`@flex`), and `default`, `auto`, `''` or anything unknown from the
   standard table. A tier row with no tier price on either card is reported
