@@ -26,7 +26,10 @@ MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
 # The hooks.json chezmoi writes beside this file, and where Codex finds it.
 # Codex runs a hook from hooks.json only when [hooks.state."<path>:<event>:
 # <group>:<handler>"] holds its trusted_hash, so every hook Workbench installs
-# gets that entry here as a managed value and Codex never asks.
+# gets that entry here as a managed value and Codex never asks. Workbench owns
+# the trust of every hook in its hooks.json, including enabled = true (a hook
+# disabled in Codex is re-enabled on apply), so the entries of a hook it no
+# longer installs are dropped and do not stay trusted.
 HOOKS = json.loads({{ includeTemplate "codex-hooks.json.tmpl" . | toJson }})
 HOOKS_PATH = {{ printf "%s/.codex/hooks.json" .chezmoi.homeDir | toJson }}
 HOOK_EVENTS = {
@@ -214,6 +217,13 @@ def main():
             table.pop(name, None)
             if not table:
                 del document[parent]
+    hooks = document.get("hooks")
+    state = hooks.get("state") if isinstance(hooks, dict) else None
+    if isinstance(state, dict):
+        for key in [key for key in state if key.startswith(HOOKS_PATH + ":")]:
+            del state[key]
+        if not state:
+            del hooks["state"]
 
     lines, first_header = [], None
     for line in MANAGED.rstrip("\n").split("\n"):
