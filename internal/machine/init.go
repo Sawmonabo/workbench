@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -141,7 +142,9 @@ func initialize(
 	return answers, nil
 }
 
-// saveAnswers writes answers to machine.toml beside any saved selection.
+// saveAnswers writes answers to machine.toml beside any saved selection. A
+// file that already holds the same answers and selection is left as it is,
+// so an apply that changes nothing, or is refused, does not rewrite it.
 func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) error {
 	config := filepath.Join(c.Paths.Config, "machine.toml")
 	previous, err := ReadSelection(config)
@@ -151,6 +154,14 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 	encoded, err := encodeMachineConfig(answers, previous)
 	if err != nil {
 		return err
+	}
+	if raw, readErr := operation.ReadPrivateInput(config, 1<<20); readErr == nil {
+		if saved, parseErr := readAnswers(raw); parseErr == nil {
+			if current, encodeErr := encodeMachineConfig(saved, previous); encodeErr == nil &&
+				bytes.Equal(current, encoded) {
+				return nil
+			}
+		}
 	}
 	return m.WritePrivate(config, encoded)
 }
