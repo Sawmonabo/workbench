@@ -68,19 +68,52 @@ func (claude) Transcripts(home string) ([]string, error) {
 	return files, err
 }
 
-// SignIn is the sign-in Claude Code keeps in ~/.claude.json: the email of
-// oauthAccount, "unknown" when there is none. The subscription is not read yet.
+// SignIn is the sign-in Claude Code keeps in ~/.claude.json oauthAccount: its
+// email, the subscription "claude:<organizationUuid>" and the label the report
+// shows. Claude Code's transcripts name no plan, so this is the only source of
+// both. Without an oauthAccount (an API key, or not signed in) the account is
+// "unknown" and the subscription is empty; an oauthAccount without an
+// organizationUuid also leaves the subscription empty, since "claude:" would
+// merge unrelated sign-ins.
 func (claude) SignIn(home string) SignIn {
 	var data struct {
 		OAuthAccount struct {
-			EmailAddress string `json:"emailAddress"`
+			EmailAddress     string `json:"emailAddress"`
+			OrganizationUUID string `json:"organizationUuid"`
+			OrganizationName string `json:"organizationName"`
+			OrganizationType string `json:"organizationType"`
 		} `json:"oauthAccount"`
 	}
 	raw, err := os.ReadFile(claudeJSON(home))
-	if err != nil || json.Unmarshal(raw, &data) != nil || data.OAuthAccount.EmailAddress == "" {
+	if err != nil || json.Unmarshal(raw, &data) != nil {
 		return SignIn{Account: "unknown"}
 	}
-	return SignIn{Account: data.OAuthAccount.EmailAddress}
+	acct := data.OAuthAccount
+	out := SignIn{Account: firstNonEmpty(acct.EmailAddress, "unknown")}
+	if acct.OrganizationUUID == "" {
+		return out
+	}
+	out.Subscription = "claude:" + acct.OrganizationUUID
+	out.Label = claudePlanLabel(acct.OrganizationType, acct.OrganizationName)
+	return out
+}
+
+// claudePlanLabel is the report label of an organizationType: "Max" for
+// claude_max, otherwise the value as written. A personal plan (claude_max,
+// claude_pro) is named by its type alone; any other type adds the organization,
+// "claude_team (Example Org)", because many organizations share one type.
+func claudePlanLabel(orgType, orgName string) string {
+	label := orgType
+	if orgType == "claude_max" {
+		label = "Max"
+	}
+	if orgType == "claude_max" || orgType == "claude_pro" || orgName == "" {
+		return label
+	}
+	if label == "" {
+		return orgName
+	}
+	return label + " (" + orgName + ")"
 }
 
 // projectFromPath is the last-resort project for records without a cwd: the
