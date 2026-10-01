@@ -42,7 +42,7 @@
 4. `--approve-plan DIGEST` from a dry run with saved skips, then a hand edit of `machine.toml` changing the skips, must exit 4 (conflict), never apply the old selection. Pinned in Task 1 step 5 (Go test) and Task 7 step 2.
 5. `update` with no terminal, `--json`, or run from `install.sh` must never plan or apply the machine; its last line names `workbench apply`. Pinned in Task 5 step 6.
 6. Two effects sharing one script (`linux-packages` and `work-tools`; `windows-files` and `wsl-preferences`) must be independently skippable: unchecking one must not run its section. Pinned in Task 2 step 3 (per-effect gates) and Task 3 step 4 (every effect exported).
-7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report; a wide terminal must not spread the columns; a pipe, `NO_COLOR` or `TERM=dumb` must get no escape codes. Pinned in Task 9 step 6 and Task 10 step 7.
+7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report; a wide terminal must not spread the columns; a pipe or `TERM=dumb` must get no escape codes and `NO_COLOR` no color. Pinned in Task 9 step 6 and Task 10 step 7.
 8. Opening the existing version 1 ledger must keep every row; a re-copied record with smaller counts must never lower the stored usage. Pinned in Task 10 step 2 (Go test) and step 7 (real-ledger copy).
 
 ---
@@ -2503,7 +2503,8 @@ The rendering is the module's existing Charm stack, not hand-built padding: `git
 - Modify: `internal/cli/planview.go` (delete `writeColumns`; `writeMachinePlan` uses `writeTable` and `writeText` and writes through `lipgloss.Fprint`), `internal/cli/prompt.go` (checklist labels), every other `writeColumns` caller (`planview.go`, `prompt.go`, `release.go`)
 - Modify: `internal/machine/probe.go` (probe environment, interruption), `internal/machine/plan.go` (`selectEffects` returns the interruption)
 - Modify: `home/.chezmoiscripts/linux/run_once_after_10-runtime-managers.sh.tmpl` (Go version from its VERSION file), `home/.chezmoiscripts/linux/run_onchange_after_30-global-tools.sh.tmpl` and `home/.chezmoiscripts/darwin/run_onchange_after_30-global-tools.sh.tmpl` (no `nvm use` in the probe)
-- Modify: `go.mod` (`github.com/charmbracelet/x/ansi` and `github.com/charmbracelet/x/term` become direct requirements; both are already in the module graph through lipgloss)
+- Modify: `internal/cli/root.go` (`newPainter` uses the same color-profile test as lipgloss)
+- Modify: `go.mod` (`github.com/charmbracelet/x/ansi`, `github.com/charmbracelet/x/term` and `github.com/charmbracelet/colorprofile` become direct requirements; all are already in the module graph through lipgloss)
 
 **Interfaces:**
 - Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft, Faint bool}`, `tableSpec{Cols []column; Rows [][]string; Header bool; Total []string}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, t tableSpec) []string`, `writeTable(b *strings.Builder, width, indent int, t tableSpec)`, `writeFull(b *strings.Builder, width, indent int, t tableSpec)`, `writeText(b *strings.Builder, width, indent int, text string)`, `fit(s string, width int, left bool) string`. Output holding any of these is written with `lipgloss.Fprint(w, b.String())`, never `io.WriteString` or `fmt.Fprint`. Task 10's costs report uses all of them.
@@ -2640,7 +2641,7 @@ func writeFull(b *strings.Builder, width, indent int, t tableSpec) {
 // than the line is broken.
 func writeText(b *strings.Builder, width, indent int, text string) {
 	pad := strings.Repeat(" ", indent)
-	for _, line := range strings.Split(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
+	for line := range strings.SplitSeq(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
 		b.WriteString(strings.TrimRight(pad+line, " ") + "\n")
 	}
 }
@@ -2723,7 +2724,7 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 	}
 	pad := strings.Repeat(" ", indent)
 	var lines []string
-	for _, line := range strings.Split(tbl.Render(), "\n") {
+	for line := range strings.SplitSeq(tbl.Render(), "\n") {
 		lines = append(lines, pad+strings.TrimRight(line, " "))
 	}
 	if t.Total != nil {
@@ -2762,7 +2763,7 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 			lines = append(lines, prefix+fit(text, room, left))
 			return
 		}
-		for _, part := range strings.Split(ansi.Wrap(text, room, ""), "\n") {
+		for part := range strings.SplitSeq(ansi.Wrap(text, room, ""), "\n") {
 			lines = append(lines, prefix+part)
 		}
 	}
@@ -2816,7 +2817,9 @@ Delete `writeColumns` from `planview.go`. Each caller passes `terminalWidth(w)` 
 - `writeMachinePlan` files: `tableSpec{Cols: []column{{Clip: true, ClipLeft: true}, {}}}` (path, summary). Effects: `{}` (box), `{}` (name), `{Clip: true}` (delta), `{Drop: 2, Faint: true}` (privilege), `{Drop: 1, Faint: true}` (saved note); no header. With `verbose`, effects go through `writeFull` instead, so deltas print in full, wrapped, and still fit; the recovery text goes through `writeText`.
 - The other callers keep their columns, with their last free-text column `Clip: true` and every column before it plain.
 
-`writeMachinePlan` takes the writer it renders to, so `render` and `choosePlan` both pass theirs. The existing `painter` stays as it is: it already colors only at a terminal without `NO_COLOR`, the same condition under which `lipgloss.Fprint` keeps styles, so the two never disagree.
+`writeMachinePlan` takes the writer it renders to, so `render` and `choosePlan` both pass theirs.
+
+`newPainter` in `root.go` adopts lipgloss's own test so the two never disagree: `return painter(colorprofile.Detect(w, os.Environ()) > colorprofile.Ascii)` (`github.com/charmbracelet/colorprofile`, already in the graph, becomes a direct requirement). That is a terminal that allows color: a pipe, `TERM=dumb` and `NO_COLOR` all turn the painter's colored marks off, as `IsTerminal` and the `NO_COLOR` check did, and `CLICOLOR_FORCE=1` now turns them on, as it does for lipgloss. `NO_COLOR` removes color only; bold and faint stay, per no-color.org and lipgloss.
 
 - [ ] **Step 3: Checklist labels fit too**
 
@@ -2873,11 +2876,11 @@ Wide and plain terminals, read-only:
 ```bash
 COLUMNS=200 bin/workbench apply --dry-run --local-build 2>/dev/null | sed -n '/^Effects/,/^$/p'
 bin/workbench apply --dry-run --local-build 2>/dev/null | grep -c $'\e' || true
-script -qec 'NO_COLOR=1 bin/workbench apply --dry-run --local-build' /dev/null | grep -c $'\e\[[0-9;]*m' || true
 script -qec 'TERM=dumb bin/workbench apply --dry-run --local-build' /dev/null | grep -c $'\e\[[0-9;]*m' || true
+script -qec 'NO_COLOR=1 bin/workbench apply --dry-run --local-build' /dev/null | grep -oE $'\e\[[0-9;]*m' | sort -u
 ```
 
-Expected: at 200 the columns sit at their natural widths two cells apart, not spread across the line; the three counts are `0` (a pipe, `NO_COLOR` at a terminal and `TERM=dumb` at a terminal all print without styling). Without either variable, the same `script` run shows the faint privilege tags.
+Expected: at 200 the columns sit at their natural widths two cells apart, not spread across the line; the two counts are `0` (a pipe and `TERM=dumb` at a terminal print plain text); under `NO_COLOR` the only codes are bold, faint and resets, no color (`3x`, `9x`, `38;…`). Without either variable, the same `script` run shows the faint privilege tags and the colored result marks.
 
 Probe side writes, read-only:
 
@@ -3005,7 +3008,7 @@ Expected: clean; `ok` for `internal/costs`.
 
 Synthetic ledger: rerun Task 8 step 6's fixture with `CC="bin/workbench costs"` (same `CLAUDE_COSTS_*` and `CLAUDE_CONFIG_DIR` overrides; the hook subcommand is `costs ingest --worker --quiet`). Expected: the same figures as Task 8's expected outputs (`$0.01`, `100.0%`, `3` calls, `2.1K`, `78.5%`; `/srv/elsewhere/app` only with `--all`; three rows with `--no-rollup`; JSON `hidden_projects` 1 and grand total 0.00675), the header now `[WorkBench] Costs · …`, and `--compact` rejected as an unknown flag.
 
-Width: `for w in 200 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width; at 200 the table is no wider than at 120 (natural widths, never spread); at 60 the name ends or starts with `…` before any number column is gone. `script -qec 'NO_COLOR=1 bin/workbench costs' /dev/null | grep -c $'\e\[[0-9;]*m'` prints `0`; without `NO_COLOR` the head line is bold and the rule faint.
+Width: `for w in 200 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width; at 200 the table is no wider than at 120 (natural widths, never spread); at 60 the name ends or starts with `…` before any number column is gone. `bin/workbench costs | grep -c $'\e'` prints `0`; `script -qec 'NO_COLOR=1 bin/workbench costs' /dev/null | grep -oE $'\e\[[0-9;]*m' | sort -u` shows bold, faint and resets but no color, so the `unpriced` flag loses its yellow; without `NO_COLOR` the head line is bold, the rules faint and `unpriced` yellow.
 
 Real ledger, read-only: copy `~/.local/share/claude-costs/ledger.sqlite` to a scratch directory, point `CLAUDE_COSTS_LEDGER` at the copy, run `bin/workbench costs`. Expected: the copy upgrades to version 2, the response count and grand total equal what the Python script printed for the same copy before the upgrade, and the real ledger is untouched (`cmp` against a second copy taken before).
 

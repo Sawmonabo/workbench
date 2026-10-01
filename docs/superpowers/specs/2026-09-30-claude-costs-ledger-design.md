@@ -548,6 +548,7 @@ every terminal Workbench runs in: `charmbracelet/x/term` reads the size,
 rule, numbers right-aligned, a bold total under a faint rule, secondary
 columns faint), `charmbracelet/x/ansi` measures, clips and wraps by display
 cell, so wide characters and escape codes count correctly, and `lipgloss.Fprint`
-writes, choosing the terminal's color profile and printing plain text to a
-pipe, under `NO_COLOR` or for `TERM=dumb`. Workbench owns only the fit rule
+writes, choosing the terminal's color profile: plain text to a pipe or for
+`TERM=dumb`, and no color (bold and faint stay) under `NO_COLOR`. The result
+marks (`✓`, `✗`) follow the same profile. Workbench owns only the fit rule
 above, which lipgloss does not have.
