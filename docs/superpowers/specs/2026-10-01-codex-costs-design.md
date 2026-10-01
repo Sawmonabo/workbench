@@ -87,7 +87,7 @@ by default) are not read; `costs status` reports how many were skipped.
 
 `Parse` keeps per-file state: `Thread` (the first `session_meta.id`), `Root`
 (the root thread: the record's `session_id`, or `session_meta.source.subagent.
-thread_spawn` up the chain), `Cwd`, `Model`, `Tier`, `Records` (whether this file has yielded a record) and
+thread_spawn` up the chain), `Cwd`, `Model`, `Tier`, `Records` (whether this file holds a record, its own or a copied one) and
 `LastTotal` (the last `token_count` running total). Before decoding, a line
 must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
 `"token_count"` or `"thread_settings_applied"`; every other line, most of the
@@ -99,9 +99,11 @@ must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
 - `thread_settings_applied`: sets `Tier` from `service_tier` and records a
   tier change `(Thread, timestamp, tier)`.
 - `token_usage_record` whose `thread_id` is `Thread`: one row keyed
-  `response_id`; sets `Records`. A record with another `thread_id` is a copy
-  and is skipped (its original is ingested from the parent's file).
-- `token_count` while `Records` is false, `info` is non-null, the running total
+  `response_id`. A record with another `thread_id` is a copy and is skipped
+  (its original is ingested from the parent's file). Any record in the file,
+  its own or a copied one, sets `Records`, so a fork's copied `token_count`
+  lines beside a copied record are not counted again.
+- `token_count` while `Records` is false (no record of any kind in the file yet), `info` is non-null, the running total
   differs from `LastTotal`, and `last_token_usage` has non-zero input or
   output: one row from `last_token_usage`, keyed `tc:` plus the SHA-256 of the
   canonical JSON (Go-marshalled, sorted keys) of `total_token_usage`,

@@ -132,7 +132,7 @@ type codexState struct {
 	Model   string `json:"model,omitempty"`    // the latest turn_context model
 	Tier    string `json:"tier,omitempty"`     // the latest service tier, stored name
 	TierSet bool   `json:"tier_set,omitempty"` // whether this file has named a tier
-	Records bool   `json:"records,omitempty"`  // whether this file has a token_usage_record of its own
+	Records bool   `json:"records,omitempty"`  // whether this file holds a token_usage_record, its own or a copy
 	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
 }
 
@@ -209,8 +209,11 @@ var codexMarks = [][]byte{
 
 // Parse returns the usage rows of one rollout line. A token_usage_record of
 // this file's thread is one row keyed by its response id; a copied record
-// (another thread's) is skipped, its original being in the parent's file. A
-// file without records is read from its token_count events: one row per
+// (another thread's) is skipped, its original being in the parent's file. Any
+// record, copied or its own, turns token_count reading off for the file: the
+// token_count lines a fork copies beside a record would otherwise count the
+// parent's response again. A file without records is read from its token_count
+// events: one row per
 // change of the running total that is not a synthetic estimate, keyed by a
 // digest of the event's counts and rate limits, so a fork's copy of an event
 // lands on the original's row.
@@ -264,16 +267,18 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			ResponseID string      `json:"response_id"`
 			Usage      codexCounts `json:"usage"`
 		}
-		if !decode(rec.Payload, &record) || record.ResponseID == "" ||
-			(state.Thread != "" && record.ThreadID != state.Thread) {
+		if !decode(rec.Payload, &record) || record.ResponseID == "" {
 			return nil
 		}
-		subagent := record.SessionID != "" && record.SessionID != record.ThreadID
-		if !state.Records || (state.Root == "" && subagent) {
+		if !state.Records { // a copied record counts: its token_count copies follow
 			state.Records = true
-			if state.Root == "" && subagent {
-				state.Root = record.SessionID
-			}
+			state.save(file)
+		}
+		if state.Thread != "" && record.ThreadID != state.Thread {
+			return nil
+		}
+		if state.Root == "" && record.SessionID != "" && record.SessionID != record.ThreadID {
+			state.Root = record.SessionID
 			state.save(file)
 		}
 		u := state.row(rec.Timestamp, record.ResponseID)
