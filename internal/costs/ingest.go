@@ -71,11 +71,15 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		return "", err
 	}
 	run := NewRun()
+	served := map[string]func(model, tier string) string{}
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
 		}
 		account := tool.Source.Account(paths.Home)
+		if s, ok := tool.Source.(tierServer); ok {
+			served[tool.Name] = s.ServedTier(paths.Home)
+		}
 		transcripts, listErr := tool.Source.Transcripts(paths.Home)
 		if listErr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", tool.Name, listErr))
@@ -96,7 +100,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, run, tool, read, account, source)
+				err = commitFile(ctx, ledger, run, tool, read, account, source, served[tool.Name])
 			}
 			switch {
 			case err == nil && read.changed:
@@ -120,11 +124,15 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			break
 		}
 	}
-	scope := run
 	if full {
-		scope = nil
+		run = nil
 	}
-	if _, err := ledger.ResolveTiers(ctx, scope); err != nil {
+	if _, err := ledger.ResolveTiers(ctx, run, served); err != nil {
+		// Cancelled while pricing tiers: tiersUnresolved stays set, so the
+		// next run checks every row; stop before the rates refresh.
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
 		errs = append(errs, "service tiers: "+err.Error())
 	}
 	rates := refreshIfNeeded(ctx, ledger, paths)
@@ -140,13 +148,18 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		time.Since(started).Seconds(),
 		rates,
 	)
+	return summary, finishIngest(ledger, paths, summary, errs)
+}
+
+// finishIngest stores a run's notes in the ledger and writes them to the log.
+func finishIngest(ledger *Ledger, paths Paths, summary string, errs []string) error {
 	for key, value := range map[string]string{
 		"last_ingest_at":      stamp(time.Now()),
 		"last_ingest_summary": summary,
 		"last_error":          strings.Join(errs, "; "),
 	} {
 		if err := ledger.SetMeta(key, value); err != nil {
-			return summary, err
+			return err
 		}
 	}
 	line := summary
@@ -157,7 +170,14 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	for _, e := range errs {
 		writeLog(paths, "error: "+e)
 	}
-	return summary, nil
+	return nil
+}
+
+// tierServer is a source whose tool may send a request at another tier than
+// the one selected for it: ServedTier says which, for a model and a selected
+// tier ("" for standard).
+type tierServer interface {
+	ServedTier(home string) func(model, tier string) string
 }
 
 // errLedger marks a failure of the ledger, as opposed to one transcript.
@@ -311,6 +331,7 @@ func commitFile(
 	tool Tool,
 	read fileRead,
 	account, source string,
+	served func(model, tier string) string,
 ) error {
 	if read.vanished {
 		return wrapLedger(ledger.DeleteFile(read.path))
@@ -321,6 +342,12 @@ func commitFile(
 	return wrapLedger(ledger.Transaction(ctx, run, func(tx *Tx) error {
 		for _, u := range read.usage {
 			u.Tool, u.Account = tool.Name, account
+			if base, tier := tool.SplitModel(u.Model); served != nil && tier != "" {
+				u.Model = base
+				if tier = served(base, tier); tier != "" {
+					u.Model += "@" + tier
+				}
+			}
 			if err := tx.Upsert(u, source); err != nil {
 				return err
 			}

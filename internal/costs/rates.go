@@ -50,8 +50,8 @@ func matchesRate(model, prefix string, tiers bool) bool {
 	modelBase, modelTier := model, ""
 	prefixBase, prefixTier := prefix, ""
 	if tiers {
-		modelBase, modelTier = SplitTier(model)
-		prefixBase, prefixTier = SplitTier(prefix)
+		modelBase, modelTier = splitTier(model)
+		prefixBase, prefixTier = splitTier(prefix)
 	}
 	if modelTier != prefixTier || !strings.HasPrefix(modelBase, prefixBase) {
 		return false

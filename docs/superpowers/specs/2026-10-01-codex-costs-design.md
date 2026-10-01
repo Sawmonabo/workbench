@@ -98,9 +98,19 @@ checked against the rollout files of a machine with about 3,000 sessions
   fixed when it was spawned: its
   parent's running-turn tier (`multi_agents` `apply_spawn_agent_service_tier`
   with `turn.config.service_tier`); its own snapshot, when it has one,
-  carries that tier. A change made with the app-server's
-  `turn/settings/update` reaches only the running turn and leaves no line in
-  the rollout; no client on the sample machine sends it.
+  carries that tier. Codex then sends a tier only to a model whose catalog
+  entry lists it, flex excepted, and only with the `fast_mode` feature on
+  (stable, on by default; `session/mod.rs` `get_service_tier`,
+  `openai_models.rs` `service_tier_for_request`); it keeps the catalog it
+  last fetched in `$CODEX_HOME/models_cache.json`. Two app-server requests set
+  a tier that no rollout line records: `turn/settings/update` changes only the
+  running turn, and `turn/start`'s `serviceTierForTurn`
+  (`TurnStartParams.service_tier_for_turn`, applied to that turn's copy of
+  the settings after they are persisted: `session/turn_context.rs`
+  `new_turn_with_sub_id_if`) only the turn it starts. The TUI and `codex exec`
+  send neither (the TUI changes the thread's settings, `codex exec` passes
+  `service_tier_for_turn: None`), and no client on the sample machine sends
+  them.
   OpenAI renamed priority processing to Fast mode on 2026-07-30; the price
   page's "Fast pricing data" table prices `priority`/`fast` and its
   "Ultrafast pricing data" table prices `ultrafast`. In one month of
@@ -183,9 +193,9 @@ with any other head is decoded if it contains one of those five names.
   file holds an earlier event with the same total and last usage but other
   `rate_limits`, whose row the ledger holds with the parent's model, and a
   later re-emission with the copy's `rate_limits`, which has no row.
-  Keying on the totals alone would also merge four pairs of distinct responses: the first
-  responses of two sibling subagents started with the same prompt, with equal
-  counts minutes apart. Every one of the 159 fork files whose first
+  Keying on the totals alone would also merge four pairs of distinct
+  responses: the first responses of two sibling subagents started with the
+  same prompt, with equal counts minutes apart. Every one of the 159 fork files whose first
   `token_count` is a copy has that response recorded in another file.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
@@ -227,22 +237,32 @@ never verified, access and refresh tokens never read), else `unknown`.
   the same transaction as the file's rows, and `tier_pending (request_id,
   root)`. Each thread has two series of changes there: its selected tier,
   keyed by the thread id and dated at the snapshot, and its running-turn
-  tier, keyed `turn:<thread>` and dated at the turn start. `Usage` gains
+  tier, keyed `turn:<thread>` and dated at the turn start. A subagent that
+  keeps the tier it started with records, at its start, a change of its
+  running-turn series to `=` and its parent's series and start time, so its
+  own subagents reach its parent's tier through it even when it has no rows
+  of its own. `Usage` gains
   `TierFrom` for a row another thread prices: a thread id (that thread's
   selected tier at the row's time), or `turn:<thread>@<time>` (that thread's
   running-turn tier at that time), stored as `tier_pending.root`; and
   `FileState` collects the file's tier changes. A series has one tier at a
   time: a change at the same millisecond as a stored one replaces it, so of
   several snapshots in one millisecond the last in the file wins. After every
-  ingest, each pending row takes its series' latest change at or before its
-  time and stops waiting; one whose series has no change yet stays pending
-  and is priced at the standard tier meanwhile. So a subagent is priced at the
-  tier it ran at, whatever order the files are read in. A subagent priced at
-  its spawn records that tier at its spawn in its own running-turn series,
-  for its own subagents; the check repeats for rows waiting on such a series.
-  A pending row's answer changes only when the row is written again or its
-  series gains a change, so the check after a run covers only the rows that
-  run put in `tier_pending` and those whose series it wrote a change to. A transaction that writes either stores the `tiers_unresolved`
+  ingest, each row in `tier_pending` takes its series' latest change at or
+  before its time, following `=` changes, and then the tier Codex sent:
+  none when the model's entry in `models_cache.json` does not list the tier
+  (flex excepted; a model the cache does not list keeps the selected tier).
+  A row whose series has no change by then is priced at the standard tier.
+  Rows stay in `tier_pending`, so a change read later, even one earlier than
+  rows already priced (a file still being written), prices them again. So a
+  subagent is priced at the tier it ran at, whatever order the files are read
+  in. A row's answer changes only when the row is written again or a series
+  it reads, directly or through `=` changes, gains a change, so the check
+  after a run covers only the rows that run put in `tier_pending` and those
+  reading a series it wrote a change to. A row Workbench prices from its own
+  file applies the same catalog rule when it is stored, and so does a
+  `fast_mode = false` in `config.toml`, which leaves only flex.
+  A transaction that writes either stores the `tiers_unresolved`
   note and the check clears it and stores `tiers_checked`. A run checks every
   pending row when it finds `tiers_unresolved` set (an earlier run stopped
   before its check) or `tiers_checked` absent (a new or upgraded ledger, or
@@ -262,7 +282,9 @@ never verified, access and refresh tokens never read), else `unknown`.
   1 GiB of transcript ahead of the commits, and committed one transaction per
   file in list order, so a crash still leaves every committed file consistent.
   A cancelled run (Ctrl-C) stops each read within about 1 MiB and exits at
-  once; what it committed stays committed.
+  once with the interrupted status, also when the signal arrives during the
+  tier check, and skips the rates refresh; what it committed stays committed,
+  and `tiers_unresolved` makes the next run check every row.
   The ledger runs WAL with `synchronous=NORMAL`: a crash can lose only the
   last commits, each with its file's offset, so the next run reads them again.
   Each transaction prepares its statements once, and a run remembers what it

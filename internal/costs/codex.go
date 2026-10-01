@@ -211,6 +211,9 @@ func (s *codexState) save(file *FileState) {
 //   - another subagent's row at the tier it started with: its parent's
 //     running-turn tier when it started (multi_agents
 //     apply_spawn_agent_service_tier).
+//
+// Codex then sends no tier a model does not support; ingest applies that
+// (ServedTier).
 func (s *codexState) row(ts, id string) Usage {
 	when, _ := time.Parse(time.RFC3339Nano, ts)
 	u := Usage{
@@ -237,9 +240,58 @@ func (s *codexState) row(ts, id string) Usage {
 	return u
 }
 
+// ServedTier is the tier Codex sends a model's request at when tier is
+// selected. Codex sends a tier only to a model whose catalog entry lists it,
+// flex excepted, and none but flex with the fast_mode feature off
+// (openai_models.rs service_tier_for_request, session get_service_tier). It
+// keeps its catalog in models_cache.json; a model the cache does not list
+// keeps the selected tier, as the cache holds only the catalog Codex fetched
+// last. fast_mode is on unless config.toml turns it off.
+func (codex) ServedTier(home string) func(model, tier string) string {
+	var config struct {
+		Features struct {
+			FastMode *bool `toml:"fast_mode"`
+		} `toml:"features"`
+	}
+	if raw, err := os.ReadFile(filepath.Join(codexDir(home), "config.toml")); err == nil {
+		_ = toml.Unmarshal(raw, &config) // an unreadable config keeps the default
+	}
+	fastMode := config.Features.FastMode == nil || *config.Features.FastMode
+	var cache struct {
+		Models []struct {
+			Slug  string `json:"slug"`
+			Tiers []struct {
+				ID string `json:"id"`
+			} `json:"service_tiers"`
+		} `json:"models"`
+	}
+	if raw, err := os.ReadFile(filepath.Join(codexDir(home), "models_cache.json")); err == nil {
+		decode(raw, &cache)
+	}
+	supports := map[string]map[string]bool{}
+	for _, m := range cache.Models {
+		if m.Slug == "" {
+			continue
+		}
+		supports[m.Slug] = map[string]bool{}
+		for _, t := range m.Tiers {
+			supports[m.Slug][codexTier(t.ID)] = true
+		}
+	}
+	return func(model, tier string) string {
+		if tier == "flex" {
+			return tier
+		}
+		if listed, ok := supports[model]; !fastMode || (ok && !listed[tier]) {
+			return ""
+		}
+		return tier
+	}
+}
+
 // codexTier is the stored name of a Codex service tier: priority (renamed
 // Fast mode on 2026-07-30) and fast are "fast", the standard tier is "", and
-// any other tier is its lowercase name. A name SplitTier cannot split off
+// any other tier is its lowercase name. A name splitTier cannot split off
 // stays part of the model id, so its rows show unpriced, never at standard.
 func codexTier(raw string) string {
 	switch tier := strings.ToLower(strings.TrimSpace(raw)); tier {
@@ -553,8 +605,19 @@ func codexMeta(ts string, payload json.RawMessage, state *codexState, file *File
 	state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
 	state.Parent = codexParent(meta.Source)
 	state.Spawned = state.Parent != ""
-	if when, err := time.Parse(time.RFC3339Nano, ts); err == nil {
+	when, err := time.Parse(time.RFC3339Nano, ts)
+	if err == nil {
 		state.Spawn = when.UTC().Format(timeLayout)
+	}
+	// A subagent that keeps the tier it started with runs at its parent's
+	// running-turn tier then, until a turn of its own names one; its own
+	// subagents read that from its running-turn series.
+	if err == nil && state.Root != "" && state.Root != state.Thread &&
+		(!state.Spawned || state.Version < codexRootTier) {
+		file.Tiers = append(file.Tiers, TierChange{
+			Thread: state.Thread, Time: when, Turn: true,
+			From: TurnTierFrom(firstNonEmpty(state.Parent, state.Root), state.Spawn),
+		})
 	}
 	state.save(file)
 }

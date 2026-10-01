@@ -84,20 +84,22 @@ type FileState struct {
 
 // TierChange is a thread switching service tier at a time; Tier is the
 // stored tier name, "" for standard. Turn marks the time the tier took effect
-// for the thread's own turns, rather than when it was selected.
+// for the thread's own turns, rather than when it was selected. From, when
+// set, is a TierFrom whose tier the thread takes instead of Tier.
 type TierChange struct {
 	Thread string
 	Time   time.Time
 	Tier   string
 	Turn   bool
+	From   string
 }
 
-// SplitTier splits "gpt-5.6-sol@fast", an id a Tiers tool's source composed,
+// splitTier splits "gpt-5.6-sol@fast", an id a Tiers tool's source composed,
 // into the model and its service tier:
 // the word after the last "@", a lowercase letter then lowercase letters,
 // digits, "_" or "-". An id without one is all model, tier "", so a dated
 // snapshot such as "claude-sonnet-4@20250514" keeps its date.
-func SplitTier(model string) (base, tier string) {
+func splitTier(model string) (base, tier string) {
 	if i := strings.LastIndex(model, "@"); i >= 0 && isTier(model[i+1:]) {
 		return model[:i], model[i+1:]
 	}
@@ -155,7 +157,7 @@ func (t Tool) SplitModel(model string) (base, tier string) {
 	if !t.Tiers {
 		return model, ""
 	}
-	return SplitTier(model)
+	return splitTier(model)
 }
 
 // Tools is every tab, in order.
