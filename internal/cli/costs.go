@@ -505,9 +505,8 @@ func costsStatusCommand(o *options) *cobra.Command {
 func costsStatus(info costs.StatusInfo, width int) string {
 	var b strings.Builder
 	writeBold(&b, width, 0, "[WorkBench] Costs status")
-	add := func(label, value string) {
-		writeText(&b, width, 0, bold.Render(fmt.Sprintf("%-12s", label))+value)
-	}
+	var rows [][2]string
+	add := func(label, value string) { rows = append(rows, [2]string{label, value}) }
 	add("ledger", fmt.Sprintf("%s (%sB)", shortPath(info.Ledger), human(float64(info.LedgerBytes))))
 	implemented := 0
 	for _, tool := range info.Tools {
@@ -577,6 +576,13 @@ func costsStatus(info costs.StatusInfo, width int) string {
 				)
 			}
 		}
+	}
+	labelWidth := 12
+	for _, row := range rows {
+		labelWidth = max(labelWidth, len(row[0])+2)
+	}
+	for _, row := range rows {
+		writeText(&b, width, 0, bold.Render(fmt.Sprintf("%-*s", labelWidth, row[0]))+row[1])
 	}
 	return b.String()
 }
