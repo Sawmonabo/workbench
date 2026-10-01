@@ -76,6 +76,10 @@ Rules:
   `[WorkBench] Applied: 3 files, 4 effects; 1 skipped`.
 - Files: changed ones listed with `+added −removed` lines and a mode change
   when there is one; unchanged ones counted.
+- Width: every line fits the terminal. The privilege tag drops first, then the
+  saved note, then the delta clips with `…`; below that each effect prints as
+  a short stacked block. The rule and the shared table code are in section 11
+  of the claude-costs ledger design. `--verbose` prints deltas in full.
 - Effects: `[x]`/`[ ]`, name, delta, privilege tag (`user`, `sudo`, `Windows`,
   with `network` when the script fetches), and `skipped (saved)` when the skip
   came from `machine.toml`. Each effect's recovery text and the recovery
@@ -97,7 +101,9 @@ and the Windows scripts also describe the optional effects they carry) and
 exits 0 without changing anything, including no network calls other than the
 version lookups it already makes (`go.dev/VERSION`, release APIs), each bounded
 by the existing timeouts. The planner runs every active script's probe in
-parallel with a 5 s limit each. A probe that fails, times out or prints
+parallel with a 5 s limit each, with Go telemetry and Node's compile cache
+off and Go's version read from its `VERSION` file rather than by running
+`go`, so a probe writes nothing under the home directory. A probe that fails, times out or prints
 anything but `<effect-name>: <text>` lines shows `unprobed` for that effect;
 the effect stays checked and its script runs normally. The plan never blocks on
 a probe.
@@ -163,7 +169,9 @@ for a caller that read the plan first.
 
 ## 7. Failures
 
-- A failing probe never blocks the plan (section 4).
+- A failing probe never blocks the plan (section 4). Ctrl-C during probing
+  stops the plan at once with the interrupted exit (130); it is never shown
+  as `unprobed`.
 - A script that fails mid-apply stops the run, as today. The result lists the
   checked effects, the failure's last lines and the checkpoint ID for the
   files; which effects ran is what chezmoi's script state says, and rerunning

@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown; `claude-costs` prints one readable line per repository.
+**Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown; `claude-costs` prints one readable line per repository and then becomes `workbench costs` behind a generic source interface; every table fits the terminal.
 
 **Architecture:** `operation.Effect` gains probed `Delta`, `Checked`, `Fixed` and `SavedSkip` fields so the plan digest covers the selection. The machine planner runs every active provisioning script in a read-only `WORKBENCH_PROBE=1` mode to fill the deltas, and apply removes the script sources of unchecked effects from its private chezmoi copy so chezmoi never runs or records them. The CLI replaces the Yes/No prompt with a `huh` multi-select, saves skips to `machine.toml`'s `[effects]` table, and `update` stops after installing the release and its tools.
 
@@ -40,8 +40,10 @@
 2. A probe that writes anything (temp file, network download) or prompts would corrupt a dry run; every probe must exit before `mktemp`, `sudo`, `read` and installers. Pinned in Task 2 step 4 (grep gate).
 3. A `run_once_` script skipped this apply must still run on a later apply once unskipped; chezmoi must not record it as run. Pinned in Task 3 step 8 (static) and Task 7 step 3 (state diff).
 4. `--approve-plan DIGEST` from a dry run with saved skips, then a hand edit of `machine.toml` changing the skips, must exit 4 (conflict), never apply the old selection. Pinned in Task 1 step 5 (Go test) and Task 7 step 2.
-6. Two effects sharing one script (`linux-packages` and `work-tools`; `windows-files` and `wsl-preferences`) must be independently skippable: unchecking one must not run its section. Pinned in Task 2 step 3 (per-effect gates) and Task 3 step 4 (every effect exported).
 5. `update` with no terminal, `--json`, or run from `install.sh` must never plan or apply the machine; its last line names `workbench apply`. Pinned in Task 5 step 6.
+6. Two effects sharing one script (`linux-packages` and `work-tools`; `windows-files` and `wsl-preferences`) must be independently skippable: unchecking one must not run its section. Pinned in Task 2 step 3 (per-effect gates) and Task 3 step 4 (every effect exported).
+7. A terminal of any width, from 30 columns up, must never get a line wider than itself, in the apply checklist or the costs report. Pinned in Task 9 step 6 and Task 10 step 7.
+8. Opening the existing version 1 ledger must keep every row; a re-copied record with smaller counts must never lower the stored usage. Pinned in Task 10 step 2 (Go test) and step 7 (real-ledger copy).
 
 ---
 
@@ -2019,6 +2021,8 @@ git commit -m "docs: apply checklist, remembered skips, update/apply split and t
 
 ### Task 7: Observed checks on this machine and the ledger
 
+Runs last, after Tasks 9 and 10, so it observes the final code.
+
 **Files:**
 - Modify: `docs/acceptance.md` (replace Task 6's markers with observed results)
 - Modify: `docs/superpowers/specs/2026-09-30-apply-plan-selection-design.md` (status line)
@@ -2484,4 +2488,406 @@ Change the status line of `docs/superpowers/specs/2026-09-30-claude-costs-ledger
 ```bash
 git add home/dot_local/bin/executable_claude-costs home/dot_local/share/bash-completion/completions/claude-costs docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md
 git commit -m "feat(claude-costs): one line per repository, plain column names, --detail and --tokens"
+```
+
+---
+
+### Task 9: Every table fits the terminal; probes write nothing; Ctrl-C stops probing
+
+Added 2026-09-30 after review: the checklist rows were about 170 characters wide and the claude-costs table overflowed below 72 columns, probes left Go telemetry counters and Node's compile cache behind, and Ctrl-C during probing showed effects as `unprobed` instead of stopping. The width rule is section 11 "Terminal width" of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`; the probe and Ctrl-C rules are in sections 4 and 7 of the apply spec.
+
+**Files:**
+- Create: `internal/cli/table.go`
+- Modify: `internal/cli/planview.go` (delete `writeColumns`; `writeMachinePlan` uses `writeTable`), `internal/cli/prompt.go` (checklist labels), every other `writeColumns` caller (`planview.go`, `prompt.go`, `release.go`)
+- Modify: `internal/machine/probe.go` (probe environment, interruption), `internal/machine/plan.go` (`selectEffects` returns the interruption)
+- Modify: `home/.chezmoiscripts/linux/run_once_after_10-runtime-managers.sh.tmpl` (Go version from its VERSION file), `home/.chezmoiscripts/linux/run_onchange_after_30-global-tools.sh.tmpl` and `home/.chezmoiscripts/darwin/run_onchange_after_30-global-tools.sh.tmpl` (no `nvm use` in the probe)
+- Modify: `go.mod` (`github.com/charmbracelet/x/ansi` becomes a direct requirement; it is already in the module graph)
+
+**Interfaces:**
+- Produces: `column{Head string; Right bool; Drop int; Clip, ClipLeft bool}`, `terminalWidth(w io.Writer) int`, `fitRows(width, indent int, cols []column, rows [][]string, header bool) []string`, `writeTable(b *strings.Builder, width, indent int, cols []column, rows [][]string, header bool)`. Task 10's costs report uses all of them.
+
+- [ ] **Step 1: Create `internal/cli/table.go`**
+
+```go
+package cli
+
+import (
+	"io"
+	"os"
+	"strconv"
+	"strings"
+
+	"github.com/charmbracelet/x/ansi"
+	"golang.org/x/sys/unix"
+)
+
+// column describes one table column. Columns with Drop > 0 are removed when
+// the terminal is too narrow, highest Drop first. The one Clip column then
+// shortens with an ellipsis: from the left for paths (ClipLeft), so the part
+// that tells them apart survives, otherwise from the right.
+type column struct {
+	Head     string
+	Right    bool
+	Drop     int
+	Clip     bool
+	ClipLeft bool
+}
+
+// minClip is the narrowest a clipped column gets before rows stack.
+const minClip = 12
+
+// gap separates columns.
+const gap = "  "
+
+// terminalWidth is the width a table must fit: the terminal's, else COLUMNS,
+// else 100 when the output is not a terminal.
+func terminalWidth(w io.Writer) int {
+	if file, ok := w.(*os.File); ok {
+		if size, err := unix.IoctlGetWinsize(int(file.Fd()), unix.TIOCGWINSZ); err == nil && size.Col > 0 {
+			return int(size.Col)
+		}
+	}
+	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
+		return columns
+	}
+	return 100
+}
+
+// fitRows lays rows out under cols so that no line, indent included, is wider
+// than width: it drops columns by priority, then clips the Clip column, and
+// below minClip prints each row as a stacked block. With header, the first
+// line holds the column heads.
+func fitRows(width, indent int, cols []column, rows [][]string, header bool) []string {
+	active := make([]int, len(cols))
+	for i := range cols {
+		active[i] = i
+	}
+	widths := naturalWidths(cols, rows, header)
+	total := func() int {
+		sum := indent
+		for n, i := range active {
+			if n > 0 {
+				sum += len(gap)
+			}
+			sum += widths[i]
+		}
+		return sum
+	}
+	for total() > width {
+		drop, highest := -1, 0
+		for n, i := range active {
+			if cols[i].Drop > highest {
+				drop, highest = n, cols[i].Drop
+			}
+		}
+		if drop < 0 {
+			break
+		}
+		active = append(active[:drop], active[drop+1:]...)
+	}
+	if over := total() - width; over > 0 {
+		clip := -1
+		for _, i := range active {
+			if cols[i].Clip {
+				clip = i
+			}
+		}
+		if clip < 0 || widths[clip]-over < minClip {
+			return stacked(width, indent, cols, active, rows)
+		}
+		widths[clip] -= over
+	}
+	pad := strings.Repeat(" ", indent)
+	var lines []string
+	if header {
+		heads := make([]string, len(cols))
+		for i, c := range cols {
+			heads[i] = c.Head
+		}
+		lines = append(lines, pad+joinCells(cols, active, widths, heads))
+	}
+	for _, row := range rows {
+		lines = append(lines, pad+joinCells(cols, active, widths, row))
+	}
+	return lines
+}
+
+// writeTable writes fitRows' lines to b.
+func writeTable(b *strings.Builder, width, indent int, cols []column, rows [][]string, header bool) {
+	for _, line := range fitRows(width, indent, cols, rows, header) {
+		b.WriteString(line + "\n")
+	}
+}
+
+func naturalWidths(cols []column, rows [][]string, header bool) []int {
+	widths := make([]int, len(cols))
+	for i, c := range cols {
+		if header {
+			widths[i] = ansi.StringWidth(c.Head)
+		}
+	}
+	for _, row := range rows {
+		for i := range cols {
+			if i < len(row) {
+				widths[i] = max(widths[i], ansi.StringWidth(row[i]))
+			}
+		}
+	}
+	return widths
+}
+
+func joinCells(cols []column, active, widths []int, row []string) string {
+	var b strings.Builder
+	for n, i := range active {
+		cell := ""
+		if i < len(row) {
+			cell = fit(row[i], widths[i], cols[i].ClipLeft)
+		}
+		if n > 0 {
+			b.WriteString(gap)
+		}
+		padding := strings.Repeat(" ", widths[i]-ansi.StringWidth(cell))
+		if cols[i].Right {
+			b.WriteString(padding + cell)
+		} else if n < len(active)-1 {
+			b.WriteString(cell + padding)
+		} else {
+			b.WriteString(cell)
+		}
+	}
+	return strings.TrimRight(b.String(), " ")
+}
+
+// stacked prints each row as its first active cell, then one indented
+// "head value" line per other active cell, every line clipped to width.
+func stacked(width, indent int, cols []column, active []int, rows [][]string) []string {
+	pad := strings.Repeat(" ", indent)
+	var lines []string
+	for _, row := range rows {
+		for n, i := range active {
+			if i >= len(row) || row[i] == "" {
+				continue
+			}
+			text := row[i]
+			prefix := pad
+			if n > 0 {
+				prefix = pad + "  "
+				if cols[i].Head != "" {
+					text = cols[i].Head + " " + text
+				}
+			}
+			lines = append(lines, prefix+fit(text, max(width-ansi.StringWidth(prefix), 1), cols[i].ClipLeft))
+		}
+	}
+	return lines
+}
+
+// fit shortens s to width with an ellipsis, from the left or the right.
+func fit(s string, width int, left bool) string {
+	if ansi.StringWidth(s) <= width {
+		return s
+	}
+	if left {
+		return ansi.TruncateLeft(s, ansi.StringWidth(s)-width+1, "…")
+	}
+	return ansi.Truncate(s, width, "…")
+}
+```
+
+Check `ansi.TruncateLeft`'s signature in the module cache (`go doc github.com/charmbracelet/x/ansi TruncateLeft`); it cuts N cells from the left and prepends the tail string. Adjust the call if its parameters differ and record the deviation. Run `go mod tidy` so the import becomes a direct requirement.
+
+- [ ] **Step 2: Move every table onto `writeTable`**
+
+Delete `writeColumns` from `planview.go`. Each caller passes `terminalWidth(w)` for the writer it renders to, indent 4, and columns:
+
+- `writeMachinePlan` files: `{Head: "", Clip: true, ClipLeft: true}` (path), `{Head: ""}` (summary). Effects: `{}` (box), `{}` (name), `{Clip: true}` (delta), `{Drop: 2}` (privilege), `{Drop: 1}` (saved note); no header. With `verbose`, pass `width = 1 << 30` for the effects so deltas print in full.
+- The other callers keep their columns, with their last free-text column `Clip: true` and every column before it plain.
+
+`writeMachinePlan` takes the writer it renders to, so `render` and `choosePlan` both pass theirs.
+
+- [ ] **Step 3: Checklist labels fit too**
+
+In `choosePlan`, build the option labels with `fitRows(terminalWidth(terminal)-6, 0, cols, rows, false)` over `[name, delta, privilege, note]` rows (the multi-select draws a cursor and a box in about six cells). When `fitRows` stacks (more lines than rows), use `fit(name+"  "+delta, width-6, false)` for each label instead. Delete the `fmt.Sprintf("%-24s %s  (%s)", ...)` label code.
+
+- [ ] **Step 4: Probes write nothing**
+
+In `probeEffects`, append `"GOTELEMETRY=off"` and `"NODE_DISABLE_COMPILE_CACHE=1"` to the probe environment beside `WORKBENCH_PROBE=1`.
+
+In `home/.chezmoiscripts/linux/run_once_after_10-runtime-managers.sh.tmpl`'s probe block, replace the `go_have=$(…go version…)` line with a read of the toolchain's own VERSION file, which runs nothing:
+
+```bash
+    go_have=
+    if go_bin=$(command -v go 2>/dev/null); then
+        go_root=$(dirname "$(dirname "$(readlink -f "$go_bin")")")
+        [ -r "$go_root/VERSION" ] && go_have=$(head -n1 "$go_root/VERSION")
+        go_have=${go_have#go}
+    fi
+```
+
+In both `30-global-tools` probe blocks, replace `nvm use default >/dev/null 2>&1 || true` (which runs `node` and `npm` to print its banner) with a PATH entry for the default Node, which runs nothing:
+
+```bash
+        node_default=$(nvm version default 2>/dev/null || true)
+        [ -n "$node_default" ] && [ "$node_default" != N/A ] && export PATH="$NVM_DIR/versions/node/$node_default/bin:$PATH"
+```
+
+(`nvm version` resolves the alias files in shell; it does not start `node`.)
+
+- [ ] **Step 5: Ctrl-C stops the plan**
+
+`probeEffects` returns `error`. After `wg.Wait()`, `return ctx.Err()`; in `runProbe`, before classifying an error as `failed`, `if ctx.Err() != nil { return nil, "" }` so an interrupted probe sets no status. `selectEffects` returns that error before applying the selection: `if err := p.probeEffects(ctx, c); err != nil { return err }`. `operation.ExitCode` maps the canceled context to `ExitInterrupted` (130), which `machinePlan` already returns as is.
+
+- [ ] **Step 6: Gates and observed checks**
+
+Run: `go build ./... && go vet ./... && go test ./... && GOTOOLCHAIN=go1.26.8 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...`
+Expected: clean, `0 issues.`
+
+Run the render checks through the scratch-copy recipe in Global Constraints. Expected: three `OK`.
+
+Width, on this machine, read-only:
+
+```bash
+go build -o bin/workbench ./cmd/workbench
+for w in 160 120 80 60 40 30; do
+  COLUMNS=$w bin/workbench apply --dry-run --local-build 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'
+done
+```
+
+Expected: every `max` is at most its width. At 80 the privilege tags are gone and the deltas end in `…`; at 30 each effect is a stacked block. `awk length` counts characters, and every character here is one cell wide.
+
+Probe side writes, read-only:
+
+```bash
+touch /tmp/probe-marker; bin/workbench apply --dry-run --local-build >/dev/null 2>&1
+find ~ -newer /tmp/probe-marker -type f -not -path '*/.claude/*' -not -path '*/.local/state/workbench/*' -not -path '*/.cache/workbench/*' 2>/dev/null | head
+```
+
+Expected: no output (Workbench's own state and cache, and the running Claude session, are excluded).
+
+Ctrl-C: `bin/workbench apply --dry-run --local-build & sleep 3; kill -INT %1; wait %1; echo "exit=$?"`
+Expected: `exit=130`, and no `unprobed` line.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add internal/cli internal/machine home/.chezmoiscripts go.mod go.sum
+git commit -m "fix(cli): fit every table to the terminal; probes write nothing and stop on Ctrl-C"
+```
+
+---
+
+### Task 10: `workbench costs` replaces the claude-costs script
+
+Implements section 11 of `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md`. The behaviour to port is the script at `home/dot_local/bin/executable_claude-costs` as committed by Task 8; it is the reference for every rule this task does not restate (rates parsing, calibration, back-off, account tagging, rollup, footer notes, the empty-result messages). Port its behaviour, not its structure: section 11's package shape decides where each piece lives.
+
+**Files:**
+- Create: `internal/costs/source.go`, `claude.go`, `ledger.go`, `ingest.go`, `rates.go`, `report.go`, `ledger_test.go`
+- Create: `internal/cli/costs.go`
+- Modify: `internal/cli/root.go` (register `costsCommand`)
+- Modify: `internal/operation/state.go` (`TryLock`), `internal/operation/process.go` (`StartDetached`)
+- Modify: `home/.chezmoidata/claude.json` (hook commands), `go.mod`/`go.sum` (`modernc.org/sqlite`)
+- Delete: `home/dot_local/bin/executable_claude-costs`, `home/dot_local/share/bash-completion/completions/claude-costs`
+- Modify: `docs/superpowers/specs/workbench-contracts.md` (claude-costs row), `docs/usage.md` and `README.md` wherever `claude-costs` is named, the ledger spec's status line
+
+**Interfaces:**
+- Consumes: `column`, `terminalWidth`, `fitRows`, `writeTable`, `fit` (Task 9).
+- Produces: `costs.Source`, `costs.Usage`, `costs.FileState`, `costs.RateCard`, `costs.Observation`; `costs.OpenLedger(path string, create bool) (*Ledger, error)`; `costs.Ingest(ctx, opts IngestOptions) (summary string, err error)`; `costs.Report(ctx, ledger, ReportOptions) (Report, error)`; `costs.Rates(ctx, refresh bool) (Card, error)`; `costs.Status(ctx) (StatusInfo, error)`; `operation.TryLock(path string) (release func(), held bool, err error)`; `operation.StartDetached(executable string, args []string, log *os.File) error`.
+
+| Script function(s) | Go home |
+| --- | --- |
+| `discover`, `project_from_path`, `_token_counts`, `rows_from_record`, `current_account`, `belongs_to_session`, `BUILTIN_RATES`, `normalize_model`, `parse_pricing_markdown`, `_find_col`, `_money`, the `lastModelUsage` reading in `calibrated_rates`, `hooks_installed` | `claude.go` (the `claude` source) |
+| `SCHEMA`, `open_ledger`, `UPSERT`, `get_meta`, `set_meta` | `ledger.go` |
+| `ingest_worker`, `_ingest_locked`, `ingest_file`, `log`, `truncate_log`, `refresh_rates_if_needed`, `read_hook_input`, `cmd_ingest` | `ingest.go` (hook spawn through `operation.StartDetached`, lock through `operation.TryLock`) |
+| `SOURCE_ORDER`, `_row`, `_read_official`, `_write_official`, `refresh_official`, `_solve_normal_equations`, the solving in `calibrated_rates`, `_read_overrides`, `load_card`, `longest_prefix`, `rate_for`, `cost_of` | `rates.go` |
+| `rollup`, `in_scope`, `ensure_ingested`, `load_groups`, `aggregate`, `sort_rows`, `coverage`, `total_row`, `cached_share` | `report.go` |
+| `human`, `short`, `clip`, `columns`, `local_time`, `table_columns`, `print_table`, `print_footer`, `print_unpriced`, `cmd_report`, `cmd_rates`, `cmd_status`, `parse_opts` | `internal/cli/costs.go` (tables through `writeTable`) |
+
+- [ ] **Step 1: Source interface and the Claude source**
+
+Create `internal/costs/source.go` with section 11's `Source` interface and `Usage` struct verbatim, plus:
+
+```go
+// FileState is what a source keeps between the lines of one transcript.
+type FileState struct {
+	Path     string // the transcript
+	Fallback string // project decoded from the path, for records without a cwd
+	LastCwd  string // Claude: the last cwd seen in this file
+}
+
+// Rate is USD per million tokens for each token kind.
+type Rate struct {
+	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead float64
+	Source string // "override", "official", "calibrated" or "builtin"
+}
+
+// RateCard maps a model prefix to its rate.
+type RateCard map[string]Rate
+
+// Observation is one (tokens, cost) pair a tool recorded itself, for
+// calibration; tokens are in millions: input, output, cache write, cache read.
+type Observation struct {
+	Model  string
+	Tokens [4]float64
+	Cost   float64
+}
+
+var sources = []Source{claude{}}
+```
+
+Create `claude.go` implementing every method from the script functions in the table. Paths honour `CLAUDE_CONFIG_DIR` exactly as the script does (`projects/` under it; `.claude.json` inside it when set, else `~/.claude.json`). `Parse` checks `bytes.Contains(line, []byte("\"usage\""))` or `"cwd"` before decoding JSON, as the script does, updates `file.LastCwd`, and returns the response row plus one row per `advisor_message` iteration keyed `<request id>:<index>`. `Hooks` reports an event as installed when a hook command contains `costs ingest` and `async` is true.
+
+- [ ] **Step 2: Ledger, with the one additive upgrade**
+
+`ledger.go` opens the existing SQLite file with `modernc.org/sqlite` (driver name `sqlite`), WAL and a 5 s busy timeout. Schema version 2 is the script's schema plus `tool TEXT NOT NULL DEFAULT 'claude'` on `responses` and an index on it. Opening a version 1 ledger runs, in one transaction, `ALTER TABLE responses ADD COLUMN tool TEXT NOT NULL DEFAULT 'claude'`, the index, and `schema_version = 2`. Any other version fails with the path and version and writes nothing. The upsert keys on `request_id` (other tools' IDs are stored as `<tool>:<id>`), keeps `MAX(col, excluded.col)` for the five token columns, and replaces `account`/`account_source` only when the new source is `session`, exactly as `UPSERT` does.
+
+Create `internal/costs/ledger_test.go`, the one test this task adds:
+
+```go
+package costs
+
+// The ledger is the only lasting record once Claude Code deletes old
+// transcripts. A resumed session re-copies earlier records with smaller or
+// zeroed counts, and an upgrade must keep every row: either mistake silently
+// loses spend history that cannot be recovered.
+func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) { … }
+```
+
+It (1) creates a version 1 ledger with the script's exact schema and two rows through `database/sql`, (2) opens it with `OpenLedger` and checks both rows survive with `tool = 'claude'` and `schema_version = 2`, (3) upserts the same request with smaller token counts and then larger ones, and checks the stored counts are the larger, never the smaller. Watch it fail first by temporarily making the upsert a plain replace.
+
+- [ ] **Step 3: Operation helpers**
+
+In `internal/operation/state.go` add `TryLock(path string) (release func(), held bool, err error)`: create the parent directory 0700, open the file, `syscall.Flock(fd, LOCK_EX|LOCK_NB)`; `held` true when another process has it (`EWOULDBLOCK`). Reuse the flock code `acquireLocks` already has.
+
+In `internal/operation/process.go` add `StartDetached(executable string, args []string, log *os.File) error`: start the process with stdin from the null device, stdout and stderr to `log`, `SysProcAttr{Setsid: true}`, and `Release()` it without waiting. It is only for Workbench re-executing itself (`os.Executable()`), never for third-party tools; say so in its comment.
+
+- [ ] **Step 4: Ingest and rates**
+
+`ingest.go` ports the worker over `sources`: lock, log truncation to 200 KB, per-file offsets in one transaction per file, `session` tagging for the hook's `transcript_path` on `SessionEnd`, the rate refresh check, and the meta summary. The hook entry reads stdin JSON with a 0.5 s limit, starts `<workbench> costs ingest --worker --quiet EVENT TRANSCRIPT` through `StartDetached`, prints nothing and returns success whatever happens.
+
+`rates.go` ports resolution (override, official, calibrated, builtin; longest prefix inside a source), the conditional GET with ETag, Last-Modified, the 7-day refresh, the 1-day retry back-off, the cache file (`rates-official.json` for `claude`, `rates-official-<tool>.json` otherwise), override validation, and calibration (normal equations, at least four observations, non-negative, residual under 5 %, mass under 0.5 % keeps the built-in, 1h write = 1.6 × the solved write).
+
+- [ ] **Step 5: Report and the CLI**
+
+`report.go` returns rows (project, model, tool, account, month), totals and coverage; it prints nothing. `internal/cli/costs.go` adds `costs` with `ingest`, `rates`, `status`, and the report flags `--by project|model|tool|account|month`, `--tool NAME`, `--since`, `--until`, `--all`, `--top N`, `--sort cost|name|calls`, `--detail`, `--tokens`, `--no-rollup`, `--csv`, plus the global `--json`. The header is `[WorkBench] Costs · <first> → <last> · <N> responses`. Tables use `writeTable` with columns: name `{Clip, ClipLeft}`, cost `{Right}`, share `{Right, Drop: 2}`, calls `{Right, Drop: 1}`, tokens `{Right, Drop: 3}`, cached `{Right, Drop: 4}`; with `--tokens`: input, output `{Right}`, cache 5m `{Right, Drop: 3}`, cache 1h `{Right, Drop: 4}`, cache read `{Right, Drop: 2}`. Footer notes follow section 7. `--json` puts the report in the result envelope's details; `--csv` writes the rows. Register `costsCommand(o)` in `root.go`.
+
+- [ ] **Step 6: Hooks, removals and docs**
+
+`home/.chezmoidata/claude.json`: both hook commands become `~/.local/bin/workbench costs ingest`. Delete the script and its completion file. Update the contracts row, `docs/usage.md` and `README.md` to `workbench costs`. Change the ledger spec's status line to `Status: implemented 2026-09-30 as workbench costs (section 11); …`.
+
+- [ ] **Step 7: Gates and observed checks**
+
+Run: `go build ./... && go vet ./... && go test ./... && GOTOOLCHAIN=go1.26.8 go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 run ./...` and the three render checks (scratch-copy recipe).
+Expected: clean; `ok` for `internal/costs`.
+
+Synthetic ledger: rerun Task 8 step 6's fixture with `CC="bin/workbench costs"` (same `CLAUDE_COSTS_*` and `CLAUDE_CONFIG_DIR` overrides; the hook subcommand is `costs ingest --worker --quiet`). Expected: the same figures as Task 8's expected outputs (`$0.01`, `100.0%`, `3` calls, `2.1K`, `78.5%`; `/srv/elsewhere/app` only with `--all`; three rows with `--no-rollup`; JSON `hidden_projects` 1 and grand total 0.00675), the header now `[WorkBench] Costs · …`, and `--compact` rejected as an unknown flag.
+
+Width: `for w in 120 80 60 40 30; do COLUMNS=$w bin/workbench costs 2>/dev/null | awk -v w=$w '{ if (length($0) > m) m = length($0) } END { print w, "max", m }'; done` against the synthetic ledger. Expected: every `max` at most its width.
+
+Real ledger, read-only: copy `~/.local/share/claude-costs/ledger.sqlite` to a scratch directory, point `CLAUDE_COSTS_LEDGER` at the copy, run `bin/workbench costs`. Expected: the copy upgrades to version 2, the response count and grand total equal what the Python script printed for the same copy before the upgrade, and the real ledger is untouched (`cmp` against a second copy taken before).
+
+- [ ] **Step 8: Commit**
+
+```bash
+git add internal go.mod go.sum home docs README.md
+git commit -m "feat(costs): workbench costs replaces the claude-costs script behind a generic source interface"
 ```

@@ -1,7 +1,11 @@
 # claude-costs ledger design
 
-Status: implemented 2026-09-30; report view of section 7 revised and
-implemented 2026-09-30. Observed checks are recorded in section 9. The
+Status: implemented 2026-09-30 as a Python script; report view of section 7
+revised and implemented 2026-09-30. Section 11 (decided 2026-09-30) moves the
+tool into the Workbench CLI as `workbench costs`, behind a generic source
+interface; it supersedes the script, command names and paths of sections 3, 5
+and 7 where they differ, and is implemented by Tasks 9 and 10 of
+`../plans/2026-09-30-apply-plan-selection.md`. Observed checks are recorded in section 9. The
 implementation plan refined a few details
 of the approved design (rates parsing, override validation, refresh back-off),
 and checking it against real transcripts added advisor rows (section 4). The
@@ -421,5 +425,116 @@ a real WSL host; macOS with its system Python 3.9.
 
 ## 10. Out of scope
 
-Recovering transcripts already deleted, usage from API keys or other tools,
-actual subscription charges, and Windows-native Claude Code installations.
+Recovering transcripts already deleted, usage from API keys, actual
+subscription charges, and Windows-native Claude Code installations. Other
+tools (Codex) are not ingested yet; section 11 shapes the code so adding one
+is a new source file, not a redesign.
+
+## 11. `workbench costs`: one CLI, generic sources
+
+Decided 2026-09-30. The Python script becomes a Workbench command, and the
+code separates what differs per AI tool from what does not, so a later Codex
+source is one file plus one line.
+
+### Command surface
+
+| Command | Replaces | Does |
+| --- | --- | --- |
+| `workbench costs` | `claude-costs [report]` | The section 7 report. |
+| `workbench costs ingest` | `claude-costs ingest` | Hook entry: silent, exit 0, starts a detached worker. `--worker` runs it inline. |
+| `workbench costs rates` | `claude-costs rates` | Merged rate card; `--refresh` refetches. |
+| `workbench costs status` | `claude-costs status` | Ledger coverage, last ingest, hooks, rate card age. |
+
+Report flags are section 7's, plus `--by tool` and `--tool NAME`. Every screen
+starts with the `[WorkBench]` brand like the other commands; `--json` emits the
+Workbench result envelope with the rows as details, and `--csv` stays. Cobra
+generates completions, so the bash completion file is removed with the script.
+Hooks in `home/.chezmoidata/claude.json` call `~/.local/bin/workbench costs
+ingest`, the release symlink Workbench installs.
+
+### Package shape
+
+```
+internal/costs/
+  source.go   Source interface, Usage row, the source list
+  claude.go   Claude Code: transcripts, record parsing, advisor rows, account, prices
+  ledger.go   SQLite ledger: open, schema check, max-wins upsert, files, meta
+  ingest.go   worker over every source: offsets, lock, log, rate refresh
+  rates.go    card resolution: override, official, calibrated, built-in; longest prefix
+  report.go   groups, rollup, scope, totals; returns rows and prints nothing
+internal/cli/
+  costs.go    the four commands and their flags
+  table.go    terminal-width tables, shared with the apply checklist
+```
+
+```go
+// Source is one AI tool whose transcripts the ledger records. Everything a
+// source knows is about its own files and prices; it never writes.
+type Source interface {
+	Name() string                               // "claude"; later "codex"
+	Transcripts(home string) ([]string, error)  // files to ingest
+	Parse(line []byte, file *FileState) []Usage // usage rows in one line
+	Account(home string) string                 // who was signed in, or "unknown"
+	Builtin() RateCard                          // prices shipped with Workbench
+	PricingURL() string                         // official price page, "" when none
+	ParsePricing(page string) RateCard          // that page's prices
+	Observations(home string) []Observation     // the tool's own (tokens, cost) pairs, for calibration; nil when none
+	Hooks(home string) map[string]bool          // hook event → whether the ingest hook is installed
+}
+
+// Usage is one billed response, whatever tool produced it.
+type Usage struct {
+	Tool, RequestID, Model, Project, Session, Account string
+	Time                                              time.Time
+	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead int64
+}
+
+var sources = []Source{claude{}} // a new tool appends here
+```
+
+Rules:
+
+- Everything outside a source file is tool-agnostic. A source never touches
+  the ledger, the lock or the output; ingest, rates and report never parse a
+  transcript.
+- Token mapping for any source: input, output and cache read as named; cache
+  writes by lifetime where the tool reports them, else 0; reasoning output
+  counts as output, the rate it is billed at. A source with fewer token kinds
+  leaves the others 0.
+- `FileState` carries what a source needs between lines of one file (the last
+  `cwd` for Claude) and the fallback project decoded from the path.
+- Each source owns its built-in prices, its official pricing-page parser and
+  its calibration observations; fetching, caching (ETag, back-off) and solving
+  are generic. The Claude cache stays `rates-official.json`; another source
+  caches to `rates-official-<tool>.json`. Overrides stay one `rates.json` keyed
+  by model prefix.
+- The hook passes `transcript_path`; ingest asks each source whether the path is
+  one of its transcripts to tag that file's rows `session`.
+- No registration API, no configuration-driven source list, no sub-package per
+  tool ([AGENTS.md](../../../AGENTS.md): no speculative frameworks).
+
+### Ledger compatibility
+
+The ledger stays at `~/.local/share/claude-costs/ledger.sqlite` with the same
+overrides (`CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES`),
+because transcripts expire and the ledger is the only lasting record. Schema
+version 2 adds one column, `tool TEXT NOT NULL DEFAULT 'claude'`; opening a
+version 1 ledger adds it in one transaction and sets the version, keeping every
+row. That additive change is the only write to existing data. Claude request
+IDs stay as they are; another tool's IDs are stored as `<tool>:<id>`, so the
+primary key never collides and the table is not rebuilt. Any other version is
+refused without modification, as section 4 says.
+
+SQLite comes from a pure-Go driver (`modernc.org/sqlite`), so the four release
+bundles still cross-compile without a C toolchain.
+
+### Terminal width
+
+Every table, here and in the apply checklist, fits the terminal: width from the
+terminal, else `COLUMNS`, else 100 when not a terminal. Each column has a drop
+priority; while a row is too wide the next column drops (report: `cached`,
+then `tokens`, then `share`, then `calls`; checklist: privilege tag, then the
+saved note). Then the name or delta column clips, paths from the left and
+deltas from the right, with `…`, down to 12 characters. Below that every row
+prints as a stacked block, one value per line, each clipped to the width. No
+line is wider than the terminal at any width.
