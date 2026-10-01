@@ -193,8 +193,11 @@ never verified, access and refresh tokens never read), else `unknown`.
   written again or its root gains a change, so the check after a run covers
   only the rows that run put in `tier_pending` and those whose root it wrote a
   change for. A transaction that writes either stores the `tiers_unresolved`
-  note and the check clears it; a run that finds it set (an earlier run
-  stopped before its check) checks every pending row.
+  note and the check clears it and stores `tiers_checked`. A run checks every
+  pending row when it finds `tiers_unresolved` set (an earlier run stopped
+  before its check) or `tiers_checked` absent (a new or upgraded ledger, or
+  one an earlier build wrote, whose pending rows no check of this build has
+  seen).
 - **Attribution.** On a repeated key the token columns keep their largest
   values, as before, and the time, model, project and session come from the
   earliest occurrence (on a tie, the row read last, as before): a fork's copy,

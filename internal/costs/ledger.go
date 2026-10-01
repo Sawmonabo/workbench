@@ -393,7 +393,24 @@ type storedRow struct {
 // tiersUnresolved is the meta note a transaction that writes tier_pending or
 // tier_changes stores, and ResolveTiers clears: while it is set, rows of an
 // earlier run that stopped before ResolveTiers may still wait unchecked.
-const tiersUnresolved = "tiers_unresolved"
+// tiersChecked is the note every ResolveTiers stores: without it, no check
+// this build makes has run on the ledger (it is new, upgraded, or written by
+// an earlier build), so its waiting rows may never have been checked.
+const (
+	tiersUnresolved = "tiers_unresolved"
+	tiersChecked    = "tiers_checked"
+)
+
+// fullTierCheckDue reports whether the next ResolveTiers must check every
+// waiting row rather than only those an ingest run wrote.
+func (l *Ledger) fullTierCheckDue() (bool, error) {
+	unresolved, err := l.Meta(tiersUnresolved)
+	if err != nil {
+		return false, err
+	}
+	checked, err := l.Meta(tiersChecked)
+	return unresolved != "" || checked == "", err
+}
 
 // Transaction runs fn and commits, or rolls back when fn fails. run is the
 // ingest run's record of committed writes, or nil.
@@ -575,7 +592,8 @@ func (t *Tx) AddTierChange(c TierChange) error {
 // A waiting row's answer changes only when the row is written again or its
 // root gains a tier change, so with run set only the rows run put in
 // tier_pending and those whose root run wrote a change for are checked; a nil
-// run checks every waiting row. Either way it clears tiersUnresolved.
+// run checks every waiting row. Either way it clears tiersUnresolved and
+// stores tiersChecked.
 func (l *Ledger) ResolveTiers(ctx context.Context, run *Run) (int, error) {
 	type pending struct{ id, model, tier string }
 	var resolved []pending
@@ -611,6 +629,9 @@ func (l *Ledger) ResolveTiers(ctx context.Context, run *Run) (int, error) {
 			"DELETE FROM meta WHERE key = ?",
 			tiersUnresolved,
 		); err != nil {
+			return err
+		}
+		if err := setMeta(ctx, tx, tiersChecked, "1"); err != nil {
 			return err
 		}
 		if len(resolved) == 0 {

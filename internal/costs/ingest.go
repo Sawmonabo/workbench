@@ -66,9 +66,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	defer func() { _ = ledger.Close() }()
 	var errs []string
 	files, rows := 0, 0
-	// An earlier run that stopped before ResolveTiers leaves rows that only a
-	// check of every waiting row reaches.
-	leftover, err := ledger.Meta(tiersUnresolved)
+	full, err := ledger.fullTierCheckDue()
 	if err != nil {
 		return "", err
 	}
@@ -123,7 +121,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		}
 	}
 	scope := run
-	if leftover != "" {
+	if full {
 		scope = nil
 	}
 	if _, err := ledger.ResolveTiers(ctx, scope); err != nil {
