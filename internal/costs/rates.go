@@ -429,30 +429,65 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 			)
 		}
 		if len(unpriced) > 0 {
-			msg += "; unpriced: " + strings.Join(unpriced, ", ")
+			var names []string
+			for _, u := range unpriced {
+				names = append(names, fmt.Sprintf("%s (%s)", u.Model, u.Reason))
+			}
+			msg += "; unpriced: " + strings.Join(names, ", ") + "; add rates to " +
+				tilde(paths.Overrides, paths.Home)
 		}
 		messages = append(messages, msg)
 	}
 	return strings.Join(messages, "; ")
 }
 
+// Unpriced is a model no rate prices, and why. Its tokens count; its cost
+// shows as 0 until a rate for it is added to the overrides file.
+type Unpriced struct {
+	Model  string `json:"model"`
+	Reason string `json:"reason"`
+}
+
+// unpriced is why no rate prices model, one of tool's: the transcript named
+// no model, the price page has the model but not at its tier, or the page
+// does not have it at all.
+func (c Card) unpriced(tool Tool, model string) Unpriced {
+	base, tier := SplitTier(model)
+	reason := "not on " + tool.PricePage
+	switch _, standard := c.Rows.Lookup(base); {
+	case base == "unknown":
+		reason = "the transcript names no model"
+	case tier != "" && standard:
+		reason = "no " + tier + " price on " + tool.PricePage
+	}
+	return Unpriced{Model: model, Reason: reason}
+}
+
+// tilde writes a path under home as ~/...
+func tilde(path, home string) string {
+	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok && home != "" {
+		return "~/" + rest
+	}
+	return path
+}
+
 // unpricedModels are the tool's ledger models no source prices.
-func unpricedModels(ledger *Ledger, card Card, tool Tool) []string {
+func unpricedModels(ledger *Ledger, card Card, tool Tool) []Unpriced {
 	rows, err := ledger.db.Query("SELECT DISTINCT model FROM responses WHERE tool = ?", tool.Name)
 	if err != nil {
 		return nil
 	}
 	defer func() { _ = rows.Close() }()
-	var out []string
+	var out []Unpriced
 	for rows.Next() {
 		var model string
 		if rows.Scan(&model) == nil {
 			if _, ok := card.Rows.Lookup(model); !ok {
-				out = append(out, model)
+				out = append(out, card.unpriced(tool, model))
 			}
 		}
 	}
-	sort.Strings(out)
+	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
 	return out
 }
 

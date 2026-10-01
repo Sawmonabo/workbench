@@ -121,6 +121,7 @@ type Tool struct {
 	Source      Source
 	CacheWrites []string // the report's cache-write column heads: one per cache lifetime the tool bills
 	PriceNote   string   // what the figures are, under the total
+	PricePage   string   // whose price page PricingURL is, for the unpriced note
 }
 
 // Tools is every tab, in order.
@@ -129,11 +130,13 @@ var Tools = []Tool{
 		Name: "claude", Title: "Claude Code", Source: claude{},
 		CacheWrites: []string{"cache 5m", "cache 1h"},
 		PriceNote:   "API list-price equivalent, not a subscription bill",
+		PricePage:   "Anthropic's price page",
 	},
 	{
 		Name: "codex", Title: "Codex", Source: codex{},
 		CacheWrites: []string{"cache write"},
 		PriceNote:   "OpenAI API list-price equivalent, not a ChatGPT plan bill",
+		PricePage:   "OpenAI's price page",
 	},
 }
 

@@ -939,14 +939,6 @@ func day(date string) string {
 	return when.Format("Jan 2")
 }
 
-func overridesPath() string {
-	paths, err := costs.Locations()
-	if err != nil {
-		return "the overrides file"
-	}
-	return paths.Overrides
-}
-
 func plural(n int) string {
 	if n == 1 {
 		return ""
@@ -1141,10 +1133,13 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 	}
 	if len(report.Unpriced) > 0 {
 		b.WriteString("\n")
-		writeText(b, width, 0, yellow.Render("warning:")+fmt.Sprintf(
-			" no rate for %s; tokens counted, cost shown as 0. Run `workbench costs rates --refresh` or add them to %s.",
-			strings.Join(report.Unpriced, ", "),
-			shortPath(overridesPath()),
+		writeText(b, width, 0, yellow.Render("warning:")+
+			" no rate for these models; their tokens count, their cost shows as 0:")
+		for _, u := range report.Unpriced {
+			writeText(b, width, 2, rowName(u.Model)+" — "+u.Reason)
+		}
+		writeText(b, width, 0, fmt.Sprintf(
+			"Add a rate for each to the rates overrides file (%s).", shortPath(report.Overrides),
 		))
 	}
 }

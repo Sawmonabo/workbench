@@ -100,7 +100,8 @@ type Statement struct {
 	Accounts   []Row         `json:"accounts"`
 	Detail     []Block       `json:"detail,omitempty"`
 	Hidden     int           `json:"hidden_projects"` // projects the default scope left out
-	Unpriced   []string      `json:"unpriced"`
+	Unpriced   []Unpriced    `json:"unpriced"`        // models without a rate, and why
+	Overrides  string        `json:"overrides"`       // the file a rate for them goes in
 	Sources    []string      `json:"rate_sources"`
 }
 
@@ -126,7 +127,11 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if opts.By == "" {
 		opts.By = "project"
 	}
-	report := Statement{Options: opts, Tool: opts.Tool, By: opts.By, Sources: card.Sources()}
+	report := Statement{
+		Options: opts, Tool: opts.Tool, By: opts.By, Sources: card.Sources(),
+		Overrides: paths.Overrides,
+	}
+	tool, _ := Lookup(opts.Tool)
 	groups, hidden, err := loadGroups(ctx, ledger, card, paths.Home, opts)
 	if err != nil {
 		return report, err
@@ -139,10 +144,12 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	for _, g := range groups {
 		if !g.Priced && !seen[g.model] {
 			seen[g.model] = true
-			report.Unpriced = append(report.Unpriced, g.model)
+			report.Unpriced = append(report.Unpriced, card.unpriced(tool, g.model))
 		}
 	}
-	sort.Strings(report.Unpriced)
+	sort.Slice(report.Unpriced, func(i, j int) bool {
+		return report.Unpriced[i].Model < report.Unpriced[j].Model
+	})
 	if len(groups) == 0 {
 		return report, nil
 	}

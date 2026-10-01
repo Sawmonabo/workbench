@@ -240,7 +240,10 @@ never verified, access and refresh tokens never read), else `unknown`.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` today) is reported unpriced, as
-  for Claude.
+  for Claude. The report's warning and the ingest summary name each unpriced
+  model with why (not on the tool's price page, no price at its tier, or no
+  model named in the transcript) and the rates overrides file a rate for it
+  goes in; the report's JSON `unpriced` lists `{model, reason}`.
 
 ## 6. Hooks
 
