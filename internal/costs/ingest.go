@@ -339,7 +339,7 @@ func readEach(
 	for i := range results {
 		results[i] = make(chan fileRead, 1)
 	}
-	// Each read takes a unit of the budget per readUnit of its file, at least
+	// Each read takes a unit of the budget per readUnit of its file left to read, at least
 	// one and at most all, before it starts, and returns them once committed.
 	budget := make(chan struct{}, readAhead/readUnit)
 	units := make([]int, len(paths))
@@ -349,7 +349,12 @@ func readEach(
 		for i, path := range paths {
 			units[i] = 1
 			if info, err := os.Stat(path); err == nil {
-				units[i] = int(min(max(info.Size()/readUnit, 1), readAhead/readUnit))
+				left := info.Size() // what a read of this file goes through
+				if previous, found, err := ledger.File(path); err == nil && found &&
+					previous.Offset <= left {
+					left -= previous.Offset
+				}
+				units[i] = int(min(max(left/readUnit, 1), readAhead/readUnit))
 			}
 			for range units[i] {
 				select {

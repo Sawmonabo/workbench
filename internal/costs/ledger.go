@@ -149,7 +149,10 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 	}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
 	// wait on the busy timeout instead of failing when a read turns into a write.
-	query := "_pragma=busy_timeout(5000)&_txlock=immediate"
+	// In WAL mode synchronous=NORMAL skips the sync at each commit and keeps the
+	// ledger consistent; a crash can lose only the last commits, and each one
+	// stores its file's offset with its rows, so the next ingest reads them again.
+	query := "_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_txlock=immediate"
 	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String())
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)

@@ -122,8 +122,8 @@ with any other head is decoded if it contains one of those five names.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
 `Thread`, `Time` = the line's timestamp, `Tier` = `Tier`, or for a file that
-has no tier of its own, `inherit` with the root thread id. Token mapping, so that the report's
-prompt total (input + writes + reads) is right:
+has no tier of its own, `inherit` with the root thread id. Token mapping, so
+that the report's prompt total (input + writes + reads) is right:
 
 | Ledger column | Codex value |
 | --- | --- |
@@ -170,6 +170,8 @@ never verified, access and refresh tokens never read), else `unknown`.
 - **Speed.** Files are parsed concurrently (`GOMAXPROCS` workers), up to
   1 GiB of transcript ahead of the commits, and committed one transaction per
   file in list order, so a crash still leaves every committed file consistent.
+  The ledger runs WAL with `synchronous=NORMAL`: a crash can lose only the
+  last commits, each with its file's offset, so the next run reads them again.
   Each transaction prepares its statements once, and a run remembers what it
   committed so a fork's copy that would change nothing never reaches SQLite.
   The first full read is then bounded by the single SQLite writer storing each
