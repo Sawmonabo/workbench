@@ -33,6 +33,10 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     else
         echo "macos-apps-extensions: install ${missing[*]} unless already outside Homebrew; missing VS Code extensions installed"
     fi
+{{- if .has_work }}
+    # This script also installs the work editor extension, part of work-tools.
+    echo "work-tools: GitLab MR extension with the VS Code extensions"
+{{- end }}
     exit 0
 fi
 echo "==> Apps and VS Code extensions..."
