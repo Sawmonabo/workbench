@@ -135,18 +135,24 @@ func initialize(
 	if _, _, err = SourceSnapshot(c.Native.Source, false); err != nil {
 		return nil, err
 	}
-	previous, err := ReadSelection(filepath.Join(c.Paths.Config, "machine.toml"))
-	if err != nil {
-		return nil, err
-	}
-	encoded, err := encodeMachineConfig(answers, previous)
-	if err != nil {
-		return nil, err
-	}
-	if err = m.WritePrivate(filepath.Join(c.Paths.Config, "machine.toml"), encoded); err != nil {
+	if err = saveAnswers(m, c, answers); err != nil {
 		return nil, err
 	}
 	return answers, nil
+}
+
+// saveAnswers writes answers to machine.toml beside any saved selection.
+func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) error {
+	config := filepath.Join(c.Paths.Config, "machine.toml")
+	previous, err := ReadSelection(config)
+	if err != nil {
+		return err
+	}
+	encoded, err := encodeMachineConfig(answers, previous)
+	if err != nil {
+		return err
+	}
+	return m.WritePrivate(config, encoded)
 }
 
 // initSeed returns the saved answers to seed native init, complete or not, or

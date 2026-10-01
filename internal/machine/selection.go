@@ -19,6 +19,11 @@ type Selection struct {
 
 func (s Selection) empty() bool { return len(s.Skip) == 0 && len(s.Select) == 0 }
 
+// equal reports whether two sorted selections name the same effects.
+func (s Selection) equal(other Selection) bool {
+	return slices.Equal(s.Skip, other.Skip) && slices.Equal(s.Select, other.Select)
+}
+
 // ReadSelection reads the [effects] table of config. A missing file or table
 // is an empty selection: everything checked, nothing optional selected.
 func ReadSelection(config string) (Selection, error) {

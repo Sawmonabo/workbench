@@ -28,9 +28,14 @@ func Apply(
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest = displayed.Digest()
 	// A plan without file changes and without a checked effect writes nothing,
-	// unless it settles an earlier unfinished apply, so there is nothing to
-	// approve.
-	if displayed.Complete && len(displayed.Edits) == 0 && !hasProvisioning(displayed.Effects) {
+	// unless it settles an earlier unfinished apply or changes the saved
+	// selection, so there is nothing to approve.
+	unchanged, err := selectionUnchanged(c, displayed)
+	if err != nil {
+		return result, err
+	}
+	if displayed.Complete && len(displayed.Edits) == 0 && !hasProvisioning(displayed.Effects) &&
+		unchanged {
 		state, stateErr := operation.ReadState(c.Paths)
 		if stateErr != nil {
 			return result, stateErr
@@ -160,9 +165,11 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 				"Apply completed; configuration identity finalization failed",
 			)
 		}
-		if err = a.saveSelection(plan); err != nil {
-			return err
-		}
+	}
+	// With every effect unchecked and every file matching, the approved
+	// selection is the only thing left to save.
+	if err = a.saveSelection(plan); err != nil {
+		return err
 	}
 	a.result.Results = append(a.result.Results, operation.Component{
 		Name:     "configuration",
@@ -249,7 +256,15 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 	if a.c.Native.Destination != a.c.Home {
 		return nil
 	}
-	if err := WriteSelection(a.m, a.c.Native.Config, SelectionOf(plan.Effects)); err != nil {
+	saved, err := ReadSelection(a.c.Native.Config)
+	if err != nil {
+		return err
+	}
+	selection := selectionToSave(plan.Effects, saved)
+	if selection.equal(saved) {
+		return nil
+	}
+	if err = WriteSelection(a.m, a.c.Native.Config, selection); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"state",
@@ -257,6 +272,19 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 		)
 	}
 	return nil
+}
+
+// selectionUnchanged reports whether approving plan would leave the saved
+// selection as it is; an isolated destination never saves one.
+func selectionUnchanged(c operation.Context, plan operation.Plan) (bool, error) {
+	if c.Native.Destination != c.Home {
+		return true, nil
+	}
+	saved, err := ReadSelection(c.Native.Config)
+	if err != nil {
+		return false, err
+	}
+	return selectionToSave(plan.Effects, saved).equal(saved), nil
 }
 
 // hasProvisioning reports whether any non-fixed effect is checked, which is

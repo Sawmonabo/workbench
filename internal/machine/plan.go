@@ -810,7 +810,7 @@ func (p *preparation) Apply(
 		// environment as the preview; its scripts provision the real home.
 		args = append(args, "--exclude=scripts")
 	} else {
-		if err = p.removeSkippedScripts(); err != nil {
+		if err = p.selectScripts(); err != nil {
 			return err
 		}
 		environment = scriptEnvironment(c, p.Plan.Dependencies)
@@ -855,13 +855,18 @@ func (p *preparation) Apply(
 	return err
 }
 
-// removeSkippedScripts deletes, from the private source copy, every script
-// whose effects are all unchecked, so native neither runs it nor records it
-// as run; a later apply with the effect checked runs it as if new.
-func (p *preparation) removeSkippedScripts() error {
-	checked := map[string]bool{}
+// selectScripts applies the selection to the private source copy. A script
+// whose listed effects are all unchecked is deleted, so native neither runs it
+// nor records it as run; a later apply with an effect checked runs it as if
+// new. A script that stays but has an unchecked owner gets a comment naming the
+// unchecked effects, so its content, which chezmoi hashes to decide whether a
+// run-once or on-change script ran, differs from the fully checked one: the
+// effect's section runs when it is checked later. The plan's source identity
+// and digest are computed from the unmodified source before this runs.
+func (p *preparation) selectScripts() error {
+	checked, listed := map[string]bool{}, map[string]bool{}
 	for _, effect := range p.Plan.Effects {
-		checked[effect.Name] = effect.Checked
+		checked[effect.Name], listed[effect.Name] = effect.Checked, true
 	}
 	root := filepath.Join(p.native.Source, "home", ".chezmoiscripts")
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -874,12 +879,49 @@ func (p *preparation) removeSkippedScripts() error {
 		}
 		script := strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".sh.tmpl")
 		owners := scriptEffects(script)
-		if len(owners) == 0 ||
-			slices.ContainsFunc(owners, func(name string) bool { return checked[name] }) {
+		if len(owners) == 0 {
 			return nil
 		}
-		return os.Remove(path)
+		var skipped []string
+		for _, name := range owners {
+			if listed[name] && !checked[name] {
+				skipped = append(skipped, name)
+			}
+		}
+		if !slices.ContainsFunc(owners, func(name string) bool { return checked[name] }) {
+			return os.Remove(path)
+		}
+		if len(skipped) == 0 {
+			return nil
+		}
+		return markSkipped(path, skipped)
 	})
+}
+
+// markSkipped inserts a comment naming the skipped effects directly after the
+// script's shebang line. A line at the end would render on every platform,
+// since the templates wrap their text in a platform condition.
+func markSkipped(path string, skipped []string) error {
+	info, err := os.Stat(path)
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	text := string(data)
+	start := strings.Index(text, "#!")
+	if start < 0 || !strings.Contains(text[start:], "\n") {
+		return operation.Fail(
+			operation.ExitFailed,
+			"native",
+			"A provisioning script has no shebang line",
+		)
+	}
+	end := start + strings.Index(text[start:], "\n")
+	note := "\n# workbench: skipped " + strings.Join(skipped, ", ")
+	return os.WriteFile(path, []byte(text[:end]+note+text[end:]), info.Mode().Perm())
 }
 
 // checkedUpdates keeps the Homebrew updates whose update-<name> effect is

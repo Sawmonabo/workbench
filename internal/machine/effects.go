@@ -281,11 +281,37 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 		return effect.Name == "windows-files" && effect.Checked
 	})
 	for i := range effects {
-		if !filesChecked && slices.Contains(windowsFileEffects, effects[i].Name) {
-			effects[i].Checked, effects[i].Delta = false, "needs windows-files"
+		if !slices.Contains(windowsFileEffects, effects[i].Name) {
+			continue
+		}
+		effects[i].Delta = needsFilesDelta(effects[i].Delta, filesChecked)
+		if !filesChecked {
+			effects[i].Checked = false
 		}
 	}
 	return effects
+}
+
+// needsFilesNote prefixes the probed delta of an effect that cannot run
+// without windows-files, and only while windows-files is unchecked.
+const needsFilesNote = "needs windows-files"
+
+// needsFilesDelta adds the note to delta when windows-files is unchecked and
+// removes it when checked, so a probed delta survives toggling.
+func needsFilesDelta(delta string, filesChecked bool) string {
+	rest := delta
+	if rest == needsFilesNote {
+		rest = ""
+	} else if after, ok := strings.CutPrefix(rest, needsFilesNote+"; "); ok {
+		rest = after
+	}
+	switch {
+	case filesChecked:
+		return rest
+	case rest == "":
+		return needsFilesNote
+	}
+	return needsFilesNote + "; " + rest
 }
 
 // windowsFileEffects are the optional effects that act on windows-files' output.
@@ -312,6 +338,31 @@ func SelectionOf(effects []operation.Effect) Selection {
 			}
 		case !effect.Checked:
 			selection.Skip = append(selection.Skip, effect.Name)
+		}
+	}
+	slices.Sort(selection.Skip)
+	slices.Sort(selection.Select)
+	return selection
+}
+
+// selectionToSave is the selection an approved apply remembers: what the
+// checklist chose, plus the saved skips and selects for effects this plan does
+// not list, such as another platform's, which are ignored here and kept.
+func selectionToSave(effects []operation.Effect, saved Selection) Selection {
+	selection := SelectionOf(effects)
+	listed := func(name string) bool {
+		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+			return effect.Name == name
+		})
+	}
+	for _, name := range saved.Skip {
+		if !listed(name) {
+			selection.Skip = append(selection.Skip, name)
+		}
+	}
+	for _, name := range saved.Select {
+		if !listed(name) {
+			selection.Select = append(selection.Select, name)
 		}
 	}
 	slices.Sort(selection.Skip)
