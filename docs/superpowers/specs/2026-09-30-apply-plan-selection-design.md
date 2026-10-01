@@ -44,8 +44,9 @@ not aliased.
 | `install.sh` | Installs through `update`, then prints the `apply` instruction. Extra arguments go to `update` only. | |
 
 `--local-build` replaces `--source PATH`: it takes no value and resolves the
-Workbench checkout containing the current directory (`git rev-parse
---show-toplevel`), exit 2 with the reason when that is not one. The release
+Workbench checkout containing the current directory (the nearest ancestor
+holding `.chezmoiroot` and `go.mod`), exit 2 with the reason when there is
+none. The release
 source check (`scripts/package-release.py` digest) is unchanged; a checkout is
 still bound by its actual content digest.
 
@@ -74,15 +75,18 @@ Rules:
   including the result line, for example
   `[WorkBench] Applied: 3 files, 4 effects; 1 skipped`.
 - Files: changed ones listed with `+added −removed` lines and a mode change
-  when there is one; unchanged ones counted. `--verbose` lists them all.
+  when there is one; unchanged ones counted.
 - Effects: `[x]`/`[ ]`, name, delta, privilege tag (`user`, `sudo`, `Windows`,
   with `network` when the script fetches), and `skipped (saved)` when the skip
-  came from `machine.toml`. Recovery text and the recovery limits move under
-  `--verbose`.
+  came from `machine.toml`. Each effect's recovery text and the recovery
+  limits print under `--verbose`.
 - `--dry-run` prints the same checklist without the toggle line and exits 0.
-  `--json` carries the same data: per file `path`, `added`, `removed`, `mode`;
-  per effect `name`, `delta`, `privilege`, `network`, `checked`, `saved_skip`,
-  `probe` (`ok`, `failed`, `timeout`); plus `plan_digest`.
+  `--json` carries the same data: per file `path`, `action`, `summary` (the
+  `+added −removed` and mode text); per effect `name`, `delta`, `privilege`
+  (its text says `network` when the script fetches), `checked`, `saved_skip`,
+  `probe` (`ok`, `failed`, `timeout`); plus `plan_digest`. The digest covers
+  the files, the effect names and which are checked, never the probed text,
+  so a probe that answers differently at recheck cannot void an approval.
 
 ### Deltas
 
@@ -117,11 +121,18 @@ ok` or `present` for no change, `install <names>` for new items, and
 - `--approve-plan DIGEST`: applies exactly that plan without a prompt. The
   digest covers the files, the effects and which are checked, so a plan
   approved from a dry run cannot apply a different selection. A changed
-  machine, release or selection exits 3 with
+  machine, release or selection exits 4 (conflict) with
   `Approval digest does not match the current plan; review a new plan`.
 - A skipped effect is always listed, unchecked and tagged, so it never
   disappears silently. The files section is not selectable; "files only" is
   every effect unchecked.
+- Effects are gated one by one even when two share a script: apply exports
+  `WORKBENCH_EFFECT_<NAME>=1` or `=0` for every effect, a script whose effects
+  are all unchecked is not run at all, and a shared script wraps each
+  effect's section in its own gate (`linux-packages`/`work-tools`,
+  `windows-files`/`wsl-preferences`). Unchecking `windows-files` also
+  unchecks `terminal-adoption`, `powershell-adoption` and `font-registry`,
+  which act on the files it writes; their rows say `needs windows-files`.
 - The optional WSL effects (`terminal-adoption`, `powershell-adoption`,
   `font-registry`, `default-distro`, `windows-path`, `sysctl`) appear in the
   same list, unchecked by default, and are saved the same way. Checking one
@@ -135,7 +146,7 @@ For agents and scripts, recorded in `AGENTS.md`:
 
 ```sh
 workbench apply --dry-run --json      # read .plan_digest
-workbench apply --approve-plan DIGEST # applies exactly that plan, exit 3 if it changed
+workbench apply --approve-plan DIGEST # applies exactly that plan, exit 4 if it changed
 workbench init --answers-from FILE --dry-run --json   # same pattern for init
 ```
 
@@ -145,10 +156,10 @@ for a caller that read the plan first.
 ## 7. Failures
 
 - A failing probe never blocks the plan (section 4).
-- A script that fails mid-apply stops the run, as today. The result names the
-  effects that completed, the one that failed with its last lines, those not
-  started, and the checkpoint ID for the files. Rerunning `apply` resumes from
-  chezmoi's script state.
+- A script that fails mid-apply stops the run, as today. The result lists the
+  checked effects, the failure's last lines and the checkpoint ID for the
+  files; which effects ran is what chezmoi's script state says, and rerunning
+  `apply` resumes from it.
 - `--local-build` outside a Workbench checkout: exit 2.
 - `update` with no newer release: `[WorkBench] v0.1.8 is already installed`,
   exit 0, no apply.
