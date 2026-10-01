@@ -166,8 +166,10 @@ synthetic answers.
 ### Costs
 
 - On 2026-10-01, the 2,969 Codex rollouts (23 GB) of a 16-core WSL2 host
-  were ingested into an empty scratch ledger in 18 seconds at 450% CPU and a
-  peak of 472 MB, against 2 minutes 54 seconds for the previous build; its
+  were ingested into an empty scratch ledger held in memory in 18 seconds at
+  450% CPU and a peak of 472 MB, against 2 minutes 54 seconds for the previous
+  build, and into one on the host's disk in 24 to 26 seconds, with most
+  rollouts read from disk rather than the page cache; its
   responses and tier tables were byte-identical, as were those of a ledger
   built in two runs whose second finished four half-written rollouts. A
   second run with nothing new took 0.3 seconds. Per-model response and token
