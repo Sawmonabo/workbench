@@ -4,6 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,7 +13,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -62,7 +66,6 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	defer func() { _ = ledger.Close() }()
 	var errs []string
 	files, rows := 0, 0
-tools:
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
@@ -72,33 +75,48 @@ tools:
 		if listErr != nil {
 			errs = append(errs, fmt.Sprintf("%s: %v", tool.Name, listErr))
 		}
-		for i, path := range transcripts {
-			if ctx.Err() != nil {
-				return "", ctx.Err()
-			}
+		stop := false
+		readEach(ctx, ledger, tool, transcripts, func(i int, read fileRead) bool {
 			if opts.Progress != nil {
 				opts.Progress.Step(fmt.Sprintf(
-					"%d/%d %s", i+1, len(transcripts), clipRunes(filepath.Base(filepath.Dir(path)), 40),
+					"%d/%d %s",
+					i+1,
+					len(transcripts),
+					clipRunes(filepath.Base(filepath.Dir(read.path)), 40),
 				))
 			}
 			source := "sweep"
-			if opts.Event == "SessionEnd" && tool.Source.Session(path, opts.Transcript) {
+			if opts.Event == "SessionEnd" && tool.Source.Session(read.path, opts.Transcript) {
 				source = "session"
 			}
-			n, changed, fileErr := ingestFile(ctx, ledger, tool, path, account, source)
+			err := read.err
+			if err == nil {
+				err = commitFile(ctx, ledger, tool, read, account, source)
+			}
 			switch {
-			case fileErr == nil && changed:
+			case err == nil && read.changed:
 				files++
-				rows += n
-			case fileErr != nil && errors.Is(fileErr, errLedger):
+				rows += len(read.usage)
+			case err != nil && errors.Is(err, errLedger):
 				// The ledger itself is unusable (locked beyond the timeout, disk
 				// full): stop here, files committed so far stay committed.
-				errs = append(errs, fmt.Sprintf("%s: %v", path, fileErr))
-				break tools
-			case fileErr != nil:
-				errs = append(errs, fmt.Sprintf("%s: %v", path, fileErr))
+				errs = append(errs, fmt.Sprintf("%s: %v", read.path, err))
+				stop = true
+				return false
+			case err != nil:
+				errs = append(errs, fmt.Sprintf("%s: %v", read.path, err))
 			}
+			return true
+		})
+		if ctx.Err() != nil {
+			return "", ctx.Err()
 		}
+		if stop {
+			break
+		}
+	}
+	if _, err := ledger.ResolveTiers(ctx); err != nil {
+		errs = append(errs, "service tiers: "+err.Error())
 	}
 	rates := refreshIfNeeded(ctx, ledger, paths)
 	event := opts.Event
@@ -136,75 +154,206 @@ tools:
 // errLedger marks a failure of the ledger, as opposed to one transcript.
 var errLedger = errors.New("ledger")
 
-// ingestFile ingests the new bytes of one transcript in one transaction. It
-// reports changed false when the file was unchanged or has vanished. It stops
-// at the last complete line, so a transcript still being written is picked up
-// next run from that offset.
-func ingestFile(
-	ctx context.Context,
-	ledger *Ledger,
-	tool Tool,
-	path, account, source string,
-) (rows int, changed bool, err error) {
+// fileRead is one transcript read, ready to commit.
+type fileRead struct {
+	path     string
+	vanished bool // the file is gone: forget it
+	changed  bool // new bytes were read
+	usage    []Usage
+	tiers    []TierChange
+	row      FileRow
+	err      error
+}
+
+// headBytes bounds the first-line digest: a first line longer than this is
+// digested by its first headBytes bytes, which are written once.
+const headBytes = 64 << 10
+
+// readFile reads the new bytes of one transcript. It resumes at the stored
+// offset with the source's stored state, unless the file shrank, went back in
+// time or no longer starts with the line it started with (rewritten in place,
+// as `codex migrate-rollouts` does); then it reads from the start with empty
+// state, and since every key is derived from content a re-read rewrites the
+// same rows. It stops at the last complete line, so a transcript still being
+// written is picked up next run from that offset.
+func readFile(ledger *Ledger, tool Tool, path string) fileRead {
+	read := fileRead{path: path}
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, false, wrapLedger(ledger.DeleteFile(path))
+		read.vanished = true
+		return read
 	}
 	if err != nil {
-		return 0, false, err
+		read.err = err
+		return read
 	}
 	previous, found, err := ledger.File(path)
 	if err != nil {
-		return 0, false, wrapLedger(err)
+		read.err = wrapLedger(err)
+		return read
 	}
 	size, mtime := info.Size(), info.ModTime().UnixNano()
-	offset := int64(0)
-	if found {
-		if previous.Size == size && previous.ModTimeNanos == mtime {
-			return 0, false, nil
-		}
-		if size >= previous.Size && mtime >= previous.ModTimeNanos {
-			offset = previous.Offset
-		}
+	if found && previous.Size == size && previous.ModTimeNanos == mtime {
+		return read
 	}
 	file, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return 0, false, wrapLedger(ledger.DeleteFile(path))
+		read.vanished = true
+		return read
 	}
 	if err != nil {
-		return 0, false, err
+		read.err = err
+		return read
 	}
 	defer func() { _ = file.Close() }()
-	if _, err := file.Seek(offset, io.SeekStart); err != nil {
-		return 0, false, err
+	head, err := firstLineDigest(file)
+	if err != nil {
+		read.err = err
+		return read
 	}
 	state := &FileState{Path: path}
-	var usage []Usage
+	offset := int64(0)
+	if found && size >= previous.Size && mtime >= previous.ModTimeNanos &&
+		(previous.Head == "" || head == "" || previous.Head == head) {
+		offset, state.Saved = previous.Offset, previous.State
+	}
+	if _, err := file.Seek(offset, io.SeekStart); err != nil {
+		read.err = err
+		return read
+	}
 	reader := bufio.NewReaderSize(file, 1<<20)
 	for {
 		line, readErr := reader.ReadBytes('\n')
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				return 0, false, readErr
+				read.err = readErr
+				return read
 			}
 			break
 		}
 		offset += int64(len(line))
-		usage = append(usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
+		read.usage = append(read.usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
 	}
-	err = ledger.Transaction(ctx, func(tx *Tx) error {
-		for _, u := range usage {
+	read.changed, read.tiers = true, state.Tiers
+	read.row = FileRow{
+		Offset:       offset,
+		Size:         size,
+		ModTimeNanos: mtime,
+		State:        state.Saved,
+		Head:         head,
+	}
+	return read
+}
+
+// firstLineDigest is the SHA-256 of the file's first line (its first
+// headBytes bytes when longer), or "" while that line is still being written.
+func firstLineDigest(file *os.File) (string, error) {
+	buf := make([]byte, headBytes)
+	n, err := file.ReadAt(buf, 0)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	buf = buf[:n]
+	if i := bytes.IndexByte(buf, '\n'); i >= 0 {
+		buf = buf[:i+1]
+	} else if n < headBytes {
+		return "", nil
+	}
+	sum := sha256.Sum256(buf)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+// commitFile stores one read in one transaction: its rows, its tier changes
+// and where it stopped. A vanished file is forgotten.
+func commitFile(
+	ctx context.Context,
+	ledger *Ledger,
+	tool Tool,
+	read fileRead,
+	account, source string,
+) error {
+	if read.vanished {
+		return wrapLedger(ledger.DeleteFile(read.path))
+	}
+	if !read.changed {
+		return nil
+	}
+	return wrapLedger(ledger.Transaction(ctx, func(tx *Tx) error {
+		for _, u := range read.usage {
 			u.Tool, u.Account = tool.Name, account
 			if err := tx.Upsert(u, source); err != nil {
 				return err
 			}
 		}
-		return tx.SetFile(path, FileRow{Offset: offset, Size: size, ModTimeNanos: mtime})
-	})
-	if err != nil {
-		return 0, false, wrapLedger(err)
+		for _, change := range read.tiers {
+			if err := tx.AddTierChange(change); err != nil {
+				return err
+			}
+		}
+		return tx.SetFile(read.path, read.row)
+	}))
+}
+
+// readEach reads the transcripts on every CPU and hands each read to commit
+// in list order, so files commit one at a time in the order a serial run
+// would. At most two reads per worker wait to be committed, which bounds
+// memory on a first run over many large files. commit returns false to stop.
+func readEach(
+	ctx context.Context,
+	ledger *Ledger,
+	tool Tool,
+	paths []string,
+	commit func(int, fileRead) bool,
+) {
+	workers := runtime.GOMAXPROCS(0)
+	var wg sync.WaitGroup
+	defer wg.Wait() // after cancel below: deferred calls run last-in first-out
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	results := make([]chan fileRead, len(paths))
+	for i := range results {
+		results[i] = make(chan fileRead, 1)
 	}
-	return len(usage), true, nil
+	slots := make(chan struct{}, 2*workers)
+	jobs := make(chan int)
+	wg.Go(func() {
+		defer close(jobs)
+		for i := range paths {
+			select {
+			case slots <- struct{}{}:
+			case <-ctx.Done():
+				return
+			}
+			select {
+			case jobs <- i:
+			case <-ctx.Done():
+				return
+			}
+		}
+	})
+	for range workers {
+		wg.Go(func() {
+			for i := range jobs {
+				read := fileRead{path: paths[i], err: ctx.Err()}
+				if read.err == nil {
+					read = readFile(ledger, tool, paths[i])
+				}
+				results[i] <- read
+			}
+		})
+	}
+	for i := range paths {
+		var read fileRead
+		select {
+		case read = <-results[i]:
+		case <-ctx.Done():
+			return
+		}
+		<-slots
+		if !commit(i, read) {
+			return
+		}
+	}
 }
 
 func wrapLedger(err error) error {
