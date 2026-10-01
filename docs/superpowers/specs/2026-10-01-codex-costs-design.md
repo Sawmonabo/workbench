@@ -25,7 +25,8 @@ checked against the rollout files of a machine with about 3,000 sessions
 - **Each line** is `{timestamp, ordinal?, type, payload}`. The types that
   matter: `session_meta` (thread id, `forked_from_id`, cwd), `turn_context`
   (model, cwd; one per turn), `token_usage_record`, and `event_msg` with
-  `payload.type` `token_count` or `thread_settings_applied` (service tier).
+  `payload.type` `token_count` or `thread_settings_applied` (a snapshot of
+  the thread's settings: model, cwd, service tier).
 - **`token_usage_record`** (Codex 0.153 and later) is written once per
   completed response: `thread_id`, `turn_id`, `response_id`, and `usage`, the
   response's own counts. It carries no model; the model is the latest
@@ -58,10 +59,18 @@ checked against the rollout files of a machine with about 3,000 sessions
 - **Prices.** `https://developers.openai.com/api/docs/pricing.md` is a Markdown
   page whose "Standard pricing data" table gives, per model, short- and
   long-context input, cached input, cache writes and output per million tokens,
-  followed by Batch, Flex and Priority tables. Long-context prices apply above
+  followed by Batch, Flex, Fast and Ultrafast tables, each headed "<Tier>
+  pricing data". Long-context prices apply above
   272K input tokens; the largest Codex request on the sample machine was 255,813.
 - **Service tier.** A thread's tier is in every `thread_settings_applied`
   event (`thread_settings.service_tier`: `default`, `priority`, and so on).
+  The field is left out when the thread requests no tier, and Codex then
+  sends none, which is the standard tier (`protocol.rs`
+  `ThreadSettingsSnapshot`, `openai_models.rs` `service_tier_for_request`;
+  the same in 0.146 and 0.159). A subagent's own snapshot carries the tier it
+  was spawned with, so one without a tier ran at standard. The snapshot also
+  names the model and cwd, and a newer one its `thread_id`: a fork's copy of
+  its parent's snapshot keeps the parent's.
   OpenAI renamed priority processing to Fast mode on 2026-07-30; the price
   page's "Fast pricing data" table prices `priority`/`fast` and its
   "Ultrafast pricing data" table prices `ultrafast`. Subagents run at their
@@ -102,8 +111,14 @@ with any other head is decoded if it contains one of those five names.
 - `session_meta`: the first one sets `Thread` and `Cwd`; later ones are copies
   from a parent and are ignored.
 - `turn_context`: sets `Model` and `Cwd`.
-- `thread_settings_applied`: sets `Tier` from `service_tier` and records a
-  tier change `(Thread, timestamp, tier)`.
+- `thread_settings_applied`: one that names another thread is a fork's copy
+  and is skipped. Otherwise it sets `Tier` from `service_tier` (standard when
+  it is left out), records a tier change `(Thread, timestamp, tier)`, and
+  sets `Model` and `Cwd` while no `turn_context` has: Codex applies a changed
+  model to the turns that start after the snapshot (`ThreadSettingsOverrides`
+  "change the settings inherited by future turns"), and each turn's
+  `turn_context` names it, so a model switched mid-turn must not relabel the
+  rest of the running turn.
 - `token_usage_record` whose `thread_id` is `Thread`: one row keyed
   `response_id`. A record with another `thread_id` is a copy and is skipped
   (its original is ingested from the parent's file). Any record in the file,
@@ -192,23 +207,28 @@ never verified, access and refresh tokens never read), else `unknown`.
 - `PricingURL` is the page above; `CODEX_COSTS_PRICING_URL` replaces it for
   checks that must not reach the network. Refresh policy, overrides and the
   `official`/`builtin`/`override` labels are unchanged.
-- `ParsePricing` reads only the table under the "Standard pricing data"
-  heading, skipping Batch, Flex and Priority the way the Claude parser skips
-  batch tables. The model cell's note in parentheses is dropped
+- `ParsePricing` reads the table under the "Standard pricing data" heading
+  and every other "<Tier> pricing data" table (one word) except Batch, which
+  Codex does not use. The model cell's note in parentheses is dropped
   (`gpt-5.5 (<272K context length)` is `gpt-5.5`). Columns: short-context
   input, cached input, cache writes, output. A `-` cache-write price bills
   writes at the input price, and a `-` cached-input price bills reads at the
   input price. Long-context columns are not read; section 1 shows no Codex
-  request reaching 272K. The "Fast pricing data" and "Ultrafast pricing
-  data" tables are read the same way into `<model>@fast` and
-  `<model>@ultrafast` rows. A rate prices a model only at the same tier, and
-  only when its key is the whole model id or is followed by `-` or `@` and a
+  request reaching 272K. A tier table is read the same way into
+  `<model>@<tier>` rows: today `@flex`, `@fast` and `@ultrafast`, and a
+  "Priority pricing data" table would give `@fast`. A tier in a model id is
+  the word after its last `@` (a lowercase letter, then lowercase letters,
+  digits, `_` or `-`), so a tier OpenAI adds later needs no code change, and
+  `@` followed by a digit stays a dated snapshot. A rate prices a model only
+  at the same tier, and only when its key is the whole model id or is followed by `-` or `@` and a
   digit, so `gpt-5` prices a dated `gpt-5-2025-08-07` but neither
   `gpt-5-mini` nor `gpt-5.3-codex-spark`; a `priority` or `fast` row is priced from
-  `@fast`, an `ultrafast` row from `@ultrafast`, `flex` from the Flex table
-  (`@flex`), and `default`, `auto`, `''` or anything unknown from the
-  standard table. A tier row with no tier price on either card is reported
-  unpriced rather than priced at standard.
+  `@fast`, any other tier from its own table (`ultrafast` from
+  `@ultrafast`, `flex` from `@flex`), and `default`, `auto` or `''` from the
+  standard table. A tier row with no tier price on either card, or a tier
+  name that is not such a word, is reported unpriced rather than priced at
+  standard. A root's tier, whatever its name, carries over to its
+  subagents' rows.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` today) is reported unpriced, as

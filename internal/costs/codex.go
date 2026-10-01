@@ -139,7 +139,7 @@ type codexState struct {
 	Thread  string `json:"thread,omitempty"`   // this file's thread: the first session_meta id
 	Root    string `json:"root,omitempty"`     // the root thread, when this is a subagent's file
 	Cwd     string `json:"cwd,omitempty"`      // the latest working directory
-	Model   string `json:"model,omitempty"`    // the latest turn_context model
+	Model   string `json:"model,omitempty"`    // the latest turn_context model, or the first settings one
 	Tier    string `json:"tier,omitempty"`     // the latest service tier, stored name
 	TierSet bool   `json:"tier_set,omitempty"` // whether this file has named a tier
 	Records bool   `json:"records,omitempty"`  // whether this file holds a token_usage_record, its own or a copy
@@ -184,7 +184,9 @@ func (s *codexState) row(ts, id string) Usage {
 }
 
 // codexTier is the stored name of a Codex service tier: priority (renamed
-// Fast mode on 2026-07-30) and fast are "fast", the standard tier is "".
+// Fast mode on 2026-07-30) and fast are "fast", the standard tier is "", and
+// any other tier is its lowercase name. A name SplitTier cannot split off
+// stays part of the model id, so its rows show unpriced, never at standard.
 func codexTier(raw string) string {
 	switch tier := strings.ToLower(strings.TrimSpace(raw)); tier {
 	case "priority", "fast":
@@ -404,16 +406,27 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 	}
 	switch head.Type {
 	case "thread_settings_applied":
+		// A snapshot of the thread's settings. Codex omits service_tier when
+		// the thread requests none, and then sends none: the standard tier.
+		// A copy a fork made of its parent's snapshot names the parent's
+		// thread and is skipped; older snapshots name no thread. A changed
+		// model or cwd applies from the next turn, whose turn_context names
+		// it, so the snapshot's only fill in before the first turn_context.
 		var event struct {
 			ThreadID string `json:"thread_id"`
 			Settings struct {
-				Tier *string `json:"service_tier"`
+				Model string `json:"model"`
+				Cwd   string `json:"cwd"`
+				Tier  string `json:"service_tier"`
 			} `json:"thread_settings"`
 		}
-		if !decode(payload, &event) || event.Settings.Tier == nil {
+		if !decode(payload, &event) ||
+			(event.ThreadID != "" && state.Thread != "" && event.ThreadID != state.Thread) {
 			return nil
 		}
-		state.Tier, state.TierSet = codexTier(*event.Settings.Tier), true
+		state.Model = firstNonEmpty(state.Model, event.Settings.Model)
+		state.Cwd = firstNonEmpty(state.Cwd, event.Settings.Cwd)
+		state.Tier, state.TierSet = codexTier(event.Settings.Tier), true
 		state.save(file)
 		when, _ := time.Parse(time.RFC3339Nano, ts)
 		file.Tiers = append(file.Tiers, TierChange{
@@ -816,21 +829,27 @@ func (codex) Builtin() RateCard {
 	return card
 }
 
-// codexTables are the price page's tables Workbench reads, by heading, and
-// the tier suffix each gives its rows. Batch is not read: Codex does not use
-// the Batch API.
-var codexTables = map[string]string{
-	"standard pricing data":  "",
-	"flex pricing data":      "@flex",
-	"fast pricing data":      "@fast",
-	"ultrafast pricing data": "@ultrafast",
-}
-
 var codexModelPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9.\-]*$`)
 
-// ParsePricing reads the short-context columns of the Standard, Flex, Fast
-// and Ultrafast tables. A "-" cached-input or cache-write price bills those
-// tokens at the input price. The first row of a model in a table wins.
+// codexTable is the tier suffix of the price page table under heading: the
+// tier a "<Tier> pricing data" heading names, "" for Standard, and ok false
+// for any other heading and for Batch, which Codex does not use.
+func codexTable(heading string) (suffix string, ok bool) {
+	name, found := strings.CutSuffix(strings.ToLower(heading), " pricing data")
+	if !found || name == "batch" || !isTier(name) {
+		return "", false
+	}
+	if tier := codexTier(name); tier != "" {
+		return "@" + tier, true
+	}
+	return "", true
+}
+
+// ParsePricing reads the short-context columns of every service tier's table:
+// Standard, and each other "<Tier> pricing data" table into "<model>@<tier>"
+// rows, as Flex, Fast and Ultrafast are today. A "-" cached-input or
+// cache-write price bills those tokens at the input price. The first row of a
+// model in a table wins.
 func (codex) ParsePricing(page string) RateCard {
 	card := RateCard{}
 	lines := strings.Split(page, "\n")
@@ -838,10 +857,7 @@ func (codex) ParsePricing(page string) RateCard {
 	for i := 0; i < len(lines)-1; {
 		head, sep := strings.TrimSpace(lines[i]), strings.TrimSpace(lines[i+1])
 		if strings.HasPrefix(head, "#") {
-			suffix, inTable = "", false
-			if s, ok := codexTables[strings.ToLower(strings.TrimSpace(strings.TrimLeft(head, "#")))]; ok {
-				suffix, inTable = s, true
-			}
+			suffix, inTable = codexTable(strings.TrimSpace(strings.TrimLeft(head, "#")))
 		}
 		if !strings.HasPrefix(head, "|") || !strings.HasPrefix(sep, "|") ||
 			strings.Trim(sep, "|-: ") != "" {

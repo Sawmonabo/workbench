@@ -4,7 +4,6 @@
 package costs
 
 import (
-	"slices"
 	"strings"
 	"time"
 )
@@ -65,17 +64,28 @@ type TierChange struct {
 	Tier   string
 }
 
-// tiers are the service tiers a model id can carry after "@"; each has its
-// own price table.
-var tiers = []string{"fast", "flex", "ultrafast"}
-
-// SplitTier splits "gpt-5.6-sol@fast" into the model and its service tier.
-// An id without a known tier suffix is all model, tier "".
+// SplitTier splits "gpt-5.6-sol@fast" into the model and its service tier:
+// the word after the last "@", a lowercase letter then lowercase letters,
+// digits, "_" or "-". An id without one is all model, tier "", so a dated
+// snapshot such as "claude-sonnet-4@20250514" keeps its date.
 func SplitTier(model string) (base, tier string) {
-	if i := strings.LastIndex(model, "@"); i >= 0 && slices.Contains(tiers, model[i+1:]) {
+	if i := strings.LastIndex(model, "@"); i >= 0 && isTier(model[i+1:]) {
 		return model[:i], model[i+1:]
 	}
 	return model, ""
+}
+
+// isTier reports whether name can be a service tier in a model id.
+func isTier(name string) bool {
+	for i, c := range name {
+		switch {
+		case c >= 'a' && c <= 'z':
+		case i > 0 && (c >= '0' && c <= '9' || c == '_' || c == '-'):
+		default:
+			return false
+		}
+	}
+	return name != ""
 }
 
 // Rate is USD per million tokens for each token kind.
