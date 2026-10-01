@@ -329,7 +329,7 @@ Rules:
   for the headline, column heads, share bars and its active tab; dollar
   figures are green; calls, tokens and cached are faint. Where the terminal
   has room, each `share` cell gets a bar of the row's share, one width for
-  every table (8 to 40 cells), so the table uses the spare width; narrower
+  every table (at least 8 cells), so the table fills the terminal's width; narrower
   terminals get the percentages alone. The key line names every key, with a
   short form for narrow terminals.
 - Footer: only notes that report something: `N of M <key>s shown; totals

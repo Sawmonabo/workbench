@@ -596,12 +596,9 @@ func toolPalette(name string) palette {
 // costStyle colors every dollar figure.
 var costStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8FC37E"))
 
-// maxBar is the widest a share bar gets; narrower terminals get less, and
-// below minBar the bars are left out.
-const (
-	maxBar = 40
-	minBar = 8
-)
+// minBar is the narrowest share bar; a terminal with less spare width gets
+// the percentages alone.
+const minBar = 8
 
 // costsReport is one tool's whole report at width: the [WorkBench] line, then
 // costsBody. It is what is printed to a pipe and, after the tabs close, to the
@@ -690,8 +687,9 @@ func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 	if report.By != "account" && len(report.Accounts) > 1 {
 		add("", "account", report.Accounts, nil, "")
 	}
-	// One bar width for every table, so bars compare across them.
-	bar := maxBar
+	// One bar width for every table, so bars compare across them: all the
+	// width the widest table leaves.
+	bar := width
 	for _, section := range sections {
 		bar = min(bar, width-tableWidth(2, reportTable(section))-1)
 	}
