@@ -227,9 +227,13 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 ## 4. Ledger and ingest changes
 
 - **Per-file state.** `files` gains `state TEXT NOT NULL DEFAULT ''` and
-  `head TEXT NOT NULL DEFAULT ''`; schema version 3. The existing upgrade path
-  adds both columns in one transaction and keeps every row, as it did for
-  version 1 to 2; its data-preservation test grows to cover version 2 to 3.
+  `head TEXT NOT NULL DEFAULT ''`; schema version 4 (the per-file state, the
+  tier tables and the subscription columns and tables of section 10 are all
+  unreleased, so one version holds them). The existing upgrade path adds the
+  columns and tables in one transaction and keeps every row, as it did for
+  version 1 to 2; its data-preservation test covers versions 1 and 2 to 4. A
+  ledger at any other version, including a development build's version 3,
+  is refused with its path and version, and nothing is written.
   `FileState` gains an opaque `Saved []byte` that a source fills and ingest
   stores with the offset; Codex saves its fields as JSON and Claude saves
   nothing.
@@ -280,7 +284,7 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   the stored values (section 10).
 - **Accounts.** `responses` also gains `subscription` and `root` (the root
   session a hook names), and `account_source` now holds the evidence level
-  (`transcript`, `session`, `observed` or `unknown`); schema 3 adds the tables
+  (`transcript`, `session`, `observed` or `unknown`); schema 4 adds the tables
   `session_accounts`, `sign_ins` and `subscriptions`. A version 1 or 2 ledger
   keeps every row's email with subscription and evidence `unknown`. A row is
   stored with the tool's current sign-in as a provisional answer; after every

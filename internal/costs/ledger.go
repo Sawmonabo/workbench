@@ -74,7 +74,7 @@ func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
 
 const (
-	schemaVersion = "3"
+	schemaVersion = "4"
 
 	// firstTool is the tool of every row written before the tool column
 	// existed, and the column's default: its request IDs are stored as they

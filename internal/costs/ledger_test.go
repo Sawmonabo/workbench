@@ -48,7 +48,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	if version, err = ledger.Meta("schema_version"); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 2 || tools != 2 || version != "3" {
+	if rows != 2 || tools != 2 || version != "4" {
 		t.Fatalf(
 			"upgrade kept %d rows (%d tagged claude) at version %q, want 2, 2, \"3\"",
 			rows,
@@ -143,9 +143,9 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 || !found || file.Offset != 4096 || file.Head != "" || version != "3" {
+	if rows != 1 || !found || file.Offset != 4096 || file.Head != "" || version != "4" {
 		t.Fatalf(
-			"upgrade kept %d rows, file %v (found %v), version %q; want 1 row, offset 4096, version 3",
+			"upgrade kept %d rows, file %v (found %v), version %q; want 1 row, offset 4096, version 4",
 			rows,
 			file,
 			found,
