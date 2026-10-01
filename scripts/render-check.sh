@@ -144,11 +144,27 @@ if grep -rIn -E '"[a-z0-9-]+@[0-9.]+"' "$repo/home/.chezmoidata/packages.toml"; 
 fi
 
 echo "==> [$role/$mode] codex ingest hooks are installed and trusted"
-for event in session_start session_end; do
-    grep -q "costs ingest" "$dest/.codex/hooks.json" \
-        && grep -q "hooks.json:$event:0:0" "$dest/.codex/config.toml" \
-        || { echo "HOOKS FAIL: codex $event hook or its trust missing"; fail=1; }
-done
+# Each session event runs the ingest hook, and config.toml records a
+# trusted_hash under that hook's own key, which starts with the hooks.json
+# path Codex sees: the home directory chezmoi rendered with, not $dest.
+hooks_path="$("${chez[@]}" execute-template '{{ .chezmoi.homeDir }}')/.codex/hooks.json"
+python3 - "$dest/.codex" "$hooks_path" <<'PY' || fail=1
+import json, sys, tomllib
+codex, path = sys.argv[1], sys.argv[2]
+hooks = json.load(open(codex + "/hooks.json"))["hooks"]
+state = tomllib.load(open(codex + "/config.toml", "rb")).get("hooks", {}).get("state", {})
+bad = 0
+for event, label in (("SessionStart", "session_start"), ("SessionEnd", "session_end")):
+    found = [
+        (g, h) for g, group in enumerate(hooks.get(event, []))
+        for h, hook in enumerate(group.get("hooks", []))
+        if hook.get("type") == "command" and hook.get("command", "").endswith(" costs ingest")
+    ]
+    if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
+        print(f"HOOKS FAIL: codex {event} ingest hook or its trust missing")
+        bad = 1
+sys.exit(bad)
+PY
 
 echo "==> [$role/$mode] claude code status line"
 python3 -m py_compile "$dest/.claude/scripts/statusline.py" || { echo "STATUSLINE FAIL: statusline.py does not compile"; fail=1; }
