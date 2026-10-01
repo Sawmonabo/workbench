@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -349,11 +350,49 @@ func (l *Ledger) DeleteFile(path string) error {
 type Tx struct {
 	ctx context.Context
 	tx  *sql.Tx
+	// The statements Upsert runs, prepared on first use: SQLite parses each
+	// once per transaction instead of once per row.
+	upsert, pend, unpend *sql.Stmt
+	seen                 Seen // what earlier transactions of this run stored
+	wrote                Seen // what this one stored, added to seen once it commits
 }
 
-// Transaction runs fn and commits, or rolls back when fn fails.
-func (l *Ledger) Transaction(ctx context.Context, fn func(*Tx) error) error {
-	return l.transact(ctx, func(tx *sql.Tx) error { return fn(&Tx{ctx, tx}) })
+// Seen is what one ingest run has committed: each response's stored time and
+// token counts. Most rows of a first run are copies a fork made of its
+// parent's usage; Upsert skips a copy that it can tell would change nothing.
+// It is filled only after a commit succeeds, so it never holds a row that a
+// rolled-back transaction wrote.
+type Seen map[string]storedRow
+
+type storedRow struct {
+	ts     string
+	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
+}
+
+// Transaction runs fn and commits, or rolls back when fn fails. seen is the
+// run's record of committed rows, or nil.
+func (l *Ledger) Transaction(ctx context.Context, seen Seen, fn func(*Tx) error) error {
+	t := &Tx{ctx: ctx, seen: seen, wrote: Seen{}}
+	err := l.transact(ctx, func(tx *sql.Tx) error {
+		t.tx = tx
+		return fn(t)
+	})
+	if err == nil && seen != nil {
+		maps.Copy(seen, t.wrote)
+	}
+	return err
+}
+
+// prepared is the statement in slot, prepared on first use in this transaction.
+func (t *Tx) prepared(slot **sql.Stmt, query string) (*sql.Stmt, error) {
+	if *slot == nil {
+		statement, err := t.tx.PrepareContext(t.ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		*slot = statement
+	}
+	return *slot, nil
 }
 
 // Streamed usage only grows, and Claude Code copies earlier records into the
@@ -378,6 +417,8 @@ ON CONFLICT(request_id) DO UPDATE SET
   cache_read = MAX(cache_read, excluded.cache_read),
   account = CASE WHEN excluded.account_source = 'session' THEN excluded.account ELSE account END,
   account_source = CASE WHEN excluded.account_source = 'session' THEN 'session' ELSE account_source END
+RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
+  EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id)
 `
 
 // earlier is true when the incoming copy is at least as old as the stored
@@ -408,29 +449,55 @@ func (t *Tx) Upsert(u Usage, source string) error {
 	if !u.Time.IsZero() {
 		when = u.Time.UTC().Format(timeLayout)
 	}
-	if _, err := t.tx.ExecContext(
-		t.ctx, upsert,
+	// A sweep copy later than a committed row with a time, and with no count
+	// above the committed ones, changes nothing: the attribution stays, MAX
+	// keeps the counts, only a session copy replaces the account, and the
+	// pending tier follows the stored attribution. A stored time only moves
+	// earlier and counts only grow, so this holds whatever this transaction
+	// wrote since.
+	if seen, ok := t.seen[id]; ok && source != "session" && when != "" && seen.ts != "" &&
+		when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
+		u.CacheWrite5m <= seen.tokens[2] && u.CacheWrite1h <= seen.tokens[3] &&
+		u.CacheRead <= seen.tokens[4] {
+		return nil
+	}
+	statement, err := t.prepared(&t.upsert, upsert)
+	if err != nil {
+		return err
+	}
+	var stored storedRow
+	var pending bool
+	if err := statement.QueryRowContext(
+		t.ctx,
 		id, when, u.Model, u.Project, u.Session, u.Account, source,
 		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
+	).Scan(
+		&stored.ts, &stored.tokens[0], &stored.tokens[1],
+		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending,
 	); err != nil {
 		return err
 	}
-	var stored string
-	if err := t.tx.QueryRowContext(
-		t.ctx, "SELECT ts FROM responses WHERE request_id = ?", id,
-	).Scan(&stored); err != nil {
-		return err
-	}
-	if stored != when {
+	t.wrote[id] = stored
+	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
 	if u.TierFrom == "" {
-		_, err := t.tx.ExecContext(t.ctx, "DELETE FROM tier_pending WHERE request_id = ?", id)
+		if !pending {
+			return nil
+		}
+		statement, err := t.prepared(&t.unpend, "DELETE FROM tier_pending WHERE request_id = ?")
+		if err != nil {
+			return err
+		}
+		_, err = statement.ExecContext(t.ctx, id)
 		return err
 	}
-	_, err := t.tx.ExecContext(t.ctx,
-		`INSERT INTO tier_pending (request_id, root) VALUES (?, ?)
-		 ON CONFLICT(request_id) DO UPDATE SET root = excluded.root`, id, u.TierFrom)
+	statement, err = t.prepared(&t.pend, `INSERT INTO tier_pending (request_id, root) VALUES (?, ?)
+		 ON CONFLICT(request_id) DO UPDATE SET root = excluded.root`)
+	if err != nil {
+		return err
+	}
+	_, err = statement.ExecContext(t.ctx, id, u.TierFrom)
 	return err
 }
 
@@ -480,17 +547,26 @@ SELECT p.request_id, r.model,
 		if err := rows.Err(); err != nil {
 			return err
 		}
+		if len(resolved) == 0 {
+			return nil
+		}
+		price, err := tx.PrepareContext(ctx, "UPDATE responses SET model = ? WHERE request_id = ?")
+		if err != nil {
+			return err
+		}
+		unpend, err := tx.PrepareContext(ctx, "DELETE FROM tier_pending WHERE request_id = ?")
+		if err != nil {
+			return err
+		}
 		for _, p := range resolved {
 			model, _ := SplitTier(p.model)
 			if p.tier != "" {
 				model += "@" + p.tier
 			}
-			if _, err := tx.ExecContext(ctx,
-				"UPDATE responses SET model = ? WHERE request_id = ?", model, p.id); err != nil {
+			if _, err := price.ExecContext(ctx, model, p.id); err != nil {
 				return err
 			}
-			if _, err := tx.ExecContext(ctx,
-				"DELETE FROM tier_pending WHERE request_id = ?", p.id); err != nil {
+			if _, err := unpend.ExecContext(ctx, p.id); err != nil {
 				return err
 			}
 		}

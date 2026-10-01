@@ -82,7 +82,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 
 	record := func(output, cacheRead int64) {
 		t.Helper()
-		err := ledger.Transaction(context.Background(), func(tx *Tx) error {
+		err := ledger.Transaction(context.Background(), nil, func(tx *Tx) error {
 			return tx.Upsert(Usage{
 				Tool:         "claude",
 				RequestID:    "req-1",

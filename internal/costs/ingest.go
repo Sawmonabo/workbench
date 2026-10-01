@@ -66,6 +66,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	defer func() { _ = ledger.Close() }()
 	var errs []string
 	files, rows := 0, 0
+	seen := Seen{}
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
@@ -91,7 +92,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, tool, read, account, source)
+				err = commitFile(ctx, ledger, seen, tool, read, account, source)
 			}
 			switch {
 			case err == nil && read.changed:
@@ -264,10 +265,12 @@ func firstLineDigest(file *os.File) (string, error) {
 }
 
 // commitFile stores one read in one transaction: its rows, its tier changes
-// and where it stopped. A vanished file is forgotten.
+// and where it stopped. A vanished file is forgotten. seen is the run's record
+// of committed rows.
 func commitFile(
 	ctx context.Context,
 	ledger *Ledger,
+	seen Seen,
 	tool Tool,
 	read fileRead,
 	account, source string,
@@ -278,7 +281,7 @@ func commitFile(
 	if !read.changed {
 		return nil
 	}
-	return wrapLedger(ledger.Transaction(ctx, func(tx *Tx) error {
+	return wrapLedger(ledger.Transaction(ctx, seen, func(tx *Tx) error {
 		for _, u := range read.usage {
 			u.Tool, u.Account = tool.Name, account
 			if err := tx.Upsert(u, source); err != nil {
