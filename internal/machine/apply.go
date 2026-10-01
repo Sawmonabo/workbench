@@ -32,6 +32,15 @@ func Apply(
 	defer operation.Annotate(&err, "apply machine configuration")
 	result := operation.NewResult("workbench apply")
 	result.PlanDigest = displayed.Digest()
+	// An approved digest must match even when there is nothing to apply: a
+	// caller whose approved plan ran effects must not be told it is done.
+	if consent.ApprovedDigest != "" && consent.ApprovedDigest != result.PlanDigest {
+		return result, operation.Fail(
+			operation.ExitConflict,
+			"plan",
+			"Approval digest does not match the current plan; review a new plan",
+		)
+	}
 	// A plan without file changes and without a checked effect writes nothing,
 	// unless it settles an earlier unfinished apply or changes the saved
 	// selection, so there is nothing to approve.
