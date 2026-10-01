@@ -410,7 +410,110 @@ unchanged once the source is set.
 - Timing of the first full ingest on this machine, reported with the result.
 - `render-check.sh` for every role and mode, including `wsl`.
 
-## 10. Out of scope
+## 11. Subscriptions
+
+One sign-in email can pay through several subscriptions: a Claude Code login
+can switch between a personal Max plan and a team organization, and a ChatGPT
+login between Plus, Pro and a workspace. The report keeps them apart: every
+row records the subscription that paid for it, and `--by account` groups by
+email and subscription, for example `you@example.com · Max` and
+`you@example.com · Team (Example Org)`.
+
+### What each tool records
+
+- **Claude Code.** No transcript line names an organization or plan; an
+  assistant record carries only the model, usage, `service_tier` and
+  request ids. The current sign-in is `~/.claude.json` `oauthAccount`:
+  `emailAddress`, `organizationUuid`, `organizationName`, `organizationType`
+  (`claude_max` observed; other values are shown as written). Whether
+  a running session follows a `/login` made elsewhere is confirmed against
+  Claude Code before relying on rule 2 for it. The `SessionStart` hook receives `session_id` on stdin, and a
+  subagent's records (`<session>/subagents/agent-*.jsonl`) carry its parent's
+  `sessionId`, so one binding covers the session and its subagents.
+- **Codex.** Every `token_count` carries `rate_limits.plan_type` (`plus`,
+  `pro` and `prolite` observed): the plan of the account that answered. A
+  `token_usage_record` (0.153+) has no `rate_limits`; its plan is the latest
+  `plan_type` read in the same file at or before it, kept in the file's saved
+  state. A `token_usage_record` names its root `session_id`; an older
+  subagent's rows reach their root through the same thread chain as
+  `TierFrom`. Recent `session_meta` lines carry
+  `creator_account_id`, the ChatGPT account (workspace) id that also appears
+  as the `chatgpt_account_id` claim of each sign-in's ID token. The sign-ins
+  are `auth.json` and, when present, `agent-overflow-accounts/*/auth.json`
+  under `CODEX_HOME`; only their ID token payloads are decoded.
+
+### Attribution, most exact first
+
+Each row stores `account` (email), `subscription` (a stable id) and
+`account_source`, the evidence it came from. A copy of a row with stronger
+evidence replaces a weaker one; equal evidence keeps the stored value.
+
+1. `transcript` (Codex): the plan from the response's file as above, and
+   the email from the sign-in whose `chatgpt_account_id` equals the file's
+   `creator_account_id`. Without that id, the plan stays per response and the
+   email comes from rule 2 or 3.
+2. `session`: the sign-in a session started under. The `SessionStart` hook
+   reads the tool's current sign-in before it detaches and passes it to the
+   worker with the session id. The hook process itself stores
+   `session_accounts(tool, session, since, account, subscription)` in one
+   short transaction before it detaches the worker, so a worker that skips
+   because another holds the ingest lock loses no binding; a hook that
+   cannot open the ledger in time logs it and the row falls to rule 3. Rows
+   match on the root session: Claude's `sessionId`, Codex's root thread. A row of
+   that session takes the binding with the latest `since` at or before its
+   time, so a session resumed later under another subscription changes from
+   the resume on. A binding stored after rows of its session were read
+   re-attributes those rows (the same targeted pass as tier resolution).
+3. `observed`: every ingest run records the current sign-in per tool in
+   `sign_ins(tool, at, account, subscription)`. A row with no binding takes
+   the sign-in observed at both ends of the gap around its time when the two
+   agree, else `unknown`.
+4. `unknown`: no evidence. Rows from before the first observation keep the
+   email they were stamped with (email only, subscription `unknown`).
+
+Subscription ids and labels: Claude `claude:<organizationUuid>`, label from
+`organizationType` (`claude_max` → Max, otherwise the raw value) plus
+`organizationName` whenever the type is not a personal plan. Codex `codex:<plan_type>`, label from
+`plan_type` (`prolite` → Pro Lite, otherwise the capitalized value); the
+account id only resolves the email, so one plan is one group whichever
+evidence named it. API-key sign-ins are `api-key`.
+Labels live in a `subscriptions(id, label)` table, refreshed from the newest
+sign-in that names the id, so a renamed organization relabels its history.
+
+### Limits
+
+- A Claude Code `/login` to another organization inside a running session is
+  not written anywhere Workbench can read until the next hook run; that
+  session's rows stay with the subscription it started under.
+- Claude Code rows read before this change, or from sessions started with no
+  hook installed, rely on rule 3; history from before the first observation
+  is `unknown`.
+- Codex files without `rate_limits` (13 of 2,976 on the sample machine) fall
+  back to rules 2–4.
+
+### Report and status
+
+- `--by account` groups by email and subscription; the per-account section
+  under other groupings does too. JSON rows gain `subscription` and
+  `subscription_label`.
+- `costs status` shows each tool's current sign-in, for example
+  `Claude Code  you@example.com · Max`, and how many rows each evidence
+  level attributed.
+
+### Hooks this depends on
+
+- `SessionStart` must pass `session_id` and the current sign-in to the
+  worker; `SessionEnd` likewise, so a session's final rows are read under the
+  subscription it ran on and not by the next session's sweep.
+- The installed Claude Code `SessionEnd` hook produced one ingest run in the
+  worker log since installation, three seconds before a `SessionStart` (the
+  shape of a `/clear`), and none when a session exited, against nine
+  `SessionStart` runs. It is configured `async`. The cause is established by
+  reproduction (an isolated `CLAUDE_CONFIG_DIR` session ended normally and by
+  Ctrl-C) and fixed; `costs.Hook` detaches in well under a second, so running
+  it synchronously costs nothing at exit.
+
+## 12. Out of scope
 
 `.jsonl.zst` rollouts; long-context pricing; Batch pricing (Codex does not
 use the Batch API); `token_count.rate_limits.credits` (an account balance, not
