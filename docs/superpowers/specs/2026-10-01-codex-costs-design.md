@@ -58,7 +58,18 @@ checked against the rollout files of a machine with about 3,000 sessions
   long-context input, cached input, cache writes and output per million tokens,
   followed by Batch, Flex and Priority tables. Long-context prices apply above
   272K input tokens; the largest Codex request on the sample machine was 255,813.
-  Eleven turns there ran at the priority tier.
+- **Service tier.** A thread's tier is in every `thread_settings_applied`
+  event (`thread_settings.service_tier`: `default`, `priority`, and so on).
+  OpenAI renamed priority processing to Fast mode on 2026-07-30; the price
+  page's "Fast pricing data" table prices `priority`/`fast` and its
+  "Ultrafast pricing data" table prices `ultrafast`. Subagents run at their
+  root thread's current tier (`core/src/agent/control/service_tier.rs`,
+  `child_config.rs` `apply_spawn_agent_service_tier`) and their files carry no
+  tier of their own: in one month of record-era files 6,167 of 6,501
+  responses without a tier in their own file were subagents'. Of that
+  month's 26,007 responses, 112 ran at `priority`; 279 rollout files set
+  `priority` at some point. The rollout records the tier Codex requested,
+  not the one OpenAI served; the API's served tier is not saved.
 
 ## 2. Decision
 
@@ -74,8 +85,9 @@ below.
 `$CODEX_HOME/archived_sessions`. `.jsonl.zst` files (a compression feature off
 by default) are not read; `costs status` reports how many were skipped.
 
-`Parse` keeps per-file state: `Thread` (the first `session_meta.id`), `Cwd`,
-`Model`, `Tier`, `Records` (whether this file has yielded a record) and
+`Parse` keeps per-file state: `Thread` (the first `session_meta.id`), `Root`
+(the root thread: the record's `session_id`, or `session_meta.source.subagent.
+thread_spawn` up the chain), `Cwd`, `Model`, `Tier`, `Records` (whether this file has yielded a record) and
 `LastTotal` (the last `token_count` running total). Before decoding, a line
 must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
 `"token_count"` or `"thread_settings_applied"`; every other line, most of the
@@ -84,7 +96,8 @@ must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
 - `session_meta`: the first one sets `Thread` and `Cwd`; later ones are copies
   from a parent and are ignored.
 - `turn_context`: sets `Model` and `Cwd`.
-- `thread_settings_applied`: sets `Tier` from `service_tier`.
+- `thread_settings_applied`: sets `Tier` from `service_tier` and records a
+  tier change `(Thread, timestamp, tier)`.
 - `token_usage_record` whose `thread_id` is `Thread`: one row keyed
   `response_id`; sets `Records`. A record with another `thread_id` is a copy
   and is skipped (its original is ingested from the parent's file).
@@ -99,7 +112,8 @@ must contain one of `"session_meta"`, `"turn_context"`, `"token_usage_record"`,
   totals alone leaves 347,329.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
-`Thread`, `Time` = the line's timestamp. Token mapping, so that the report's
+`Thread`, `Time` = the line's timestamp, `Tier` = `Tier`, or for a file that
+has no tier of its own, `inherit` with the root thread id. Token mapping, so that the report's
 prompt total (input + writes + reads) is right:
 
 | Ledger column | Codex value |
@@ -125,6 +139,14 @@ never verified, access and refresh tokens never read), else `unknown`.
   `FileState` gains an opaque `Saved []byte` that a source fills and ingest
   stores with the offset; Codex saves its fields as JSON and Claude saves
   nothing.
+- **Tier.** `responses` gains `tier TEXT NOT NULL DEFAULT ''` (`''` is
+  standard pricing; every Claude row keeps it) and the ledger gains
+  `tier_changes (thread_id, ts, tier)`, written in the same transaction as the
+  file's rows. `Usage` gains `Tier`, and `FileState` collects the file's tier
+  changes for ingest to store. After every ingest, rows marked `inherit` take
+  the root thread's latest tier change at or before their timestamp (a
+  standard tier when none), so a subagent is priced at the tier its root had
+  when it ran even when the files are read in another order.
 - **Rewrite check.** `head` is the SHA-256 of the file's first line. When it
   differs from the stored one, ingest reads the file from offset 0 with empty
   state. Every key is derived from content, so a full re-read only rewrites
@@ -147,7 +169,13 @@ never verified, access and refresh tokens never read), else `unknown`.
   input, cached input, cache writes, output. A `-` cache-write price bills
   writes at the input price, and a `-` cached-input price bills reads at the
   input price. Long-context columns are not read; section 1 shows no Codex
-  request reaching 272K.
+  request reaching 272K. The "Fast pricing data" and "Ultrafast pricing
+  data" tables are read the same way into `<model>@fast` and
+  `<model>@ultrafast` rows; a `priority` or `fast` row is priced from
+  `@fast`, an `ultrafast` row from `@ultrafast`, `flex` from the Flex table
+  (`@flex`), and `default`, `auto`, `''` or anything unknown from the
+  standard table. A tier row with no tier price on either card is reported
+  unpriced rather than priced at standard.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` today) is reported unpriced, as
@@ -188,7 +216,9 @@ and `costs ingest` catch up in any case.
 
 ## 7. Report
 
-The Codex tab shows one `cache write` column instead of `cache 5m` and
+The model table shows a non-standard tier as part of the name
+(`gpt-5.6-sol (fast)` beside `gpt-5.6-sol`), so the faster turns and their
+cost are visible on their own. The Codex tab shows one `cache write` column instead of `cache 5m` and
 `cache 1h` (`Tool` gains the cache-write column labels), and its footer reads
 `list-price equivalents at OpenAI API prices, not ChatGPT plan charges`.
 Everything else (tabs, drill-down, `--tool codex`, JSON and CSV output) works
@@ -197,11 +227,8 @@ unchanged once the source is set.
 ## 8. Open decisions for the owner
 
 1. **Hook trust.** Decided 2026-10-01: Workbench writes the trust (section 6).
-2. **Priority tier.** Either (a) price priority turns at standard rates and
-   keep the tier only in the per-file state (recommended for now: eleven turns
-   on the sample machine), or (b) store the model as `<model>@priority` and
-   also parse the Priority table, so those turns are priced and shown
-   separately.
+2. **Service tier.** Decided 2026-10-01: each response is priced at the tier
+   it ran at, subagents at their root's tier (sections 3 to 5).
 
 ## 9. Verification
 
