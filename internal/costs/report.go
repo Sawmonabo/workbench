@@ -1,6 +1,7 @@
 package costs
 
 import (
+	"cmp"
 	"context"
 	"os"
 	"path/filepath"
@@ -49,7 +50,51 @@ type Row struct {
 	Calls  int64   `json:"calls"`
 	Cost   float64 `json:"cost"`
 	Priced bool    `json:"priced"` // false when a model in the row has no rate; its cost counts as 0
+	// Subscription and SubscriptionLabel are set on an account row only: the
+	// subscription id ("unknown" when none) and what the report shows for it.
+	// Name is then the email, and one email has a row per subscription.
+	Subscription      string `json:"subscription,omitempty"`
+	SubscriptionLabel string `json:"subscription_label,omitempty"`
 	Tokens
+}
+
+// unknownSubscription is what the report shows for rows no evidence ties to a
+// subscription.
+const unknownSubscription = "unknown subscription"
+
+// subscriptionLabel is the label the report shows for a subscription id whose
+// subscriptions-table label is label: the label, else the id, else "unknown
+// subscription" for "unknown" or none.
+func subscriptionLabel(id, label string) string {
+	switch {
+	case id == "" || id == "unknown":
+		return unknownSubscription
+	case label != "":
+		return label
+	}
+	return id
+}
+
+// AccountName writes an account as the report shows it, "you@example.com · Max":
+// the email, a middle dot, the subscription's label. When neither the account
+// nor the subscription is known it is just "unknown".
+func AccountName(account, label string) string {
+	if account == "" {
+		account = "unknown"
+	}
+	if account == "unknown" && label == unknownSubscription {
+		return account
+	}
+	return account + " · " + label
+}
+
+// Display is how the report names the row: an account row as AccountName, any
+// other by its Name.
+func (r Row) Display() string {
+	if r.Subscription == "" {
+		return r.Name
+	}
+	return AccountName(r.Name, r.SubscriptionLabel)
 }
 
 // Block is one project of a --detail report with its own model rows.
@@ -111,7 +156,7 @@ type Statement struct {
 func (r Statement) Empty() bool { return r.RowCount == 0 }
 
 type group struct {
-	project, model, account, month string
+	project, model, account, subscription, label, month string
 	Row
 }
 
@@ -228,10 +273,13 @@ func loadGroups(
 		where, args = append(where, "substr(ts, 1, 10) <= ?"), append(args, opts.Until)
 	}
 	rows, err := ledger.db.QueryContext(ctx,
-		`SELECT project, model, account, substr(ts, 1, 7), COUNT(*),
-		        SUM(input), SUM(output), SUM(cache_write_5m), SUM(cache_write_1h), SUM(cache_read)
-		   FROM responses WHERE `+strings.Join(where, " AND ")+`
-		  GROUP BY 1, 2, 3, 4 ORDER BY 1, 2, 3, 4`, args...)
+		`SELECT r.project, r.model, r.account, r.subscription, COALESCE(s.label, ''),
+		        substr(r.ts, 1, 7), COUNT(*),
+		        SUM(r.input), SUM(r.output), SUM(r.cache_write_5m), SUM(r.cache_write_1h),
+		        SUM(r.cache_read)
+		   FROM responses r LEFT JOIN subscriptions s ON s.id = r.subscription
+		  WHERE `+strings.Join(where, " AND ")+`
+		  GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 3, 4, 5, 6`, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -241,7 +289,7 @@ func loadGroups(
 	for rows.Next() {
 		var g group
 		if err := rows.Scan(
-			&g.project, &g.model, &g.account, &g.month, &g.Calls,
+			&g.project, &g.model, &g.account, &g.subscription, &g.label, &g.month, &g.Calls,
 			&g.Input, &g.Output, &g.CacheWrite5m, &g.CacheWrite1h, &g.CacheRead,
 		); err != nil {
 			return nil, 0, err
@@ -257,6 +305,7 @@ func loadGroups(
 			g.month = "unknown"
 		}
 		rate, priced := card.Rows.Lookup(g.model, tool.Tiers)
+		g.label = subscriptionLabel(g.subscription, g.label)
 		g.Priced = priced
 		if priced {
 			g.Cost = rate.Cost(g.Tokens)
@@ -271,7 +320,7 @@ func (g group) key(by string) string {
 	case "model":
 		return g.model
 	case "account":
-		return g.account
+		return g.account + "\x00" + g.subscription // one row per email and subscription
 	case "month":
 		return g.month
 	}
@@ -288,7 +337,12 @@ func aggregate(groups []group, by string) []Row {
 		if !ok {
 			i = len(rows)
 			index[key] = i
-			rows = append(rows, Row{Name: key, Priced: true})
+			row := Row{Name: key, Priced: true}
+			if by == "account" {
+				row.Name = g.account
+				row.Subscription, row.SubscriptionLabel = g.subscription, g.label
+			}
+			rows = append(rows, row)
 		}
 		rows[i].Calls += g.Calls
 		rows[i].Cost += g.Cost
@@ -300,7 +354,7 @@ func aggregate(groups []group, by string) []Row {
 
 func sortRows(rows []Row, by string) []Row {
 	less := map[string]func(a, b Row) bool{
-		"name":  func(a, b Row) bool { return a.Name < b.Name },
+		"name":  func(a, b Row) bool { return a.Display() < b.Display() },
 		"calls": func(a, b Row) bool { return a.Calls > b.Calls },
 	}[by]
 	if less == nil {
@@ -391,12 +445,25 @@ type StatusInfo struct {
 	Tools             []ToolStatus `json:"tools"`
 }
 
-// ToolStatus is one tool's coverage and hooks.
+// SignInStatus is who a tool is signed in as now. Account is "unknown" when
+// nobody is; Subscription is its id ("unknown" when none) and Label what the
+// report shows for it.
+type SignInStatus struct {
+	Account      string `json:"account"`
+	Subscription string `json:"subscription"`
+	Label        string `json:"subscription_label"`
+}
+
+// Display writes the sign-in as the report names an account, "you@example.com · Max".
+func (s SignInStatus) Display() string { return AccountName(s.Account, s.Label) }
+
+// ToolStatus is one tool's coverage, sign-in and hooks.
 type ToolStatus struct {
 	Name        string            `json:"name"`
 	Title       string            `json:"title"`
 	Implemented bool              `json:"implemented"`
 	Coverage    Coverage          `json:"coverage"`
+	SignIn      SignInStatus      `json:"sign_in"`
 	Hooks       map[string]string `json:"hooks,omitempty"`         // event → a Hook* state
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
@@ -441,6 +508,12 @@ func Status(_ context.Context) (StatusInfo, error) {
 			}
 			if status.Coverage, err = coverage(ledger, fetched, tool.Name); err != nil {
 				return info, err
+			}
+			signIn := tool.Source.SignIn(paths.Home)
+			status.SignIn = SignInStatus{
+				Account:      cmp.Or(signIn.Account, "unknown"),
+				Subscription: cmp.Or(signIn.Subscription, "unknown"),
+				Label:        subscriptionLabel(signIn.Subscription, signIn.Label),
 			}
 			status.Hooks = tool.Source.Hooks(paths.Home)
 			if counter, ok := tool.Source.(interface{ Skipped(string) int }); ok {

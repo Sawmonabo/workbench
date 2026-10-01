@@ -209,7 +209,7 @@ func printCosts(out io.Writer, text string) error {
 
 func writeCostsCSV(out io.Writer, report costs.Statement) error {
 	w := csv.NewWriter(out)
-	_ = w.Write([]string{
+	head := []string{
 		report.By,
 		"cost",
 		"calls",
@@ -219,14 +219,22 @@ func writeCostsCSV(out io.Writer, report costs.Statement) error {
 		"cache_write_1h",
 		"cache_read",
 		"priced",
-	})
+	}
+	if report.By == "account" {
+		head = append(head, "subscription", "subscription_label")
+	}
+	_ = w.Write(head)
 	for _, r := range report.Rows {
-		_ = w.Write([]string{
+		line := []string{
 			r.Name, strconv.FormatFloat(r.Cost, 'f', -1, 64), strconv.FormatInt(r.Calls, 10),
 			strconv.FormatInt(r.Input, 10), strconv.FormatInt(r.Output, 10),
 			strconv.FormatInt(r.CacheWrite5m, 10), strconv.FormatInt(r.CacheWrite1h, 10),
 			strconv.FormatInt(r.CacheRead, 10), strconv.FormatBool(r.Priced),
-		})
+		}
+		if report.By == "account" {
+			line = append(line, r.Subscription, r.SubscriptionLabel)
+		}
+		_ = w.Write(line)
 	}
 	w.Flush()
 	return w.Error()
@@ -544,16 +552,11 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			suffix = " " + tool.Name
 		}
 		c := tool.Coverage
+		add("sign-in"+suffix, signedIn(tool.SignIn))
 		add("coverage"+suffix, fmt.Sprintf(
-			"%s → %s, %s responses (%s transcript, %s session, %s observed, %s unknown account evidence)",
-			c.First,
-			c.Last,
-			commas(c.Responses),
-			commas(c.TranscriptRows),
-			commas(c.SessionRows),
-			commas(c.ObservedRows),
-			commas(c.UnknownRows),
+			"%s → %s, %s responses", c.First, c.Last, commas(c.Responses),
 		))
+		add("evidence"+suffix, attribution(c))
 	}
 	add("last ingest", localTime(info.LastIngestAt)+"  "+faint.Render(info.LastIngestSummary))
 	lastError := info.LastError
@@ -617,6 +620,37 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			strings.TrimLeft(first, " ") + "\n" + rest)
 	}
 	return b.String()
+}
+
+// signedIn is a tool's current sign-in as an account row names it.
+func signedIn(s costs.SignInStatus) string {
+	if text := s.Display(); text != "unknown" {
+		return text
+	}
+	return "not signed in"
+}
+
+// attribution counts a tool's rows by the evidence that tied each to its
+// account and subscription, strongest first, leaving out the levels with none.
+func attribution(c costs.Coverage) string {
+	var parts []string
+	for _, level := range []struct {
+		n    int64
+		name string
+	}{
+		{c.TranscriptRows, "transcript"},
+		{c.SessionRows, "session"},
+		{c.ObservedRows, "observed"},
+		{c.UnknownRows, "unknown"},
+	} {
+		if level.n > 0 {
+			parts = append(parts, commas(level.n)+" "+level.name)
+		}
+	}
+	if len(parts) == 0 {
+		return "no rows"
+	}
+	return strings.Join(parts, ", ")
 }
 
 // rowName is how a report row of tool is named: a path under the home
@@ -984,10 +1018,16 @@ const (
 // reportTable lays one table out: the name, cost and number columns, and,
 // where the terminal has room, a share bar that uses the spare width.
 func reportTable(r reportSpec) tableSpec {
+	// A path keeps its tail; an account keeps its email and, longer, its
+	// subscription, which is all that tells one email's rows apart.
+	name := column{Head: r.head, Clip: true, ClipLeft: true, Keep: 24}
+	if r.head == "account" {
+		name.ClipLeft, name.Keep = false, 40
+	}
 	spec := tableSpec{
 		Header: true,
 		Cols: []column{
-			{Head: r.head, Clip: true, ClipLeft: true, Keep: 24},
+			name,
 			{Head: "cost", Right: true},
 		},
 	}
@@ -1018,6 +1058,9 @@ func reportTable(r reportSpec) tableSpec {
 	}
 	for i, row := range r.rows {
 		name := rowName(r.tool, row.Name)
+		if row.Subscription != "" {
+			name = row.Display()
+		}
 		if r.kind != "" && i == r.mark {
 			name = r.pal.accent.Bold(true).Render(name)
 		}
