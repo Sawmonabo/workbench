@@ -91,12 +91,66 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	return err
 }
 
-// writeMachinePlan prints the checklist view: changed files with their line
+// planView says how renderPlan draws a plan.
+type planView struct {
+	// Cursor is the index in plan.Effects of the row under the cursor, -1 for
+	// none. Fixed effects are never under it.
+	Cursor int
+	// Interactive draws the live list; false draws the static view that
+	// --dry-run and a no-prompt apply print.
+	Interactive bool
+	// Done is set once the live list is dismissed: the final frame has no
+	// cursor and keeps its height.
+	Done bool
+	// Verbose adds every effect's recovery text and the recovery limits.
+	Verbose bool
+}
+
+// writePlanView prints the plan view once, at the writer's width: --dry-run,
+// the machine-plan result component and an apply that does not prompt.
+func writePlanView(w io.Writer, plan operation.Plan, verbose bool) error {
+	lines, _ := renderPlan(plan, terminalWidth(w), planView{Cursor: -1, Verbose: verbose})
+	_, err := lipgloss.Fprint(w, strings.Join(lines, "\n")+"\n")
+	return err
+}
+
+// renderPlan is the one renderer of the machine plan, for the interactive list
+// and for the static view, at width columns. It returns the lines and the
+// index of the line the cursor row starts on, -1 when there is no cursor row.
+func renderPlan(plan operation.Plan, width int, view planView) (lines []string, cursorLine int) {
+	if !view.Interactive {
+		text := machinePlanText(plan, width, view.Verbose, true)
+		return strings.Split(strings.TrimSuffix(text, "\n"), "\n"), -1
+	}
+	// The files above the list are still printed by choosePlan.
+	spec := tableSpec{Cols: effectColumns}
+	cursorBlock := -1
+	for i, effect := range plan.Effects {
+		if effect.Fixed {
+			continue
+		}
+		row := append([]string{" "}, effectRow(effect)...)
+		if !view.Done && i == view.Cursor {
+			row[0], row[2] = ">", bold.Render(row[2])
+			cursorBlock = len(spec.Rows)
+		}
+		spec.Rows = append(spec.Rows, row)
+	}
+	cursorLine = -1
+	for i, block := range fitBlocks(width, 2, spec) {
+		if i == cursorBlock {
+			cursorLine = len(lines)
+		}
+		lines = append(lines, block...)
+	}
+	return lines, cursorLine
+}
+
+// machinePlanText is the checklist view as text: changed files with their line
 // counts, then one line per effect with its probed delta, a privilege tag and
 // whether a skip was saved. Recovery text and limits are verbose.
-func writeMachinePlan(w io.Writer, plan operation.Plan, verbose, effects bool) error {
+func machinePlanText(plan operation.Plan, width int, verbose, effects bool) string {
 	var b strings.Builder
-	width := terminalWidth(w)
 	title := "[WorkBench] Plan for this machine"
 	if plan.Source.Release != "" {
 		title += " (" + sourceName(&plan.Source) + ")"
@@ -155,8 +209,7 @@ func writeMachinePlan(w io.Writer, plan operation.Plan, verbose, effects bool) e
 		b.WriteString("\n")
 		writeText(&b, width, 0, "This plan is incomplete and cannot be applied as shown.")
 	}
-	_, err := lipgloss.Fprint(w, b.String())
-	return err
+	return b.String()
 }
 
 // writeEffects writes the Effects section of the plan: every effect's box,

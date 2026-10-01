@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -13,35 +16,48 @@ const (
 	checklistDescription = "Unchecked effects are remembered for this machine; apply --reset forgets them."
 )
 
-// checklistModel is the effect checklist. Every View lays the rows out with
-// fitBlocks at the width of the last WindowSizeMsg, so a resize refits them,
-// and a viewport keeps the cursor's row on screen when the rows are taller
-// than the terminal.
+// checklistModel is the effect checklist. Every View draws the plan with
+// renderPlan at the width of the last WindowSizeMsg, so a resize refits it, and
+// a viewport keeps the cursor's row on screen when the lines are taller than
+// the terminal. Toggling flips Checked on the model's own copy of the plan.
 type checklistModel struct {
-	spec          tableSpec // [cursor, box, name, delta, privilege, note]
-	names         []string
-	checked       []bool
-	cursor        int
+	plan          operation.Plan
+	verbose       bool
+	selectable    []int // indices in plan.Effects of the rows a cursor can stop on
+	cursor        int   // position in selectable
 	width, height int
 	view          viewport.Model
 	approved      bool
 	done          bool
 }
 
-// newChecklist lists the effects in rows, one effectRow-shaped row (box, name,
-// delta, privilege, note) per name, with the given boxes checked.
-func newChecklist(rows [][]string, names []string, checked []bool) *checklistModel {
-	spec := tableSpec{Cols: effectColumns}
-	for _, row := range rows {
-		spec.Rows = append(spec.Rows, append([]string{""}, row...))
-	}
-	return &checklistModel{
-		spec:    spec,
-		names:   names,
-		checked: checked,
+// newChecklist is the live list of plan's effects, with the plan's checks as
+// the starting boxes.
+func newChecklist(plan operation.Plan, verbose bool) *checklistModel {
+	m := &checklistModel{
+		plan:    plan,
+		verbose: verbose,
 		width:   terminalWidthDefault,
 		view:    viewport.New(),
 	}
+	m.plan.Effects = slices.Clone(plan.Effects)
+	for i, effect := range m.plan.Effects {
+		if !effect.Fixed {
+			m.selectable = append(m.selectable, i)
+		}
+	}
+	return m
+}
+
+// checkedNames lists the non-fixed effects whose box is checked.
+func (m *checklistModel) checkedNames() []string {
+	var names []string
+	for _, i := range m.selectable {
+		if m.plan.Effects[i].Checked {
+			names = append(names, m.plan.Effects[i].Name)
+		}
+	}
+	return names
 }
 
 // terminalWidthDefault is the width used until the terminal reports its size.
@@ -58,9 +74,10 @@ func (m *checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.cursor = max(m.cursor-1, 0)
 		case "down", "j":
-			m.cursor = min(m.cursor+1, len(m.names)-1)
+			m.cursor = min(m.cursor+1, len(m.selectable)-1)
 		case "space":
-			m.checked[m.cursor] = !m.checked[m.cursor]
+			effect := &m.plan.Effects[m.selectable[m.cursor]]
+			effect.Checked = !effect.Checked
 		case "enter":
 			m.approved, m.done = true, true
 			return m, tea.Quit
@@ -72,27 +89,6 @@ func (m *checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// rows is the spec's rows with the cursor and boxes of the present state.
-// Other rows, and every row once done, hold a space in the cursor column, so
-// a stacked row's box lines up and the final frame keeps the live layout.
-func (m *checklistModel) rows() [][]string {
-	rows := make([][]string, len(m.spec.Rows))
-	for i, row := range m.spec.Rows {
-		row = append([]string(nil), row...)
-		row[0] = " "
-		if !m.done && i == m.cursor {
-			row[0] = ">"
-			row[2] = bold.Render(row[2])
-		}
-		row[1] = "[ ]"
-		if m.checked[i] {
-			row[1] = "[x]"
-		}
-		rows[i] = row
-	}
-	return rows
-}
-
 var bold = lipgloss.NewStyle().Bold(true)
 
 // View is the list alone; choosePlan prints the title above it first. The
@@ -102,16 +98,15 @@ var bold = lipgloss.NewStyle().Bold(true)
 // scrollback; a frame that shrinks would leave the old one's top lines. The
 // visible lines plus the final newline fill at most the terminal's height.
 func (m *checklistModel) View() tea.View {
-	spec := m.spec
-	spec.Rows = m.rows()
-	var lines []string
-	cursorLine := 0
-	for i, block := range fitBlocks(m.width, 2, spec) {
-		if i == m.cursor {
-			cursorLine = len(lines)
-		}
-		lines = append(lines, block...)
+	cursor := -1
+	if len(m.selectable) > 0 {
+		cursor = m.selectable[m.cursor]
 	}
+	lines, cursorLine := renderPlan(
+		m.plan,
+		m.width,
+		planView{Cursor: cursor, Interactive: true, Done: m.done, Verbose: m.verbose},
+	)
 	height := len(lines)
 	if m.height > 0 {
 		height = max(min(len(lines), m.height-1), 1)
@@ -120,7 +115,7 @@ func (m *checklistModel) View() tea.View {
 	m.view.SetHeight(height)
 	m.view.SetContent(strings.Join(lines, "\n"))
 	if !m.done {
-		m.view.EnsureVisible(cursorLine, 0, 0)
+		m.view.EnsureVisible(max(cursorLine, 0), 0, 0)
 	}
 	// The frame ends in a newline: Bubble Tea erases the frame's last line when
 	// it exits, so that line must be the empty one.

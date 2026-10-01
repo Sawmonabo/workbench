@@ -38,6 +38,15 @@ type Edit struct {
 	Action      string `json:"action"`
 	Description string `json:"description"`
 	Summary     string `json:"summary,omitempty"`
+	// Merged marks a file native merges into (a modify template: Claude Code
+	// settings, Codex config, VS Code settings), which keeps the owner's own
+	// keys; every other file is owned, written whole by Workbench.
+	Merged bool `json:"merged,omitempty"`
+	// EditedOutside marks an existing owned file that is not what Workbench
+	// last wrote, so applying replaces someone's edit. It is set from the
+	// recorded last-applied image, never from Summary's text, and is never
+	// set on a merged file.
+	EditedOutside bool `json:"edited_outside,omitempty"`
 }
 
 // Effect is a planned change outside checkpointed files, with the privilege
@@ -52,8 +61,25 @@ type Effect struct {
 	// Delta is the probed one-line change on this machine, "" when the
 	// effect was not probed.
 	Delta string `json:"delta,omitempty"`
-	// Probe is "ok", "failed" or "timeout" once a probe ran, "" otherwise.
+	// Probe is "ok", "failed" or "timeout" once a probe ran, "" otherwise. It
+	// is for --json; the plan view shows ProbeNote, never this word.
 	Probe string `json:"probe,omitempty"`
+	// ProbeNote says in plain words what could not be checked and that apply
+	// checks again when it runs, for example "Windows didn't answer in time;
+	// checked again when applied". It is empty when the probe answered.
+	ProbeNote string `json:"probe_note,omitempty"`
+	// NoChange is set when the probe reported nothing to do ("NAME: = TEXT")
+	// for every line of every script that carries the effect; Delta then holds
+	// what is already in place.
+	NoChange bool `json:"no_change,omitempty"`
+	// New marks an effect the owner has not yet decided on: not in the saved
+	// [effects] decided list. It is display only.
+	New bool `json:"new,omitempty"`
+	// Optional marks an optional host effect: unchecked unless selected.
+	Optional bool `json:"optional,omitempty"`
+	// Needs names the effect this one cannot run without while that effect is
+	// unchecked, "" otherwise (windows-files for the Windows adoptions).
+	Needs string `json:"needs,omitempty"`
 	// Fixed effects always run with the plan and cannot be unchecked: the
 	// file-backed policy marker and checkpoint retention.
 	Fixed bool `json:"fixed,omitempty"`
@@ -86,14 +112,17 @@ type Plan struct {
 }
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its
-// private inputs, with each effect's probed Delta and Probe blanked, so what
-// is approved is the files, the effects and which are checked. A plan holds
+// private inputs, with each effect's probed Delta, Probe, ProbeNote and
+// NoChange and its New mark blanked, so what is approved is the files, the
+// effects and which are checked. A plan holds
 // only strings, slices and bools, so marshalling cannot fail.
 func (p Plan) Digest() string {
 	approved := p
 	approved.Effects = slices.Clone(p.Effects)
 	for i := range approved.Effects {
-		approved.Effects[i].Delta, approved.Effects[i].Probe = "", ""
+		effect := &approved.Effects[i]
+		effect.Delta, effect.Probe, effect.ProbeNote = "", "", ""
+		effect.NoChange, effect.New = false, false
 	}
 	data, _ := json.Marshal(struct {
 		Plan   Plan

@@ -84,6 +84,9 @@ func Apply(
 				}); j >= 0 {
 					prepared.Plan.Effects[i].Delta = displayed.Effects[j].Delta
 					prepared.Plan.Effects[i].Probe = displayed.Effects[j].Probe
+					prepared.Plan.Effects[i].ProbeNote = displayed.Effects[j].ProbeNote
+					prepared.Plan.Effects[i].NoChange = displayed.Effects[j].NoChange
+					prepared.Plan.Effects[i].New = displayed.Effects[j].New
 				}
 			}
 		}

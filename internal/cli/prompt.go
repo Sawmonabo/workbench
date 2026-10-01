@@ -14,6 +14,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
 )
@@ -98,34 +99,36 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 
 // choosePlan shows the checklist on the controlling terminal: the files, then
 // a list of the effects with the plan's checks as defaults. Enter
-// approves exactly that selection; esc or ctrl+c approves nothing.
-func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
+// approves exactly that selection; esc or ctrl+c approves nothing. saved is
+// the machine's saved selection, for re-gating dependent effects as boxes
+// toggle.
+func choosePlan(
+	plan operation.Plan,
+	_ machine.Selection,
+	verbose bool,
+) ([]string, bool, error) {
 	terminal, err := openTerminal()
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { _ = terminal.Close() }()
 	// The effects are the checklist below, so the plan prints without them.
-	if err := writeMachinePlan(terminal, plan, verbose, false); err != nil {
+	if _, err := lipgloss.Fprint(
+		terminal,
+		machinePlanText(plan, terminalWidth(terminal), verbose, false),
+	); err != nil {
 		return nil, false, err
 	}
-	var (
-		rows    [][]string
-		names   []string
-		boxes   []bool
-		fixed   []string
-		checked int
-	)
+	var fixed []string
+	selectable := 0
 	for _, effect := range plan.Effects {
 		if effect.Fixed {
 			fixed = append(fixed, effect.Name)
-			continue
+		} else {
+			selectable++
 		}
-		rows = append(rows, effectRow(effect))
-		names = append(names, effect.Name)
-		boxes = append(boxes, effect.Checked)
 	}
-	if len(names) == 0 {
+	if selectable == 0 {
 		approved := false
 		answered, askErr := ask(terminal, huh.NewConfirm().
 			Title("[WorkBench] Apply these files?").
@@ -142,7 +145,7 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	// Inline, so the file list above stays visible. main owns SIGINT; ctrl+c
 	// arrives as a key.
 	final, err := tea.NewProgram(
-		newChecklist(rows, names, boxes),
+		newChecklist(plan, verbose),
 		tea.WithInput(terminal),
 		tea.WithOutput(terminal),
 		tea.WithoutSignalHandler(),
@@ -158,20 +161,14 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	if !ok || !list.approved {
 		return nil, false, nil
 	}
-	selected := fixed
-	for i, name := range names {
-		if list.checked[i] {
-			selected = append(selected, name)
-			checked++
-		}
-	}
+	checked := list.checkedNames()
 	_, _ = fmt.Fprintf(
 		terminal,
 		"[WorkBench] Applying %d of %d effects\n",
-		checked,
-		len(names),
+		len(checked),
+		selectable,
 	)
-	return selected, true, nil
+	return append(fixed, checked...), true, nil
 }
 
 // checkpointChoice returns --checkpoint or, at a terminal, the checkpoint the

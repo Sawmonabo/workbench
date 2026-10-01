@@ -11,17 +11,23 @@ import (
 // Selection is which effects an apply runs: every default effect not named in
 // Skip, and the optional host effects named in Select. An approved apply saves
 // it in machine.toml's [effects] table, so a machine that never wants the
-// Windows-side steps declines them once.
+// Windows-side steps declines them once. Decided names every effect the plan
+// view listed at the last approved apply, so a later apply asks only about an
+// effect that is not in it.
 type Selection struct {
-	Skip   []string `toml:"skip,omitempty"`
-	Select []string `toml:"select,omitempty"`
+	Skip    []string `toml:"skip,omitempty"`
+	Select  []string `toml:"select,omitempty"`
+	Decided []string `toml:"decided,omitempty"`
 }
 
-func (s Selection) empty() bool { return len(s.Skip) == 0 && len(s.Select) == 0 }
+func (s Selection) empty() bool {
+	return len(s.Skip) == 0 && len(s.Select) == 0 && len(s.Decided) == 0
+}
 
 // equal reports whether two sorted selections name the same effects.
 func (s Selection) equal(other Selection) bool {
-	return slices.Equal(s.Skip, other.Skip) && slices.Equal(s.Select, other.Select)
+	return slices.Equal(s.Skip, other.Skip) && slices.Equal(s.Select, other.Select) &&
+		slices.Equal(s.Decided, other.Decided)
 }
 
 // ReadSelection reads the [effects] table of config. A missing file or table
@@ -50,6 +56,7 @@ func readSelection(raw []byte) (Selection, error) {
 	}
 	slices.Sort(config.Effects.Skip)
 	slices.Sort(config.Effects.Select)
+	slices.Sort(config.Effects.Decided)
 	return config.Effects, nil
 }
 

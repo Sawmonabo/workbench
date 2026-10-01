@@ -19,7 +19,22 @@ import (
 // hold the plan.
 const probeTimeout = 5 * time.Second
 
-var probeLine = regexp.MustCompile(`^([a-z0-9-]+): (.+)$`)
+// probeLine is one probe output line: "NAME: TEXT" for a change, and
+// "NAME: = TEXT" when the effect has nothing to do. The "= " marker is the only
+// signal; nothing matches on the words of TEXT.
+var probeLine = regexp.MustCompile(`^([a-z0-9-]+): (= )?(.+)$`)
+
+// probeResult is what the probe lines of one effect said: their text joined
+// with "; ", and whether every line reported no change.
+type probeResult struct {
+	text     string
+	noChange bool
+}
+
+// merge adds another result for the same effect.
+func (r probeResult) merge(other probeResult) probeResult {
+	return probeResult{r.text + "; " + other.text, r.noChange && other.noChange}
+}
 
 // probeEffects fills each effect's Delta from the active scripts run with
 // WORKBENCH_PROBE=1, in parallel. A probe that fails, times out or prints
@@ -54,7 +69,7 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	var (
 		mu      sync.Mutex
 		wg      sync.WaitGroup
-		deltas  = map[string][]string{}
+		results = map[string][]probeResult{}
 		outcome = map[string]string{}
 	)
 	for name, contents := range scripts {
@@ -67,8 +82,8 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 			lines, status := p.runProbe(ctx, c, directory, environment, name, contents)
 			mu.Lock()
 			defer mu.Unlock()
-			for effect, text := range lines {
-				deltas[effect] = append(deltas[effect], text)
+			for effect, result := range lines {
+				results[effect] = append(results[effect], result)
 			}
 			for _, effect := range scriptEffects(name) {
 				if outcome[effect] != "failed" && outcome[effect] != "timeout" {
@@ -88,9 +103,15 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 			continue
 		}
 		effect.Probe = status
-		if lines := deltas[effect.Name]; len(lines) > 0 {
-			slices.Sort(lines)
-			effect.Delta = strings.Join(lines, "; ")
+		if found := results[effect.Name]; len(found) > 0 {
+			texts, noChange := make([]string, 0, len(found)), true
+			for _, result := range found {
+				texts = append(texts, result.text)
+				noChange = noChange && result.noChange
+			}
+			slices.Sort(texts)
+			effect.Delta = strings.Join(texts, "; ")
+			effect.NoChange = noChange && status == "ok"
 		}
 	}
 	return nil
@@ -135,7 +156,7 @@ func (p *preparation) runProbe(
 	directory string,
 	environment []string,
 	name, contents string,
-) (map[string]string, string) {
+) (map[string]probeResult, string) {
 	path := filepath.Join(directory, name+".sh")
 	if err := os.WriteFile(path, []byte(contents), 0o700); err != nil {
 		return nil, "failed"
@@ -161,17 +182,17 @@ func (p *preparation) runProbe(
 		}
 		return nil, "failed"
 	}
-	lines := map[string]string{}
+	lines := map[string]probeResult{}
 	for line := range strings.SplitSeq(strings.TrimSpace(output.Stdout), "\n") {
 		match := probeLine.FindStringSubmatch(line)
 		if match == nil {
 			return nil, "failed"
 		}
+		next := probeResult{text: match[3], noChange: match[2] != ""}
 		if previous, ok := lines[match[1]]; ok {
-			lines[match[1]] = previous + "; " + match[2]
-		} else {
-			lines[match[1]] = match[2]
+			next = previous.merge(next)
 		}
+		lines[match[1]] = next
 	}
 	if len(lines) == 0 {
 		return nil, "failed"

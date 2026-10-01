@@ -20,11 +20,11 @@ import (
 )
 
 type options struct {
-	resolve                       operation.Options
-	json, nonInteractive, verbose bool
-	yes, reset, localBuild        bool
-	approvePlan                   string
-	rendered                      bool
+	resolve                        operation.Options
+	json, nonInteractive, verbose  bool
+	yes, reset, choose, localBuild bool
+	approvePlan                    string
+	rendered                       bool
 }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
@@ -240,7 +240,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		// The machine plan prints as its own branded view, so its component
 		// line would only put "machine-plan: complete" before the brand.
 		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
-			if err := writeMachinePlan(out, plan, verbose, true); err != nil {
+			if err := writePlanView(out, plan, verbose); err != nil {
 				return err
 			}
 			continue

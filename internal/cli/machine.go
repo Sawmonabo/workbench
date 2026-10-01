@@ -189,6 +189,8 @@ func applyCommand(o *options) *cobra.Command {
 	cmd.Flags().Bool("dry-run", false, "Show the checklist without installing, asking or applying")
 	cmd.Flags().BoolVarP(&o.yes, "yes", "y", false, "Apply the saved selection without asking")
 	cmd.Flags().
+		BoolVar(&o.choose, "choose", false, "Show the checklist with your saved choices, even when nothing is new")
+	cmd.Flags().
 		BoolVar(&o.reset, "reset", false, "Forget the saved skips; everything is checked again")
 	o.localBuildFlag(cmd)
 	o.destinationFlag(cmd)
@@ -264,7 +266,14 @@ func applyMachine(
 	case o.yes:
 		consent.ApprovedDigest = plan.Digest()
 	case o.interactive():
-		checked, approved, chooseErr := choosePlan(plan, o.verbose)
+		// Tag saved skips from machine.toml even under --reset: Apply's recheck
+		// reads the file the same way, and SavedSkip is part of the digest the
+		// approval must equal.
+		saved, savedErr := machine.ReadSelection(c.Native.Config)
+		if savedErr != nil {
+			return result, plan, savedErr
+		}
+		checked, approved, chooseErr := choosePlan(plan, saved, o.verbose)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}
@@ -281,13 +290,6 @@ func applyMachine(
 			}
 		}
 		selection = machine.SelectionOf(plan.Effects)
-		// Tag saved skips from machine.toml even under --reset: Apply's recheck
-		// reads the file the same way, and SavedSkip is part of the digest the
-		// approval must equal.
-		saved, savedErr := machine.ReadSelection(c.Native.Config)
-		if savedErr != nil {
-			return result, plan, savedErr
-		}
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
 	default:
