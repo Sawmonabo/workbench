@@ -9,8 +9,7 @@ Workbench consent/checkpoints or release identity.
 
 `home/.chezmoi.toml.tmpl` owns the native questionnaire. Approved setup saves
 validated private `[data]` answers, not arbitrary native hooks, source overrides
-or Git auto-push configuration. `--machine-config PATH` explicitly selects an
-existing private answer file, used as is for that run and never saved. Complete unattended inputs include identity,
+or Git auto-push configuration. Complete unattended inputs include identity,
 role, editor, version mode, derived role/platform flags and conditional fields.
 
 | Role | Identity and integration |
@@ -24,10 +23,10 @@ Roles derive `has_personal` and `has_work`; native host detection derives
 Mixed role asks for both emails, work roles for local-only service credentials,
 and WSL for its sizing/restart-path inputs. Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with
-`workbench apply --ask machine_role`. Role changes remove the files and the
+`workbench init --ask machine_role`, then `workbench apply`. Role changes remove the files and the
 Codex entries only the old role used, such as the work MCP servers and their
-tokens, and the `~/repos` trust; configuration-only mode still previews and
-checkpoints those removals.
+tokens, and the `~/repos` trust; the checklist lists those removals and they are
+checkpointed like any other file change, even with every effect unchecked.
 
 A minimal personal answer file for macOS or native Linux is:
 
@@ -44,8 +43,9 @@ versions_mode = "pinned"
 ```
 
 Save private runtime answers outside the repository with mode `0600`, replace
-the sample identity deliberately, and supply that file with `--machine-config`.
-This example is not a WSL/work-role input and does not authorize application.
+the sample identity deliberately, and save it with
+`workbench init --answers-from FILE`. This example is not a WSL/work-role input
+and does not authorize application.
 
 ## Local versus managed data
 

@@ -20,6 +20,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Routine gates: `golangci-lint fmt`, `golangci-lint config verify`,
   `golangci-lint run ./...`, `go build ./...`; run the tiny safeguards with
   `go test ./...`. Pins are `go.mod` and `.golangci-lint-version`.
+- Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
+  the checklist with `plan_digest`; `workbench apply --approve-plan DIGEST`
+  applies exactly that plan and exits 4 if the machine, release or saved
+  selection changed since. `workbench init --answers-from FILE --dry-run --json`
+  and `--approve-plan` work the same way. `--yes` is for a person who trusts
+  the saved selection, not for a caller that did not read the plan. From a
+  checkout, add `--local-build` to both calls.
 - Use isolated destinations and synthetic credentials for smoke checks. Never
   provision the developer's live machine to validate code.
 
@@ -55,10 +62,10 @@ are not sandboxed and must remain visible in consent.
 `scripts/package-release.py` digests a release's machine source into its
 `release.json` and stamps the same digest into its executable, which refuses
 a release source that differs. Nothing is committed for this. A developer
-checkout passed with `--source` is instead bound by its actual content digest,
+checkout used with `--local-build` is instead bound by its actual content digest,
 which the approved plan carries, so `home/` edits preview and apply without a
 rebuild. Tool version pins are read at runtime from that source's
-`home/.chezmoidata/versions.toml` (`--source`, else the active release).
+`home/.chezmoidata/versions.toml` (`--local-build`, else the active release).
 Before committing `home/` changes, run the existing
 `scripts/render-check.sh ROLE MODE [wsl]` for affected roles/modes. Do not
 weaken the release source check or add a second renderer. The WSL argument is

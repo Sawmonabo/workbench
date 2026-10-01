@@ -7,11 +7,13 @@ over the same files.
 1. **Install Workbench without configuring anything yet.**
 
    ```sh
-   curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh -s -- --install-only
+   curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
    ```
 
-   From a checkout instead, build with `go build -o bin/workbench ./cmd/workbench`
-   and add `--source PATH_TO_CHECKOUT` to every `apply` below.
+   Installing never applies the machine; the CLI's last line says to run
+   `workbench apply`. From a checkout instead, build with
+   `go build -o bin/workbench ./cmd/workbench` and add `--local-build` to every
+   `apply` below, run inside the checkout.
 
 2. **Adopt your existing answers.** This copies only the `[data]` table into
    Workbench's private `machine.toml`. `sourceDir`, hooks and any other keys
@@ -21,17 +23,18 @@ over the same files.
    workbench init --answers-from ~/.config/chezmoi/chezmoi.toml
    ```
 
-   This is a one-time adoption, so `init` is left out of `workbench --help`.
-   `apply` reads only `machine.toml`, so `--machine-config` is no longer needed.
+   `apply` reads only `machine.toml`.
 
-3. **Apply configuration only, and review it first.**
+3. **Review the checklist, then apply.**
 
    ```sh
-   workbench apply --config-only
+   workbench apply
    ```
 
-   It shows the plan and asks before changing anything. Every changed file is
-   checkpointed; `workbench revert` lists them to restore.
+   It shows each changed file and each provisioning effect with what it would do
+   here, and asks before changing anything. Uncheck every effect to apply files
+   only, or keep them to provision now. Every changed file is checkpointed;
+   `workbench revert` lists them to restore.
    The first apply sets the managed VS Code keys in
    `home/.chezmoidata/vscode.json` (zoom, confirm prompts, ty/Ruff as the
    Python language tools). Remove any you don't want enforced before applying.
@@ -45,7 +48,8 @@ over the same files.
 
    Until you do, `workbench doctor` reports a `native-chezmoi` conflict.
 
-5. **Provision when you're ready.**
+5. **Provision when you're ready.** If you unchecked the effects in step 3, run
+   `apply` again with them checked; `--reset` checks every effect again.
 
    ```sh
    workbench apply

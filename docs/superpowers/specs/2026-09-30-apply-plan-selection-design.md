@@ -120,7 +120,9 @@ ok` or `present` for no change, `install <names>` for new items, and
 - `--yes`: no prompt; applies the plan with the saved skips. The `-y` short
   form exists.
 - `--reset`: ignore the saved skips for this run (everything checked), then
-  save what is picked.
+  save what is picked. Saved skips for effects this host does not list (for
+  example a macOS effect on Linux) are kept in `machine.toml` and ignored;
+  `--reset` re-checks this host's effects but keeps those foreign skips.
 - `--approve-plan DIGEST`: applies exactly that plan without a prompt. The
   digest covers the files, the effects and which are checked, so a plan
   approved from a dry run cannot apply a different selection. A changed
@@ -133,7 +135,10 @@ ok` or `present` for no change, `install <names>` for new items, and
   `WORKBENCH_EFFECT_<NAME>=1` or `=0` for every effect, a script whose effects
   are all unchecked is not run at all, and a shared script wraps each
   effect's section in its own gate (`linux-packages`/`work-tools`,
-  `windows-files`/`wsl-preferences`). Unchecking `windows-files` also
+  `windows-files`/`wsl-preferences`). A shared script with one effect
+  unchecked still runs its other sections; its private copy gets a
+  `# workbench: skipped <names>` line after the shebang, so chezmoi reruns it
+  once the effect is checked again. Unchecking `windows-files` also
   unchecks `terminal-adoption`, `powershell-adoption` and `font-registry`,
   which act on the files it writes; their rows say `needs windows-files`.
 - The optional WSL effects (`terminal-adoption`, `powershell-adoption`,

@@ -34,38 +34,35 @@ synthetic answers.
   alone for its release notes.
   The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
   downloading from GitHub each installed a release.
-  `version --list` marks the latest and installed releases. `update` from an
-  older release installed the latest and then reported it current. From a
-  release before v0.1.2 it asks twice: the older runtime asks before
-  installing, then the new one asks about the machine plan. Switching to an
+  `version --list` marks the latest and installed releases. Switching to an
   older bundle and back worked, and `update 9.9.9` names the missing release.
-- `apply` and `update` ask one question, about the machine plan. Installing
-  Workbench and its pinned tools needs no separate approval: chezmoi, uv, Python 3.12.12 and
-  TOML Kit download when missing, with a progress line. Rerunning `update`
-  finishes a stage that was declined or failed. From a fresh home with no
-  chezmoi or uv on `PATH`, `--install-only` (interactive or unattended, with no
-  saved answers) and `--config-only` each installed all four tools without a
-  prompt; `--install-only` then stops, and `--dry-run` stops before
-  installing. Refusing after a fresh install exits 5, and on
-  a rerun exits 3. Unattended, `update --json` stops at the machine plan with
-  its digest, and `--approve-plan` applies it through the handoff to the new
-  runtime.
-- A fresh interactive setup asked every machine question, from `update` and,
-  after `update --install-only`, from `apply`, including with standard input
-  piped as under `curl | sh`, on macOS and in the Ubuntu container. Esc or
-  ctrl+c at a question exits 3, saves no answers and names `workbench apply`,
-  which then asked every question, including after an update from the previous
-  release was stopped at the first one. Setup asks
-  only the questions the saved answers lack, and `apply --ask KEY` asks a
-  saved one again without network access: work → personal dropped the tokens
-  and the Codex work servers, coderabbit and `~/repos` trust, and personal →
-  both asked both emails and wrote the two per-directory Git files. An unknown
-  key, or `--ask` with `--install-only`, `--dry-run`, `--machine-config` or
-  `--source`, is refused before installing, as is an unknown `--effect`. `apply --dry-run` with a missing
-  answer asks nothing and names the fix. A `--machine-config` file applied a
-  `both` role to another destination and left the saved answers byte for
-  byte. `apply --source` used the saved answers without setup. The hidden
-  `init --answers-from` adopts an existing chezmoi `[data]` table.
+- `update` installs the release and its pinned tools and never applies the
+  machine. From an older release it installs the latest and says
+  `[WorkBench] Installed vX and its tools; run workbench apply`; when that
+  release is already active it says `[WorkBench] vX is already installed; run
+  workbench apply`. `install.sh` installs through `update` and applies nothing,
+  and `update --dry-run` stops before installing. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+- Installing Workbench and its pinned tools needs no separate approval: from a
+  fresh home with no chezmoi or uv on `PATH`, `update` downloads chezmoi, uv,
+  Python 3.12.12 and TOML Kit with a progress line and without a prompt, and
+  rerunning it finishes a stage that was declined or failed. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+- `apply` shows the checklist and asks once, about the checked selection.
+  Unattended, `apply --dry-run --json` prints the plan with its digest, and
+  `apply --approve-plan DIGEST` applies exactly that plan or exits 4 when the
+  machine, release or saved selection changed; `init --answers-from FILE`
+  works the same way. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
+- A fresh interactive setup asks every machine question from `apply`,
+  including with standard input piped as under `curl | sh`. Esc or ctrl+c at
+  a question exits 3, saves no answers and names `workbench apply`, which
+  then asks every question. Setup asks only the questions the saved answers
+  lack, and `init --ask KEY` asks a saved one again at a terminal without
+  network access: work → personal drops the tokens and the Codex work
+  servers, coderabbit and `~/repos` trust, and personal → both asks both
+  emails and writes the two per-directory Git files. An unknown key, or
+  `--ask` with `--dry-run` or without a terminal, is refused before installing.
+  `apply --dry-run` with a missing answer asks nothing and names the fix. A
+  `--local-build` apply uses the saved answers without setup, and the hidden
+  `init --answers-from` adopts an existing chezmoi `[data]` table. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
 - Successive installs keep only the new and replaced releases, and remove
   setup contexts and tool versions that no kept release uses. An interrupted
   activation resumes. A staged release with a missing `release.json`, a changed
@@ -85,14 +82,18 @@ synthetic answers.
   would install or update. Its starting version is Homebrew's record, as the
   upgrade prints it, even for an app that numbers itself one release behind;
   an app that updated itself past the record shows its own. Pinned packages, and the chezmoi, uv and Python
-  Workbench runs, are held, and a rerun keeps the digest. `--config-only`
-  lists no provisioning effects.
+  Workbench runs, are held, and a rerun keeps the digest.
+  Unchecking every effect applies files only and is saved like any other
+  selection (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7).
 - A live status line shows planning, the recheck after approval and setup.
   ctrl+c exits 130, writes nothing and leaves `stty -a` unchanged.
-- Approval is a Yes/No prompt: `n`, Enter and esc refuse with exit 3. A
-  config-only apply with nothing to change asks nothing, unless it settles an
-  unfinished apply. Apply wrote the planned files, and the next plan had zero
+- `revert` and `project` approve with a Yes/No prompt: `n`, Enter and esc
+  refuse with exit 3. Apply wrote the planned files, and the next plan had zero
   edits.
+- An `apply` whose files all match, with no effect checked and no changed
+  selection to save, asks nothing and says
+  `[WorkBench] Nothing to apply; this machine already matches`, unless it
+  settles an unfinished apply (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7).
 - In the Ubuntu container, the Linux bootstrap put the current `gh` and its
   man pages in `~/.local/bin` over an apt-installed one, the tmux step cloned
   TPM and installed the plugins, and without network it failed only that step.
@@ -121,11 +122,12 @@ synthetic answers.
 ### Linux
 
 - In an Ubuntu 24.04 container, not a native host, a new user with login
-  umask 0002 installed a linux-arm64 bundle. Setup qualified all tools, and a
-  config-only apply wrote files at 0644 and folders at 0755. With `~/.config`
-  at 0700 the plan listed a mode-only edit to 0755, and revert restored 0700.
-  With `~/.local` group-writable, the install stopped with the `chmod go-w`
-  that fixes it.
+  umask 0002 installed a linux-arm64 bundle and setup qualified all tools. With
+  `~/.local` group-writable, the install stopped with the `chmod go-w` that
+  fixes it.
+- On the same umask, an apply with every effect unchecked writes files at 0644
+  and folders at 0755. With `~/.config` at 0700 the plan lists a mode-only edit
+  to 0755, and revert restores 0700. (target; observed checks in docs/superpowers/plans/2026-09-30-apply-plan-selection.md Task 7)
 
 ### Projects
 
@@ -151,7 +153,7 @@ synthetic answers.
 | --- | --- |
 | macOS | Complete disposable-user provisioning, minimum OS and Intel runs. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. |
-| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are selected `--effect`s, and no real host run is recorded. |
+| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are effects that start unchecked in the checklist, and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 

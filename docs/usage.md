@@ -17,11 +17,10 @@ when `gh` is installed and logged in, otherwise with `curl`. It extracts only th
 CLI and runs `workbench update VERSION --bundle FILE`, passing every other
 argument through:
 
-- `--install-only` installs Workbench and its tools without applying.
-- `--config-only` applies configuration files without running provisioning
-  scripts.
 - `--dry-run` verifies the bundle and shows only the install plan.
-- `--effect NAME` selects an optional WSL host step (see below).
+
+Installing never applies the machine; the CLI's last line says to run
+`workbench apply`.
 
 Every install, update and apply puts Workbench's own tools in place first,
 without asking: chezmoi, uv, Python and TOML Kit, pinned by the release,
@@ -36,11 +35,14 @@ logged-in `gh`. Never run it as root.
 
 | Command | Behavior |
 | --- | --- |
-| `apply` | Install Workbench's tools if missing and ask any machine question your answers lack, then show what would change, ask Yes or No, checkpoint files and apply. |
-| `apply --ask KEY` | The same, asking that saved answer again first, e.g. `--ask machine_role`. |
-| `apply --dry-run` | Show the plan only; installs and asks nothing. |
-| `update` | Install the latest release, then run `apply` with it. `update --dry-run` shows only the install step. |
+| `apply` | Install Workbench's tools if missing and ask any machine question your answers lack, then show the `[WorkBench]` checklist: changed files with line counts, and each provisioning effect with what it would do here. Space unchecks, enter applies, esc quits. Unchecked effects are remembered. |
+| `apply --yes` | Apply the saved selection without asking. |
+| `apply --reset` | Forget the saved skips; every effect is checked again, and what you pick is saved. |
+| `apply --dry-run` | Print the checklist and exit; installs, asks and changes nothing. |
+| `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
+| `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
+| `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
 | `version` | Print this Workbench version, the same as `--version`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
 | `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks; no repair. |
@@ -49,9 +51,11 @@ logged-in `gh`. Never run it as root.
 
 `update` and `version --list` read the releases from GitHub. They need no
 login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which
-raises GitHub's rate limit. When that release is already
-installed, `update` skips installing and runs `apply`, so rerunning it
-finishes a setup that was declined or failed. The hidden
+raises GitHub's rate limit. `update` ends with
+`[WorkBench] Installed vX and its tools; run workbench apply`. When that
+release is already installed it installs no release, still completes any missing
+tool, and says `[WorkBench] vX is already installed; run workbench apply`, so
+rerunning it finishes a setup that was stopped. The hidden
 `--bundle FILE` takes a local archive or HTTPS URL instead, which is what
 `install.sh` passes.
 
@@ -61,15 +65,17 @@ the apply of …" (the files before that apply) or "redo the apply of …" (the
 files a revert replaced). Without a terminal it lists them with their IDs and
 asks for `--checkpoint ID`; `--dry-run` shows the restore plan.
 
-`apply` and `doctor` take `--source PATH` to use a developer checkout instead of
-the installed release; with it, `apply` uses your saved answers and tools as
-they are. `apply` and `update` take `--machine-config PATH`, a private native
-`[data]` answer file used as is for that run and never saved, and
-`--destination PATH`, an existing folder to configure instead of your home. Full provisioning requires the real
-home destination because native scripts have external effects. See
-[configuration ownership](chezmoi-local-overrides.md). The hidden
-`init --answers-from PATH` saves the `[data]` table of an existing chezmoi
-config as machine answers; see [switching from dotfiles](switch-from-dotfiles.md).
+Developers inside a checkout add the hidden `--local-build` (no value) to
+`apply` and `doctor` to use that checkout instead of the installed release; with
+it, `apply` uses your saved answers and tools as they are. `apply` and `update`
+take `--destination PATH`, an existing folder to configure instead of your home.
+Full provisioning requires the real home destination because native scripts
+have external effects. See
+[configuration ownership](chezmoi-local-overrides.md). `init --answers-from FILE`
+saves the `[data]` table of an existing chezmoi config as machine answers, and
+`init --ask KEY` asks one saved answer again; see
+[switching from dotfiles](switch-from-dotfiles.md). `init --ask` needs a
+terminal and refuses `--dry-run`, because it saves what it asks.
 
 ## Approval and automation
 
@@ -78,55 +84,88 @@ such as `+3 −1 lines` or `mode 0600 → 0644`. It also says when a target was
 `edited outside Workbench since it last wrote it` or is `not previously written
 by Workbench`, so an approval never overwrites local edits unnoticed.
 
-Interactive mutations show the plan, then ask "Approve this exact plan?" with
-Yes and No (y or n, or the arrow keys and Enter). No is selected first, so
-Enter alone approves nothing, and esc or ctrl+c refuses. The plan lists the
-files it changes, then its effects grouped by the privilege they need and what
-recovery can undo, then warnings and recovery limits. `apply --dry-run` prints
-the same view without asking. While Workbench plans, rechecks an approved plan or sets up
+Interactive `apply` shows the `[WorkBench]` checklist: the files it changes,
+then one line per provisioning effect with what it would do here, its privilege
+tag and `skipped (saved)` where you skipped it before. Every effect starts
+checked. Space unchecks one, enter applies exactly what is checked and esc or
+ctrl+c quits with nothing applied. Effects that always run with the files, such
+as `ai-security-settings`, show without a box and cannot be unchecked. When no
+effect can be chosen, it asks Yes or No for the files, with No selected first.
+`revert` and `project` still ask "Approve this exact plan?" with Yes and No
+(y or n, or the arrow keys and Enter; Enter alone, esc and ctrl+c refuse).
+`apply --dry-run` prints the checklist without the toggle line and asks
+nothing. Add `--verbose` to see each effect's recovery text and the recovery
+limits, which the checklist leaves out.
+
+Unchecked effects are saved for this machine in the `[effects]` table of its
+private `machine.toml` and stay unchecked until `apply --reset`, which checks
+this host's effects again and saves what you pick. An effect added by a later
+release is checked by default. Unchecking every effect applies files only and is
+saved like any other selection. Saved skips for effects this host does not list,
+for example a macOS effect on Linux, are kept and ignored; `--reset` keeps
+those foreign skips. Effects are gated one by one: a shared script with one
+effect unchecked still runs its other sections. `--dry-run` never saves.
+
+Windows host steps on WSL (`terminal-adoption`, `powershell-adoption`,
+`font-registry`, `default-distro`, `windows-path`, `sysctl`) appear in the
+checklist unchecked; checking one is remembered like a skip.
+
+Probes. Each effect line is what the script would do, found by running it in a
+read-only probe mode before the checklist; a probe that fails or exceeds five
+seconds shows `unprobed` and the effect stays checked.
+
+While Workbench plans, rechecks an approved plan or sets up
 chezmoi, uv and Python, a live line on stderr names the current step and the
 time so far, for example `⠧ Planning: asking Homebrew for updates (2s)`; it
 clears before any prompt. Without a terminal, and in JSON or non-interactive
 mode, each step prints as its own line instead. An interactive apply then hands the terminal to native
 provisioning, so sudo and installers can prompt and you see their output as it
 runs, and takes it back when they finish. JSON mode does not
-prompt; it streams redacted provisioning output on stderr. Unattended mutation
-requires complete inputs, `--non-interactive` and the exact digest from a fresh
-preview:
+prompt; it streams redacted provisioning output on stderr.
+
+Unattended runs. Agents and scripts read the plan first, then apply exactly that plan:
 
 ```sh
-workbench apply --config-only --dry-run --json
-workbench apply --config-only --non-interactive --approve-plan PLAN_SHA256
+workbench apply --dry-run --json      # read .plan_digest
+workbench apply --approve-plan DIGEST # applies exactly that plan, exit 4 if it changed
+workbench init --answers-from FILE --dry-run --json   # same pattern for init
+workbench init --answers-from FILE --approve-plan DIGEST
 ```
 
-Keep all source/config/destination/selection flags identical between those calls.
-Changed inputs conflict instead of inheriting old consent. `apply` and
-`update` ask one question, about the plan for this machine. Installing
-Workbench and its pinned tools needs no separate approval: running the command
-is the go-ahead, they change only Workbench's own files, and `update` keeps the
-replaced release. Setup asks only the machine questions your saved answers
-lack; each asks once, so nothing already answered is asked again. Esc or ctrl+c
-at a question stops with nothing saved, and the next `workbench apply` asks
-again. To change an
-answer, name it with `--ask`: `workbench apply --ask machine_role` asks the
-role again, plus any question the new role needs (both emails for `both`, the
-tokens for `work`), then shows the plan. Answers the new role doesn't use are
-dropped. Unattended, `--json` stops at the machine plan with its digest, and
-`--approve-plan DIGEST` applies it. Without a terminal, setup needs saved
-answers or `--machine-config`.
-No blanket `--yes` grants unspecified external effects.
+The digest covers the files, the effects and which are checked, so a plan
+approved from a dry run cannot apply a different selection. If the machine, the
+release or the saved selection changed since, `--approve-plan` exits 4 with
+`Approval digest does not match the current plan; review a new plan` and
+changes nothing. From a checkout, add `--local-build` to both `apply` calls.
+Keep it and `--destination` identical between them. `--yes` is for a person who trusts
+the saved selection, not for a caller that did not read the plan.
+
+`apply` and `update` ask nothing about installing Workbench and its pinned
+tools: running the command is the go-ahead, they change only Workbench's own
+files, and `update` keeps the replaced release. Setup asks only the machine
+questions your saved answers lack; each asks once, so nothing already answered
+is asked again. Esc or ctrl+c at a question stops with nothing saved, and the
+next `workbench apply` asks again. To change an answer, name it with
+`workbench init --ask KEY`: `workbench init --ask machine_role` asks the role
+again, plus any question the new role needs (both emails for `both`, the tokens
+for `work`); the next `apply` shows the plan. Answers the new role doesn't use
+are dropped. Without a terminal, setup needs saved answers, which
+`init --answers-from FILE` provides. Nothing grants unspecified external
+effects: the plan's digest names the effects it runs.
 
 At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
-done) in color, and a successful run ends with a green ✓ line saying what it
-achieved, for example `✓ Updated to Workbench v0.2.0, and your machine matches
-it`. Plans already shown at an approval prompt are not repeated. Piped output,
-and `NO_COLOR`, give the same lines without symbols or color.
+done) in color, and a successful run ends with a green `[WorkBench]` line
+saying what it achieved, for example
+`[WorkBench] Applied: 3 files, 4 effects; 1 skipped`, or, when the files match and no effect is checked,
+`[WorkBench] Nothing to apply; this machine already matches`.
+Plans already shown at a prompt are not repeated. Piped output, and `NO_COLOR`,
+give the same lines without symbols or color.
 
 A plan lists only the steps this apply would actually run: the provisioning
 scripts chezmoi would run (a once-only script that already ran is left out, as
 is an on-change script whose content has not changed) and the steps whose files
-change. On macOS, every full plan (from `apply` or `update`) lists its
-steps as effects, and approving the plan approves them. They include
+change. On macOS, every full plan lists its
+steps as effects, and checking them approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`
 that Homebrew reports as outdated, for example `Update docker-desktop 4.89.0 →
@@ -138,12 +177,6 @@ does not ask again during apply. Hold one at its version with `brew pin`
 (`brew pin --cask <app>` for an app; `brew unpin` releases it). The chezmoi, uv
 and Python that Workbench runs stay at the versions it qualified, and so does
 any tool whose update would change them; the plan names them in its warnings.
-
-Windows host steps on WSL run only when named with a repeatable `--effect` on
-`apply` or `update`, both for the dry run and the approved run; each appears in
-the plan and its digest. `workbench apply --help` lists what this host offers,
-and hosts without any do not show the flag. `--effect` cannot be combined with
-`--config-only`.
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
