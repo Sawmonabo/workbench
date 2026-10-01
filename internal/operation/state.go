@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"slices"
 	"syscall"
+	"time"
 )
 
 // State describes current selections only. Checkpoint/image validation belongs
@@ -20,6 +21,7 @@ type State struct {
 	Dependencies         []Dependency      `json:"dependencies,omitempty"`
 	ActiveRelease        *ReleaseRecord    `json:"active_release"`
 	AppliedConfiguration *SourceIdentity   `json:"applied_configuration"`
+	AppliedAt            *time.Time        `json:"applied_at,omitempty"`
 	PartialOperation     *PartialOperation `json:"partial_operation"`
 }
 

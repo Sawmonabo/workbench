@@ -135,7 +135,11 @@ func initialize(
 	if _, _, err = SourceSnapshot(c.Native.Source, false); err != nil {
 		return nil, err
 	}
-	encoded, err := toml.Marshal(map[string]any{"data": answers})
+	previous, err := ReadSelection(filepath.Join(c.Paths.Config, "machine.toml"))
+	if err != nil {
+		return nil, err
+	}
+	encoded, err := encodeMachineConfig(answers, previous)
 	if err != nil {
 		return nil, err
 	}

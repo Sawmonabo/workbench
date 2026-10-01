@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"slices"
 )
 
 // SourceIdentity names a machine source: its release and the digest of its
@@ -40,12 +41,26 @@ type Edit struct {
 }
 
 // Effect is a planned change outside checkpointed files, with the privilege
-// it needs and what recovery can and cannot undo.
+// it needs and what recovery can and cannot undo. Checked says whether this
+// apply runs it; the plan digest covers that, so consent is for exactly the
+// shown selection.
 type Effect struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Privilege   string `json:"privilege"`
 	Recovery    string `json:"recovery"`
+	// Delta is the probed one-line change on this machine, "" when the
+	// effect was not probed.
+	Delta string `json:"delta,omitempty"`
+	// Probe is "ok", "failed" or "timeout" once a probe ran, "" otherwise.
+	Probe string `json:"probe,omitempty"`
+	// Fixed effects always run with the plan and cannot be unchecked: the
+	// file-backed policy marker and checkpoint retention.
+	Fixed bool `json:"fixed,omitempty"`
+	// Checked effects run; unchecked ones are left out of this apply.
+	Checked bool `json:"checked"`
+	// SavedSkip marks an unchecked effect whose skip came from machine.toml.
+	SavedSkip bool `json:"saved_skip,omitempty"`
 }
 
 // Plan is what an operation will do, shown before consent. Inputs holds native
@@ -61,6 +76,8 @@ type Plan struct {
 	Edits         []Edit         `json:"edits"`
 	Prerequisites []string       `json:"prerequisites"`
 	Effects       []Effect       `json:"effects"`
+	// UnchangedTargets counts the managed files this plan leaves as they are.
+	UnchangedTargets int `json:"unchanged_targets"`
 	// Warnings are review notes that change nothing, such as a check that
 	// could not run.
 	Warnings       []string `json:"warnings,omitempty"`
@@ -69,13 +86,19 @@ type Plan struct {
 }
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its
-// private inputs. A plan holds only strings, slices and bools, so marshalling
-// cannot fail.
+// private inputs, with each effect's probed Delta and Probe blanked, so what
+// is approved is the files, the effects and which are checked. A plan holds
+// only strings, slices and bools, so marshalling cannot fail.
 func (p Plan) Digest() string {
+	approved := p
+	approved.Effects = slices.Clone(p.Effects)
+	for i := range approved.Effects {
+		approved.Effects[i].Delta, approved.Effects[i].Probe = "", ""
+	}
 	data, _ := json.Marshal(struct {
 		Plan   Plan
 		Inputs []Input
-	}{p, p.Inputs})
+	}{approved, approved.Inputs})
 	return SHA256Hex(data)
 }
 

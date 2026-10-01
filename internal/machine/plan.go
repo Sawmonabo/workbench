@@ -14,13 +14,6 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// Selection is what an apply covers: configuration only, or full provisioning
-// plus any optional effects named in Effects.
-type Selection struct {
-	ConfigOnly bool
-	Effects    []string
-}
-
 // Plan runs only reviewed target enumeration/status/diff against copied native
 // state. It never initializes source Git, saves answers or runs provisioning.
 func Plan(

@@ -37,12 +37,21 @@ func readAnswers(raw []byte) (Answers, error) {
 			"Machine answers are not valid TOML; original input retained",
 		)
 	}
-	if len(config) != 1 || config["data"] == nil {
+	if config["data"] == nil {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Machine config must contain only a [data] table; adopt answers without native hooks or commands",
+			"Machine config must contain a [data] table; adopt answers without native hooks or commands",
 		)
+	}
+	for key := range config {
+		if key != "data" && key != "effects" {
+			return nil, operation.Fail(
+				operation.ExitInvalid,
+				"answers",
+				"Machine config may contain only [data] and [effects] tables; adopt answers without native hooks or commands",
+			)
+		}
 	}
 	data, ok := config["data"].(map[string]any)
 	if !ok {
@@ -231,11 +240,15 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	if err = validateAnswers(answers); err != nil {
 		return plan, nil, err
 	}
-	encoded, err := toml.Marshal(map[string]any{"data": answers})
+	target := filepath.Join(c.Paths.Config, "machine.toml")
+	existing, err := ReadSelection(target)
 	if err != nil {
 		return plan, nil, err
 	}
-	target := filepath.Join(c.Paths.Config, "machine.toml")
+	encoded, err := encodeMachineConfig(answers, existing)
+	if err != nil {
+		return plan, nil, err
+	}
 	previous, action := "absent", "create"
 	if _, statErr := os.Lstat(target); statErr == nil {
 		existing, readErr := operation.ReadPrivateInput(target, 1<<20)
