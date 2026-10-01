@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"charm.land/lipgloss/v2"
+
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -125,8 +127,8 @@ func writeReleases(w io.Writer, list releaseList) error {
 		})
 	}
 	var b strings.Builder
-	writeColumns(&b, rows)
-	_, err := io.WriteString(w, b.String())
+	writeTable(&b, terminalWidth(w), 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
+	_, err := lipgloss.Fprint(w, b.String())
 	return err
 }
 

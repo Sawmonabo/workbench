@@ -24,20 +24,28 @@ var probeLine = regexp.MustCompile(`^([a-z0-9-]+): (.+)$`)
 // probeEffects fills each effect's Delta from the active scripts run with
 // WORKBENCH_PROBE=1, in parallel. A probe that fails, times out or prints
 // anything but effect lines leaves its effects marked failed; the plan never
-// blocks on a probe, and an unprobed effect stays checked.
-func (p *preparation) probeEffects(ctx context.Context, c operation.Context) {
+// blocks on a probe, and an unprobed effect stays checked. Probes write
+// nothing: Go telemetry and Node's compile cache are switched off. It returns
+// the context's error when the run was interrupted, so the plan stops instead
+// of showing every effect unprobed.
+func (p *preparation) probeEffects(ctx context.Context, c operation.Context) error {
 	// Nothing here touches the plan digest: a probe failure shows as
 	// "unprobed" on the effect, never as a warning the digest would cover.
 	scripts, err := p.scriptSources(ctx, c)
 	if err != nil {
-		return
+		return ctx.Err()
 	}
 	directory := filepath.Join(p.scratch, "probe")
 	if err = os.Mkdir(directory, 0o700); err != nil {
-		return
+		return ctx.Err()
 	}
 	environment := scriptEnvironment(c, p.Plan.Dependencies)
-	environment = append(environment, "WORKBENCH_PROBE=1")
+	environment = append(
+		environment,
+		"WORKBENCH_PROBE=1",
+		"GOTELEMETRY=off",
+		"NODE_DISABLE_COMPILE_CACHE=1",
+	)
 	for i, value := range environment {
 		if rest, ok := strings.CutPrefix(value, "PATH="); ok {
 			environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
@@ -70,6 +78,9 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) {
 		}(name, contents)
 	}
 	wg.Wait()
+	if err = ctx.Err(); err != nil {
+		return err
+	}
 	for i := range p.Plan.Effects {
 		effect := &p.Plan.Effects[i]
 		status, probed := outcome[effect.Name]
@@ -82,6 +93,7 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) {
 			effect.Delta = strings.Join(lines, "; ")
 		}
 	}
+	return nil
 }
 
 // scriptSources renders every provisioning script native would consider,
@@ -138,6 +150,9 @@ func (p *preparation) runProbe(
 		OutputLimit: 64 << 10,
 	})
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil, ""
+		}
 		// operation.Run reports expiry as its own Error in the "timeout"
 		// category, not as a wrapped context error.
 		var problem *operation.Error

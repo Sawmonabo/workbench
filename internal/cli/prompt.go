@@ -9,7 +9,9 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
+	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
+	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -95,7 +97,7 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 }
 
 // choosePlan shows the checklist on the controlling terminal: the files, then
-// a multi-select of the effects with the plan's checks as defaults. Enter
+// a list of the effects with the plan's checks as defaults. Enter
 // approves exactly that selection; esc or ctrl+c approves nothing.
 func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	terminal, err := openTerminal()
@@ -110,37 +112,37 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	}, verbose); err != nil {
 		return nil, false, err
 	}
-	var options []huh.Option[string]
-	var fixed []string
-	var checked []string
+	var (
+		rows    [][]string
+		names   []string
+		boxes   []bool
+		fixed   []string
+		checked int
+	)
 	for _, effect := range plan.Effects {
 		if effect.Fixed {
 			fixed = append(fixed, effect.Name)
 			continue
 		}
-		row := effectRow(effect)
-		label := fmt.Sprintf("%-24s %s  (%s)", row[1], row[2], row[3])
-		if row[4] != "" {
-			label += "  " + row[4]
-		}
-		options = append(options, huh.NewOption(label, effect.Name).Selected(effect.Checked))
-		if effect.Checked {
-			checked = append(checked, effect.Name)
-		}
+		rows = append(rows, effectRow(effect))
+		names = append(names, effect.Name)
+		boxes = append(boxes, effect.Checked)
 	}
-	if len(options) == 0 {
+	if len(names) == 0 {
 		approved := false
 		answered, askErr := ask(terminal, huh.NewConfirm().
 			Title("[WorkBench] Apply these files?").
 			Affirmative("Yes").Negative("No").Value(&approved))
 		return fixed, answered && approved && askErr == nil, nil
 	}
-	answered, err := ask(terminal, huh.NewMultiSelect[string]().
-		Title("[WorkBench] Effects: space toggles, enter applies, esc quits").
-		Description("Unchecked effects are remembered for this machine; apply --reset forgets them.").
-		Options(options...).
-		Filterable(false).
-		Value(&checked))
+	// Inline, so the file list above stays visible. main owns SIGINT; ctrl+c
+	// arrives as a key.
+	final, err := tea.NewProgram(
+		newChecklist(rows, names, boxes),
+		tea.WithInput(terminal),
+		tea.WithOutput(terminal),
+		tea.WithoutSignalHandler(),
+	).Run()
 	if err != nil {
 		return nil, false, operation.Fail(
 			operation.ExitBlocked,
@@ -148,16 +150,24 @@ func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 			"No complete approval was received",
 		)
 	}
-	if !answered {
+	list, ok := final.(*checklistModel)
+	if !ok || !list.approved {
 		return nil, false, nil
+	}
+	selected := fixed
+	for i, name := range names {
+		if list.checked[i] {
+			selected = append(selected, name)
+			checked++
+		}
 	}
 	_, _ = fmt.Fprintf(
 		terminal,
 		"[WorkBench] Applying %d of %d effects\n",
-		len(checked),
-		len(options),
+		checked,
+		len(names),
 	)
-	return append(checked, fixed...), true, nil
+	return selected, true, nil
 }
 
 // checkpointChoice returns --checkpoint or, at a terminal, the checkpoint the
@@ -233,8 +243,8 @@ func writeCheckpoints(w io.Writer, checkpoints []operation.CheckpointSummary) er
 		rows = append(rows, []string{checkpoint.ID, checkpointLabel(checkpoint)})
 	}
 	var b strings.Builder
-	writeColumns(&b, rows)
-	_, err := io.WriteString(w, b.String())
+	writeTable(&b, terminalWidth(w), 4, tableSpec{Cols: []column{{}, {Clip: true}}, Rows: rows})
+	_, err := lipgloss.Fprint(w, b.String())
 	return err
 }
 

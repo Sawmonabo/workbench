@@ -21,7 +21,12 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- else }}
     go_target=$( (curl -fsSL --max-time 3 'https://go.dev/VERSION?m=text' 2>/dev/null || true) | head -n1); go_target=${go_target#go}
 {{- end }}
-    go_have=$( { command -v go >/dev/null 2>&1 && go version 2>/dev/null; } | awk '{sub(/^go/, "", $3); print $3}' || true)
+    go_have=
+    if go_bin=$(command -v go 2>/dev/null); then
+        go_root=$(dirname "$(dirname "$(readlink -f "$go_bin")")")
+        [ -r "$go_root/VERSION" ] && go_have=$(head -n1 "$go_root/VERSION")
+        go_have=${go_have#go}
+    fi
     if [ -z "$go_target" ]; then
         parts+=("Go ${go_have:-absent} (latest unknown, offline)")
     elif [ "$go_have" = "$go_target" ]; then

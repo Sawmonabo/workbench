@@ -7,7 +7,8 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"unicode/utf8"
+
+	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/project"
@@ -19,11 +20,12 @@ import (
 // recovery limits. --json prints the complete plan instead.
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
+	width := terminalWidth(w)
 	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + homePath(plan.Scope.Root)
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
 	}
-	b.WriteString(title + "\n")
+	writeText(&b, width, 0, title)
 	if len(plan.Dependencies) > 0 {
 		tools := make([]string, 0, len(plan.Dependencies))
 		for _, dependency := range plan.Dependencies {
@@ -32,35 +34,37 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 				fmt.Sprintf("%s %s (%s)", dependency.Name, dependency.Version, dependency.Owner),
 			)
 		}
-		b.WriteString("Uses " + strings.Join(tools, ", ") + "\n")
+		writeText(&b, width, 0, "Uses "+strings.Join(tools, ", "))
 	}
 
-	fmt.Fprintf(&b, "\nFiles (%d):\n", len(plan.Edits))
+	b.WriteString("\n")
+	writeText(&b, width, 0, fmt.Sprintf("Files (%d):", len(plan.Edits)))
 	if len(plan.Edits) == 0 {
-		b.WriteString("  none\n")
+		writeText(&b, width, 2, "none")
 	}
 	for _, group := range groupBy(plan.Edits, func(edit operation.Edit) string { return edit.Description }) {
-		b.WriteString("  " + group.key + ":\n")
+		writeText(&b, width, 2, group.key+":")
 		rows := make([][]string, 0, len(group.items))
 		for _, edit := range group.items {
 			rows = append(rows, []string{edit.Action, homePath(edit.Path), edit.Summary})
 		}
-		writeColumns(&b, rows)
+		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
 	}
 
-	fmt.Fprintf(&b, "\nEffects (%d):\n", len(plan.Effects))
+	b.WriteString("\n")
+	writeText(&b, width, 0, fmt.Sprintf("Effects (%d):", len(plan.Effects)))
 	if len(plan.Effects) == 0 {
-		b.WriteString("  none\n")
+		writeText(&b, width, 2, "none")
 	}
 	for _, group := range groupBy(plan.Effects, func(effect operation.Effect) string {
 		return "Privilege: " + effect.Privilege + ". Recovery: " + effect.Recovery + "."
 	}) {
-		b.WriteString("  " + group.key + "\n")
+		writeText(&b, width, 2, group.key)
 		rows := make([][]string, 0, len(group.items))
 		for _, effect := range group.items {
 			rows = append(rows, []string{effect.Name, effect.Description})
 		}
-		writeColumns(&b, rows)
+		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {Clip: true}}, Rows: rows})
 	}
 
 	for _, section := range []struct {
@@ -72,16 +76,18 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 		{"Recovery limits", plan.RecoveryLimits},
 	} {
 		if len(section.lines) > 0 {
-			b.WriteString("\n" + section.title + ":\n")
+			b.WriteString("\n")
+			writeText(&b, width, 0, section.title+":")
 			for _, line := range section.lines {
-				b.WriteString("  " + line + "\n")
+				writeText(&b, width, 2, line)
 			}
 		}
 	}
 	if !plan.Complete {
-		b.WriteString("\nThis plan is incomplete and cannot be applied as shown.\n")
+		b.WriteString("\n")
+		writeText(&b, width, 0, "This plan is incomplete and cannot be applied as shown.")
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := lipgloss.Fprint(w, b.String())
 	return err
 }
 
@@ -90,33 +96,52 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 // whether a skip was saved. Recovery text and limits are verbose.
 func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
 	var b strings.Builder
-	b.WriteString("[WorkBench] Plan for this machine")
+	width := terminalWidth(w)
+	title := "[WorkBench] Plan for this machine"
 	if plan.Source.Release != "" {
-		b.WriteString(" (" + sourceName(&plan.Source) + ")")
+		title += " (" + sourceName(&plan.Source) + ")"
 	}
+	writeText(&b, width, 0, title)
 	b.WriteString("\n")
-	fmt.Fprintf(&b, "\nFiles (%d changed, %d unchanged)\n", len(plan.Edits), plan.UnchangedTargets)
+	writeText(
+		&b,
+		width,
+		0,
+		fmt.Sprintf("Files (%d changed, %d unchanged)", len(plan.Edits), plan.UnchangedTargets),
+	)
 	if len(plan.Edits) == 0 {
-		b.WriteString("  none\n")
+		writeText(&b, width, 2, "none")
 	}
 	rows := make([][]string, 0, len(plan.Edits))
 	for _, edit := range plan.Edits {
 		rows = append(rows, []string{homePath(edit.Path), editSummary(edit)})
 	}
-	writeColumns(&b, rows)
-	b.WriteString("\nEffects\n")
+	writeTable(
+		&b,
+		width,
+		4,
+		tableSpec{Cols: []column{{Clip: true, ClipLeft: true}, {}}, Rows: rows},
+	)
+	b.WriteString("\n")
+	writeText(&b, width, 0, "Effects")
 	rows = rows[:0]
 	for _, effect := range plan.Effects {
 		rows = append(rows, effectRow(effect))
 	}
 	if len(rows) == 0 {
-		b.WriteString("  none\n")
+		writeText(&b, width, 2, "none")
 	}
-	writeColumns(&b, rows)
+	effects := tableSpec{Cols: effectColumns[1:], Rows: rows}
+	if verbose {
+		writeFull(&b, width, 4, effects)
+	} else {
+		writeTable(&b, width, 4, effects)
+	}
 	if verbose && len(plan.Effects) > 0 {
-		b.WriteString("\nRecovery\n")
+		b.WriteString("\n")
+		writeText(&b, width, 0, "Recovery")
 		for _, effect := range plan.Effects {
-			b.WriteString("  " + effect.Name + ": " + effect.Recovery + "\n")
+			writeText(&b, width, 2, effect.Name+": "+effect.Recovery)
 		}
 	}
 	sections := []struct {
@@ -131,16 +156,18 @@ func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
 	}
 	for _, section := range sections {
 		if len(section.lines) > 0 {
-			b.WriteString("\n" + section.title + ":\n")
+			b.WriteString("\n")
+			writeText(&b, width, 0, section.title+":")
 			for _, line := range section.lines {
-				b.WriteString("  " + line + "\n")
+				writeText(&b, width, 2, line)
 			}
 		}
 	}
 	if !plan.Complete {
-		b.WriteString("\nThis plan is incomplete and cannot be applied as shown.\n")
+		b.WriteString("\n")
+		writeText(&b, width, 0, "This plan is incomplete and cannot be applied as shown.")
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := lipgloss.Fprint(w, b.String())
 	return err
 }
 
@@ -156,6 +183,19 @@ func editSummary(edit operation.Edit) string {
 		return "removed"
 	}
 	return summary
+}
+
+// effectColumns are the checklist's columns: the cursor, which only the
+// interactive list fills, then box, name, delta, privilege tag and saved note.
+// The privilege tag and the note are secondary, and drop first on a narrow
+// terminal.
+var effectColumns = []column{
+	{},
+	{},
+	{},
+	{Clip: true},
+	{Drop: 2, Faint: true},
+	{Drop: 1, Faint: true},
 }
 
 // effectRow is one checklist line: box, name, delta, privilege tag, saved mark.
@@ -210,6 +250,7 @@ func writeProposal(w io.Writer, proposal *project.Proposal) error {
 // they make, each with its language and manager or why it is unsupported.
 func writeInventory(w io.Writer, inventory *project.Inventory) error {
 	var b strings.Builder
+	width := terminalWidth(w)
 	counts := []string{fmt.Sprintf("%d entries", inventory.Entries)}
 	if inventory.Excluded > 0 {
 		counts = append(counts, fmt.Sprintf("%d excluded", inventory.Excluded))
@@ -217,22 +258,26 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 	if inventory.Skipped > 0 {
 		counts = append(counts, fmt.Sprintf("%d skipped", inventory.Skipped))
 	}
-	fmt.Fprintf(
+	writeText(
 		&b,
-		"Found in %s (%s):\n",
-		homePath(inventory.Directory),
-		strings.Join(counts, ", "),
+		width,
+		0,
+		fmt.Sprintf(
+			"Found in %s (%s):",
+			homePath(inventory.Directory),
+			strings.Join(counts, ", "),
+		),
 	)
 	if len(inventory.Items) == 0 {
-		b.WriteString("  nothing\n")
+		writeText(&b, width, 2, "nothing")
 	}
 	rows := make([][]string, 0, len(inventory.Items))
 	for _, item := range inventory.Items {
 		rows = append(rows, []string{item.Path, item.Kind, item.Ecosystem})
 	}
-	writeColumns(&b, rows)
+	writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
 	if len(inventory.Projects) > 0 {
-		b.WriteString("Projects:\n")
+		writeText(&b, width, 0, "Projects:")
 		rows = rows[:0]
 		for _, found := range inventory.Projects {
 			root, err := filepath.Rel(inventory.Directory, found.Root)
@@ -245,42 +290,16 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 			}
 			rows = append(rows, []string{root, about})
 		}
-		writeColumns(&b, rows)
+		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {Clip: true}}, Rows: rows})
 	}
 	if len(inventory.Warnings) > 0 {
-		b.WriteString("Warnings:\n")
+		writeText(&b, width, 0, "Warnings:")
 		for _, warning := range inventory.Warnings {
-			b.WriteString("  " + warning + "\n")
+			writeText(&b, width, 2, warning)
 		}
 	}
-	_, err := io.WriteString(w, b.String())
+	_, err := lipgloss.Fprint(w, b.String())
 	return err
-}
-
-// writeColumns writes indented rows with every column but the last padded to
-// its widest cell, and no trailing spaces.
-func writeColumns(b *strings.Builder, rows [][]string) {
-	var widths []int
-	for _, row := range rows {
-		for i, cell := range row {
-			if i == len(widths) {
-				widths = append(widths, 0)
-			}
-			widths[i] = max(widths[i], utf8.RuneCountInString(cell))
-		}
-	}
-	var line strings.Builder
-	for _, row := range rows {
-		line.Reset()
-		line.WriteString("   ")
-		for i, cell := range row {
-			line.WriteString(" " + cell)
-			if i < len(row)-1 {
-				line.WriteString(strings.Repeat(" ", widths[i]-utf8.RuneCountInString(cell)+1))
-			}
-		}
-		b.WriteString(strings.TrimRight(line.String(), " ") + "\n")
-	}
 }
 
 type group[T any] struct {

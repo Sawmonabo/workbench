@@ -169,7 +169,9 @@ func (p *preparation) selectEffects(
 	probe bool,
 ) error {
 	if probe {
-		p.probeEffects(ctx, c)
+		if err := p.probeEffects(ctx, c); err != nil {
+			return err
+		}
 	}
 	saved, err := ReadSelection(c.Native.Config)
 	if err != nil {

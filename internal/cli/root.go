@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/project"
@@ -266,7 +267,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	for _, problem := range result.Errors {
 		if _, err := fmt.Fprintln(
 			diagnostics,
-			warn.style(red, "✗ Error:"),
+			warn.style(red, glyphs.Cross+" Error:"),
 			problem.Message,
 		); err != nil {
 			return err
@@ -275,7 +276,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	if result.Summary != "" && len(result.Errors) == 0 {
 		if _, err := fmt.Fprintln(
 			out,
-			paint.style(green.Bold(true), "✓ "+result.Summary),
+			paint.style(green.Bold(true), glyphs.Check+" "+result.Summary),
 		); err != nil {
 			return err
 		}
@@ -290,35 +291,35 @@ var (
 	faint  = lipgloss.NewStyle().Faint(true)
 )
 
-// painter colors text only for a terminal, and never when NO_COLOR is set
-// (no-color.org), so logs and pipes get plain lines.
+// painter colors text only where lipgloss would: the same color-profile test
+// the tables use, so a pipe, TERM=dumb and NO_COLOR (no-color.org) all get
+// plain lines and the two never disagree.
 type painter bool
 
 func newPainter(w io.Writer) painter {
-	file, ok := w.(*os.File)
-	return painter(ok && operation.IsTerminal(file) && os.Getenv("NO_COLOR") == "")
+	return painter(colorprofile.Detect(w, os.Environ()) > colorprofile.Ascii)
 }
 
 func (p painter) style(style lipgloss.Style, text string) string {
 	if !p {
-		return strings.TrimPrefix(strings.TrimPrefix(text, "✓ "), "✗ ")
+		return strings.TrimPrefix(strings.TrimPrefix(text, glyphs.Check+" "), glyphs.Cross+" ")
 	}
 	return style.Render(text)
 }
 
-// mark is a colored symbol before a component line at a terminal: ✓ done,
-// · nothing to do, ✗ not done.
+// mark is a colored symbol before a component line at a terminal: a check for
+// done, a dot for nothing to do, a cross for not done.
 func (p painter) mark(status operation.Status) string {
 	if !p {
 		return ""
 	}
 	switch status {
 	case operation.StatusComplete:
-		return green.Render("✓") + " "
+		return green.Render(glyphs.Check) + " "
 	case operation.StatusUnchanged, operation.StatusAbsent, operation.StatusSkipped:
-		return faint.Render("·") + " "
+		return faint.Render(glyphs.text.Replace("·")) + " "
 	default:
-		return red.Render("✗") + " "
+		return red.Render(glyphs.Cross) + " "
 	}
 }
 
