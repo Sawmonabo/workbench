@@ -282,22 +282,22 @@ separate projects, lines wider than the terminal, columns named `w-5m`,
 per repository:
 
 ```
-claude-costs · 2026-08-18 → 2026-09-30 · 71,280 responses
+claude-costs · 2026-09-01 → 2026-09-30 · 10,000 responses
 list-price equivalents, not subscription charges
 
   project                           cost   share    calls   tokens  cached
-  ~/dev/app                    $7,717.52   76.6%   57,278     8.5B   95.3%
-  ~/repos/service              $1,832.37   18.2%   11,798     2.2B   95.6%
-  ~/dev                          $319.86    3.2%    1,238   189.8M   94.6%
-  ~/dev/tools                    $112.22    1.1%      478    86.4M   97.0%
+  ~/dev/app                      $600.00   60.0%    6,000   600.0M   95.0%
+  ~/repos/service                $250.00   25.0%    2,500   250.0M   95.0%
+  ~/dev                          $100.00   10.0%    1,000   100.0M   90.0%
+  ~/dev/tools                     $50.00    5.0%      500    50.0M   90.0%
   ──────────────────────────────────────────────────────────────────────────
-  total · 4 projects          $9,981.97  100.0%   70,792    10.9B   95.4%
+  total · 4 projects           $1,000.00  100.0%   10,000     1.0B   94.3%
 
   model                             cost   share    calls   tokens  cached
-  claude-opus-5                $5,369.66   53.8%   41,896     5.7B   95.1%
-  claude-fable-5-1             $2,816.89   28.2%    7,236     1.8B   92.4%
+  claude-opus-5                  $700.00   70.0%    7,000   700.0M   95.0%
+  claude-fable-5-1               $300.00   30.0%    3,000   300.0M   92.7%
 
-  ingested Sep 30 8:47 PM · rates official, calibrated, builtin (official card 2026-09-30)
+  ingested Sep 30 9:00 PM · rates official, calibrated, builtin (official card 2026-09-30)
 ```
 
 Rules:
@@ -456,7 +456,8 @@ ingest`, the release symlink Workbench installs.
 
 At a terminal (stdin and stdout both terminals, no `--json` or `--csv`),
 `workbench costs` opens a full-screen view with one tab per tool:
-`Claude Code` and `Codex`. Tab and the arrow keys switch, the report scrolls,
+`Claude Code` and `Codex`. Tab and Shift+Tab (or ← and →) switch between
+the Claude Code and Codex tables, the report scrolls,
 q or esc quits and leaves the last tab's report printed in the scrollback.
 Every resize refits the table. The Codex tab says `Codex costs are not
 implemented yet.` until a Codex source exists. Off a terminal the command
