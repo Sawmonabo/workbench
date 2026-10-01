@@ -6,6 +6,32 @@
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    parts=()
+    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && parts+=("nvm present") || parts+=("install nvm")
+    for tool in uv rustup bun; do
+        if command -v "$tool" >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/$tool" ] || [ -x "$HOME/.bun/bin/$tool" ]; then
+            parts+=("$tool present")
+        else
+            parts+=("install $tool")
+        fi
+    done
+{{- if eq .versions_mode "pinned" }}
+    go_target="{{ .versions.go }}"
+{{- else }}
+    go_target=$( (curl -fsSL --max-time 3 'https://go.dev/VERSION?m=text' 2>/dev/null || true) | head -n1); go_target=${go_target#go}
+{{- end }}
+    go_have=$( { command -v go >/dev/null 2>&1 && go version 2>/dev/null; } | awk '{sub(/^go/, "", $3); print $3}' || true)
+    if [ -z "$go_target" ]; then
+        parts+=("Go ${go_have:-absent} (latest unknown, offline)")
+    elif [ "$go_have" = "$go_target" ]; then
+        parts+=("Go $go_have ok")
+    else
+        parts+=("Go ${go_have:-absent} → $go_target")
+    fi
+    printf -v joined '%s; ' "${parts[@]}"; echo "runtime-managers: ${joined%; }"
+    exit 0
+fi
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
 
 # --- nvm ---

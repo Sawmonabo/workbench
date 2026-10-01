@@ -9,13 +9,16 @@
 #   - Existing file, differs: shows diff, prompts y/n (backs up to .wslconfig.chezmoi.bak)
 #   - CHEZMOI_FORCE=1: merges without prompting
 set -euo pipefail
+if [ "${WORKBENCH_PROBE:-}" = 1 ] && ! command -v cmd.exe >/dev/null 2>&1; then
+    echo "windows-files: blocked, no Windows interop on this host"
+    echo "wsl-preferences: blocked, no Windows interop on this host"
+    exit 0
+fi
 
 WSL_MEMORY={{ .wsl_memory | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
-
-echo "==> Deploying WSL Windows configs..."
 
 WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
 WIN_HOME=$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")
@@ -23,9 +26,50 @@ WIN_ROAMING=$(wslpath -u "$(cmd.exe /c 'echo %APPDATA%' | tr -d '\r')")
 WIN_PROGRAMFILES=$(wslpath -u "$(cmd.exe /c 'echo %PROGRAMFILES%' | tr -d '\r')")
 case "$(cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')" in
     AMD64) ;;
-    *) echo 'WORKBENCH_EFFECT windows-config blocked: Windows x64 required' >&2; exit 3 ;;
+    *) if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows x64 required"; exit 0; fi
+       echo 'WORKBENCH_EFFECT windows-config blocked: Windows x64 required' >&2; exit 3 ;;
 esac
-[[ -d "$WIN_HOME" && -d "$WIN_ROAMING" ]] || exit 3
+if [[ ! -d "$WIN_HOME" || ! -d "$WIN_ROAMING" ]]; then
+    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows home or AppData unavailable"; exit 0; fi
+    exit 3
+fi
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    WSLCONFIG="$WIN_HOME/.wslconfig"
+    changes=()
+    if [[ ! -f "$WSLCONFIG" ]]; then
+        echo "wsl-preferences: .wslconfig create with managed sizing and networking"
+    else
+        probe_tmp=$(mktemp)
+        sed 's/\r$//' "$WSLCONFIG" > "$probe_tmp"
+        for entry in "wsl2|memory|$WSL_MEMORY" "wsl2|swap|$WSL_SWAP" "wsl2|processors|$WSL_PROCESSORS" \
+            "wsl2|networkingMode|mirrored" "wsl2|vmIdleTimeout|300000" \
+            "experimental|autoMemoryReclaim|gradual" "experimental|sparseVhd|true"; do
+            IFS='|' read -r section key value <<< "$entry"
+            current=$(awk -v section="[$section]" -v key="$(tr '[:upper:]' '[:lower:]' <<< "$key")" '
+                /^\[/ { insec = (tolower($0) == tolower(section)) }
+                insec && tolower($0) ~ "^" key "[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); print; exit }
+            ' "$probe_tmp")
+            [ "$current" = "$value" ] || changes+=("$key ${current:-unset} → $value")
+        done
+        rm -f "$probe_tmp"
+        if [ ${#changes[@]} -eq 0 ]; then
+            echo "wsl-preferences: .wslconfig ok"
+        else
+            # The merge asks before changing an existing file (at a terminal).
+            printf -v joined '%s; ' "${changes[@]}"; echo "wsl-preferences: .wslconfig ${joined%; } (asks)"
+        fi
+    fi
+    parts=("RestartWSL helpers rewritten")
+    [ -f "$WIN_HOME/bin/rg.exe" ] && parts+=("rg.exe present") || parts+=("install rg.exe")
+    parts+=("VS Code todo-tree path merged")
+    printf -v joined '%s; ' "${parts[@]}"; echo "windows-files: ${joined%; }"
+    echo "default-distro: make ${WSL_DISTRO_NAME:-this distribution} the default"
+    echo "windows-path: append %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to the user PATH"
+    exit 0
+fi
+
+echo "==> Deploying WSL Windows configs..."
 echo "    Windows user: $WIN_USER"
 
 # ---------- Helpers ----------
@@ -85,6 +129,7 @@ merge_ini_key() {
 }
 
 # ---------- .wslconfig ----------
+if [[ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" == 1 ]]; then
 WSLCONFIG="$WIN_HOME/.wslconfig"
 
 MANAGED_KEYS=(
@@ -183,8 +228,10 @@ PY
         fi
     fi
 fi
+fi
 
 # ---------- RestartWSL scripts ----------
+if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME")
 
 if [[ -z "$RESTART_DIR" ]]; then
@@ -275,6 +322,7 @@ SETUPSCRIPT
     echo "    RestartWSL scripts written."
     echo "    NOTE: Run setup-task.ps1 as Administrator once to create the scheduled task."
 fi
+fi
 
 
 # ---------- Default WSL distro ----------
@@ -294,6 +342,7 @@ fi
 # extension at it guarantees breakage. Instead keep a stable rg.exe of our own and
 # point the setting there. (winget would also work, but its source cache needs an
 # elevated `winget source reset` to repair when it corrupts.)
+if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 RG_DIR="$WIN_HOME/bin"
 RG_EXE="$RG_DIR/rg.exe"
 RG_VERSION="15.2.0"
@@ -313,6 +362,7 @@ if [[ ! -f "$RG_EXE" ]]; then
     rm -rf "$RG_TMP"
 else
     echo "==> Windows ripgrep already present."
+fi
 fi
 
 # ---------- Windows user PATH ----------
@@ -365,6 +415,7 @@ fi
 # Opening a folder through Remote-WSL instead runs the extension inside WSL, where
 # this path is meaningless; that case needs a Linux path in the remote's machine
 # settings (~/.vscode-server/data/Machine/settings.json).
+if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 VSCODE_SETTINGS="$WIN_ROAMING/Code/User/settings.json"
 merge_setting() {
     python3 - "$1" "todo-tree.ripgrep.ripgrep" "$2" <<'PYEOF'
@@ -382,10 +433,12 @@ if [[ -n "$LINUX_RG" ]]; then
     mkdir -p "$(dirname "$MACHINE_SETTINGS")"
     merge_setting "$MACHINE_SETTINGS" "$LINUX_RG"
 fi
+fi
 
 # ---------- Notepad++ Dracula themes ----------
 # Never captured by migrate.sh's Windows profile sync, so re-fetch from upstream.
 # Installing the theme files only - selecting one is a GUI action.
+if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 NPP_THEMES="$WIN_ROAMING/Notepad++/themes"
 if [[ -d "$WIN_ROAMING/Notepad++" ]] || [[ -d "$WIN_PROGRAMFILES/Notepad++" ]]; then
     mkdir -p "$NPP_THEMES"
@@ -401,6 +454,7 @@ if [[ -d "$WIN_ROAMING/Notepad++" ]] || [[ -d "$WIN_PROGRAMFILES/Notepad++" ]]; 
             fi
         fi
     done
+fi
 fi
 
 echo "==> Done."

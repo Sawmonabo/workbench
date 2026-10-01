@@ -8,6 +8,42 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
 failed=()
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    # The planner's PATH holds Workbench's tools and the system directories
+    # only; look where the installers put things.
+    export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$HOME/go/bin:/usr/local/go/bin:/opt/homebrew/bin:$PATH"
+    if [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ]; then
+        # shellcheck source=/dev/null
+        source "${NVM_DIR:-$HOME/.nvm}/nvm.sh" >/dev/null 2>&1 || true
+        nvm use default >/dev/null 2>&1 || true
+    fi
+    missing=()
+    for tool in codex claude corepack; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+{{- range $tool, $ver := .corepack_globals }}
+    command -v "{{ $tool }}" >/dev/null 2>&1 || missing+=("{{ $tool }}")
+{{- end }}
+{{- range $pkg, $ver := .uv_tools }}
+    command -v "{{ $pkg }}" >/dev/null 2>&1 || missing+=("{{ $pkg }}")
+{{- end }}
+{{- range $pkg, $ver := .cargo_tools }}
+    [ -x "$HOME/.cargo/bin/{{ $pkg }}" ] || command -v "{{ $pkg }}" >/dev/null 2>&1 || missing+=("{{ $pkg }}")
+{{- end }}
+{{- range $mod, $ver := .go_tools }}
+    [ -x "$HOME/go/bin/$(basename "{{ $mod }}")" ] || command -v "$(basename "{{ $mod }}")" >/dev/null 2>&1 || missing+=("$(basename "{{ $mod }}")")
+{{- end }}
+    present="npm, uv, cargo and Go tools"
+{{- if eq .versions_mode "pinned" }}
+    policy="pinned versions"
+{{- else }}
+    policy="upgraded to latest"
+{{- end }}
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "global-tools: $present present ($policy)"
+    else
+        echo "global-tools: install ${missing[*]}; others $policy"
+    fi
+    exit 0
+fi
 
 {{- $mode := .versions_mode }}
 

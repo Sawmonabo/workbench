@@ -11,6 +11,14 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ -d "$HOME/.tmux/plugins/tpm" ]; then
+        echo "tmux-plugins: TPM present; plugins refreshed from tmux.conf"
+    else
+        echo "tmux-plugins: install TPM and plugins"
+    fi
+    exit 0
+fi
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
     echo "==> Installing TPM (Tmux Plugin Manager)..."
     git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"

@@ -4,11 +4,32 @@
 # (and bitwarden-cli on work machines)
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    missing=()
+    for tool in bat fd oh-my-posh gh tmux; do
+        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "linux-packages: nothing to install"
+    else
+        echo "linux-packages: install ${missing[*]}"
+    fi
+{{- if .has_work }}
+    if command -v bw >/dev/null 2>&1 || [ -x "$HOME/.local/bin/bw" ]; then
+        echo "work-tools: Bitwarden CLI present"
+    else
+        echo "work-tools: install Bitwarden CLI"
+    fi
+{{- end }}
+    exit 0
+fi
 download_dir=$(mktemp -d)
 trap 'rm -rf "$download_dir"' EXIT
 
 echo "==> Linux/WSL bootstrap starting..."
 
+if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- base toolchain (a fresh WSL image has no C compiler; cargo/uv/node-gyp all need one) ---
 base_missing=0
 for tool in cc curl unzip git fc-cache; do
@@ -165,8 +186,10 @@ if [ ! -x "$HOME/.local/bin/gh" ]; then
 else
     echo "==> gh already installed ($("$HOME/.local/bin/gh" --version | head -1)), skipping."
 fi
+fi
 
 {{ if .has_work -}}
+if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
 # --- Bitwarden CLI (work machines only; the bw wrapper in .bashrc expects it) ---
 # Same per-user, no-sudo shape as gh above; unzip came from the apt line at the top.
 if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
@@ -182,8 +205,10 @@ if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
 else
     echo "==> Bitwarden CLI already installed, skipping."
 fi
+fi
 
 {{ end -}}
+if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- tmux ---
 if ! command -v tmux &>/dev/null; then
     echo "==> Installing tmux..."
@@ -198,6 +223,7 @@ if ! command -v tmux &>/dev/null; then
     echo "    tmux installed."
 else
     echo "==> tmux already installed, skipping."
+fi
 fi
 
 echo "==> Linux/WSL bootstrap complete."

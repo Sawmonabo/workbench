@@ -12,6 +12,14 @@ set -euo pipefail
 # own cleanup of superseded versions stays on, as it is by default.
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
+        echo "macos-packages: install Homebrew and every packages.toml formula"
+    else
+        echo "macos-packages: install missing packages.toml formulae (no upgrades)"
+    fi
+    exit 0
+fi
 echo "==> macOS bootstrap starting..."
 
 # --- Homebrew ---

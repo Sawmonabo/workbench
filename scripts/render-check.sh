@@ -59,6 +59,29 @@ while IFS= read -r -d '' script; do
         echo "    linting ${script#"$repo"/}"
         bash -n "$out" || { echo "SYNTAX FAIL: $script"; fail=1; }
         shellcheck -S warning "$out" || { echo "SHELLCHECK FAIL: $script"; fail=1; }
+        # Probe mode must answer with effect lines only, exit 0, and never
+        # reach a writer: every write or prompt sits below the probe block.
+        # Only provisioning scripts have a probe mode; the wsl render also
+        # lints win-browser, a user binary. The script runs under set -e, so
+        # every check here reports instead of aborting the run.
+        case "$script" in
+        */.chezmoiscripts/*)
+            probe_out="$tmp/probe.out"
+            if WORKBENCH_PROBE=1 HOME="$dest" bash "$out" >"$probe_out" 2>"$tmp/probe.err" </dev/null; then
+                if ! grep -qE '^[a-z0-9-]+: .+$' "$probe_out" || grep -vqE '^[a-z0-9-]+: .+$' "$probe_out"; then
+                    echo "PROBE FAIL: $script printed something other than effect lines:"; cat "$probe_out"; fail=1
+                fi
+            else
+                echo "PROBE FAIL: $script exited $? in probe mode:"; cat "$tmp/probe.err"; fail=1
+            fi
+            probe_end=$(grep -n 'WORKBENCH_PROBE' "$out" | tail -1 | cut -d: -f1 || true)
+            if [ -z "$probe_end" ]; then
+                echo "PROBE FAIL: $script has no WORKBENCH_PROBE block"; fail=1
+            elif head -n "$probe_end" "$out" | grep -vE '^[[:space:]]*#' | grep -qE 'sudo |read -r|curl -f[^ ]* -o|brew install|apt-get install|npm install|cargo install|install -m|cp |mv |> "\$(WSLCONFIG|PS_PROFILE)'; then
+                echo "PROBE FAIL: $script has a writer or prompt above its probe block"; fail=1
+            fi
+            ;;
+        esac
         # Comment lines are not behaviour; only executable lines count as a leak.
         if [ "$role" = personal ] && grep -vE '^[[:space:]]*#' "$out" | grep -qiE 'gitlab|bitwarden|fortressinfosec|dispatch-|coderabbit|promptctl'; then
             echo "LEAK: work-only content in rendered script $script (personal)"; fail=1

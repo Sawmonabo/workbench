@@ -8,6 +8,14 @@
 # Needs sudo; when no tty/sudo credential is available it prints the manual
 # step and exits 0 so the rest of `chezmoi apply` is not blocked.
 set -euo pipefail
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [[ -f /etc/sysctl.d/99-dev.conf ]] && grep -qx 'vm.swappiness=10' /etc/sysctl.d/99-dev.conf; then
+        echo "sysctl: vm.swappiness=10 ok"
+    else
+        echo "sysctl: write /etc/sysctl.d/99-dev.conf vm.swappiness=10 (sudo)"
+    fi
+    exit 0
+fi
 if [[ "${WORKBENCH_EFFECT_SYSCTL:-}" != 1 ]]; then
     echo 'WORKBENCH_EFFECT sysctl disabled (not selected)' >&2
     exit 0

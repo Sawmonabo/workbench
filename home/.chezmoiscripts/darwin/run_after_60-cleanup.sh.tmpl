@@ -18,6 +18,10 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    echo "brew-maintenance: autoremove, cleanup old versions and cache"
+    exit 0
+fi
 echo "==> Homebrew cleanup..."
 
 # --- 1. list formulae that came from a third-party tap -> core ---

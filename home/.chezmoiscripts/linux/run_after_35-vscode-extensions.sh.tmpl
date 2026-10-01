@@ -4,6 +4,14 @@
 # remote extension host or selects a non-default profile.
 set -euo pipefail
 status=0
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    case "$(command -v code 2>/dev/null)" in
+        /usr/share/code/bin/code|/snap/code/current/usr/share/code/bin/code) echo "linux-editor-extensions: install missing extensions into the local VS Code" ;;
+        "") echo "linux-editor-extensions: blocked, no local VS Code desktop" ;;
+        *) echo "linux-editor-extensions: blocked, code on PATH is not a local desktop" ;;
+    esac
+    exit 0
+fi
 
 {{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
 exit "$status"

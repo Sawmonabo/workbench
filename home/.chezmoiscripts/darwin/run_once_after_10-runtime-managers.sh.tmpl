@@ -12,6 +12,16 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    parts=()
+    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && parts+=("nvm present") || parts+=("install nvm")
+    command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ] && parts+=("rustup present") || parts+=("install rustup")
+    for tool in uv bun go; do
+        command -v "$tool" >/dev/null 2>&1 && parts+=("$tool present") || parts+=("$tool missing, from Homebrew")
+    done
+    printf -v joined '%s; ' "${parts[@]}"; echo "runtime-managers: ${joined%; }"
+    exit 0
+fi
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
 {{ template "operation-context.sh" }}
 

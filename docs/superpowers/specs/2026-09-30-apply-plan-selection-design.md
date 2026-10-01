@@ -66,7 +66,7 @@ Effects
   [x] global-tools      install just, cargo-audit, cargo-deny, gopls; 4 uv tools up to date   user, network
   [x] linux-packages    nothing to install                                                   sudo
   [ ] windows-files     .wslconfig networkingMode virtioproxy → mirrored (asks); 8 unchanged  Windows   skipped (saved)
-Space toggles, enter applies, q quits.
+Space toggles, enter applies, esc quits.
 ```
 
 Rules:
@@ -91,13 +91,16 @@ Rules:
 ### Deltas
 
 Each provisioning script gains a probe mode: with `WORKBENCH_PROBE=1` it
-prints exactly one line describing what a real run would change and exits 0
-without changing anything, including no network calls other than the version
-lookups it already makes (`go.dev/VERSION`, release APIs), each bounded by the
-existing timeouts. The planner runs every active script's probe in parallel
-with a 5 s limit each. A probe that fails, times out or prints anything but one
-line shows `unprobed` for that effect; the effect stays checked and its script
-runs normally. The plan never blocks on a probe.
+prints one `<effect-name>: <delta>` line per effect it owns (most scripts own
+one; `10-deploy-windows-configs` owns `windows-files` and `wsl-preferences`,
+and the Windows scripts also describe the optional effects they carry) and
+exits 0 without changing anything, including no network calls other than the
+version lookups it already makes (`go.dev/VERSION`, release APIs), each bounded
+by the existing timeouts. The planner runs every active script's probe in
+parallel with a 5 s limit each. A probe that fails, times out or prints
+anything but `<effect-name>: <text>` lines shows `unprobed` for that effect;
+the effect stays checked and its script runs normally. The plan never blocks on
+a probe.
 
 Probe lines follow the pattern `<item> <from> → <to>` for a change, `<item>
 ok` or `present` for no change, `install <names>` for new items, and
@@ -167,8 +170,9 @@ for a caller that read the plan first.
 ## 8. Testing
 
 - CI render checks as today, plus one probe run per script per role/mode:
-  `WORKBENCH_PROBE=1` must exit 0 and print exactly one line. The WSL probes
-  run under the existing static simulation.
+  `WORKBENCH_PROBE=1` must exit 0 and print only lines of the form
+  `<effect-name>: <text>`. The WSL probes run under the existing static
+  simulation.
 - One Go test: a digest approved for a selection must be refused when the
   saved skip list changes between dry run and apply. It guards the consent
   boundary, the one place a wrong answer runs unapproved scripts.

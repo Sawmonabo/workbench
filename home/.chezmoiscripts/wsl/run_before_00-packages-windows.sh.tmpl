@@ -3,8 +3,10 @@
 # Bootstrap script for Windows configs (runs from WSL)
 # Installs oh-my-posh.exe, fonts, Windows Terminal settings, PowerShell profile
 set -euo pipefail
-
-echo "==> WSL → Windows bootstrap starting..."
+if [ "${WORKBENCH_PROBE:-}" = 1 ] && ! command -v cmd.exe >/dev/null 2>&1; then
+    echo "windows-files: blocked, no Windows interop on this host"
+    exit 0
+fi
 
 # Detect Windows username
 WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
@@ -14,9 +16,11 @@ WIN_PROGRAMDATA=$(wslpath -u "$(cmd.exe /c 'echo %PROGRAMDATA%' | tr -d '\r')")
 PS_PROFILE=$(wslpath -u "$(powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' | tr -d '\r')")
 case "$(cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')" in
     AMD64) ;;
-    *) echo 'WORKBENCH_EFFECT windows-files blocked: Windows x64 required' >&2; exit 3 ;;
+    *) if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows x64 required"; exit 0; fi
+       echo 'WORKBENCH_EFFECT windows-files blocked: Windows x64 required' >&2; exit 3 ;;
 esac
 if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
+    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows home, AppData or WSL_DISTRO_NAME unavailable"; exit 0; fi
     echo 'WORKBENCH_EFFECT windows-files blocked: Windows home, AppData or WSL_DISTRO_NAME unavailable' >&2
     exit 3
 fi
@@ -33,6 +37,30 @@ if [[ -e "$PS_PROFILE" && "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-}" != 1 ]]; t
     echo 'WORKBENCH_EFFECT powershell-adoption not selected: existing PowerShell profile left unchanged' >&2
     manage_profile=0
 fi
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    parts=()
+    [ -f "$WIN_APPDATA/Programs/oh-my-posh/bin/oh-my-posh.exe" ] && parts+=("oh-my-posh.exe present") || parts+=("install oh-my-posh.exe")
+    ls "$WIN_APPDATA/Microsoft/Windows/Fonts"/JetBrainsMono*.ttf >/dev/null 2>&1 && parts+=("fonts present") || parts+=("install JetBrainsMono fonts")
+    printf -v joined '%s; ' "${parts[@]}"; echo "windows-files: ${joined%; }"
+    if [ -e "$WT_SETTINGS_DIR/settings.json" ]; then
+        echo "terminal-adoption: replace existing Windows Terminal settings.json (dated copy kept)"
+    else
+        echo "terminal-adoption: no existing settings.json; windows-files writes it"
+    fi
+    if [ -e "$PS_PROFILE" ]; then
+        echo "powershell-adoption: replace existing PowerShell profile (copy kept)"
+    else
+        echo "powershell-adoption: no existing profile; windows-files writes it"
+    fi
+    echo "font-registry: register JetBrainsMono fonts in HKCU and load them"
+    exit 0
+fi
+if [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ]; then
+    echo "==> windows-files unchecked; Windows bootstrap skipped." >&2
+    exit 0
+fi
+echo "==> WSL → Windows bootstrap starting..."
+
 download_dir=$(mktemp -d)
 trap 'rm -rf "$download_dir"' EXIT
 

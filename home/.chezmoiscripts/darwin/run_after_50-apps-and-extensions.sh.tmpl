@@ -22,6 +22,19 @@ elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
 
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    installed="$(brew list --cask 2>/dev/null || true)"
+    missing=()
+{{- range .packages.darwin.cask }}
+    grep -qx "{{ . }}" <<< "$installed" || missing+=("{{ . }}")
+{{- end }}
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "macos-apps-extensions: apps present; missing VS Code extensions installed"
+    else
+        echo "macos-apps-extensions: install ${missing[*]} unless already outside Homebrew; missing VS Code extensions installed"
+    fi
+    exit 0
+fi
 echo "==> Apps and VS Code extensions..."
 managed_casks="$(brew list --cask 2>/dev/null || true)"
 bundle_casks=()
