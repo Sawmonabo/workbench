@@ -135,8 +135,10 @@ below.
 by default) are not read; `costs status` reports how many were skipped.
 
 `Parse` keeps per-file state: `Thread` (the first `session_meta.id`), `Root`
-(the root thread: the record's `session_id`, or
-`session_meta.source.subagent.thread_spawn` up the chain), `Cwd`, `Model`,
+(the root thread: the record's `session_id`, or for an older subagent whose
+file names no more, its spawning parent from
+`session_meta.source.subagent.thread_spawn`; the ledger walks the stored
+parent links up to the true root, see section 4), `Cwd`, `Model`,
 `Tier`, `Records` (whether this file holds a record, its own or a copied one)
 and `LastTotal` (the last `token_count` running total). Codex starts every
 line `{"timestamp":…,["ordinal":N,]"type":…`, and an `event_msg` continues
@@ -282,19 +284,31 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   account, subscription and `account_source` (the evidence) are the exception:
   a copy with stronger evidence replaces them, an equal or weaker one keeps
   the stored values (section 10).
-- **Accounts.** `responses` also gains `subscription` and `root` (the root
-  session a hook names), and `account_source` now holds the evidence level
-  (`transcript`, `session`, `observed` or `unknown`); schema 4 adds the tables
-  `session_accounts`, `sign_ins` and `subscriptions`. A version 1 or 2 ledger
-  keeps every row's email with subscription and evidence `unknown`. A row is
-  stored with the tool's current sign-in as a provisional answer; after every
-  run `ResolveAccounts` raises it to the strongest evidence, by the same
-  targeted pass as the tier check: the rows the run stored, those of sessions
-  a binding or the run named, and those after a tool's latest observation. A
-  transaction that stores a row under provisional evidence stores the
-  `accounts_unresolved` note and `ResolveAccounts` clears it, so a run
-  cancelled before it leaves the work to the next run; a missing
+- **Accounts.** `responses` also gains `subscription`, `root` (the root
+  session a hook names) and two evidence columns: `account_source` for the
+  email and `subscription_source` for the subscription, each `transcript`,
+  `session`, `observed` or `unknown` and decided on its own (section 10);
+  schema 4 adds the tables `session_accounts`, `sign_ins`, `subscriptions`
+  and `thread_parents`. A version 1 or 2 ledger keeps every row's email, now
+  at evidence `unknown`, with subscription and its evidence `unknown`. A row
+  is stored with the email of its transcript's account id when there is one
+  and otherwise `unknown`, never with the tool's current sign-in; after every
+  run `ResolveAccounts` raises each field to the strongest evidence, by the
+  same targeted pass as the tier check: the rows the run stored (marked under
+  the root they are stored with, which a later copy with stronger evidence
+  does not change), those of sessions a binding or the run named, and those
+  after a tool's latest observation. A transaction that stores a row marks
+  its root in the `accounts_unresolved` note and `ResolveAccounts` clears it,
+  so a run cancelled before it leaves the work to the next run; a missing
   `accounts_checked` forces every row.
+- **Thread parents.** An older Codex subagent's `session_meta` names only the
+  thread that spawned it, so the rows of a depth-2 subagent arrive under its
+  parent, not the root. Ingest stores each thread's spawning parent in
+  `thread_parents`, and `ResolveAccounts` first moves every row stored under
+  a thread that has a parent to the root of that chain, whatever order the
+  files were read in, and attributes the roots that gained rows again. Codex
+  0.142 and later (on the sample machine) name the root in `session_id`, so
+  their rows already carry it.
 - **Rewrite check.** `head` is the SHA-256 of the file's first line, `""`
   while that line is still being written. When it differs from a stored
   non-empty one, ingest reads the file from offset 0 with empty state; a
@@ -454,9 +468,10 @@ email and subscription, for example `you@example.com · Max` and
   `pro` and `prolite` observed): the plan of the account that answered. A
   `token_usage_record` (0.153+) has no `rate_limits`; its plan is the latest
   `plan_type` read in the same file at or before it, kept in the file's saved
-  state. A `token_usage_record` names its root `session_id`; an older
-  subagent's rows reach their root through the same thread chain as
-  `TierFrom`. Recent `session_meta` lines carry
+  state. A `token_usage_record` names its root `session_id` (Codex 0.142 and
+  later on the sample machine); an older subagent's file names only the
+  thread that spawned it, and the ledger walks the spawning links of its
+  ancestors' files up to the root (section 4). Recent `session_meta` lines carry
   `creator_account_id`, the ChatGPT account (workspace) id that also appears
   as the `chatgpt_account_id` claim of each sign-in's ID token. The sign-ins
   are `auth.json` and, when present, `agent-overflow-accounts/*/auth.json`
@@ -464,14 +479,23 @@ email and subscription, for example `you@example.com · Max` and
 
 ### Attribution, most exact first
 
-Each row stores `account` (email), `subscription` (a stable id) and
-`account_source`, the evidence it came from. A copy of a row with stronger
-evidence replaces a weaker one; equal evidence keeps the stored value.
+Each row stores `account` (the email) with `account_source`, and
+`subscription` (a stable id) with `subscription_source`: two fields, each
+with the evidence it came from, decided on their own because a transcript can
+name a plan without naming an account. A copy of a row with stronger evidence
+for a field replaces that field; equal evidence keeps the stored value. A row
+shows an email only with evidence for it: its transcript's account id, a
+session binding, or agreeing observations (or, for a row a version 1 or 2
+ledger held, the email that build stored). A value that is `unknown` is no
+evidence and never raises a field.
 
-1. `transcript` (Codex): the plan from the response's file as above, and
-   the email from the sign-in whose `chatgpt_account_id` equals the file's
-   `creator_account_id`. Without that id, the plan stays per response and the
-   email comes from rule 2 or 3.
+1. `transcript` (Codex): the plan from the response's file as above is the
+   subscription's evidence, and the sign-in whose `chatgpt_account_id` equals
+   the file's `creator_account_id` is the email's. Without that id the plan
+   stays per response and the email takes rule 2 or 3 on its own, so a row
+   whose transcript named only the plan still takes the email of a binding or
+   an observation, and nothing but a transcript changes what a transcript
+   decided.
 2. `session`: the sign-in a session started under. The hook passes the
    worker its `session_id` and transcript path (which names the tool). The
    detached worker reads the tool's current sign-in and stores
@@ -480,7 +504,8 @@ evidence replaces a weaker one; equal evidence keeps the stored value.
    skips because another holds the lock loses no binding, and the hook process
    itself stays instant within Codex's 3 s `SessionEnd` cap; a worker that
    cannot store it logs that and the row falls to rule 3. Rows
-   match on the root session: Claude's `sessionId`, Codex's root thread. A row of
+   match on the root session: Claude's `sessionId`, Codex's root thread
+   (an older subagent's rows are moved to it first, section 4). A row of
    that session takes the binding with the latest `since` at or before its
    time, so a session resumed later under another subscription changes from
    the resume on. A binding stored after rows of its session were read
@@ -489,23 +514,38 @@ evidence replaces a weaker one; equal evidence keeps the stored value.
    `sign_ins(tool, at, account, subscription)`. A row with no binding takes
    the sign-in observed at both ends of the gap around its time when the two
    agree, else `unknown`.
-4. `unknown`: no evidence. Rows from before the first observation keep the
-   email they were stamped with (email only, subscription `unknown`).
+4. `unknown`: no evidence. The row shows email `unknown` and subscription
+   `unknown`, for both tools: a Codex row with no plan and a Claude Code row
+   from before the first observation read alike, and the tool's current
+   sign-in is never stamped on a row it did not name. A first ingest of
+   existing history therefore reports it as `unknown`, and only rows after
+   the first observation, or of a bound session, take an email. The one
+   exception is a row an earlier build stored: a version 1 or 2 ledger's row
+   keeps its email, at evidence `unknown`, until evidence names another, and
+   its subscription is `unknown`.
 
 Subscription ids and labels: Claude `claude:<organizationUuid>`, label from
-`organizationType` (`claude_max` → Max, otherwise the raw value) plus
-`organizationName` whenever the type is not a personal plan. Codex `codex:<plan_type>`, label from
-`plan_type` (`prolite` → Pro Lite, otherwise the capitalized value); the
-account id only resolves the email, so one plan is one group whichever
-evidence named it. API-key sign-ins are `api-key`.
+`organizationType` with the `claude_` prefix removed and the first letter
+capitalised (`claude_max` → Max, `claude_pro` → Pro, `claude_team` → Team),
+plus ` (organizationName)` whenever the type is not a personal plan (`claude_max`
+or `claude_pro`), for example `Team (Example Org)`. Codex `codex:<plan_type>`,
+label from `plan_type` (`prolite` → Pro Lite, otherwise the capitalized value);
+the account id only resolves the email, so one plan is one group whichever
+evidence named it. A Codex API-key sign-in is `api-key`. A Claude Code
+API key leaves no `oauthAccount`, so Claude Code with none shows
+`not signed in` in `costs status` and its email and subscription are
+`unknown`, not `api-key`.
 Labels live in a `subscriptions(id, label)` table, refreshed from the newest
 sign-in that names the id, so a renamed organization relabels its history.
 
 ### Limits
 
-- A Claude Code `/login` to another organization inside a running session is
-  not observed by Workbench until the next ingest run; that
-  session's rows stay with the subscription it started under.
+- A Claude Code `/login` to another organization inside a running session:
+  its rows keep the subscription of the session's binding, because a
+  session binding outranks an observation, and the next ingest run's
+  observation does not correct them. They stay on the old subscription until
+  a later `SessionStart` of that session (a resume, `/clear` or compaction)
+  binds the new sign-in.
 - Whether a running Claude Code session follows a `/login` made in another
   terminal is not stated by the official docs, which say only that parallel
   sessions on one machine "share a saved login and coordinate its renewal so
@@ -521,18 +561,21 @@ sign-in that names the id, so a renamed organization relabels its history.
   assumes a running session keeps the login it started or resumed under, which
   is what rule 2 records; it does not claim the docs confirm it. A session
   started or resumed after the `/login` is bound to the new sign-in.
-- A `SessionEnd` binding is stored at the exit time, after every row of its
-  session, so a session that had no `SessionStart` binding (it began before
-  the hooks were installed) keeps rule 3 for its rows.
-- Claude Code rows read before this change, or from sessions started with no
-  hook installed, rely on rule 3; history from before the first observation
-  is `unknown`.
-- Codex rows with no plan in their file (405 of 348,079 on the sample machine:
-  records before the file's first `token_count`, and files without
-  `rate_limits`) fall back to rules 2–4. A row decided by its transcript but
-  whose file names no `creator_account_id` (all but 5,296 of the sample's
-  347,674) has a plan and no email until a binding or observation names it,
-  so history ingested before the first observation reports `unknown · Pro`.
+- A `SessionEnd` binding attributes nothing: it is stored at the exit time,
+  after every row of its session, and a session that had a `SessionStart`
+  binding keeps that one for all its rows. The final rows of a session that
+  had none (it began before the hooks were installed) are attributed by the
+  run's observation, rule 3.
+- Claude Code history ingested before the first observation, or from
+  sessions started with no hook installed, is `unknown`; so is every Codex
+  row before the first observation whose file names no creator account.
+- Codex rows with no plan in their file (412 of 348,612 on the sample
+  machine: records before the file's first `token_count`, and files without
+  `rate_limits`) have subscription `unknown` until a binding or an
+  observation names it. A row whose file names no `creator_account_id` (all
+  but 5,870 of the sample's 348,612) has a plan and no email until a
+  binding or an observation names it, so history ingested before the first
+  observation reports `unknown · Pro`.
 
 ### Report and status
 
@@ -540,20 +583,23 @@ sign-in that names the id, so a renamed organization relabels its history.
   under other groupings does too. JSON rows gain `subscription` and
   `subscription_label`.
 - `costs status` shows each tool's current sign-in, for example
-  `Claude Code  you@example.com · Max`, and how many rows each evidence
-  level attributed.
+  `Claude Code  you@example.com · Max`, and, on separate lines, how many
+  rows each evidence level gave their email and their subscription; the
+  JSON `coverage` has `account_evidence` and `subscription_evidence`, each
+  counting `transcript`, `session`, `observed` and `unknown` rows.
 
 ### Hooks this depends on
 
 - `SessionStart` must pass `session_id` and the transcript path to the
-  worker, which binds the session to the tool's current sign-in; `SessionEnd`
-  likewise, so a session's final rows are read under the subscription it ran
-  on and not by a later run's guess.
+  worker, which binds the session to the tool's current sign-in. `SessionEnd`
+  passes them too, so its worker ingests the session's final rows at once; the
+  binding it stores attributes nothing (see Limits), and those rows take the
+  session's `SessionStart` binding or, without one, the run's observation.
 - Both hooks are synchronous (no `async`), with a 5 second `timeout` on
   Claude Code and, on Codex, `SessionStart` 10 and `SessionEnd` 3 (Codex's
   cap; it also runs `SessionEnd` synchronously even with `async: true`).
-  `costs.Hook` returns in about 75 ms, so a synchronous hook costs a session
-  nothing noticeable. Claude Code documents that a background hook still
+  `costs.Hook` returns in 0.04 to 0.09 s (measured), so a synchronous hook
+  costs a session nothing noticeable. Claude Code documents that a background hook still
   running when a headless (`-p`) session ends is killed, and a 1-second
   background hook was observed to lose its `SessionEnd` run that way.
   The "no `SessionEnd` on exit" observation was not reproduced:

@@ -186,23 +186,31 @@ synthetic answers.
   hook was reproduced exactly.
   Applying them to a real machine is not yet observed.
 - On 2026-10-01, the same host's Claude Code transcripts (1,205 files) and
-  Codex rollouts (2,973) were ingested read-only into an empty scratch ledger
-  in 50 seconds, with the same 72,651 Claude Code and 348,079 Codex rows and
-  the same token totals as the build before subscriptions; no row's time,
-  model, project, session or counts differed. The Codex rows took their plan
-  from their rollouts (Pro, Pro Lite and Plus; 405 rows with no plan in their
-  file kept `unknown`) and the Claude Code rows, read before any sign-in had
-  been observed, stayed `unknown` with the sign-in's email. A simulated
-  `SessionStart` hook for a session whose rows were then written stored one
-  `session_accounts` binding, its hook process returning in 0.12 seconds, and
-  put that session's rows at `session` evidence under Max; a second session with
-  no hook went from `unknown` to `observed` on the next run. A hook naming a
-  Codex rollout bound a Codex session, and one naming a path under neither
-  tool logged that the session was not bound. `costs status` reported Claude
-  Code hooks as `missing (workbench apply)` for a settings file with the old
-  `async` hooks and `ok` for the synchronous ones. The real Claude Code
-  sign-in was not read in this run (a synthetic `oauthAccount` stood in), and
-  a running session's behavior after a `/login` elsewhere is not observed.
+  Codex rollouts (2,979), read through links, were ingested read-only into an
+  empty scratch ledger in 38 seconds, and the build before this change
+  ingested the same files into another: both held 421,451 rows, and no
+  row's time, model, project, session, tool or counts differed. The Codex
+  rows took their plan from their rollouts (Pro, Pro Lite and Plus). On that
+  first ingest every Claude Code row (72,839) had email and subscription
+  `unknown`, as no sign-in had been observed yet; Codex rows split into
+  342,378 with a plan and no email, 5,822 with both from their rollouts,
+  364 with neither and 48 with an email and no plan. 2,353 rows in 153 Codex
+  sessions, depth-2 subagents of Codex 0.118 to 0.134, were stored under
+  their parent thread by the earlier build and under their root thread by
+  this one; no row's root still names a thread that has a parent. Ingesting
+  the rollouts that are not a parent of another first and the parents
+  second, or the parents first, gave the same roots and attribution as one
+  pass. A simulated `SessionStart` hook for a synthetic Claude Code session
+  stored one `session_accounts` binding, and the session's rows took
+  `session` evidence for both email and subscription under Max; a second
+  session with no hook took `observed`. The hook process returned in 0.04 to
+  0.09 s. A hook naming a Codex rollout bound a Codex session, and one naming
+  a path under neither tool logged that the session was not bound. `costs
+  status` reported Claude Code hooks as `missing (workbench apply)` for a
+  settings file with the old `async` hooks and `ok` for the synchronous
+  ones. The real Claude Code sign-in was not read in this run (a synthetic
+  `oauthAccount` stood in), and a running session's behavior after a
+  `/login` elsewhere is not observed.
 
 ### Output
 
