@@ -1,0 +1,25 @@
+#!/bin/bash
+# Read new Claude Code and Codex usage into the costs ledger at the end of
+# every apply, so `workbench costs` is complete without waiting for a hook.
+# It runs the same installed binary the hooks run, so the ledger is always in
+# the format that binary reads; a first read of a large history takes a while.
+set -euo pipefail
+workbench="$HOME/.local/bin/workbench"
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ -x "$workbench" ]; then
+        echo "costs-ingest: $("$workbench" --version) reads new usage into the ledger"
+    else
+        echo "costs-ingest: no installed workbench; skipped"
+    fi
+    exit 0
+fi
+if [[ "${WORKBENCH_EFFECT_COSTS_INGEST:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT costs-ingest disabled (not selected)' >&2
+    exit 0
+fi
+if [ ! -x "$workbench" ]; then
+    echo "==> costs: no installed workbench at $workbench; skipped"
+    exit 0
+fi
+echo "==> costs: reading new usage into the ledger"
+"$workbench" costs ingest --worker

@@ -48,6 +48,7 @@ var effectSources = map[string][]string{
 	"runtimes":                {"20-runtimes"},
 	"global-tools":            {"30-global-tools"},
 	"tmux-plugins":            {"40-tmux-plugins"},
+	"costs-ingest":            {"90-costs-ingest"},
 	"macos-packages":          {"00-packages"},
 	"macos-apps-extensions":   {"50-apps-and-extensions"},
 	"terminal-font":           {".terminal-font-setup.sh"},
@@ -103,6 +104,12 @@ func provisioningEffects(answers Answers) []operation.Effect {
 			Description: "TPM and tmux plugin installation under ~/.tmux/plugins",
 			Privilege:   "user; network and executable plugin hooks",
 			Recovery:    "external; no plugin rollback",
+		},
+		{
+			Name:        "costs-ingest",
+			Description: "The installed workbench reads new Claude Code and Codex usage into the costs ledger, as its hooks do",
+			Privilege:   "user; network for the official price pages",
+			Recovery:    "external; ledger rows are derived from the transcripts and not reverted",
 		},
 	}
 	if runtime.GOOS == "darwin" {
