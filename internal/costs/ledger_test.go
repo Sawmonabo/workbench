@@ -56,9 +56,12 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 			version,
 		)
 	}
-	record := func(output, cacheRead int64) {
+	// One run's record of committed rows lets ingest skip a later copy that
+	// changes nothing; a skip that also swallowed larger usage would lose spend.
+	seen := Seen{}
+	record := func(output, cacheRead int64, minute int) {
 		t.Helper()
-		err := ledger.Transaction(context.Background(), nil, func(tx *Tx) error {
+		err := ledger.Transaction(context.Background(), seen, func(tx *Tx) error {
 			return tx.Upsert(Usage{
 				Tool:         "claude",
 				RequestID:    "req-1",
@@ -66,7 +69,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 				Project:      "/w/a",
 				Session:      "s1",
 				Account:      "a@example.test",
-				Time:         time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC),
+				Time:         time.Date(2026, 9, 1, 10, minute, 0, 0, time.UTC),
 				Input:        100,
 				Output:       output,
 				CacheWrite5m: 300,
@@ -86,7 +89,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 		}
 		return output, cacheRead
 	}
-	record(50, 0) // a resumed session's partial copy
+	record(50, 0, 0) // a resumed session's partial copy
 	if output, cacheRead := stored(); output != 200 || cacheRead != 1000 {
 		t.Fatalf(
 			"a smaller copy lowered the usage to output=%d cache_read=%d, want 200 and 1000",
@@ -94,7 +97,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 			cacheRead,
 		)
 	}
-	record(250, 1500) // later, complete usage
+	record(250, 1500, 5) // a later copy with complete usage
 	if output, cacheRead := stored(); output != 250 || cacheRead != 1500 {
 		t.Fatalf(
 			"a larger copy stored output=%d cache_read=%d, want 250 and 1500",
