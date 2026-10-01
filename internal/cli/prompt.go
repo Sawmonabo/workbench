@@ -94,6 +94,72 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 	return approved, nil
 }
 
+// choosePlan shows the checklist on the controlling terminal: the files, then
+// a multi-select of the effects with the plan's checks as defaults. Enter
+// approves exactly that selection; esc or ctrl+c approves nothing.
+func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
+	terminal, err := openTerminal()
+	if err != nil {
+		return nil, false, err
+	}
+	defer func() { _ = terminal.Close() }()
+	if err := writeMachinePlan(terminal, operation.Plan{
+		Source: plan.Source, Scope: plan.Scope, Edits: plan.Edits,
+		UnchangedTargets: plan.UnchangedTargets, Prerequisites: plan.Prerequisites,
+		Warnings: plan.Warnings, RecoveryLimits: plan.RecoveryLimits, Complete: plan.Complete,
+	}, verbose); err != nil {
+		return nil, false, err
+	}
+	var options []huh.Option[string]
+	var fixed []string
+	var checked []string
+	for _, effect := range plan.Effects {
+		if effect.Fixed {
+			fixed = append(fixed, effect.Name)
+			continue
+		}
+		row := effectRow(effect)
+		label := fmt.Sprintf("%-24s %s  (%s)", row[1], row[2], row[3])
+		if row[4] != "" {
+			label += "  " + row[4]
+		}
+		options = append(options, huh.NewOption(label, effect.Name).Selected(effect.Checked))
+		if effect.Checked {
+			checked = append(checked, effect.Name)
+		}
+	}
+	if len(options) == 0 {
+		approved := false
+		answered, askErr := ask(terminal, huh.NewConfirm().
+			Title("[WorkBench] Apply these files?").
+			Affirmative("Yes").Negative("No").Value(&approved))
+		return fixed, answered && approved && askErr == nil, nil
+	}
+	answered, err := ask(terminal, huh.NewMultiSelect[string]().
+		Title("[WorkBench] Effects: space toggles, enter applies, esc quits").
+		Description("Unchecked effects are remembered for this machine; apply --reset forgets them.").
+		Options(options...).
+		Filterable(false).
+		Value(&checked))
+	if err != nil {
+		return nil, false, operation.Fail(
+			operation.ExitBlocked,
+			"consent",
+			"No complete approval was received",
+		)
+	}
+	if !answered {
+		return nil, false, nil
+	}
+	_, _ = fmt.Fprintf(
+		terminal,
+		"[WorkBench] Applying %d of %d effects\n",
+		len(checked),
+		len(options),
+	)
+	return append(checked, fixed...), true, nil
+}
+
 // checkpointChoice returns --checkpoint or, at a terminal, the checkpoint the
 // user picks. Otherwise it lists the checkpoints under name and asks for
 // --checkpoint.

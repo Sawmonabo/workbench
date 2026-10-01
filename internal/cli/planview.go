@@ -19,7 +19,7 @@ import (
 // recovery limits. --json prints the complete plan instead.
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
-	title := "Plan for " + plan.Scope.Kind + " " + homePath(plan.Scope.Root)
+	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + homePath(plan.Scope.Root)
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
 	}
@@ -83,6 +83,112 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	}
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// writeMachinePlan prints the checklist view: changed files with their line
+// counts, then one line per effect with its probed delta, a privilege tag and
+// whether a skip was saved. Recovery text and unchanged files are verbose.
+func writeMachinePlan(w io.Writer, plan operation.Plan, verbose bool) error {
+	var b strings.Builder
+	b.WriteString("[WorkBench] Plan for this machine")
+	if plan.Source.Release != "" {
+		b.WriteString(" (" + sourceName(&plan.Source) + ")")
+	}
+	b.WriteString("\n")
+	fmt.Fprintf(&b, "\nFiles (%d changed, %d unchanged)\n", len(plan.Edits), plan.UnchangedTargets)
+	if len(plan.Edits) == 0 {
+		b.WriteString("  none\n")
+	}
+	rows := make([][]string, 0, len(plan.Edits))
+	for _, edit := range plan.Edits {
+		rows = append(rows, []string{homePath(edit.Path), editSummary(edit)})
+	}
+	writeColumns(&b, rows)
+	b.WriteString("\nEffects\n")
+	rows = rows[:0]
+	for _, effect := range plan.Effects {
+		rows = append(rows, effectRow(effect))
+	}
+	if len(rows) == 0 {
+		b.WriteString("  none\n")
+	}
+	writeColumns(&b, rows)
+	if verbose && len(plan.Effects) > 0 {
+		b.WriteString("\nRecovery\n")
+		for _, effect := range plan.Effects {
+			b.WriteString("  " + effect.Name + ": " + effect.Recovery + "\n")
+		}
+	}
+	sections := []struct {
+		title string
+		lines []string
+	}{{"Prerequisites", plan.Prerequisites}, {"Warnings", plan.Warnings}}
+	if verbose {
+		sections = append(sections, struct {
+			title string
+			lines []string
+		}{"Recovery limits", plan.RecoveryLimits})
+	}
+	for _, section := range sections {
+		if len(section.lines) > 0 {
+			b.WriteString("\n" + section.title + ":\n")
+			for _, line := range section.lines {
+				b.WriteString("  " + line + "\n")
+			}
+		}
+	}
+	if !plan.Complete {
+		b.WriteString("\nThis plan is incomplete and cannot be applied as shown.\n")
+	}
+	_, err := io.WriteString(w, b.String())
+	return err
+}
+
+// editSummary keeps the counts and mode of an edit's summary and drops the
+// "not previously written by Workbench" note, which the first apply adds to
+// every line.
+func editSummary(edit operation.Edit) string {
+	summary := strings.TrimSuffix(edit.Summary, "; not previously written by Workbench")
+	if edit.Action == "create" && summary == "" {
+		return "new"
+	}
+	if edit.Action == "remove" {
+		return "removed"
+	}
+	return summary
+}
+
+// effectRow is one checklist line: box, name, delta, privilege tag, saved mark.
+func effectRow(effect operation.Effect) []string {
+	box := "[x]"
+	if !effect.Checked {
+		box = "[ ]"
+	}
+	if effect.Fixed {
+		box = "   "
+	}
+	delta := effect.Delta
+	switch {
+	case delta == "" && effect.Probe != "":
+		delta = "unprobed (" + effect.Probe + ")"
+	case delta == "":
+		delta = effect.Description
+	}
+	note := ""
+	if effect.SavedSkip {
+		note = "skipped (saved)"
+	}
+	return []string{box, effect.Name, delta, privilegeTag(effect), note}
+}
+
+// privilegeTag shortens "sudo; network and font-cache effects" to "sudo, network".
+func privilegeTag(effect operation.Effect) string {
+	tag := strings.TrimSpace(strings.Split(effect.Privilege, ";")[0])
+	tag = strings.TrimSuffix(tag, " user")
+	if strings.Contains(effect.Privilege, "network") {
+		tag += ", network"
+	}
+	return tag
 }
 
 // writeProposal prints a project plan, then what inspection found. The

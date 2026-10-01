@@ -19,10 +19,11 @@ import (
 )
 
 type options struct {
-	resolve              operation.Options
-	json, nonInteractive bool
-	approvePlan          string
-	rendered             bool
+	resolve                       operation.Options
+	json, nonInteractive, verbose bool
+	yes, reset, localBuild        bool
+	approvePlan                   string
+	rendered                      bool
 }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
@@ -59,7 +60,7 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 		}
 		result := operation.NewResult(name)
 		result.SetError(err)
-		if renderErr := render(out, diagnostics, o.json, result); renderErr != nil {
+		if renderErr := render(out, diagnostics, o.json, o.verbose, result); renderErr != nil {
 			return 1
 		}
 	}
@@ -80,6 +81,12 @@ func newRoot(o *options) *cobra.Command {
 	root.SetVersionTemplate("workbench {{.Version}}\n")
 	flags := root.PersistentFlags()
 	flags.BoolVar(&o.json, "json", false, "Emit one structured result object")
+	flags.BoolVar(
+		&o.verbose,
+		"verbose",
+		false,
+		"Show unchanged files, recovery text and limits in plans",
+	)
 	flags.BoolVar(
 		&o.nonInteractive,
 		"non-interactive",
@@ -108,24 +115,17 @@ func (o *options) approveFlag(cmd *cobra.Command) {
 		"",
 		"Approve exactly the plan with this SHA-256 digest, for unattended runs",
 	)
+	_ = cmd.Flags().MarkHidden("approve-plan")
 }
 
-func (o *options) sourceFlag(cmd *cobra.Command) {
-	cmd.Flags().StringVar(
-		&o.resolve.Source,
-		"source",
-		"",
-		"Use this developer checkout instead of the installed release",
+func (o *options) localBuildFlag(cmd *cobra.Command) {
+	cmd.Flags().BoolVar(
+		&o.localBuild,
+		"local-build",
+		false,
+		"Use the Workbench checkout containing the current directory",
 	)
-}
-
-func (o *options) machineConfigFlag(cmd *cobra.Command) {
-	cmd.Flags().StringVar(
-		&o.resolve.MachineConfig,
-		"machine-config",
-		"",
-		"Use this private answer file instead of the saved answers",
-	)
+	_ = cmd.Flags().MarkHidden("local-build")
 }
 
 func (o *options) destinationFlag(cmd *cobra.Command) {
@@ -135,6 +135,7 @@ func (o *options) destinationFlag(cmd *cobra.Command) {
 		"",
 		"Configure this existing folder instead of your home",
 	)
+	_ = cmd.Flags().MarkHidden("destination")
 }
 
 // showHelp makes a command group runnable. Cobra then rejects an unknown
@@ -171,6 +172,16 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			selection.Languages, _ = cmd.Flags().GetStringArray("language")
 		}
 		result := operation.NewResult(cmd.CommandPath())
+		if o.localBuild {
+			checkout, err := localCheckout()
+			if err != nil {
+				result.SetError(err)
+				o.rendered = true
+				_ = render(cmd.OutOrStdout(), cmd.ErrOrStderr(), o.json, o.verbose, result)
+				return err
+			}
+			selection.Source = checkout
+		}
 		resolved, err := operation.Resolve(selection)
 		switch {
 		case err != nil:
@@ -196,6 +207,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			cmd.OutOrStdout(),
 			cmd.ErrOrStderr(),
 			o.json,
+			o.verbose,
 			result,
 		); renderErr != nil {
 			return renderErr
@@ -217,12 +229,20 @@ func selectSource(c *operation.Context) error {
 	return err
 }
 
-func render(out, diagnostics io.Writer, asJSON bool, result operation.Result) error {
+func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.Result) error {
 	if asJSON {
 		return json.NewEncoder(out).Encode(result)
 	}
 	paint, warn := newPainter(out), newPainter(diagnostics)
 	for _, component := range result.Results {
+		// The machine plan prints as its own branded view, so its component
+		// line would only put "machine-plan: complete" before the brand.
+		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
+			if err := writeMachinePlan(out, plan, verbose); err != nil {
+				return err
+			}
+			continue
+		}
 		line := component.Name + ": " + string(component.Status)
 		if component.Message != "" {
 			line += " — " + component.Message

@@ -78,7 +78,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 		Bool("allow-build-hooks", false, "Explicitly select potential native build-code execution during dependency resolution")
 	configure.Flags().
 		Bool("ci", false, "Request CI integration; unsupported ownership receives a manual proposal")
-	o.sourceFlag(configure)
+	o.localBuildFlag(configure)
 	o.approveFlag(configure)
 	configure.RunE = o.action(
 		projectAction,
