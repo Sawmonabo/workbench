@@ -98,15 +98,25 @@ type Observation struct {
 // Tool is one tab of the report. A nil Source is a tool Workbench knows of
 // but does not record yet: its tab says so, and ingest skips it.
 type Tool struct {
-	Name   string // "claude", "codex": the ledger's tool column and --tool
-	Title  string // "Claude Code", "Codex": the tab label
-	Source Source
+	Name        string // "claude", "codex": the ledger's tool column and --tool
+	Title       string // "Claude Code", "Codex": the tab label
+	Source      Source
+	CacheWrites []string // the report's cache-write column heads: one per cache lifetime the tool bills
+	PriceNote   string   // what the figures are, under the total
 }
 
 // Tools is every tab, in order.
 var Tools = []Tool{
-	{Name: "claude", Title: "Claude Code", Source: claude{}},
-	{Name: "codex", Title: "Codex", Source: codex{}},
+	{
+		Name: "claude", Title: "Claude Code", Source: claude{},
+		CacheWrites: []string{"cache 5m", "cache 1h"},
+		PriceNote:   "API list-price equivalent, not a subscription bill",
+	},
+	{
+		Name: "codex", Title: "Codex", Source: codex{},
+		CacheWrites: []string{"cache write"},
+		PriceNote:   "OpenAI API list-price equivalent, not a ChatGPT plan bill",
+	},
 }
 
 // Lookup returns the tool named name.

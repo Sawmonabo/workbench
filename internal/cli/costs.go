@@ -561,15 +561,33 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			var hooks []string
 			for _, event := range []string{"SessionStart", "SessionEnd"} {
 				state := "MISSING"
+				if tool.Name == "codex" {
+					state = "MISSING or untrusted (workbench apply)"
+				}
 				if tool.Hooks[event] {
 					state = "ok"
 				}
 				hooks = append(hooks, event+" "+state)
 			}
 			add("hooks"+suffix, strings.Join(hooks, ", "))
+			if tool.Skipped > 0 {
+				add(
+					"skipped"+suffix,
+					fmt.Sprintf("%d compressed rollouts (.jsonl.zst) not read", tool.Skipped),
+				)
+			}
 		}
 	}
 	return b.String()
+}
+
+// rowName is how a report row is named: a path under the home directory as
+// ~/..., and a model at a service tier as "gpt-5.6-sol (fast)".
+func rowName(name string) string {
+	if base, tier := costs.SplitTier(name); tier != "" {
+		return base + " (" + tier + ")"
+	}
+	return shortPath(name)
 }
 
 // shortPath writes a path under the home directory as ~/...
@@ -687,7 +705,7 @@ func costsPage(
 		pal.accent.Bold(true).Render(money(report.Total.Cost))+"  "+faint.Render(period),
 	)
 	writeNotes(&b, width, 0, []string{
-		"API list-price equivalent, not a subscription bill",
+		tool.PriceNote,
 		"updated " + localTime(c.LastIngestAt),
 	})
 	grand := report.GrandTotal
@@ -697,7 +715,10 @@ func costsPage(
 	if selected >= 0 {
 		mark = unmarked
 	}
-	base := reportSpec{grand: grand, tokens: opts.Tokens, width: width, pal: pal, mark: mark}
+	base := reportSpec{
+		grand: grand, tokens: opts.Tokens, cacheHeads: tool.CacheWrites,
+		width: width, pal: pal, mark: mark,
+	}
 	var sections []reportSpec
 	var targets []target
 	add := func(heading, head, kind string, rows []costs.Row, total *costs.Row, label string) {
@@ -740,7 +761,7 @@ func costsPage(
 		add("", "account", "", report.Accounts, nil, "")
 	}
 	writeSections(&b, width, sections)
-	writeFooter(&b, width, report)
+	writeFooter(&b, tool, width, report)
 	return b.String(), targets
 }
 
@@ -772,7 +793,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 	if report.By != "project" || focus.Kind == "model" {
 		back = "report"
 	}
-	writeText(&b, width, 0, faint.Render("‹ "+back)+"   "+bold.Render(shortPath(focus.Name)))
+	writeText(&b, width, 0, faint.Render("‹ "+back)+"   "+bold.Render(rowName(focus.Name)))
 	b.WriteString("\n")
 	var notes []string
 	if report.GrandTotal > 0 {
@@ -801,11 +822,12 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 		days[i] = d
 	}
 	base := reportSpec{
-		grand:  focus.Total.Cost,
-		tokens: report.Options.Tokens,
-		width:  width,
-		pal:    pal,
-		mark:   noMarks,
+		grand:      focus.Total.Cost,
+		tokens:     report.Options.Tokens,
+		cacheHeads: tool.CacheWrites,
+		width:      width,
+		pal:        pal,
+		mark:       noMarks,
 	}
 	partsSection, daysSection := base, base
 	partsSection.head, partsSection.rows = parts, focus.Parts
@@ -840,7 +862,7 @@ func sessionTable(sessions []costs.Session, pal palette) tableSpec {
 			length = duration(session.End.Sub(session.Start))
 		}
 		spec.Rows = append(spec.Rows, []string{
-			faint.Render(id), started, faint.Render(length), session.Model,
+			faint.Render(id), started, faint.Render(length), rowName(session.Model),
 			costStyle.Render(money(session.Cost)), faint.Render(commas(session.Calls)),
 		})
 	}
@@ -912,10 +934,12 @@ type reportSpec struct {
 	rows    []costs.Row
 	grand   float64
 	tokens  bool
-	total   *costs.Row
-	label   string
-	width   int
-	pal     palette
+	// cacheHeads are the tool's cache-write column heads under --tokens.
+	cacheHeads []string
+	total      *costs.Row
+	label      string
+	width      int
+	pal        palette
 }
 
 // The mark of a reportSpec: noMarks prints no marker column (a pipe, or a
@@ -940,10 +964,11 @@ func reportTable(r reportSpec) tableSpec {
 			column{Head: "calls", Right: true, Drop: 1},
 			column{Head: "input", Right: true},
 			column{Head: "output", Right: true},
-			column{Head: "cache 5m", Right: true, Drop: 3},
-			column{Head: "cache 1h", Right: true, Drop: 4},
-			column{Head: "cache read", Right: true, Drop: 2},
 		)
+		for i, head := range r.cacheHeads {
+			spec.Cols = append(spec.Cols, column{Head: head, Right: true, Drop: 3 + i})
+		}
+		spec.Cols = append(spec.Cols, column{Head: "cache read", Right: true, Drop: 2})
 	} else {
 		spec.Cols = append(spec.Cols,
 			column{Head: "share", Right: true, Drop: 2},
@@ -960,7 +985,7 @@ func reportTable(r reportSpec) tableSpec {
 		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
 	}
 	for i, row := range r.rows {
-		name := shortPath(row.Name)
+		name := rowName(row.Name)
 		if r.kind != "" && i == r.mark {
 			name = r.pal.accent.Bold(true).Render(name)
 		}
@@ -989,14 +1014,13 @@ func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) 
 	}
 	out := []string{name, cost}
 	if r.tokens {
-		out = append(out,
-			commas(row.Calls),
-			human(float64(row.Input)),
-			human(float64(row.Output)),
-			human(float64(row.CacheWrite5m)),
-			human(float64(row.CacheWrite1h)),
-			human(float64(row.CacheRead)),
-		)
+		out = append(out, commas(row.Calls), human(float64(row.Input)), human(float64(row.Output)))
+		if len(r.cacheHeads) == 1 {
+			out = append(out, human(float64(row.CacheWrite5m+row.CacheWrite1h)))
+		} else {
+			out = append(out, human(float64(row.CacheWrite5m)), human(float64(row.CacheWrite1h)))
+		}
+		out = append(out, human(float64(row.CacheRead)))
 	} else {
 		share, cached := "-", "-"
 		if r.grand > 0 {
@@ -1053,12 +1077,14 @@ func addMarker(spec *tableSpec, r reportSpec) {
 // writeFooter writes only the notes that report something: the --tokens key,
 // the --top cut and the projects the scope hid, on one line when they fit,
 // then a warning for models without a rate.
-func writeFooter(b *strings.Builder, width int, report costs.Statement) {
+func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.Statement) {
 	var notes []string
 	if report.Options.Tokens {
-		notes = append(notes,
-			"cache 5m / 1h: prompt tokens written to the cache with that lifetime; "+
-				"cache read: prompt tokens served from it")
+		note := "cache 5m / 1h: prompt tokens written to the cache with that lifetime; "
+		if len(tool.CacheWrites) == 1 {
+			note = "cache write: prompt tokens written to the cache; "
+		}
+		notes = append(notes, note+"cache read: prompt tokens served from it")
 	}
 	if report.RowCount > len(report.Rows) {
 		notes = append(notes, fmt.Sprintf(
