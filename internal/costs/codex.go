@@ -200,11 +200,63 @@ func (c codexCounts) fill(u *Usage) {
 	u.CacheRead, u.CacheWrite5m, u.Output = c.Cached, c.CacheWrite, c.Output
 }
 
-// codexMarks are the line types Parse reads; every other line, almost all of
-// a rollout's bytes, is skipped without decoding.
-var codexMarks = [][]byte{
-	[]byte("session_meta"), []byte("turn_context"), []byte("token_usage_record"),
-	[]byte("token_count"), []byte("thread_settings_applied"),
+// codexMarks are the line types Parse reads, a line's own or an event_msg's
+// payload's; every other line, almost all of a rollout's bytes, is skipped
+// without decoding.
+var codexMarks = map[string]bool{
+	"session_meta": true, "turn_context": true, "token_usage_record": true,
+	"token_count": true, "thread_settings_applied": true,
+}
+
+// codexLineType reads a line's type, and an event_msg's payload type, from
+// the head Codex writes every line with:
+// {"timestamp":"…",["ordinal":N,]"type":"…"[,"payload":{"type":"…"]. ok is
+// false for any other head; Parse then decodes the line to learn its type.
+func codexLineType(line []byte) (kind, event []byte, ok bool) {
+	rest, ok := bytes.CutPrefix(line, []byte(`{"timestamp":`))
+	if !ok {
+		return nil, nil, false
+	}
+	if _, rest, ok = codexString(rest); !ok {
+		return nil, nil, false
+	}
+	if after, found := bytes.CutPrefix(rest, []byte(`,"ordinal":`)); found {
+		digits := 0
+		for digits < len(after) && after[digits] >= '0' && after[digits] <= '9' {
+			digits++
+		}
+		if digits == 0 {
+			return nil, nil, false
+		}
+		rest = after[digits:]
+	}
+	if rest, ok = bytes.CutPrefix(rest, []byte(`,"type":`)); !ok {
+		return nil, nil, false
+	}
+	if kind, rest, ok = codexString(rest); !ok {
+		return nil, nil, false
+	}
+	if string(kind) != "event_msg" {
+		return kind, nil, true
+	}
+	if rest, ok = bytes.CutPrefix(rest, []byte(`,"payload":{"type":`)); !ok {
+		return nil, nil, false
+	}
+	event, _, ok = codexString(rest)
+	return kind, event, ok
+}
+
+// codexString splits a JSON string with no escapes off the front of b: its
+// text and what follows the closing quote.
+func codexString(b []byte) (text, rest []byte, ok bool) {
+	if len(b) == 0 || b[0] != '"' {
+		return nil, nil, false
+	}
+	end := bytes.IndexByte(b[1:], '"')
+	if end < 0 || bytes.IndexByte(b[1:end+1], '\\') >= 0 {
+		return nil, nil, false
+	}
+	return b[1 : end+1], b[end+2:], true
 }
 
 // Parse returns the usage rows of one rollout line. A token_usage_record of
@@ -212,16 +264,30 @@ var codexMarks = [][]byte{
 // (another thread's) is skipped, its original being in the parent's file. Any
 // record, copied or its own, turns token_count reading off for the file: the
 // token_count lines a fork copies beside a record would otherwise count the
-// parent's response again. A file without records is read from its token_count
-// events: one row per
-// change of the running total that is not a synthetic estimate, keyed by a
-// digest of the event's counts and rate limits, so a fork's copy of an event
-// lands on the original's row.
+// parent's response again. A file without records is read from its
+// token_count events: one row per change of the running total that is not a
+// synthetic estimate, keyed by a digest of the event's counts and rate
+// limits, so a fork's copy of an event lands on the original's row.
 func (codex) Parse(line []byte, file *FileState) []Usage {
-	if !slices.ContainsFunc(
-		codexMarks,
-		func(mark []byte) bool { return bytes.Contains(line, mark) },
-	) {
+	kind, event, ok := codexLineType(line)
+	switch {
+	case !ok: // an unusual head: decode the line if it names a type Parse reads
+		named := false
+		for mark := range codexMarks {
+			named = named || bytes.Contains(line, []byte(mark))
+		}
+		if !named {
+			return nil
+		}
+	case string(kind) != "event_msg":
+		if !codexMarks[string(kind)] {
+			return nil
+		}
+	case string(event) == "token_count":
+		if rows, done := codexTokenCountLine(line, file); done {
+			return rows
+		}
+	case !codexMarks[string(event)]:
 		return nil
 	}
 	var rec struct {
@@ -290,6 +356,35 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 	return nil
 }
 
+// codexTokenInfo is what a token_count event carries that Parse reads.
+type codexTokenInfo struct {
+	Info *struct {
+		Total json.RawMessage `json:"total_token_usage"`
+		Last  json.RawMessage `json:"last_token_usage"`
+	} `json:"info"`
+	RateLimits json.RawMessage `json:"rate_limits"`
+}
+
+// codexTokenCountLine reads a line whose head says it is a token_count event
+// in one decode, the most common line Parse reads. done is false when the
+// decoded line is not one after all; Parse then reads it the general way.
+func codexTokenCountLine(line []byte, file *FileState) (rows []Usage, done bool) {
+	var rec struct {
+		Timestamp string `json:"timestamp"`
+		Type      string `json:"type"`
+		Payload   *struct {
+			Type string `json:"type"`
+			codexTokenInfo
+		} `json:"payload"`
+	}
+	if !decode(line, &rec) || rec.Type != "event_msg" || rec.Payload == nil ||
+		rec.Payload.Type != "token_count" {
+		return nil, false
+	}
+	state := codexStateOf(file)
+	return codexTokenCount(rec.Timestamp, rec.Payload.codexTokenInfo, state, file), true
+}
+
 func codexEvent(ts string, payload json.RawMessage, state *codexState, file *FileState) []Usage {
 	var head struct {
 		Type string `json:"type"`
@@ -315,37 +410,36 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 			Thread: firstNonEmpty(event.ThreadID, state.Thread), Time: when, Tier: state.Tier,
 		})
 	case "token_count":
-		if state.Records {
+		var event codexTokenInfo
+		if !decode(payload, &event) {
 			return nil
 		}
-		var event struct {
-			Info *struct {
-				Total json.RawMessage `json:"total_token_usage"`
-				Last  json.RawMessage `json:"last_token_usage"`
-			} `json:"info"`
-			RateLimits json.RawMessage `json:"rate_limits"`
-		}
-		if !decode(payload, &event) || event.Info == nil || len(event.Info.Total) == 0 ||
-			len(event.Info.Last) == 0 {
-			return nil
-		}
-		total := canonicalJSON(event.Info.Total)
-		if total == state.Total {
-			return nil // re-emitted for a rate-limit update
-		}
-		state.Total = total
-		state.save(file)
-		var last codexCounts
-		if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
-			return nil // a synthetic estimate after compaction
-		}
-		sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
-			canonicalJSON(event.RateLimits)))
-		u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
-		last.fill(&u)
-		return []Usage{u}
+		return codexTokenCount(ts, event, state, file)
 	}
 	return nil
+}
+
+// codexTokenCount is the row of a token_count event, if it counts.
+func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *FileState) []Usage {
+	if state.Records || event.Info == nil || len(event.Info.Total) == 0 ||
+		len(event.Info.Last) == 0 {
+		return nil
+	}
+	total := canonicalJSON(event.Info.Total)
+	if total == state.Total {
+		return nil // re-emitted for a rate-limit update
+	}
+	state.Total = total
+	state.save(file)
+	var last codexCounts
+	if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
+		return nil // a synthetic estimate after compaction
+	}
+	sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
+		canonicalJSON(event.RateLimits)))
+	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
+	last.fill(&u)
+	return []Usage{u}
 }
 
 // codexRoot is the root thread of a subagent's file: the session id when it
@@ -368,8 +462,16 @@ func codexRoot(id, sessionID string, source json.RawMessage) string {
 }
 
 // canonicalJSON re-encodes raw with sorted keys and exact numbers, so the same
-// value gives the same text however Codex spaced or ordered it.
+// value gives the same text however Codex spaced or ordered it. The text is
+// what encoding/json writes for raw decoded with UseNumber, and is part of
+// every token_count row's key, so it must never change. A value made only of
+// objects, arrays, numbers, literals and plain printable ASCII strings is
+// written directly; anything else (escapes, HTML characters, other bytes,
+// repeated keys) takes the decode-and-marshal path.
 func canonicalJSON(raw json.RawMessage) string {
+	if out, rest, ok := appendCanonical(nil, skipSpace(raw), 0); ok && len(skipSpace(rest)) == 0 {
+		return string(out)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.UseNumber()
 	var value any
@@ -381,6 +483,168 @@ func canonicalJSON(raw json.RawMessage) string {
 		return string(raw)
 	}
 	return string(out)
+}
+
+// appendCanonical appends the canonical form of the value at the front of
+// src, nested depth deep, to dst and returns what follows it; ok is false when
+// the value is malformed or needs the decode-and-marshal path.
+func appendCanonical(dst, src []byte, depth int) (out, rest []byte, ok bool) {
+	if len(src) == 0 || depth > 32 {
+		return dst, src, false
+	}
+	switch c := src[0]; {
+	case c == '{':
+		return appendCanonicalObject(dst, src[1:], depth+1)
+	case c == '[':
+		dst = append(dst, '[')
+		src = skipSpace(src[1:])
+		if len(src) > 0 && src[0] == ']' {
+			return append(dst, ']'), src[1:], true
+		}
+		for {
+			if dst, src, ok = appendCanonical(dst, src, depth+1); !ok {
+				return dst, src, false
+			}
+			src = skipSpace(src)
+			if len(src) == 0 {
+				return dst, src, false
+			}
+			switch src[0] {
+			case ',':
+				dst, src = append(dst, ','), skipSpace(src[1:])
+			case ']':
+				return append(dst, ']'), src[1:], true
+			default:
+				return dst, src, false
+			}
+		}
+	case c == '"':
+		text, rest, ok := plainString(src)
+		return append(append(append(dst, '"'), text...), '"'), rest, ok
+	case c == '-' || (c >= '0' && c <= '9'):
+		n := numberLength(src)
+		return append(dst, src[:n]...), src[n:], n > 0
+	}
+	for _, literal := range []string{"true", "false", "null"} {
+		if bytes.HasPrefix(src, []byte(literal)) {
+			return append(dst, literal...), src[len(literal):], true
+		}
+	}
+	return dst, src, false
+}
+
+// appendCanonicalObject writes the object whose members start at src with
+// its keys in byte order, as encoding/json writes a map.
+func appendCanonicalObject(dst, src []byte, depth int) (out, rest []byte, ok bool) {
+	type member struct {
+		key        []byte
+		start, end int // the value's text in values
+	}
+	var buffer [16]member
+	members := buffer[:0]
+	var values []byte
+	src = skipSpace(src)
+	if len(src) > 0 && src[0] == '}' {
+		return append(dst, '{', '}'), src[1:], true
+	}
+	for {
+		m := member{start: len(values)}
+		if m.key, src, ok = plainString(src); !ok {
+			return dst, src, false
+		}
+		src = skipSpace(src)
+		if len(src) == 0 || src[0] != ':' {
+			return dst, src, false
+		}
+		if values, src, ok = appendCanonical(values, skipSpace(src[1:]), depth); !ok {
+			return dst, src, false
+		}
+		m.end = len(values)
+		members = append(members, m)
+		src = skipSpace(src)
+		if len(src) == 0 {
+			return dst, src, false
+		}
+		if src[0] == '}' {
+			break
+		}
+		if src[0] != ',' {
+			return dst, src, false
+		}
+		src = skipSpace(src[1:])
+	}
+	slices.SortFunc(members, func(a, b member) int { return bytes.Compare(a.key, b.key) })
+	dst = append(dst, '{')
+	for i, m := range members {
+		if i > 0 {
+			if bytes.Equal(m.key, members[i-1].key) {
+				return dst, src, false // a repeated key: the decoder keeps the last
+			}
+			dst = append(dst, ',')
+		}
+		dst = append(append(append(append(dst, '"'), m.key...), '"', ':'), values[m.start:m.end]...)
+	}
+	return append(dst, '}'), src[1:], true
+}
+
+// plainString splits a string of printable ASCII off the front of src, one
+// encoding/json writes back unchanged: no escapes and none of <, >, &.
+func plainString(src []byte) (text, rest []byte, ok bool) {
+	if len(src) == 0 || src[0] != '"' {
+		return nil, src, false
+	}
+	for i := 1; i < len(src); i++ {
+		switch c := src[i]; {
+		case c == '"':
+			return src[1:i], src[i+1:], true
+		case c < 0x20 || c > 0x7e || c == '\\' || c == '<' || c == '>' || c == '&':
+			return nil, src, false
+		}
+	}
+	return nil, src, false
+}
+
+// numberLength is the length of the JSON number at the front of src, 0 when
+// there is none.
+func numberLength(src []byte) int {
+	i := 0
+	digits := func() int {
+		start := i
+		for i < len(src) && src[i] >= '0' && src[i] <= '9' {
+			i++
+		}
+		return i - start
+	}
+	if i < len(src) && src[i] == '-' {
+		i++
+	}
+	switch n := digits(); {
+	case n == 0, n > 1 && src[i-n] == '0':
+		return 0
+	}
+	if i < len(src) && src[i] == '.' {
+		i++
+		if digits() == 0 {
+			return 0
+		}
+	}
+	if i < len(src) && (src[i] == 'e' || src[i] == 'E') {
+		i++
+		if i < len(src) && (src[i] == '+' || src[i] == '-') {
+			i++
+		}
+		if digits() == 0 {
+			return 0
+		}
+	}
+	return i
+}
+
+func skipSpace(src []byte) []byte {
+	for len(src) > 0 && (src[0] == ' ' || src[0] == '\t' || src[0] == '\n' || src[0] == '\r') {
+		src = src[1:]
+	}
+	return src
 }
 
 // Observations is nil: Codex records no cost to calibrate against.

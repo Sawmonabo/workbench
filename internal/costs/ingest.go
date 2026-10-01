@@ -222,9 +222,20 @@ func readFile(ledger *Ledger, tool Tool, path string) fileRead {
 		read.err = err
 		return read
 	}
+	// A line is parsed in place in the reader's buffer; one longer than the
+	// buffer is gathered into long. Parse keeps nothing of the line.
 	reader := bufio.NewReaderSize(file, 1<<20)
+	var long []byte
 	for {
-		line, readErr := reader.ReadBytes('\n')
+		line, readErr := reader.ReadSlice('\n')
+		if errors.Is(readErr, bufio.ErrBufferFull) {
+			long = append(long, line...)
+			continue
+		}
+		if len(long) > 0 {
+			long = append(long, line...)
+			line = long
+		}
 		if len(line) == 0 || line[len(line)-1] != '\n' {
 			if readErr != nil && !errors.Is(readErr, io.EOF) {
 				read.err = readErr
@@ -234,6 +245,7 @@ func readFile(ledger *Ledger, tool Tool, path string) fileRead {
 		}
 		offset += int64(len(line))
 		read.usage = append(read.usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
+		long = long[:0]
 	}
 	read.changed, read.tiers = true, state.Tiers
 	read.row = FileRow{
@@ -297,10 +309,20 @@ func commitFile(
 	}))
 }
 
+// readAhead bounds how far reads run ahead of the commits: the size of the
+// transcripts read or being read but not yet committed, counted in readUnit
+// steps. A read keeps only its rows, a small part of its file, so this bounds
+// memory. Counting bytes rather than files lets the reads run far enough ahead
+// that a large transcript is started well before the commits reach it, instead
+// of the commits waiting on it while the other readers sit idle.
+const (
+	readAhead = 1 << 30
+	readUnit  = 1 << 20
+)
+
 // readEach reads the transcripts on every CPU and hands each read to commit
 // in list order, so files commit one at a time in the order a serial run
-// would. At most two reads per worker wait to be committed, which bounds
-// memory on a first run over many large files. commit returns false to stop.
+// would. commit returns false to stop.
 func readEach(
 	ctx context.Context,
 	ledger *Ledger,
@@ -317,15 +339,24 @@ func readEach(
 	for i := range results {
 		results[i] = make(chan fileRead, 1)
 	}
-	slots := make(chan struct{}, 2*workers)
+	// Each read takes a unit of the budget per readUnit of its file, at least
+	// one and at most all, before it starts, and returns them once committed.
+	budget := make(chan struct{}, readAhead/readUnit)
+	units := make([]int, len(paths))
 	jobs := make(chan int)
 	wg.Go(func() {
 		defer close(jobs)
-		for i := range paths {
-			select {
-			case slots <- struct{}{}:
-			case <-ctx.Done():
-				return
+		for i, path := range paths {
+			units[i] = 1
+			if info, err := os.Stat(path); err == nil {
+				units[i] = int(min(max(info.Size()/readUnit, 1), readAhead/readUnit))
+			}
+			for range units[i] {
+				select {
+				case budget <- struct{}{}:
+				case <-ctx.Done():
+					return
+				}
 			}
 			select {
 			case jobs <- i:
@@ -352,7 +383,9 @@ func readEach(
 		case <-ctx.Done():
 			return
 		}
-		<-slots
+		for range units[i] {
+			<-budget
+		}
 		if !commit(i, read) {
 			return
 		}
