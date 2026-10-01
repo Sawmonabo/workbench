@@ -177,8 +177,9 @@ const headBytes = 64 << 10
 // line is still being written); then it reads from the start with empty
 // state, and since every key is derived from content a re-read rewrites the
 // same rows. It stops at the last complete line, so a transcript still being
-// written is picked up next run from that offset.
-func readFile(ledger *Ledger, tool Tool, path string) fileRead {
+// written is picked up next run from that offset. It gives up with ctx's error
+// within about readUnit bytes of ctx being cancelled.
+func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileRead {
 	read := fileRead{path: path}
 	info, err := os.Stat(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -226,9 +227,18 @@ func readFile(ledger *Ledger, tool Tool, path string) fileRead {
 	// A line is parsed in place in the reader's buffer; one longer than the
 	// buffer is gathered into long. Parse keeps nothing of the line.
 	reader := bufio.NewReaderSize(file, 1<<20)
-	var long []byte
+	var (
+		long      []byte
+		unchecked int // bytes read since ctx was last checked
+	)
 	for {
 		line, readErr := reader.ReadSlice('\n')
+		if unchecked += len(line); unchecked >= readUnit {
+			if read.err = ctx.Err(); read.err != nil {
+				return read
+			}
+			unchecked = 0
+		}
 		if errors.Is(readErr, bufio.ErrBufferFull) {
 			long = append(long, line...)
 			continue
@@ -376,7 +386,7 @@ func readEach(
 			for i := range jobs {
 				read := fileRead{path: paths[i], err: ctx.Err()}
 				if read.err == nil {
-					read = readFile(ledger, tool, paths[i])
+					read = readFile(ctx, ledger, tool, paths[i])
 				}
 				results[i] <- read
 			}

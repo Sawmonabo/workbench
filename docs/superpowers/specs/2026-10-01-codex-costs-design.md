@@ -172,6 +172,8 @@ never verified, access and refresh tokens never read), else `unknown`.
 - **Speed.** Files are parsed concurrently (`GOMAXPROCS` workers), up to
   1 GiB of transcript ahead of the commits, and committed one transaction per
   file in list order, so a crash still leaves every committed file consistent.
+  A cancelled run (Ctrl-C) stops each read within about 1 MiB and exits at
+  once; what it committed stays committed.
   The ledger runs WAL with `synchronous=NORMAL`: a crash can lose only the
   last commits, each with its file's offset, so the next run reads them again.
   Each transaction prepares its statements once, and a run remembers what it
