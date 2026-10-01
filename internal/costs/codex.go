@@ -847,15 +847,8 @@ func (codex) ParsePricing(page string) RateCard {
 			continue
 		}
 		column := func(name string) int { return slices.Index(headers, "short context "+name) }
-		ci, cc, cw, co := column(
-			"input",
-		), column(
-			"cached input",
-		), column(
-			"cache writes",
-		), column(
-			"output",
-		)
+		ci, co := column("input"), column("output")
+		cc, cw := column("cached input"), column("cache writes")
 		if ci < 0 || co < 0 {
 			continue
 		}

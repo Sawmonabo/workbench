@@ -524,7 +524,7 @@ func (l *Ledger) ResolveTiers(ctx context.Context) (int, error) {
 		rows, err := tx.QueryContext(ctx, `
 SELECT p.request_id, r.model,
        (SELECT c.tier FROM tier_changes c
-         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC LIMIT 1)
+         WHERE c.thread_id = p.root AND c.ts <= r.ts ORDER BY c.ts DESC, c.rowid DESC LIMIT 1)
   FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`)
 		if err != nil {
 			return err

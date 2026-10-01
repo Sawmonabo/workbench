@@ -1021,9 +1021,11 @@ func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) 
 	out := []string{name, cost}
 	if r.tokens {
 		out = append(out, commas(row.Calls), human(float64(row.Input)), human(float64(row.Output)))
-		if len(r.cacheHeads) == 1 {
+		switch len(r.cacheHeads) {
+		case 0: // a tool without cache-write columns
+		case 1:
 			out = append(out, human(float64(row.CacheWrite5m+row.CacheWrite1h)))
-		} else {
+		default:
 			out = append(out, human(float64(row.CacheWrite5m)), human(float64(row.CacheWrite1h)))
 		}
 		out = append(out, human(float64(row.CacheRead)))
@@ -1086,11 +1088,15 @@ func addMarker(spec *tableSpec, r reportSpec) {
 func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.Statement) {
 	var notes []string
 	if report.Options.Tokens {
-		note := "cache 5m / 1h: prompt tokens written to the cache with that lifetime; "
-		if len(tool.CacheWrites) == 1 {
-			note = "cache write: prompt tokens written to the cache; "
+		read := "cache read: prompt tokens served from it"
+		note := "cache 5m / 1h: prompt tokens written to the cache with that lifetime; " + read
+		switch len(tool.CacheWrites) {
+		case 0: // a tool without cache-write columns
+			note = "cache read: prompt tokens served from the cache"
+		case 1:
+			note = "cache write: prompt tokens written to the cache; " + read
 		}
-		notes = append(notes, note+"cache read: prompt tokens served from it")
+		notes = append(notes, note)
 	}
 	if report.RowCount > len(report.Rows) {
 		notes = append(notes, fmt.Sprintf(
