@@ -165,8 +165,10 @@ def hook_hash(event, group, handler):
     """Codex's trust hash for a command hook: SHA-256 of the compact, key-sorted
     JSON of its normalized identity (codex-rs hooks/src/engine/discovery.rs
     hook_hash; internal/costs/codex.go codexHookHash checks the same rule)."""
+    if handler.get("type") != "command":
+        raise ValueError("cannot trust hook {}: type {!r}, only command hooks".format(event, handler.get("type")))
     unsupported = set(handler) - {"type", "command", "timeout", "async", "statusMessage"}
-    if handler.get("type") != "command" or unsupported:
+    if unsupported:
         raise ValueError("cannot trust hook {} {}: unsupported fields".format(event, sorted(unsupported)))
     timeout = handler.get("timeout")
     if event in ("SessionEnd", "Interrupt"):
