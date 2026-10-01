@@ -570,9 +570,42 @@ func shortPath(path string) string {
 
 // ---------------------------------------------------------------- the report
 
-// costsReport is one tool's whole report at width: the [WorkBench] header
-// line, then costsBody. It is what is printed to a pipe and, after the tabs
-// close, to the scrollback.
+// palette is one tool's colors. lipgloss downsamples them to what the
+// terminal shows and drops them for a pipe, TERM=dumb and NO_COLOR.
+type palette struct {
+	accent lipgloss.Style // the headline, column heads, share bars and brand
+	tab    lipgloss.Style // the active tab: dark text on the accent
+}
+
+// toolColors are the tools' own brand colors.
+var toolColors = map[string]string{"claude": "#D97757", "codex": "#10A37F"}
+
+func toolPalette(name string) palette {
+	hex, ok := toolColors[name]
+	if !ok {
+		hex = "#7AA2F7"
+	}
+	accent := lipgloss.Color(hex)
+	return palette{
+		accent: lipgloss.NewStyle().Foreground(accent),
+		tab: lipgloss.NewStyle().Bold(true).Padding(0, 1).
+			Foreground(lipgloss.Color("#1E1E1E")).Background(accent),
+	}
+}
+
+// costStyle colors every dollar figure.
+var costStyle = lipgloss.NewStyle().Foreground(lipgloss.Color("#8FC37E"))
+
+// maxBar is the widest a share bar gets; narrower terminals get less, and
+// below minBar the bars are left out.
+const (
+	maxBar = 40
+	minBar = 8
+)
+
+// costsReport is one tool's whole report at width: the [WorkBench] line, then
+// costsBody. It is what is printed to a pipe and, after the tabs close, to the
+// scrollback.
 func costsReport(tool costs.Tool, report costs.Statement, width int) string {
 	var b strings.Builder
 	switch {
@@ -581,10 +614,7 @@ func costsReport(tool costs.Tool, report costs.Statement, width int) string {
 	case report.Empty():
 		writeText(&b, width, 0, "[WorkBench] "+emptyReport(report))
 	default:
-		c := report.Coverage
-		writeBold(&b, width, 0, fmt.Sprintf(
-			"[WorkBench] Costs · %s → %s · %s responses", c.First, c.Last, commas(c.Responses),
-		))
+		writeStyled(&b, width, 0, "[WorkBench] "+tool.Title+" costs", bold)
 		b.WriteString(costsBody(tool, report, width))
 	}
 	return b.String()
@@ -601,8 +631,10 @@ func emptyReport(report costs.Statement) string {
 	return "no responses matched (check `workbench costs status`)"
 }
 
-// costsBody is the report without its header line, which the tabs' tab bar
-// replaces. A tool without a source, or without rows, says so.
+// costsBody is the report under the brand line, which the tabs replace with
+// their tab bar: the total and its period, then the tables, then only the
+// notes that report something. A tool without a source, or without rows,
+// says so.
 func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 	var b strings.Builder
 	switch {
@@ -613,74 +645,92 @@ func costsBody(tool costs.Tool, report costs.Statement, width int) string {
 		writeFaint(&b, width, 0, emptyReport(report))
 		return b.String()
 	}
+	pal := toolPalette(tool.Name)
 	opts := report.Options
-	writeFaint(&b, width, 0, "list-price equivalents, not subscription charges")
+	c := report.Coverage
+	period := fmt.Sprintf("%s responses · %s → %s", commas(c.Responses), day(c.First), day(c.Last))
+	writeText(
+		&b,
+		width,
+		0,
+		pal.accent.Bold(true).Render(money(report.Total.Cost))+"  "+faint.Render(period),
+	)
+	writeNotes(&b, width, 0, []string{
+		"API list-price equivalent, not a subscription bill",
+		"updated " + localTime(c.LastIngestAt),
+	})
 	grand := report.GrandTotal
 	label := fmt.Sprintf("total · %d %s%s", report.RowCount, report.By, plural(report.RowCount))
+	total := report.Total
+	base := reportSpec{grand: grand, tokens: opts.Tokens, width: width, pal: pal}
+	var sections []reportSpec
+	add := func(heading, head string, rows []costs.Row, total *costs.Row, label string) {
+		section := base
+		section.heading, section.head, section.rows, section.total, section.label = heading, head, rows, total, label
+		sections = append(sections, section)
+	}
 	if opts.Detail && report.By == "project" {
 		for _, block := range report.Detail {
 			share := "-"
 			if grand > 0 {
 				share = fmt.Sprintf("%.1f%%", block.Project.Cost/grand*100)
 			}
-			b.WriteString("\n")
-			writeText(&b, width, 0, bold.Render(shortPath(block.Project.Name))+"  "+
-				green.Render(money(block.Project.Cost))+"  "+
-				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))))
-			writeTable(
-				&b,
-				width,
-				2,
-				reportTable("model", block.Models, grand, opts.Tokens, nil, ""),
-			)
+			add(bold.Render(shortPath(block.Project.Name))+"  "+
+				costStyle.Render(money(block.Project.Cost))+"  "+
+				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
+				"model", block.Models, nil, "")
 		}
-		b.WriteString("\n")
-		total := report.Total
-		writeTable(
-			&b,
-			width,
-			2,
-			reportTable("model (all projects)", report.Models, grand, opts.Tokens, &total, label),
-		)
+		add("", "model (all projects)", report.Models, &total, label)
 	} else {
-		b.WriteString("\n")
-		total := report.Total
-		writeTable(
-			&b,
-			width,
-			2,
-			reportTable(report.By, report.Rows, grand, opts.Tokens, &total, label),
-		)
+		add("", report.By, report.Rows, &total, label)
 		if report.By != "model" {
-			b.WriteString("\n")
-			writeTable(
-				&b,
-				width,
-				2,
-				reportTable("model", report.Models, grand, opts.Tokens, nil, ""),
-			)
+			add("", "model", report.Models, nil, "")
 		}
 	}
 	if report.By != "account" && len(report.Accounts) > 1 {
-		b.WriteString("\n")
-		writeTable(
-			&b,
-			width,
-			2,
-			reportTable("account", report.Accounts, grand, opts.Tokens, nil, ""),
-		)
+		add("", "account", report.Accounts, nil, "")
 	}
-	b.WriteString("\n")
+	// One bar width for every table, so bars compare across them.
+	bar := maxBar
+	for _, section := range sections {
+		bar = min(bar, width-tableWidth(2, reportTable(section))-1)
+	}
+	for _, section := range sections {
+		b.WriteString("\n")
+		if section.heading != "" {
+			writeText(&b, width, 0, section.heading)
+		}
+		if bar >= minBar {
+			section.bar = bar
+		}
+		writeTable(&b, width, 2, reportTable(section))
+	}
 	writeFooter(&b, width, report)
-	if len(report.Unpriced) > 0 {
-		b.WriteString("\n")
-		writeText(&b, width, 0, yellow.Render("warning:")+fmt.Sprintf(
-			" no rate for %s; tokens counted, cost shown as 0. Run `workbench costs rates --refresh` or add them to %s.",
-			strings.Join(report.Unpriced, ", "),
-			shortPath(overridesPath()),
-		))
-	}
 	return b.String()
+}
+
+// writeNotes writes faint notes on one line, joined by a dot, when they fit,
+// and one per line when they do not.
+func writeNotes(b *strings.Builder, width, indent int, notes []string) {
+	if joined := strings.Join(notes, " · "); len(notes) > 1 &&
+		indent+lipgloss.Width(glyphs.text.Replace(joined)) <= width {
+		notes = []string{joined}
+	}
+	for _, note := range notes {
+		writeFaint(b, width, indent, note)
+	}
+}
+
+// day is a ledger date as "Sep 30", with the year when it is not this year.
+func day(date string) string {
+	when, err := time.Parse(time.DateOnly, date)
+	if err != nil {
+		return date
+	}
+	if when.Year() != time.Now().Year() {
+		return when.Format("Jan 2, 2006")
+	}
+	return when.Format("Jan 2")
 }
 
 func overridesPath() string {
@@ -698,22 +748,33 @@ func plural(n int) string {
 	return "s"
 }
 
-// reportTable is one table of a report. total, when set, is the bold row under
-// a rule, named label.
-func reportTable(
-	head string,
-	rows []costs.Row,
-	grand float64,
-	tokens bool,
-	total *costs.Row,
-	label string,
-) tableSpec {
+// reportSpec is what one table of a report is made from. total, when set, is
+// the bold row under a rule, named label; heading, when set, prints above the
+// table; bar, when set, is the width of the share bars.
+type reportSpec struct {
+	heading string
+	bar     int
+	head    string
+	rows    []costs.Row
+	grand   float64
+	tokens  bool
+	total   *costs.Row
+	label   string
+	width   int
+	pal     palette
+}
+
+// reportTable lays one table out: the name, cost and number columns, and,
+// where the terminal has room, a share bar that uses the spare width.
+func reportTable(r reportSpec) tableSpec {
 	spec := tableSpec{
 		Header: true,
-		Cols:   []column{{Head: head, Clip: true, ClipLeft: true, Keep: 24}},
+		Cols: []column{
+			{Head: r.head, Clip: true, ClipLeft: true, Keep: 24},
+			{Head: "cost", Right: true},
+		},
 	}
-	spec.Cols = append(spec.Cols, column{Head: "cost", Right: true})
-	if tokens {
+	if r.tokens {
 		spec.Cols = append(spec.Cols,
 			column{Head: "calls", Right: true, Drop: 1},
 			column{Head: "input", Right: true},
@@ -730,70 +791,86 @@ func reportTable(
 			column{Head: "cached", Right: true, Drop: 4},
 		)
 	}
-	flagged := total != nil && !total.Priced
-	for _, r := range rows {
-		flagged = flagged || !r.Priced
+	flagged := r.total != nil && !r.total.Priced
+	for _, row := range r.rows {
+		flagged = flagged || !row.Priced
 	}
 	if flagged {
-		spec.Cols = append(
-			spec.Cols,
-			column{Drop: 5},
-		) // the unpriced flag, only when some row has one
+		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
 	}
-	cells := func(name string, r costs.Row) []string {
-		out := []string{shortPath(name), money(r.Cost)}
-		if tokens {
-			out = append(
-				out,
-				commas(r.Calls),
-				human(float64(r.Input)),
-				human(float64(r.Output)),
-				human(
-					float64(r.CacheWrite5m),
-				),
-				human(float64(r.CacheWrite1h)),
-				human(float64(r.CacheRead)),
-			)
-		} else {
-			share, cached := "-", "-"
-			if grand > 0 {
-				share = fmt.Sprintf("%.1f%%", r.Cost/grand*100)
-			}
-			if v, ok := r.CachedShare(); ok {
-				cached = fmt.Sprintf("%.1f%%", v*100)
-			}
-			out = append(out, share, commas(r.Calls), human(float64(r.Total())), cached)
-		}
-		switch {
-		case !flagged:
-			return out
-		case r.Priced:
-			return append(out, "")
-		}
-		return append(out, yellow.Render("unpriced"))
+	for _, row := range r.rows {
+		spec.Rows = append(spec.Rows, reportCells(r, shortPath(row.Name), row, flagged, false))
 	}
-	for _, r := range rows {
-		spec.Rows = append(spec.Rows, cells(r.Name, r))
+	if r.total != nil {
+		spec.Total = reportCells(r, r.label, *r.total, flagged, true)
 	}
-	if total != nil {
-		spec.Total = cells(label, *total)
+	for i := range spec.Cols {
+		spec.Cols[i].Head = r.pal.accent.Render(spec.Cols[i].Head)
+	}
+	if !r.tokens && r.bar > 0 && r.grand > 0 {
+		addShareBars(&spec, r)
 	}
 	return spec
 }
 
-// writeFooter writes the notes under the tables: when the ledger last
-// ingested and the rate sources always; the --top, scope and --tokens notes
-// only when they report something. They share one line when it fits.
-func writeFooter(b *strings.Builder, width int, report costs.Statement) {
-	c := report.Coverage
-	notes := []string{
-		"ingested " + localTime(c.LastIngestAt),
-		fmt.Sprintf(
-			"rates %s (official card %s)",
-			strings.Join(report.Sources, ", "),
-			c.RatesFetched,
-		),
+// reportCells is one row's cells: name, cost, then the number columns.
+func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) []string {
+	cost := costStyle.Render(money(row.Cost))
+	if total {
+		cost = r.pal.accent.Render(money(row.Cost))
 	}
+	out := []string{name, cost}
+	if r.tokens {
+		out = append(out,
+			commas(row.Calls),
+			human(float64(row.Input)),
+			human(float64(row.Output)),
+			human(float64(row.CacheWrite5m)),
+			human(float64(row.CacheWrite1h)),
+			human(float64(row.CacheRead)),
+		)
+	} else {
+		share, cached := "-", "-"
+		if r.grand > 0 {
+			share = fmt.Sprintf("%.1f%%", row.Cost/r.grand*100)
+		}
+		if v, ok := row.CachedShare(); ok {
+			cached = fmt.Sprintf("%.1f%%", v*100)
+		}
+		out = append(out, share, faint.Render(commas(row.Calls)),
+			faint.Render(human(float64(row.Total()))), faint.Render(cached))
+	}
+	switch {
+	case !flagged:
+		return out
+	case row.Priced:
+		return append(out, "")
+	}
+	return append(out, yellow.Render("unpriced"))
+}
+
+// addShareBars puts a bar of each row's share of the total in front of its
+// percentage, r.bar cells wide: the share column then uses the spare width.
+func addShareBars(spec *tableSpec, r reportSpec) {
+	share := 2 // name, cost, share
+	for i, row := range spec.Rows {
+		filled := min(int(r.rows[i].Cost/r.grand*float64(r.bar)+0.5), r.bar)
+		spec.Rows[i][share] = r.pal.accent.Render(strings.Repeat("█", filled)) +
+			faint.Render(strings.Repeat("░", r.bar-filled)) + " " + fmt.Sprintf("%6s", row[share])
+	}
+	// Every cell is now as wide as the bar and its percentage, so the head sits
+	// over the bar and the total's percentage under the others.
+	spec.Cols[share].Right = false
+	if spec.Total != nil {
+		spec.Total[share] = strings.Repeat(" ", r.bar+1) + fmt.Sprintf("%6s", spec.Total[share])
+	}
+}
+
+// writeFooter writes only the notes that report something: the --tokens key,
+// the --top cut and the projects the scope hid, on one line when they fit,
+// then a warning for models without a rate.
+func writeFooter(b *strings.Builder, width int, report costs.Statement) {
+	var notes []string
 	if report.Options.Tokens {
 		notes = append(notes,
 			"cache 5m / 1h: prompt tokens written to the cache with that lifetime; "+
@@ -805,21 +882,22 @@ func writeFooter(b *strings.Builder, width int, report costs.Statement) {
 	}
 	if report.Hidden > 0 {
 		notes = append(notes, fmt.Sprintf(
-			"%d project%s outside ~/dev and ~/repos hidden (--all)",
+			"%d project%s outside ~/dev and ~/repos hidden (--all shows them)",
 			report.Hidden,
 			plural(report.Hidden),
 		))
 	}
-	if joined := strings.Join(
-		notes,
-		" · ",
-	); lipgloss.Width(
-		glyphs.text.Replace(joined),
-	)+2 <= width {
-		notes = []string{joined}
+	if len(notes) > 0 {
+		b.WriteString("\n")
+		writeNotes(b, width, 2, notes)
 	}
-	for _, note := range notes {
-		writeFaint(b, width, 2, note)
+	if len(report.Unpriced) > 0 {
+		b.WriteString("\n")
+		writeText(b, width, 0, yellow.Render("warning:")+fmt.Sprintf(
+			" no rate for %s; tokens counted, cost shown as 0. Run `workbench costs rates --refresh` or add them to %s.",
+			strings.Join(report.Unpriced, ", "),
+			shortPath(overridesPath()),
+		))
 	}
 }
 

@@ -3,8 +3,6 @@ package cli
 import (
 	"strings"
 
-	"charm.land/bubbles/v2/help"
-	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -12,8 +10,9 @@ import (
 	"github.com/Sawmonabo/workbench/internal/costs"
 )
 
-// costsView is the interactive report: one tab per costs.Tools entry, the
-// active tab's report in a viewport, refit at every resize, and a help line.
+// costsView is the interactive report: a tab bar with one tab per
+// costs.Tools entry, the active tab's report in a viewport, refit at every
+// resize, and a key line.
 type costsView struct {
 	tools   []costs.Tool
 	reports map[string]costs.Statement // computed before the view starts; absent for a tool without a Source
@@ -21,11 +20,10 @@ type costsView struct {
 	width   int
 	height  int
 	view    viewport.Model
-	help    help.Model
 }
 
-// tabBarHeight and helpHeight are the lines around the viewport.
-const costsChrome = 2
+// costsChrome is the lines around the viewport: tab bar, rule and key line.
+const costsChrome = 3
 
 func newCostsView(tools []costs.Tool, reports map[string]costs.Statement, active int) *costsView {
 	m := &costsView{
@@ -35,27 +33,20 @@ func newCostsView(tools []costs.Tool, reports map[string]costs.Statement, active
 		width:   terminalWidthDefault,
 		height:  24,
 		view:    viewport.New(),
-		help:    help.New(),
 	}
-	// Faint, like every other secondary line of the report; without UTF-8 the
-	// separator and arrows are ASCII.
-	m.help.Styles.ShortKey, m.help.Styles.ShortDesc, m.help.Styles.ShortSeparator = faint, faint, faint
-	m.help.Styles.Ellipsis = faint
-	m.help.ShortSeparator = glyphs.text.Replace(" · ")
-	m.help.Ellipsis = glyphs.Ellipsis
 	m.render()
 	return m
 }
 
 func (m *costsView) Init() tea.Cmd { return nil }
 
-// render lays the active tab's report out again at the present size.
+// render lays the active tab's report out again at the present size, with a
+// blank line above it.
 func (m *costsView) render() {
 	tool := m.tools[m.active]
 	m.view.SetWidth(m.width)
 	m.view.SetHeight(max(m.height-costsChrome, 1))
-	m.view.SetContent(costsBody(tool, m.reports[tool.Name], m.width))
-	m.help.SetWidth(m.width)
+	m.view.SetContent("\n" + costsBody(tool, m.reports[tool.Name], m.width))
 }
 
 // switchTab moves by step tabs, wrapping, and starts the new tab at the top.
@@ -91,39 +82,47 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// tabBar is each title padded by a space: the active one bold and underlined,
-// the others faint, joined by a faint divider and clipped to the width.
+// tabBar is the brand, then each tool: the active one a pill in its own color,
+// the others faint, clipped to the width.
 func (m *costsView) tabBar() string {
-	divider := faint.Render(glyphs.text.Replace("│"))
-	if glyphs.Ellipsis != "…" {
-		divider = faint.Render("|")
-	}
-	tabs := make([]string, len(m.tools))
+	parts := []string{toolPalette(m.tools[m.active].Name).accent.Bold(true).Render("[WorkBench]")}
 	for i, tool := range m.tools {
-		style := faint
 		if i == m.active {
-			style = lipgloss.NewStyle().Bold(true).Underline(true)
+			parts = append(parts, toolPalette(tool.Name).tab.Render(tool.Title))
+		} else {
+			parts = append(parts, faint.Render(" "+tool.Title+" "))
 		}
-		tabs[i] = style.Render(" " + tool.Title + " ")
 	}
-	return fit(strings.Join(tabs, divider), m.width, false)
+	return fit(strings.Join(parts, " "), m.width, false)
 }
 
-// helpLine is the key hints, within the width.
-func (m *costsView) helpLine() string {
-	arrows := "↑/↓"
-	if glyphs.Ellipsis != "…" {
-		arrows = "up/down"
+// keyLine names every key: the keys in the tool's color, what they do faint.
+// A terminal too narrow for every key gets the short form.
+func (m *costsView) keyLine() string {
+	pal := toolPalette(m.tools[m.active].Name)
+	line := func(hints [][2]string) string {
+		parts := make([]string, len(hints))
+		for i, hint := range hints {
+			parts[i] = pal.accent.Render(glyphs.text.Replace(hint[0])) + " " + faint.Render(hint[1])
+		}
+		return strings.Join(parts, faint.Render(glyphs.text.Replace("  ·  ")))
 	}
-	return m.help.ShortHelpView([]key.Binding{
-		key.NewBinding(key.WithKeys("tab", "shift+tab"), key.WithHelp("tab/shift+tab", "switch")),
-		key.NewBinding(key.WithKeys("up", "down"), key.WithHelp(arrows, "scroll")),
-		key.NewBinding(key.WithKeys("q"), key.WithHelp("q", "quit")),
+	full := line([][2]string{
+		{"←/→ tab/shift+tab", "switch tool"}, {"↑/↓ pgup/pgdn", "scroll"}, {"q", "quit"},
 	})
+	if lipgloss.Width(full) <= m.width {
+		return full
+	}
+	return fit(
+		line([][2]string{{"←/→", "switch"}, {"↑/↓", "scroll"}, {"q", "quit"}}),
+		m.width,
+		false,
+	)
 }
 
 func (m *costsView) View() tea.View {
-	view := tea.NewView(m.tabBar() + "\n" + m.view.View() + "\n" + m.helpLine())
+	rule := faint.Render(strings.Repeat(glyphs.Rule, m.width))
+	view := tea.NewView(m.tabBar() + "\n" + rule + "\n" + m.view.View() + "\n" + m.keyLine())
 	view.AltScreen = true
 	return view
 }

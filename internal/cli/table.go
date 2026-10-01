@@ -90,6 +90,11 @@ var asciiText = strings.NewReplacer(
 	"─", "-",
 	"✓", "+",
 	"✗", "x",
+	"█", "#",
+	"←", "<-",
+	"↑", "up",
+	"↓", "down",
+	"░", "-",
 )
 
 // plain rewrites every cell for the terminal's glyphs before anything is
@@ -241,6 +246,17 @@ func writeText(b *strings.Builder, width, indent int, text string) {
 	for line := range strings.SplitSeq(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
 		b.WriteString(strings.TrimRight(pad+line, " ") + "\n")
 	}
+}
+
+// tableWidth is how wide t prints, indent included, with every column at its
+// natural width.
+func tableWidth(indent int, t tableSpec) int {
+	widths := naturalWidths(t.plain())
+	sum := indent + gap*max(len(widths)-1, 0)
+	for _, w := range widths {
+		sum += w
+	}
+	return sum
 }
 
 // naturalWidths is each column's widest cell in display cells.

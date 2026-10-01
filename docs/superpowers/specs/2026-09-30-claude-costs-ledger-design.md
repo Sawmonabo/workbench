@@ -277,22 +277,27 @@ separate projects, lines wider than the terminal, columns named `w-5m`,
 per repository:
 
 ```
-claude-costs · 2026-09-01 → 2026-09-30 · 10,000 responses
-list-price equivalents, not subscription charges
+[WorkBench]  Claude Code   Codex
+──────────────────────────────────────────────────────────────────────────────────────────
 
-  project                           cost   share    calls   tokens  cached
-  ~/dev/app                      $600.00   60.0%    6,000   600.0M   95.0%
-  ~/repos/service                $250.00   25.0%    2,500   250.0M   95.0%
-  ~/dev                          $100.00   10.0%    1,000   100.0M   90.0%
-  ~/dev/tools                     $50.00    5.0%      500    50.0M   90.0%
-  ──────────────────────────────────────────────────────────────────────────
-  total · 4 projects           $1,000.00  100.0%   10,000     1.0B   94.3%
+$1,000.00  10,000 responses · Sep 1 → Sep 30
+API list-price equivalent, not a subscription bill · updated Sep 30 9:00 PM
 
-  model                             cost   share    calls   tokens  cached
-  claude-opus-5                  $700.00   70.0%    7,000   700.0M   95.0%
-  claude-fable-5-1               $300.00   30.0%    3,000   300.0M   92.7%
+  project                  cost  share                                calls  tokens  cached
+  ───────────────────────────────────────────────────────────────────────────────────────
+  ~/dev/app             $600.00  █████████████████░░░░░░░░░░░  60.0%  6,000  600.0M   95.0%
+  ~/repos/service       $250.00  ███████░░░░░░░░░░░░░░░░░░░░░  25.0%  2,500  250.0M   95.0%
+  ~/dev                 $100.00  ███░░░░░░░░░░░░░░░░░░░░░░░░░  10.0%  1,000  100.0M   90.0%
+  ~/dev/tools            $50.00  █░░░░░░░░░░░░░░░░░░░░░░░░░░░   5.0%    500   50.0M   90.0%
+  ───────────────────────────────────────────────────────────────────────────────────────
+  total · 4 projects  $1,000.00                               100.0% 10,000    1.0B   94.3%
 
-  ingested Sep 30 9:00 PM · rates official, calibrated, builtin (official card 2026-09-30)
+  model                cost  share                                calls  tokens  cached
+  ──────────────────────────────────────────────────────────────────────────────────────
+  claude-opus-5     $700.00  ████████████████████░░░░░░░░  70.0%  7,000  700.0M   95.0%
+  claude-fable-5-1  $300.00  ████████░░░░░░░░░░░░░░░░░░░░  30.0%  3,000  300.0M   92.7%
+
+←/→ tab/shift+tab switch tool  ·  ↑/↓ pgup/pgdn scroll  ·  q quit
 ```
 
 Rules:
@@ -316,11 +321,21 @@ Rules:
   `--detail` (project view only) prints one block per project, header
   `<project>  $cost  share · calls`, with its own model table, then a
   `model (all projects)` table carrying the total row.
-- Footer: `ingested <local time>` and `rates <sources> (official card <date>)`
-  always; `N of M <key>s shown; totals cover all` only under `--top`;
-  `N projects outside ~/dev and ~/repos hidden (--all)` only when N > 0; the
-  `--tokens` legend only under `--tokens`. Notes join with ` · ` on one line
-  when that fits the terminal, otherwise one per line.
+- Headline: the total in the tool's color, then the response count and
+  period, then a faint `API list-price equivalent, not a subscription bill ·
+  updated <local time>`. Rate sources are not repeated here; `costs rates`
+  and `costs status` show them.
+- Look: each tool has its own color (Claude Code `#D97757`, Codex `#10A37F`)
+  for the headline, column heads, share bars and its active tab; dollar
+  figures are green; calls, tokens and cached are faint. Where the terminal
+  has room, each `share` cell gets a bar of the row's share, one width for
+  every table (8 to 40 cells), so the table uses the spare width; narrower
+  terminals get the percentages alone. The key line names every key, with a
+  short form for narrow terminals.
+- Footer: only notes that report something: `N of M <key>s shown; totals
+  cover all` under `--top`; `N projects outside ~/dev and ~/repos hidden
+  (--all shows them)` when N > 0; the `--tokens` legend under `--tokens`.
+  Notes join with ` · ` on one line when that fits, otherwise one per line.
 - Empty result: `no responses matched (check \`claude-costs status\`)`, or
   when the scope hid projects, `no responses matched in ~/dev and ~/repos;
   N projects elsewhere (--all shows them)`. Exit 0.
