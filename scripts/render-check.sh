@@ -5,8 +5,9 @@
 # and locally: scripts/render-check.sh personal pinned
 #
 # A third argument of "wsl" instead fakes a WSL host: the scratch config gets
-# is_wsl = true plus the sizing answers that only a real WSL host would prompt
-# for, and only the init and script-lint stages run. Apply and the leak checks
+# is_wsl = true plus the sizing answers that only a WSL host would prompt for
+# (a real one already has them from scratch-init.sh), and only the init and
+# script-lint stages run. Apply and the leak checks
 # are skipped because they assume the host really is the machine being checked.
 set -euo pipefail
 
@@ -29,9 +30,9 @@ echo "==> [$role/$mode] init: every prompt must be answerable non-interactively"
 config=$("$repo/scripts/scratch-init.sh" "$role" "$mode")
 config_dir=$(dirname "$config")
 if [ "$extra" = wsl ]; then
-    # The WSL sizing prompts only fire on a real WSL host, so answer them here.
+    # The WSL sizing answers are already there on a real WSL host.
     sed -i.bak 's/^\( *\)is_wsl = false$/\1is_wsl = true/' "$config" && rm -f "$config.bak"
-    cat >> "$config" <<'WSLDATA'
+    grep -q '^ *wsl_memory = ' "$config" || cat >> "$config" <<'WSLDATA'
     wsl_memory = "8GB"
     wsl_processors = 4
     wsl_swap = "2GB"

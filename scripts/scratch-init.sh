@@ -5,8 +5,10 @@
 #
 # chezmoi keys --prompt* flags on the prompt TEXT shown to the user, not on the
 # data field name, so the strings below must match home/.chezmoi.toml.tmpl
-# exactly. The WSL sizing prompts embed host numbers and only appear on a WSL
-# host, where a TTY is available, so they are not answered here.
+# exactly. The WSL sizing prompts embed host numbers in their text, so they
+# are answered by seeding the config instead: the *Once prompt functions reuse
+# a value the existing config already holds, which also skips the Windows host
+# probe. The seed only matters on a real WSL host; elsewhere init drops it.
 set -euo pipefail
 
 role=${1:?usage: scratch-init.sh <personal|work|both> <pinned|latest>}
@@ -14,7 +16,15 @@ mode=${2:?usage: scratch-init.sh <personal|work|both> <pinned|latest>}
 repo=$(cd "$(dirname "$0")/.." && pwd)
 scratch=$(mktemp -d)
 config="$scratch/chezmoi.toml"
+trap 'rm -rf "$scratch"' EXIT
 mkdir -p "$scratch/source" "$scratch/destination" "$scratch/cache"
+cat > "$config" <<'SEED'
+[data]
+    wsl_memory = "8GB"
+    wsl_processors = 4
+    wsl_swap = "2GB"
+    restart_wsl_path = "Desktop/RestartWSL"
+SEED
 cp "$repo/.chezmoiroot" "$scratch/source/"
 cp -R "$repo/home" "$scratch/source/home"
 
@@ -32,4 +42,5 @@ chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/de
     --promptString "GitLab token (for Codex MCP; stored locally only)=ci-placeholder" \
     >/dev/null
 
+trap - EXIT
 echo "$config"
