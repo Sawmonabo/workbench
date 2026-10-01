@@ -143,6 +143,7 @@ type codexState struct {
 	Tier    string `json:"tier,omitempty"`     // the latest service tier, stored name
 	TierSet bool   `json:"tier_set,omitempty"` // whether this file has named a tier
 	Records bool   `json:"records,omitempty"`  // whether this file holds a token_usage_record, its own or a copy
+	Fork    bool   `json:"fork,omitempty"`     // whether this file is a fork's: its session_meta names forked_from_id
 	Total   string `json:"total,omitempty"`    // the last token_count running total, canonical JSON
 }
 
@@ -319,6 +320,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 		var meta struct {
 			ID        string          `json:"id"`
 			SessionID string          `json:"session_id"`
+			Forked    string          `json:"forked_from_id"`
 			Cwd       string          `json:"cwd"`
 			Source    json.RawMessage `json:"source"`
 		}
@@ -326,6 +328,7 @@ func (codex) Parse(line []byte, file *FileState) []Usage {
 			return nil
 		}
 		state.Thread, state.Cwd = meta.ID, firstNonEmpty(meta.Cwd, state.Cwd)
+		state.Fork = meta.Forked != ""
 		state.Root = codexRoot(meta.ID, meta.SessionID, meta.Source)
 		state.save(file)
 	case "turn_context":
@@ -443,6 +446,14 @@ func codexEvent(ts string, payload json.RawMessage, state *codexState, file *Fil
 }
 
 // codexTokenCount is the row of a token_count event, if it counts.
+//
+// A fork's file starts with copies of its parent's events, and its first
+// token_count whose total is more than its last response is one of them: a
+// response of the parent's history, which the parent's file records. It may
+// copy an event the parent re-emitted for a rate-limit update, whose key
+// (rate_limits differ) matches no row of the parent's, so it only sets the
+// running total. Later copies follow it as in the parent and land on the
+// parent's rows.
 func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *FileState) []Usage {
 	if state.Records || event.Info == nil || len(event.Info.Total) == 0 ||
 		len(event.Info.Last) == 0 {
@@ -452,8 +463,12 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	if total == state.Total {
 		return nil // re-emitted for a rate-limit update
 	}
+	first := state.Total == ""
 	state.Total = total
 	state.save(file)
+	if first && state.Fork && total != canonicalJSON(event.Info.Last) {
+		return nil // the parent's, copied into the fork
+	}
 	var last codexCounts
 	if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
 		return nil // a synthetic estimate after compaction

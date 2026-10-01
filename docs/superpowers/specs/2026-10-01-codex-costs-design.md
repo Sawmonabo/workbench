@@ -134,8 +134,19 @@ with any other head is decoded if it contains one of those five names.
   key and never change. The key holds no timestamp or file, so
   a fork's copy has its original's key and the ledger's upsert keeps one row;
   `rate_limits` separates unrelated threads that happen to reach the same
-  totals. On the sample machine this key leaves 347,339 rows; keying on the
-  totals alone leaves 347,329.
+  totals. A fork's first `token_count` whose total is more than its
+  `last_token_usage` is a copy of its parent's history and records no row;
+  it only sets the running total. It may copy an event the parent re-emitted
+  for a rate-limit update (same total, other `rate_limits`), which the parent
+  skipped and which matches none of the parent's keys. On the sample machine
+  (2,971 files) the `token_count` rows number 321,557 with this key without
+  the fork rule, 321,551 with it, and 321,547 keyed on the totals alone. The
+  six the fork rule removes are exactly such copies, each a second row with
+  no model for a response the parent's file records. Keying on the totals
+  alone would also merge four pairs of distinct responses: the first
+  responses of two sibling subagents started with the same prompt, with equal
+  counts minutes apart. Every one of the 159 fork files whose first
+  `token_count` is a copy has that response recorded in another file.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
 `Thread`, `Time` = the line's timestamp, `Tier` = `Tier`, or for a file that
