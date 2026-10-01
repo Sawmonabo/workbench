@@ -500,7 +500,7 @@ sign-in that names the id, so a renamed organization relabels its history.
 ### Limits
 
 - A Claude Code `/login` to another organization inside a running session is
-  not written anywhere Workbench can read until the next hook run; that
+  not observed by Workbench until the next ingest run; that
   session's rows stay with the subscription it started under.
 - Whether a running Claude Code session follows a `/login` made in another
   terminal is not stated by the official docs, which say only that parallel
@@ -517,6 +517,9 @@ sign-in that names the id, so a renamed organization relabels its history.
   assumes a running session keeps the login it started or resumed under, which
   is what rule 2 records; it does not claim the docs confirm it. A session
   started or resumed after the `/login` is bound to the new sign-in.
+- A `SessionEnd` binding is stored at the exit time, after every row of its
+  session, so a session that had no `SessionStart` binding (it began before
+  the hooks were installed) keeps rule 3 for its rows.
 - Claude Code rows read before this change, or from sessions started with no
   hook installed, rely on rule 3; history from before the first observation
   is `unknown`.
