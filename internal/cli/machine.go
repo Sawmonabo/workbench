@@ -173,8 +173,9 @@ func applyCommand(o *options) *cobra.Command {
 			"them without asking. --choose shows the checklist anyway; --reset forgets the " +
 			"remembered choices and asks again with the defaults; --yes never asks, taking the " +
 			"remembered choice or the default for what is new (it cannot be combined with --choose " +
-			"or --reset); --dry-run only shows the plan. Without a terminal apply never applies " +
-			"unasked: pass --approve-plan DIGEST from a --dry-run --json plan, or --yes.",
+			"or --reset); --dry-run only shows the plan. Without a terminal, or when a coding agent " +
+			"runs it (Claude Code, Codex), apply never applies unasked: pass --approve-plan DIGEST " +
+			"from a --dry-run --json plan, or --yes.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
@@ -232,6 +233,8 @@ func checkChoose(o *options) error {
 			"choose",
 			"--choose asks and --approve-plan does not; pick one",
 		)
+	case agentSession():
+		return operation.Fail(operation.ExitInvalid, "choose", agentRefusal)
 	case !o.interactive() || !hasTerminal():
 		return operation.Fail(operation.ExitInvalid, "choose", "--choose needs a terminal")
 	}
@@ -318,8 +321,9 @@ func applyMachine(
 	}
 	consent := consentFor(o, o.approvePlan)
 	// Prompting, and applying without a prompt, both need a person: a controlling
-	// terminal to read the plan on and answer at. A cron job or an agent without
-	// one never reaches either; it needs --approve-plan or --yes.
+	// terminal to read the plan on and answer at. A cron job without one, and an
+	// agent even with a pseudo-terminal, never reaches either; it needs
+	// --approve-plan or --yes.
 	attended := o.interactive() && hasTerminal()
 	switch {
 	case o.approvePlan != "":
@@ -375,6 +379,8 @@ func applyMachine(
 		selection.Forget = o.reset
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
+	case o.interactive() && agentSession():
+		return result, plan, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
 	default:
 		// --json, --non-interactive or no terminal: show the plan;
 		// WithMutation then refuses without a digest.

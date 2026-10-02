@@ -26,8 +26,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   Workbench-owned file (not a merged one) was edited outside it. A machine that
   has never decided asks once. `--choose` always asks, `--reset` forgets the
   choices, `--yes` never asks (refused with `--choose` or `--reset`). Applying
-  without asking needs a controlling terminal; a caller without one needs
-  `--approve-plan`. Scripts apply runs never prompt: ticking the step is the
+  without asking needs a controlling terminal and no coding agent: a caller
+  without a terminal, or an agent even in a pseudo-terminal (`CLAUDECODE=1`,
+  or `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX`,
+  `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), needs `--approve-plan`. Scripts apply runs never prompt: ticking the step is the
   approval (one-time helpers the owner runs later may prompt). A Windows setup
   part ticked on its own keeps its own choice while Windows setup is on.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints

@@ -190,6 +190,13 @@ synthetic answers.
   left no temporary folder and no stand-in process; the earlier fragment left
   both. Not observed: whether `timeout -k 1` ends the Windows side of a real
   interop call.
+- Coding agents: under a pseudo-terminal in a scratch home, `apply` with
+  `CLAUDECODE=1`, or with `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX` or
+  `CODEX_SANDBOX_NETWORK_DISABLED` set, exited 3 with "An agent runs this; use
+  --dry-run --json then --approve-plan", `--choose` exited 2, and `--dry-run
+  --json` and `--approve-plan` worked. The Codex variable names were confirmed in the
+  openai/codex source (`unified_exec/process_manager.rs`, `spawn.rs`,
+  `shell_environment.rs`) and in the installed binary (0.159.3).
 
 ### Revert and recovery
 
