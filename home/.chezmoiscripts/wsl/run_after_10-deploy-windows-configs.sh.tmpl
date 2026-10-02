@@ -70,8 +70,7 @@ write_restart_helpers() {
 # No admin permissions required - the task itself runs elevated
 #
 # WARNING: Restarting VMCompute while WSL is running can cause a BSOD.
-# This script checks for running distros and stops if any are found: shut WSL
-# down yourself first, so nothing here ever stops it for you.
+# This script checks for running distros and aborts if any are found.
 
 # Check if any WSL distros are currently running
 $wslList = wsl -l -v 2>&1
@@ -82,8 +81,25 @@ if ($running) {
     Write-Host ""
     $wslList | ForEach-Object { Write-Host "  $_" }
     Write-Host ""
-    Write-Host "Run 'wsl --shutdown' yourself, then run this again." -ForegroundColor Yellow
-    exit 1
+
+    $response = Read-Host "Shut down WSL first, then restart VMCompute? (y/N)"
+    if ($response -ne 'y') {
+        Write-Host "Aborted." -ForegroundColor Yellow
+        exit 1
+    }
+
+    Write-Host "Shutting down WSL..."
+    wsl --shutdown
+
+    # Verify it actually stopped
+    Start-Sleep -Seconds 3
+    $wslCheck = wsl -l -v 2>&1
+    $stillRunning = $wslCheck | Select-String "Running"
+    if ($stillRunning) {
+        Write-Host "ERROR: WSL is still running after shutdown. Aborting to avoid BSOD." -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "WSL stopped." -ForegroundColor Green
 }
 
 Write-Host "Restarting VMCompute service via scheduled task..."
