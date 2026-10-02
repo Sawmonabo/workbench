@@ -89,18 +89,18 @@ Will run
         Claude Code and Codex stay on your approved rules
   [x] Record AI usage  NEW
         new usage shows up in workbench costs
-Off          you turned these off before
+Off
   [ ] Windows setup
         theme, fonts and VS Code settings on the Windows side
         [ ] Replace Windows Terminal settings
-              replaces yours; a dated copy is kept
+              replaces yours; a copy is kept
         [ ] Replace PowerShell profile
         [ ] Install fonts for Windows apps
   [ ] WSL networking
         Windows and WSL share localhost (mirrored)
 Optional     off unless you turn them on
   [ ] Make <distro> your default
-Already set  Lower swapping (vm.swappiness 10), Work tools (Bitwarden CLI)
+Already set  Lower swapping, Work tools
 
 ↑↓ move · space on/off · enter open · a apply · q quit
 ```
@@ -135,9 +135,13 @@ Rules:
   carries each file's diff text, capped (and marked as shortened when it is).
   Unchanged files are counted in the header, not listed.
 - Groups, each under a header: `Will run` (checked effects with a change; fixed
-  effects first, unselectable), `Off` (saved skips: you turned these off
-  before), `Optional` (the optional host effects, unchecked unless selected),
-  then the faint `Already set` line. An empty group is not printed. The
+  effects first, unselectable), `Off` (saved skips, plus Windows setup's parts
+  while they are unticked; the heading says only "Off", and each row's panel
+  says why: you turned it off, or it is optional), `Optional` (the optional
+  host effects, unchecked unless selected), then the faint `Already set` line,
+  names only. The cursor can rest on an Already set name to read its panel (what
+  is already in place) but never toggles it. A parent whose parts still have
+  something to do is not folded into it. An empty group is not printed. The
   no-prompt view lists only what will run, then one faint `Off` line naming the
   skipped effects and `--choose`.
 - Windows setup and its parts. `terminal-adoption`, `powershell-adoption` and
@@ -155,7 +159,11 @@ Rules:
   every listed row, and the recovery limits.
 - Keys: ↑↓ move, space on/off, enter open (the full-screen diff for a file),
   `a` apply, `q` quit; mouse click selects a row, clicking the selected row
-  toggles it.
+  toggles it. Quitting prints no final frame, only that nothing was applied.
+- Diff text is printed only at a terminal: the interactive list, or `--dry-run
+  --verbose` on a terminal. Never to a pipe or a file; `--json` never carries
+  it. Known secret values and credential-shaped text (named keys, flag values,
+  URL passwords, token and key shapes) are masked first, as defence in depth.
 - A probe that failed or timed out never appears as a status word. The row's
   panel says what could not be checked and that apply checks again when it
   runs, for example `Windows didn't answer in time; checked again when
@@ -211,24 +219,31 @@ checked and its script runs normally. The plan never blocks on a probe.
   [effects]
   skip = ["windows-files"]
   select = ["sysctl"]
-  decided = ["linux-packages", "runtimes", "sysctl", "windows-files"]
+  decided = ["linux-packages", "runtimes", "windows-files"]
   ```
 
   `skip` and `select` are as before: only skips of default effects and
   selected optional effects are stored, so a new default effect is checked
-  unless declined. `decided` is every non-fixed effect the view listed at the
-  last approved apply, including those on the `Already set` line, so it names
-  what the owner has had the chance to decide. All three are written only
-  after an approved apply, never by `--dry-run`.
+  unless declined. `decided` is every non-fixed effect the owner could see work
+  for at the last approved apply, plus what was decided before. An effect on the
+  `Already set` line cannot be turned off there, so it is not recorded until it
+  has something to do; the release that gives it work then asks, marked new,
+  rather than running it unasked. `decided = []` is a saved list that names
+  nothing. A saved `skip` or `select` counts as decided. With no `decided` key
+  at all nothing has ever been decided: no step is marked new and the first
+  apply shows the checklist once. All three are written only after an approved
+  apply, never by `--dry-run`.
 - Merge-managed files (modify templates: Claude Code settings, Codex config,
   VS Code settings) keep the owner's own keys. Claude Code and Codex rewrite
   them constantly, so an edit outside Workbench on one never forces the
   checklist, and the view labels them `merged`. A file Workbench writes whole
   is `owned`.
 - What `apply` does, after planning as before:
-  - every non-fixed effect in the plan is in `decided`, and no owned file was
-    edited outside Workbench since Workbench last wrote it: the plan prints
-    and the saved selection applies without a prompt;
+  - a `decided` list is saved, every non-fixed effect with something to do is
+    in it (or in `skip` or `select`), and no owned file was edited outside
+    Workbench since Workbench last wrote it: the plan prints and the saved
+    selection applies without a prompt, but only at a controlling terminal;
+    without one apply refuses unless `--approve-plan` or `--yes` is given;
   - otherwise the checklist opens with the saved choices set, the undecided
     effects marked `new` and the edited owned files named, and an approval
     saves the result and `decided`.
@@ -236,6 +251,8 @@ checked and its script runs normally. The plan never blocks on a probe.
   asks once.
 - `--choose`: always show the checklist with the saved choices set. It needs a
   terminal and cannot be combined with `--yes`, which never asks (exit 2).
+  `--reset` cannot be combined with `--yes` either (exit 2): `--yes` would turn
+  every step the owner skipped back on and apply it unasked.
 - `--reset`: forget `skip`, `select` and `decided` for this host's effects and
   show the checklist with defaults (everything default checked, optional
   effects unchecked). Saved entries for effects this host does not list (for
@@ -265,9 +282,12 @@ checked and its script runs normally. The plan never blocks on a probe.
   once the effect is checked again. Checking `windows-files` includes
   `terminal-adoption`, `powershell-adoption` and `font-registry` (they are its
   parts, shown checked and locked); with it unchecked each part is its own
-  choice. A part installs what it needs itself. Saving records a part's
-  `select` only while `windows-files` is unchecked, so the included state is
-  never saved as a choice.
+  choice. A part installs what it needs itself. Saving records each part's own
+  choice, also while `windows-files` is checked, so the included state is never
+  saved as a choice: unticking Windows setup later brings back what the owner had
+  picked for each part. The Terminal part rewrites `settings.json` only when it
+  differs from what it would write (the probe renders it and compares), keeps a
+  `before-workbench` copy of the old one, and registers the fonts it uses.
 - The optional WSL effects (`terminal-adoption`, `powershell-adoption`,
   `font-registry`, `default-distro`, `windows-path`, `sysctl`) are unchecked by
   default and saved the same way; the three Windows parts are listed under
@@ -314,8 +334,8 @@ for a caller that read the plan first.
   no-prompt apply adds one more guarded risk, running an effect the owner
   skipped, and may add one safeguard for it.
 - No script run by apply asks a second question (every `read -p`-style prompt
-  in an apply-run script is gone; the `.wslconfig` merge shows its diff in the
-  plan and still writes its recovery copy).
+  in an apply-run script is gone; the WSL networking row lists each `.wslconfig`
+  setting the merge will change, and the merge still writes its recovery copy).
 - Smoke checks of decide-once on an isolated destination: a first run asks;
   a second run with nothing new applies without asking; a new effect asks with
   it marked `new`; `--choose`, `--reset` and `--yes`; an owned file edited

@@ -54,16 +54,19 @@ synthetic answers.
   `skip`, `select` and `decided`; a later apply with nothing new prints the plan
   and applies the saved choices without asking. Observed on an isolated home with
   synthetic answers and every effect skipped (so nothing provisioned), driven
-  through a terminal: the first run asked and saved `decided`; a second run asked
-  nothing and printed `Nothing to apply`; with one effect removed from `decided`
-  the run asked with that effect marked NEW and saved it; an effect whose probe
-  found nothing to change did not force a prompt; `--choose` asked with nothing
-  new (esc exited 3 with `machine.toml` unchanged); `--choose --yes` exited 2 and
-  `--choose --json` without a terminal exited 2; `--reset` asked with the defaults
-  and esc saved nothing; `--yes` and `--approve-plan DIGEST` applied without
-  asking and recorded `decided`; an owned file edited outside Workbench asked and
-  named the replacement, and a merged file (Claude Code settings) edited outside
-  did not. Unattended, `apply --dry-run --json` prints the plan with its digest, and
+  through a terminal: the first run, with no `decided` saved, asked with no step
+  marked NEW and saved `decided` without the steps that had nothing to change
+  (they sit on the `Already set` line); a second run asked nothing and printed
+  `Nothing to apply`; with one step removed from `skip` and `decided` the run
+  asked with that step marked NEW; `--choose` asked with nothing new (q exited
+  3 with `machine.toml` unchanged and no final frame printed); `--choose --yes`
+  and `--reset --yes` exited 2; `--reset` asked with the defaults and q saved
+  nothing; `--yes` and `--approve-plan DIGEST` applied without asking and
+  recorded `decided`; a bare `apply` with no controlling terminal (`setsid -w`,
+  standard input from `/dev/null`) exited 3 and did not recreate a deleted owned
+  file; an owned file edited outside Workbench asked and named the replacement
+  (q exited 3). A merged file (Claude Code settings) with an added key
+  planned no change. Unattended, `apply --dry-run --json` prints the plan with its digest, and
   `apply --approve-plan DIGEST` applies exactly that plan or exits 4 when the
   machine, release or saved selection changed; `init --answers-from FILE`
   works the same way. Observed on the WSL2 host: the approved digest applied
@@ -146,18 +149,30 @@ synthetic answers.
   Windows-side effects were skipped; they remain unqualified (below).
 
 - Plan view and probes, from a local checkout on the WSL2 host, read-only
-  (`apply --dry-run`): the header counts files, steps that will run and new to
-  decide; files carry a plain title, merged or owned, and +N −N counts; steps show
-  a plain name and one line; effects with nothing to change collapse into one
-  `Already set` line; the Linux editor-extension step is absent on WSL; the three
-  Windows parts are listed under Windows setup; every probe answered in about
-  1.2 s warm and none printed a status word. The interactive list was rendered
-  from a scratch harness at 120 and 80 columns with a file's diff and with
-  Windows setup selected, and Windows setup toggled on and off kept a part ticked
-  on its own. Not observed: the 15 s limit on a cold first Windows call (warm
-  only, it cannot be made cold on demand), the list in a graphical terminal, the
-  macOS probe scripts (rendered and shellchecked, not run), and any Windows-side
-  apply on a real host.
+  (`apply --dry-run`): the header counts files, steps that will run and, once a
+  `decided` list is saved, new to decide; files carry a plain title, merged or
+  owned, and +N −N counts (a line that moves between lists counts as removed
+  and added); steps show a plain name and one line; effects with nothing to
+  change collapse into one `Already set` line of names; the `Off` heading is
+  just "Off"; the Linux editor-extension step is absent on WSL; the three
+  Windows parts are listed under Windows setup. The interactive list was
+  rendered from a scratch harness at 120 and 80 columns with the cursor on a
+  file (its diff, wrapped lines keeping their `+`/`−`) and on Windows setup, and
+  a no-prompt view at 30 to 80 columns had no line wider than the terminal. With
+  synthetic tokens planted in an isolated Codex config, `--dry-run --verbose`
+  printed no diff text and none of the tokens through a pipe, and at a terminal
+  printed the diff with every token masked. The two WSL Windows probes ran
+  against the real host in about 1.5 s and 0.9 s; with a stand-in `powershell.exe`
+  that hangs, the packages probe took 5.2 s and only the PowerShell profile line
+  said it could not run. The Terminal part, run alone against stand-in Windows
+  tools, registered the fonts, wrote `settings.json` once, then said it was up to
+  date on a second run with no new copy, and kept a `before-workbench` copy when
+  the file had been edited. A `.wslconfig` that already says `memory = 8GB`
+  probed and applied as unchanged. Not observed: the 15 s limit on a cold first
+  Windows call (warm only, it cannot be made cold on demand), the list in a
+  graphical terminal, the macOS probe script on a Mac (rendered, shellchecked
+  and run against a stand-in `brew` that has no `bundle` command, where it
+  skipped the check), and any Windows-side apply on a real host.
 
 ### Revert and recovery
 

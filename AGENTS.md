@@ -23,11 +23,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Apply decides once: the first approved apply saves `skip`, `select` and
   `decided` in `machine.toml`; later applies print the plan and apply the saved
   choices without asking unless an effect is new (with something to do) or a
-  Workbench-owned file (not a merged one) was edited outside it. `--choose`
-  always asks, `--reset` forgets the choices, `--yes` never asks. Scripts apply
-  runs never prompt: ticking the step is the approval (one-time helpers the
-  owner runs later may prompt). A Windows setup part ticked on its own keeps its
-  own choice while Windows setup is on.
+  Workbench-owned file (not a merged one) was edited outside it. A machine that
+  has never decided asks once. `--choose` always asks, `--reset` forgets the
+  choices, `--yes` never asks (refused with `--choose` or `--reset`). Applying
+  without asking needs a controlling terminal; a caller without one needs
+  `--approve-plan`. Scripts apply runs never prompt: ticking the step is the
+  approval (one-time helpers the owner runs later may prompt). A Windows setup
+  part ticked on its own keeps its own choice while Windows setup is on.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved

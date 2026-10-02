@@ -15,8 +15,11 @@ are parts of Windows setup (`windows-files`): with Windows setup on they are
 included, and with it off each can be ticked on its own, installing what it needs
 itself. `default-distro`, `windows-path` and `sysctl` start off, and your choice
 for each is remembered like any other. The `.wslconfig` merge asks nothing
-during apply: its change is in the plan beforehand and a dated recovery copy is
-written. Windows-side script writes are not checkpointed. No real Windows host run is recorded yet; static
+during apply: the WSL networking row lists each setting it will change beforehand
+(for example `networkingMode is virtioproxy, will be mirrored`), and a recovery
+copy is written when it changes anything. The Terminal part rewrites
+`settings.json` only when it differs from the managed one, keeping a copy of the
+old file, and registers the font it uses. Windows-side script writes are not checkpointed. No real Windows host run is recorded yet; static
 rendering does not qualify these scripts.
 Project inspection/configuration is not Windows-host provisioning.
 
