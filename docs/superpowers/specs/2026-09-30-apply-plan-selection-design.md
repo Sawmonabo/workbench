@@ -31,11 +31,16 @@ switched from dotfiles on 2026-09-30:
   unless an effect needs a decision it has not had (a new effect, or a
   Workbench-owned file edited outside Workbench) or the owner asks to choose
   again (`--choose`, `--reset`).
-- The plan is a branded view built like `workbench costs`: one line per changed
-  file, one line per effect that does something on this host, each saying in
-  plain words what it changes. Effects that can never apply here are not
+- The plan is a branded view built like `workbench costs`: one row per changed
+  file and one row per effect that does something on this host, each a plain
+  name over one faint line of description, with everything longer in a detail
+  panel for the row under the cursor. Effects that can never apply here are not
   planned; effects with nothing to change collapse into one faint line; an
-  internal probe state is never printed.
+  internal probe state or effect name is never printed.
+- One approval. Ticking an item in the plan, or the saved choice on a
+  no-prompt run, is the approval. A script run by apply never stops to ask a
+  second question; what it would have asked about is shown in the detail panel
+  beforehand.
 - Skips are saved per machine and honoured until `--reset`.
 - The command surface: `apply` shows `--dry-run`, `--yes`, `--choose`,
   `--reset`; `--approve-plan` and `--local-build` are hidden;
@@ -64,38 +69,40 @@ still bound by its actual content digest.
 
 ## 4. Plan rendering
 
-One renderer draws the interactive checklist, the no-prompt apply and
-`--dry-run`; the three differ only in the cursor, the key line and whether the
-list is live. It uses the styles `workbench costs` uses: the `[WorkBench]`
-brand header in the accent colour, faint secondary text, and one truncation
-rule at every width (a line that does not fit clips with `…`, and below the
-narrowest width a row stacks onto its own lines).
+One renderer draws the interactive plan, the no-prompt apply and `--dry-run`;
+the three differ only in the cursor, the key line and whether the list is
+live. It uses the styles `workbench costs` uses: the `[WorkBench]` brand in the
+accent colour, faint secondary text, and one truncation rule at every width (a
+line that does not fit clips with `…`). At about 100 columns and wider the
+detail panel sits beside the list; below that it moves under it.
 
 ```
-[WorkBench] Plan for this machine (release v0.1.8)
+[WorkBench] Plan for this PC · v0.1.10    3 files   2 steps will run   1 new to decide
 
-Files (3 changed, 17 unchanged)
-  ~/.bashrc                 +7 −19, owned
-  ~/.claude/settings.json   +37 −11, mode 0644 → 0600, merged
-  ~/.gitconfig              +4 −1, owned, edited outside Workbench: the edit will be replaced
-
+Files                                       select to see the diff
+> Claude Code settings  +14 −16
+    ~/.claude/settings.json · your own settings kept
+  Codex hooks  +14 −0
+    ~/.codex/hooks.json · owned by Workbench
 Will run
-     ai-security-settings  managed AI policy files
-  [x] runtimes              Node 22.23 → 26.1 (default alias)
-  [x] global-tools          install just, cargo-audit, gopls  new
-Off: you skipped
-  [ ] windows-files         you skipped
-Optional
-  [ ] terminal-adoption     needs windows-files
-Already set: sysctl, work-tools
+      AI safety settings  always
+        Claude Code and Codex stay on your approved rules
+  [x] Record AI usage  NEW
+        new usage shows up in workbench costs
+Off          you turned these off before
+  [ ] Windows setup
+        theme, fonts and VS Code settings on the Windows side
+        [ ] Replace Windows Terminal settings
+              replaces yours; a dated copy is kept
+        [ ] Replace PowerShell profile
+        [ ] Install fonts for Windows apps
+  [ ] WSL networking
+        Windows and WSL share localhost (mirrored)
+Optional     off unless you turn them on
+  [ ] Make <distro> your default
+Already set  Lower swapping (vm.swappiness 10), Work tools (Bitwarden CLI)
 
-runtimes
-  Changes   Node 22.23 → 26.1 (default alias); Python 3.14 ok; Rust stable ok
-  Touches   Native Node/Python/Rust installs and default Node alias
-  Runs as   user; network
-  Undo      external; no runtime rollback
-
-space toggles · enter applies · esc quits
+↑↓ move · space on/off · enter open · a apply · q quit
 ```
 
 Rules:
@@ -103,36 +110,67 @@ Rules:
 - Every screen `apply`, `update` and `doctor` print starts with `[WorkBench]`,
   including the result line, for example
   `[WorkBench] Applied: 3 files, 4 effects; 1 skipped`.
-- Files: one line per changed file with what changes (`+added −removed`, a mode
-  change, `new`, `removed`), its owner (`owned`: a file Workbench writes whole;
-  `merged`: a modify template that keeps the owner's own keys) and, for an
-  owned file edited outside Workbench since Workbench last wrote it, that the
-  edit will be replaced. Unchanged files are counted.
+- Header: `[WorkBench] Plan for this PC · vX`, or `Applying your saved choices ·
+  vX` when nothing is asked, then the counts: files, steps that will run, new
+  to decide.
+- Rows. Each row is the item's plain name on its own line with one faint line
+  of description under it; nothing else. Everything longer lives in the detail
+  panel. The internal effect name appears nowhere in the default view; each
+  effect carries a plain `Title` and one-line `Summary` (for example
+  `windows-files` is "Windows setup", `wsl-preferences` "WSL networking",
+  `costs-ingest` "Record AI usage", `ai-security-settings` "AI safety
+  settings", `terminal-adoption` "Replace Windows Terminal settings",
+  `powershell-adoption` "Replace PowerShell profile", `font-registry` "Install
+  fonts for Windows apps", `default-distro` "Make <distro> your default",
+  `windows-path` "Add Windows bin folders to PATH", `sysctl` "Lower swapping",
+  `work-tools` "Work tools"). Fixed effects are tagged `always`, effects new to
+  this release since the last approved apply `NEW`.
+- Files: one row per changed file with a friendly title (for example "Claude
+  Code settings") and coloured `+N −N`, and a faint line with the path and
+  `your own settings kept` (a merged file: a modify template that keeps the
+  owner's own keys) or `owned by Workbench` (a file Workbench writes whole). An
+  owned file edited outside Workbench since Workbench last wrote it says so and
+  that the edit will be replaced. Selecting a file shows its unified diff in the
+  detail panel; enter opens it full screen, and `q` or esc goes back. The plan
+  carries each file's diff text, capped (and marked as shortened when it is).
+  Unchanged files are counted in the header, not listed.
 - Groups, each under a header: `Will run` (checked effects with a change; fixed
-  effects first, unselectable), `Off: you skipped` (saved skips, always listed,
-  unchecked), `Optional` (the optional host effects, unchecked unless
-  selected), then the `Already set` line. An empty group is not printed.
-  An effect new to this release since the last approved apply carries `new`.
-- Each row: box, name, then what it changes here in plain words right after
-  the name. No far-right columns. The text clips; the full delta is in the
-  detail panel.
-- The detail panel, under the list, is for the row under the cursor: the
-  untruncated change on this machine, what it touches, the privilege it needs
-  (with `network` when the script fetches), how to undo it, and why it is off
-  or what it needs (`needs windows-files`). Non-interactive output prints the
-  panel for every listed effect under `--verbose`, and the recovery limits.
-- A probe that failed or timed out never appears as a status word. The row says
-  what could not be checked and that apply checks again when it runs, for
-  example `Windows didn't answer in time; checked again when applied`. The
-  effect stays checked and its script runs normally.
+  effects first, unselectable), `Off` (saved skips: you turned these off
+  before), `Optional` (the optional host effects, unchecked unless selected),
+  then the faint `Already set` line. An empty group is not printed. The
+  no-prompt view lists only what will run, then one faint `Off` line naming the
+  skipped effects and `--choose`.
+- Windows setup and its parts. `terminal-adoption`, `powershell-adoption` and
+  `font-registry` are listed indented under Windows setup (indent only, no tree
+  glyphs), wherever Windows setup is. Windows setup on: its parts show `[x]`,
+  faint, and cannot be selected or toggled, because they are included. Windows
+  setup off: each part is full brightness and can be ticked on its own. Each
+  part installs what it needs itself and no longer depends on `windows-files`
+  having run, so there is no partial state.
+- The detail panel, for the row under the cursor: what it does, what it would
+  do on this machine now (the probe's text), what it changes, who it runs as
+  (with `network` when the script fetches), how to undo it, its status (always
+  runs, will run, off because you turned it off, off and optional) and its
+  relation to Windows setup. Non-interactive `--verbose` prints the panel for
+  every listed row, and the recovery limits.
+- Keys: ↑↓ move, space on/off, enter open (the full-screen diff for a file),
+  `a` apply, `q` quit; mouse click selects a row, clicking the selected row
+  toggles it.
+- A probe that failed or timed out never appears as a status word. The row's
+  panel says what could not be checked and that apply checks again when it
+  runs, for example `Windows didn't answer in time; checked again when
+  applied`. The effect stays checked and its script runs normally.
 - `--dry-run` prints the same view once, without the key line, and exits 0.
-  `--json` carries the same data: per file `path`, `action`, `summary`,
-  `merged`, `edited_outside`; per effect `name`, `delta`, `privilege`,
-  `checked`, `saved_skip`, `no_change`, `new`, `optional`, `needs`, `probe`
-  (`ok`, `failed`, `timeout`), `probe_note`; plus `plan_digest`. The digest
-  covers the files, the effect names and which are checked, never the probed
-  text, the no-change or new marks or the probe note, so a probe that answers
-  differently at recheck cannot void an approval.
+  `--json` carries the same data: per file `path`, `title`, `action`, `summary`,
+  `added`, `removed`, `diff`, `diff_truncated`, `merged`, `edited_outside`; per
+  effect `name`, `title`, `summary`, `what`, `touches`, `runs_as`, `undo`,
+  `delta`, `privilege`, `checked`, `saved_skip`, `no_change`, `new`, `optional`,
+  `parent`, `probe` (`ok`, `failed`, `timeout`), `probe_note`; plus
+  `plan_digest`. The digest covers the files, the effect names and which are
+  checked, never the probed text, the no-change or new marks or the probe note,
+  so a probe that answers differently at recheck cannot void an approval.
+  File diff text is rendered, so it passes the same secret redaction as the
+  scripts' output before it enters the plan.
 - When the interactive list is dismissed, its final frame is printed once and
   nothing is left blank below it.
 
@@ -224,12 +262,16 @@ checked and its script runs normally. The plan never blocks on a probe.
   `windows-files`/`wsl-preferences`). A shared script with one effect
   unchecked still runs its other sections; its private copy gets a
   `# workbench: skipped <names>` line after the shebang, so chezmoi reruns it
-  once the effect is checked again. Unchecking `windows-files` also
-  unchecks `terminal-adoption`, `powershell-adoption` and `font-registry`,
-  which act on the files it writes; their rows say `needs windows-files`.
+  once the effect is checked again. Checking `windows-files` includes
+  `terminal-adoption`, `powershell-adoption` and `font-registry` (they are its
+  parts, shown checked and locked); with it unchecked each part is its own
+  choice. A part installs what it needs itself. Saving records a part's
+  `select` only while `windows-files` is unchecked, so the included state is
+  never saved as a choice.
 - The optional WSL effects (`terminal-adoption`, `powershell-adoption`,
-  `font-registry`, `default-distro`, `windows-path`, `sysctl`) appear in the
-  same view under `Optional`, unchecked by default, and are saved the same way.
+  `font-registry`, `default-distro`, `windows-path`, `sysctl`) are unchecked by
+  default and saved the same way; the three Windows parts are listed under
+  Windows setup, the others under `Optional`.
   Checking one is remembered as `[effects] select = ["sysctl"]`.
 - `doctor` prints `effects: skipped windows-files (saved)` and
   `applied: v0.1.8 on <date>`.
@@ -271,6 +313,9 @@ for a caller that read the plan first.
   boundary, the one place a wrong answer runs unapproved scripts. The
   no-prompt apply adds one more guarded risk, running an effect the owner
   skipped, and may add one safeguard for it.
+- No script run by apply asks a second question (every `read -p`-style prompt
+  in an apply-run script is gone; the `.wslconfig` merge shows its diff in the
+  plan and still writes its recovery copy).
 - Smoke checks of decide-once on an isolated destination: a first run asks;
   a second run with nothing new applies without asking; a new effect asks with
   it marked `new`; `--choose`, `--reset` and `--yes`; an owned file edited
