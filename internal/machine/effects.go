@@ -416,11 +416,14 @@ func hostOptionalEffects() []operation.Effect {
 
 // applySelection marks each effect checked or not: fixed effects always,
 // optional effects only when selected, every other effect unless skipped.
-// SavedSkip tells the checklist which skips came from machine.toml.
+// SavedSkip tells the checklist which skips came from machine.toml. New marks
+// each non-fixed effect selection.Decided does not name: the owner has not yet
+// had the chance to decide it. New is display only.
 func applySelection(effects []operation.Effect, selection, saved Selection) []operation.Effect {
 	optional := optionalNames()
 	for i := range effects {
 		effect := &effects[i]
+		effect.New = !effect.Fixed && !slices.Contains(selection.Decided, effect.Name)
 		switch {
 		case effect.Fixed:
 			effect.Checked, effect.SavedSkip = true, false
@@ -431,57 +434,47 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 			effect.SavedSkip = !effect.Checked && slices.Contains(saved.Skip, effect.Name)
 		}
 	}
-	// The Windows adoptions and the font registry act on files that
-	// windows-files writes; without it they have nothing to do.
-	filesChecked := slices.ContainsFunc(effects, func(effect operation.Effect) bool {
-		return effect.Name == "windows-files" && effect.Checked
-	})
+	// Windows setup includes its parts: while it is checked each part is
+	// included, forced on, so the saved choice for a part cannot split them.
+	// While it is unchecked a part stands alone, selected or not by name.
 	for i := range effects {
-		if !slices.Contains(windowsFileEffects, effects[i].Name) {
-			continue
-		}
-		effects[i].Delta = needsFilesDelta(effects[i].Delta, filesChecked)
-		if !filesChecked {
-			effects[i].Checked = false
+		if effects[i].Parent != "" && parentChecked(effects, effects[i].Parent) {
+			effects[i].Checked = true
 		}
 	}
 	return effects
 }
 
-// needsFilesNote prefixes the probed delta of an effect that cannot run
-// without windows-files, and only while windows-files is unchecked.
-const needsFilesNote = "needs windows-files"
-
-// needsFilesDelta adds the note to delta when windows-files is unchecked and
-// removes it when checked, so a probed delta survives toggling.
-func needsFilesDelta(delta string, filesChecked bool) string {
-	rest := delta
-	if rest == needsFilesNote {
-		rest = ""
-	} else if after, ok := strings.CutPrefix(rest, needsFilesNote+"; "); ok {
-		rest = after
-	}
-	switch {
-	case filesChecked:
-		return rest
-	case rest == "":
-		return needsFilesNote
-	}
-	return needsFilesNote + "; " + rest
+// parentChecked reports whether the effect named parent is in effects and
+// checked.
+func parentChecked(effects []operation.Effect, parent string) bool {
+	return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+		return effect.Name == parent && effect.Checked
+	})
 }
 
-// windowsFileEffects are the optional effects that act on windows-files' output.
+// windowsFileEffects are the parts of the windows-files effect.
 var windowsFileEffects = []string{"terminal-adoption", "powershell-adoption", "font-registry"}
 
 // Reselect returns plan with its effects checked as selection says; the
 // checklist uses it so the approved digest is the one the planner recomputes.
+// Each effect keeps its New mark: selection comes from [SelectionOf] and does
+// not know what was decided.
 func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
+	selection.Decided = nil
+	for _, effect := range plan.Effects {
+		if !effect.Fixed && !effect.New {
+			selection.Decided = append(selection.Decided, effect.Name)
+		}
+	}
 	plan.Effects = applySelection(slices.Clone(plan.Effects), selection, saved)
 	return plan
 }
 
 // SelectionOf is the selection a checklist produced: skipped default
-// effects and selected optional ones.
+// effects and selected optional ones. A part of another effect is recorded
+// only while its parent is unchecked; while the parent is checked the part is
+// included, not chosen. It does not carry Decided.
 func SelectionOf(effects []operation.Effect) Selection {
 	optional := optionalNames()
 	var selection Selection
@@ -489,7 +482,7 @@ func SelectionOf(effects []operation.Effect) Selection {
 		switch {
 		case effect.Fixed:
 		case slices.Contains(optional, effect.Name):
-			if effect.Checked {
+			if effect.Checked && (effect.Parent == "" || !parentChecked(effects, effect.Parent)) {
 				selection.Select = append(selection.Select, effect.Name)
 			}
 		case !effect.Checked:
@@ -502,15 +495,20 @@ func SelectionOf(effects []operation.Effect) Selection {
 }
 
 // selectionToSave is the selection an approved apply remembers: what the
-// checklist chose, plus the saved skips and selects for effects this plan does
-// not list, such as another platform's, which are ignored here and kept.
+// checklist chose, every non-fixed effect the plan listed as decided, plus
+// the saved skips, selects and decisions for effects this plan does not list,
+// such as another platform's, which are ignored here and kept.
 func selectionToSave(effects []operation.Effect, saved Selection) Selection {
 	selection := SelectionOf(effects)
-	selection.Decided = saved.Decided // carried as saved until an apply records what it listed
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
 			return effect.Name == name
 		})
+	}
+	for _, effect := range effects {
+		if !effect.Fixed {
+			selection.Decided = append(selection.Decided, effect.Name)
+		}
 	}
 	for _, name := range saved.Skip {
 		if !listed(name) {
@@ -522,8 +520,14 @@ func selectionToSave(effects []operation.Effect, saved Selection) Selection {
 			selection.Select = append(selection.Select, name)
 		}
 	}
+	for _, name := range saved.Decided {
+		if !listed(name) {
+			selection.Decided = append(selection.Decided, name)
+		}
+	}
 	slices.Sort(selection.Skip)
 	slices.Sort(selection.Select)
+	slices.Sort(selection.Decided)
 	return selection
 }
 
