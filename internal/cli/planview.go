@@ -112,8 +112,8 @@ type planRow struct {
 type planView struct {
 	// Cursor is the row under the cursor, the zero value for none.
 	Cursor planRow
-	// Interactive draws the live list; false draws the static view that
-	// --dry-run and a no-prompt apply print.
+	// Interactive draws the live list with its cursor, panel and keys; false
+	// draws the static view that --dry-run and a no-prompt apply print.
 	Interactive bool
 	// Done is set once the live list is dismissed: the final frame is the list
 	// as chosen, with no cursor, panel or key line.
@@ -121,7 +121,9 @@ type planView struct {
 	// Verbose adds the detail panel under every listed row and the recovery
 	// limits to the static view.
 	Verbose bool
-	// Applying words the static header as an apply that uses the saved choices.
+	// Applying draws the compact view of an apply that uses the saved choices
+	// without asking: what will run, a one-line Off summary, no boxes. Without
+	// it, --dry-run and the final frame show every group with its boxes.
 	Applying bool
 	// Height is the screen rows the live frame fills, keys on the last; 0 draws
 	// the frame as tall as it is.

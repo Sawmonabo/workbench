@@ -70,7 +70,7 @@ type planGroup struct {
 }
 
 // planLayout is what the list shows, in the order it is drawn: the headed
-// groups, the effects behind the faint Already set line and, in the static
+// groups, the effects behind the faint Already set line and, in the compact
 // view, the saved skips named on its Off line.
 type planLayout struct {
 	Groups  []planGroup
@@ -87,14 +87,14 @@ const (
 
 // groupOf says which group an effect is drawn in, from the plan as passed in
 // and not from a box the owner has since toggled, so a row never jumps. The
-// static view lists only what runs.
-func groupOf(plan operation.Plan, effect operation.Effect, interactive bool) int {
+// compact view of an apply that does not ask lists only what runs.
+func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 	switch {
 	case effect.Fixed:
 		return groupWill
 	case isAlready(effect):
 		return groupNone
-	case !interactive:
+	case compact:
 		if runs(plan, effect) {
 			return groupWill
 		}
@@ -109,7 +109,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, interactive bool) int
 
 // layoutPlan groups the effects. A part sits right under its parent wherever
 // the parent is drawn; a part without a drawn parent is an ordinary row.
-func layoutPlan(plan operation.Plan, interactive bool) planLayout {
+func layoutPlan(plan operation.Plan, compact bool) planLayout {
 	groups := []planGroup{
 		{Title: "Will run"},
 		{Title: "Off", Note: "you turned these off before"},
@@ -121,7 +121,7 @@ func layoutPlan(plan operation.Plan, interactive bool) planLayout {
 	for i, effect := range plan.Effects {
 		parent := effectIndex(plan, effect.Parent)
 		if effect.Parent != "" && parent >= 0 &&
-			groupOf(plan, plan.Effects[parent], interactive) != groupNone {
+			groupOf(plan, plan.Effects[parent], compact) != groupNone {
 			children[parent] = append(children[parent], i)
 			isChild[i] = true
 		}
@@ -131,7 +131,7 @@ func layoutPlan(plan operation.Plan, interactive bool) planLayout {
 			if isChild[i] || effect.Fixed != fixed {
 				continue
 			}
-			group := groupOf(plan, effect, interactive)
+			group := groupOf(plan, effect, compact)
 			switch {
 			case group != groupNone:
 				groups[group].Rows = append(groups[group].Rows, planRow{rowEffect, i})
@@ -162,7 +162,7 @@ func selectableRows(plan operation.Plan) []planRow {
 	for i := range plan.Edits {
 		rows = append(rows, planRow{rowFile, i})
 	}
-	for _, group := range layoutPlan(plan, true).Groups {
+	for _, group := range layoutPlan(plan, false).Groups {
 		for _, row := range group.Rows {
 			if !isLocked(plan, plan.Effects[row.Index]) {
 				rows = append(rows, row)
@@ -179,19 +179,19 @@ type listLine struct {
 	Row  planRow
 }
 
-// listPrefix is what stands left of a row's text: the cursor and box columns in
-// the live list, a plain indent in the static view.
+// listPrefix is what stands left of a row's text: the cursor and box columns, or
+// a plain indent in the compact view.
 const (
-	livePrefix   = 6
-	staticPrefix = 2
-	childIndent  = 3
+	livePrefix    = 6
+	compactPrefix = 2
+	childIndent   = 3
 )
 
 // listLines is the list: groups of rows, then the Already set line and the
 // notes the plan carries. width is the room the list has.
 func listLines(plan operation.Plan, width int, view planView) []listLine {
 	var out []listLine
-	lay := layoutPlan(plan, view.Interactive)
+	lay := layoutPlan(plan, view.Applying)
 	gap := func() {
 		if len(out) > 0 {
 			out = append(out, listLine{})
@@ -212,7 +212,7 @@ func listLines(plan operation.Plan, width int, view planView) []listLine {
 		if view.Verbose && !view.Interactive {
 			// The row already names the item, so the panel starts below its title
 			// (and, for a file, its path and edited-outside lines).
-			pad := strings.Repeat(" ", staticPrefix+2)
+			pad := strings.Repeat(" ", compactPrefix+2)
 			detail := renderDetail(plan, r, width-len(pad))
 			skip := 1
 			if r.Kind == rowFile {
@@ -332,8 +332,8 @@ func wrapPlain(s string, width int) []string {
 	return lines
 }
 
-// rowPrefix is the cursor and box columns (or the static indent) of a row, and
-// its width.
+// rowPrefix is the cursor and box columns of a row (or the plain indent of the
+// compact view, which has no boxes), and its width.
 func rowPrefix(
 	view planView,
 	row planRow,
@@ -342,8 +342,8 @@ func rowPrefix(
 	depth int,
 ) (string, int) {
 	indent := strings.Repeat(" ", depth*childIndent)
-	if !view.Interactive {
-		return strings.Repeat(" ", staticPrefix) + indent, staticPrefix + len(indent)
+	if view.Applying {
+		return strings.Repeat(" ", compactPrefix) + indent, compactPrefix + len(indent)
 	}
 	cursor := " "
 	if !view.Done && view.Cursor == row {
@@ -360,7 +360,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	locked := isLocked(plan, effect)
 	depth := 0
 	if parent := effectIndex(plan, effect.Parent); effect.Parent != "" && parent >= 0 &&
-		groupOf(plan, plan.Effects[parent], view.Interactive) != groupNone {
+		groupOf(plan, plan.Effects[parent], view.Applying) != groupNone {
 		depth = 1
 	}
 	box, boxStyle := "[ ]", faint
