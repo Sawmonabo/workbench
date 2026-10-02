@@ -497,6 +497,9 @@ func (w *redactingWriter) flush() {
 	}
 }
 
+// Redact replaces each known secret value in value with a placeholder.
+func Redact(value string, secrets []string) string { return redact(value, secrets) }
+
 func redact(value string, secrets []string) string {
 	ordered := append([]string{}, secrets...)
 	sort.Slice(ordered, func(i, j int) bool { return len(ordered[i]) > len(ordered[j]) })

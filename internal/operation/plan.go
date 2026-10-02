@@ -49,11 +49,12 @@ type Edit struct {
 	// without parsing Summary.
 	Added   int `json:"added,omitempty"`
 	Removed int `json:"removed,omitempty"`
-	// Diff is the unified diff of the change, capped, with secrets redacted
-	// like script output; DiffTruncated says lines were cut. It is the one place
-	// a plan carries file content.
-	Diff          string `json:"diff,omitempty"`
-	DiffTruncated bool   `json:"diff_truncated,omitempty"`
+	// Diff is the unified diff of the change, capped, with secrets redacted;
+	// DiffTruncated says lines were cut. It is the one place a plan carries
+	// file content, so it is display only: never in JSON output (which is
+	// logged) and never in the digest, which covers the file images instead.
+	Diff          string `json:"-"`
+	DiffTruncated bool   `json:"-"`
 	// EditedOutside marks an existing owned file that is not what Workbench
 	// last wrote, so applying replaces someone's edit. It is set from the
 	// recorded last-applied image, never from Summary's text, and is never
@@ -120,7 +121,7 @@ type Effect struct {
 // exposes only the aggregate [Plan.Digest], never individual secret hashes.
 // Descriptions contain reviewed redacted text and summaries only counts, modes
 // and link targets, never answers; an [Edit]'s capped, redacted Diff is the one
-// place file content appears.
+// place file content appears, for display only.
 type Plan struct {
 	Source        SourceIdentity `json:"source"`
 	Scope         Scope          `json:"scope"`
@@ -140,11 +141,15 @@ type Plan struct {
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its
 // private inputs, with each effect's probed Delta, Probe, ProbeNote and
-// NoChange and its New mark blanked, so what is approved is the files, the
-// effects and which are checked. A plan holds
+// NoChange and its New mark blanked, and each edit's display-only Diff left
+// out, so what is approved is the files, the effects and which are checked. A plan holds
 // only strings, slices and bools, so marshalling cannot fail.
 func (p Plan) Digest() string {
 	approved := p
+	approved.Edits = slices.Clone(p.Edits)
+	for i := range approved.Edits {
+		approved.Edits[i].Diff, approved.Edits[i].DiffTruncated = "", false
+	}
 	approved.Effects = slices.Clone(p.Effects)
 	for i := range approved.Effects {
 		effect := &approved.Effects[i]

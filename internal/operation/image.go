@@ -673,16 +673,23 @@ func ChangeSummary(before, after Image, last *Image) string {
 		parts = append(parts, fmt.Sprintf("mode %04o → %04o", before.Mode, after.Mode))
 	}
 	switch {
-	case before.Kind == ImageAbsent:
+	case !EditedOutside(before, last):
 	case last == nil:
 		parts = append(parts, "not previously written by Workbench")
-	case !sameImageContent(*last, before):
+	default:
 		parts = append(parts, "edited outside Workbench since it last wrote it")
 	}
 	return strings.Join(
 		slices.DeleteFunc(parts, func(part string) bool { return part == "" }),
 		"; ",
 	)
+}
+
+// EditedOutside reports whether an existing target is not what Workbench last
+// left there: it never wrote the path, or its content has changed since.
+// last is the image Workbench last left at the path, or nil.
+func EditedOutside(before Image, last *Image) bool {
+	return before.Kind != ImageAbsent && (last == nil || !sameImageContent(*last, before))
 }
 
 func contentSummary(before, after Image) string {
@@ -702,7 +709,7 @@ func contentSummary(before, after Image) string {
 	case !isText(before.Data) || !isText(after.Data):
 		return fmt.Sprintf("binary, %d → %d bytes", len(before.Data), len(after.Data))
 	}
-	added, removed := lineChanges(before.Data, after.Data)
+	added, removed, _ := DiffLines(before.Data, after.Data)
 	return fmt.Sprintf("+%d −%d lines", added, removed)
 }
 
@@ -727,23 +734,3 @@ func quantity(n int, noun string) string {
 }
 
 func isText(data []byte) bool { return utf8.Valid(data) && !bytes.ContainsRune(data, 0) }
-
-// lineChanges counts lines only in after as added and lines only in before as
-// removed, matching repeated lines by count. A moved line is neither.
-func lineChanges(before, after []byte) (added, removed int) {
-	counts := map[string]int{}
-	for line := range strings.Lines(string(before)) {
-		counts[line]++
-	}
-	for line := range strings.Lines(string(after)) {
-		if counts[line] > 0 {
-			counts[line]--
-		} else {
-			added++
-		}
-	}
-	for _, count := range counts {
-		removed += count
-	}
-	return added, removed
-}

@@ -131,7 +131,7 @@ func prepare(
 	}
 	plan.Effects = append(plan.Effects, activeEffects(effects, prepared.active)...)
 	plan.Effects = append(plan.Effects, hostOptionalEffects()...)
-	if err = prepared.buildChanges(c); err != nil {
+	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
 	}
 	prepared.planUpdates(ctx, c, files)
@@ -657,10 +657,23 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 }
 
 // buildChanges records each edit's exact before image and the after image
-// native renders, refusing metadata the checkpoint owner cannot preserve.
-func (p *preparation) buildChanges(c operation.Context) error {
+// native renders, refusing metadata the checkpoint owner cannot preserve. It
+// also gives each edit what the plan view shows: its plain title, whether it
+// is merged into or owned, whether an owned file was edited outside Workbench,
+// and the capped, redacted unified diff with its line counts.
+func (p *preparation) buildChanges(ctx context.Context, c operation.Context) error {
 	desired := p.desired
 	last, err := operation.LastApplied(c)
+	if err != nil {
+		return err
+	}
+	var candidates []string
+	for _, edit := range p.Plan.Edits {
+		if edit.Action != "remove" {
+			candidates = append(candidates, edit.Path)
+		}
+	}
+	merged, err := p.mergedTargets(ctx, c, candidates)
 	if err != nil {
 		return err
 	}
@@ -670,11 +683,11 @@ func (p *preparation) buildChanges(c operation.Context) error {
 			return err
 		}
 		after := operation.Image{Kind: operation.ImageAbsent}
+		relative, err := filepath.Rel(c.Native.Destination, edit.Path)
+		if err != nil {
+			return err
+		}
 		if edit.Action != "remove" {
-			relative, err := filepath.Rel(c.Native.Destination, edit.Path)
-			if err != nil {
-				return err
-			}
 			entry, ok := desired[relative]
 			if !ok {
 				return operation.Fail(
@@ -698,7 +711,20 @@ func (p *preparation) buildChanges(c operation.Context) error {
 		if image, ok := last[edit.Path]; ok {
 			previous = &image
 		}
-		p.Plan.Edits[i].Summary = operation.ChangeSummary(before, after, previous)
+		edited := operation.EditedOutside(before, previous)
+		if merged[edit.Path] {
+			// Native merges into this file and keeps the owner's own keys, so
+			// the owner's edits are expected, not replaced.
+			previous, edited = &before, false
+		}
+		planned := &p.Plan.Edits[i]
+		planned.Summary = operation.ChangeSummary(before, after, previous)
+		planned.Merged, planned.EditedOutside = merged[edit.Path], edited
+		planned.Title = fileTitle(relative)
+		if added, removed, lines, ok := operation.FileDiff(before, after); ok {
+			planned.Added, planned.Removed = added, removed
+			planned.Diff, planned.DiffTruncated = capDiff(redactDiff(lines, p.secrets))
+		}
 		p.Changes = append(
 			p.Changes,
 			operation.TargetChange{Path: edit.Path, Before: before, After: after},
