@@ -115,8 +115,10 @@ type Effect struct {
 	// Delta is the probed one-line change on this machine, "" when the
 	// effect was not probed.
 	Delta string `json:"delta,omitempty"`
-	// Probe is "ok", "failed" or "timeout" once a probe ran, "" otherwise. It
-	// is for --json; the plan view shows ProbeNote, never this word.
+	// Probe is "ok", "failed", "timeout" or "unanswered" (the script ran but
+	// could not check something, such as a Windows call that did not answer)
+	// once a probe ran, "" otherwise. It is for --json; the plan view shows
+	// ProbeNote, never this word.
 	Probe string `json:"probe,omitempty"`
 	// ProbeNote says in plain words what could not be checked and that apply
 	// checks again when it runs, for example "Windows didn't answer in time;

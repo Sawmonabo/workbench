@@ -163,9 +163,12 @@ synthetic answers.
   synthetic tokens planted in an isolated Codex config, `--dry-run --verbose`
   printed no diff text and none of the tokens through a pipe, and at a terminal
   printed the diff with every token masked. The two WSL Windows probes ran
-  against the real host in about 1.5 s and 0.9 s; with a stand-in `powershell.exe`
-  that hangs, the packages probe took 5.2 s and only the PowerShell profile line
-  said it could not run. The Terminal part, run alone against stand-in Windows
+  against the real host in about 1.2 s and 0.6 s (warm); against stand-in Windows
+  tools that hang, fail or answer nothing, each step whose call did not answer
+  showed the "could not check" note and the others kept their answer: all
+  calls hanging took 8.6 s, `wsl.exe` and `powershell.exe` hanging 9.2 s, and
+  nothing was shown as a change or as nothing to change for a call that had not
+  answered. The Terminal part, run alone against stand-in Windows
   tools, registered the fonts, wrote `settings.json` once, then said it was up to
   date on a second run with no new copy, and kept a `before-workbench` copy when
   the file had been edited. A `.wslconfig` that already says `memory = 8GB`

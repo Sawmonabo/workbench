@@ -20,21 +20,28 @@ import (
 // after a quiet spell can take several seconds while Windows wakes up.
 const probeTimeout = 15 * time.Second
 
-// probeLine is one probe output line: "NAME: TEXT" for a change, and
-// "NAME: = TEXT" when the effect has nothing to do. The "= " marker is the only
+// probeLine is one probe output line: "NAME: TEXT" for a change, "NAME: = TEXT"
+// when the effect has nothing to do and "NAME: ? TEXT" when the script could
+// not check, TEXT then saying why in plain words. The marker is the only
 // signal; nothing matches on the words of TEXT.
-var probeLine = regexp.MustCompile(`^([a-z0-9-]+): (= )?(.+)$`)
+var probeLine = regexp.MustCompile(`^([a-z0-9-]+): ([=?] )?(.+)$`)
 
 // probeResult is what the probe lines of one effect said: their text joined
-// with "; ", and whether every line reported no change.
+// with "; ", whether every line reported no change, and whether any line could
+// not check.
 type probeResult struct {
-	text     string
-	noChange bool
+	text       string
+	noChange   bool
+	unanswered bool
 }
 
 // merge adds another result for the same effect.
 func (r probeResult) merge(other probeResult) probeResult {
-	return probeResult{r.text + "; " + other.text, r.noChange && other.noChange}
+	return probeResult{
+		r.text + "; " + other.text,
+		r.noChange && other.noChange,
+		r.unanswered || other.unanswered,
+	}
 }
 
 // probeEffects fills each effect's Delta from the active scripts run with
@@ -108,16 +115,34 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 		}
 		status := result.status
 		effect.Probe, effect.ProbeNote = status, result.note
-		if found := results[effect.Name]; len(found) > 0 {
-			texts, noChange := make([]string, 0, len(found)), true
-			for _, result := range found {
-				texts = append(texts, result.text)
-				noChange = noChange && result.noChange
-			}
-			slices.Sort(texts)
-			effect.Delta = strings.Join(texts, "; ")
-			effect.NoChange = noChange && status == "ok"
+		found := results[effect.Name]
+		if status != "ok" {
+			// A script that did not answer leaves its effect unchecked even
+			// when another script that carries the effect did: half an answer
+			// would read as a change, or as nothing to change.
+			continue
 		}
+		texts, noChange, why := make([]string, 0, len(found)), len(found) > 0, []string{}
+		for _, result := range found {
+			if result.unanswered {
+				why = append(why, result.text)
+				continue
+			}
+			texts = append(texts, result.text)
+			noChange = noChange && result.noChange
+		}
+		if len(why) > 0 {
+			slices.Sort(why)
+			effect.Probe = "unanswered"
+			effect.ProbeNote = strings.Join(
+				slices.Compact(why),
+				"; ",
+			) + "; checked again when applied"
+			continue
+		}
+		slices.Sort(texts)
+		effect.Delta = strings.Join(texts, "; ")
+		effect.NoChange = noChange
 	}
 	return nil
 }
@@ -216,7 +241,11 @@ func (p *preparation) runProbe(
 		if match == nil {
 			return nil, "failed"
 		}
-		next := probeResult{text: match[3], noChange: match[2] != ""}
+		next := probeResult{
+			text:       match[3],
+			noChange:   match[2] == "= ",
+			unanswered: match[2] == "? ",
+		}
 		if previous, ok := lines[match[1]]; ok {
 			next = previous.merge(next)
 		}

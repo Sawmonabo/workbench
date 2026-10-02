@@ -22,6 +22,16 @@ blocked() {
     exit 3
 }
 
+# What the probe says when Windows could not be asked: one "could not check"
+# line per effect this script carries, never a change and never "nothing to
+# change".
+unchecked() {
+    for effect in windows-files wsl-preferences default-distro windows-path; do
+        echo "$effect: ? $1"
+    done
+    exit 0
+}
+
 command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on this host"
 
 WSL_MEMORY={{ .wsl_memory | replace "'" "'\"'\"'" | printf "'%s'" }}
@@ -29,12 +39,32 @@ WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
 
+{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
-# a call that fails leaves them empty, which is reported below.
-windows=$(cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%' 2>/dev/null | tr -d '\r') || windows=
-mapfile -d '|' -t fields < <(printf '%s' "$windows")
+# a call that fails leaves them empty, which is reported below. The probe asks
+# Windows for the default distro and the user PATH in the same breath, since a
+# probe has 15 s and the calls do not depend on each other.
+win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%'
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    # Listed first by `wsl --list`, so it is the first line of the quiet listing.
+    win_start distros wsl.exe --list --quiet
+    win_start user-path powershell.exe -NoProfile -Command '
+        $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
+        $have = @([Environment]::GetEnvironmentVariable("Path", "User") -split ";")
+        $want | Where-Object { $have -notcontains $_ } | ForEach-Object { "%USERPROFILE%" + $_.Substring($env:USERPROFILE.Length) }
+    '
+fi
+win_wait
+
+mapfile -d '|' -t fields < <(printf '%s' "${WIN_OUT[variables]:-}")
 WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_ROAMING_W=${fields[2]:-} WIN_PROGRAMFILES_W=${fields[3]:-} WIN_ARCH=${fields[4]:-}
-[ -n "$WIN_HOME_W" ] && [ -n "$WIN_ROAMING_W" ] || blocked "Windows didn't report its home or AppData folder"
+if [ -z "$WIN_HOME_W" ] || [ -z "$WIN_ROAMING_W" ]; then
+    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+        unchecked "$(win_unanswered variables || echo "Couldn't check the Windows side")"
+    fi
+    blocked "Windows didn't report its home or AppData folder"
+fi
 [ "$WIN_ARCH" = AMD64 ] || blocked "Windows on x64 is required"
 WIN_HOME=$(wslpath -u "$WIN_HOME_W")
 WIN_ROAMING=$(wslpath -u "$WIN_ROAMING_W")
@@ -302,34 +332,31 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
     fi
 
-    # The planner stops a probe at 15 s. These two calls are capped at 3 s and 5 s
-    # so that, after a cold first call to Windows, the whole script still fits.
-    # Listed first by `wsl --list`, so it is the first line of the quiet listing.
-    current_default=$( (timeout 3 wsl.exe --list --quiet 2>/dev/null || true) | tr -d '\0\r' | head -n1 || true)
-    if [ "$current_default" = "${WSL_DISTRO_NAME:-}" ]; then
-        echo "default-distro: = ${WSL_DISTRO_NAME:-this distribution} is already your default"
-    elif [ -n "$current_default" ]; then
-        echo "default-distro: $current_default is the default now"
+    # The calls to Windows were made above, together, under the probe's cap; a
+    # call that did not answer is said so, never read as a change.
+    if why=$(win_unanswered distros); then
+        echo "default-distro: ? $why"
+    elif [ -z "${WIN_OUT[distros]}" ]; then
+        echo "default-distro: ? Couldn't check the Windows side"
     else
-        echo "default-distro: make ${WSL_DISTRO_NAME:-this distribution} the default"
+        current_default=${WIN_OUT[distros]%%$'\n'*}
+        if [ "$current_default" = "${WSL_DISTRO_NAME:-}" ]; then
+            echo "default-distro: = ${WSL_DISTRO_NAME:-this distribution} is already your default"
+        else
+            echo "default-distro: $current_default is the default now"
+        fi
     fi
 
-    # Output and exit status are kept apart: a PowerShell that is stopped partway
-    # leaves nothing to read, not half a list.
-    if path_output=$(timeout 5 powershell.exe -NoProfile -Command '
-        $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
-        $have = @([Environment]::GetEnvironmentVariable("Path", "User") -split ";")
-        $want | Where-Object { $have -notcontains $_ } | ForEach-Object { "%USERPROFILE%" + $_.Substring($env:USERPROFILE.Length) }
-    ' 2>/dev/null); then
-        missing_path=$(tr -d '\r' <<<"$path_output" | paste -sd, - | sed 's/,/ and /g')
+    if why=$(win_unanswered user-path); then
+        echo "windows-path: ? $why"
     else
-        missing_path=unknown
+        missing_path=$(paste -sd, - <<<"${WIN_OUT[user-path]}" | sed 's/,/ and /g')
+        if [ -z "$missing_path" ]; then
+            echo "windows-path: = %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin are already on your Windows PATH"
+        else
+            echo "windows-path: add $missing_path to your Windows PATH"
+        fi
     fi
-    case "$missing_path" in
-        "") echo "windows-path: = %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin are already on your Windows PATH" ;;
-        unknown) echo "windows-path: couldn't read your Windows PATH" ;;
-        *) echo "windows-path: add $missing_path to your Windows PATH" ;;
-    esac
     exit 0
 fi
 

@@ -192,12 +192,17 @@ without changing anything, including no network calls other than the version
 lookups it already makes (`go.dev/VERSION`, release APIs), each bounded by the
 existing timeouts.
 
-A line is `NAME: TEXT` when the effect would change something and
+A line is `NAME: TEXT` when the effect would change something,
 `NAME: = TEXT` when it has nothing to do (`=` and one space, then what is
-already in place, for example `sysctl: = vm.swappiness 10`). The marker is
+already in place, for example `sysctl: = vm.swappiness 10`) and
+`NAME: ? TEXT` when the script could not check (`?` and one space, then why in
+plain words, for example `Windows didn't answer in time`). The marker is
 structural; nothing matches on the words of `TEXT`. An effect that several
 lines or scripts describe is no-change only when every line is a `= ` line and
-none of its scripts failed or timed out. For a change, `TEXT` follows
+none of its scripts failed or timed out. Any `? ` line, or a failed or timed-out
+script that carries the effect, leaves it without a delta and with the note
+`TEXT; checked again when applied`: an unchecked state is never shown as a
+change or as nothing to change. For a change, `TEXT` follows
 `<item> <from> → <to>`, `install <names>` for new items and `(asks)` for a step
 that prompts during the run, joined with `; `.
 
@@ -206,7 +211,9 @@ each and shows a progress line while they run, with Go telemetry and Node's
 compile cache off and Go's version read from its `VERSION` file rather than by
 running `go`, so a probe writes nothing under the home directory. The two WSL
 Windows scripts read every Windows variable they need in one `cmd.exe` call
-instead of five each, which is what made a cold interop start overrun 5 s. A
+instead of five each, and make their independent calls to Windows (`cmd.exe`,
+`wsl.exe`, `powershell.exe`, `reg.exe`) together under one 8 s cap in a probe,
+since a cold interop start overran the caps of calls made one after another. A
 probe that fails, times out or prints anything but effect lines leaves its
 effects without a delta and with the plain-words note above; the effect stays
 checked and its script runs normally. The plan never blocks on a probe.

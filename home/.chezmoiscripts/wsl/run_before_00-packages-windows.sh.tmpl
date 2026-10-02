@@ -27,30 +27,67 @@ blocked() {
     exit 3
 }
 
+# What the probe says when Windows could not be asked: a "could not check" line
+# per effect named in the arguments after the reason, never a change and never
+# "nothing to change".
+unchecked() {
+    local reason=$1 effect
+    shift
+    for effect in "$@"; do
+        echo "$effect: ? $reason"
+    done
+}
+
 command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on this host"
 
+{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
-# a call that fails leaves them empty, which is reported below.
-windows=$(cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%' 2>/dev/null | tr -d '\r') || windows=
-mapfile -d '|' -t fields < <(printf '%s' "$windows")
+# a call that fails leaves them empty, which is reported below. The other calls
+# to Windows do not depend on it, so they are made together with it: a probe has
+# 15 s in all, and Windows can be slow to answer the first call after a quiet
+# spell.
+#   profile   PowerShell, not %USERPROFILE%: the profile folder may be
+#             redirected (OneDrive). Only the PowerShell profile part needs it,
+#             so a PowerShell that does not answer is that part's problem alone:
+#             the probe says it could not check on that line, and an apply that
+#             selects the part stops before changing anything.
+#   registry  the fonts already registered, for the font and Terminal parts
+win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%'
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ]; then
+    win_start profile powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost'
+fi
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_FONT_REGISTRY:-0}" = 1 ] || [ "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" = 1 ]; then
+    win_start registry reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+fi
+win_wait
+
+mapfile -d '|' -t fields < <(printf '%s' "${WIN_OUT[variables]:-}")
 WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_APPDATA_W=${fields[2]:-} WIN_PROGRAMDATA_W=${fields[3]:-} WIN_ARCH=${fields[4]:-}
-[ -n "$WIN_HOME_W" ] && [ -n "$WIN_APPDATA_W" ] || blocked "Windows didn't report its home or AppData folder"
+if [ -z "$WIN_HOME_W" ] || [ -z "$WIN_APPDATA_W" ]; then
+    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+        unchecked "$(win_unanswered variables || echo "Couldn't check the Windows side")" \
+            windows-files terminal-adoption powershell-adoption font-registry
+        exit 0
+    fi
+    blocked "Windows didn't report its home or AppData folder"
+fi
 [ "$WIN_ARCH" = AMD64 ] || blocked "Windows on x64 is required"
 WIN_HOME=$(wslpath -u "$WIN_HOME_W")
 WIN_APPDATA=$(wslpath -u "$WIN_APPDATA_W")
 WIN_PROGRAMDATA=
 [ -z "$WIN_PROGRAMDATA_W" ] || WIN_PROGRAMDATA=$(wslpath -u "$WIN_PROGRAMDATA_W")
-# PowerShell, not %USERPROFILE%: the profile folder may be redirected (OneDrive).
-# Only the PowerShell profile part needs it, so a PowerShell that does not answer
-# is that part's problem alone: the probe says so on its line, and an apply that
-# selects the part stops before changing anything. The call is capped so that,
-# after the cold call to Windows above, the whole probe still fits its limit.
 PS_PROFILE=""
 ps_profile_problem=""
+ps_why=""
 if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ]; then
-    PS_PROFILE_W=$(timeout 5 powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' 2>/dev/null | tr -d '\r') || PS_PROFILE_W=
+    PS_PROFILE_W=
+    [ "${WIN_RC[profile]:-}" != 0 ] || PS_PROFILE_W=${WIN_OUT[profile]:-}
     [ -z "$PS_PROFILE_W" ] || PS_PROFILE=$(wslpath -u "$PS_PROFILE_W") || PS_PROFILE=
-    [ -n "$PS_PROFILE" ] || ps_profile_problem="PowerShell didn't report where your profile is"
+    if [ -z "$PS_PROFILE" ]; then
+        ps_profile_problem="PowerShell didn't report where your profile is"
+        ps_why=$(win_unanswered profile) || ps_why="Couldn't check the Windows side"
+    fi
 fi
 if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
     blocked "the Windows home, AppData or WSL_DISTRO_NAME is unavailable"
@@ -316,24 +353,33 @@ PY
 have_fonts() { compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null; }
 
 # Whether every JetBrainsMono font file is registered for the Windows user with
-# its real Windows path, read with reg.exe (capped at 3 s). Any doubt reads as not
-# registered, which only means the registration is done again.
+# its real Windows path, from the registry read above. Succeeds when they all
+# are, returns 1 when one is not and 2 when the registry could not be read, which
+# the probe says apart from "not registered". An apply treats both as "register
+# them again", which is harmless.
 fonts_registered() {
-    local registry dir_w font base line
+    local dir_w font base line
     have_fonts || return 1
-    registry=$(timeout 3 reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' 2>/dev/null | tr -d '\r') || return 1
-    dir_w=$(wslpath -w "$WIN_FONT_DIR") || return 1
+    [ "${WIN_RC[registry]:-}" = 0 ] || return 2
+    dir_w=$(wslpath -w "$WIN_FONT_DIR") || return 2
     for font in "$WIN_FONT_DIR"/JetBrainsMono*.ttf; do
         base=$(basename "$font" .ttf)
-        line=$(grep -F -- "$base (TrueType)" <<<"$registry") || return 1
+        line=$(grep -F -- "$base (TrueType)" <<<"${WIN_OUT[registry]}") || return 1
         grep -qiF -- "$dir_w\\$(basename "$font")" <<<"$line" || return 1
     done
 }
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    fonts_have=0 fonts_reg=0 omp_have=0
+    fonts_have=0 fonts_reg=0 omp_have=0 reg_why=
     have_fonts && fonts_have=1
-    fonts_registered && fonts_reg=1
+    fonts_state=0
+    fonts_registered || fonts_state=$?
+    [ "$fonts_state" != 0 ] || fonts_reg=1
+    # With the fonts in place, a registry that could not be read leaves their
+    # registration unchecked, which is not the same as "not registered".
+    if [ "$fonts_have" = 1 ] && [ "$fonts_state" = 2 ]; then
+        reg_why=$(win_unanswered registry) || reg_why="Couldn't check the Windows side"
+    fi
     [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && omp_have=1
     changes=()
     [ "$omp_have" = 1 ] || changes+=("install oh-my-posh and its themes")
@@ -353,6 +399,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     if [ ! -d "$WT_PACKAGE_DIR" ]; then
         echo "terminal-adoption: = Windows Terminal isn't installed, so there is nothing to replace"
+    elif [ -n "$reg_why" ]; then
+        echo "terminal-adoption: ? $reg_why"
     else
         terminal_tmp=$(mktemp)
         same=0
@@ -374,7 +422,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     needs=
     [ "$omp_have" = 1 ] || needs="install oh-my-posh, which the profile starts"
     if [ -n "$ps_profile_problem" ]; then
-        echo "powershell-adoption: can't run here, $ps_profile_problem"
+        echo "powershell-adoption: ? $ps_why"
     elif [ -e "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
         if [ -z "$needs" ]; then
             echo "powershell-adoption: = your PowerShell profile already matches"
@@ -388,6 +436,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     if [ "$fonts_have" != 1 ]; then
         echo "font-registry: install the JetBrainsMono fonts, then register them for your Windows user"
+    elif [ -n "$reg_why" ]; then
+        echo "font-registry: ? $reg_why"
     elif [ "$fonts_reg" = 1 ]; then
         echo "font-registry: = the JetBrainsMono fonts are already registered for your Windows user"
     else
