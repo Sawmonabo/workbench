@@ -470,8 +470,13 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 		max(width-prefixWidth-ansi.StringWidth(tags), 8),
 		false,
 	)
-	summary := effect.Summary
-	if summary == "" {
+	// A step whose check could not finish says so on its row, in place of its
+	// summary, so an unchecked state never reads like an ordinary option.
+	summary, style := effect.Summary, faint
+	switch {
+	case effect.ProbeNote != "":
+		summary, style = effect.ProbeNote, yellow
+	case summary == "":
 		summary = effect.Description
 	}
 	pad := strings.Repeat(" ", prefixWidth)
@@ -479,7 +484,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	if summary != "" {
 		lines = append(
 			lines,
-			pad+faint.Render(fit(forTerm(summary), max(width-prefixWidth, 8), false)),
+			pad+style.Render(fit(forTerm(summary), max(width-prefixWidth, 8), false)),
 		)
 	}
 	return lines
