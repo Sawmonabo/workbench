@@ -18,10 +18,10 @@ const maxEditScript = 1000
 // prefixed " ", "-" or "+"). A line differs when its text or its line ending
 // does; carriage returns are dropped from the shown text only.
 //
-// A line that only moved (a merge that reorders keys) is neither added nor
-// removed: it is not counted, and shows as an unchanged line where it lands and
-// not at all where it left. The "@@" ranges still describe the real files; the
-// text is for reading, not for patch.
+// A line that moved is shown as the removed line where it left and the added
+// line where it landed, and counted as both: a merge that moves a rule from one
+// list or table to another changes what the file means, so the review must show
+// it.
 func DiffLines(before, after []byte) (added, removed int, lines []string) {
 	a, b := splitLines(before), splitLines(after)
 	start := 0
@@ -33,7 +33,7 @@ func DiffLines(before, after []byte) (added, removed int, lines []string) {
 		endA--
 		endB--
 	}
-	script := foldMoved(editScript(a[start:endA], b[start:endB]))
+	script := editScript(a[start:endA], b[start:endB])
 	ops := make([]diffOp, 0, len(a)+len(script))
 	for _, line := range a[:start] {
 		ops = append(ops, diffOp{'=', line})
@@ -54,44 +54,9 @@ func DiffLines(before, after []byte) (added, removed int, lines []string) {
 }
 
 type diffOp struct {
-	// kind is '=' unchanged, '-' removed, '+' added, '~' a moved line where it
-	// lands (shown unchanged) and 'x' a moved line where it left (not shown).
+	// kind is '=' unchanged, '-' removed or '+' added.
 	kind byte
 	text string
-}
-
-// foldMoved turns each removed line that also appears as an added line into a
-// moved pair, matching repeated lines by count.
-func foldMoved(script []diffOp) []diffOp {
-	removed, added := map[string]int{}, map[string]int{}
-	for _, op := range script {
-		switch op.kind {
-		case '-':
-			removed[op.text]++
-		case '+':
-			added[op.text]++
-		}
-	}
-	// pairs is how many lines of each text moved: the smaller of the two counts.
-	// Each side takes its own copy to count down.
-	pairsOut, pairsIn := map[string]int{}, map[string]int{}
-	for text, n := range removed {
-		pairsOut[text] = min(n, added[text])
-		pairsIn[text] = pairsOut[text]
-	}
-	folded := make([]diffOp, len(script))
-	for i, op := range script {
-		switch {
-		case op.kind == '-' && pairsOut[op.text] > 0:
-			pairsOut[op.text]--
-			op.kind = 'x'
-		case op.kind == '+' && pairsIn[op.text] > 0:
-			pairsIn[op.text]--
-			op.kind = '~'
-		}
-		folded[i] = op
-	}
-	return folded
 }
 
 func splitLines(data []byte) []string {
@@ -224,14 +189,11 @@ func hunk(ops []diffOp, from, to int) []string {
 		if inNew(op) {
 			countB++
 		}
-		switch op.kind {
-		case 'x':
-			continue
-		case '+', '-':
-			body = append(body, string(op.kind)+strings.TrimRight(op.text, "\r\n"))
-		default:
-			body = append(body, " "+strings.TrimRight(op.text, "\r\n"))
+		prefix := " "
+		if op.kind != '=' {
+			prefix = string(op.kind)
 		}
+		body = append(body, prefix+strings.TrimRight(op.text, "\r\n"))
 	}
 	// An empty side is positioned at the line before the hunk.
 	if countA == 0 {
@@ -245,8 +207,8 @@ func hunk(ops []diffOp, from, to int) []string {
 }
 
 // inOld and inNew say which file a line belongs to.
-func inOld(op diffOp) bool { return op.kind == '=' || op.kind == '-' || op.kind == 'x' }
-func inNew(op diffOp) bool { return op.kind == '=' || op.kind == '+' || op.kind == '~' }
+func inOld(op diffOp) bool { return op.kind != '+' }
+func inNew(op diffOp) bool { return op.kind != '-' }
 
 func span(start, count int) string {
 	if count == 1 {
