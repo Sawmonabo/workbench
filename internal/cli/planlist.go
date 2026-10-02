@@ -58,9 +58,11 @@ func runs(plan operation.Plan, effect operation.Effect) bool {
 }
 
 // isAlready reports an effect the probe found nothing to do for. It collapses
-// into the Already set line and cannot be selected; a saved skip stays listed.
-func isAlready(effect operation.Effect) bool {
-	return effect.NoChange && !effect.SavedSkip && !effect.Fixed
+// into the Already set line and cannot be toggled; a saved skip stays listed, and
+// so does a parent while a part under it still has something to do. See
+// [operation.Plan.AlreadySet].
+func isAlready(plan operation.Plan, effect operation.Effect) bool {
+	return plan.AlreadySet(effect)
 }
 
 // planGroup is one headed block of rows.
@@ -92,7 +94,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 	switch {
 	case effect.Fixed:
 		return groupWill
-	case isAlready(effect):
+	case isAlready(plan, effect):
 		return groupNone
 	case compact:
 		if runs(plan, effect) {
@@ -112,7 +114,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 func layoutPlan(plan operation.Plan, compact bool) planLayout {
 	groups := []planGroup{
 		{Title: "Will run"},
-		{Title: "Off", Note: "you turned these off before"},
+		{Title: "Off"},
 		{Title: "Optional", Note: "off unless you turn them on"},
 	}
 	var lay planLayout
@@ -138,7 +140,7 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 				for _, child := range children[i] {
 					groups[group].Rows = append(groups[group].Rows, planRow{rowEffect, child})
 				}
-			case isAlready(effect):
+			case isAlready(plan, effect):
 				lay.Already = append(lay.Already, i)
 			case effect.SavedSkip:
 				lay.Off = append(lay.Off, i)
@@ -154,9 +156,9 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 }
 
 // selectableRows lists the rows a cursor can stop on, in the order they are
-// drawn: files, then the effects group by group. Fixed effects can be read but
-// not toggled. Already-set effects and parts included with a checked parent are
-// not among them.
+// drawn: files, then the effects group by group, then the Already set effects.
+// Fixed and Already-set effects can be read but not toggled. Parts included
+// with a checked parent are not among them.
 func selectableRows(plan operation.Plan) []planRow {
 	rows := make([]planRow, 0, len(plan.Edits)+len(plan.Effects))
 	for i, edit := range plan.Edits {
@@ -170,6 +172,9 @@ func selectableRows(plan operation.Plan) []planRow {
 				rows = append(rows, row)
 			}
 		}
+	}
+	for _, i := range layoutPlan(plan, false).Already {
+		rows = append(rows, planRow{rowEffect, i})
 	}
 	return rows
 }
@@ -211,22 +216,7 @@ func listLines(plan operation.Plan, width int, view planView) []listLine {
 		for _, line := range lines {
 			out = append(out, listLine{Text: line, Row: r})
 		}
-		if view.Verbose && !view.Interactive {
-			// The row already names the item, so the panel starts below its title
-			// (and, for a file, its path and edited-outside lines).
-			pad := strings.Repeat(" ", compactPrefix+2)
-			detail := renderDetail(plan, r, width-len(pad))
-			skip := 1
-			if r.Kind == rowFile {
-				skip = 2
-				if plan.Edits[r.Index].EditedOutside {
-					skip = 3
-				}
-			}
-			for _, line := range detail[min(skip, len(detail)):] {
-				out = append(out, listLine{Text: trimEnd(pad + line)})
-			}
-		}
+		out = append(out, verbosePanel(plan, r, width, view)...)
 	}
 	if plan.Files() > 0 {
 		note := ""
@@ -253,55 +243,133 @@ func listLines(plan operation.Plan, width int, view planView) []listLine {
 			names = append(names, effectTitle(plan.Effects[i]))
 		}
 		out = append(out, wrapLabelled(
-			"Off", strings.Join(names, ", "), width,
-			faint.Render(forTerm(" · change with "))+bold.Render("workbench apply --choose"),
+			"Off", strings.Join(names, ", "), width, "change with ", "workbench apply --choose",
 		)...)
 	}
 	if len(lay.Already) > 0 {
 		gap()
-		names := make([]string, 0, len(lay.Already))
+		out = append(out, alreadyLines(plan, lay.Already, width, view)...)
 		for _, i := range lay.Already {
-			names = append(names, alreadyName(plan.Effects[i]))
+			out = append(out, verbosePanel(plan, planRow{rowEffect, i}, width, view)...)
 		}
-		out = append(out, wrapLabelled("Already set", strings.Join(names, ", "), width, "")...)
 	}
 	return append(out, noteLines(plan, width, view)...)
 }
 
-// alreadySayMax is the longest "what is already in place" the Already set line
-// brackets after a name; a longer one is left to the detail panel, never cut
-// mid-sentence.
-const alreadySayMax = 60
-
-// alreadyName is an already-set effect as the Already set line names it: its
-// plain name and, in brackets, what is already in place when that is short.
-func alreadyName(effect operation.Effect) string {
-	name := effectTitle(effect)
-	say := forTerm(effect.Delta)
-	if say == "" || lipgloss.Width(say) > alreadySayMax {
-		return name
+// verbosePanel is the detail panel --verbose prints under a row in the static
+// view: none in the live list or without --verbose. The row already names the
+// item, so the panel starts below its title (and, for a file, its path and
+// edited-outside lines); an Already set effect has no row of its own, so its
+// panel keeps the title.
+func verbosePanel(plan operation.Plan, r planRow, width int, view planView) []listLine {
+	if !view.Verbose || view.Interactive {
+		return nil
 	}
-	return name + " (" + say + ")"
+	pad := strings.Repeat(" ", compactPrefix+2)
+	detail := renderDetail(plan, r, width-len(pad), !view.NoDiff)
+	skip := 1
+	switch {
+	case r.Kind == rowFile && plan.Edits[r.Index].EditedOutside:
+		skip = 3
+	case r.Kind == rowFile:
+		skip = 2
+	case isAlready(plan, plan.Effects[r.Index]):
+		skip = 0
+	}
+	var out []listLine
+	for _, line := range detail[min(skip, len(detail)):] {
+		out = append(out, listLine{Text: trimEnd(pad + line)})
+	}
+	return out
+}
+
+// alreadyLines is the faint Already set line: the plain names only, wrapped
+// between names to width. What is already in place is in each name's detail
+// panel, which the cursor reaches (never to toggle) and --verbose prints. The
+// name under the cursor is drawn bright and its line carries the cursor row so
+// the live list scrolls to it.
+func alreadyLines(plan operation.Plan, already []int, width int, view planView) []listLine {
+	const label = "Already set"
+	indent := len(label) + 1
+	room := max(width-indent, 10)
+	type name struct {
+		text   string
+		width  int
+		cursor bool
+	}
+	var rows [][]name
+	used := 0
+	for n, i := range already {
+		text := fit(forTerm(effectTitle(plan.Effects[i])), room-1, false)
+		cell := name{
+			text:   text,
+			width:  ansi.StringWidth(text),
+			cursor: !view.Done && view.Interactive && view.Cursor == (planRow{rowEffect, i}),
+		}
+		if n < len(already)-1 {
+			cell.width++ // its comma
+		}
+		if len(rows) == 0 || used+1+cell.width > room {
+			rows = append(rows, nil)
+			used = -1
+		}
+		rows[len(rows)-1] = append(rows[len(rows)-1], cell)
+		used += 1 + cell.width
+	}
+	var out []listLine
+	at := 0
+	for r, cells := range rows {
+		prefix := strings.Repeat(" ", indent)
+		if r == 0 {
+			prefix = faint.Render(label) + " "
+		}
+		var line listLine
+		parts := make([]string, len(cells))
+		for c, cell := range cells {
+			style := faint
+			if cell.cursor {
+				style, line.Row = brand.Bold(true), planRow{rowEffect, already[at]}
+			}
+			parts[c] = style.Render(cell.text)
+			if at < len(already)-1 {
+				parts[c] += faint.Render(",")
+			}
+			at++
+		}
+		line.Text = prefix + strings.Join(parts, " ")
+		out = append(out, line)
+	}
+	return out
 }
 
 // wrapLabelled is a faint label, the names after it and an optional trailing
-// part, word-wrapped to width with the continuation indented.
-func wrapLabelled(label, names string, width int, tail string) []listLine {
+// note, word-wrapped to width with the continuation indented. The note (faint)
+// and its emphasised end are counted in the width: they stay on the last line
+// when they fit there, else stand on a line of their own.
+func wrapLabelled(label, names string, width int, note, emph string) []listLine {
 	var out []listLine
+	indent := strings.Repeat(" ", len(label)+1)
 	body := ansi.Wrap(forTerm(names), max(width-len(label)-1, 10), "")
 	for i, line := range strings.Split(body, "\n") {
 		line = strings.TrimRight(line, " ")
 		if i == 0 {
 			line = faint.Render(label) + " " + line
 		} else {
-			line = strings.Repeat(" ", len(label)+1) + line
+			line = indent + line
 		}
 		out = append(out, listLine{Text: line})
 	}
-	if tail != "" {
-		out[len(out)-1].Text += tail
+	if note == "" {
+		return out
 	}
-	return out
+	joined := faint.Render(forTerm(" · ")+note) + bold.Render(emph)
+	last := &out[len(out)-1]
+	if ansi.StringWidth(last.Text)+ansi.StringWidth(joined) <= width {
+		last.Text += joined
+		return out
+	}
+	own := faint.Render(note) + bold.Render(emph)
+	return append(out, listLine{Text: indent + fit(own, width-len(indent), false)})
 }
 
 // noteLines are what the plan says besides its rows: the prerequisites and,
@@ -393,7 +461,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	if effect.Fixed {
 		tags += " " + faint.Render("always")
 	}
-	if effect.New && !isAlready(effect) {
+	if effect.New && !isAlready(plan, effect) {
 		tags += " " + badge.Render("NEW")
 	}
 	title := fit(
@@ -489,7 +557,7 @@ func planCounts(plan operation.Plan) (files, steps, undecided int) {
 		if runs(plan, effect) && (effect.Fixed || !effect.NoChange) {
 			steps++
 		}
-		if effect.New && !isAlready(effect) && !effect.Fixed {
+		if effect.New && !isAlready(plan, effect) && !effect.Fixed {
 			undecided++
 		}
 	}

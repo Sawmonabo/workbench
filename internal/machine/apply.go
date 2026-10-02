@@ -350,8 +350,9 @@ func effectResults(effects []operation.Effect) []operation.Component {
 			results,
 			operation.Component{
 				Name:     effect.Name,
+				Title:    cmp.Or(effect.Title, effect.Name),
 				Status:   operation.StatusComplete,
-				Message:  cmp.Or(effect.Delta, effect.Description),
+				Message:  cmp.Or(effect.Delta, effect.Summary, effect.Description),
 				Recovery: effect.Recovery,
 			},
 		)

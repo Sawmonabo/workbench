@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -245,7 +246,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 			}
 			continue
 		}
-		line := component.Name + ": " + string(component.Status)
+		line := cmp.Or(component.Title, component.Name) + ": " + string(component.Status)
 		if component.Message != "" {
 			line += " — " + component.Message
 		}

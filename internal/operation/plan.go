@@ -80,6 +80,20 @@ func (p Plan) Files() int {
 	return files
 }
 
+// AlreadySet reports that the effect has nothing to do: its probe found nothing
+// to change, the owner has not turned it off, and no part under it still has
+// something to do. The plan view folds such an effect into one faint line and
+// it cannot be chosen; a parent with a working part is never folded away, since
+// its box is how the owner turns that part on and off together.
+func (p Plan) AlreadySet(effect Effect) bool {
+	if !effect.NoChange || effect.SavedSkip || effect.Fixed {
+		return false
+	}
+	return !slices.ContainsFunc(p.Effects, func(part Effect) bool {
+		return part.Parent == effect.Name && (!part.NoChange || part.SavedSkip)
+	})
+}
+
 // Effect is a planned change outside checkpointed files, with the privilege
 // it needs and what recovery can and cannot undo. Checked says whether this
 // apply runs it; the plan digest covers that, so consent is for exactly the

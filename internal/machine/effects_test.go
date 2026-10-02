@@ -32,18 +32,14 @@ func TestSavedSelectionNeverChecksASkippedEffect(t *testing.T) {
 // Windows setup forces its parts on while it is checked. If that force were
 // saved as the owner's choice, turning Windows setup off later would still
 // replace the Terminal and PowerShell files the owner never picked on their own.
-// The saved selection keeps only what the owner chose for each part. Optional
-// effects exist only on a WSL host, so the check runs there.
+// The saved selection keeps only what the owner chose for each part.
 func TestWindowsPartsForcedByTheirParentAreNotSavedAsChosen(t *testing.T) {
-	if !isWSL() {
-		t.Skip("optional effects exist only on WSL")
-	}
 	chosen := Selection{Select: []string{"font-registry"}}
 	effects := applySelection(
 		[]operation.Effect{
 			{Name: "windows-files"},
-			{Name: "terminal-adoption", Parent: "windows-files"},
-			{Name: "font-registry", Parent: "windows-files"},
+			{Name: "terminal-adoption", Parent: "windows-files", Optional: true},
+			{Name: "font-registry", Parent: "windows-files", Optional: true},
 		},
 		chosen,
 		chosen,
@@ -56,5 +52,20 @@ func TestWindowsPartsForcedByTheirParentAreNotSavedAsChosen(t *testing.T) {
 	saved := selectionToSave(effects, chosen, chosen)
 	if !slices.Equal(saved.Select, []string{"font-registry"}) {
 		t.Fatalf("saved selection %v, want only the part the owner chose", saved.Select)
+	}
+}
+
+// A step the probe found nothing to change for sits on the Already set line,
+// where the owner cannot turn it off. Recording it as decided would let the
+// release that later gives it work (say, a sudo step) run it with no row ever
+// shown to untick, so it must stay undecided until it has something to do.
+func TestStepNeverShownWithWorkIsNotRecordedAsDecided(t *testing.T) {
+	effects := []operation.Effect{
+		{Name: "sysctl", NoChange: true, Checked: true},
+		{Name: "runtimes", Checked: true},
+	}
+	saved := selectionToSave(effects, Selection{}, Selection{})
+	if !slices.Equal(saved.Decided, []string{"runtimes"}) {
+		t.Fatalf("decided %v, want only the step the owner could see work for", saved.Decided)
 	}
 }

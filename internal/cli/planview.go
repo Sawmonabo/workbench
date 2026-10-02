@@ -121,6 +121,9 @@ type planView struct {
 	// Verbose adds the detail panel under every listed row and the recovery
 	// limits to the static view.
 	Verbose bool
+	// NoDiff leaves file diffs out: the output is not a terminal, and the text of
+	// a file, even with its known secrets masked, must not reach a pipe or a log.
+	NoDiff bool
 	// Applying draws the compact view of an apply that uses the saved choices
 	// without asking: what will run, a one-line Off summary, no boxes. Without
 	// it, --dry-run and the final frame show every group with its boxes.
@@ -156,6 +159,9 @@ func writePlanView(w io.Writer, plan operation.Plan, verbose, applying bool) err
 
 // printPlanView prints one frame with no blank line after it.
 func printPlanView(w io.Writer, plan operation.Plan, view planView) error {
+	if file, ok := w.(*os.File); !ok || !operation.IsTerminal(file) {
+		view.NoDiff = true
+	}
 	frame := buildPlanFrame(plan, terminalWidth(w), view)
 	_, err := lipgloss.Fprint(w, strings.Join(frame.Lines, "\n")+"\n")
 	return err
@@ -193,7 +199,7 @@ func liveFrame(plan operation.Plan, width int, view planView, head []string) pla
 		panelWidth = width - 3 - listWidth
 	}
 	list := listLines(plan, listWidth, view)
-	panel := renderDetail(plan, view.Cursor, panelWidth)
+	panel := renderDetail(plan, view.Cursor, panelWidth, !view.NoDiff)
 	bounded := view.Height > 0
 	listHeight, panelHeight, bodyHeight := len(list), len(panel), 0
 	if bounded {
@@ -350,7 +356,13 @@ func keyLine(view planView, width int) string {
 			{"a", "apply"},
 			{"q", "quit"},
 		},
-		[][2]string{{"↑/↓", "move"}, {"space", "toggle"}, {"a", "apply"}, {"q", "quit"}},
+		[][2]string{
+			{"↑/↓", "move"},
+			{"space", "toggle"},
+			{"enter", "open"},
+			{"a", "apply"},
+			{"q", "quit"},
+		},
 		width,
 	)
 }

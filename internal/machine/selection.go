@@ -13,21 +13,43 @@ import (
 // it in machine.toml's [effects] table, so a machine that never wants the
 // Windows-side steps declines them once. Decided names every effect the plan
 // view listed at the last approved apply, so a later apply asks only about an
-// effect that is not in it.
+// effect that is not in it. A nil Decided means the owner has never decided
+// anything: no step is marked new then, and the first apply asks once. An empty
+// non-nil Decided is a saved list that happens to name nothing.
 type Selection struct {
 	Skip    []string `toml:"skip,omitempty"`
 	Select  []string `toml:"select,omitempty"`
 	Decided []string `toml:"decided,omitempty"`
 }
 
+// NeverDecided reports that no approved apply has saved a decided list yet.
+func (s Selection) NeverDecided() bool { return s.Decided == nil }
+
 func (s Selection) empty() bool {
-	return len(s.Skip) == 0 && len(s.Select) == 0 && len(s.Decided) == 0
+	return len(s.Skip) == 0 && len(s.Select) == 0 && s.Decided == nil
 }
 
 // equal reports whether two sorted selections name the same effects.
 func (s Selection) equal(other Selection) bool {
 	return slices.Equal(s.Skip, other.Skip) && slices.Equal(s.Select, other.Select) &&
-		slices.Equal(s.Decided, other.Decided)
+		slices.Equal(s.Decided, other.Decided) && s.NeverDecided() == other.NeverDecided()
+}
+
+// table is the [effects] table as saved. An empty decided list is written
+// (`decided = []`) so it reads back as saved, not as never decided, which
+// struct omitempty would lose.
+func (s Selection) table() map[string]any {
+	table := map[string]any{}
+	if len(s.Skip) > 0 {
+		table["skip"] = s.Skip
+	}
+	if len(s.Select) > 0 {
+		table["select"] = s.Select
+	}
+	if s.Decided != nil {
+		table["decided"] = s.Decided
+	}
+	return table
 }
 
 // ReadSelection reads the [effects] table of config. A missing file or table
@@ -65,7 +87,7 @@ func readSelection(raw []byte) (Selection, error) {
 func encodeMachineConfig(answers Answers, selection Selection) ([]byte, error) {
 	config := map[string]any{"data": answers}
 	if !selection.empty() {
-		config["effects"] = selection
+		config["effects"] = selection.table()
 	}
 	return toml.Marshal(config)
 }

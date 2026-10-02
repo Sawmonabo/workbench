@@ -233,7 +233,7 @@ var windowsHostEffects = []operation.Effect{
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and VS Code settings on the Windows side",
-		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, Windows Terminal settings, your PowerShell profile, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Terminal settings and the PowerShell profile are replaced; dated copies of yours are kept.",
+		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, Windows Terminal settings, your PowerShell profile, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Terminal settings and the PowerShell profile are replaced when they differ; a copy of yours is kept.",
 		Touches:     "your Windows home and AppData folders, and ~/.vscode-server's machine settings",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not checkpointed: Windows files are outside Workbench's restore",
@@ -245,10 +245,10 @@ var windowsHostEffects = []operation.Effect{
 		Recovery:    "configuration only; running VM state is external",
 		Title:       "WSL networking",
 		Summary:     "Windows and WSL share localhost (mirrored)",
-		What:        "Sets WSL networking to mirrored, so a server started in WSL is reachable from Windows at localhost and the other way round, and applies your memory, swap and processor sizing. Your other .wslconfig settings are kept and a dated copy of the file is saved first. Takes effect the next time WSL starts.",
+		What:        "Sets WSL networking to mirrored, so a server started in WSL is reachable from Windows at localhost and the other way round, and applies your memory, swap and processor sizing. Your other .wslconfig settings are kept and a copy of the file is saved first. Takes effect the next time WSL starts.",
 		Touches:     "%USERPROFILE%\\.wslconfig",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the dated copy next to .wslconfig; nothing restarts on its own",
+		Undo:        "Restore the copy next to .wslconfig; nothing restarts on its own",
 	},
 }
 
@@ -278,15 +278,15 @@ func provisioningEffects(answers Answers) []operation.Effect {
 var optionalEffects = []operation.Effect{
 	{
 		Name:        "terminal-adoption",
-		Description: "Replace an existing Windows Terminal settings.json with the managed one; a dated copy is kept beside it",
+		Description: "Replace an existing Windows Terminal settings.json with the managed one when it differs; a copy is kept beside it; register the font it uses",
 		Privilege:   "Windows user",
-		Recovery:    "dated copy only; not checkpointed",
+		Recovery:    "copy only; not checkpointed",
 		Title:       "Replace Windows Terminal settings",
-		Summary:     "replaces yours; a dated copy is kept",
-		What:        "Replaces your Windows Terminal settings.json with the managed one. A dated copy of yours is kept next to it. Installs the font it uses if it is missing.",
-		Touches:     "Windows Terminal settings.json",
+		Summary:     "replaces yours; a copy is kept",
+		What:        "Replaces your Windows Terminal settings.json with the managed one, when it differs. A copy of yours is kept next to it. Installs and registers the font it uses, if that is not done yet.",
+		Touches:     "Windows Terminal settings.json and your Windows font registry",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the dated copy by hand",
+		Undo:        "Restore the copy by hand",
 	},
 	{
 		Name:        "powershell-adoption",
@@ -414,20 +414,32 @@ func hostOptionalEffects() []operation.Effect {
 	return effects
 }
 
-// applySelection marks each effect checked or not: fixed effects always,
-// optional effects only when selected, every other effect unless skipped.
-// SavedSkip tells the checklist which skips came from machine.toml. New marks
-// each non-fixed effect selection.Decided does not name: the owner has not yet
-// had the chance to decide it. New is display only.
+// applySelection marks each effect checked or not, and which ones are new. See
+// [gate] for the checks. New marks each non-fixed effect the owner has not yet
+// had the chance to decide: not in selection.Decided, skip or select. It is only
+// set once a decided list exists, since before that nothing was ever decided and
+// "new" would mean everything. New is display only.
 func applySelection(effects []operation.Effect, selection, saved Selection) []operation.Effect {
-	optional := optionalNames()
 	for i := range effects {
 		effect := &effects[i]
-		effect.New = !effect.Fixed && !slices.Contains(selection.Decided, effect.Name)
+		effect.New = !effect.Fixed && !selection.NeverDecided() &&
+			!slices.Contains(selection.Decided, effect.Name) &&
+			!slices.Contains(selection.Skip, effect.Name) &&
+			!slices.Contains(selection.Select, effect.Name)
+	}
+	return gate(effects, selection, saved)
+}
+
+// gate marks each effect checked or not: fixed effects always, optional effects
+// only when selected, every other effect unless skipped. SavedSkip tells the
+// checklist which skips came from machine.toml.
+func gate(effects []operation.Effect, selection, saved Selection) []operation.Effect {
+	for i := range effects {
+		effect := &effects[i]
 		switch {
 		case effect.Fixed:
 			effect.Checked, effect.SavedSkip = true, false
-		case slices.Contains(optional, effect.Name):
+		case effect.Optional:
 			effect.Checked, effect.SavedSkip = slices.Contains(selection.Select, effect.Name), false
 		default:
 			effect.Checked = !slices.Contains(selection.Skip, effect.Name)
@@ -461,13 +473,7 @@ var windowsFileEffects = []string{"terminal-adoption", "powershell-adoption", "f
 // Each effect keeps its New mark: selection comes from [SelectionOf] and does
 // not know what was decided.
 func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
-	selection.Decided = nil
-	for _, effect := range plan.Effects {
-		if !effect.Fixed && !effect.New {
-			selection.Decided = append(selection.Decided, effect.Name)
-		}
-	}
-	plan.Effects = applySelection(slices.Clone(plan.Effects), selection, saved)
+	plan.Effects = gate(slices.Clone(plan.Effects), selection, saved)
 	return plan
 }
 
@@ -476,12 +482,11 @@ func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
 // choice in Checked, whether or not its parent includes it, so a part is
 // recorded as chosen. It does not carry Decided.
 func SelectionOf(effects []operation.Effect) Selection {
-	optional := optionalNames()
 	var selection Selection
 	for _, effect := range effects {
 		switch {
 		case effect.Fixed:
-		case slices.Contains(optional, effect.Name):
+		case effect.Optional:
 			if effect.Checked {
 				selection.Select = append(selection.Select, effect.Name)
 			}
@@ -509,21 +514,28 @@ func OwnChoices(effects []operation.Effect, selection Selection) []operation.Eff
 }
 
 // selectionToSave is the selection an approved apply remembers: what the
-// checklist chose, every non-fixed effect the plan listed as decided, plus
+// checklist chose, every non-fixed effect the owner could see as decided, plus
 // the saved skips, selects and decisions for effects this plan does not list,
-// such as another platform's, which are ignored here and kept. effects is the
-// plan as applied, where a checked parent forces its parts on; chosen is the
-// selection that produced it and holds each part's own choice, which is what
-// is saved, so the force never becomes a choice.
+// such as another platform's, which are ignored here and kept. An effect with
+// nothing to change and no saved skip sits on the Already set line, where it
+// cannot be turned off, so it is not recorded as decided unless it already was:
+// it is asked about, marked new, the first time it has something to do.
+// effects is the plan as applied, where a checked parent forces its parts on;
+// chosen is the selection that produced it and holds each part's own choice,
+// which is what is saved, so the force never becomes a choice. The decided list
+// is always non-nil: once saved, the owner has decided.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
 	selection := SelectionOf(OwnChoices(effects, chosen))
+	plan := operation.Plan{Effects: effects}
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
 			return effect.Name == name
 		})
 	}
+	selection.Decided = []string{}
 	for _, effect := range effects {
-		if !effect.Fixed {
+		if !effect.Fixed &&
+			(slices.Contains(saved.Decided, effect.Name) || !plan.AlreadySet(effect)) {
 			selection.Decided = append(selection.Decided, effect.Name)
 		}
 	}

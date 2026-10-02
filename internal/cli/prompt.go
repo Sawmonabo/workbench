@@ -44,6 +44,17 @@ func openTerminal() (*os.File, error) {
 	return terminal, nil
 }
 
+// hasTerminal reports whether a controlling terminal can be opened, as
+// [openTerminal] would, without keeping it.
+func hasTerminal() bool {
+	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	if err != nil {
+		return false
+	}
+	_ = terminal.Close()
+	return true
+}
+
 // ask runs one huh field on the terminal and reports whether it was answered;
 // esc or ctrl+c leaves it unanswered.
 func ask(terminal *os.File, field huh.Field) (bool, error) {
@@ -100,8 +111,8 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 // choosePlan shows the live plan on the controlling terminal: the files and
 // the effects with the plan's checks as defaults. `a` approves exactly that
 // selection; q, esc or ctrl+c approves nothing. The list is dismissed by
-// leaving the alternate screen, and its final frame is printed once, with
-// nothing blank below it. selection is the one the plan was made from: it holds
+// leaving the alternate screen, and when approved its final frame is printed
+// once, with nothing blank below it. selection is the one the plan was made from: it holds
 // each Windows setup part's own choice, which the list keeps while the parent
 // includes the part. The names that come back are the effects the owner left
 // checked, a part by its own choice; the caller re-gates the plan from them.
@@ -133,15 +144,16 @@ func choosePlan(
 	if !ok {
 		return nil, false, nil
 	}
+	if !list.approved {
+		// Nothing was chosen: no frame of toggled boxes that reads as a plan.
+		return nil, false, nil
+	}
 	if err := printPlanView(
 		terminal,
 		list.plan,
 		planView{Interactive: true, Done: true},
 	); err != nil {
 		return nil, false, err
-	}
-	if !list.approved {
-		return nil, false, nil
 	}
 	return list.checkedNames(), true, nil
 }

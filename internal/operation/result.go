@@ -99,7 +99,10 @@ func Annotate(err *error, format string, args ...any) {
 
 // Component is one named part of a command's outcome.
 type Component struct {
-	Name     string `json:"name"`
+	Name string `json:"name"`
+	// Title is the plain name the text view prints in place of Name, which
+	// --json keeps for callers; empty prints Name.
+	Title    string `json:"title,omitempty"`
 	Status   Status `json:"status"`
 	Message  string `json:"message,omitempty"`
 	Recovery string `json:"recovery,omitempty"`

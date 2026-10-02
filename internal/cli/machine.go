@@ -172,7 +172,9 @@ func applyCommand(o *options) *cobra.Command {
 			"choices are remembered, so a later apply with nothing new prints the plan and applies " +
 			"them without asking. --choose shows the checklist anyway; --reset forgets the " +
 			"remembered choices and asks again with the defaults; --yes never asks, taking the " +
-			"remembered choice or the default for what is new; --dry-run only shows the plan.",
+			"remembered choice or the default for what is new (it cannot be combined with --choose " +
+			"or --reset); --dry-run only shows the plan. Without a terminal apply never applies " +
+			"unasked: pass --approve-plan DIGEST from a --dry-run --json plan, or --yes.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
@@ -204,10 +206,18 @@ func applyCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// checkChoose refuses --choose where it cannot ask: with --yes or
-// --approve-plan, which never prompt, or without a terminal.
+// checkChoose refuses --choose and --reset where they cannot ask: with --yes
+// (--choose also with --approve-plan), which never prompt, or --choose without a
+// terminal. --reset forgets the saved choices, so --yes would turn every step
+// the owner skipped back on and apply it unasked.
 func checkChoose(o *options) error {
 	switch {
+	case o.reset && o.yes:
+		return operation.Fail(
+			operation.ExitInvalid,
+			"reset",
+			"--reset asks and --yes does not; pick one",
+		)
 	case !o.choose:
 		return nil
 	case o.yes:
@@ -222,22 +232,24 @@ func checkChoose(o *options) error {
 			"choose",
 			"--choose asks and --approve-plan does not; pick one",
 		)
-	case !o.interactive():
+	case !o.interactive() || !hasTerminal():
 		return operation.Fail(operation.ExitInvalid, "choose", "--choose needs a terminal")
 	}
 	return nil
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply
-// the saved selection: a non-fixed effect the owner has not decided yet that
-// has something to do (one the probe found nothing to change cannot be chosen,
-// so it is recorded without asking), or a file Workbench owns whole that was
-// edited outside it. Merged files never count, since Claude Code and Codex
-// rewrite theirs constantly.
-func needsChoice(plan operation.Plan) bool {
-	return slices.ContainsFunc(plan.Effects, func(effect operation.Effect) bool {
-		return effect.New && !effect.Fixed && (!effect.NoChange || effect.SavedSkip)
-	}) || slices.ContainsFunc(plan.Edits, func(edit operation.Edit) bool {
+// the saved selection: the owner has never decided anything (selection has no
+// decided list), a non-fixed effect the owner has not decided yet has something
+// to do (one the probe found nothing to change cannot be chosen, so it waits
+// until it has something), or a file Workbench owns whole was edited outside
+// it. Merged files never count, since Claude Code and Codex rewrite theirs
+// constantly.
+func needsChoice(plan operation.Plan, selection machine.Selection) bool {
+	return selection.NeverDecided() ||
+		slices.ContainsFunc(plan.Effects, func(effect operation.Effect) bool {
+			return effect.New && !effect.Fixed && !plan.AlreadySet(effect)
+		}) || slices.ContainsFunc(plan.Edits, func(edit operation.Edit) bool {
 		return edit.EditedOutside && !edit.Merged
 	})
 }
@@ -305,6 +317,10 @@ func applyMachine(
 		return result, plan, err
 	}
 	consent := consentFor(o, o.approvePlan)
+	// Prompting, and applying without a prompt, both need a person: a controlling
+	// terminal to read the plan on and answer at. A cron job or an agent without
+	// one never reaches either; it needs --approve-plan or --yes.
+	attended := o.interactive() && hasTerminal()
 	switch {
 	case o.approvePlan != "":
 	case o.yes:
@@ -318,18 +334,18 @@ func applyMachine(
 				cmd.OutOrStdout(),
 				plan,
 				o.verbose,
-				!needsChoice(plan),
+				!needsChoice(plan, selection),
 			); err != nil {
 				return result, plan, err
 			}
 		}
-	case o.interactive() && !o.choose && !o.reset && !needsChoice(plan):
+	case attended && !o.choose && !o.reset && !needsChoice(plan, selection):
 		// Nothing new to decide: show the plan and apply the saved selection.
 		if err = writePlanView(cmd.OutOrStdout(), plan, o.verbose, true); err != nil {
 			return result, plan, err
 		}
 		consent.ApprovedDigest = plan.Digest()
-	case o.interactive():
+	case attended:
 		// Tag saved skips from machine.toml even under --reset: Apply's recheck
 		// reads the file the same way, and SavedSkip is part of the digest the
 		// approval must equal.
@@ -359,8 +375,8 @@ func applyMachine(
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
 	default:
-		// --json or --non-interactive: show the plan; WithMutation then
-		// refuses without a digest.
+		// --json, --non-interactive or no terminal: show the plan;
+		// WithMutation then refuses without a digest.
 		result.Results = append(result.Results, operation.Component{
 			Name:    "machine-plan",
 			Status:  operation.StatusComplete,
@@ -388,11 +404,16 @@ func appliedSummary(result operation.Result, plan operation.Plan) string {
 		case effect.Fixed:
 		case effect.Checked:
 			effects++
+		case plan.AlreadySet(effect):
+			// Nothing to change and nothing turned off: not a skipped step.
 		default:
 			skipped++
 		}
 	}
-	line := fmt.Sprintf("[WorkBench] Applied: %d files, %d effects", plan.Files(), effects)
+	line := fmt.Sprintf(
+		"[WorkBench] Applied: %d file%s, %d effect%s",
+		plan.Files(), plural(plan.Files()), effects, plural(effects),
+	)
 	if skipped > 0 {
 		line += fmt.Sprintf("; %d skipped", skipped)
 	}

@@ -52,7 +52,8 @@ func newChecklist(plan operation.Plan, selection machine.Selection, verbose bool
 		m.cursor = m.rows[0]
 	}
 	for _, row := range m.rows {
-		if row.Kind == rowEffect && m.plan.Effects[row.Index].New {
+		if row.Kind == rowEffect && m.plan.Effects[row.Index].New &&
+			!isAlready(m.plan, m.plan.Effects[row.Index]) {
 			m.cursor = row
 			break
 		}
@@ -73,8 +74,9 @@ func (m *checklistModel) checkedNames() []string {
 	return names
 }
 
-// toggle flips the box under the cursor. A fixed effect and a part included
-// with its parent do not move. A part keeps its own box when its parent is
+// toggle flips the box under the cursor. A fixed effect, one with nothing to
+// change (the cursor can rest on it to read its panel) and a part included with
+// its parent do not move. A part keeps its own box when its parent is
 // toggled: the parent's tick only shows it included, and unticking the parent
 // gives the part back as it was.
 func (m *checklistModel) toggle() {
@@ -82,7 +84,7 @@ func (m *checklistModel) toggle() {
 		return
 	}
 	effect := &m.plan.Effects[m.cursor.Index]
-	if effect.Fixed || isLocked(m.plan, *effect) {
+	if effect.Fixed || isLocked(m.plan, *effect) || isAlready(m.plan, *effect) {
 		return
 	}
 	effect.Checked = !effect.Checked
@@ -202,7 +204,7 @@ func (m *checklistModel) pageLines(row planRow) (title string, lines []string) {
 		return cmp.Or(edit.Title, homePath(edit.Path)), renderDiff(edit, m.width-2)
 	}
 	effect := m.plan.Effects[row.Index]
-	return effectTitle(effect), renderDetail(m.plan, row, m.width-2)
+	return effectTitle(effect), renderDetail(m.plan, row, m.width-2, true)
 }
 
 // View is the frame of the live list, or the page of the row opened full
