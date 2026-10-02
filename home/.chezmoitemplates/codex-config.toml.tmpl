@@ -1,21 +1,20 @@
 # :schema https://developers.openai.com/codex/config-schema.json
 # Rendered for machine_role = {{ .machine_role }}.
 # Managed by chezmoi as a modify template: the managed body below is
-# authoritative for the keys it sets. It leaves out the model and reasoning
-# effort so each machine keeps its own choice; those keys and the tables Codex
-# rewrites itself (notice.model_migrations, tui.model_availability_nux, hooks,
-# except the trust of the hooks Workbench installs, which the modify template
-# writes, and the last_updated/last_revision keys under [marketplaces]) are
-# carried over from the existing file so `chezmoi diff` stays quiet. The static
-# marketplace source IS managed because the deep-research plugin cannot
-# resolve without it.
+# authoritative for the keys it sets. It leaves out the model, reasoning effort
+# and service tier (Codex's /fast toggle writes it) so each machine keeps its
+# own choice; those keys and the tables Codex rewrites itself
+# (notice.model_migrations, tui.model_availability_nux, hooks, except the trust
+# of the hooks Workbench installs, which the modify template writes, and the
+# last_updated/last_revision keys under [marketplaces]) are carried over from
+# the existing file so `chezmoi diff` stays quiet. The static marketplace source
+# IS managed because the deep-research plugin cannot resolve without it.
 
 sandbox_mode = "danger-full-access"
 approval_policy = "never"
 approvals_reviewer = "user"
 web_search = "live"
 project_doc_max_bytes = 65536
-service_tier = "default"
 personality = "pragmatic"
 
 [features]
