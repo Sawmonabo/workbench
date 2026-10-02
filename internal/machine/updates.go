@@ -74,11 +74,19 @@ func (p *preparation) planUpdates(
 			Delta:     update.installed + " → " + update.latest,
 			Privilege: "user; network",
 			Recovery:  "external; the previous version is not kept",
+			Title:     "Update " + update.name,
+			Summary:   update.installed + " → " + update.latest,
+			What:      "Updates " + update.name + " from " + update.installed + " to " + update.latest + " through Homebrew.",
+			Touches:   "Homebrew's copy of " + update.name,
+			RunsAs:    "you; downloads the update",
+			Undo:      "Not reverted: Homebrew does not keep the previous version",
 		}
 		switch {
 		case update.cask:
 			effect.Description += "; a running app may be quit"
 			effect.Privilege += "; some apps prompt for sudo"
+			effect.What += " A running copy of the app may be quit."
+			effect.RunsAs += "; some apps ask for your password"
 			p.appUpdates = append(p.appUpdates, update.name)
 			p.Plan.Effects = append(p.Plan.Effects, effect)
 			continue
@@ -109,9 +117,11 @@ func (p *preparation) planUpdates(
 		}
 		if len(installs) > 0 {
 			effect.Description += "; also installs " + strings.Join(installs, ", ")
+			effect.What += " Also installs " + strings.Join(installs, ", ") + "."
 		}
 		if len(changes) > 0 {
 			effect.Description += "; also updates " + strings.Join(changes, ", ")
+			effect.What += " Also updates " + strings.Join(changes, ", ") + "."
 		}
 		p.toolUpdates = append(p.toolUpdates, update.name)
 		p.Plan.Effects = append(p.Plan.Effects, effect)

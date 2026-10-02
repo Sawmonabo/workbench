@@ -115,15 +115,7 @@ func prepare(
 		plan.Inputs,
 		operation.Input{Name: "native-diff", Digest: operation.SHA256Hex([]byte(diff))},
 	)
-	effects := []operation.Effect{
-		{
-			Name:        "ai-security-settings",
-			Description: "Managed AI trust roots, approval/sandbox policy, enabled plugins and work hooks; review policy before apply",
-			Privilege:   "user",
-			Recovery:    "configuration files only",
-			Fixed:       true,
-		},
-	}
+	effects := []operation.Effect{aiSecurityEffect}
 	effects = append(effects, provisioningEffects(answers)...)
 	prepared.active, err = prepared.activeSources(ctx, c)
 	if err != nil {

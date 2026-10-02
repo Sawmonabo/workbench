@@ -16,8 +16,9 @@ import (
 )
 
 // probeTimeout bounds one script's probe; a slow version lookup must not
-// hold the plan.
-const probeTimeout = 5 * time.Second
+// hold the plan. It is generous because the first call from WSL to Windows
+// after a quiet spell can take several seconds while Windows wakes up.
+const probeTimeout = 15 * time.Second
 
 // probeLine is one probe output line: "NAME: TEXT" for a change, and
 // "NAME: = TEXT" when the effect has nothing to do. The "= " marker is the only
@@ -38,14 +39,15 @@ func (r probeResult) merge(other probeResult) probeResult {
 
 // probeEffects fills each effect's Delta from the active scripts run with
 // WORKBENCH_PROBE=1, in parallel. A probe that fails, times out or prints
-// anything but effect lines leaves its effects marked failed; the plan never
-// blocks on a probe, and an unprobed effect stays checked. Probes write
+// anything but effect lines leaves its effects with a ProbeNote saying, in
+// plain words, what could not be checked; the plan never blocks on a probe,
+// and an unprobed effect stays checked. Probes write
 // nothing: Go telemetry and Node's compile cache are switched off. It returns
 // the context's error when the run was interrupted, so the plan stops instead
 // of showing every effect unprobed.
 func (p *preparation) probeEffects(ctx context.Context, c operation.Context) error {
-	// Nothing here touches the plan digest: a probe failure shows as
-	// "unprobed" on the effect, never as a warning the digest would cover.
+	// Nothing here touches the plan digest: a probe failure shows as a note
+	// on the effect, never as a warning the digest would cover.
 	scripts, err := p.scriptSources(ctx, c)
 	if err != nil {
 		return ctx.Err()
@@ -54,6 +56,7 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	if err = os.Mkdir(directory, 0o700); err != nil {
 		return ctx.Err()
 	}
+	c.Step("checking what each step would do here")
 	environment := scriptEnvironment(c, p.Plan.Dependencies)
 	environment = append(
 		environment,
@@ -70,7 +73,7 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 		mu      sync.Mutex
 		wg      sync.WaitGroup
 		results = map[string][]probeResult{}
-		outcome = map[string]string{}
+		outcome = map[string]probeOutcome{}
 	)
 	for name, contents := range scripts {
 		if !p.active[name] {
@@ -86,8 +89,9 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 				results[effect] = append(results[effect], result)
 			}
 			for _, effect := range scriptEffects(name) {
-				if outcome[effect] != "failed" && outcome[effect] != "timeout" {
-					outcome[effect] = status
+				if previous := outcome[effect].status; previous != "failed" &&
+					previous != "timeout" {
+					outcome[effect] = probeOutcome{status, probeNote(name, status)}
 				}
 			}
 		}(name, contents)
@@ -98,11 +102,12 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	}
 	for i := range p.Plan.Effects {
 		effect := &p.Plan.Effects[i]
-		status, probed := outcome[effect.Name]
+		result, probed := outcome[effect.Name]
 		if !probed {
 			continue
 		}
-		effect.Probe = status
+		status := result.status
+		effect.Probe, effect.ProbeNote = status, result.note
 		if found := results[effect.Name]; len(found) > 0 {
 			texts, noChange := make([]string, 0, len(found)), true
 			for _, result := range found {
@@ -115,6 +120,29 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 		}
 	}
 	return nil
+}
+
+// probeOutcome is how one effect's probe ended: the status for --json and the
+// plain-words note the plan shows when the probe could not answer.
+type probeOutcome struct{ status, note string }
+
+// probeNote says, in plain words, what a probe that did not answer left
+// unchecked. It is empty for a probe that answered. A script that talks to
+// Windows has "windows" in its name, and those are the ones that can be slow
+// on a cold start.
+func probeNote(script, status string) string {
+	windows := strings.Contains(script, "windows")
+	switch {
+	case status == "timeout" && windows:
+		return "Windows didn't answer in time; checked again when applied"
+	case status == "timeout":
+		return "Didn't answer in time; checked again when applied"
+	case status == "failed" && windows:
+		return "Couldn't check the Windows side; checked again when applied"
+	case status == "failed":
+		return "Couldn't check what this would do here; checked again when applied"
+	}
+	return ""
 }
 
 // scriptSources renders every provisioning script native would consider,

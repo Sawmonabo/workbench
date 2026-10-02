@@ -760,6 +760,16 @@ func retentionEffect(cp *Checkpoint) Effect {
 		),
 		Privilege: "user",
 		Recovery:  "the removed checkpoint can no longer be restored",
+		Title:     "Remove the oldest checkpoint",
+		Summary:   fmt.Sprintf("keeps the %d most recent", MaxForwardCheckpoints),
+		What: fmt.Sprintf(
+			"Removes the oldest settled checkpoint, %s, with its paired recovery record, to make room for this apply. Workbench keeps %d.",
+			cp.ID,
+			MaxForwardCheckpoints,
+		),
+		Touches: "Workbench's checkpoint store",
+		RunsAs:  "you",
+		Undo:    "Cannot be undone: the removed checkpoint can no longer be restored",
 	}
 }
 
