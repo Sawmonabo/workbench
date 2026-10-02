@@ -5,7 +5,8 @@
 # having run (Workbench checks the three parts whenever windows-files is on):
 #   windows-files        oh-my-posh.exe and its themes, and the JetBrains Mono fonts
 #   terminal-adoption    Windows Terminal settings.json, replacing an existing
-#                        one (a dated copy is kept); needs the fonts
+#                        one when it differs (a copy is kept); needs the fonts,
+#                        installed and registered
 #   powershell-adoption  the PowerShell profile, replacing an existing one (a
 #                        copy is kept); needs oh-my-posh
 #   font-registry        the fonts in the Windows registry and loaded; needs the
@@ -40,9 +41,17 @@ WIN_APPDATA=$(wslpath -u "$WIN_APPDATA_W")
 WIN_PROGRAMDATA=
 [ -z "$WIN_PROGRAMDATA_W" ] || WIN_PROGRAMDATA=$(wslpath -u "$WIN_PROGRAMDATA_W")
 # PowerShell, not %USERPROFILE%: the profile folder may be redirected (OneDrive).
-PS_PROFILE_W=$(powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' 2>/dev/null | tr -d '\r') || PS_PROFILE_W=
-[ -n "$PS_PROFILE_W" ] || blocked "PowerShell didn't report where your profile is"
-PS_PROFILE=$(wslpath -u "$PS_PROFILE_W")
+# Only the PowerShell profile part needs it, so a PowerShell that does not answer
+# is that part's problem alone: the probe says so on its line, and an apply that
+# selects the part stops before changing anything. The call is capped so that,
+# after the cold call to Windows above, the whole probe still fits its limit.
+PS_PROFILE=""
+ps_profile_problem=""
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ]; then
+    PS_PROFILE_W=$(timeout 5 powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' 2>/dev/null | tr -d '\r') || PS_PROFILE_W=
+    [ -z "$PS_PROFILE_W" ] || PS_PROFILE=$(wslpath -u "$PS_PROFILE_W") || PS_PROFILE=
+    [ -n "$PS_PROFILE" ] || ps_profile_problem="PowerShell didn't report where your profile is"
+fi
 if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
     blocked "the Windows home, AppData or WSL_DISTRO_NAME is unavailable"
 fi
@@ -66,164 +75,11 @@ if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
 PSPROFILE
 }
 
-if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    fonts_have=0 omp_have=0
-    compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null && fonts_have=1
-    [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && omp_have=1
-    changes=()
-    [ "$omp_have" = 1 ] || changes+=("install oh-my-posh and its themes")
-    [ "$fonts_have" = 1 ] || changes+=("install the JetBrainsMono fonts")
-    if [ ${#changes[@]} -eq 0 ]; then
-        echo "windows-files: = oh-my-posh and the JetBrainsMono fonts are installed"
-    else
-        printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
-    fi
-    needs=
-    [ "$fonts_have" = 1 ] || needs="; install the JetBrainsMono fonts it uses"
-    if [ ! -d "$WT_PACKAGE_DIR" ]; then
-        echo "terminal-adoption: = Windows Terminal isn't installed, so there is nothing to replace"
-    elif [ -e "$WT_SETTINGS_DIR/settings.json" ]; then
-        echo "terminal-adoption: replace your Windows Terminal settings.json (a dated copy is kept)$needs"
-    else
-        echo "terminal-adoption: write Windows Terminal settings.json, which doesn't exist yet$needs"
-    fi
-    needs=
-    [ "$omp_have" = 1 ] || needs="; install oh-my-posh, which the profile starts"
-    if [ -e "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
-        echo "powershell-adoption: = your PowerShell profile already matches"
-    elif [ -e "$PS_PROFILE" ]; then
-        echo "powershell-adoption: replace your PowerShell profile (a copy is kept)$needs"
-    else
-        echo "powershell-adoption: write your PowerShell profile, which doesn't exist yet$needs"
-    fi
-    if [ "$fonts_have" = 1 ]; then
-        echo "font-registry: register the JetBrainsMono fonts for your Windows user and load them now"
-    else
-        echo "font-registry: install the JetBrainsMono fonts, then register them for your Windows user"
-    fi
-    exit 0
-fi
-
-# What each effect asks for. Unset means "not selected" for the parts, and
-# windows-files defaults to on when the script is run directly.
-files=${WORKBENCH_EFFECT_WINDOWS_FILES:-1}
-adopt_terminal=${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}
-adopt_profile=${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}
-register_fonts=${WORKBENCH_EFFECT_FONT_REGISTRY:-0}
-if [ "$files" != 1 ] && [ "$adopt_terminal" != 1 ] && [ "$adopt_profile" != 1 ] && [ "$register_fonts" != 1 ]; then
-    echo "==> No Windows part selected; Windows bootstrap skipped." >&2
-    exit 0
-fi
-# The Terminal settings and the PowerShell profile are written by their own
-# parts only.
-manage_terminal=0
-if [ "$adopt_terminal" = 1 ]; then manage_terminal=1; fi
-manage_profile=0
-if [ "$adopt_profile" = 1 ]; then manage_profile=1; fi
-# What each piece needs of the shared downloads.
-need_omp=0
-if [ "$files" = 1 ] || [ "$manage_profile" = 1 ]; then need_omp=1; fi
-need_fonts=0
-if [ "$files" = 1 ] || [ "$register_fonts" = 1 ] || [ "$manage_terminal" = 1 ]; then need_fonts=1; fi
-
-echo "==> WSL → Windows bootstrap starting..."
-
-download_dir=$(mktemp -d)
-trap 'rm -rf "$download_dir"' EXIT
-
-echo "    Windows user: $WIN_USER"
-
-# --- oh-my-posh for Windows ---
-if [ "$need_omp" = 1 ]; then
-if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
-    echo "==> Installing oh-my-posh for Windows..."
-    mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
-
-    # Download oh-my-posh.exe
-    OMP_URL=$(curl -fsSL https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest \
-        | grep -o '"browser_download_url": *"[^"]*posh-windows-amd64.exe"' \
-        | head -1 \
-        | cut -d'"' -f4)
-    if [ -n "$OMP_URL" ]; then
-        curl -fsSL "$OMP_URL" -o "$OMP_WIN_BIN/oh-my-posh.exe"
-        echo "    oh-my-posh.exe installed."
-    else
-        echo "WORKBENCH_EFFECT windows-posh failed: no download URL" >&2
-        exit 1
-    fi
-
-    # Download themes
-    THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
-    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
-    unzip -o "$download_dir/themes.zip" -d "$OMP_WIN_THEMES"
-    echo "    oh-my-posh themes installed for Windows."
-else
-    echo "==> oh-my-posh for Windows already installed, skipping."
-fi
-fi
-
-# --- JetBrains Mono Nerd Font for Windows ---
-if [ "$need_fonts" = 1 ]; then
-if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
-    echo "==> Installing JetBrains Mono Nerd Font for Windows..."
-    mkdir -p "$WIN_FONT_DIR"
-
-    FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
-        | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
-        | head -1 \
-        | cut -d'"' -f4)
-    if [ -n "$FONT_URL" ]; then
-        curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
-        unzip -o "$download_dir/font.zip" -d "$download_dir/fonts"
-        cp "$download_dir/fonts/"*.ttf "$WIN_FONT_DIR/"
-
-        echo "    JetBrains Mono Nerd Font installed for Windows."
-    else
-        echo 'WORKBENCH_EFFECT windows-fonts failed: no download URL' >&2
-        exit 1
-    fi
-else
-    echo "==> JetBrains Mono Nerd Font for Windows already present, skipping download."
-fi
-fi
-
-# Register (or re-register) every font file in one PowerShell call. Runs every
-# time: it is idempotent, cheap, and repairs bad entries — an earlier version
-# wrote /mnt/c/... paths into the registry, which Windows cannot resolve, so
-# Windows Terminal reported "Unable to find the following fonts".
-if [[ "$register_fonts" == 1 ]] && ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
-    echo "    Registering fonts in Windows registry..."
-    WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
-    WIN_FONT_DIR_W=${WIN_FONT_DIR_W//\'/\'\'}
-    powershell.exe -NoProfile -Command "
-        \$key = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
-        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object {
-            New-ItemProperty -Path \$key -Name (\$_.BaseName + ' (TrueType)') -Value \$_.FullName -PropertyType String -Force | Out-Null
-        }
-        # Registry alone is not enough for already-running apps: load the font
-        # resources into the session and broadcast WM_FONTCHANGE, which is what
-        # the Fonts control panel does. Without it Windows Terminal keeps saying
-        # 'Unable to find the following fonts' until the user signs out.
-        Add-Type -Namespace Win32 -Name Fonts -MemberDefinition @'
-            [DllImport(\"gdi32.dll\", CharSet = CharSet.Unicode)] public static extern int AddFontResource(string lpFileName);
-            [DllImport(\"user32.dll\")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
-'@
-        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object { [void][Win32.Fonts]::AddFontResource(\$_.FullName) }
-        \$r = [IntPtr]::Zero
-        [void][Win32.Fonts]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]\$r)
-        (Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf').Count
-    " 2>/dev/null | tr -d '\r' | sed 's/^/    registered fonts: /'
-    echo "    (restart Windows Terminal; sign out/in only if a font still shows as missing)"
-fi
-
-# --- Windows Terminal settings.json ---
-if [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; then
-    echo "==> Writing Windows Terminal settings..."
-    mkdir -p "$WT_SETTINGS_DIR"
-    if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
-        cp -a "$WT_SETTINGS_DIR/settings.json" "$WT_SETTINGS_DIR/settings.json.before-dotfiles-$(date +%Y%m%d-%H%M%S)"
-        echo "==> Existing Windows Terminal settings backed up."
-    fi
+# The Windows Terminal settings.json Workbench manages, rendered to the file $1.
+# Rendering reads the Windows Terminal files and writes nothing to them, so the
+# probe and the apply use it alike and compare the result with what is there.
+terminal_settings_render() {
+    local out="$1" WSL_PROFILE_JSON WSL_PROFILE_GUID WSL_PROFILE_EXTRA
     # Bind to the WSL profile Windows Terminal actually has for this distro.
     # WSL >= 2.4.4 generates it as a JSON *fragment* (source = fragment folder,
     # e.g. Microsoft.WSL) whose commandline already carries "--cd ~", which
@@ -269,15 +125,15 @@ emit({"guid": "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}", "commandline": cmdline,
       "icon": "ms-appx:///ProfileIcons/{9acb9455-ca41-5af7-950f-6bca1bc9722f}.png"},
      "no generated WSL profile found; using a standalone wsl.exe profile")
 PY
-)
-    WSL_PROFILE_GUID=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["guid"])' "$WSL_PROFILE_JSON")
+) || return 1
+    WSL_PROFILE_GUID=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["guid"])' "$WSL_PROFILE_JSON") || return 1
     # Remaining keys (source, or commandline+icon) as pre-indented JSON lines.
     WSL_PROFILE_EXTRA=$(python3 -c '
 import json,sys
 d=json.loads(sys.argv[1]); d.pop("guid")
-print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k,v in d.items()))' "$WSL_PROFILE_JSON")
+print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k,v in d.items()))' "$WSL_PROFILE_JSON") || return 1
     echo "    Windows Terminal WSL profile: $WSL_PROFILE_JSON"
-    cat > "$download_dir/terminal.json" << 'WTSETTINGS'
+    cat > "$out" << 'WTSETTINGS' || return 1
 {
     "$help": "https://aka.ms/terminal-documentation",
     "$schema": "https://aka.ms/terminal-profiles-schema",
@@ -446,7 +302,7 @@ __WSL_PROFILE_EXTRA__
     "themes": []
 }
 WTSETTINGS
-    python3 - "$download_dir/terminal.json" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" "$WSL_DISTRO_NAME" <<'PY'
+    python3 - "$out" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" "$WSL_DISTRO_NAME" <<'PY' || return 1
 import json, sys
 path, guid, extra = sys.argv[1:4]
 s = open(path, encoding='utf-8').read().replace('__WSL_PROFILE_GUID__', guid).replace('__WSL_PROFILE_EXTRA__', extra)
@@ -454,8 +310,232 @@ s = s.replace('"__WSL_DISTRO_NAME__"', json.dumps(sys.argv[4]))
 json.loads(s)  # fail loudly rather than hand WT a broken file
 open(path, 'w', encoding='utf-8').write(s)
 PY
-    cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
-    echo "    Windows Terminal settings written."
+}
+
+# Whether the JetBrainsMono font files are in the Windows user font folder.
+have_fonts() { compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null; }
+
+# Whether every JetBrainsMono font file is registered for the Windows user with
+# its real Windows path, read with reg.exe (capped). Any doubt reads as not
+# registered, which only means the registration is done again.
+fonts_registered() {
+    local registry dir_w font base line
+    have_fonts || return 1
+    registry=$(timeout 5 reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' 2>/dev/null | tr -d '\r') || return 1
+    dir_w=$(wslpath -w "$WIN_FONT_DIR") || return 1
+    for font in "$WIN_FONT_DIR"/JetBrainsMono*.ttf; do
+        base=$(basename "$font" .ttf)
+        line=$(grep -F -- "$base (TrueType)" <<<"$registry") || return 1
+        grep -qiF -- "$dir_w\\$(basename "$font")" <<<"$line" || return 1
+    done
+}
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    fonts_have=0 fonts_reg=0 omp_have=0
+    have_fonts && fonts_have=1
+    fonts_registered && fonts_reg=1
+    [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && omp_have=1
+    changes=()
+    [ "$omp_have" = 1 ] || changes+=("install oh-my-posh and its themes")
+    [ "$fonts_have" = 1 ] || changes+=("install the JetBrainsMono fonts")
+    if [ ${#changes[@]} -eq 0 ]; then
+        echo "windows-files: = oh-my-posh and the JetBrainsMono fonts are installed"
+    else
+        printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
+    fi
+    # The Terminal settings are rendered and compared with the file, so the
+    # probe says "nothing to change" exactly when the apply would write nothing.
+    needs=
+    if [ "$fonts_have" != 1 ]; then
+        needs="install and register the JetBrainsMono fonts it uses"
+    elif [ "$fonts_reg" != 1 ]; then
+        needs="register the JetBrainsMono fonts it uses"
+    fi
+    if [ ! -d "$WT_PACKAGE_DIR" ]; then
+        echo "terminal-adoption: = Windows Terminal isn't installed, so there is nothing to replace"
+    else
+        terminal_tmp=$(mktemp)
+        same=0
+        if [ -f "$WT_SETTINGS_DIR/settings.json" ] && terminal_settings_render "$terminal_tmp" >/dev/null 2>&1 &&
+            cmp -s "$terminal_tmp" "$WT_SETTINGS_DIR/settings.json"; then
+            same=1
+        fi
+        rm -f "$terminal_tmp"
+        if [ "$same" = 1 ] && [ -z "$needs" ]; then
+            echo "terminal-adoption: = your Windows Terminal settings already match and its fonts are registered"
+        elif [ "$same" = 1 ]; then
+            echo "terminal-adoption: $needs"
+        elif [ -e "$WT_SETTINGS_DIR/settings.json" ]; then
+            echo "terminal-adoption: replace your Windows Terminal settings.json (a copy of yours is kept)${needs:+; $needs}"
+        else
+            echo "terminal-adoption: write Windows Terminal settings.json, which doesn't exist yet${needs:+; $needs}"
+        fi
+    fi
+    needs=
+    [ "$omp_have" = 1 ] || needs="install oh-my-posh, which the profile starts"
+    if [ -n "$ps_profile_problem" ]; then
+        echo "powershell-adoption: can't run here, $ps_profile_problem"
+    elif [ -e "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
+        if [ -z "$needs" ]; then
+            echo "powershell-adoption: = your PowerShell profile already matches"
+        else
+            echo "powershell-adoption: $needs"
+        fi
+    elif [ -e "$PS_PROFILE" ]; then
+        echo "powershell-adoption: replace your PowerShell profile (a copy is kept)${needs:+; $needs}"
+    else
+        echo "powershell-adoption: write your PowerShell profile, which doesn't exist yet${needs:+; $needs}"
+    fi
+    if [ "$fonts_have" != 1 ]; then
+        echo "font-registry: install the JetBrainsMono fonts, then register them for your Windows user"
+    elif [ "$fonts_reg" = 1 ]; then
+        echo "font-registry: = the JetBrainsMono fonts are already registered for your Windows user"
+    else
+        echo "font-registry: register the JetBrainsMono fonts for your Windows user and load them now"
+    fi
+    exit 0
+fi
+
+# What each effect asks for. Unset means "not selected" for the parts, and
+# windows-files defaults to on when the script is run directly.
+files=${WORKBENCH_EFFECT_WINDOWS_FILES:-1}
+adopt_terminal=${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}
+adopt_profile=${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}
+register_fonts=${WORKBENCH_EFFECT_FONT_REGISTRY:-0}
+if [ "$files" != 1 ] && [ "$adopt_terminal" != 1 ] && [ "$adopt_profile" != 1 ] && [ "$register_fonts" != 1 ]; then
+    echo "==> No Windows part selected; Windows bootstrap skipped." >&2
+    exit 0
+fi
+# The Terminal settings and the PowerShell profile are written by their own
+# parts only.
+manage_terminal=0
+if [ "$adopt_terminal" = 1 ]; then manage_terminal=1; fi
+manage_profile=0
+if [ "$adopt_profile" = 1 ]; then manage_profile=1; fi
+# A selected PowerShell profile part with no profile path to write stops here,
+# before anything is changed.
+if [ "$manage_profile" = 1 ] && [ -n "$ps_profile_problem" ]; then
+    echo "WORKBENCH_EFFECT powershell-adoption blocked: $ps_profile_problem" >&2
+    exit 3
+fi
+# What each piece needs of the shared downloads.
+need_omp=0
+if [ "$files" = 1 ] || [ "$manage_profile" = 1 ]; then need_omp=1; fi
+# The Terminal settings use the font, so that part registers it too.
+register_now=0
+if [ "$register_fonts" = 1 ] || { [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; }; then register_now=1; fi
+need_fonts=0
+if [ "$files" = 1 ] || [ "$register_fonts" = 1 ] || [ "$manage_terminal" = 1 ]; then need_fonts=1; fi
+
+echo "==> WSL → Windows bootstrap starting..."
+
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
+
+echo "    Windows user: $WIN_USER"
+
+# --- oh-my-posh for Windows ---
+if [ "$need_omp" = 1 ]; then
+if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
+    echo "==> Installing oh-my-posh for Windows..."
+    mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
+
+    # Download oh-my-posh.exe
+    OMP_URL=$(curl -fsSL https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*posh-windows-amd64.exe"' \
+        | head -1 \
+        | cut -d'"' -f4)
+    if [ -n "$OMP_URL" ]; then
+        curl -fsSL "$OMP_URL" -o "$OMP_WIN_BIN/oh-my-posh.exe"
+        echo "    oh-my-posh.exe installed."
+    else
+        echo "WORKBENCH_EFFECT windows-posh failed: no download URL" >&2
+        exit 1
+    fi
+
+    # Download themes
+    THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
+    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
+    unzip -o "$download_dir/themes.zip" -d "$OMP_WIN_THEMES"
+    echo "    oh-my-posh themes installed for Windows."
+else
+    echo "==> oh-my-posh for Windows already installed, skipping."
+fi
+fi
+
+# --- JetBrains Mono Nerd Font for Windows ---
+if [ "$need_fonts" = 1 ]; then
+if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+    echo "==> Installing JetBrains Mono Nerd Font for Windows..."
+    mkdir -p "$WIN_FONT_DIR"
+
+    FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
+        | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
+        | head -1 \
+        | cut -d'"' -f4)
+    if [ -n "$FONT_URL" ]; then
+        curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
+        unzip -o "$download_dir/font.zip" -d "$download_dir/fonts"
+        cp "$download_dir/fonts/"*.ttf "$WIN_FONT_DIR/"
+
+        echo "    JetBrains Mono Nerd Font installed for Windows."
+    else
+        echo 'WORKBENCH_EFFECT windows-fonts failed: no download URL' >&2
+        exit 1
+    fi
+else
+    echo "==> JetBrains Mono Nerd Font for Windows already present, skipping download."
+fi
+fi
+
+# Register every font file in one PowerShell call, unless every file is already
+# registered with its real Windows path. A wrong entry is repaired by running it
+# again: an earlier version wrote /mnt/c/... paths into the registry, which
+# Windows cannot resolve, so Windows Terminal reported "Unable to find the
+# following fonts".
+if [[ "$register_now" == 1 ]] && have_fonts && fonts_registered; then
+    echo "==> JetBrains Mono Nerd Font already registered for your Windows user."
+elif [[ "$register_now" == 1 ]] && have_fonts; then
+    echo "    Registering fonts in Windows registry..."
+    WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
+    WIN_FONT_DIR_W=${WIN_FONT_DIR_W//\'/\'\'}
+    powershell.exe -NoProfile -Command "
+        \$key = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
+        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object {
+            New-ItemProperty -Path \$key -Name (\$_.BaseName + ' (TrueType)') -Value \$_.FullName -PropertyType String -Force | Out-Null
+        }
+        # Registry alone is not enough for already-running apps: load the font
+        # resources into the session and broadcast WM_FONTCHANGE, which is what
+        # the Fonts control panel does. Without it Windows Terminal keeps saying
+        # 'Unable to find the following fonts' until the user signs out.
+        Add-Type -Namespace Win32 -Name Fonts -MemberDefinition @'
+            [DllImport(\"gdi32.dll\", CharSet = CharSet.Unicode)] public static extern int AddFontResource(string lpFileName);
+            [DllImport(\"user32.dll\")] public static extern IntPtr SendMessageTimeout(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam, uint fuFlags, uint uTimeout, out IntPtr lpdwResult);
+'@
+        Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object { [void][Win32.Fonts]::AddFontResource(\$_.FullName) }
+        \$r = [IntPtr]::Zero
+        [void][Win32.Fonts]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]\$r)
+        (Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf').Count
+    " 2>/dev/null | tr -d '\r' | sed 's/^/    registered fonts: /'
+    echo "    (restart Windows Terminal; sign out/in only if a font still shows as missing)"
+fi
+
+# --- Windows Terminal settings.json ---
+if [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; then
+    echo "==> Checking Windows Terminal settings..."
+    mkdir -p "$WT_SETTINGS_DIR"
+    terminal_settings_render "$download_dir/terminal.json"
+    if [ -f "$WT_SETTINGS_DIR/settings.json" ] && cmp -s "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"; then
+        echo "==> Windows Terminal settings already up to date."
+    else
+        if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
+            terminal_backup=$(mktemp "$WT_SETTINGS_DIR/settings.json.before-workbench.XXXXXX")
+            cp -p "$WT_SETTINGS_DIR/settings.json" "$terminal_backup"
+            echo "    Recovery copy: $terminal_backup"
+        fi
+        cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
+        echo "    Windows Terminal settings written."
+    fi
 elif [ "$manage_terminal" = 1 ]; then
     echo "==> Windows Terminal not found, skipping settings."
 fi

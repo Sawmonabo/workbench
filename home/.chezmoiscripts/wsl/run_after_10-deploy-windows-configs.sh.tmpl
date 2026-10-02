@@ -157,6 +157,79 @@ sys.exit(0 if isinstance(data, dict) and data.get(sys.argv[2]) == sys.argv[3] el
 PYEOF
 }
 
+# Merge a key=value into a specific INI section, preserving all other content.
+# WSL reads section and key names case-insensitively, so an existing line is
+# matched that way too; otherwise a hand-written `networkingmode=` would be
+# kept beside a new `networkingMode=`, and WSL would take whichever came last.
+# Usage: merge_ini_key <file> <section> <key> <value>
+merge_ini_key() {
+    local file="$1" section="$2" key="$3" value="$4"
+
+    if ! grep -qi "^\[${section}\]" "$file" 2>/dev/null; then
+        printf '\n[%s]\n%s=%s\n' "$section" "$key" "$value" >> "$file"
+        return
+    fi
+
+    awk -v section="[$section]" -v key="$key" -v value="$value" '
+        BEGIN { found = 0; in_section = 0; inserted = 0; lkey = tolower(key) }
+        /^\[/ {
+            if (in_section && !found && !inserted) {
+                print key "=" value
+                inserted = 1
+            }
+            in_section = (tolower($0) == tolower(section))
+        }
+        in_section && tolower($0) ~ "^" lkey "[[:space:]]*=" {
+            # A line that already says the value stays as written: rewriting only
+            # its spacing would be a change with nothing to show for it.
+            current = $0
+            sub(/^[^=]*=[[:space:]]*/, "", current)
+            sub(/[[:space:]]+$/, "", current)
+            if (current == value) { print } else { print key "=" value }
+            found = 1
+            next
+        }
+        { print }
+        END {
+            if (in_section && !found && !inserted) {
+                print key "=" value
+            }
+        }
+    ' "$file" > "${file}.tmp" && cat "${file}.tmp" > "$file" && rm -f "${file}.tmp"
+}
+
+MANAGED_KEYS=(
+    "wsl2|memory|$WSL_MEMORY"
+    "wsl2|swap|$WSL_SWAP"
+    "wsl2|processors|$WSL_PROCESSORS"
+    "wsl2|networkingMode|mirrored"
+    "wsl2|vmIdleTimeout|300000"
+    "experimental|autoMemoryReclaim|gradual"
+    "experimental|sparseVhd|true"
+)
+
+# The managed keys merged into the CRLF-normalized copy of an existing
+# .wslconfig, written to the file $2. Everything else is kept. The probe and the
+# apply both use it, so the probe says "nothing to change" exactly when the
+# merge changes nothing.
+# Usage: wslconfig_merged <normalized copy> <output file>
+wslconfig_merged() {
+    local entry section key value
+    cat "$1" > "$2"
+    for entry in "${MANAGED_KEYS[@]}"; do
+        section=${entry%%|*} key=${entry#*|}
+        value=${key#*|} key=${key%%|*}
+        merge_ini_key "$2" "$section" "$key" "$value"
+    done
+    # Keys an earlier version wrote under [wsl2] that WSL 2.6 rejects
+    # ("Unknown key 'wsl2.pageReporting'"): delete them from that section only.
+    awk '
+        /^\[/ { insec = ($0 == "[wsl2]") }
+        insec && ($0 ~ /^pageReporting=/ || $0 ~ /^autoMemoryReclaim=/) { next }
+        { print }
+    ' "$2" > "$2.tmp" && cat "$2.tmp" > "$2" && rm -f "$2.tmp"
+}
+
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     WSLCONFIG="$WIN_HOME/.wslconfig"
     if [[ ! -f "$WSLCONFIG" ]]; then
@@ -171,7 +244,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
             IFS='|' read -r section key value <<< "$entry"
             current=$(awk -v section="[$section]" -v key="$(tr '[:upper:]' '[:lower:]' <<< "$key")" '
                 /^\[/ { insec = (tolower($0) == tolower(section)) }
-                insec && tolower($0) ~ "^" key "[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); print; exit }
+                insec && tolower($0) ~ "^" key "[[:space:]]*=" { sub(/^[^=]*=[[:space:]]*/, ""); sub(/[[:space:]]+$/, ""); print; exit }
             ' "$probe_tmp")
             [ "$current" = "$value" ] || changes+=("$key is ${current:-not set}, will be $value")
         done
@@ -179,7 +252,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         if awk '/^\[/ { insec = ($0 == "[wsl2]") } insec && ($0 ~ /^pageReporting=/ || $0 ~ /^autoMemoryReclaim=/) { found = 1 } END { exit !found }' "$probe_tmp"; then
             changes+=("remove keys WSL no longer accepts")
         fi
-        rm -f "$probe_tmp"
+        # The merge is the arbiter: whatever it would change counts, even when
+        # every value reads as set.
+        probe_merged=$(mktemp)
+        if wslconfig_merged "$probe_tmp" "$probe_merged" 2>/dev/null; then
+            if [ ${#changes[@]} -eq 0 ] && ! cmp -s "$probe_tmp" "$probe_merged"; then
+                changes+=("rewrite the managed lines the way WSL reads them")
+            fi
+        else
+            changes+=("update the managed settings")
+        fi
+        rm -f "$probe_tmp" "$probe_merged"
         if [ ${#changes[@]} -eq 0 ]; then
             echo "wsl-preferences: = .wslconfig already has your sizing and mirrored networking"
         else
@@ -231,11 +314,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         echo "default-distro: make ${WSL_DISTRO_NAME:-this distribution} the default"
     fi
 
-    missing_path=$( (timeout 5 powershell.exe -NoProfile -Command '
+    # Output and exit status are kept apart: a PowerShell that is stopped partway
+    # leaves nothing to read, not half a list.
+    if path_output=$(timeout 5 powershell.exe -NoProfile -Command '
         $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
         $have = @([Environment]::GetEnvironmentVariable("Path", "User") -split ";")
         $want | Where-Object { $have -notcontains $_ } | ForEach-Object { "%USERPROFILE%" + $_.Substring($env:USERPROFILE.Length) }
-    ' 2>/dev/null || echo unknown) | tr -d '\r' | paste -sd, - | sed 's/,/ and /g')
+    ' 2>/dev/null); then
+        missing_path=$(tr -d '\r' <<<"$path_output" | paste -sd, - | sed 's/,/ and /g')
+    else
+        missing_path=unknown
+    fi
     case "$missing_path" in
         "") echo "windows-path: = %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin are already on your Windows PATH" ;;
         unknown) echo "windows-path: couldn't read your Windows PATH" ;;
@@ -247,57 +336,9 @@ fi
 echo "==> Deploying WSL Windows configs..."
 echo "    Windows user: $WIN_USER"
 
-# ---------- Helpers ----------
-
-# Merge a key=value into a specific INI section, preserving all other content.
-# WSL reads section and key names case-insensitively, so an existing line is
-# matched that way too; otherwise a hand-written `networkingmode=` would be
-# kept beside a new `networkingMode=`, and WSL would take whichever came last.
-# Usage: merge_ini_key <file> <section> <key> <value>
-merge_ini_key() {
-    local file="$1" section="$2" key="$3" value="$4"
-
-    if ! grep -qi "^\[${section}\]" "$file" 2>/dev/null; then
-        printf '\n[%s]\n%s=%s\n' "$section" "$key" "$value" >> "$file"
-        return
-    fi
-
-    awk -v section="[$section]" -v key="$key" -v value="$value" '
-        BEGIN { found = 0; in_section = 0; inserted = 0; lkey = tolower(key) }
-        /^\[/ {
-            if (in_section && !found && !inserted) {
-                print key "=" value
-                inserted = 1
-            }
-            in_section = (tolower($0) == tolower(section))
-        }
-        in_section && tolower($0) ~ "^" lkey "[[:space:]]*=" {
-            print key "=" value
-            found = 1
-            next
-        }
-        { print }
-        END {
-            if (in_section && !found && !inserted) {
-                print key "=" value
-            }
-        }
-    ' "$file" > "${file}.tmp" && mv "${file}.tmp" "$file"
-}
-
 # ---------- .wslconfig ----------
 if [[ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" == 1 ]]; then
 WSLCONFIG="$WIN_HOME/.wslconfig"
-
-MANAGED_KEYS=(
-    "wsl2|memory|$WSL_MEMORY"
-    "wsl2|swap|$WSL_SWAP"
-    "wsl2|processors|$WSL_PROCESSORS"
-    "wsl2|networkingMode|mirrored"
-    "wsl2|vmIdleTimeout|300000"
-    "experimental|autoMemoryReclaim|gradual"
-    "experimental|sparseVhd|true"
-)
 
 if [[ ! -f "$WSLCONFIG" ]]; then
     echo "==> Creating new .wslconfig..."
@@ -338,19 +379,8 @@ PY
 
     # Normalize CRLF for consistent processing
     sed 's/\r$//' "$WSLCONFIG" > "$TMPORIGINAL"
-    cp "$TMPORIGINAL" "$TMPMERGED"
 
-    for entry in "${MANAGED_KEYS[@]}"; do
-        IFS='|' read -r section key value <<< "$entry"
-        merge_ini_key "$TMPMERGED" "$section" "$key" "$value"
-    done
-    # Keys an earlier version wrote under [wsl2] that WSL 2.6 rejects
-    # ("Unknown key 'wsl2.pageReporting'"): delete them from that section only.
-    awk '
-        /^\[/ { insec = ($0 == "[wsl2]") }
-        insec && ($0 ~ /^pageReporting=/ || $0 ~ /^autoMemoryReclaim=/) { next }
-        { print }
-    ' "$TMPMERGED" > "$TMPMERGED.tmp" && mv "$TMPMERGED.tmp" "$TMPMERGED"
+    wslconfig_merged "$TMPORIGINAL" "$TMPMERGED"
 
     if diff -q "$TMPORIGINAL" "$TMPMERGED" > /dev/null 2>&1; then
         echo "    Already up to date."
