@@ -712,6 +712,8 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		planned := &p.Plan.Edits[i]
 		planned.Summary = operation.ChangeSummary(before, after, previous)
 		planned.Merged, planned.EditedOutside = merged[edit.Path], edited
+		planned.Folder = before.Kind == operation.ImageDirectory ||
+			after.Kind == operation.ImageDirectory
 		planned.Title = fileTitle(relative)
 		if added, removed, lines, ok := operation.FileDiff(before, after); ok {
 			planned.Added, planned.Removed = added, removed

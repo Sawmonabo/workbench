@@ -159,8 +159,10 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 // not among them.
 func selectableRows(plan operation.Plan) []planRow {
 	rows := make([]planRow, 0, len(plan.Edits)+len(plan.Effects))
-	for i := range plan.Edits {
-		rows = append(rows, planRow{rowFile, i})
+	for i, edit := range plan.Edits {
+		if edit.Listed() {
+			rows = append(rows, planRow{rowFile, i})
+		}
 	}
 	for _, group := range layoutPlan(plan, false).Groups {
 		for _, row := range group.Rows {
@@ -226,15 +228,16 @@ func listLines(plan operation.Plan, width int, view planView) []listLine {
 			}
 		}
 	}
-	if len(plan.Edits) > 0 {
+	if plan.Files() > 0 {
 		note := ""
 		if view.Interactive && !view.Done {
 			note = "select one to see its diff"
 		}
 		header("Files", note)
-		for i := range plan.Edits {
-			r := planRow{rowFile, i}
-			row(r, fileLines(plan, i, width, view))
+		for i, edit := range plan.Edits {
+			if edit.Listed() {
+				row(planRow{rowFile, i}, fileLines(plan, i, width, view))
+			}
 		}
 	}
 	for _, group := range lay.Groups {
@@ -265,14 +268,20 @@ func listLines(plan operation.Plan, width int, view planView) []listLine {
 	return append(out, noteLines(plan, width, view)...)
 }
 
+// alreadySayMax is the longest "what is already in place" the Already set line
+// brackets after a name; a longer one is left to the detail panel, never cut
+// mid-sentence.
+const alreadySayMax = 60
+
 // alreadyName is an already-set effect as the Already set line names it: its
-// plain name and, in brackets, what is already in place.
+// plain name and, in brackets, what is already in place when that is short.
 func alreadyName(effect operation.Effect) string {
 	name := effectTitle(effect)
-	if effect.Delta == "" {
+	say := forTerm(effect.Delta)
+	if say == "" || lipgloss.Width(say) > alreadySayMax {
 		return name
 	}
-	return name + " (" + fit(forTerm(effect.Delta), 40, false) + ")"
+	return name + " (" + say + ")"
 }
 
 // wrapLabelled is a faint label, the names after it and an optional trailing
@@ -484,7 +493,7 @@ func planCounts(plan operation.Plan) (files, steps, undecided int) {
 			undecided++
 		}
 	}
-	return len(plan.Edits), steps, undecided
+	return plan.Files(), steps, undecided
 }
 
 // releaseLabel names the release a plan comes from for the header.
@@ -513,8 +522,8 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 	}
 	first := brand.Bold(true).Render("[WorkBench]") + " " + title
 	chips := []string{
-		bold.Render(fmt.Sprint(files)) + faint.Render(" files"),
-		bold.Render(fmt.Sprint(steps)) + faint.Render(" steps will run"),
+		bold.Render(fmt.Sprint(files)) + faint.Render(" file"+plural(files)),
+		bold.Render(fmt.Sprint(steps)) + faint.Render(" step"+plural(steps)+" will run"),
 	}
 	if undecided > 0 {
 		chips = append(chips, yellow.Bold(true).Render(fmt.Sprint(undecided))+

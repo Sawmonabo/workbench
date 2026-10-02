@@ -42,6 +42,9 @@ type Edit struct {
 	// settings, Codex config, VS Code settings), which keeps the owner's own
 	// keys; every other file is owned, written whole by Workbench.
 	Merged bool `json:"merged,omitempty"`
+	// Folder marks a folder. A folder Workbench merely creates is a consequence
+	// of the files in it, so the plan view leaves it out; see [Edit.Listed].
+	Folder bool `json:"folder,omitempty"`
 	// Title is the file's plain name for the plan view ("Claude Code
 	// settings"); empty falls back to the path.
 	Title string `json:"title,omitempty"`
@@ -60,6 +63,21 @@ type Edit struct {
 	// recorded last-applied image, never from Summary's text, and is never
 	// set on a merged file.
 	EditedOutside bool `json:"edited_outside,omitempty"`
+}
+
+// Listed reports whether the plan view shows the edit as a row of its own: every
+// edit but a new folder, which is only where its files go.
+func (e Edit) Listed() bool { return !e.Folder || e.Action != "create" }
+
+// Files is how many edits the plan view lists; see [Edit.Listed].
+func (p Plan) Files() int {
+	files := 0
+	for _, edit := range p.Edits {
+		if edit.Listed() {
+			files++
+		}
+	}
+	return files
 }
 
 // Effect is a planned change outside checkpointed files, with the privilege

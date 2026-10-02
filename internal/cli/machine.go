@@ -229,12 +229,14 @@ func checkChoose(o *options) error {
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply
-// the saved selection: a non-fixed effect the owner has not decided yet, or a
-// file Workbench owns whole that was edited outside it. Merged files never
-// count, since Claude Code and Codex rewrite theirs constantly.
+// the saved selection: a non-fixed effect the owner has not decided yet that
+// has something to do (one the probe found nothing to change cannot be chosen,
+// so it is recorded without asking), or a file Workbench owns whole that was
+// edited outside it. Merged files never count, since Claude Code and Codex
+// rewrite theirs constantly.
 func needsChoice(plan operation.Plan) bool {
 	return slices.ContainsFunc(plan.Effects, func(effect operation.Effect) bool {
-		return effect.New && !effect.Fixed
+		return effect.New && !effect.Fixed && (!effect.NoChange || effect.SavedSkip)
 	}) || slices.ContainsFunc(plan.Edits, func(edit operation.Edit) bool {
 		return edit.EditedOutside && !edit.Merged
 	})
@@ -390,7 +392,7 @@ func appliedSummary(result operation.Result, plan operation.Plan) string {
 			skipped++
 		}
 	}
-	line := fmt.Sprintf("[WorkBench] Applied: %d files, %d effects", len(plan.Edits), effects)
+	line := fmt.Sprintf("[WorkBench] Applied: %d files, %d effects", plan.Files(), effects)
 	if skipped > 0 {
 		line += fmt.Sprintf("; %d skipped", skipped)
 	}
