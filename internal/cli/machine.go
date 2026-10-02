@@ -310,13 +310,20 @@ func applyMachine(
 		// default and are recorded as decided by the apply.
 		consent.ApprovedDigest = plan.Digest()
 		if !o.json {
-			if err = writePlanView(cmd.OutOrStdout(), plan, o.verbose); err != nil {
+			// Undecided effects take their defaults: show the whole plan so
+			// they are visible, not the compact saved-choices view.
+			if err = writePlanView(
+				cmd.OutOrStdout(),
+				plan,
+				o.verbose,
+				!needsChoice(plan),
+			); err != nil {
 				return result, plan, err
 			}
 		}
 	case o.interactive() && !o.choose && !o.reset && !needsChoice(plan):
 		// Nothing new to decide: show the plan and apply the saved selection.
-		if err = writePlanView(cmd.OutOrStdout(), plan, o.verbose); err != nil {
+		if err = writePlanView(cmd.OutOrStdout(), plan, o.verbose, true); err != nil {
 			return result, plan, err
 		}
 		consent.ApprovedDigest = plan.Digest()
@@ -328,7 +335,7 @@ func applyMachine(
 		if savedErr != nil {
 			return result, plan, savedErr
 		}
-		checked, approved, chooseErr := choosePlan(plan, saved, o.verbose)
+		checked, approved, chooseErr := choosePlan(plan, selection, o.verbose)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}
@@ -339,6 +346,8 @@ func applyMachine(
 				"Plan was not approved; no changes made",
 			)
 		}
+		// checked holds each part's own choice, not the force of a checked
+		// parent, which Reselect applies.
 		for i := range plan.Effects {
 			if !plan.Effects[i].Fixed {
 				plan.Effects[i].Checked = slices.Contains(checked, plan.Effects[i].Name)

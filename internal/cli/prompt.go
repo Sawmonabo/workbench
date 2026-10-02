@@ -101,11 +101,13 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 // the effects with the plan's checks as defaults. `a` approves exactly that
 // selection; q, esc or ctrl+c approves nothing. The list is dismissed by
 // leaving the alternate screen, and its final frame is printed once, with
-// nothing blank below it. The saved selection is the caller's, which re-gates
-// dependent effects when the checked names come back.
+// nothing blank below it. selection is the one the plan was made from: it holds
+// each Windows setup part's own choice, which the list keeps while the parent
+// includes the part. The names that come back are the effects the owner left
+// checked, a part by its own choice; the caller re-gates the plan from them.
 func choosePlan(
 	plan operation.Plan,
-	_ machine.Selection,
+	selection machine.Selection,
 	verbose bool,
 ) ([]string, bool, error) {
 	terminal, err := openTerminal()
@@ -115,7 +117,7 @@ func choosePlan(
 	defer func() { _ = terminal.Close() }()
 	// main owns SIGINT; ctrl+c arrives as a key.
 	final, err := tea.NewProgram(
-		newChecklist(plan, verbose),
+		newChecklist(plan, selection, verbose),
 		tea.WithInput(terminal),
 		tea.WithOutput(terminal),
 		tea.WithoutSignalHandler(),

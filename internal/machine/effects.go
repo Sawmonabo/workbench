@@ -435,8 +435,8 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 		}
 	}
 	// Windows setup includes its parts: while it is checked each part is
-	// included, forced on, so the saved choice for a part cannot split them.
-	// While it is unchecked a part stands alone, selected or not by name.
+	// included, forced on. While it is unchecked a part stands alone, selected
+	// or not by name. selectionToSave is this rule read backwards.
 	for i := range effects {
 		if effects[i].Parent != "" && parentChecked(effects, effects[i].Parent) {
 			effects[i].Checked = true
@@ -472,9 +472,9 @@ func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
 }
 
 // SelectionOf is the selection a checklist produced: skipped default
-// effects and selected optional ones. A part of another effect is recorded
-// only while its parent is unchecked; while the parent is checked the part is
-// included, not chosen. It does not carry Decided.
+// effects and selected optional ones. The checklist holds each part's own
+// choice in Checked, whether or not its parent includes it, so a part is
+// recorded as chosen. It does not carry Decided.
 func SelectionOf(effects []operation.Effect) Selection {
 	optional := optionalNames()
 	var selection Selection
@@ -482,7 +482,7 @@ func SelectionOf(effects []operation.Effect) Selection {
 		switch {
 		case effect.Fixed:
 		case slices.Contains(optional, effect.Name):
-			if effect.Checked && (effect.Parent == "" || !parentChecked(effects, effect.Parent)) {
+			if effect.Checked {
 				selection.Select = append(selection.Select, effect.Name)
 			}
 		case !effect.Checked:
@@ -494,12 +494,29 @@ func SelectionOf(effects []operation.Effect) Selection {
 	return selection
 }
 
+// OwnChoices returns effects with each part's Checked set to the part's own
+// choice, whether selection selects it, instead of the forced state a checked
+// parent gives it: the checklist keeps that choice while the parent is on, so
+// turning the parent off restores it.
+func OwnChoices(effects []operation.Effect, selection Selection) []operation.Effect {
+	effects = slices.Clone(effects)
+	for i := range effects {
+		if effects[i].Parent != "" {
+			effects[i].Checked = slices.Contains(selection.Select, effects[i].Name)
+		}
+	}
+	return effects
+}
+
 // selectionToSave is the selection an approved apply remembers: what the
 // checklist chose, every non-fixed effect the plan listed as decided, plus
 // the saved skips, selects and decisions for effects this plan does not list,
-// such as another platform's, which are ignored here and kept.
-func selectionToSave(effects []operation.Effect, saved Selection) Selection {
-	selection := SelectionOf(effects)
+// such as another platform's, which are ignored here and kept. effects is the
+// plan as applied, where a checked parent forces its parts on; chosen is the
+// selection that produced it and holds each part's own choice, which is what
+// is saved, so the force never becomes a choice.
+func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
+	selection := SelectionOf(OwnChoices(effects, chosen))
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
 			return effect.Name == name

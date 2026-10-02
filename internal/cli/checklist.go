@@ -9,6 +9,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -36,20 +37,16 @@ const terminalWidthDefault = 100
 
 // newChecklist is the live list of plan, with the plan's checks as the
 // starting boxes and the cursor on the first thing new to decide, else on the
-// first row.
-func newChecklist(plan operation.Plan, verbose bool) *checklistModel {
+// first row. A part's box is its own choice from selection; while its parent is
+// checked the part shows included and locked, and its own choice waits.
+func newChecklist(plan operation.Plan, selection machine.Selection, verbose bool) *checklistModel {
 	m := &checklistModel{
 		plan:    plan,
 		verbose: verbose,
 		width:   terminalWidthDefault,
 		view:    viewport.New(),
 	}
-	m.plan.Effects = slices.Clone(plan.Effects)
-	for i, effect := range m.plan.Effects {
-		if isLocked(m.plan, effect) {
-			m.plan.Effects[i].Checked = true
-		}
-	}
+	m.plan.Effects = machine.OwnChoices(plan.Effects, selection)
 	m.rows = selectableRows(m.plan)
 	if len(m.rows) > 0 {
 		m.cursor = m.rows[0]
@@ -63,13 +60,13 @@ func newChecklist(plan operation.Plan, verbose bool) *checklistModel {
 	return m
 }
 
-// checkedNames lists every effect that runs: fixed ones, parts included with
-// their parent, effects with nothing to do that stay checked, and the boxes
-// the owner left checked.
+// checkedNames lists the boxes the owner left checked, fixed effects, ones
+// with nothing to do that stay checked, and a part by its own choice even
+// while its parent includes it.
 func (m *checklistModel) checkedNames() []string {
 	var names []string
 	for _, effect := range m.plan.Effects {
-		if runs(m.plan, effect) {
+		if effect.Fixed || effect.Checked {
 			names = append(names, effect.Name)
 		}
 	}
@@ -77,8 +74,9 @@ func (m *checklistModel) checkedNames() []string {
 }
 
 // toggle flips the box under the cursor. A fixed effect and a part included
-// with its parent do not move. A parent takes its parts with it: checked, they
-// are included; unchecked, they start unchecked and can be ticked alone.
+// with its parent do not move. A part keeps its own box when its parent is
+// toggled: the parent's tick only shows it included, and unticking the parent
+// gives the part back as it was.
 func (m *checklistModel) toggle() {
 	if m.cursor.Kind != rowEffect {
 		return
@@ -88,11 +86,6 @@ func (m *checklistModel) toggle() {
 		return
 	}
 	effect.Checked = !effect.Checked
-	for i := range m.plan.Effects {
-		if m.plan.Effects[i].Parent == effect.Name {
-			m.plan.Effects[i].Checked = effect.Checked
-		}
-	}
 	m.rows = selectableRows(m.plan)
 }
 

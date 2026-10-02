@@ -44,7 +44,7 @@ func Apply(
 	// A plan without file changes and without a checked effect writes nothing,
 	// unless it settles an earlier unfinished apply or changes the saved
 	// selection, so there is nothing to approve.
-	unchanged, err := selectionUnchanged(c, displayed)
+	unchanged, err := selectionUnchanged(c, selection, displayed)
 	if err != nil {
 		return result, err
 	}
@@ -284,7 +284,7 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 	if err != nil {
 		return err
 	}
-	selection := selectionToSave(plan.Effects, saved)
+	selection := selectionToSave(plan.Effects, a.selection, saved)
 	if selection.equal(saved) {
 		return nil
 	}
@@ -300,7 +300,11 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 
 // selectionUnchanged reports whether approving plan would leave the saved
 // selection as it is; an isolated destination never saves one.
-func selectionUnchanged(c operation.Context, plan operation.Plan) (bool, error) {
+func selectionUnchanged(
+	c operation.Context,
+	selection Selection,
+	plan operation.Plan,
+) (bool, error) {
 	if c.Native.Destination != c.Home {
 		return true, nil
 	}
@@ -308,7 +312,7 @@ func selectionUnchanged(c operation.Context, plan operation.Plan) (bool, error) 
 	if err != nil {
 		return false, err
 	}
-	return selectionToSave(plan.Effects, saved).equal(saved), nil
+	return selectionToSave(plan.Effects, selection, saved).equal(saved), nil
 }
 
 // hasProvisioning reports whether any non-fixed effect is checked, which is
