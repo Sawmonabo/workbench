@@ -85,30 +85,95 @@ func (p *preparation) mergedTargets(
 // though Workbench did not put it there. Known secret values are replaced
 // first by [operation.Redact]; this and the patterns below cover the rest. A key
 // named by a strong word (token, secret, password, credential, authorization,
-// api key, access key, private key) may carry a suffix; a weak word that also
-// begins ordinary names (key, pat, auth, cookie, session) must end the key, so
-// `openai_key =` and `X-Auth:` are masked and `keybindings =` is not.
+// api key, access key, private key, passphrase) may carry a suffix; a weak word
+// that also begins ordinary names (key, pat, auth, cookie, session, pass, pwd)
+// must end the key, so `openai_key =`, `DB_PASS =` and `X-Auth:` are masked and
+// `keybindings =` and `compass =` are not.
 var secretLine = regexp.MustCompile(
-	`(?i)((?:token|secret|passw(?:or)?d|api[_-]?key|access[_-]?key|credential|authorization|` +
+	`(?i)((?:token|secret|passw(?:or)?d|passphrase|api[_-]?key|access[_-]?key|credential|authorization|` +
 		`private[_-]?key)[\w."'-]*\s*[:=]\s*|` +
-		`(?:^|[^a-z0-9])(?:key|pat|auth|cookie|set-cookie|session)["']?\s*[:=]\s*)\S.*$|(bearer\s+)\S+`,
+		`(?:^|[^a-z0-9])(?:key|pat|auth|cookie|set-cookie|session|pass|pwd)["']?\s*[:=]\s*)\S.*$|(bearer\s+)\S+`,
 )
 
 // secretFlag masks the value after a credential-named command-line flag on one
 // line: `"--token", "x"`, `--api-key=x`, `--password x`.
 var secretFlag = regexp.MustCompile(
-	`(?i)((?:^|[\s"'\[,(])--?[\w-]*(?:token|secret|passw(?:or)?d|api-?key|key|auth|pat|cookie)` +
+	`(?i)((?:^|[\s"'\[,(])--?[\w-]*(?:token|secret|passw(?:or)?d|pass|pwd|api-?key|key|auth|pat|cookie)` +
 		`["']?(?:\s*[=,]\s*|\s+)["']?)[^"'\s,\[\]]+`,
 )
 
 // secretFlagEnd matches a line that ends with such a flag, whose value is on
 // the next line (a multi-line array).
 var secretFlagEnd = regexp.MustCompile(
-	`(?i)--?[\w-]*(?:token|secret|passw(?:or)?d|api-?key|key|auth|pat|cookie)["']?\s*,?\s*$`,
+	`(?i)--?[\w-]*(?:token|secret|passw(?:or)?d|pass|pwd|api-?key|key|auth|pat|cookie)["']?\s*,?\s*$`,
 )
+
+// shortPassFlag is the one-letter password flag of mysql, mariadb, sshpass and
+// mongo, `-p` or `-P`, followed by its value as a separate word. A value that
+// is a path or a variable (`mkdir -p ~/x`, `-p $PW`) is left to read, since it
+// is not a password typed into a file.
+var shortPassFlag = regexp.MustCompile(
+	`((?:^|[\s"'\[,(])-[pP](?:["']?(?:\s*=\s*|\s*,\s*|\s+)["']?))` +
+		`[^"'\s,\[\]/~.$%][^"'\s,\[\]]*`,
+)
+
+// shortPassFlagEnd matches a line that ends with `-p` or `-P`, whose value is
+// on the next line.
+var shortPassFlagEnd = regexp.MustCompile(`(?:^|[\s"'\[,(])-[pP]["']?\s*,?\s*$`)
+
+// attachedPassFlag is `-psecret`, the value written right after the flag, as
+// mysql takes it. Only a line that names a tool taking it is masked, since `-p`
+// then a word is also `-print` and `-pipe`.
+var attachedPassFlag = regexp.MustCompile(`((?:^|[\s"'\[,(])-[pP])[^\s"'\[\],=/~.$%-][^"'\s,\[\]]*`)
+
+// passwordTool names the commands that take a password after -p.
+var passwordTool = regexp.MustCompile(
+	`\b(?:mysql|mysqldump|mysqladmin|mysqlpump|mariadb|mariadb-dump|mariadb-admin|sshpass|mongo|mongosh|` +
+		`mongodump|mongorestore|mongoexport|mongoimport)\b`,
+)
+
+// flagEnds reports whether text ends with a flag that takes a credential on
+// the next line or list item, and whether it is the one-letter form.
+func flagEnds(text string) (ends, short bool) {
+	if secretFlagEnd.MatchString(text) {
+		return true, false
+	}
+	if shortPassFlagEnd.MatchString(text) {
+		return true, true
+	}
+	return false, false
+}
+
+// pathLike reports a value that is a path or a variable rather than a typed
+// password, which a one-letter flag's value may be (`mkdir -p /tmp/x`).
+func pathLike(value string) bool {
+	value = strings.Trim(value, `"' ,`)
+	return value != "" && strings.ContainsRune("/~.$%", rune(value[0]))
+}
 
 // urlUserInfo masks the password in https://user:password@host.
 var urlUserInfo = regexp.MustCompile(`(://[^/\s:@]+:)[^/\s@]+(@)`)
+
+// urlKeyUser masks a key kept as the user of a URL with no password, such as a
+// Sentry DSN `https://KEY@host/1`: a name of 16 or more characters. A short
+// user such as `git@` is a name and stays.
+var urlKeyUser = regexp.MustCompile(`(://)[A-Za-z0-9._~-]{16,}(@)`)
+
+// urlWebhook masks the path of a webhook address, which is the credential:
+// Slack, Discord, Microsoft Teams, Zapier and any `/webhooks/` path.
+var urlWebhook = regexp.MustCompile(
+	`(?i)(hooks\.slack\.com/(?:services|workflows|triggers)/|` +
+		`discord(?:app)?\.com/api/(?:v\d+/)?webhooks/|` +
+		`office(?:365)?\.com/webhook\w*/|` +
+		`hooks\.zapier\.com/hooks/catch/|` +
+		`/webhooks?/)[^\s"'?#]+`,
+)
+
+// urlQuery masks the value of a URL query parameter named like a credential.
+var urlQuery = regexp.MustCompile(
+	`(?i)([?&](?:[\w.-]*(?:token|secret|passw(?:or)?d|credential|signature|api[_-]?key|access[_-]?key)[\w.-]*|` +
+		`(?:[\w.-]*[_.-])?(?:key|pat|auth|pass|pwd|sig|cookie|session|jwt|apikey))=)[^&\s"'#]+`,
+)
 
 // secretShape masks values that look like credentials wherever they stand: a
 // GitHub, GitLab, OpenAI, AWS or Slack token, a JWT, or a long hex run.
@@ -136,7 +201,7 @@ func maskBlob(run string) string {
 // marker (" ", "-", "+") and its text.
 func redactDiff(lines []string, secrets []string) []string {
 	redacted := make([]string, len(lines))
-	valueNext := false
+	valueNext, shortNext := false, false
 	for i, line := range lines {
 		line = operation.Redact(line, secrets)
 		marker, text := "", line
@@ -147,9 +212,12 @@ func redactDiff(lines []string, secrets []string) []string {
 		case strings.HasPrefix(line, "@@"):
 			valueNext = false
 		case valueNext && strings.TrimSpace(text) != "":
-			text, valueNext = "[REDACTED]", false
+			if !shortNext || !pathLike(text) {
+				text = "[REDACTED]"
+			}
+			valueNext = false
 		default:
-			valueNext = secretFlagEnd.MatchString(text)
+			valueNext, shortNext = flagEnds(text)
 			text = secretLine.ReplaceAllStringFunc(text, func(match string) string {
 				parts := secretLine.FindStringSubmatch(match)
 				if parts[1] != "" {
@@ -158,7 +226,14 @@ func redactDiff(lines []string, secrets []string) []string {
 				return parts[2] + "[REDACTED]"
 			})
 			text = secretFlag.ReplaceAllString(text, "${1}[REDACTED]")
+			text = shortPassFlag.ReplaceAllString(text, "${1}[REDACTED]")
+			if passwordTool.MatchString(text) {
+				text = attachedPassFlag.ReplaceAllString(text, "${1}[REDACTED]")
+			}
 			text = urlUserInfo.ReplaceAllString(text, "${1}[REDACTED]${2}")
+			text = urlKeyUser.ReplaceAllString(text, "${1}[REDACTED]${2}")
+			text = urlWebhook.ReplaceAllString(text, "${1}[REDACTED]")
+			text = urlQuery.ReplaceAllString(text, "${1}[REDACTED]")
 			text = secretShape.ReplaceAllString(text, "[REDACTED]")
 			text = secretBlob.ReplaceAllStringFunc(text, maskBlob)
 		}
@@ -170,12 +245,41 @@ func redactDiff(lines []string, secrets []string) []string {
 // maxSettingValue is the longest value a settings line shows.
 const maxSettingValue = 80
 
-// maskKey is the key path as the masking patterns read it: indexes as path
-// steps, and only its last 30 characters, so a long path is never taken for a
-// secret itself while a credential-named key at its end still matches.
+// keySegments is a key path as names: list indexes dropped, so `args[0]` is
+// `args` and `env.MY_TOKEN` is `env`, `MY_TOKEN`.
+func keySegments(path string) []string {
+	var names []string
+	for _, name := range strings.FieldsFunc(path, func(r rune) bool {
+		return r == '.' || r == '[' || r == ']'
+	}) {
+		if strings.Trim(name, "0123456789") != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+// maskKey is the key as the masking patterns read it: its last name, whatever
+// the length of the path before it, since the credential word is judged on the
+// key itself and a long name only over-masks.
 func maskKey(path string) string {
-	key := []rune(strings.NewReplacer("[]", "", "[", ".", "]", "").Replace(path))
-	return string(key[max(len(key)-30, 0):])
+	names := keySegments(path)
+	if len(names) == 0 {
+		return path
+	}
+	return names[len(names)-1]
+}
+
+// secretParent reports whether a name before the last in the path is itself
+// credential-shaped (`auth.user`, `tokens.main`): everything under it is masked.
+func secretParent(path string) bool {
+	names := keySegments(path)
+	for i := 0; i+1 < len(names); i++ {
+		if secretLine.MatchString(names[i] + " = x") {
+			return true
+		}
+	}
+	return false
 }
 
 // settingLines renders changed settings for the plan view, one per line:
@@ -211,9 +315,12 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 		}
 		// A list item right after a credential flag is its value.
 		for _, before := range change.Follows {
-			if secretFlagEnd.MatchString(before) {
+			if ends, short := flagEnds(before); ends && (!short || !pathLike(item(change))) {
 				value = "[REDACTED]"
 			}
+		}
+		if secretParent(change.Path) {
+			value = "[REDACTED]"
 		}
 		if runes := []rune(value); len(runes) > maxSettingValue {
 			value = string(runes[:maxSettingValue]) + "…"
@@ -233,6 +340,14 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 		}
 	}
 	return lines
+}
+
+// item is the value of a setting as the list shows it.
+func item(change operation.SettingChange) string {
+	if change.Removed {
+		return change.Before
+	}
+	return change.After
 }
 
 // hashKey reports whether a key path ends in a hash, such as a trusted_hash.

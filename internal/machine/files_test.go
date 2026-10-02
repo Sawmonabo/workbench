@@ -14,9 +14,30 @@ import (
 // and anything shaped like a token must never survive.
 func TestDiffNeverShowsCredentials(t *testing.T) {
 	leaks := []string{
-		"hunter2", "glpat-abc123def456ghi789", "abc.def", "ghp_" + strings.Repeat("a1", 18),
-		"sk-" + strings.Repeat("Zq9", 8), "AKIA" + strings.Repeat("7", 16), "flagvalue1", "hunter3",
-		"cookievalue", "authvalue", "nextline-secret", "arrayvalue1",
+		"hunter2",
+		"glpat-abc123def456ghi789",
+		"abc.def",
+		"ghp_" + strings.Repeat("a1", 18),
+		"sk-" + strings.Repeat("Zq9", 8),
+		"AKIA" + strings.Repeat("7", 16),
+		"flagvalue1",
+		"hunter3",
+		"cookievalue",
+		"authvalue",
+		"nextline-secret",
+		"arrayvalue1",
+		"dbpassval",
+		"pwdval",
+		"passwdval",
+		"sshpassval",
+		"mysqlattached",
+		"nextp-secret",
+		"sentrykey0123456789abcdef",
+		"slackhooksecret",
+		"discordtokenval",
+		"teamswebhookval",
+		"querysecretval",
+		"sigval",
 	}
 	lines := redactDiff([]string{
 		`+JIRA_API_TOKEN = "hunter2"`,
@@ -33,8 +54,23 @@ func TestDiffNeverShowsCredentials(t *testing.T) {
 		`+X-Auth: authvalue`,
 		`+  "--password",`,
 		`+  "nextline-secret",`,
+		`+DB_PASS = "dbpassval"`,
+		`+MYSQL_PWD = "pwdval"`,
+		`+passwd: passwdval`,
+		`+command = "sshpass -p sshpassval ssh host"`,
+		`+command = "mysql -uroot -pmysqlattached"`,
+		`+  "-p",`,
+		`+  "nextp-secret",`,
+		`+dsn = "https://sentrykey0123456789abcdef@o1.ingest.sentry.io/5"`,
+		`+hook = "https://hooks.slack.com/services/T000/B000/slackhooksecret"`,
+		`+hook = "https://discord.com/api/webhooks/123456/discordtokenval"`,
+		`+hook = "https://example.webhook.office.com/webhookb2/teamswebhookval@x/IncomingWebhook/y"`,
+		`+url = "https://example.com/x?id=1&client_secret=querysecretval&sig=sigval"`,
 		` timeout = 5`,
 		` keybindings = "vim"`,
+		` compass = "north"`,
+		` command = "mkdir -p ~/.cache/x"`,
+		` remote = "git@github.com:me/repo.git"`,
 	}, []string{"hunter2"})
 	text := strings.Join(lines, "\n")
 	for _, leak := range leaks {
@@ -42,7 +78,9 @@ func TestDiffNeverShowsCredentials(t *testing.T) {
 			t.Errorf("diff still shows %q:\n%s", leak, text)
 		}
 	}
-	for _, kept := range []string{"timeout = 5", `keybindings = "vim"`} {
+	for _, kept := range []string{
+		"timeout = 5", `keybindings = "vim"`, `compass = "north"`, "mkdir -p ~/.cache/x", "git@github.com",
+	} {
 		if !strings.Contains(text, kept) {
 			t.Errorf("diff lost an ordinary line %q:\n%s", kept, text)
 		}
@@ -54,20 +92,25 @@ func TestDiffNeverShowsCredentials(t *testing.T) {
 // Claude Code settings or Codex config reaches the terminal through that list.
 // A value under a credential-named key, a token-shaped value, a known secret
 // and the item after a credential flag in a list, plain or mixed with
-// objects, must all stay masked.
+// objects, must all stay masked, however long the key name is and whatever
+// credential-named table it sits under.
 func TestSettingListNeverShowsCredentials(t *testing.T) {
 	before := `{"env": {"JIRA_API_TOKEN": "hunter2", "NOTE": "ghp_` + strings.Repeat("a1", 18) +
 		`"}, "args": ["--token", "flagvalue1"], "mixed": [{"a": 1}, "--api-key", "mixedvalue1"], "timeout": 10}`
 	after := `{"env": {"JIRA_API_TOKEN": "hunter3", "NOTE": "ghp_` + strings.Repeat("b2", 18) +
 		`"}, "args": ["--token", "flagvalue2"], "mixed": [{"a": 1}, "--api-key", "mixedvalue2"], ` +
-		`"timeout": 5, "known": "hunter4"}`
+		`"timeout": 5, "known": "hunter4", ` +
+		`"env": {"SECRET_KEY_FOR_THE_PRODUCTION_DATABASE_SERVICE": "longkeysecret05", ` +
+		`"API_TOKEN_USED_BY_THE_NIGHTLY_INTEGRATION_JOBS": "longtoken06"}, ` +
+		`"auth": {"user": "parentsecret07"}}`
 	changes, _, ok := operation.SettingsDiff("json", []byte(before), []byte(after))
 	if !ok {
 		t.Fatal("synthetic settings did not parse")
 	}
 	text := strings.Join(settingLines(changes, []string{"hunter4"}), "\n")
 	for _, leak := range []string{
-		"hunter2", "hunter3", "hunter4", "flagvalue1", "flagvalue2", "mixedvalue1", "mixedvalue2", strings.Repeat("a1", 18),
+		"hunter2", "hunter3", "hunter4", "flagvalue1", "flagvalue2", "mixedvalue1", "mixedvalue2",
+		"longkeysecret05", "longtoken06", "parentsecret07", strings.Repeat("a1", 18),
 		strings.Repeat("b2", 18),
 	} {
 		if strings.Contains(text, leak) {
