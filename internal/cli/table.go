@@ -147,28 +147,9 @@ func fitRows(width, indent int, t tableSpec) []string {
 	t = t.plain()
 	active, widths, stack := layout(width, indent, t)
 	if stack {
-		return stacked(width, indent, t, active, false)
+		return stacked(width, indent, t, active)
 	}
 	return renderTable(indent, t, active, widths)
-}
-
-// fitBlocks is fitRows split by row, for a caller that must know which lines
-// belong to which row (the checklist's cursor). t has no Header and no Total.
-func fitBlocks(width, indent int, t tableSpec) [][]string {
-	t = t.plain()
-	active, widths, stack := layout(width, indent, t)
-	blocks := make([][]string, len(t.Rows))
-	if !stack {
-		for i, line := range renderTable(indent, t, active, widths) {
-			blocks[i] = []string{line}
-		}
-		return blocks
-	}
-	for i, row := range t.Rows {
-		one := tableSpec{Cols: t.Cols, Rows: [][]string{row}}
-		blocks[i] = stacked(width, indent, one, active, false)
-	}
-	return blocks
 }
 
 // layout decides which columns survive and how wide each is: it shortens the
@@ -224,19 +205,6 @@ func layout(width, indent int, t tableSpec) (active, widths []int, stack bool) {
 //nolint:unparam // See the comment above.
 func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
 	for _, line := range fitRows(width, indent, t) {
-		b.WriteString(line + "\n")
-	}
-}
-
-// writeFull writes every row as a stacked block with each value wrapped, not
-// clipped, so nothing is lost and nothing is wider than width (--verbose).
-func writeFull(b *strings.Builder, width, indent int, t tableSpec) {
-	t = t.plain()
-	active := make([]int, len(t.Cols))
-	for i := range active {
-		active[i] = i
-	}
-	for _, line := range stacked(width, indent, t, active, true) {
 		b.WriteString(line + "\n")
 	}
 }
@@ -369,9 +337,8 @@ func trimEnd(line string) string {
 
 // stacked prints each row as a block: a first line joining the cells before
 // the Clip column (or the Clip cell when it comes first), then one indented
-// "head value" line per other cell. Values clip to width, or with wrap they
-// wrap onto further lines.
-func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
+// "head value" line per other cell. Values clip to width.
+func stacked(width, indent int, t tableSpec, active []int) []string {
 	pad := strings.Repeat(" ", indent)
 	rows := t.Rows
 	if t.Total != nil {
@@ -387,13 +354,7 @@ func stacked(width, indent int, t tableSpec, active []int, wrap bool) []string {
 	var lines []string
 	add := func(prefix, text string, left bool) {
 		room := max(width-ansi.StringWidth(prefix), 1)
-		if !wrap {
-			lines = append(lines, prefix+fit(text, room, left))
-			return
-		}
-		for part := range strings.SplitSeq(ansi.Wrap(text, room, ""), "\n") {
-			lines = append(lines, prefix+part)
-		}
+		lines = append(lines, prefix+fit(text, room, left))
 	}
 	for r, row := range rows {
 		label := t.Total != nil && r == len(rows)-1 // the total's label is not a path

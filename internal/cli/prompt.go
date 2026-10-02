@@ -97,11 +97,12 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 	return approved, nil
 }
 
-// choosePlan shows the checklist on the controlling terminal: the files, then
-// a list of the effects with the plan's checks as defaults. Enter
-// approves exactly that selection; esc or ctrl+c approves nothing. saved is
-// the machine's saved selection, for re-gating dependent effects as boxes
-// toggle.
+// choosePlan shows the live plan on the controlling terminal: the files and
+// the effects with the plan's checks as defaults. `a` approves exactly that
+// selection; q, esc or ctrl+c approves nothing. The list is dismissed by
+// leaving the alternate screen, and its final frame is printed once, with
+// nothing blank below it. The saved selection is the caller's, which re-gates
+// dependent effects when the checked names come back.
 func choosePlan(
 	plan operation.Plan,
 	_ machine.Selection,
@@ -112,38 +113,7 @@ func choosePlan(
 		return nil, false, err
 	}
 	defer func() { _ = terminal.Close() }()
-	// The effects are the checklist below, so the plan prints without them.
-	if _, err := lipgloss.Fprint(
-		terminal,
-		machinePlanText(plan, terminalWidth(terminal), verbose, false),
-	); err != nil {
-		return nil, false, err
-	}
-	var fixed []string
-	selectable := 0
-	for _, effect := range plan.Effects {
-		if effect.Fixed {
-			fixed = append(fixed, effect.Name)
-		} else {
-			selectable++
-		}
-	}
-	if selectable == 0 {
-		approved := false
-		answered, askErr := ask(terminal, huh.NewConfirm().
-			Title("[WorkBench] Apply these files?").
-			Affirmative("Yes").Negative("No").Value(&approved))
-		return fixed, answered && approved && askErr == nil, nil
-	}
-	var title strings.Builder
-	width := terminalWidth(terminal)
-	writeText(&title, width, 0, checklistTitle)
-	writeText(&title, width, 0, checklistDescription)
-	if _, err := lipgloss.Fprint(terminal, title.String()); err != nil {
-		return nil, false, err
-	}
-	// Inline, so the file list above stays visible. main owns SIGINT; ctrl+c
-	// arrives as a key.
+	// main owns SIGINT; ctrl+c arrives as a key.
 	final, err := tea.NewProgram(
 		newChecklist(plan, verbose),
 		tea.WithInput(terminal),
@@ -158,17 +128,20 @@ func choosePlan(
 		)
 	}
 	list, ok := final.(*checklistModel)
-	if !ok || !list.approved {
+	if !ok {
 		return nil, false, nil
 	}
-	checked := list.checkedNames()
-	_, _ = fmt.Fprintf(
+	if err := printPlanView(
 		terminal,
-		"[WorkBench] Applying %d of %d effects\n",
-		len(checked),
-		selectable,
-	)
-	return append(fixed, checked...), true, nil
+		list.plan,
+		planView{Interactive: true, Done: true},
+	); err != nil {
+		return nil, false, err
+	}
+	if !list.approved {
+		return nil, false, nil
+	}
+	return list.checkedNames(), true, nil
 }
 
 // checkpointChoice returns --checkpoint or, at a terminal, the checkpoint the

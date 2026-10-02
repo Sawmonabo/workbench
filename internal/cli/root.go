@@ -240,7 +240,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 		// The machine plan prints as its own branded view, so its component
 		// line would only put "machine-plan: complete" before the brand.
 		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
-			if err := writePlanView(out, plan, verbose); err != nil {
+			if err := writePlanView(out, plan, verbose, false); err != nil {
 				return err
 			}
 			continue
