@@ -42,6 +42,18 @@ type Edit struct {
 	// settings, Codex config, VS Code settings), which keeps the owner's own
 	// keys; every other file is owned, written whole by Workbench.
 	Merged bool `json:"merged,omitempty"`
+	// Title is the file's plain name for the plan view ("Claude Code
+	// settings"); empty falls back to the path.
+	Title string `json:"title,omitempty"`
+	// Added and Removed are the diff's line counts, so the view colours them
+	// without parsing Summary.
+	Added   int `json:"added,omitempty"`
+	Removed int `json:"removed,omitempty"`
+	// Diff is the unified diff of the change, capped, with secrets redacted
+	// like script output; DiffTruncated says lines were cut. It is the one place
+	// a plan carries file content.
+	Diff          string `json:"diff,omitempty"`
+	DiffTruncated bool   `json:"diff_truncated,omitempty"`
 	// EditedOutside marks an existing owned file that is not what Workbench
 	// last wrote, so applying replaces someone's edit. It is set from the
 	// recorded last-applied image, never from Summary's text, and is never
@@ -77,9 +89,23 @@ type Effect struct {
 	New bool `json:"new,omitempty"`
 	// Optional marks an optional host effect: unchecked unless selected.
 	Optional bool `json:"optional,omitempty"`
-	// Needs names the effect this one cannot run without while that effect is
-	// unchecked, "" otherwise (windows-files for the Windows adoptions).
-	Needs string `json:"needs,omitempty"`
+	// Parent names the effect this one is a part of ("windows-files" for the
+	// Windows adoptions and the font registry), "" otherwise. A part is listed
+	// under its parent; it runs when the parent is checked or when it is
+	// selected on its own.
+	Parent string `json:"parent,omitempty"`
+	// Title and Summary are the plan view's plain name and one faint line.
+	// What, Touches, RunsAs and Undo fill the detail panel (what it does, what
+	// it changes, who it runs as, how to undo it) beside Delta, which says what
+	// it would do on this machine now. All are plain words; Name, Description,
+	// Privilege and Recovery stay the technical record for --json and the
+	// project plans.
+	Title   string `json:"title,omitempty"`
+	Summary string `json:"summary,omitempty"`
+	What    string `json:"what,omitempty"`
+	Touches string `json:"touches,omitempty"`
+	RunsAs  string `json:"runs_as,omitempty"`
+	Undo    string `json:"undo,omitempty"`
 	// Fixed effects always run with the plan and cannot be unchecked: the
 	// file-backed policy marker and checkpoint retention.
 	Fixed bool `json:"fixed,omitempty"`
@@ -93,7 +119,8 @@ type Effect struct {
 // state, answers and target image hashes; it is private, and public output
 // exposes only the aggregate [Plan.Digest], never individual secret hashes.
 // Descriptions contain reviewed redacted text and summaries only counts, modes
-// and link targets, never raw diffs or answers.
+// and link targets, never answers; an [Edit]'s capped, redacted Diff is the one
+// place file content appears.
 type Plan struct {
 	Source        SourceIdentity `json:"source"`
 	Scope         Scope          `json:"scope"`

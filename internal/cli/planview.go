@@ -91,11 +91,48 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	return err
 }
 
+// rowKind says which list a planRow indexes.
+type rowKind int
+
+const (
+	rowNone   rowKind = iota // no row: no cursor
+	rowFile                  // Index is into plan.Edits
+	rowEffect                // Index is into plan.Effects
+)
+
+// planRow is one selectable row of the plan view: a file or an effect.
+type planRow struct {
+	Kind  rowKind
+	Index int
+}
+
+// selectableRows lists the rows a cursor can stop on, in the order they are
+// drawn: files, then effects. Fixed effects, locked parts and Already-set
+// effects are not among them.
+func selectableRows(plan operation.Plan) []planRow {
+	var rows []planRow
+	for i, effect := range plan.Effects {
+		if !effect.Fixed {
+			rows = append(rows, planRow{rowEffect, i})
+		}
+	}
+	return rows
+}
+
+// renderDetail is the detail panel for a row: for an effect, what it does, what
+// it would do here now, what it changes, who it runs as, how to undo it and its
+// relation to its parent; for a file, its title, owner and the start of its
+// diff. It returns no lines for rowNone.
+func renderDetail(_ operation.Plan, _ planRow, _ int) []string { return nil }
+
+// renderDiff is the full-screen unified diff of one file, styled and wrapped at
+// width columns; the caller scrolls it.
+func renderDiff(_ operation.Edit, _ int) []string { return nil }
+
 // planView says how renderPlan draws a plan.
 type planView struct {
-	// Cursor is the index in plan.Effects of the row under the cursor, -1 for
-	// none. Fixed effects are never under it.
-	Cursor int
+	// Cursor is the row under the cursor, the zero value for none.
+	Cursor planRow
 	// Interactive draws the live list; false draws the static view that
 	// --dry-run and a no-prompt apply print.
 	Interactive bool
@@ -109,14 +146,15 @@ type planView struct {
 // writePlanView prints the plan view once, at the writer's width: --dry-run,
 // the machine-plan result component and an apply that does not prompt.
 func writePlanView(w io.Writer, plan operation.Plan, verbose bool) error {
-	lines, _ := renderPlan(plan, terminalWidth(w), planView{Cursor: -1, Verbose: verbose})
+	lines, _ := renderPlan(plan, terminalWidth(w), planView{Verbose: verbose})
 	_, err := lipgloss.Fprint(w, strings.Join(lines, "\n")+"\n")
 	return err
 }
 
 // renderPlan is the one renderer of the machine plan, for the interactive list
-// and for the static view, at width columns. It returns the lines and the
-// index of the line the cursor row starts on, -1 when there is no cursor row.
+// and for the static view, at width columns, with the detail panel of the
+// cursor row (renderDetail) in the frame. It returns the lines and the index of
+// the line the cursor row starts on, -1 when there is no cursor row.
 func renderPlan(plan operation.Plan, width int, view planView) (lines []string, cursorLine int) {
 	if !view.Interactive {
 		text := machinePlanText(plan, width, view.Verbose, true)
@@ -130,7 +168,7 @@ func renderPlan(plan operation.Plan, width int, view planView) (lines []string, 
 			continue
 		}
 		row := append([]string{" "}, effectRow(effect)...)
-		if !view.Done && i == view.Cursor {
+		if !view.Done && view.Cursor == (planRow{rowEffect, i}) {
 			row[0], row[2] = ">", bold.Render(row[2])
 			cursorBlock = len(spec.Rows)
 		}
@@ -143,6 +181,7 @@ func renderPlan(plan operation.Plan, width int, view planView) (lines []string, 
 		}
 		lines = append(lines, block...)
 	}
+	lines = append(lines, renderDetail(plan, view.Cursor, width)...)
 	return lines, cursorLine
 }
 

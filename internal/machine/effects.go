@@ -257,6 +257,9 @@ func hostOptionalEffects() []operation.Effect {
 	effects := slices.Clone(optionalEffects)
 	for i := range effects {
 		effects[i].Optional = true
+		if slices.Contains(windowsFileEffects, effects[i].Name) {
+			effects[i].Parent = "windows-files"
+		}
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
 				effects[i].Description = "Make " + distribution + " the default WSL distribution"
@@ -293,10 +296,8 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 			continue
 		}
 		effects[i].Delta = needsFilesDelta(effects[i].Delta, filesChecked)
-		effects[i].Needs = ""
 		if !filesChecked {
 			effects[i].Checked = false
-			effects[i].Needs = "windows-files"
 		}
 	}
 	return effects

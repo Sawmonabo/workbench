@@ -23,8 +23,9 @@ const (
 type checklistModel struct {
 	plan          operation.Plan
 	verbose       bool
-	selectable    []int // indices in plan.Effects of the rows a cursor can stop on
-	cursor        int   // position in selectable
+	rows          []planRow       // the rows a cursor can stop on
+	cursor        int             // position in rows
+	diff          *operation.Edit // the file shown full screen, nil in the list
 	width, height int
 	view          viewport.Model
 	approved      bool
@@ -41,20 +42,16 @@ func newChecklist(plan operation.Plan, verbose bool) *checklistModel {
 		view:    viewport.New(),
 	}
 	m.plan.Effects = slices.Clone(plan.Effects)
-	for i, effect := range m.plan.Effects {
-		if !effect.Fixed {
-			m.selectable = append(m.selectable, i)
-		}
-	}
+	m.rows = selectableRows(m.plan)
 	return m
 }
 
 // checkedNames lists the non-fixed effects whose box is checked.
 func (m *checklistModel) checkedNames() []string {
 	var names []string
-	for _, i := range m.selectable {
-		if m.plan.Effects[i].Checked {
-			names = append(names, m.plan.Effects[i].Name)
+	for _, row := range m.rows {
+		if row.Kind == rowEffect && m.plan.Effects[row.Index].Checked {
+			names = append(names, m.plan.Effects[row.Index].Name)
 		}
 	}
 	return names
@@ -74,10 +71,12 @@ func (m *checklistModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "up", "k":
 			m.cursor = max(m.cursor-1, 0)
 		case "down", "j":
-			m.cursor = min(m.cursor+1, len(m.selectable)-1)
+			m.cursor = min(m.cursor+1, len(m.rows)-1)
 		case "space":
-			effect := &m.plan.Effects[m.selectable[m.cursor]]
-			effect.Checked = !effect.Checked
+			if row := m.rows[m.cursor]; row.Kind == rowEffect {
+				effect := &m.plan.Effects[row.Index]
+				effect.Checked = !effect.Checked
+			}
 		case "enter":
 			m.approved, m.done = true, true
 			return m, tea.Quit
@@ -98,15 +97,18 @@ var bold = lipgloss.NewStyle().Bold(true)
 // scrollback; a frame that shrinks would leave the old one's top lines. The
 // visible lines plus the final newline fill at most the terminal's height.
 func (m *checklistModel) View() tea.View {
-	cursor := -1
-	if len(m.selectable) > 0 {
-		cursor = m.selectable[m.cursor]
+	var cursor planRow
+	if len(m.rows) > 0 {
+		cursor = m.rows[m.cursor]
 	}
 	lines, cursorLine := renderPlan(
 		m.plan,
 		m.width,
 		planView{Cursor: cursor, Interactive: true, Done: m.done, Verbose: m.verbose},
 	)
+	if m.diff != nil {
+		lines, cursorLine = renderDiff(*m.diff, m.width), 0
+	}
 	height := len(lines)
 	if m.height > 0 {
 		height = max(min(len(lines), m.height-1), 1)
