@@ -35,7 +35,8 @@ to move a machine over.
 ## Daily commands
 
 ```sh
-workbench apply              # checklist of file changes and effects; uncheck, then apply
+workbench apply              # decide once; later runs apply your saved choices unless something is new
+workbench apply --choose     # show the plan and choose again
 workbench apply --dry-run    # only show it
 workbench update             # install the latest release and its tools; never applies
 workbench update 0.2.0       # install that release (older goes back)
@@ -51,9 +52,12 @@ workbench project revert ./apps/api
 
 Machine commands run from a verified release, or, inside the checkout, `--local-build`.
 `apply` installs Workbench's own tools and asks any machine question your saved
-answers lack; `--dry-run` previews only and never installs or asks. Changes are
-shown as a checklist: space unchecks an effect, enter applies, and what you
-uncheck is remembered. `update` never applies. Unattended use requires the
+answers lack; `--dry-run` previews only and never installs or asks. The first
+`apply` shows the plan, the files with their diffs and each step in plain words:
+space turns a step off, `a` applies, and your choices are remembered. After that,
+`apply` prints the plan and applies your saved choices without asking, unless
+a step is new or a file Workbench owns was edited outside it; `--choose` asks
+again, `--reset` forgets your choices and `--yes` never asks. `update` never applies. Unattended use requires the
 plan's exact digest. See [usage](docs/usage.md) for install options, recovery selection and
 limits.
 

@@ -50,8 +50,20 @@ synthetic answers.
   Python 3.12.12 and TOML Kit with a progress line and without a prompt, and
   rerunning it finishes a stage that was declined or failed. (target; not yet
   observed from a fresh home)
-- `apply` shows the checklist and asks once, about the checked selection.
-  Unattended, `apply --dry-run --json` prints the plan with its digest, and
+- `apply` decides once: the first approved apply shows the plan and asks, saving
+  `skip`, `select` and `decided`; a later apply with nothing new prints the plan
+  and applies the saved choices without asking. Observed on an isolated home with
+  synthetic answers and every effect skipped (so nothing provisioned), driven
+  through a terminal: the first run asked and saved `decided`; a second run asked
+  nothing and printed `Nothing to apply`; with one effect removed from `decided`
+  the run asked with that effect marked NEW and saved it; an effect whose probe
+  found nothing to change did not force a prompt; `--choose` asked with nothing
+  new (esc exited 3 with `machine.toml` unchanged); `--choose --yes` exited 2 and
+  `--choose --json` without a terminal exited 2; `--reset` asked with the defaults
+  and esc saved nothing; `--yes` and `--approve-plan DIGEST` applied without
+  asking and recorded `decided`; an owned file edited outside Workbench asked and
+  named the replacement, and a merged file (Claude Code settings) edited outside
+  did not. Unattended, `apply --dry-run --json` prints the plan with its digest, and
   `apply --approve-plan DIGEST` applies exactly that plan or exits 4 when the
   machine, release or saved selection changed; `init --answers-from FILE`
   works the same way. Observed on the WSL2 host: the approved digest applied
@@ -122,7 +134,7 @@ synthetic answers.
 
 - On WSL2 with Ubuntu 26.04, from a local `v0.1.8-dev` bundle, `apply` planned
   real deltas (Go 1.27.0 → 1.27.1, the Node default 22 → 26, missing tools,
-  the `.wslconfig` change marked as asking) with nothing unprobed, and probes
+  the `.wslconfig` change) with no probe left unanswered, and probes
   wrote nothing under the home directory. The approved apply installed `fd`,
   switched the Node default, installed the missing tools, refreshed the tmux
   plugins, moved the costs hooks to `workbench costs ingest` and removed the
@@ -132,6 +144,20 @@ synthetic answers.
   and `doctor` printed the applied release, date and saved skips. With no
   local VS Code desktop the editor step says it has nothing to do. The
   Windows-side effects were skipped; they remain unqualified (below).
+
+- Plan view and probes, from a local checkout on the WSL2 host, read-only
+  (`apply --dry-run`): the header counts files, steps that will run and new to
+  decide; files carry a plain title, merged or owned, and +N −N counts; steps show
+  a plain name and one line; effects with nothing to change collapse into one
+  `Already set` line; the Linux editor-extension step is absent on WSL; the three
+  Windows parts are listed under Windows setup; every probe answered in about
+  1.2 s warm and none printed a status word. The interactive list was rendered
+  from a scratch harness at 120 and 80 columns with a file's diff and with
+  Windows setup selected, and Windows setup toggled on and off kept a part ticked
+  on its own. Not observed: the 15 s limit on a cold first Windows call (warm
+  only, it cannot be made cold on demand), the list in a graphical terminal, the
+  macOS probe scripts (rendered and shellchecked, not run), and any Windows-side
+  apply on a real host.
 
 ### Revert and recovery
 
@@ -228,7 +254,7 @@ synthetic answers.
 | --- | --- |
 | macOS | Complete disposable-user provisioning, minimum OS and Intel runs. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. |
-| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: host adoption, font registry, PATH, default distribution and sysctl are effects that start unchecked in the checklist, and no real host run is recorded. |
+| WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Terminal and PowerShell adoption and the font registry are parts of Windows setup, and PATH, default distribution and sysctl are optional effects that start off, and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 

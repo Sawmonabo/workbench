@@ -6,14 +6,17 @@ Workbench uses the Linux executable inside WSL and the shared
 not qualified. Real Windows-host testing remains a release gate.
 
 Linux guest configuration and Windows-host effects are distinct.
-Uncheck every effect in the `apply` checklist to apply files only. Full
+Turn every step off in the `apply` plan to apply files only. Full
 provisioning runs the Linux scripts and the Windows host steps: prompt engine,
 fonts, `.wslconfig`, RestartWSL helpers and editor settings. Existing Terminal
-settings and PowerShell profiles are left unchanged unless `terminal-adoption`
-or `powershell-adoption` is checked. Windows host steps on WSL
-(`terminal-adoption`, `powershell-adoption`, `font-registry`, `default-distro`,
-`windows-path`, `sysctl`) appear in the checklist unchecked; checking one is
-remembered like a skip. Windows-side script writes are not checkpointed. No real Windows host run is recorded yet; static
+settings and PowerShell profiles are left unchanged unless the matching part
+(`terminal-adoption`, `powershell-adoption`) is on. Those two and `font-registry`
+are parts of Windows setup (`windows-files`): with Windows setup on they are
+included, and with it off each can be ticked on its own, installing what it needs
+itself. `default-distro`, `windows-path` and `sysctl` start off, and your choice
+for each is remembered like any other. The `.wslconfig` merge asks nothing
+during apply: its change is in the plan beforehand and a dated recovery copy is
+written. Windows-side script writes are not checkpointed. No real Windows host run is recorded yet; static
 rendering does not qualify these scripts.
 Project inspection/configuration is not Windows-host provisioning.
 

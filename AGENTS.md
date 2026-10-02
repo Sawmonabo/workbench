@@ -20,12 +20,21 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Routine gates: `golangci-lint fmt`, `golangci-lint config verify`,
   `golangci-lint run ./...`, `go build ./...`; run the tiny safeguards with
   `go test ./...`. Pins are `go.mod` and `.golangci-lint-version`.
+- Apply decides once: the first approved apply saves `skip`, `select` and
+  `decided` in `machine.toml`; later applies print the plan and apply the saved
+  choices without asking unless an effect is new (with something to do) or a
+  Workbench-owned file (not a merged one) was edited outside it. `--choose`
+  always asks, `--reset` forgets the choices, `--yes` never asks. Scripts apply
+  runs never prompt: ticking the step is the approval (one-time helpers the
+  owner runs later may prompt). A Windows setup part ticked on its own keeps its
+  own choice while Windows setup is on.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
-  the checklist with `plan_digest`; `workbench apply --approve-plan DIGEST`
+  the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
   selection changed since. `workbench init --answers-from FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
-  the saved selection, not for a caller that did not read the plan. From a
+  the saved selection, not for a caller that did not read the plan; it never
+  asks, so use it only when new effects may take their defaults. From a
   checkout, add `--local-build` to both `apply` calls.
 - Use isolated destinations and synthetic credentials for smoke checks. Never
   provision the developer's live machine to validate code.

@@ -1,10 +1,10 @@
 # Apply plan, effect selection and the update/apply split
 
 Status: the update/apply split, the checklist, probes and saved skips were
-implemented 2026-09-30 (observed checks in docs/acceptance.md). Decide-once
-apply, host-relevant effects, structured no-change probes and the redesigned
-plan view (sections 2, 4 and 5, from 2026-10-01) are a target until the same
-checks are recorded there.
+implemented 2026-09-30, and decide-once apply, host-relevant effects,
+structured no-change probes and the redesigned plan view (sections 2, 4 and 5)
+on 2026-10-01; observed checks are in docs/acceptance.md, which also lists what
+was not observed.
 
 ## 1. Problem
 

@@ -25,16 +25,20 @@ over the same files.
 
    `apply` reads only `machine.toml`.
 
-3. **Review the checklist, then apply.**
+3. **Review the plan, then apply.**
 
    ```sh
    workbench apply
    ```
 
-   It shows each changed file and each provisioning effect with what it would do
-   here, and asks before changing anything. Uncheck every effect to apply files
-   only, or keep them to provision now. Every changed file is checkpointed;
-   `workbench revert` lists them to restore.
+   The first apply asks. It shows each changed file with its diff and each
+   provisioning step in plain words with what it would do here; turn off any step
+   you don't want (space), then press `a`. Turn off every step to apply files
+   only, or keep them to provision now. Your choices are remembered: the next
+   `workbench apply` prints the plan and applies them without asking, and asks
+   again only for a step that is new or a file Workbench owns that you edited
+   since. `workbench apply --choose` asks anyway. Every changed file is
+   checkpointed; `workbench revert` lists them to restore.
    The first apply sets the managed VS Code keys in
    `home/.chezmoidata/vscode.json` (zoom, confirm prompts, ty/Ruff as the
    Python language tools). Remove any you don't want enforced before applying.
@@ -48,11 +52,12 @@ over the same files.
 
    Until you do, `workbench doctor` reports a `native-chezmoi` conflict.
 
-5. **Provision when you're ready.** If you unchecked the effects in step 3, run
-   `apply` again with them checked; `--reset` checks every effect again.
+5. **Provision when you're ready.** If you turned steps off in step 3, run
+   `apply --choose` and turn them on; `apply --reset` forgets your choices and
+   starts from the defaults.
 
    ```sh
-   workbench apply
+   workbench apply --choose
    ```
 
    Every full apply includes the Homebrew cleanup dotfiles ran on every apply

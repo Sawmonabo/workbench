@@ -19,7 +19,7 @@ execution are external effects; selecting the font in a terminal is manual.
 The extension step consumes the same global VS Code extension list as macOS.
 It targets the available local default `code` profile, never opens a remote
 connection, and reports missing desktop CLI rather than claiming completion.
-Headless hosts can uncheck every effect in the `apply` checklist to apply files only; that does not install extensions.
+Headless hosts can turn every step off in the `apply` plan to apply files only; that does not install extensions.
 
 Keep private runtime state on a qualified Linux filesystem. For Windows-host
 integration use the separate [WSL qualification notes](wsl.md), not native

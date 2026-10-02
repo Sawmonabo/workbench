@@ -35,10 +35,11 @@ logged-in `gh`. Never run it as root.
 
 | Command | Behavior |
 | --- | --- |
-| `apply` | Install Workbench's tools if missing and ask any machine question your answers lack, then show the `[WorkBench]` checklist: changed files with line counts, and each provisioning effect with what it would do here. Space unchecks, enter applies, esc quits. Unchecked effects are remembered. |
-| `apply --yes` | Apply the saved selection without asking. |
-| `apply --reset` | Forget the saved skips; every effect is checked again, and what you pick is saved. |
-| `apply --dry-run` | Print the checklist and exit; installs, asks and changes nothing. |
+| `apply` | Install Workbench's tools if missing and ask any machine question your answers lack, then plan. The first apply, and any apply that finds a step or file to decide, shows the `[WorkBench]` plan: changed files with line counts, and each step with what it would do here. Space turns a step on or off, `a` applies, `q` quits. Your choices are remembered, so a later apply with nothing new prints the plan and applies it without asking. |
+| `apply --choose` | Show the plan and ask even when nothing is new, with your saved choices set. |
+| `apply --yes` | Never ask: apply your saved choices, and give anything new its default. |
+| `apply --reset` | Forget your saved choices and ask again with the defaults; what you pick is saved. |
+| `apply --dry-run` | Print the plan and exit; installs, asks and changes nothing. |
 | `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work. |
 | `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
@@ -93,40 +94,19 @@ See the [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.
 
 ## Approval and automation
 
-Each planned edit carries a `summary` of what changes without showing content,
-such as `+3 −1 lines` or `mode 0600 → 0644`. It also says when a target was
-`edited outside Workbench since it last wrote it` or is `not previously written
-by Workbench`, so an approval never overwrites local edits unnoticed.
+Each planned file carries a plain `title`, whether Workbench `merged` its settings into the file (your own keys are kept) or owns the whole file, its `added` and `removed` line counts and a `summary`. A file Workbench owns that you edited since it last wrote it is marked `edited_outside`, and applying replaces your edit. The plan view also shows each file's diff (secrets masked); the diff text is for the screen only and is not in `--json` or the plan digest.
 
-Interactive `apply` shows the `[WorkBench]` checklist: the files it changes,
-then one line per provisioning effect with what it would do here, its privilege
-tag and `skipped (saved)` where you skipped it before. Every effect starts
-checked. Space unchecks one, enter applies exactly what is checked and esc or
-ctrl+c quits with nothing applied. Effects that always run with the files, such
-as `ai-security-settings`, show without a box and cannot be unchecked. When no
-effect can be chosen, it asks Yes or No for the files, with No selected first.
-`revert` and `project` still ask "Approve this exact plan?" with Yes and No
-(y or n, or the arrow keys and Enter; Enter alone, esc and ctrl+c refuse).
-`apply --dry-run` prints the checklist without the toggle line and asks
-nothing. Add `--verbose` to see each effect's recovery text and the recovery
-limits, which the checklist leaves out.
+Deciding once. The first approved `apply` shows the plan and saves two things in the `[effects]` table of the private `machine.toml`: the steps you turned off (`skip`, plus `select` for optional steps you turned on) and every step it showed (`decided`). Later `apply` runs print the plan and apply your saved choices without asking, unless a step is new (not in `decided`) and has something to do, or a file Workbench owns whole was edited outside it. Files Workbench merges into (Claude Code settings, Codex config, VS Code settings) never count as edited outside, since Claude Code and Codex rewrite them constantly. `apply --choose` always asks. `apply --reset` forgets `skip`, `select` and `decided` for this host's steps and asks again with the defaults; saved choices for steps this host does not list, such as a macOS step on Linux, are kept and ignored. `--yes` never asks. `--choose` with `--yes` is refused, and `--choose` needs a terminal. An isolated `--destination` never saves choices, so each interactive apply there asks. `--dry-run` never saves. Steps are gated one by one: a shared script with one step off still runs its other sections.
 
-Unchecked effects are saved for this machine in the `[effects]` table of its
-private `machine.toml` and stay unchecked until `apply --reset`, which checks
-this host's effects again and saves what you pick. An effect added by a later
-release is checked by default. Unchecking every effect applies files only and is
-saved like any other selection. Saved skips for effects this host does not list,
-for example a macOS effect on Linux, are kept and ignored; `--reset` keeps
-those foreign skips. Effects are gated one by one: a shared script with one
-effect unchecked still runs its other sections. `--dry-run` never saves.
+What the plan shows. One view serves the interactive list and `--dry-run`: a header with counts (files, steps that will run, new to decide), the files, then `Will run`, `Off` (steps you turned off), `Optional` and a faint `Already set` line for steps whose check found nothing to change. Each step is its plain name with one faint line under it; the cursor row opens a detail panel (what it does, what it would do on this machine now, what it changes, who it runs as, how to undo it). A step that cannot apply on this host, such as the Linux editor extensions on WSL, is not listed. Steps that always run with the files, such as AI safety settings, show without a box. Keys: up and down move, space turns a step on or off, enter opens the detail (a file's diff, full screen; `q` or esc to return), `a` applies, `q` or ctrl+c quits with nothing applied; a mouse click selects a row and clicking the selected row toggles it. Closing the list prints its final frame once. A saved plan run without a prompt prints a compact view headed `Applying your saved choices`. Add `--verbose` to see each row's detail panel and the recovery limits.
 
-Windows host steps on WSL (`terminal-adoption`, `powershell-adoption`,
-`font-registry`, `default-distro`, `windows-path`, `sysctl`) appear in the
-checklist unchecked; checking one is remembered like a skip.
+Ticking a step is the approval: scripts Workbench runs during apply never stop to ask a second question. What a step would change is in its detail panel beforehand, and the recovery copy of a file it replaces is still written.
 
-Probes. Each effect line is what the script would do, found by running it in a
-read-only probe mode before the checklist; a probe that fails or exceeds five
-seconds shows `unprobed` and the effect stays checked.
+`revert` and `project` still ask "Approve this exact plan?" with Yes and No (y or n, or the arrow keys and Enter; Enter alone, esc and ctrl+c refuse).
+
+Windows setup on WSL has three parts (Windows Terminal settings, PowerShell profile, Windows fonts), listed indented under it. With Windows setup on, its parts show ticked, faint and locked, because it includes them. With Windows setup off, each part can be ticked on its own, and a part ticked on its own keeps that choice when Windows setup is turned on and off again. The other Windows steps (WSL networking, default distribution, PATH, swapping) are separate: the optional ones start off, and ticking one is remembered. Unattended runs see the same selection through `--dry-run --json`.
+
+Probes. Each step's line is what its script would do on this machine, found by running the script in a read-only probe mode before the plan. A script reports `NAME: = TEXT` when it has nothing to do and `NAME: TEXT` for a change. A probe that fails or takes longer than 15 seconds does not block the plan: the step says in plain words what could not be checked, for example "Windows didn't answer in time", and apply checks again when it runs. The two WSL Windows scripts read their Windows values in one `cmd.exe` call. Probes write nothing.
 
 While Workbench plans, rechecks an approved plan or sets up
 chezmoi, uv and Python, a live line on stderr names the current step and the
@@ -152,7 +132,7 @@ release or the saved selection changed since, `--approve-plan` exits 4 with
 `Approval digest does not match the current plan; review a new plan` and
 changes nothing. From a checkout, add `--local-build` to both `apply` calls.
 Keep it and `--destination` identical between them. `--yes` is for a person who trusts
-the saved selection, not for a caller that did not read the plan.
+your saved choices, not for a caller that did not read the plan.
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own
