@@ -9,48 +9,7 @@ export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
 failed=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    parts=()
-    if [ -r "$NVM_DIR/nvm.sh" ]; then
-        # shellcheck source=/dev/null
-        source "$NVM_DIR/nvm.sh" >/dev/null 2>&1 || true
-        node_have=$(nvm version default 2>/dev/null || true); node_have=${node_have#v}; [ "$node_have" = "N/A" ] && node_have=
-{{- if eq .versions_mode "pinned" }}
-        node_want="{{ .versions.node_default }}"
-{{- else }}
-        # nvm version-remote rewrites nvm's lts alias files, and a probe writes nothing:
-        # read the newest release from the same index instead.
-        node_want=$(curl -fsSL --max-time 3 "${NVM_NODEJS_ORG_MIRROR:-https://nodejs.org/dist}/index.tab" 2>/dev/null | awk -F'\t' 'NR==2 {print $1}' || true); node_want=${node_want#v}
-{{- end }}
-        if [ -z "$node_want" ]; then
-            parts+=("Node ${node_have:-absent} (latest unknown, offline)")
-        elif [ "$node_have" = "$node_want" ]; then
-            parts+=("Node $node_have ok")
-        else
-            parts+=("Node ${node_have:-absent} → $node_want (default alias)")
-        fi
-    else
-        parts+=("Node needs nvm")
-    fi
-    if command -v uv >/dev/null 2>&1; then
-{{- if eq .versions_mode "pinned" }}
-        parts+=("Python {{ join ", " .versions.python_pinned }} via uv")
-{{- else }}
-        parts+=("Python newest via uv")
-{{- end }}
-    else
-        parts+=("Python needs uv")
-    fi
-    if command -v rustup >/dev/null 2>&1; then
-{{- if eq .versions_mode "pinned" }}
-        parts+=("Rust {{ .versions.rust }}")
-{{- else }}
-        parts+=("Rust stable")
-{{- end }}
-    else
-        parts+=("Rust needs rustup")
-    fi
-    printf -v joined '%s; ' "${parts[@]}"; echo "runtimes: ${joined%; }"
-    exit 0
+{{ template "runtimes-probe.sh" . }}
 fi
 
 # --- Node via nvm ---

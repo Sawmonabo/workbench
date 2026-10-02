@@ -10,9 +10,9 @@
 set -euo pipefail
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [[ -f /etc/sysctl.d/99-dev.conf ]] && grep -qx 'vm.swappiness=10' /etc/sysctl.d/99-dev.conf; then
-        echo "sysctl: vm.swappiness=10 ok"
+        echo "sysctl: = vm.swappiness is set to 10 and kept across restarts"
     else
-        echo "sysctl: write /etc/sysctl.d/99-dev.conf vm.swappiness=10 (sudo)"
+        echo "sysctl: vm.swappiness is $(cat /proc/sys/vm/swappiness 2>/dev/null || echo unknown), will be 10 (uses sudo)"
     fi
     exit 0
 fi

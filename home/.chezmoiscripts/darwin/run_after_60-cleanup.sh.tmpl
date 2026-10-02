@@ -19,7 +19,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    echo "brew-maintenance: autoremove, cleanup old versions and cache"
+    echo "brew-maintenance: remove leftover packages, old versions and the download cache"
     exit 0
 fi
 echo "==> Homebrew cleanup..."

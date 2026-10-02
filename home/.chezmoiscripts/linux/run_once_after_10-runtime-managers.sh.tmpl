@@ -7,15 +7,14 @@ set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    parts=()
-    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && parts+=("nvm present") || parts+=("install nvm")
+    parts=() missing=()
+    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] || missing+=(nvm)
     for tool in uv rustup bun; do
-        if command -v "$tool" >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/$tool" ] || [ -x "$HOME/.bun/bin/$tool" ]; then
-            parts+=("$tool present")
-        else
-            parts+=("install $tool")
+        if ! command -v "$tool" >/dev/null 2>&1 && [ ! -x "$HOME/.cargo/bin/$tool" ] && [ ! -x "$HOME/.bun/bin/$tool" ]; then
+            missing+=("$tool")
         fi
     done
+    [ ${#missing[@]} -eq 0 ] || { printf -v joined '%s, ' "${missing[@]}"; parts+=("install ${joined%, }"); }
 {{- if eq .versions_mode "pinned" }}
     go_target="{{ .versions.go }}"
 {{- else }}
@@ -28,13 +27,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         go_have=${go_have#go}
     fi
     if [ -z "$go_target" ]; then
-        parts+=("Go ${go_have:-absent} (latest unknown, offline)")
+        parts+=("Go is ${go_have:-missing}; the latest version could not be looked up")
     elif [ "$go_have" = "$go_target" ]; then
-        parts+=("Go $go_have ok")
+        same="Go $go_have"
     else
-        parts+=("Go ${go_have:-absent} → $go_target")
+        parts+=("Go is ${go_have:-missing}, will be $go_target")
     fi
-    printf -v joined '%s; ' "${parts[@]}"; echo "runtime-managers: ${joined%; }"
+    if [ ${#parts[@]} -eq 0 ]; then
+        echo "runtime-managers: = nvm, uv, rustup, bun and ${same} are installed"
+    else
+        printf -v joined '%s; ' "${parts[@]}"; echo "runtime-managers: ${joined%; }"
+    fi
     exit 0
 fi
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."

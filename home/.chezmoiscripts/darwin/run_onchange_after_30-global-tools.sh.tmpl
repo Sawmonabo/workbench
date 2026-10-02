@@ -38,16 +38,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- range $mod, $ver := .go_tools }}
     [ -x "$HOME/go/bin/$(basename "{{ $mod }}")" ] || command -v "$(basename "{{ $mod }}")" >/dev/null 2>&1 || missing+=("$(basename "{{ $mod }}")")
 {{- end }}
-    present="npm, uv, cargo and Go tools"
 {{- if eq .versions_mode "pinned" }}
-    policy="pinned versions"
+    policy="set to the pinned versions"
 {{- else }}
-    policy="upgraded to latest"
+    policy="upgraded to the latest"
 {{- end }}
+    # Versions are not compared here, so even with every tool installed the run
+    # still sets them: this never reports "no change".
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "global-tools: $present present ($policy)"
+        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions are $policy"
     else
-        echo "global-tools: install ${missing[*]}; others $policy"
+        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions are $policy"
     fi
     exit 0
 fi

@@ -11,13 +11,13 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     done
     compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "linux-packages: nothing to install"
+        echo "linux-packages: = bat, fd, tmux, gh, oh-my-posh and the Nerd Font are installed"
     else
-        echo "linux-packages: install ${missing[*]}"
+        printf -v joined '%s, ' "${missing[@]}"; echo "linux-packages: install ${joined%, }"
     fi
 {{- if .has_work }}
     if command -v bw >/dev/null 2>&1 || [ -x "$HOME/.local/bin/bw" ]; then
-        echo "work-tools: Bitwarden CLI present"
+        echo "work-tools: = Bitwarden CLI is installed"
     else
         echo "work-tools: install Bitwarden CLI"
     fi

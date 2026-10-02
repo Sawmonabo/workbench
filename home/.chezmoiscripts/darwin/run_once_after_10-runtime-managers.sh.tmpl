@@ -13,13 +13,17 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    parts=()
-    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] && parts+=("nvm present") || parts+=("install nvm")
-    command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ] && parts+=("rustup present") || parts+=("install rustup")
+    missing=()
+    [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] || missing+=(nvm)
+    command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ] || missing+=(rustup)
     for tool in uv bun go; do
-        command -v "$tool" >/dev/null 2>&1 && parts+=("$tool present") || parts+=("$tool missing, from Homebrew")
+        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool (from Homebrew)")
     done
-    printf -v joined '%s; ' "${parts[@]}"; echo "runtime-managers: ${joined%; }"
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "runtime-managers: = nvm, rustup, uv, bun and Go are installed"
+    else
+        printf -v joined '%s, ' "${missing[@]}"; echo "runtime-managers: install ${joined%, }"
+    fi
     exit 0
 fi
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."

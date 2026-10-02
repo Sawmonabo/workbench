@@ -12,12 +12,43 @@ set -euo pipefail
 # own cleanup of superseded versions stays on, as it is by default.
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 
-if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
-        echo "macos-packages: install Homebrew and every packages.toml formula"
-    else
-        echo "macos-packages: install missing packages.toml formulae (no upgrades)"
+# The formulae Workbench lists, as a Brewfile. brew bundle resolves aliases
+# (postgresql -> postgresql@N), so neither the install nor the check below
+# reinstalls on every run the way a `brew list <alias>` probe would.
+write_brewfile() {
+{{- range .packages.darwin.brew }}
+{{- if or (eq . "chezmoi") (eq . "uv") }}
+    if [ -z "${WORKBENCH_{{ . | upper }}:-}" ]; then
+    echo 'brew "{{ . }}"'
     fi
+{{- else }}
+    echo 'brew "{{ . }}"'
+{{- end }}
+{{- end }}
+{{- if .has_work }}
+    # Role-gated here so bitwarden-cli stays out of the role-neutral data lists.
+    # The bw wrapper in .zshrc expects it on work machines.
+    echo 'brew "bitwarden-cli"'
+{{- end }}
+}
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ -x /opt/homebrew/bin/brew ]; then
+        eval "$(/opt/homebrew/bin/brew shellenv)"
+    elif [ -x /usr/local/bin/brew ]; then
+        eval "$(/usr/local/bin/brew shellenv)"
+    else
+        echo "macos-packages: install Homebrew and the tools Workbench lists"
+        exit 0
+    fi
+    probe_brewfile="$(mktemp)"
+    write_brewfile > "$probe_brewfile"
+    if brew bundle check --file="$probe_brewfile" --no-upgrade >/dev/null 2>&1; then
+        echo "macos-packages: = Homebrew and the tools Workbench lists are installed"
+    else
+        echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
+    fi
+    rm -f "$probe_brewfile"
     exit 0
 fi
 echo "==> macOS bootstrap starting..."
@@ -52,22 +83,7 @@ fi
 # --no-upgrade: bootstrap installs what is missing, it never upgrades what is there.
 brewfile="$(mktemp)"
 trap 'rm -f "$brewfile"' EXIT
-{
-{{- range .packages.darwin.brew }}
-{{- if or (eq . "chezmoi") (eq . "uv") }}
-    if [ -z "${WORKBENCH_{{ . | upper }}:-}" ]; then
-    echo 'brew "{{ . }}"'
-    fi
-{{- else }}
-    echo 'brew "{{ . }}"'
-{{- end }}
-{{- end }}
-{{- if .has_work }}
-    # Role-gated here so bitwarden-cli stays out of the role-neutral data lists.
-    # The bw wrapper in .zshrc expects it on work machines.
-    echo 'brew "bitwarden-cli"'
-{{- end }}
-} > "$brewfile"
+write_brewfile > "$brewfile"
 echo "==> Installing formulae from packages.toml..."
 brew bundle install --file="$brewfile" --no-upgrade
 

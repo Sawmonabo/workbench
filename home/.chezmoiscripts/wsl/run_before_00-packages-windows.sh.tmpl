@@ -1,64 +1,133 @@
 {{ if .is_wsl -}}
 #!/bin/bash
-# Bootstrap script for Windows configs (runs from WSL)
-# Installs oh-my-posh.exe, fonts, Windows Terminal settings, PowerShell profile
+# Bootstrap script for Windows configs (runs from WSL). It carries four effects,
+# and each one does everything it needs itself, so none depends on another
+# having run:
+#   windows-files        oh-my-posh.exe and its themes, the JetBrains Mono fonts,
+#                        and Terminal settings and a PowerShell profile that do
+#                        not exist yet (the two parts below replace existing ones)
+#   terminal-adoption    Windows Terminal settings.json, replacing an existing
+#                        one (a dated copy is kept); needs the fonts
+#   powershell-adoption  the PowerShell profile, replacing an existing one (a
+#                        copy is kept); needs oh-my-posh
+#   font-registry        the fonts in the Windows registry and loaded; needs the
+#                        font files
+# The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
-if [ "${WORKBENCH_PROBE:-}" = 1 ] && ! command -v cmd.exe >/dev/null 2>&1; then
-    echo "windows-files: blocked, no Windows interop on this host"
+
+# Everything the probe or the apply says about a Windows host that cannot be
+# used: one line per effect, since each of them is affected.
+blocked() {
+    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+        for effect in windows-files terminal-adoption powershell-adoption font-registry; do
+            echo "$effect: can't run here, $1"
+        done
+        exit 0
+    fi
+    echo "WORKBENCH_EFFECT windows-files blocked: $1" >&2
+    exit 3
+}
+
+command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on this host"
+
+# Every Windows variable in one call. "|" cannot be part of a Windows path, and
+# a call that fails leaves them empty, which is reported below.
+windows=$(cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%' 2>/dev/null | tr -d '\r') || windows=
+mapfile -d '|' -t fields < <(printf '%s' "$windows")
+WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_APPDATA_W=${fields[2]:-} WIN_PROGRAMDATA_W=${fields[3]:-} WIN_ARCH=${fields[4]:-}
+[ -n "$WIN_HOME_W" ] && [ -n "$WIN_APPDATA_W" ] || blocked "Windows didn't report its home or AppData folder"
+[ "$WIN_ARCH" = AMD64 ] || blocked "Windows on x64 is required"
+WIN_HOME=$(wslpath -u "$WIN_HOME_W")
+WIN_APPDATA=$(wslpath -u "$WIN_APPDATA_W")
+WIN_PROGRAMDATA=
+[ -z "$WIN_PROGRAMDATA_W" ] || WIN_PROGRAMDATA=$(wslpath -u "$WIN_PROGRAMDATA_W")
+# PowerShell, not %USERPROFILE%: the profile folder may be redirected (OneDrive).
+PS_PROFILE_W=$(powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' 2>/dev/null | tr -d '\r') || PS_PROFILE_W=
+[ -n "$PS_PROFILE_W" ] || blocked "PowerShell didn't report where your profile is"
+PS_PROFILE=$(wslpath -u "$PS_PROFILE_W")
+if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
+    blocked "the Windows home, AppData or WSL_DISTRO_NAME is unavailable"
+fi
+
+OMP_WIN_DIR="$WIN_APPDATA/Programs/oh-my-posh"
+OMP_WIN_BIN="$OMP_WIN_DIR/bin"
+OMP_WIN_THEMES="$OMP_WIN_DIR/themes"
+WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
+WT_PACKAGE_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe"
+WT_SETTINGS_DIR="$WT_PACKAGE_DIR/LocalState"
+
+# The PowerShell profile Workbench manages, as text.
+ps_profile_text() {
+cat << 'PSPROFILE'
+# Start in the WSL repos directory when it is reachable (WSL may not be running yet)
+$wslRepos = '{{ printf "\\\\wsl.localhost\\%s\\home\\%s\\repos" (env "WSL_DISTRO_NAME") .chezmoi.username | replace "'" "''" }}'
+if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
+
+# Oh My Posh prompt
+& "$env:LOCALAPPDATA\Programs\oh-my-posh\bin\oh-my-posh.exe" init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\catppuccin_mocha.omp.json" | Invoke-Expression
+PSPROFILE
+}
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    fonts_have=0 omp_have=0
+    compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null && fonts_have=1
+    [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && omp_have=1
+    changes=()
+    [ "$omp_have" = 1 ] || changes+=("install oh-my-posh and its themes")
+    [ "$fonts_have" = 1 ] || changes+=("install the JetBrainsMono fonts")
+    if [ ${#changes[@]} -eq 0 ]; then
+        echo "windows-files: = oh-my-posh and the JetBrainsMono fonts are installed"
+    else
+        printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
+    fi
+    needs=
+    [ "$fonts_have" = 1 ] || needs="; install the JetBrainsMono fonts it uses"
+    if [ ! -d "$WT_PACKAGE_DIR" ]; then
+        echo "terminal-adoption: = Windows Terminal isn't installed, so there is nothing to replace"
+    elif [ -e "$WT_SETTINGS_DIR/settings.json" ]; then
+        echo "terminal-adoption: replace your Windows Terminal settings.json (a dated copy is kept)$needs"
+    else
+        echo "terminal-adoption: write Windows Terminal settings.json, which doesn't exist yet$needs"
+    fi
+    needs=
+    [ "$omp_have" = 1 ] || needs="; install oh-my-posh, which the profile starts"
+    if [ -e "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
+        echo "powershell-adoption: = your PowerShell profile already matches"
+    elif [ -e "$PS_PROFILE" ]; then
+        echo "powershell-adoption: replace your PowerShell profile (a copy is kept)$needs"
+    else
+        echo "powershell-adoption: write your PowerShell profile, which doesn't exist yet$needs"
+    fi
+    if [ "$fonts_have" = 1 ]; then
+        echo "font-registry: register the JetBrainsMono fonts for your Windows user and load them now"
+    else
+        echo "font-registry: install the JetBrainsMono fonts, then register them for your Windows user"
+    fi
     exit 0
 fi
 
-# Detect Windows username
-WIN_USER=$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')
-WIN_HOME=$(wslpath -u "$(cmd.exe /c 'echo %USERPROFILE%' | tr -d '\r')")
-WIN_APPDATA=$(wslpath -u "$(cmd.exe /c 'echo %LOCALAPPDATA%' | tr -d '\r')")
-WIN_PROGRAMDATA=$(wslpath -u "$(cmd.exe /c 'echo %PROGRAMDATA%' | tr -d '\r')")
-PS_PROFILE=$(wslpath -u "$(powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost' | tr -d '\r')")
-case "$(cmd.exe /c 'echo %PROCESSOR_ARCHITECTURE%' | tr -d '\r')" in
-    AMD64) ;;
-    *) if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows x64 required"; exit 0; fi
-       echo 'WORKBENCH_EFFECT windows-files blocked: Windows x64 required' >&2; exit 3 ;;
-esac
-if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
-    if [ "${WORKBENCH_PROBE:-}" = 1 ]; then echo "windows-files: blocked, Windows home, AppData or WSL_DISTRO_NAME unavailable"; exit 0; fi
-    echo 'WORKBENCH_EFFECT windows-files blocked: Windows home, AppData or WSL_DISTRO_NAME unavailable' >&2
-    exit 3
-fi
-# Existing Terminal settings and PowerShell profiles are replaced whole, so they
-# are left alone unless their adoption effect is selected; the rest still runs.
-WT_SETTINGS_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe/LocalState"
-manage_terminal=1
-if [[ -e "$WT_SETTINGS_DIR/settings.json" && "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-}" != 1 ]]; then
-    echo 'WORKBENCH_EFFECT terminal-adoption not selected: existing Windows Terminal settings left unchanged' >&2
-    manage_terminal=0
-fi
-manage_profile=1
-if [[ -e "$PS_PROFILE" && "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-}" != 1 ]]; then
-    echo 'WORKBENCH_EFFECT powershell-adoption not selected: existing PowerShell profile left unchanged' >&2
-    manage_profile=0
-fi
-if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    parts=()
-    [ -f "$WIN_APPDATA/Programs/oh-my-posh/bin/oh-my-posh.exe" ] && parts+=("oh-my-posh.exe present") || parts+=("install oh-my-posh.exe")
-    ls "$WIN_APPDATA/Microsoft/Windows/Fonts"/JetBrainsMono*.ttf >/dev/null 2>&1 && parts+=("fonts present") || parts+=("install JetBrainsMono fonts")
-    printf -v joined '%s; ' "${parts[@]}"; echo "windows-files: ${joined%; }"
-    if [ -e "$WT_SETTINGS_DIR/settings.json" ]; then
-        echo "terminal-adoption: replace existing Windows Terminal settings.json (dated copy kept)"
-    else
-        echo "terminal-adoption: no existing settings.json; windows-files writes it"
-    fi
-    if [ -e "$PS_PROFILE" ]; then
-        echo "powershell-adoption: replace existing PowerShell profile (copy kept)"
-    else
-        echo "powershell-adoption: no existing profile; windows-files writes it"
-    fi
-    echo "font-registry: register JetBrainsMono fonts in HKCU and load them"
+# What each effect asks for. Unset means "not selected" for the parts, and
+# windows-files defaults to on when the script is run directly.
+files=${WORKBENCH_EFFECT_WINDOWS_FILES:-1}
+adopt_terminal=${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}
+adopt_profile=${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}
+register_fonts=${WORKBENCH_EFFECT_FONT_REGISTRY:-0}
+if [ "$files" != 1 ] && [ "$adopt_terminal" != 1 ] && [ "$adopt_profile" != 1 ] && [ "$register_fonts" != 1 ]; then
+    echo "==> No Windows part selected; Windows bootstrap skipped." >&2
     exit 0
 fi
-if [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ]; then
-    echo "==> windows-files unchecked; Windows bootstrap skipped." >&2
-    exit 0
-fi
+# An existing Terminal settings.json or PowerShell profile is replaced only by
+# its own part. windows-files alone writes one that does not exist yet.
+manage_terminal=0
+if [ "$adopt_terminal" = 1 ] || { [ "$files" = 1 ] && [ ! -e "$WT_SETTINGS_DIR/settings.json" ]; }; then manage_terminal=1; fi
+manage_profile=0
+if [ "$adopt_profile" = 1 ] || { [ "$files" = 1 ] && [ ! -e "$PS_PROFILE" ]; }; then manage_profile=1; fi
+# What each piece needs of the shared downloads.
+need_omp=0
+if [ "$files" = 1 ] || [ "$manage_profile" = 1 ]; then need_omp=1; fi
+need_fonts=0
+if [ "$files" = 1 ] || [ "$register_fonts" = 1 ] || [ "$manage_terminal" = 1 ]; then need_fonts=1; fi
+
 echo "==> WSL → Windows bootstrap starting..."
 
 download_dir=$(mktemp -d)
@@ -67,10 +136,7 @@ trap 'rm -rf "$download_dir"' EXIT
 echo "    Windows user: $WIN_USER"
 
 # --- oh-my-posh for Windows ---
-OMP_WIN_DIR="$WIN_APPDATA/Programs/oh-my-posh"
-OMP_WIN_BIN="$OMP_WIN_DIR/bin"
-OMP_WIN_THEMES="$OMP_WIN_DIR/themes"
-
+if [ "$need_omp" = 1 ]; then
 if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
     echo "==> Installing oh-my-posh for Windows..."
     mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
@@ -96,9 +162,10 @@ if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
 else
     echo "==> oh-my-posh for Windows already installed, skipping."
 fi
+fi
 
 # --- JetBrains Mono Nerd Font for Windows ---
-WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
+if [ "$need_fonts" = 1 ]; then
 if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
     echo "==> Installing JetBrains Mono Nerd Font for Windows..."
     mkdir -p "$WIN_FONT_DIR"
@@ -120,12 +187,13 @@ if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/nu
 else
     echo "==> JetBrains Mono Nerd Font for Windows already present, skipping download."
 fi
+fi
 
 # Register (or re-register) every font file in one PowerShell call. Runs every
 # time: it is idempotent, cheap, and repairs bad entries — an earlier version
 # wrote /mnt/c/... paths into the registry, which Windows cannot resolve, so
 # Windows Terminal reported "Unable to find the following fonts".
-if [[ "${WORKBENCH_EFFECT_FONT_REGISTRY:-}" == 1 ]] && ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+if [[ "$register_fonts" == 1 ]] && ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
     echo "    Registering fonts in Windows registry..."
     WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
     WIN_FONT_DIR_W=${WIN_FONT_DIR_W//\'/\'\'}
@@ -151,7 +219,7 @@ if [[ "${WORKBENCH_EFFECT_FONT_REGISTRY:-}" == 1 ]] && ls "$WIN_FONT_DIR"/JetBra
 fi
 
 # --- Windows Terminal settings.json ---
-if [ "$manage_terminal" = 1 ] && [ -d "$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe" ]; then
+if [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; then
     echo "==> Writing Windows Terminal settings..."
     mkdir -p "$WT_SETTINGS_DIR"
     if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
@@ -397,21 +465,19 @@ fi
 # --- PowerShell profile ---
 if [ "$manage_profile" = 1 ]; then
 PS_PROFILE_DIR=$(dirname "$PS_PROFILE")
-echo "==> Writing PowerShell profile..."
-mkdir -p "$PS_PROFILE_DIR"
-if [ -f "$PS_PROFILE" ]; then
-    profile_backup=$(mktemp "$PS_PROFILE.before-workbench.XXXXXX")
-    cp -p "$PS_PROFILE" "$profile_backup"
+if [ -f "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
+    echo "==> PowerShell profile already up to date."
+else
+    echo "==> Writing PowerShell profile..."
+    mkdir -p "$PS_PROFILE_DIR"
+    if [ -f "$PS_PROFILE" ]; then
+        profile_backup=$(mktemp "$PS_PROFILE.before-workbench.XXXXXX")
+        cp -p "$PS_PROFILE" "$profile_backup"
+        echo "    Recovery copy: $profile_backup"
+    fi
+    ps_profile_text > "$PS_PROFILE"
+    echo "    PowerShell profile written."
 fi
-cat > "$PS_PROFILE" << 'PSPROFILE'
-# Start in the WSL repos directory when it is reachable (WSL may not be running yet)
-$wslRepos = '{{ printf "\\\\wsl.localhost\\%s\\home\\%s\\repos" (env "WSL_DISTRO_NAME") .chezmoi.username | replace "'" "''" }}'
-if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
-
-# Oh My Posh prompt
-& "$env:LOCALAPPDATA\Programs\oh-my-posh\bin\oh-my-posh.exe" init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\catppuccin_mocha.omp.json" | Invoke-Expression
-PSPROFILE
-echo "    PowerShell profile written."
 fi
 
 echo "==> WSL → Windows bootstrap complete."

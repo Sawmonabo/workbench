@@ -1,19 +1,20 @@
-{{ if eq .chezmoi.os "linux" -}}
+{{ if and (eq .chezmoi.os "linux") (not .is_wsl) -}}
 #!/usr/bin/env bash
 # Install the canonical local VS Code extension set. This never contacts a
-# remote extension host or selects a non-default profile.
+# remote extension host or selects a non-default profile. On WSL the editor is
+# the Windows desktop, which this cannot install into, so WSL renders nothing.
 set -euo pipefail
 status=0
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     case "$(command -v code 2>/dev/null)" in
         /usr/share/code/bin/code|/snap/code/current/usr/share/code/bin/code) editor="install missing extensions into the local VS Code" ;;
-        "") editor="nothing to do, no local VS Code desktop" ;;
-        *) editor="nothing to do, code on PATH is not a local desktop" ;;
+        "") editor="= there is no local VS Code desktop to install into" ;;
+        *) editor="= the code on PATH is not a local desktop install" ;;
     esac
     echo "linux-editor-extensions: $editor"
 {{- if .has_work }}
     # This script also installs the work editor extension, part of work-tools.
-    echo "work-tools: GitLab MR extension, $editor"
+    echo "work-tools: $editor"
 {{- end }}
     exit 0
 fi

@@ -12,10 +12,15 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    if [ -d "$HOME/.tmux/plugins/tpm" ]; then
-        echo "tmux-plugins: TPM present; plugins refreshed from tmux.conf"
+    # Every plugin tmux.conf lists, by the directory TPM puts it in.
+    missing=()
+    for plugin in{{ range regexFindAll "@plugin '[^']+'" (include "dot_config/tmux/tmux.conf") -1 }} '{{ regexReplaceAll "^@plugin '(.*)'$" . "${1}" }}'{{ end }}; do
+        [ -d "$HOME/.tmux/plugins/${plugin##*/}" ] || missing+=("$plugin")
+    done
+    if [ ${#missing[@]} -eq 0 ]; then
+        echo "tmux-plugins: = the plugin manager and the plugins tmux.conf lists are installed"
     else
-        echo "tmux-plugins: install TPM and plugins"
+        printf -v joined '%s, ' "${missing[@]}"; echo "tmux-plugins: install ${joined%, }, from the plugin list in tmux.conf"
     fi
     exit 0
 fi

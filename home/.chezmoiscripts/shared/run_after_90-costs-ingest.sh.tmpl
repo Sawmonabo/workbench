@@ -9,7 +9,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ -x "$workbench" ]; then
         echo "costs-ingest: $("$workbench" --version) reads new usage into the ledger"
     else
-        echo "costs-ingest: no installed workbench; skipped"
+        echo "costs-ingest: = Workbench is not installed here yet, so there is nothing to read with"
     fi
     exit 0
 fi
