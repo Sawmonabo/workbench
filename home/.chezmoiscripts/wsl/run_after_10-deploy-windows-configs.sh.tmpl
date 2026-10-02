@@ -203,8 +203,10 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
     fi
 
+    # The planner stops a probe at 15 s. These two calls are capped at 3 s and 5 s
+    # so that, after a cold first call to Windows, the whole script still fits.
     # Listed first by `wsl --list`, so it is the first line of the quiet listing.
-    current_default=$( (timeout 5 wsl.exe --list --quiet 2>/dev/null || true) | tr -d '\0\r' | head -n1 || true)
+    current_default=$( (timeout 3 wsl.exe --list --quiet 2>/dev/null || true) | tr -d '\0\r' | head -n1 || true)
     if [ "$current_default" = "${WSL_DISTRO_NAME:-}" ]; then
         echo "default-distro: = ${WSL_DISTRO_NAME:-this distribution} is already your default"
     elif [ -n "$current_default" ]; then
@@ -213,7 +215,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         echo "default-distro: make ${WSL_DISTRO_NAME:-this distribution} the default"
     fi
 
-    missing_path=$( (timeout 10 powershell.exe -NoProfile -Command '
+    missing_path=$( (timeout 5 powershell.exe -NoProfile -Command '
         $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
         $have = @([Environment]::GetEnvironmentVariable("Path", "User") -split ";")
         $want | Where-Object { $have -notcontains $_ } | ForEach-Object { "%USERPROFILE%" + $_.Substring($env:USERPROFILE.Length) }

@@ -2,10 +2,8 @@
 #!/bin/bash
 # Bootstrap script for Windows configs (runs from WSL). It carries four effects,
 # and each one does everything it needs itself, so none depends on another
-# having run:
-#   windows-files        oh-my-posh.exe and its themes, the JetBrains Mono fonts,
-#                        and Terminal settings and a PowerShell profile that do
-#                        not exist yet (the two parts below replace existing ones)
+# having run (Workbench checks the three parts whenever windows-files is on):
+#   windows-files        oh-my-posh.exe and its themes, and the JetBrains Mono fonts
 #   terminal-adoption    Windows Terminal settings.json, replacing an existing
 #                        one (a dated copy is kept); needs the fonts
 #   powershell-adoption  the PowerShell profile, replacing an existing one (a
@@ -116,12 +114,12 @@ if [ "$files" != 1 ] && [ "$adopt_terminal" != 1 ] && [ "$adopt_profile" != 1 ] 
     echo "==> No Windows part selected; Windows bootstrap skipped." >&2
     exit 0
 fi
-# An existing Terminal settings.json or PowerShell profile is replaced only by
-# its own part. windows-files alone writes one that does not exist yet.
+# The Terminal settings and the PowerShell profile are written by their own
+# parts only.
 manage_terminal=0
-if [ "$adopt_terminal" = 1 ] || { [ "$files" = 1 ] && [ ! -e "$WT_SETTINGS_DIR/settings.json" ]; }; then manage_terminal=1; fi
+if [ "$adopt_terminal" = 1 ]; then manage_terminal=1; fi
 manage_profile=0
-if [ "$adopt_profile" = 1 ] || { [ "$files" = 1 ] && [ ! -e "$PS_PROFILE" ]; }; then manage_profile=1; fi
+if [ "$adopt_profile" = 1 ]; then manage_profile=1; fi
 # What each piece needs of the shared downloads.
 need_omp=0
 if [ "$files" = 1 ] || [ "$manage_profile" = 1 ]; then need_omp=1; fi
