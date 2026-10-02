@@ -462,11 +462,13 @@ manage_terminal=0
 if [ "$adopt_terminal" = 1 ]; then manage_terminal=1; fi
 manage_profile=0
 if [ "$adopt_profile" = 1 ]; then manage_profile=1; fi
-# A selected PowerShell profile part with no profile path to write stops here,
-# before anything is changed.
+# A selected PowerShell profile part with no profile path to write is blocked,
+# and only that part: the others go on, and the part is named blocked on its
+# result line.
 if [ "$manage_profile" = 1 ] && [ -n "$ps_profile_problem" ]; then
-    echo "WORKBENCH_EFFECT powershell-adoption blocked: $ps_profile_problem" >&2
-    exit 3
+    if [ "${WIN_RC[profile]:-}" = 0 ]; then ps_apply_why="Windows gave an empty answer"; else ps_apply_why=$(win_failed profile); fi
+    part_blocked powershell-adoption "$ps_profile_problem ($ps_apply_why); your profile was not changed"
+    manage_profile=0
 fi
 # What each piece needs of the shared downloads.
 need_omp=0
@@ -480,7 +482,7 @@ if [ "$files" = 1 ] || [ "$register_fonts" = 1 ] || [ "$manage_terminal" = 1 ]; 
 echo "==> WSL → Windows bootstrap starting..."
 
 download_dir=$(mktemp -d)
-trap 'rm -rf "$download_dir"' EXIT
+trap 'rm -rf "$download_dir"; win_cleanup' EXIT
 
 echo "    Windows user: $WIN_USER"
 
@@ -549,7 +551,7 @@ elif [[ "$register_now" == 1 ]] && have_fonts; then
     echo "    Registering fonts in Windows registry..."
     WIN_FONT_DIR_W=$(wslpath -w "$WIN_FONT_DIR")
     WIN_FONT_DIR_W=${WIN_FONT_DIR_W//\'/\'\'}
-    powershell.exe -NoProfile -Command "
+    win_call register powershell.exe -NoProfile -Command "
         \$key = 'HKCU:\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
         Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf' | ForEach-Object {
             New-ItemProperty -Path \$key -Name (\$_.BaseName + ' (TrueType)') -Value \$_.FullName -PropertyType String -Force | Out-Null
@@ -566,8 +568,21 @@ elif [[ "$register_now" == 1 ]] && have_fonts; then
         \$r = [IntPtr]::Zero
         [void][Win32.Fonts]::SendMessageTimeout([IntPtr]0xffff, 0x001D, [IntPtr]::Zero, [IntPtr]::Zero, 2, 1000, [ref]\$r)
         (Get-ChildItem -LiteralPath '$WIN_FONT_DIR_W' -Filter 'JetBrainsMono*.ttf').Count
-    " 2>/dev/null | tr -d '\r' | sed 's/^/    registered fonts: /'
-    echo "    (restart Windows Terminal; sign out/in only if a font still shows as missing)"
+    "
+    if [ "${WIN_RC[register]}" = 0 ]; then
+        sed 's/^/    registered fonts: /' <<<"${WIN_OUT[register]}"
+        echo "    (restart Windows Terminal; sign out/in only if a font still shows as missing)"
+    else
+        # Only the parts that need the fonts registered are blocked; the Terminal
+        # settings are not written, since they would name fonts Windows cannot
+        # find.
+        fonts_why="PowerShell could not register the fonts: $(win_failed register)"
+        if [ "$register_fonts" = 1 ]; then part_blocked font-registry "$fonts_why"; fi
+        if [ "$manage_terminal" = 1 ]; then
+            part_blocked terminal-adoption "$fonts_why, so your Windows Terminal settings were not changed"
+            manage_terminal=0
+        fi
+    fi
 fi
 
 # --- Windows Terminal settings.json ---

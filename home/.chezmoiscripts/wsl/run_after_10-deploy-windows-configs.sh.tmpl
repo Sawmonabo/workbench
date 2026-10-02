@@ -402,7 +402,7 @@ PY
 
     TMPMERGED=$(mktemp)
     TMPORIGINAL=$(mktemp)
-    trap 'rm -f "$TMPMERGED" "$TMPORIGINAL"' EXIT
+    trap 'rm -f "$TMPMERGED" "$TMPORIGINAL"; win_cleanup' EXIT
 
     # Normalize CRLF for consistent processing
     sed 's/\r$//' "$WSLCONFIG" > "$TMPORIGINAL"
@@ -452,7 +452,12 @@ fi
 # in the approved plan) becomes the default.
 if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
     [[ -n "${WSL_DISTRO_NAME:-}" ]] || { echo 'WORKBENCH_EFFECT default-distro blocked: WSL_DISTRO_NAME unavailable' >&2; exit 3; }
-    wsl.exe --set-default "$WSL_DISTRO_NAME"
+    win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
+    if [ "${WIN_RC[default-distro]}" != 0 ]; then
+        part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
+    else
+        [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+    fi
 fi
 
 # ---------- Windows-side ripgrep ----------
@@ -498,7 +503,7 @@ fi
 # shell (or a WSL session) therefore keeps the old PATH until it is restarted.
 if [[ "${WORKBENCH_EFFECT_WINDOWS_PATH:-}" == 1 ]]; then
 echo "==> Checking Windows user PATH..."
-powershell.exe -NoProfile -Command '
+win_call windows-path powershell.exe -NoProfile -Command '
     $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
     $cur  = [Environment]::GetEnvironmentVariable("Path","User")
     # Preserve all existing entries and ordering, including empty segments.
@@ -516,7 +521,12 @@ powershell.exe -NoProfile -Command '
     } else {
         Write-Output "    Already correct."
     }
-' | tr -d '\r'
+'
+if [ "${WIN_RC[windows-path]}" != 0 ]; then
+    part_blocked windows-path "PowerShell could not update your Windows PATH: $(win_failed windows-path)"
+else
+    [ -z "${WIN_OUT[windows-path]}" ] || printf '%s\n' "${WIN_OUT[windows-path]}"
+fi
 fi
 
 # ---------- VS Code (Windows host) todo-tree ripgrep path ----------

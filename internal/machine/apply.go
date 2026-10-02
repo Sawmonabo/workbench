@@ -196,8 +196,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 			Message: "Apply " + settled.ID + " did not finish earlier; every file now matches this plan",
 		})
 	}
-	a.result.Results = append(a.result.Results, effectResults(checkedEffects(plan.Effects))...)
-	return nil
+	return a.reportEffects(plan)
 }
 
 func (a *applyRun) withCheckpoint(state *operation.State) error {
@@ -254,8 +253,7 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		Status:   operation.StatusComplete,
 		Recovery: "Exact configuration images retained; select checkpoint " + cp.ID,
 	})
-	a.result.Results = append(a.result.Results, effectResults(checkedEffects(plan.Effects))...)
-	return nil
+	return a.reportEffects(plan)
 }
 
 // recordApplied finishes the machine state after an apply: the operation is
@@ -343,19 +341,40 @@ func provisioningFailure(err error) error {
 	)
 }
 
-func effectResults(effects []operation.Effect) []operation.Component {
+// reportEffects adds one result line per effect this apply ran. An effect its
+// script could not do (a Windows call that did not answer) is blocked and says
+// why on its line; the others ran, and the apply then ends blocked so that a
+// caller reading only the exit status is told.
+func (a *applyRun) reportEffects(plan operation.Plan) error {
+	a.result.Results = append(
+		a.result.Results,
+		effectResults(checkedEffects(plan.Effects), a.prepared.blocked)...,
+	)
+	if len(a.prepared.blocked) == 0 {
+		return nil
+	}
+	return operation.Fail(
+		operation.ExitBlocked,
+		"effects",
+		"A step could not be done (marked blocked above); everything else was applied",
+	)
+}
+
+func effectResults(effects []operation.Effect, blocked map[string]string) []operation.Component {
 	results := make([]operation.Component, 0, len(effects))
 	for _, effect := range effects {
-		results = append(
-			results,
-			operation.Component{
-				Name:     effect.Name,
-				Title:    cmp.Or(effect.Title, effect.Name),
-				Status:   operation.StatusComplete,
-				Message:  cmp.Or(effect.Delta, effect.Summary, effect.Description),
-				Recovery: effect.Recovery,
-			},
-		)
+		component := operation.Component{
+			Name:     effect.Name,
+			Title:    cmp.Or(effect.Title, effect.Name),
+			Status:   operation.StatusComplete,
+			Message:  cmp.Or(effect.Delta, effect.Summary, effect.Description),
+			Recovery: effect.Recovery,
+		}
+		if reason, ok := blocked[effect.Name]; ok {
+			component.Status = operation.StatusBlocked
+			component.Message = reason
+		}
+		results = append(results, component)
 	}
 	return results
 }

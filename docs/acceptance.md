@@ -178,6 +178,18 @@ synthetic answers.
   package probe reports what apply does without checking what is installed: a
   check made Homebrew download its formula data into the home folder, which CI's
   macOS render check caught.
+- Windows calls on WSL, against stand-in `cmd.exe`, `wsl.exe`, `powershell.exe`
+  and `reg.exe` in a scratch home, never the real host: with every apply-time
+  call hanging, `wsl.exe --set-default`, the PATH PowerShell, the profile
+  PowerShell and the font-registration PowerShell each stopped at 60 s, 120 s
+  for two in a row; a hung or failing call blocked only its own step (the
+  others still ran and wrote), the script named it on stderr, and through
+  `apply --yes` or `--approve-plan` its result line read `blocked` with the
+  reason in plain words and the apply exited 3 after finishing the rest. SIGINT,
+  SIGTERM and SIGHUP sent to the script, and Ctrl-C to its whole process group,
+  left no temporary folder and no stand-in process; the earlier fragment left
+  both. Not observed: whether `timeout -k 1` ends the Windows side of a real
+  interop call.
 
 ### Revert and recovery
 
