@@ -3,6 +3,8 @@ package machine
 import (
 	"strings"
 	"testing"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // The plan view shows each file's diff, and Codex and Claude Code configs hold
@@ -44,5 +46,33 @@ func TestDiffNeverShowsCredentials(t *testing.T) {
 		if !strings.Contains(text, kept) {
 			t.Errorf("diff lost an ordinary line %q:\n%s", kept, text)
 		}
+	}
+}
+
+// A merged file's changes are listed as settings, not lines, so the line
+// masking does not see them in place. Risk: a credential the owner keeps in
+// Claude Code settings or Codex config reaches the terminal through that list.
+// A value under a credential-named key, a token-shaped value, a known secret
+// and the item after a credential flag in a list must all stay masked.
+func TestSettingListNeverShowsCredentials(t *testing.T) {
+	before := `{"env": {"JIRA_API_TOKEN": "hunter2", "NOTE": "ghp_` + strings.Repeat("a1", 18) +
+		`"}, "args": ["--token", "flagvalue1"], "timeout": 10}`
+	after := `{"env": {"JIRA_API_TOKEN": "hunter3", "NOTE": "ghp_` + strings.Repeat("b2", 18) +
+		`"}, "args": ["--token", "flagvalue2"], "timeout": 5, "known": "hunter4"}`
+	changes, _, ok := operation.SettingsDiff("json", []byte(before), []byte(after))
+	if !ok {
+		t.Fatal("synthetic settings did not parse")
+	}
+	text := strings.Join(settingLines(changes, []string{"hunter4"}), "\n")
+	for _, leak := range []string{
+		"hunter2", "hunter3", "hunter4", "flagvalue1", "flagvalue2", strings.Repeat("a1", 18),
+		strings.Repeat("b2", 18),
+	} {
+		if strings.Contains(text, leak) {
+			t.Errorf("setting list still shows %q:\n%s", leak, text)
+		}
+	}
+	if !strings.Contains(text, "timeout  10 → 5") {
+		t.Errorf("setting list lost an ordinary change:\n%s", text)
 	}
 }

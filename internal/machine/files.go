@@ -167,6 +167,67 @@ func redactDiff(lines []string, secrets []string) []string {
 	return redacted
 }
 
+// maxSettingValue is the longest value a settings line shows.
+const maxSettingValue = 80
+
+// maskKey is the key path as the masking patterns read it: indexes as path
+// steps, and only its last 30 characters, so a long path is never taken for a
+// secret itself while a credential-named key at its end still matches.
+func maskKey(path string) string {
+	key := []rune(strings.NewReplacer("[]", "", "[", ".", "]", "").Replace(path))
+	return string(key[max(len(key)-30, 0):])
+}
+
+// settingLines renders changed settings for the plan view, one per line:
+// "~ path  old → new", "+ path  value  added", "- path  value  removed". Values
+// pass through the same masking as a diff: a value is masked when its key path
+// or its text looks like a credential, and known secret values never show.
+// Masking runs on the whole text before a long value is shortened.
+func settingLines(changes []operation.SettingChange, secrets []string) []string {
+	const separator = " = "
+	marked := make([]string, len(changes))
+	for i, change := range changes {
+		key := maskKey(change.Path)
+		value := change.Before + " → " + change.After
+		switch {
+		case change.Added:
+			value = change.After
+		case change.Removed:
+			value = change.Before
+		case change.Reordered:
+			value = "reordered"
+		}
+		marked[i] = " " + key + separator + value
+	}
+	masked := redactDiff(marked, secrets)
+	lines := make([]string, len(changes))
+	for i, change := range changes {
+		key := maskKey(change.Path)
+		value := "[REDACTED]"
+		// A line that lost its key was replaced whole, as the value of a
+		// credential flag on the line before; keep the path and mask the value.
+		if text, ok := strings.CutPrefix(masked[i], " "+key+separator); ok {
+			value = text
+		}
+		// A list item right after a credential flag is its value.
+		if change.Follows != "" && secretFlagEnd.MatchString(change.Follows) {
+			value = "[REDACTED]"
+		}
+		if runes := []rune(value); len(runes) > maxSettingValue {
+			value = string(runes[:maxSettingValue]) + "…"
+		}
+		switch {
+		case change.Added:
+			lines[i] = "+ " + change.Path + "  " + value + "  added"
+		case change.Removed:
+			lines[i] = "- " + change.Path + "  " + value + "  removed"
+		default:
+			lines[i] = "~ " + change.Path + "  " + value
+		}
+	}
+	return lines
+}
+
 // capDiff joins diff lines into the text a plan carries: at most maxDiffLines
 // lines and maxDiffBytes bytes, cut at a whole line.
 func capDiff(lines []string) (text string, truncated bool) {

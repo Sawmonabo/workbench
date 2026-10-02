@@ -52,6 +52,15 @@ type Edit struct {
 	// without parsing Summary.
 	Added   int `json:"added,omitempty"`
 	Removed int `json:"removed,omitempty"`
+	// Settings is, for a merged JSON or TOML file, how many settings (leaf key
+	// paths) the merge changes. Such a file's Diff lists those settings, one
+	// per line, instead of lines, because the merge re-serializes the whole
+	// file and a line diff of it is mostly reordering; Semantic marks that, and
+	// Rewritten says the lines differ by more than those settings. Both are
+	// display only, like Diff.
+	Settings  int  `json:"settings,omitempty"`
+	Semantic  bool `json:"-"`
+	Rewritten bool `json:"-"`
 	// Diff is the unified diff of the change, capped, with secrets redacted;
 	// DiffTruncated says lines were cut. It is the one place a plan carries
 	// file content, so it is display only: never in JSON output (which is

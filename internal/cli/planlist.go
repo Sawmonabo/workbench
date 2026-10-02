@@ -496,7 +496,9 @@ func fileLines(plan operation.Plan, index, width int, view planView) []string {
 		title = homePath(edit.Path)
 	}
 	counts := ""
-	if edit.Added+edit.Removed > 0 {
+	if edit.Semantic {
+		counts = " " + yellow.Render(forTerm(settingsCount(edit)))
+	} else if edit.Added+edit.Removed > 0 {
 		counts = " " + green.Render(forTerm(fmt.Sprintf("+%d", edit.Added))) + " " +
 			red.Render(forTerm(fmt.Sprintf("−%d", edit.Removed)))
 	} else if word := actionWord(edit); word != "" {

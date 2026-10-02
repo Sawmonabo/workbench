@@ -146,7 +146,9 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 		title = homePath(edit.Path)
 	}
 	head := bold.Render(forTerm(title))
-	if edit.Added+edit.Removed > 0 {
+	if edit.Semantic {
+		head += " " + yellow.Render(forTerm(settingsCount(edit)))
+	} else if edit.Added+edit.Removed > 0 {
 		head += " " + green.Render(forTerm("+"+strconv.Itoa(edit.Added))) + " " +
 			red.Render(forTerm("−"+strconv.Itoa(edit.Removed)))
 	}
@@ -164,6 +166,9 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 			faint.Render(fit(forTerm("The diff is shown only at a terminal."), width, false)),
 		)
 	}
+	if edit.Semantic && edit.Diff == "" {
+		return append(lines, faint.Render(fit(forTerm(settingsNote(edit)), width, false)))
+	}
 	if edit.Diff == "" {
 		note := "No text diff to show."
 		if edit.Summary != "" {
@@ -180,7 +185,7 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 		// A continuation repeats the line's marker, so a wrapped added or removed
 		// line still reads as one without colour.
 		marker, text := " ", line
-		if line != "" && strings.ContainsRune("+- ", rune(line[0])) {
+		if line != "" && strings.ContainsRune("+-~ ", rune(line[0])) {
 			marker, text = line[:1], line[1:]
 		}
 		if strings.HasPrefix(line, "@@") {
@@ -193,7 +198,34 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 	if edit.DiffTruncated {
 		lines = append(lines, faint.Render(forTerm("… the diff is shortened")))
 	}
+	if edit.Semantic && edit.Rewritten {
+		lines = append(lines, "")
+		for _, part := range wrapPlain(settingsNote(edit), max(width, 1)) {
+			lines = append(lines, faint.Render(forTerm(part)))
+		}
+	}
 	return lines
+}
+
+// settingsCount is the row's count for a merged file shown as a list of
+// settings: how many change, or that only its layout does.
+func settingsCount(edit operation.Edit) string {
+	switch edit.Settings {
+	case 0:
+		return "layout only"
+	case 1:
+		return "1 setting changed"
+	}
+	return strconv.Itoa(edit.Settings) + " settings changed"
+}
+
+// settingsNote says what else the merge does to the file beyond the listed
+// settings.
+func settingsNote(edit operation.Edit) string {
+	if edit.Settings == 0 {
+		return "No setting changes; the file is rewritten with its keys re-ordered."
+	}
+	return "The whole file is rewritten with its keys re-ordered; only the settings above change."
 }
 
 // diffStyle colours a unified diff line: added green, removed red, hunk headers
@@ -203,6 +235,8 @@ func diffStyle(line string) lipgloss.Style {
 	switch {
 	case strings.HasPrefix(line, "@@"):
 		return faint
+	case strings.HasPrefix(line, "~"):
+		return yellow
 	case strings.HasPrefix(line, "+"):
 		return green
 	case strings.HasPrefix(line, "-"):

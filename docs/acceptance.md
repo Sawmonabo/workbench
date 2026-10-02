@@ -151,9 +151,10 @@ synthetic answers.
 - Plan view and probes, from a local checkout on the WSL2 host, read-only
   (`apply --dry-run`): the header counts files, steps that will run and, once a
   `decided` list is saved, new to decide; files carry a plain title, merged or
-  owned, and +N −N counts (a line that moves between lists counts as removed
-  and added); steps show a plain name and one line; effects with nothing to
-  change collapse into one `Already set` line of names; the `Off` heading is
+  owned, and +N −N counts for a line diff (a line that moves between lists
+  counts as removed and added) or "N settings changed" for a merged JSON or
+  TOML file, whose panel lists the changed key paths; steps show a plain name
+  and one line; effects with nothing to change collapse into one `Already set` line of names; the `Off` heading is
   just "Off"; the Linux editor-extension step is absent on WSL; the three
   Windows parts are listed under Windows setup. The interactive list was
   rendered from a scratch harness at 120 and 80 columns with the cursor on a

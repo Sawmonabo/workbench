@@ -718,6 +718,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		if added, removed, lines, ok := operation.FileDiff(before, after); ok {
 			planned.Added, planned.Removed = added, removed
 			planned.Diff, planned.DiffTruncated = capDiff(redactDiff(lines, p.secrets))
+			p.describeSettings(planned, before, after)
 		}
 		p.Changes = append(
 			p.Changes,
@@ -725,6 +726,27 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		)
 	}
 	return nil
+}
+
+// describeSettings replaces the line diff of a merged JSON or TOML file with
+// the list of settings that change, when both sides parse: the merge
+// re-serializes the file, so its line diff is mostly reordering. Any other file
+// keeps its line diff.
+func (p *preparation) describeSettings(
+	planned *operation.Edit,
+	before, after operation.Image,
+) {
+	format := strings.TrimPrefix(filepath.Ext(planned.Path), ".")
+	if !planned.Merged || before.Kind != operation.ImageFile ||
+		after.Kind != operation.ImageFile || (format != "json" && format != "toml") {
+		return
+	}
+	changes, rewritten, ok := operation.SettingsDiff(format, before.Data, after.Data)
+	if !ok {
+		return
+	}
+	planned.Settings, planned.Semantic, planned.Rewritten = len(changes), true, rewritten
+	planned.Diff, planned.DiffTruncated = capDiff(settingLines(changes, p.secrets))
 }
 
 // nativeEntry is one target in native chezmoi's dump output.
