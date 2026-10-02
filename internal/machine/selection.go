@@ -20,6 +20,9 @@ type Selection struct {
 	Skip    []string `toml:"skip,omitempty"`
 	Select  []string `toml:"select,omitempty"`
 	Decided []string `toml:"decided,omitempty"`
+	// Forget is set by --reset: what the saved decided list says is ignored when
+	// the apply records the new one. It is never saved.
+	Forget bool `toml:"-"`
 }
 
 // NeverDecided reports that no approved apply has saved a decided list yet.

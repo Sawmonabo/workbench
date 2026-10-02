@@ -257,7 +257,7 @@ func needsChoice(plan operation.Plan, selection machine.Selection) bool {
 // machineSelection is the saved selection, or an empty one with --reset.
 func machineSelection(c operation.Context, o *options) (machine.Selection, error) {
 	if o.reset {
-		return machine.Selection{}, nil
+		return machine.Selection{Forget: true}, nil
 	}
 	return machine.ReadSelection(c.Native.Config)
 }
@@ -372,6 +372,7 @@ func applyMachine(
 			}
 		}
 		selection = machine.SelectionOf(plan.Effects)
+		selection.Forget = o.reset
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
 	default:

@@ -442,7 +442,8 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	}
 	box, boxStyle := "[ ]", faint
 	switch {
-	case effect.Fixed:
+	case effect.Fixed, isAlready(plan, effect):
+		// Always runs, or nothing to change: no box, since there is no choice.
 		box = "   "
 	case locked:
 		box = "[x]"
@@ -452,7 +453,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	prefix, prefixWidth := rowPrefix(view, row, box, boxStyle, depth)
 	titleStyle := bold
 	switch {
-	case locked:
+	case locked, isAlready(plan, effect):
 		titleStyle = faint
 	case !view.Done && view.Interactive && view.Cursor == row:
 		titleStyle = brand.Bold(true)

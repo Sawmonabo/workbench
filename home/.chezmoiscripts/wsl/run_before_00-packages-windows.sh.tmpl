@@ -316,12 +316,12 @@ PY
 have_fonts() { compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null; }
 
 # Whether every JetBrainsMono font file is registered for the Windows user with
-# its real Windows path, read with reg.exe (capped). Any doubt reads as not
+# its real Windows path, read with reg.exe (capped at 3 s). Any doubt reads as not
 # registered, which only means the registration is done again.
 fonts_registered() {
     local registry dir_w font base line
     have_fonts || return 1
-    registry=$(timeout 5 reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' 2>/dev/null | tr -d '\r') || return 1
+    registry=$(timeout 3 reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts' 2>/dev/null | tr -d '\r') || return 1
     dir_w=$(wslpath -w "$WIN_FONT_DIR") || return 1
     for font in "$WIN_FONT_DIR"/JetBrainsMono*.ttf; do
         base=$(basename "$font" .ttf)

@@ -522,8 +522,9 @@ func OwnChoices(effects []operation.Effect, selection Selection) []operation.Eff
 // it is asked about, marked new, the first time it has something to do.
 // effects is the plan as applied, where a checked parent forces its parts on;
 // chosen is the selection that produced it and holds each part's own choice,
-// which is what is saved, so the force never becomes a choice. The decided list
-// is always non-nil: once saved, the owner has decided.
+// which is what is saved, so the force never becomes a choice. With --reset
+// (chosen.Forget) the earlier decided list is forgotten for the effects listed.
+// The decided list is always non-nil: once saved, the owner has decided.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
 	selection := SelectionOf(OwnChoices(effects, chosen))
 	plan := operation.Plan{Effects: effects}
@@ -535,7 +536,7 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 	selection.Decided = []string{}
 	for _, effect := range effects {
 		if !effect.Fixed &&
-			(slices.Contains(saved.Decided, effect.Name) || !plan.AlreadySet(effect)) {
+			((!chosen.Forget && slices.Contains(saved.Decided, effect.Name)) || !plan.AlreadySet(effect)) {
 			selection.Decided = append(selection.Decided, effect.Name)
 		}
 	}
