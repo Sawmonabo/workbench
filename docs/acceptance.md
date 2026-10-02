@@ -174,9 +174,10 @@ synthetic answers.
   the file had been edited. A `.wslconfig` that already says `memory = 8GB`
   probed and applied as unchanged. Not observed: the 15 s limit on a cold first
   Windows call (warm only, it cannot be made cold on demand), the list in a
-  graphical terminal, the macOS probe script on a Mac (rendered, shellchecked
-  and run against a stand-in `brew` that has no `bundle` command, where it
-  skipped the check), and any Windows-side apply on a real host.
+  graphical terminal, and any Windows-side apply on a real host. The macOS
+  package probe reports what apply does without checking what is installed: a
+  check made Homebrew download its formula data into the home folder, which CI's
+  macOS render check caught.
 
 ### Revert and recovery
 

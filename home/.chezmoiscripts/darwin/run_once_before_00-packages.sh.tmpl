@@ -13,8 +13,8 @@ set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 
 # The formulae Workbench lists, as a Brewfile. brew bundle resolves aliases
-# (postgresql -> postgresql@N), so neither the install nor the check below
-# reinstalls on every run the way a `brew list <alias>` probe would.
+# (postgresql -> postgresql@N), so the install below does not reinstall on
+# every run the way a `brew list <alias>` check would.
 write_brewfile() {
 {{- range .packages.darwin.brew }}
 {{- if or (eq . "chezmoi") (eq . "uv") }}
@@ -33,31 +33,13 @@ write_brewfile() {
 }
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    if [ -x /opt/homebrew/bin/brew ]; then
-        eval "$(/opt/homebrew/bin/brew shellenv)"
-    elif [ -x /usr/local/bin/brew ]; then
-        eval "$(/usr/local/bin/brew shellenv)"
-    else
+    # A probe writes nothing and fetches nothing. Checking what is installed
+    # would make brew download its formula data into ~/Library/Caches, so the
+    # probe only says what apply does.
+    if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
         echo "macos-packages: install Homebrew and the tools Workbench lists"
-        exit 0
-    fi
-    # An old Homebrew has no `brew bundle` of its own, and the command it fetches
-    # on first use is an install and a network call: a probe never makes one. It
-    # skips the check unless the command is listed (built in or already tapped)
-    # and says so; apply checks again when it runs. perl stops a
-    # check that hangs, since macOS has no timeout command.
-    brew_commands=$(brew commands --quiet 2>/dev/null || true)
-    if grep -qx bundle <<<"$brew_commands"; then
-        probe_brewfile="$(mktemp)"
-        write_brewfile > "$probe_brewfile"
-        if perl -e 'alarm shift; exec @ARGV' 12 brew bundle check --file="$probe_brewfile" --no-upgrade >/dev/null 2>&1; then
-            echo "macos-packages: = Homebrew and the tools Workbench lists are installed"
-        else
-            echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
-        fi
-        rm -f "$probe_brewfile"
     else
-        echo "macos-packages: this Homebrew can't check what is installed without fetching something; installs the tools Workbench lists that are missing when applied"
+        echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
     fi
     exit 0
 fi

@@ -12,3 +12,10 @@ condition = "AND"
 regexTarget = "secret"
 regexes = ['''^ctrl\+shift\+down$''']
 paths = ['''^home/\.chezmoiscripts/wsl/run_(once_)?before_00-packages-windows\.sh\.tmpl$''']
+
+[[rules.allowlists]]
+description = "Made-up GitLab token the diff-masking safeguard test plants, never a real credential"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^glpat-abc123def456ghi789$''']
+paths = ['''^internal/machine/files_test\.go$''']
