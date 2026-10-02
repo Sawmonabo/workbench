@@ -53,19 +53,21 @@ func TestDiffNeverShowsCredentials(t *testing.T) {
 // masking does not see them in place. Risk: a credential the owner keeps in
 // Claude Code settings or Codex config reaches the terminal through that list.
 // A value under a credential-named key, a token-shaped value, a known secret
-// and the item after a credential flag in a list must all stay masked.
+// and the item after a credential flag in a list, plain or mixed with
+// objects, must all stay masked.
 func TestSettingListNeverShowsCredentials(t *testing.T) {
 	before := `{"env": {"JIRA_API_TOKEN": "hunter2", "NOTE": "ghp_` + strings.Repeat("a1", 18) +
-		`"}, "args": ["--token", "flagvalue1"], "timeout": 10}`
+		`"}, "args": ["--token", "flagvalue1"], "mixed": [{"a": 1}, "--api-key", "mixedvalue1"], "timeout": 10}`
 	after := `{"env": {"JIRA_API_TOKEN": "hunter3", "NOTE": "ghp_` + strings.Repeat("b2", 18) +
-		`"}, "args": ["--token", "flagvalue2"], "timeout": 5, "known": "hunter4"}`
+		`"}, "args": ["--token", "flagvalue2"], "mixed": [{"a": 1}, "--api-key", "mixedvalue2"], ` +
+		`"timeout": 5, "known": "hunter4"}`
 	changes, _, ok := operation.SettingsDiff("json", []byte(before), []byte(after))
 	if !ok {
 		t.Fatal("synthetic settings did not parse")
 	}
 	text := strings.Join(settingLines(changes, []string{"hunter4"}), "\n")
 	for _, leak := range []string{
-		"hunter2", "hunter3", "hunter4", "flagvalue1", "flagvalue2", strings.Repeat("a1", 18),
+		"hunter2", "hunter3", "hunter4", "flagvalue1", "flagvalue2", "mixedvalue1", "mixedvalue2", strings.Repeat("a1", 18),
 		strings.Repeat("b2", 18),
 	} {
 		if strings.Contains(text, leak) {

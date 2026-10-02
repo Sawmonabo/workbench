@@ -210,11 +210,18 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 			value = text
 		}
 		// A list item right after a credential flag is its value.
-		if change.Follows != "" && secretFlagEnd.MatchString(change.Follows) {
-			value = "[REDACTED]"
+		for _, before := range change.Follows {
+			if secretFlagEnd.MatchString(before) {
+				value = "[REDACTED]"
+			}
 		}
 		if runes := []rune(value); len(runes) > maxSettingValue {
 			value = string(runes[:maxSettingValue]) + "…"
+		}
+		if hashKey(change.Path) {
+			// A hash is not for reading, and long hex runs are masked anyway.
+			lines[i] = hashLine(change)
+			continue
 		}
 		switch {
 		case change.Added:
@@ -226,6 +233,23 @@ func settingLines(changes []operation.SettingChange, secrets []string) []string 
 		}
 	}
 	return lines
+}
+
+// hashKey reports whether a key path ends in a hash, such as a trusted_hash.
+func hashKey(path string) bool {
+	last := path[strings.LastIndexAny(path, ".]")+1:]
+	return strings.Contains(strings.ToLower(last), "hash")
+}
+
+// hashLine is the setting line of a hash: that it changed, not its value.
+func hashLine(change operation.SettingChange) string {
+	switch {
+	case change.Added:
+		return "+ " + change.Path + "  added (hash hidden)"
+	case change.Removed:
+		return "- " + change.Path + "  removed (hash hidden)"
+	}
+	return "~ " + change.Path + "  changed (hash hidden)"
 }
 
 // capDiff joins diff lines into the text a plan carries: at most maxDiffLines

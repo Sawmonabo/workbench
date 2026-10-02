@@ -19,10 +19,11 @@ import (
 type SettingChange struct {
 	Path          string
 	Before, After string
-	// Follows is, for an item of a list of plain values, the item before it in
-	// its list, so a caller can tell a value that follows a credential flag
-	// ("--token", "value") though the list is compared as a set.
-	Follows string
+	// Follows is, for a plain item of a list, the item before it in the old
+	// and new lists, so a caller can tell a value that follows a credential
+	// flag ("--token", "value") though a list of plain values is compared as a
+	// set.
+	Follows []string
 	// Added and Removed mark a leaf present on only one side; Reordered marks
 	// a list whose items are the same in a different order.
 	Added, Removed, Reordered bool
@@ -137,7 +138,17 @@ func collectChanges(path string, old, next any, out *[]SettingChange) {
 			if i < len(nextList) {
 				n = nextList[i]
 			}
-			collectChanges(path+"["+strconv.Itoa(i)+"]", o, n, out)
+			item := path + "[" + strconv.Itoa(i) + "]"
+			first := len(*out)
+			collectChanges(item, o, n, out)
+			for j := first; j < len(*out); j++ {
+				if (*out)[j].Path == item {
+					(*out)[j].Follows = []string{
+						previousText(oldList, i),
+						previousText(nextList, i),
+					}
+				}
+			}
 		}
 		return
 	}
@@ -214,7 +225,7 @@ func collectPlainList(path string, old, next []any, out *[]SettingChange) {
 			continue
 		}
 		*out = append(*out, SettingChange{
-			Path: path + "[]", Before: text, Removed: true, Follows: previousText(old, i),
+			Path: path + "[]", Before: text, Removed: true, Follows: []string{previousText(old, i)},
 		})
 	}
 	for i, item := range next {
@@ -222,7 +233,10 @@ func collectPlainList(path string, old, next []any, out *[]SettingChange) {
 		if unmatched[text] > 0 {
 			unmatched[text]--
 			*out = append(*out, SettingChange{
-				Path: path + "[]", After: text, Added: true, Follows: previousText(next, i),
+				Path:    path + "[]",
+				After:   text,
+				Added:   true,
+				Follows: []string{previousText(next, i)},
 			})
 		}
 	}
@@ -232,7 +246,7 @@ func collectPlainList(path string, old, next []any, out *[]SettingChange) {
 }
 
 func previousText(list []any, i int) string {
-	if i == 0 {
+	if i == 0 || i > len(list) {
 		return ""
 	}
 	return leafText(list[i-1])
