@@ -3,6 +3,16 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.11](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.11) - 2026-10-03
+
+### Fixes
+
+- Read the organization Claude Code records and fill a session's plan from its own transcript
+
+### Documentation
+
+- Source the credential_org version and note the backup rotation limit
+
 ## [v0.1.10](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.10) - 2026-10-03
 
 ### Features
