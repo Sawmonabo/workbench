@@ -29,9 +29,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   without asking needs a controlling terminal and no coding agent: a caller
   without a terminal, or an agent even in a pseudo-terminal (`CLAUDECODE=1`,
   or `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX`,
-  `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), needs `--approve-plan`. Scripts apply runs never prompt: ticking the step is the
-  approval (one-time helpers the owner runs later may prompt). A Windows setup
-  part ticked on its own keeps its own choice while Windows setup is on.
+  `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), needs `--approve-plan`. The
+  scripts apply runs never prompt: ticking the step is the approval (one-time
+  helpers the owner runs later may prompt). A Windows setup part ticked on its
+  own keeps its own choice while Windows setup is on.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
