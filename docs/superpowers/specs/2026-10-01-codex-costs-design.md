@@ -457,8 +457,9 @@ email and subscription, for example `you@example.com · Max` and
 ### What each tool records
 
 - **Claude Code.** An assistant record carries only the model, usage,
-  `service_tier` and request ids. Since 2.1.282 (first seen on the sample
-  machine on Sept 25) a transcript also holds `attachment` records of type
+  `service_tier` and request ids. From 2.1.282 on the sample machine (the
+  earliest version seen writing it, first on Sept 25; 2.1.280 wrote none) a
+  transcript also holds `attachment` records of type
   `credential_org` with an `organizationUuid`: the organization the session's
   credential belongs to from that line on. Claude Code writes one when a
   session starts or resumes, at intervals, and after a `/login` switches
@@ -566,7 +567,7 @@ sign-in that names the id, so a renamed organization relabels its history.
 ### Limits
 
 - A Claude Code `/login` to another organization inside a running session:
-  on 2.1.282 and later the next `credential_org` names the new organization
+  on a version that writes `credential_org` the next one names the new organization
   and its rows follow it. On earlier versions its rows keep the subscription
   of the session's binding, because a session binding outranks an
   observation, until a later `SessionStart` of that session (a resume,
@@ -591,7 +592,12 @@ sign-in that names the id, so a renamed organization relabels its history.
   binding keeps that one for all its rows. The final rows of a session that
   had none (it began before the hooks were installed) are attributed by the
   run's observation, rule 3.
-- Claude Code history written by a version before 2.1.282 (about 52,000 of
+- An organization's email comes from `.claude.json` and its backups, which
+  Claude Code rotates (a few days deep). A stored row keeps the email it was
+  given; only a later `ParseRevision` re-read after the backup is gone would
+  leave that organization's rows to rules 2 and 3 for the email.
+- Claude Code history written by a version that writes no `credential_org`
+  (about 52,000 of
   77,000 rows on the sample machine), or before its file's first
   `credential_org`, names no organization; ingested before the first
   observation it keeps subscription `unknown`. So does every Codex row before
