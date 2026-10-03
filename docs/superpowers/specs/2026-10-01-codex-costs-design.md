@@ -456,11 +456,20 @@ email and subscription, for example `you@example.com · Max` and
 
 ### What each tool records
 
-- **Claude Code.** No transcript line names an organization or plan; an
-  assistant record carries only the model, usage, `service_tier` and
-  request ids. The current sign-in is `~/.claude.json` `oauthAccount`:
-  `emailAddress`, `organizationUuid`, `organizationName`, `organizationType`
-  (`claude_max` observed; other values are shown as written). The
+- **Claude Code.** An assistant record carries only the model, usage,
+  `service_tier` and request ids. Since 2.1.282 (first seen on the sample
+  machine on Sept 25) a transcript also holds `attachment` records of type
+  `credential_org` with an `organizationUuid`: the organization the session's
+  credential belongs to from that line on. Claude Code writes one when a
+  session starts or resumes, at intervals, and after a `/login` switches
+  organization; a subagent's own file may hold none. Earlier versions write
+  none, so their history names no organization anywhere on disk. The current
+  sign-in is `~/.claude.json` `oauthAccount`: `emailAddress`,
+  `organizationUuid`, `organizationName`, `organizationType` (`claude_max` and
+  `claude_team` observed; other values are shown as written). Claude Code
+  copies `.claude.json` to `backups/.claude.json.backup.<milliseconds>` before
+  it changes it, so an organization signed out of keeps its email and type
+  there. The
   `SessionStart` hook receives `session_id` on stdin, and a
   subagent's records (`<session>/subagents/agent-*.jsonl`) carry its parent's
   `sessionId`, so one binding covers the session and its subagents.
@@ -489,13 +498,29 @@ session binding, or agreeing observations (or, for a row a version 1 or 2
 ledger held, the email that build stored). A value that is `unknown` is no
 evidence and never raises a field.
 
-1. `transcript` (Codex): the plan from the response's file as above is the
+1. `transcript`: Codex: the plan from the response's file as above is the
    subscription's evidence, and the sign-in whose `chatgpt_account_id` equals
-   the file's `creator_account_id` is the email's. Without that id the plan
-   stays per response and the email takes rule 2 or 3 on its own, so a row
-   whose transcript named only the plan still takes the email of a binding or
-   an observation, and nothing but a transcript changes what a transcript
-   decided.
+   the file's `creator_account_id` is the email's. Claude Code: the latest
+   `credential_org` read in the response's file, kept in the file's saved
+   state, is the subscription (`claude:<organizationUuid>`), and the email
+   signed in to that organization in `.claude.json` or one of its backups is
+   the email's; an organization two emails were signed in to names no email.
+   A row before its file's first `credential_org` names neither. Without these
+   ids the email (and for Claude Code the subscription) takes rule 2 or 3 on
+   its own, so a row whose transcript named only the plan still takes the
+   email of a binding or an observation, and nothing but a transcript changes
+   what a transcript decided. A row whose own file names no subscription
+   takes one its session's transcript names, as transcript evidence, with the
+   email that row's transcript named: a Codex row the first plan its own
+   thread names at or after it (a thread's first `token_count` lines can have
+   `rate_limits: null`), a Claude Code row the latest organization its root
+   session names at or before it (a subagent runs in its parent's process).
+   Neither crosses a session binding between the two rows, which can be
+   another process under another sign-in. When a parser learns to read more
+   from lines already read (`ParseRevision`), the next run forgets the tool's
+   file offsets and reads its transcripts again from the start, once, in the
+   same transaction that stores the revision; the re-read rewrites the same
+   rows with the stronger evidence.
 2. `session`: the sign-in a session started under. The hook passes the
    worker its `session_id` and transcript path (which names the tool). The
    detached worker reads the tool's current sign-in and stores
@@ -541,11 +566,11 @@ sign-in that names the id, so a renamed organization relabels its history.
 ### Limits
 
 - A Claude Code `/login` to another organization inside a running session:
-  its rows keep the subscription of the session's binding, because a
-  session binding outranks an observation, and the next ingest run's
-  observation does not correct them. They stay on the old subscription until
-  a later `SessionStart` of that session (a resume, `/clear` or compaction)
-  binds the new sign-in.
+  on 2.1.282 and later the next `credential_org` names the new organization
+  and its rows follow it. On earlier versions its rows keep the subscription
+  of the session's binding, because a session binding outranks an
+  observation, until a later `SessionStart` of that session (a resume,
+  `/clear` or compaction) binds the new sign-in.
 - Whether a running Claude Code session follows a `/login` made in another
   terminal is not stated by the official docs, which say only that parallel
   sessions on one machine "share a saved login and coordinate its renewal so
@@ -566,22 +591,32 @@ sign-in that names the id, so a renamed organization relabels its history.
   binding keeps that one for all its rows. The final rows of a session that
   had none (it began before the hooks were installed) are attributed by the
   run's observation, rule 3.
-- Claude Code history ingested before the first observation, or from
-  sessions started with no hook installed, is `unknown`; so is every Codex
-  row before the first observation whose file names no creator account.
-- Codex rows with no plan in their file (412 of 348,612 on the sample
-  machine: records before the file's first `token_count`, and files without
-  `rate_limits`) have subscription `unknown` until a binding or an
-  observation names it. A row whose file names no `creator_account_id` (all
-  but 5,870 of the sample's 348,612) has a plan and no email until a
-  binding or an observation names it, so history ingested before the first
-  observation reports `unknown · Pro`.
+- Claude Code history written by a version before 2.1.282 (about 52,000 of
+  77,000 rows on the sample machine), or before its file's first
+  `credential_org`, names no organization; ingested before the first
+  observation it keeps subscription `unknown`. So does every Codex row before
+  the first observation whose file names no creator account. Nothing on disk
+  records either: the transcripts, `.claude.json` backups (a few days deep),
+  Codex's state and log databases and its auth files were all searched.
+- Codex rows of a thread that never names a plan (3 of 350,000 on the sample
+  machine) keep subscription `unknown`. A row whose file names no
+  `creator_account_id` (Codex before 0.160, all but 7,300 of the sample's
+  rows) has a plan and no email until a binding or an observation names it.
 
 ### Report and status
 
 - `--by account` groups by email and subscription; the per-account section
   under other groupings does too. JSON rows gain `subscription` and
-  `subscription_label`.
+  `subscription_label`. A row names what its tool did not record:
+  `you@example.com · plan not recorded`, `account not recorded · Pro`, or
+  `not recorded`. Under the table a note says since when the tool records
+  each missing part (the first row whose transcript named it), or, when it
+  did so from the first row, how many responses come from conversations that
+  never named it. The JSON `coverage` has `account_named_since` and
+  `subscription_named_since`.
+- Only a model row carries the `unpriced` flag; a project, account or total
+  that includes an unpriced model counts its cost as 0 and the warning under
+  the report names the model.
 - `costs status` shows each tool's current sign-in, for example
   `Claude Code  you@example.com · Max`, and, on separate lines, how many
   rows each evidence level gave their email and their subscription; the

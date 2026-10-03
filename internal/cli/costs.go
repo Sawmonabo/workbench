@@ -848,7 +848,14 @@ func costsPage(
 func writeSections(b *strings.Builder, width int, sections []reportSpec) {
 	bar := width
 	for _, section := range sections {
-		bar = min(bar, width-tableWidth(2, reportTable(section))-1)
+		spec := reportTable(section)
+		need := tableWidth(2, spec) + 1 // the bar and the space after it
+		if !section.tokens {
+			// addShareBars pads every percentage to 6 cells, wider than a share
+			// column whose widest cell is "share" or "68.5%".
+			need += max(6-naturalWidths(spec.plain())[2], 0)
+		}
+		bar = min(bar, width-need)
 	}
 	for _, section := range sections {
 		b.WriteString("\n")
@@ -1055,9 +1062,12 @@ func reportTable(r reportSpec) tableSpec {
 			column{Head: "cached", Right: true, Drop: 4},
 		)
 	}
-	flagged := r.total != nil && !r.total.Priced
+	// Only a model row is flagged: a project, account or total that includes
+	// an unpriced model is otherwise priced, and the warning under the report
+	// names the model.
+	flagged := false
 	for _, row := range r.rows {
-		flagged = flagged || !row.Priced
+		flagged = flagged || r.head == "model" && !row.Priced
 	}
 	if flagged {
 		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
@@ -1073,7 +1083,9 @@ func reportTable(r reportSpec) tableSpec {
 		spec.Rows = append(spec.Rows, reportCells(r, name, row, flagged, false))
 	}
 	if r.total != nil {
-		spec.Total = reportCells(r, r.label, *r.total, flagged, true)
+		total := *r.total
+		total.Priced = true
+		spec.Total = reportCells(r, r.label, total, flagged, true)
 	}
 	for i := range spec.Cols {
 		spec.Cols[i].Head = r.pal.accent.Render(spec.Cols[i].Head)
@@ -1184,6 +1196,7 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 			plural(report.Hidden),
 		))
 	}
+	notes = append(notes, unrecordedNotes(tool, report)...)
 	if len(notes) > 0 {
 		b.WriteString("\n")
 		writeNotes(b, width, 2, notes)
@@ -1199,6 +1212,49 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 			"Add a rate for each to the rates overrides file (%s).", shortPath(report.Overrides),
 		))
 	}
+}
+
+// unrecordedNotes say, for an account table that shows "not recorded", since
+// when the tool's transcripts record the account and the plan: no evidence for
+// an earlier row exists anywhere on disk, so the report names none.
+func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
+	if report.By != "account" && len(report.Accounts) < 2 {
+		return nil
+	}
+	var account, plan bool
+	for _, row := range report.Accounts {
+		account = account || row.Name == "" || row.Name == "unknown"
+		plan = plan || row.Subscription == "unknown"
+	}
+	since := func(part, at string, missing int64) string {
+		switch {
+		case at == "":
+			return tool.Title + "'s transcripts record no " + part
+		case at[:min(len(at), 10)] <= report.Coverage.First:
+			// Named from the first row on: the rows without one are threads
+			// whose transcript never named it, not an earlier era.
+			come := "responses come"
+			if missing == 1 {
+				come = "response comes"
+			}
+			return fmt.Sprintf("%s %s from %s conversations that never named the %s",
+				commas(missing), come, tool.Title, part)
+		}
+		return fmt.Sprintf("%s records the %s only since %s; earlier usage has no record of it",
+			tool.Title, part, localTime(at))
+	}
+	var notes []string
+	c := report.Coverage
+	if account {
+		notes = append(notes, since("account", c.AccountNamedSince, c.AccountEvidence.Unknown))
+	}
+	if plan {
+		notes = append(
+			notes,
+			since("plan", c.SubscriptionNamedSince, c.SubscriptionEvidence.Unknown),
+		)
+	}
+	return notes
 }
 
 // writeBold is writeText in bold.

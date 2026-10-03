@@ -90,7 +90,11 @@ The first `costs` on a machine with an empty ledger ingests the transcripts
 once inline. Manual rate overrides go in `~/.config/claude-costs/rates.json`
 (`CLAUDE_COSTS_RATES`), keyed by model prefix, with any of `input`, `output`,
 `cache_write_5m`, `cache_write_1h` and `cache_read` in USD per million tokens.
-See the [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md).
+The account table names each row's email and plan only from what Claude Code
+and Codex wrote down; usage they never recorded shows `not recorded`, with a
+note saying since when each tool records it. See the
+[ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md) and
+[subscriptions](superpowers/specs/2026-10-01-codex-costs-design.md).
 
 ## Approval and automation
 

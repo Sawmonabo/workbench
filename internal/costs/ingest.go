@@ -166,9 +166,15 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if tool.Source == nil {
 			continue
 		}
-		var accounts map[string]string
+		var accounts, labels map[string]string
 		if directory, ok := tool.Source.(accountDirectory); ok {
 			accounts = directory.Accounts(paths.Home)
+		}
+		if directory, ok := tool.Source.(labelDirectory); ok {
+			labels = directory.Labels(paths.Home)
+		}
+		if err := rereadIfRevised(ctx, ledger, tool, paths.Home); err != nil {
+			return "", err
 		}
 		if s, ok := tool.Source.(tierServer); ok {
 			served[tool.Name] = s.ServedTier(paths.Home)
@@ -189,7 +195,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			}
 			err := read.err
 			if err == nil {
-				err = commitFile(ctx, ledger, run, tool, read, accounts, served[tool.Name])
+				err = commitFile(ctx, ledger, run, tool, read, accounts, labels, served[tool.Name])
 			}
 			switch {
 			case err == nil && read.changed:
@@ -463,7 +469,7 @@ func commitFile(
 	run *Run,
 	tool Tool,
 	read fileRead,
-	accounts map[string]string,
+	accounts, labels map[string]string,
 	served func(model, tier string) string,
 ) error {
 	if read.vanished {
@@ -475,7 +481,7 @@ func commitFile(
 	return wrapLedger(ledger.Transaction(ctx, run, func(tx *Tx) error {
 		for _, u := range read.usage {
 			u.Tool = tool.Name
-			attribute(&u, accounts)
+			attribute(&u, accounts, labels)
 			if base, tier := tool.SplitModel(u.Model); served != nil && tier != "" {
 				u.Model = base
 				if tier = served(base, tier); tier != "" {
@@ -507,7 +513,7 @@ func commitFile(
 // from a transcript's account id, a session binding or agreeing observations.
 // The row's subscription is whatever its parser decided from the transcript,
 // else "unknown".
-func attribute(u *Usage, accounts map[string]string) {
+func attribute(u *Usage, accounts, labels map[string]string) {
 	if email := accounts[u.AccountKey]; u.AccountKey != "" && email != "" {
 		u.Account, u.AccountEvidence = email, EvidenceTranscript
 	} else {
@@ -516,7 +522,24 @@ func attribute(u *Usage, accounts map[string]string) {
 	if u.SubscriptionEvidence != EvidenceTranscript {
 		u.Subscription, u.SubscriptionLabel = "", ""
 		u.SubscriptionEvidence = EvidenceUnknown
+	} else if u.SubscriptionLabel == "" {
+		u.SubscriptionLabel = labels[u.Subscription]
 	}
+}
+
+// rereadIfRevised makes this run read every transcript of tool from the
+// start when its parser's revision is not the one the ledger stored
+// (reparser), and stores the new revision with that, in one transaction.
+func rereadIfRevised(ctx context.Context, ledger *Ledger, tool Tool, home string) error {
+	source, ok := tool.Source.(reparser)
+	if !ok {
+		return nil
+	}
+	rooter, ok := tool.Source.(transcriptRooter)
+	if !ok {
+		return nil
+	}
+	return ledger.ForgetFiles(ctx, tool.Name, source.ParseRevision(), rooter.TranscriptRoots(home))
 }
 
 // readAhead bounds how far reads run ahead of the commits: the size of the

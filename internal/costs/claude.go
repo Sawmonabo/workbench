@@ -74,27 +74,39 @@ func (claude) Transcripts(home string) ([]string, error) {
 	return files, err
 }
 
+// claudeOAuth is the oauthAccount a .claude.json keeps: who is signed in and
+// the organization that pays for it.
+type claudeOAuth struct {
+	EmailAddress     string `json:"emailAddress"`
+	OrganizationUUID string `json:"organizationUuid"`
+	OrganizationName string `json:"organizationName"`
+	OrganizationType string `json:"organizationType"`
+}
+
+// readClaudeOAuth is the oauthAccount of one .claude.json; false when the
+// file cannot be read or holds none.
+func readClaudeOAuth(path string) (claudeOAuth, bool) {
+	var data struct {
+		OAuthAccount *claudeOAuth `json:"oauthAccount"`
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil || json.Unmarshal(raw, &data) != nil || data.OAuthAccount == nil {
+		return claudeOAuth{}, false
+	}
+	return *data.OAuthAccount, true
+}
+
 // SignIn is the sign-in Claude Code keeps in ~/.claude.json oauthAccount: its
 // email, the subscription "claude:<organizationUuid>" and the label the report
-// shows. Claude Code's transcripts name no plan, so this is the only source of
-// both. Without an oauthAccount (an API key, or not signed in) the account is
+// shows. Without an oauthAccount (an API key, or not signed in) the account is
 // "unknown" and the subscription is empty; an oauthAccount without an
 // organizationUuid also leaves the subscription empty, since "claude:" would
 // merge unrelated sign-ins.
 func (claude) SignIn(home string) SignIn {
-	var data struct {
-		OAuthAccount struct {
-			EmailAddress     string `json:"emailAddress"`
-			OrganizationUUID string `json:"organizationUuid"`
-			OrganizationName string `json:"organizationName"`
-			OrganizationType string `json:"organizationType"`
-		} `json:"oauthAccount"`
-	}
-	raw, err := os.ReadFile(claudeJSON(home))
-	if err != nil || json.Unmarshal(raw, &data) != nil {
+	acct, ok := readClaudeOAuth(claudeJSON(home))
+	if !ok {
 		return SignIn{Account: "unknown"}
 	}
-	acct := data.OAuthAccount
 	out := SignIn{Account: firstNonEmpty(acct.EmailAddress, "unknown")}
 	if acct.OrganizationUUID == "" {
 		return out
@@ -102,6 +114,62 @@ func (claude) SignIn(home string) SignIn {
 	out.Subscription = "claude:" + acct.OrganizationUUID
 	out.Label = claudePlanLabel(acct.OrganizationType, acct.OrganizationName)
 	return out
+}
+
+// claudeSignIns are the oauthAccounts Claude Code keeps on disk, oldest
+// first: the copies of .claude.json it writes to backups/ before changing it
+// (named .claude.json.backup.<milliseconds>), then .claude.json itself. A
+// backup keeps the organization of an earlier sign-in, which transcripts
+// still name.
+func claudeSignIns(home string) []claudeOAuth {
+	backups, _ := filepath.Glob(filepath.Join(claudeDir(home), "backups", ".claude.json.backup.*"))
+	stamp := func(path string) int64 {
+		n, _ := strconv.ParseInt(strings.TrimPrefix(filepath.Ext(path), "."), 10, 64)
+		return n
+	}
+	sort.Slice(backups, func(i, j int) bool { return stamp(backups[i]) < stamp(backups[j]) })
+	var out []claudeOAuth
+	for _, path := range append(backups, claudeJSON(home)) {
+		if acct, ok := readClaudeOAuth(path); ok && acct.OrganizationUUID != "" {
+			out = append(out, acct)
+		}
+	}
+	return out
+}
+
+// Accounts maps each organization a Claude Code sign-in on disk belongs to
+// (claudeSignIns) to the email signed in to it. A transcript's credential_org
+// names the organization that answered (Usage.AccountKey). An organization
+// two emails were signed in to is left out rather than guessed, so its rows
+// fall back to the session and observed evidence.
+func (claude) Accounts(home string) map[string]string {
+	accounts := map[string]string{}
+	ambiguous := map[string]bool{}
+	for _, acct := range claudeSignIns(home) {
+		if acct.EmailAddress == "" {
+			continue
+		}
+		if prev, seen := accounts[acct.OrganizationUUID]; seen && prev != acct.EmailAddress {
+			ambiguous[acct.OrganizationUUID] = true
+		}
+		accounts[acct.OrganizationUUID] = acct.EmailAddress
+	}
+	for id := range ambiguous {
+		delete(accounts, id)
+	}
+	return accounts
+}
+
+// Labels maps the subscription id of each organization a sign-in on disk
+// belongs to (claudeSignIns) to its report label, the latest sign-in's.
+func (claude) Labels(home string) map[string]string {
+	labels := map[string]string{}
+	for _, acct := range claudeSignIns(home) {
+		if label := claudePlanLabel(acct.OrganizationType, acct.OrganizationName); label != "" {
+			labels["claude:"+acct.OrganizationUUID] = label
+		}
+	}
+	return labels
 }
 
 // claudePlanLabel is the report label of an organizationType: the type without
@@ -166,13 +234,14 @@ func (t tokens) fill(u *Usage) {
 }
 
 type record struct {
-	Type      string          `json:"type"`
-	Cwd       string          `json:"cwd"`
-	SessionID string          `json:"sessionId"`
-	RequestID string          `json:"requestId"`
-	UUID      string          `json:"uuid"`
-	Timestamp string          `json:"timestamp"`
-	Message   json.RawMessage `json:"message"`
+	Type       string          `json:"type"`
+	Attachment json.RawMessage `json:"attachment"`
+	Cwd        string          `json:"cwd"`
+	SessionID  string          `json:"sessionId"`
+	RequestID  string          `json:"requestId"`
+	UUID       string          `json:"uuid"`
+	Timestamp  string          `json:"timestamp"`
+	Message    json.RawMessage `json:"message"`
 }
 
 type message struct {
@@ -192,6 +261,33 @@ type iteration struct {
 	Model string `json:"model"`
 }
 
+// claudeState is what the Claude parser keeps between the lines of a
+// transcript and, saved, between ingest runs.
+type claudeState struct {
+	// Org is the organization of the latest credential_org attachment read in
+	// this file: the organization Claude Code's credential belongs to from
+	// that line on. Claude Code writes one when a session starts or resumes,
+	// at intervals, and after a /login switches organization.
+	Org string `json:"org,omitempty"`
+}
+
+func claudeStateOf(file *FileState) *claudeState {
+	if state, ok := file.cache.(*claudeState); ok {
+		return state
+	}
+	state := &claudeState{}
+	if len(file.Saved) > 0 {
+		_ = json.Unmarshal(file.Saved, state) // damaged state reads as empty
+	}
+	file.cache = state
+	return state
+}
+
+// ParseRevision changes when Parse learns to read something from lines it
+// has already read: ingest then reads every Claude Code transcript again from
+// the start, once. "2" reads credential_org attachments.
+func (claude) ParseRevision() string { return "2" }
+
 // decode fills v from raw, tolerating fields of the wrong type (they stay
 // zero) but not a syntax error.
 func decode(raw []byte, v any) bool {
@@ -204,9 +300,12 @@ func decode(raw []byte, v any) bool {
 // plus one row per advisor call. An advisor runs on another model and its
 // usage appears only in usage.iterations (type "advisor_message"), never in
 // the top-level counts; it is keyed <request id>:<iteration index>, which
-// stays stable as later records of the same request add iterations.
+// stays stable as later records of the same request add iterations. A row
+// after a credential_org attachment is that organization's: its
+// subscription, and the email signed in to it (AccountKey).
 func (claude) Parse(line []byte, file *FileState) []Usage {
-	if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`"cwd"`)) {
+	if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`"cwd"`)) &&
+		!bytes.Contains(line, []byte(`"credential_org"`)) {
 		return nil
 	}
 	var rec record
@@ -215,6 +314,20 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 	}
 	if rec.Cwd != "" {
 		file.LastCwd = rec.Cwd
+	}
+	if rec.Type == "attachment" {
+		var attachment struct {
+			Type string `json:"type"`
+			Org  string `json:"organizationUuid"`
+		}
+		if decode(rec.Attachment, &attachment) && attachment.Type == "credential_org" &&
+			attachment.Org != "" {
+			if state := claudeStateOf(file); state.Org != attachment.Org {
+				state.Org = attachment.Org
+				file.Saved, _ = json.Marshal(state)
+			}
+		}
+		return nil
 	}
 	if rec.Type != "assistant" {
 		return nil
@@ -247,6 +360,10 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		Root:      rec.SessionID,
 		RequestID: id,
 		Model:     model,
+	}
+	if org := claudeStateOf(file).Org; org != "" {
+		base.Subscription, base.SubscriptionEvidence = "claude:"+org, EvidenceTranscript
+		base.AccountKey = org
 	}
 	response := base
 	u.fill(&response)

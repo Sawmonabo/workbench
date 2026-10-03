@@ -88,13 +88,26 @@ func AccountName(account, label string) string {
 	return account + " · " + label
 }
 
-// Display is how the report names the row: an account row as AccountName, any
+// Display is how the report names the row: an account row as AccountName,
+// saying which part its tool's transcripts did not record ("you@example.com ·
+// plan not recorded", "account not recorded · Pro", "not recorded"); any
 // other by its Name.
 func (r Row) Display() string {
 	if r.Subscription == "" {
 		return r.Name
 	}
-	return AccountName(r.Name, r.SubscriptionLabel)
+	account, label := r.Name, r.SubscriptionLabel
+	noAccount := account == "" || account == "unknown"
+	noPlan := label == unknownSubscription
+	switch {
+	case noAccount && noPlan:
+		return "not recorded"
+	case noAccount:
+		account = "account not recorded"
+	case noPlan:
+		label = "plan not recorded"
+	}
+	return AccountName(account, label)
 }
 
 // Block is one project of a --detail report with its own model rows.
@@ -110,10 +123,16 @@ type Coverage struct {
 	Responses            int64    `json:"responses"`
 	AccountEvidence      Evidence `json:"account_evidence"`      // rows by the evidence of their email
 	SubscriptionEvidence Evidence `json:"subscription_evidence"` // and of their subscription
-	LastIngestAt         string   `json:"last_ingest_at"`
-	LastIngestSummary    string   `json:"last_ingest_summary"`
-	LastError            string   `json:"last_error"`
-	RatesFetched         string   `json:"rates_fetched"` // YYYY-MM-DD, or "never"
+	// AccountNamedSince and SubscriptionNamedSince are the time of the first
+	// row whose transcript named its email, and its subscription (ledger
+	// layout, "" when none did): what the tool's transcripts record starts
+	// there.
+	AccountNamedSince      string `json:"account_named_since"`
+	SubscriptionNamedSince string `json:"subscription_named_since"`
+	LastIngestAt           string `json:"last_ingest_at"`
+	LastIngestSummary      string `json:"last_ingest_summary"`
+	LastError              string `json:"last_error"`
+	RatesFetched           string `json:"rates_fetched"` // YYYY-MM-DD, or "never"
 }
 
 // Evidence counts rows by the level of evidence one field of them rests on.
@@ -405,6 +424,15 @@ func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) 
 		return c, err
 	}
 	c.First, c.Last = dateOf(first), dateOf(last)
+	var account, subscription string
+	if err := ledger.db.QueryRow(`SELECT
+		  COALESCE(MIN(CASE WHEN account_source = ?2 THEN ts END), ''),
+		  COALESCE(MIN(CASE WHEN subscription_source = ?2 THEN ts END), '')
+		FROM responses WHERE tool = ?1`, tool, EvidenceTranscript,
+	).Scan(&account, &subscription); err != nil {
+		return c, err
+	}
+	c.AccountNamedSince, c.SubscriptionNamedSince = account, subscription
 	rows, err := ledger.db.Query(
 		`SELECT account_source, subscription_source, COUNT(*) FROM responses
 		  WHERE tool = ? GROUP BY 1, 2`, tool,

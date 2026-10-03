@@ -421,6 +421,41 @@ func (l *Ledger) readSince(text, since string) bool {
 	).Scan(&one) == nil
 }
 
+// parseRevisionKey is the meta key of the parser revision tool's
+// transcripts were last read with (reparser).
+func parseRevisionKey(tool string) string { return "parse_revision:" + tool }
+
+// ForgetFiles makes ingest read again from the start every transcript under
+// roots, once: when revision is not the one stored for tool it forgets where
+// ingest stopped in those files and stores revision, in one transaction, so a
+// run that stops half-way does not start the re-read over. The rows stay; a
+// re-read rewrites them under the same keys.
+func (l *Ledger) ForgetFiles(ctx context.Context, tool, revision string, roots []string) error {
+	return l.transact(ctx, func(tx *sql.Tx) error {
+		var stored string
+		err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", parseRevisionKey(tool)).
+			Scan(&stored)
+		switch {
+		case errors.Is(err, sql.ErrNoRows):
+		case err != nil:
+			return err
+		case stored == revision:
+			return nil
+		}
+		for _, root := range roots {
+			root = filepath.Clean(root)
+			if _, err := tx.ExecContext(
+				ctx,
+				"DELETE FROM files WHERE instr(path, ?) = 1",
+				root+string(filepath.Separator),
+			); err != nil {
+				return err
+			}
+		}
+		return setMeta(ctx, tx, parseRevisionKey(tool), revision)
+	})
+}
+
 // DeleteFile forgets a transcript that no longer exists.
 func (l *Ledger) DeleteFile(path string) error {
 	_, err := l.db.Exec("DELETE FROM files WHERE path = ?", path)
@@ -1216,6 +1251,9 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 			return err
 		}
 		dirty = append(dirty, moved...)
+		if err := fillSessionPlans(ctx, tx); err != nil {
+			return err
+		}
 		basis, err := loadAccountBasis(ctx, tx)
 		if err != nil {
 			return err
@@ -1266,6 +1304,127 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 		}
 		return finishAccounts(ctx, tx, basis)
 	})
+}
+
+// fillSessionPlans gives a row of a tool with a SessionPlan, whose
+// transcript names no subscription, the one its session's transcript names
+// there (Tool.SessionPlan), as transcript evidence; with it the email of that
+// row, when its transcript named that and the row's own evidence for the email
+// is weaker. A Codex row looks in its own thread, a Claude Code row in its
+// root session, whose subagents run in its process. A session start or resume
+// a hook bound between the two rows may be another process under another
+// sign-in, so a row never takes a subscription across one. Only sessions that
+// hold rows of both kinds are read.
+func fillSessionPlans(ctx context.Context, tx *sql.Tx) error {
+	type planRow struct {
+		id, group, root, ts, subscription, account string
+		named, emailNamed                          bool
+		accountRank                                int
+	}
+	for _, tool := range Tools {
+		if tool.SessionPlan == "" {
+			continue
+		}
+		group := "root"
+		if tool.SessionPlan == planNext {
+			group = "session_id"
+		}
+		bound, err := sessionStarts(ctx, tx, tool.Name)
+		if err != nil {
+			return err
+		}
+		rows, err := tx.QueryContext(ctx, `
+			WITH mixed AS (
+			  SELECT `+group+` FROM responses WHERE tool = ?1 GROUP BY `+group+`
+			  HAVING MAX(subscription_source = '`+EvidenceTranscript+`') = 1
+			     AND MIN(subscription_source = '`+EvidenceTranscript+`') = 0)
+			SELECT request_id, `+group+`, root, ts, subscription,
+			       subscription_source = '`+EvidenceTranscript+`',
+			       account, account_source = '`+EvidenceTranscript+`', `+evidenceRank("account_source")+`
+			FROM responses WHERE tool = ?1 AND `+group+` IN (SELECT `+group+` FROM mixed)
+			ORDER BY `+group+`, ts, request_id`, tool.Name)
+		if err != nil {
+			return err
+		}
+		var all []planRow
+		for rows.Next() {
+			var r planRow
+			if err := rows.Scan(&r.id, &r.group, &r.root, &r.ts, &r.subscription, &r.named,
+				&r.account, &r.emailNamed, &r.accountRank); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			all = append(all, r)
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		if tool.SessionPlan == planNext {
+			slices.Reverse(all)
+		}
+		var from *planRow
+		for i := range all {
+			r := &all[i]
+			if from != nil && from.group != r.group {
+				from = nil
+			}
+			if r.named {
+				from = r
+				continue
+			}
+			if from == nil || bound.between(r.root, from.ts, r.ts) {
+				continue
+			}
+			account, accountSource := r.account, ""
+			if from.emailNamed && r.accountRank < EvidenceRank(EvidenceTranscript) {
+				account, accountSource = from.account, EvidenceTranscript
+			}
+			if _, err := tx.ExecContext(ctx,
+				`UPDATE responses SET subscription = ?, subscription_source = ?,
+				   account = ?, account_source = COALESCE(NULLIF(?, ''), account_source)
+				 WHERE request_id = ?`,
+				from.subscription, EvidenceTranscript, account, accountSource, r.id,
+			); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// boundTimes are the times hooks bound each root session of a tool, in order.
+type boundTimes map[string][]string
+
+func sessionStarts(ctx context.Context, tx *sql.Tx, tool string) (boundTimes, error) {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT session, since FROM session_accounts WHERE tool = ? ORDER BY session, since", tool)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	bound := boundTimes{}
+	for rows.Next() {
+		var session, since string
+		if err := rows.Scan(&session, &since); err != nil {
+			return nil, err
+		}
+		bound[session] = append(bound[session], since)
+	}
+	return bound, rows.Err()
+}
+
+// between reports whether root was bound after the earlier of a and b and at
+// or before the later one.
+func (b boundTimes) between(root, x, y string) bool {
+	lo, hi := min(x, y), max(x, y)
+	times := b[root]
+	i := sort.SearchStrings(times, lo)
+	for ; i < len(times) && times[i] == lo; i++ {
+	}
+	return i < len(times) && times[i] <= hi
 }
 
 // maxThreadDepth bounds a walk up thread_parents, so a cycle that damaged

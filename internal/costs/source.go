@@ -44,15 +44,34 @@ type accountDirectory interface {
 	Accounts(home string) map[string]string
 }
 
+// labelDirectory is a source whose transcripts name a subscription by id but
+// not its label: Labels maps each id a sign-in on disk holds to the label the
+// report shows. Ingest uses it for rows whose transcript names the
+// subscription.
+type labelDirectory interface {
+	Labels(home string) map[string]string
+}
+
+// reparser is a source whose parser can learn to read more from lines it has
+// already read. When ParseRevision differs from the one the ledger stored,
+// ingest forgets where it stopped in the tool's transcripts and reads them
+// again from the start, once; a re-read rewrites the same rows, with the
+// stronger evidence it now finds.
+type reparser interface {
+	ParseRevision() string
+}
+
 // The evidence the account (email) and the subscription of a row each rest on,
 // strongest first; the ledger stores them as account_source and
 // subscription_source. A stronger copy of a row replaces a weaker one for that
 // field, an equal one keeps the stored value.
 const (
-	EvidenceTranscript = "transcript" // the transcript named it (Codex: the plan, the creator account)
-	EvidenceSession    = "session"    // the sign-in a hook bound to the row's root session
-	EvidenceObserved   = "observed"   // the sign-in observed on both sides of the row's time
-	EvidenceUnknown    = "unknown"    // no evidence (an upgraded row keeps the email an earlier build stored)
+	// the transcript named it (Codex: the plan, the creator account; Claude
+	// Code: the organization)
+	EvidenceTranscript = "transcript"
+	EvidenceSession    = "session"  // the sign-in a hook bound to the row's root session
+	EvidenceObserved   = "observed" // the sign-in observed on both sides of the row's time
+	EvidenceUnknown    = "unknown"  // no evidence (an upgraded row keeps the email an earlier build stored)
 )
 
 // EvidenceRank orders the evidence levels: 3 transcript, 2 session, 1 observed,
@@ -92,8 +111,9 @@ type Usage struct {
 
 	// Subscription is the stable id of what paid for the row, and
 	// SubscriptionLabel its display label (see SignIn); a source sets them
-	// only when its transcript names the plan (Codex), else ingest fills them
-	// from a sign-in. A parser's Subscription is final: re-attribution never
+	// only when its transcript names the plan (Codex's plan_type, Claude Code's
+	// organization), else ingest fills them from a sign-in. Ingest fills an
+	// empty label through labelDirectory. A parser's Subscription is final: re-attribution never
 	// changes the subscription of a row whose SubscriptionEvidence is EvidenceTranscript.
 	Subscription, SubscriptionLabel string
 
@@ -105,8 +125,9 @@ type Usage struct {
 	Root string
 
 	// AccountKey is the tool's own id of the account that answered, when the
-	// transcript names it (Codex's creator_account_id, the ChatGPT account id),
-	// "" otherwise. Ingest resolves it to an email through accountDirectory.
+	// transcript names it (Codex's creator_account_id, the ChatGPT account id;
+	// Claude Code's credential_org, the organization uuid), "" otherwise.
+	// Ingest resolves it to an email through accountDirectory.
 	AccountKey string
 
 	// SubscriptionEvidence is "transcript" when the source decided the
@@ -221,6 +242,11 @@ type Tool struct {
 	CacheWrites []string // the report's cache-write column heads: one per cache lifetime the tool bills
 	PriceNote   string   // what the figures are, under the total
 	PricePage   string   // whose price page PricingURL is, for the unpriced note
+	// SessionPlan is where a row whose transcript names no subscription takes
+	// the one its session's transcript names (fillSessionPlans): "next", the
+	// first named at or after it; "earlier", the latest named at or before
+	// it; "" nowhere.
+	SessionPlan string
 	// Tiers is whether the tool's model ids carry a service tier after "@",
 	// which only its source composes; any other tool's ids are read as they
 	// are, so a vendor id such as "foo@latest" is never split.
@@ -236,6 +262,12 @@ func (t Tool) SplitModel(model string) (base, tier string) {
 	return splitTier(model)
 }
 
+// The values of Tool.SessionPlan.
+const (
+	planNext    = "next"
+	planEarlier = "earlier"
+)
+
 // Tools is every tab, in order.
 var Tools = []Tool{
 	{
@@ -243,6 +275,9 @@ var Tools = []Tool{
 		CacheWrites: []string{"cache 5m", "cache 1h"},
 		PriceNote:   "API list-price equivalent, not a subscription bill",
 		PricePage:   "Anthropic's price page",
+		// A subagent runs in its parent's process, under the credential the
+		// parent's latest credential_org names, and its own file may name none.
+		SessionPlan: planEarlier,
 	},
 	{
 		Name: "codex", Title: "Codex", Source: codex{},
@@ -250,6 +285,9 @@ var Tools = []Tool{
 		PriceNote:   "OpenAI API list-price equivalent, not a ChatGPT plan bill",
 		PricePage:   "OpenAI's price page",
 		Tiers:       true,
+		// rate_limits, which names the plan, can be null in a thread's first
+		// token counts; the thread names its plan a few responses later.
+		SessionPlan: planNext,
 	},
 }
 
