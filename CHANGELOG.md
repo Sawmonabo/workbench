@@ -3,6 +3,50 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.10](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.10) - 2026-10-03
+
+### Features
+
+- Draw the plan as one grouped view with a detail panel, full-screen diffs and mouse
+- Ask once, then apply the saved choices unless something new needs deciding
+- Give each planned file a title, merged or owned, line counts and a capped diff
+
+### Fixes
+
+- Never prompt or apply unasked for a coding agent, even in a pseudo-terminal
+- Cap every Windows call at 60 s, let one failing call block only its step and clean up behind the calls
+- Judge a setting by its own key name and mask more credential shapes in the diff and the settings list
+- Keep the macOS package probe from fetching Homebrew data, and allow the masking test's made-up token
+- A step whose check could not finish says so on its row
+- Say "could not check" when a Windows call gives no answer instead of showing a change
+- Mask the value after a credential flag in mixed lists and label hidden hashes in the settings list
+- Keep the service tier Codex's /fast toggle chose instead of resetting it on apply
+- List the settings a merge changes instead of a line diff of the re-ordered file
+- Draw steps with nothing to change without a box, make --reset forget decided, and cap the font registry read at 3 s
+- Never apply unasked without a terminal, record only what was shown to decide, and tidy the plan view
+- Make the Terminal part idempotent, cap the PowerShell call, and keep the .wslconfig probe in line with its merge
+- Count moved lines in file diffs and mask more credential shapes in them
+- Hide new folders, skip prompts for undecided effects with nothing to change, and keep Already set text whole
+- Keep the RestartWSL helper's own shutdown prompt
+- Show every group in --dry-run and the final frame, compact only for the no-prompt run
+- Cap the slow Windows probe calls and let only the parts write Terminal and PowerShell files
+
+### Documentation
+
+- Rewrap the apply paragraph
+- Describe the decided list, terminal rule, per-key WSL preview and the changed Terminal copy
+- Describe decide-once apply, the new plan view and observed checks
+- Fold the approved plan view into the plan-selection spec
+- Specify decide-once apply, host-relevant effects and one plan view
+
+### Maintenance
+
+- Wire the plan view to the consent flow and keep each Windows part's own choice
+- No-change probe lines, one Windows call per script, no prompts, self-sufficient Windows parts
+- Plain wording for every effect, plain probe notes and a 15 s probe limit
+- Add the plain-words fields and the detail and diff renderers to the contract
+- Add the decide-once contract: decided, no-change probes and one plan renderer
+
 ## [v0.1.9](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.9) - 2026-10-01
 
 ### Features
