@@ -1,3 +1,21 @@
+# The extensions to install, each part only when its own effect is ticked: the
+# canonical list with the platform's editor effect, the work editor extension
+# with work-tools. The variables are 1 when run without Workbench. With nothing
+# ticked no editor is looked up or launched.
+extensions=()
+{{- if eq .chezmoi.os "darwin" }}
+if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
+{{- else }}
+if [ "${WORKBENCH_EFFECT_LINUX_EDITOR_EXTENSIONS:-1}" = 1 ]; then
+{{- end }}
+    extensions+=({{ range .packages.vscode_extensions }} '{{ . }}'{{ end }} )
+fi
+{{- if .has_work }}
+if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
+    extensions+=(jasonn-porch.gitlab-mr)
+fi
+{{- end }}
+if [ ${#extensions[@]} -gt 0 ]; then
 # Resolve the actual desktop installation without launching an editor/server.
 # Explicit directories below select its local default profile, never a remote.
 # Exit 3 means there is no local desktop to install into (none on PATH, or the
@@ -54,7 +72,7 @@ else
     # Install only what is missing; extension IDs compare without case.
     installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]')
     missing=()
-    for extension in{{ range .packages.vscode_extensions }} '{{ . }}'{{ end }}{{ if .has_work }} jasonn-porch.gitlab-mr{{ end }}; do
+    for extension in "${extensions[@]}"; do
         if ! printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
             missing+=("$extension")
         fi
@@ -71,4 +89,5 @@ else
         printf '    WARNING: could not install VS Code extension %s\n' "${failed_extensions[@]}" >&2
         status=1
     fi
+fi
 fi

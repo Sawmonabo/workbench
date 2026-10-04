@@ -17,6 +17,14 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// updateEffectPrefix starts the name of every update effect: update-<package>.
+// updatesScript is the script that carries them out, together with the apps and
+// extensions; see selectScripts.
+const (
+	updateEffectPrefix = "update-"
+	updatesScript      = "50-apps-and-extensions"
+)
+
 // brewUpdate is a listed Homebrew package older than Homebrew's current
 // version: an app (cask) or a command-line tool (formula).
 type brewUpdate struct {
@@ -68,7 +76,7 @@ func (p *preparation) planUpdates(
 	var kept, carried, unread []string
 	for _, update := range updates {
 		effect := operation.Effect{
-			Name: "update-" + update.name,
+			Name: updateEffectPrefix + update.name,
 			Description: "Update " + update.name + " " + update.installed + " → " +
 				update.latest + " through Homebrew",
 			Delta:     update.installed + " → " + update.latest,

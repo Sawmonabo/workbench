@@ -973,8 +973,10 @@ func readBlocked(path string, effects []operation.Effect) map[string]string {
 // new. A script that stays but has an unchecked owner gets a comment naming the
 // unchecked effects, so its content, which chezmoi hashes to decide whether a
 // run-once or on-change script ran, differs from the fully checked one: the
-// effect's section runs when it is checked later. The plan's source identity
-// and digest are computed from the unmodified source before this runs.
+// effect's section runs when it is checked later. A checked update effect
+// owns the script that runs updates (see [updatesScript]) like a listed effect.
+// The plan's source identity and digest are computed from the unmodified source
+// before this runs.
 func (p *preparation) selectScripts() error {
 	checked, listed := map[string]bool{}, map[string]bool{}
 	for _, effect := range p.Plan.Effects {
@@ -991,6 +993,15 @@ func (p *preparation) selectScripts() error {
 		}
 		script := strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".sh.tmpl")
 		owners := scriptEffects(script)
+		if script == updatesScript {
+			// A checked update keeps the script that runs it, even with the
+			// apps and the work extension unchecked.
+			for _, effect := range p.Plan.Effects {
+				if strings.HasPrefix(effect.Name, updateEffectPrefix) {
+					owners = append(owners, effect.Name)
+				}
+			}
+		}
 		if len(owners) == 0 {
 			return nil
 		}
@@ -1042,7 +1053,7 @@ func (p *preparation) checkedUpdates(names []string) []string {
 	var kept []string
 	for _, name := range names {
 		for _, effect := range p.Plan.Effects {
-			if effect.Name == "update-"+name && effect.Checked {
+			if effect.Name == updateEffectPrefix+name && effect.Checked {
 				kept = append(kept, name)
 			}
 		}
