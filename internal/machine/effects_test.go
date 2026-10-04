@@ -35,19 +35,21 @@ func TestSavedSelectionNeverChecksASkippedEffect(t *testing.T) {
 
 // Native keeps a script that several effects share while any one of them is
 // checked, so the script itself has to skip the sections of the ones that are
-// not. Unticking Homebrew packages must not run the sudo Homebrew installer, and
+// not. Unticking Homebrew packages must not run the sudo Homebrew installer,
 // unticking Mac apps or Work tools must not install apps, the work extension or
-// the Bitwarden CLI: with an approved plan there is no prompt left to stop them.
-// The flag above is not enough, because the script is what runs. Every shared
-// macOS and Linux script, with the shared templates it includes, must read each
-// owner's switch with the default 1 that keeps a direct chezmoi run working.
+// the Bitwarden CLI, and a Windows part left off must not replace Windows files:
+// with an approved plan there is no prompt left to stop them. The flag above is
+// not enough, because the script is what runs. Every shared script, with the
+// shared templates it includes, must read each owner's switch: with the default
+// 1 that keeps a direct chezmoi run working for the steps that are on by
+// default, and 0 or empty for the optional ones.
 func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 	home := filepath.Join("..", "..", "home")
 	platforms := map[string][]operation.Effect{
 		"darwin": append(slices.Clone(macOSEffects), workToolsEffect),
 		"linux":  {linuxPackagesEffect, linuxEditorEffect, workToolsEffect},
+		"wsl":    append(slices.Clone(windowsHostEffects), optionalEffects...),
 	}
-	include := regexp.MustCompile(`includeTemplate "\.chezmoitemplates/([^"]+)"`)
 	shared := 0
 	for platform, effects := range platforms {
 		paths, err := filepath.Glob(
@@ -59,43 +61,31 @@ func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 		for _, path := range paths {
 			base := filepath.Base(path)
 			script := strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".sh.tmpl")
-			var owners []string
-			for _, effect := range effects {
-				if slices.Contains(effectSources[effect.Name], script) {
-					owners = append(owners, effect.Name)
-				}
-			}
+			owners := slices.DeleteFunc(slices.Clone(effects), func(effect operation.Effect) bool {
+				return !slices.Contains(effectSources[effect.Name], script)
+			})
 			if len(owners) < 2 {
 				continue
 			}
 			shared++
-			text, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
-			}
-			code := string(text)
-			for _, match := range include.FindAllStringSubmatch(string(text), -1) {
-				partial, err := os.ReadFile(filepath.Join(home, ".chezmoitemplates", match[1]))
-				if err != nil {
-					t.Fatal(err)
-				}
-				code += "\n" + string(partial)
-			}
-			// Only code counts: a comment naming the switch gates nothing.
-			var lines []string
-			for line := range strings.SplitSeq(code, "\n") {
-				if !strings.HasPrefix(strings.TrimSpace(line), "#") {
-					lines = append(lines, line)
-				}
-			}
-			code = strings.Join(lines, "\n")
+			code := scriptCode(t, home, path)
 			for _, owner := range owners {
-				if !strings.Contains(code, "${"+effectVariable(owner)+":-1}") {
+				fallback := "1"
+				if slices.ContainsFunc(
+					optionalEffects,
+					func(e operation.Effect) bool { return e.Name == owner.Name },
+				) {
+					fallback = "0?"
+				}
+				gate := regexp.MustCompile(
+					`\$\{` + effectVariable(owner.Name) + `:-` + fallback + `\}`,
+				)
+				if !gate.MatchString(code) {
 					t.Errorf(
 						"%s runs a section of %s without checking %s",
 						base,
-						owner,
-						effectVariable(owner),
+						owner.Name,
+						effectVariable(owner.Name),
 					)
 				}
 			}
@@ -104,6 +94,32 @@ func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 	if shared == 0 {
 		t.Fatal("found no shared script to check")
 	}
+}
+
+// scriptCode is the code of the template at path and of the shared templates
+// it includes, without comment lines: a comment naming a switch gates nothing.
+func scriptCode(t *testing.T, home, path string) string {
+	t.Helper()
+	text, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	code := string(text)
+	include := regexp.MustCompile(`includeTemplate "\.chezmoitemplates/([^"]+)"`)
+	for _, match := range include.FindAllStringSubmatch(code, -1) {
+		partial, err := os.ReadFile(filepath.Join(home, ".chezmoitemplates", match[1]))
+		if err != nil {
+			t.Fatal(err)
+		}
+		code += "\n" + string(partial)
+	}
+	var lines []string
+	for line := range strings.SplitSeq(code, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "#") {
+			lines = append(lines, line)
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // Windows setup is on by default, and three of its parts replace the owner's own
