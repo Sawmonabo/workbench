@@ -136,13 +136,16 @@ func (r *Inventory) resolve(ctx context.Context) error {
 			r.Warnings = append(r.Warnings, "Nested repository excluded: "+item.Path)
 			continue
 		}
+		// Only manifests are read here. Lockfiles and standalone configuration are
+		// read, bounded and bound as plan inputs on demand by the owner checks, so
+		// an unrelated lockfile of another language neither blocks nor pins a plan.
+		if item.Kind != "manifest" {
+			continue
+		}
 		path := filepath.Join(r.Directory, filepath.FromSlash(item.Path))
 		data, err := r.read(path)
 		if err != nil {
 			return err
-		}
-		if item.Kind != "manifest" {
-			continue
 		}
 		project, err := r.manifestProject(path, item.Ecosystem, data)
 		if err != nil {
