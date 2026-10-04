@@ -735,7 +735,7 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 // periodClauses are the WHERE clauses and arguments for inclusive YYYY-MM-DD
 // bounds on a response's local day, "" for no bound: ts from the first day's
 // local midnight up to, not including, the next local midnight after the last
-// day. They compare ts itself, so the responses_ts index serves them.
+// day, and dated. They compare ts itself, so the responses_ts index serves them.
 func periodClauses(since, until string) (clauses []string, args []any, err error) {
 	for _, bound := range []struct {
 		flag, day, clause string
@@ -753,6 +753,12 @@ func periodClauses(since, until string) (clauses []string, args []any, err error
 		}
 		clauses = append(clauses, bound.clause)
 		args = append(args, start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout))
+	}
+	if len(clauses) > 0 {
+		// An undated response ('') sorts before every day, so `ts < ?` alone
+		// would count it under --until while --since leaves it out. A period
+		// covers dated responses only.
+		clauses = append(clauses, "ts <> ''")
 	}
 	return clauses, args, nil
 }

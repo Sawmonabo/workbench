@@ -405,7 +405,12 @@ func firstNonEmpty(values ...string) string {
 }
 
 // Observations are the (tokens, costUSD) pairs Claude Code keeps per project
-// and model in .claude.json (lastModelUsage), for calibration.
+// and model in .claude.json (lastModelUsage), for calibration. Those records do
+// not separate fast mode, so a model's pairs can mix standard and fast cost.
+// That cannot misprice a response: mixes in differing proportions miss the
+// five percent residual and calibrate nothing, and a model used only in fast
+// mode calibrates a standard rate that no standard response of it uses, while
+// its "@fast" responses take the fast rows.
 func (claude) Observations(home string) []Observation {
 	var data struct {
 		Projects map[string]struct {
