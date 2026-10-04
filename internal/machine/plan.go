@@ -146,7 +146,6 @@ func prepare(
 			return prepared, retentionErr
 		}
 		if retention != nil {
-			retention.Fixed, retention.Checked = true, true
 			plan.Effects = append(plan.Effects, *retention)
 		}
 	}

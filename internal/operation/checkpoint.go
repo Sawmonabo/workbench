@@ -192,7 +192,7 @@ func BeginCheckpoint(
 	plan Plan,
 	before *SourceIdentity,
 	changes []TargetChange,
-) (*Checkpoint, error) {
+) (_ *Checkpoint, err error) {
 	if err := m.Check(); err != nil {
 		return nil, err
 	}
@@ -217,6 +217,13 @@ func BeginCheckpoint(
 		directory: filepath.Join(checkpointScope(c), ".prepare-"+id),
 		changes:   changes,
 	}
+	// A failed reservation holds no recovery data: no target was written
+	// against it. Discard it so it cannot block later applies.
+	defer func() {
+		if err != nil {
+			_ = discardPrepared(c, cp.directory)
+		}
+	}()
 	cp.record = checkpointRecord{
 		SchemaVersion: 1,
 		ID:            id,
@@ -258,24 +265,33 @@ func BeginCheckpoint(
 	return cp, nil
 }
 
-// publish reserves journal and recovery space, writes the record and both
+// discardPrepared removes a reservation directory that never published.
+func discardPrepared(c Context, directory string) error {
+	base := filepath.Base(directory)
+	if !strings.HasPrefix(base, ".prepare-") {
+		return nil
+	}
+	if _, err := os.Lstat(directory); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	return removeDirectory(
+		directory,
+		filepath.Dir(checkpointScope(c)),
+		".removed-"+strings.TrimPrefix(base, ".prepare-"),
+	)
+}
+
+// publish reserves journal space, writes the record and both
 // journal slots, then renames the prepared directory into the scope durably.
 func (cp *Checkpoint) publish() error {
 	m := cp.mutation
-	// Allocate bounded writable journal space and two independent metadata
-	// replacement reserves before target writes. Never delete these for capacity.
-	reserves := []string{
-		"journal-0.json",
-		"journal-1.json",
-		"recovery-reserve-0",
-		"recovery-reserve-1",
-	}
-	for _, name := range reserves {
-		size := journalBytes
-		if name[0] == 'r' {
-			size = 1 << 20
-		}
-		space := bytes.Repeat([]byte(" "), size)
+	// Allocate bounded writable journal space before target writes so journal
+	// updates are rewritten in place. Never delete these for capacity.
+	for _, name := range []string{"journal-0.json", "journal-1.json"} {
+		space := bytes.Repeat([]byte(" "), journalBytes)
 		if err := m.WritePrivate(filepath.Join(cp.directory, name), space); err != nil {
 			return err
 		}
@@ -347,8 +363,10 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 	return preflightDirectories(c, changes, false)
 }
 
-// makeRoom refuses while a reservation or an incomplete checkpoint needs
-// review, then removes the plan-approved oldest checkpoint at the limit.
+// makeRoom discards leftover failed reservations, then removes the
+// plan-approved oldest checkpoint at the limit. Incomplete checkpoints do not
+// block: checkApproved already ties the new plan to the targets' current
+// images, and the older checkpoint keeps its images and stays revertable.
 func makeRoom(c Context, plan Plan) error {
 	existing, err := loadCheckpoints(c)
 	if err != nil {
@@ -358,25 +376,14 @@ func makeRoom(c Context, plan Plan) error {
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
+	// The held exclusive lock means no reservation is in progress, and a
+	// .prepare- directory never had targets written against it.
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".prepare-") {
-			return Fail(
-				ExitBlocked,
-				"checkpoint",
-				"A failed checkpoint reservation requires review before further application; retained checkpoints remain recoverable",
-			)
-		}
-	}
-	for _, old := range existing {
-		if slices.Contains(
-			[]JournalStatus{JournalRunning, JournalUnknown, JournalPartial},
-			old.journal.Status,
-		) {
-			return Fail(
-				ExitBlocked,
-				"recovery",
-				"Resolve the retained incomplete checkpoint before further application",
-			)
+		name := entry.Name()
+		if entry.IsDir() && strings.HasPrefix(name, ".prepare-") {
+			if err = discardPrepared(c, filepath.Join(checkpointScope(c), name)); err != nil {
+				return err
+			}
 		}
 	}
 	if len(existing) >= MaxForwardCheckpoints {
@@ -737,9 +744,10 @@ func LastApplied(c Context) (map[string]Image, error) {
 }
 
 // RetentionEffect names the checkpoint that a new forward checkpoint replaces
-// once the scope holds MaxForwardCheckpoints: the oldest settled one. Plans
-// list it so consent covers the removal. Running, partial and unknown
-// checkpoints and the recorded partial operation are never candidates.
+// once the scope holds MaxForwardCheckpoints: the oldest settled one, else the
+// oldest incomplete one superseded by a newer completed checkpoint. Plans list
+// it so consent covers the removal. The checkpoint named by the recorded
+// partial operation is never a candidate.
 func RetentionEffect(c Context) (*Effect, error) {
 	oldest, err := retentionCandidate(c)
 	if oldest == nil || err != nil {
@@ -750,20 +758,28 @@ func RetentionEffect(c Context) (*Effect, error) {
 }
 
 func retentionEffect(cp *Checkpoint) Effect {
+	kind := "settled"
+	if cp.journal.Status != JournalComplete && cp.journal.Status != JournalFailed {
+		kind = "superseded incomplete"
+	}
 	return Effect{
 		Name: "checkpoint-retention",
 		Description: fmt.Sprintf(
-			"Remove checkpoint %s from %s, the oldest settled of %d retained, with its paired recovery record",
+			"Remove checkpoint %s from %s, the oldest %s of %d retained, with its paired recovery record",
 			cp.ID,
 			cp.record.Created.Format(time.RFC3339),
+			kind,
 			MaxForwardCheckpoints,
 		),
 		Privilege: "user",
+		Fixed:     true,
+		Checked:   true,
 		Recovery:  "the removed checkpoint can no longer be restored",
 		Title:     "Remove the oldest checkpoint",
 		Summary:   fmt.Sprintf("keeps the %d most recent", MaxForwardCheckpoints),
 		What: fmt.Sprintf(
-			"Removes the oldest settled checkpoint, %s, with its paired recovery record, to make room for this apply. Workbench keeps %d.",
+			"Removes the oldest %s checkpoint, %s, with its paired recovery record, to make room for this apply. Workbench keeps %d.",
+			kind,
 			cp.ID,
 			MaxForwardCheckpoints,
 		),
@@ -782,19 +798,39 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	var oldest *Checkpoint
+	// A running, partial or unknown checkpoint is superseded once a newer
+	// checkpoint in the scope completed: later applies no longer wait on it.
+	var newestComplete time.Time
 	for _, cp := range checkpoints {
-		settled := cp.journal.Status == JournalComplete || cp.journal.Status == JournalFailed
-		if !settled ||
-			state != nil && state.PartialOperation != nil &&
-				state.PartialOperation.ID == cp.journal.OperationID {
-			continue
-		}
-		if oldest == nil || cp.record.Created.Before(oldest.record.Created) {
-			oldest = cp
+		if cp.journal.Status == JournalComplete && cp.record.Created.After(newestComplete) {
+			newestComplete = cp.record.Created
 		}
 	}
-	return oldest, nil
+	var settled, superseded *Checkpoint
+	for _, cp := range checkpoints {
+		if state != nil && state.PartialOperation != nil &&
+			state.PartialOperation.ID == cp.journal.OperationID {
+			continue
+		}
+		slot := &settled
+		switch cp.journal.Status {
+		case JournalComplete, JournalFailed:
+		case JournalRunning, JournalPartial, JournalUnknown:
+			if !cp.record.Created.Before(newestComplete) {
+				continue
+			}
+			slot = &superseded
+		default:
+			continue
+		}
+		if *slot == nil || cp.record.Created.Before((*slot).record.Created) {
+			*slot = cp
+		}
+	}
+	if settled != nil {
+		return settled, nil
+	}
+	return superseded, nil
 }
 
 // pruneApproved removes only the checkpoint the approved plan names. A rename
@@ -856,6 +892,9 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 	var result []*Checkpoint
 	var total int64
 	for _, entry := range entries {
+		if !entry.IsDir() && entry.Name() == ".DS_Store" {
+			continue // Finder metadata, never Workbench data.
+		}
 		if entry.IsDir() && strings.HasPrefix(entry.Name(), ".prepare-") &&
 			operationID.MatchString(strings.TrimPrefix(entry.Name(), ".prepare-")) {
 			continue
@@ -864,7 +903,10 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 			return nil, Fail(
 				ExitInvalid,
 				"checkpoint_format",
-				"Unexpected checkpoint entry; no cleanup attempted",
+				"Unexpected checkpoint entry "+filepath.Join(
+					directory,
+					entry.Name(),
+				)+"; no cleanup attempted",
 			)
 		}
 		cp, loadErr := loadCheckpoint(c, filepath.Join(directory, entry.Name()))
@@ -912,6 +954,9 @@ func checkpointStorageBytes(directory string) (int64, error) {
 				return Fail(ExitInvalid, "permissions", "Checkpoint directories require mode 0700")
 			}
 			return owned(info)
+		}
+		if entry.Name() == ".DS_Store" && info.Mode().IsRegular() {
+			return nil // Finder metadata; nothing reads it.
 		}
 		if err = checkPrivateFile(path); err != nil {
 			return err
@@ -965,14 +1010,30 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	if err := validateChanges(c, cp.changes); err != nil {
 		return nil, err
 	}
+	// An interrupted save can tear the slot it was writing. saveJournal syncs
+	// the other slot before any target write that depends on it, so the intact
+	// slot is the last durably recorded state: the same or more cautious. Only
+	// format failures are tolerated; permission and ownership errors mean
+	// tampering and fail at once.
+	var torn error
 	for i := range 2 {
 		j, err := readJournal(directory, i, len(cp.changes))
 		if err != nil {
+			if problem, ok := errors.AsType[*Error](
+				err,
+			); ok &&
+				problem.Category == "checkpoint_format" {
+				torn = err
+				continue
+			}
 			return nil, err
 		}
 		if j.Sequence > cp.journal.Sequence {
 			cp.journal = j
 		}
+	}
+	if cp.journal.Sequence == 0 {
+		return nil, torn
 	}
 	for i := range cp.changes {
 		cp.changes[i].After.Attributes = cp.journal.PostAttributes[i]
