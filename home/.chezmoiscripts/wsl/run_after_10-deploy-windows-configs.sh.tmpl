@@ -180,16 +180,17 @@ Write-Host "You can now use 'Restart WSL.bat' without admin rights." -Foreground
 SETUPSCRIPT
 }
 
-# The same todo-tree path the merge below writes, read without writing.
-todo_tree_is() {
-    python3 - "$1" "todo-tree.ripgrep.ripgrep" "$2" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1], encoding="utf-8-sig") as stream:
-        data = json.load(stream)
-except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(data, dict) and data.get(sys.argv[2]) == sys.argv[3] else 1)
+# The todo-tree path in a VS Code settings.json, one owner for the probe's read
+# and the apply's write (see merge-json.py, which accepts comments in the file):
+#   json_setting check FILE VALUE   0 when the file already has VALUE, 1 when it
+#                                   would change, 3 when it cannot be read
+#   json_setting merge FILE VALUE   sets it and changes nothing else; 3 when the
+#                                   file is refused, with the reason on stderr
+json_setting() {
+    local mode=()
+    [ "$1" != check ] || mode=(--check)
+    python3 - ${mode[@]+"${mode[@]}"} "$2" "todo-tree.ripgrep.ripgrep" "$3" <<'PYEOF'
+{{ include ".chezmoitemplates/merge-json.py" }}
 PYEOF
 }
 
@@ -323,9 +324,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     rm -rf "$helpers_tmp"
     [ "$helpers_current" = 1 ] || changes+=("rewrite the RestartWSL helpers")
     [ -f "$RG_EXE" ] || changes+=("install ripgrep for Windows")
-    todo_tree_set=1
-    if [ -f "$VSCODE_SETTINGS" ] && { [ ! -f "$RG_EXE" ] || ! todo_tree_is "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")"; }; then todo_tree_set=0; fi
-    if [ -n "$LINUX_RG" ] && ! todo_tree_is "$MACHINE_SETTINGS" "$LINUX_RG"; then todo_tree_set=0; fi
+    todo_tree_set=1 unreadable=()
+    # An unreadable settings file is not a change: the apply would not touch it.
+    todo_tree_check() {
+        local rc=0
+        json_setting check "$1" "$2" 2>/dev/null || rc=$?
+        case $rc in 0) ;; 3) unreadable+=("$3") ;; *) todo_tree_set=0 ;; esac
+    }
+    if [ -f "$VSCODE_SETTINGS" ]; then
+        if [ ! -f "$RG_EXE" ]; then todo_tree_set=0; else todo_tree_check "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"; fi
+    fi
+    if [ -n "$LINUX_RG" ]; then todo_tree_check "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"; fi
     [ "$todo_tree_set" = 1 ] || changes+=("point VS Code's todo-tree at ripgrep")
     if [ -d "$WIN_ROAMING/Notepad++" ] || [ -d "$WIN_PROGRAMFILES/Notepad++" ]; then
         for theme in Dracula Alucard; do
@@ -336,6 +345,10 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         echo "windows-files: = the RestartWSL helpers, ripgrep, the VS Code todo-tree path and the Notepad++ themes are in place"
     else
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
+    fi
+    if [ ${#unreadable[@]} -gt 0 ]; then
+        printf -v joined '%s, ' "${unreadable[@]}"
+        echo "windows-files: ? ${joined%, } is not valid JSON, so the todo-tree path can't be checked"
     fi
 
     # The calls to Windows were made above, together, under the probe's cap; a
@@ -554,13 +567,20 @@ fi
 # settings (~/.vscode-server/data/Machine/settings.json).
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 VSCODE_SETTINGS="$WIN_ROAMING/Code/User/settings.json"
+# A settings file that cannot be updated without risk (invalid JSON, duplicate
+# keys) is left as it is and reported blocked; the other steps go on.
+# Usage: merge_setting <file> <value> <what to call the file>
 merge_setting() {
-    python3 - "$1" "todo-tree.ripgrep.ripgrep" "$2" <<'PYEOF'
-{{ include ".chezmoitemplates/merge-json.py" }}
-PYEOF
+    local why rc=0
+    why=$(json_setting merge "$1" "$2" 2>&1) || rc=$?
+    case $rc in
+    0) ;;
+    3) part_blocked windows-files "$3 was left unchanged: $why" ;;
+    *) printf '%s\n' "$why" >&2; exit 1 ;;
+    esac
 }
 if [[ -f "$VSCODE_SETTINGS" && -f "$RG_EXE" ]]; then
-    merge_setting "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")"
+    merge_setting "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"
 fi
 
 # Remote machine settings are distinct from Windows user/profile settings.
@@ -568,7 +588,7 @@ LINUX_RG=$(command -v rg || true)
 MACHINE_SETTINGS="$HOME/.vscode-server/data/Machine/settings.json"
 if [[ -n "$LINUX_RG" ]]; then
     mkdir -p "$(dirname "$MACHINE_SETTINGS")"
-    merge_setting "$MACHINE_SETTINGS" "$LINUX_RG"
+    merge_setting "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"
 fi
 fi
 
