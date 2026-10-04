@@ -227,7 +227,7 @@ func (p *preparation) checkPrerequisites(
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"prerequisites",
-			"Workbench's tools are missing; workbench apply installs them",
+			"Workbench's tools are missing; run workbench update, or workbench apply at a terminal, to install them",
 		)
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
