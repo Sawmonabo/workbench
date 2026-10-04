@@ -236,12 +236,12 @@ var bitwardenSessionEffect = operation.Effect{
 var windowsHostEffects = []operation.Effect{
 	{
 		Name:        "windows-files",
-		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, Terminal settings, actual PowerShell profile, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json",
+		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json",
 		Privilege:   "Windows user; not yet qualified on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and VS Code settings on the Windows side",
-		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, Windows Terminal settings, your PowerShell profile, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Terminal settings and the PowerShell profile are replaced when they differ; a copy of yours is kept.",
+		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Your Windows Terminal settings, PowerShell profile and font registration are separate optional steps; each stays off until you turn it on.",
 		Touches:     "your Windows home and AppData folders, and ~/.vscode-server's machine settings",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not checkpointed: Windows files are outside Workbench's restore",
@@ -401,7 +401,9 @@ func CheckSelection(selection Selection) error {
 
 // hostOptionalEffects lists every optional effect this host offers, naming
 // the distribution for default-distro so consent never covers an implicit
-// choice.
+// choice. Every one is its own choice, off until selected by name: none is
+// grouped under, or ticked by, another effect. Effect.Parent stays unset, since
+// a plan view treats a part as included whenever its parent is checked.
 func hostOptionalEffects() []operation.Effect {
 	if !isWSL() {
 		return nil
@@ -409,9 +411,6 @@ func hostOptionalEffects() []operation.Effect {
 	effects := slices.Clone(optionalEffects)
 	for i := range effects {
 		effects[i].Optional = true
-		if slices.Contains(windowsFileEffects, effects[i].Name) {
-			effects[i].Parent = "windows-files"
-		}
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
 				effects[i].Description = "Make " + distribution + " the default WSL distribution"
@@ -439,8 +438,10 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 }
 
 // gate marks each effect checked or not: fixed effects always, optional effects
-// only when selected, every other effect unless skipped. SavedSkip tells the
-// checklist which skips came from machine.toml.
+// only when selected, every other effect unless skipped. No effect is checked
+// because another one is: an optional effect that replaces the owner's own
+// files, such as the Windows Terminal settings, runs only when selected by name.
+// SavedSkip tells the checklist which skips came from machine.toml.
 func gate(effects []operation.Effect, selection, saved Selection) []operation.Effect {
 	for i := range effects {
 		effect := &effects[i]
@@ -454,27 +455,8 @@ func gate(effects []operation.Effect, selection, saved Selection) []operation.Ef
 			effect.SavedSkip = !effect.Checked && slices.Contains(saved.Skip, effect.Name)
 		}
 	}
-	// Windows setup includes its parts: while it is checked each part is
-	// included, forced on. While it is unchecked a part stands alone, selected
-	// or not by name. selectionToSave is this rule read backwards.
-	for i := range effects {
-		if effects[i].Parent != "" && parentChecked(effects, effects[i].Parent) {
-			effects[i].Checked = true
-		}
-	}
 	return effects
 }
-
-// parentChecked reports whether the effect named parent is in effects and
-// checked.
-func parentChecked(effects []operation.Effect, parent string) bool {
-	return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
-		return effect.Name == parent && effect.Checked
-	})
-}
-
-// windowsFileEffects are the parts of the windows-files effect.
-var windowsFileEffects = []string{"terminal-adoption", "powershell-adoption", "font-registry"}
 
 // Reselect returns plan with its effects checked as selection says; the
 // checklist uses it so the approved digest is the one the planner recomputes.
@@ -486,9 +468,7 @@ func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
 }
 
 // SelectionOf is the selection a checklist produced: skipped default
-// effects and selected optional ones. The checklist holds each part's own
-// choice in Checked, whether or not its parent includes it, so a part is
-// recorded as chosen. It does not carry Decided.
+// effects and selected optional ones. It does not carry Decided.
 func SelectionOf(effects []operation.Effect) Selection {
 	var selection Selection
 	for _, effect := range effects {
@@ -507,18 +487,11 @@ func SelectionOf(effects []operation.Effect) Selection {
 	return selection
 }
 
-// OwnChoices returns effects with each part's Checked set to the part's own
-// choice, whether selection selects it, instead of the forced state a checked
-// parent gives it: the checklist keeps that choice while the parent is on, so
-// turning the parent off restores it.
-func OwnChoices(effects []operation.Effect, selection Selection) []operation.Effect {
-	effects = slices.Clone(effects)
-	for i := range effects {
-		if effects[i].Parent != "" {
-			effects[i].Checked = slices.Contains(selection.Select, effects[i].Name)
-		}
-	}
-	return effects
+// OwnChoices returns a copy of effects. An effect's Checked is its own choice,
+// since no effect is ticked by another (see [gate]), so there is nothing to
+// restore; the checklist still calls it when it starts.
+func OwnChoices(effects []operation.Effect, _ Selection) []operation.Effect {
+	return slices.Clone(effects)
 }
 
 // selectionToSave is the selection an approved apply remembers: what the
@@ -528,13 +501,12 @@ func OwnChoices(effects []operation.Effect, selection Selection) []operation.Eff
 // nothing to change and no saved skip sits on the Already set line, where it
 // cannot be turned off, so it is not recorded as decided unless it already was:
 // it is asked about, marked new, the first time it has something to do.
-// effects is the plan as applied, where a checked parent forces its parts on;
-// chosen is the selection that produced it and holds each part's own choice,
-// which is what is saved, so the force never becomes a choice. With --reset
-// (chosen.Forget) the earlier decided list is forgotten for the effects listed.
-// The decided list is always non-nil: once saved, the owner has decided.
+// effects is the plan as applied and chosen the selection that produced it.
+// With --reset (chosen.Forget) the earlier decided list is forgotten for the
+// effects listed. The decided list is always non-nil: once saved, the owner has
+// decided.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
-	selection := SelectionOf(OwnChoices(effects, chosen))
+	selection := SelectionOf(effects)
 	plan := operation.Plan{Effects: effects}
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {

@@ -106,29 +106,54 @@ func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 	}
 }
 
-// Windows setup forces its parts on while it is checked. If that force were
-// saved as the owner's choice, turning Windows setup off later would still
-// replace the Terminal and PowerShell files the owner never picked on their own.
-// The saved selection keeps only what the owner chose for each part.
-func TestWindowsPartsForcedByTheirParentAreNotSavedAsChosen(t *testing.T) {
-	chosen := Selection{Select: []string{"font-registry"}}
-	effects := applySelection(
-		[]operation.Effect{
+// Windows setup is on by default, and three of its parts replace the owner's own
+// files and settings outside any checkpoint: the Windows Terminal settings, the
+// PowerShell profile and the font registry. If ticking Windows setup ticked
+// them, a first apply on a WSL host, or --yes on a machine that never decided,
+// would overwrite files the owner never picked. A part runs only when its own
+// name is selected, and only that choice is saved.
+func TestWindowsSetupNeverTicksItsParts(t *testing.T) {
+	windows := func() []operation.Effect {
+		return []operation.Effect{
 			{Name: "windows-files"},
 			{Name: "terminal-adoption", Parent: "windows-files", Optional: true},
+			{Name: "powershell-adoption", Parent: "windows-files", Optional: true},
 			{Name: "font-registry", Parent: "windows-files", Optional: true},
-		},
-		chosen,
-		chosen,
-	)
-	for _, effect := range effects {
-		if !effect.Checked {
-			t.Fatalf("%s is not included while Windows setup is on", effect.Name)
 		}
 	}
-	saved := selectionToSave(effects, chosen, chosen)
-	if !slices.Equal(saved.Select, []string{"font-registry"}) {
-		t.Fatalf("saved selection %v, want only the part the owner chose", saved.Select)
+	for _, test := range []struct {
+		chosen  Selection
+		checked []string
+	}{
+		{Selection{}, []string{"windows-files"}},
+		{Selection{Select: []string{"font-registry"}}, []string{"windows-files", "font-registry"}},
+	} {
+		var checked []string
+		for _, effect := range applySelection(windows(), test.chosen, test.chosen) {
+			if effect.Checked {
+				checked = append(checked, effect.Name)
+			}
+		}
+		if !slices.Equal(checked, test.checked) {
+			t.Fatalf(
+				"with %v selected, %v are checked, want %v",
+				test.chosen.Select,
+				checked,
+				test.checked,
+			)
+		}
+		saved := selectionToSave(
+			applySelection(windows(), test.chosen, test.chosen),
+			test.chosen,
+			test.chosen,
+		)
+		if !slices.Equal(saved.Select, test.chosen.Select) {
+			t.Fatalf(
+				"saved selection %v, want only what the owner chose: %v",
+				saved.Select,
+				test.chosen.Select,
+			)
+		}
 	}
 }
 
