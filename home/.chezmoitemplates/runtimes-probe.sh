@@ -48,14 +48,22 @@
         parts+=("Python can't be installed until uv is")
     fi
     if command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ]; then
+        # The default toolchain is rustup's own record; reading it runs nothing.
+        rust_default=$(sed -n 's/^default_toolchain *= *"\(.*\)"$/\1/p' "${RUSTUP_HOME:-$HOME/.rustup}/settings.toml" 2>/dev/null || true)
 {{- if eq .versions_mode "pinned" }}
-        if compgen -G "${RUSTUP_HOME:-$HOME/.rustup}/toolchains/{{ .versions.rust }}-*" >/dev/null; then
-            same+=("Rust {{ .versions.rust }}")
+        if ! compgen -G "${RUSTUP_HOME:-$HOME/.rustup}/toolchains/{{ .versions.rust }}-*" >/dev/null; then
+            parts+=("install Rust {{ .versions.rust }} and make it the default")
+        elif [[ "$rust_default" != "{{ .versions.rust }}-"* ]]; then
+            parts+=("make Rust {{ .versions.rust }} the default")
         else
-            parts+=("install Rust {{ .versions.rust }}")
+            same+=("Rust {{ .versions.rust }}")
         fi
 {{- else }}
-        parts+=("Rust is brought to the newest stable release")
+        if [[ "$rust_default" == stable-* ]]; then
+            parts+=("Rust is brought to the newest stable release")
+        else
+            parts+=("Rust is brought to the newest stable release and made the default")
+        fi
 {{- end }}
     else
         parts+=("Rust can't be installed until rustup is")

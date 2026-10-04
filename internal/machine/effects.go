@@ -37,26 +37,14 @@ var macOSEffects = []operation.Effect{
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{
-		Name:        "terminal-font",
-		Description: "Native managed ~/.terminal-font-setup.sh provides instructions; Terminal font selection is a separate manual step",
-		Privilege:   "none during provisioning",
-		Recovery:    "helper checkpointed; manual UI external",
-		Title:       "Terminal font steps",
-		Summary:     "a helper that explains how to pick the Nerd Font",
-		What:        "Puts a small script in your home folder that explains how to choose the Nerd Font in Terminal. Choosing the font is still done by hand.",
-		Touches:     "~/.terminal-font-setup.sh",
-		RunsAs:      "you",
-		Undo:        "Restored from the checkpoint Workbench takes before applying",
-	},
-	{
 		Name:        "brew-maintenance",
-		Description: "Reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
+		Description: "Refresh Homebrew's package index, reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
 		Privilege:   "user; network",
 		Recovery:    "external; removed versions and cache are not restored",
 		Title:       "Homebrew cleanup",
-		Summary:     "moves tap packages to core and removes leftovers",
-		What:        "Reinstalls formulae that came from a third-party tap from homebrew/core, removes taps nothing uses, then removes orphaned packages, old versions and the download cache.",
-		Touches:     "Homebrew's packages, taps and download cache",
+		Summary:     "refreshes Homebrew, moves tap packages to core and removes leftovers",
+		What:        "Refreshes Homebrew's package index, so the next plan sees new versions, reinstalls formulae that came from a third-party tap from homebrew/core, removes taps nothing uses, then removes orphaned packages, old versions and the download cache.",
+		Touches:     "Homebrew's package index, packages, taps and download cache",
 		RunsAs:      "you; downloads packages",
 		Undo:        "Not reverted: removed versions and the cache are not restored",
 	},
@@ -75,21 +63,21 @@ var effectSources = map[string][]string{
 	"costs-ingest":            {"90-costs-ingest"},
 	"macos-packages":          {"00-packages"},
 	"macos-apps-extensions":   {"50-apps-and-extensions"},
-	"terminal-font":           {".terminal-font-setup.sh"},
 	"brew-maintenance":        {"60-cleanup"},
 	"linux-packages":          {"00-packages"},
 	"linux-editor-extensions": {"35-vscode-extensions"},
 	"work-tools": {
-		"00-packages", "50-apps-and-extensions", "35-vscode-extensions", ".zshrc", ".bashrc",
+		"00-packages", "50-apps-and-extensions", "35-vscode-extensions",
 	},
-	"windows-files":       {"00-packages-windows", "10-deploy-windows-configs"},
-	"wsl-preferences":     {"10-deploy-windows-configs"},
-	"sysctl":              {"20-sysctl"},
-	"terminal-adoption":   {"00-packages-windows"},
-	"powershell-adoption": {"00-packages-windows"},
-	"font-registry":       {"00-packages-windows"},
-	"default-distro":      {"10-deploy-windows-configs"},
-	"windows-path":        {"10-deploy-windows-configs"},
+	"bitwarden-session-cache": {".zshrc", ".bashrc"},
+	"windows-files":           {"00-packages-windows", "10-deploy-windows-configs"},
+	"wsl-preferences":         {"10-deploy-windows-configs"},
+	"sysctl":                  {"20-sysctl"},
+	"terminal-adoption":       {"00-packages-windows"},
+	"powershell-adoption":     {"00-packages-windows"},
+	"font-registry":           {"00-packages-windows"},
+	"default-distro":          {"10-deploy-windows-configs"},
+	"windows-path":            {"10-deploy-windows-configs"},
 }
 
 // activeEffects keeps the effects with an active source; see [effectSources].
@@ -210,30 +198,56 @@ var linuxEditorEffect = operation.Effect{
 	Undo:        "Not reverted automatically: uninstall an extension in VS Code",
 }
 
-// workToolsEffect is the role-gated work tooling.
+// workToolsEffect is the role-gated work tooling. It carries only what its
+// scripts can switch off: the shell setup for Bitwarden is a file, which always
+// applies, and has its own fixed effect.
 var workToolsEffect = operation.Effect{
 	Name:        "work-tools",
-	Description: "Bitwarden CLI and work editor extension; existing Bitwarden session-caching shell policy",
+	Description: "Bitwarden CLI and work editor extension",
 	Privilege:   "user; network",
-	Recovery:    "packages external; shell configuration checkpointed",
+	Recovery:    "external; no package rollback",
 	Title:       "Work tools",
 	Summary:     "Bitwarden CLI and the work editor extension",
-	What:        "Installs the Bitwarden command-line tool and the work VS Code extension, and keeps the shell setup that caches your Bitwarden session.",
-	Touches:     "~/.local/bin, your shell startup files and VS Code extensions",
+	What:        "Installs the Bitwarden command-line tool and the work VS Code extension.",
+	Touches:     "the Bitwarden CLI and your VS Code extensions",
 	RunsAs:      "you; downloads from the vendor",
-	Undo:        "Shell files are restored from the checkpoint; the tools stay installed",
+	Undo:        "Not reverted automatically: uninstall the tools by hand",
 }
 
-// windowsHostEffects are the Windows-side owners a WSL host lists.
+// bitwardenSessionEffect is the fixed, role-gated disclosure of the Bitwarden
+// shell policy. The policy is text in the shell startup files, which apply with
+// every other file and cannot be switched off by a step, so it is listed like
+// the AI safety settings: always, with no box to untick.
+var bitwardenSessionEffect = operation.Effect{
+	Name:        "bitwarden-session-cache",
+	Description: "Shell startup files define a bw wrapper that caches the Bitwarden session key in a 0600 file every new shell reads; review policy before apply",
+	Privilege:   "user",
+	Recovery:    "configuration files only",
+	Fixed:       true,
+	Title:       "Bitwarden session caching",
+	Summary:     "bw unlock keeps your vault open for new shells",
+	What:        "Keeps a bw command in your shell startup files that, after bw unlock, saves the Bitwarden session key in a private file (mode 0600) every new shell reads, until bw lock removes it. While it is saved, anyone using your account can read the vault. Always runs.",
+	Touches:     "~/.zshrc, ~/.bashrc, ~/.config/Bitwarden CLI/session",
+	RunsAs:      "you",
+	Undo:        "Restored from the checkpoint Workbench takes before applying",
+}
+
+// windowsHostEffects are the Windows-side owners a WSL host lists. Windows
+// setup is optional, off until ticked: it installs programs and fonts and edits
+// settings on the Windows side, outside the checkpoint and with no copy kept,
+// so a first apply, or --yes on a machine that never decided, must not do that
+// unasked. WSL networking stays on: it keeps the other .wslconfig settings and
+// saves a copy of the file first.
 var windowsHostEffects = []operation.Effect{
 	{
 		Name:        "windows-files",
-		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, Terminal settings, actual PowerShell profile, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json",
+		Optional:    true,
+		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json",
 		Privilege:   "Windows user; not yet qualified on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and VS Code settings on the Windows side",
-		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, Windows Terminal settings, your PowerShell profile, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Terminal settings and the PowerShell profile are replaced when they differ; a copy of yours is kept.",
+		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, ripgrep, VS Code settings, Notepad++ themes and the RestartWSL helpers. Your Windows Terminal settings, PowerShell profile and font registration are separate optional steps; each stays off until you turn it on.",
 		Touches:     "your Windows home and AppData folders, and ~/.vscode-server's machine settings",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not checkpointed: Windows files are outside Workbench's restore",
@@ -265,7 +279,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 		}
 	}
 	if answers["has_work"] == true {
-		effects = append(effects, workToolsEffect)
+		effects = append(effects, workToolsEffect, bitwardenSessionEffect)
 	}
 	if answers["is_wsl"] == true {
 		effects = append(effects, windowsHostEffects...)
@@ -278,6 +292,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 var optionalEffects = []operation.Effect{
 	{
 		Name:        "terminal-adoption",
+		Optional:    true,
 		Description: "Replace an existing Windows Terminal settings.json with the managed one when it differs; a copy is kept beside it; register the font it uses",
 		Privilege:   "Windows user",
 		Recovery:    "copy only; not checkpointed",
@@ -290,6 +305,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "powershell-adoption",
+		Optional:    true,
 		Description: "Replace an existing PowerShell profile with the managed one; a copy is kept beside it",
 		Privilege:   "Windows user",
 		Recovery:    "copy only; not checkpointed",
@@ -302,6 +318,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "font-registry",
+		Optional:    true,
 		Description: "Register JetBrainsMono Nerd Font files in HKCU Fonts and load them into the session",
 		Privilege:   "Windows user registry",
 		Recovery:    "external; registry values are not reverted",
@@ -314,6 +331,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "default-distro",
+		Optional:    true,
 		Description: "Make this distribution the default WSL distribution",
 		Privilege:   "Windows user",
 		Recovery:    "external; previous default is not restored",
@@ -326,6 +344,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "windows-path",
+		Optional:    true,
 		Description: "Append %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to the Windows user PATH, keeping existing entries",
 		Privilege:   "Windows user environment",
 		Recovery:    "external; PATH is not reverted",
@@ -338,6 +357,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "sysctl",
+		Optional:    true,
 		Description: "Write /etc/sysctl.d/99-dev.conf with vm.swappiness=10 and apply it live",
 		Privilege:   "sudo",
 		Recovery:    "external; kernel setting and file are not reverted",
@@ -393,17 +413,15 @@ func CheckSelection(selection Selection) error {
 
 // hostOptionalEffects lists every optional effect this host offers, naming
 // the distribution for default-distro so consent never covers an implicit
-// choice.
+// choice. Every one is its own choice, off until selected by name: none is
+// grouped under, or ticked by, another effect. Effect.Parent stays unset, since
+// a plan view treats a part as included whenever its parent is checked.
 func hostOptionalEffects() []operation.Effect {
 	if !isWSL() {
 		return nil
 	}
 	effects := slices.Clone(optionalEffects)
 	for i := range effects {
-		effects[i].Optional = true
-		if slices.Contains(windowsFileEffects, effects[i].Name) {
-			effects[i].Parent = "windows-files"
-		}
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
 				effects[i].Description = "Make " + distribution + " the default WSL distribution"
@@ -431,8 +449,10 @@ func applySelection(effects []operation.Effect, selection, saved Selection) []op
 }
 
 // gate marks each effect checked or not: fixed effects always, optional effects
-// only when selected, every other effect unless skipped. SavedSkip tells the
-// checklist which skips came from machine.toml.
+// only when selected, every other effect unless skipped. No effect is checked
+// because another one is: an optional effect that replaces the owner's own
+// files, such as the Windows Terminal settings, runs only when selected by name.
+// SavedSkip tells the checklist which skips came from machine.toml.
 func gate(effects []operation.Effect, selection, saved Selection) []operation.Effect {
 	for i := range effects {
 		effect := &effects[i]
@@ -446,27 +466,8 @@ func gate(effects []operation.Effect, selection, saved Selection) []operation.Ef
 			effect.SavedSkip = !effect.Checked && slices.Contains(saved.Skip, effect.Name)
 		}
 	}
-	// Windows setup includes its parts: while it is checked each part is
-	// included, forced on. While it is unchecked a part stands alone, selected
-	// or not by name. selectionToSave is this rule read backwards.
-	for i := range effects {
-		if effects[i].Parent != "" && parentChecked(effects, effects[i].Parent) {
-			effects[i].Checked = true
-		}
-	}
 	return effects
 }
-
-// parentChecked reports whether the effect named parent is in effects and
-// checked.
-func parentChecked(effects []operation.Effect, parent string) bool {
-	return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
-		return effect.Name == parent && effect.Checked
-	})
-}
-
-// windowsFileEffects are the parts of the windows-files effect.
-var windowsFileEffects = []string{"terminal-adoption", "powershell-adoption", "font-registry"}
 
 // Reselect returns plan with its effects checked as selection says; the
 // checklist uses it so the approved digest is the one the planner recomputes.
@@ -478,9 +479,7 @@ func Reselect(plan operation.Plan, selection, saved Selection) operation.Plan {
 }
 
 // SelectionOf is the selection a checklist produced: skipped default
-// effects and selected optional ones. The checklist holds each part's own
-// choice in Checked, whether or not its parent includes it, so a part is
-// recorded as chosen. It does not carry Decided.
+// effects and selected optional ones. It does not carry Decided.
 func SelectionOf(effects []operation.Effect) Selection {
 	var selection Selection
 	for _, effect := range effects {
@@ -499,18 +498,11 @@ func SelectionOf(effects []operation.Effect) Selection {
 	return selection
 }
 
-// OwnChoices returns effects with each part's Checked set to the part's own
-// choice, whether selection selects it, instead of the forced state a checked
-// parent gives it: the checklist keeps that choice while the parent is on, so
-// turning the parent off restores it.
-func OwnChoices(effects []operation.Effect, selection Selection) []operation.Effect {
-	effects = slices.Clone(effects)
-	for i := range effects {
-		if effects[i].Parent != "" {
-			effects[i].Checked = slices.Contains(selection.Select, effects[i].Name)
-		}
-	}
-	return effects
+// OwnChoices returns a copy of effects. An effect's Checked is its own choice,
+// since no effect is ticked by another (see [gate]), so there is nothing to
+// restore; the checklist still calls it when it starts.
+func OwnChoices(effects []operation.Effect, _ Selection) []operation.Effect {
+	return slices.Clone(effects)
 }
 
 // selectionToSave is the selection an approved apply remembers: what the
@@ -520,13 +512,12 @@ func OwnChoices(effects []operation.Effect, selection Selection) []operation.Eff
 // nothing to change and no saved skip sits on the Already set line, where it
 // cannot be turned off, so it is not recorded as decided unless it already was:
 // it is asked about, marked new, the first time it has something to do.
-// effects is the plan as applied, where a checked parent forces its parts on;
-// chosen is the selection that produced it and holds each part's own choice,
-// which is what is saved, so the force never becomes a choice. With --reset
-// (chosen.Forget) the earlier decided list is forgotten for the effects listed.
-// The decided list is always non-nil: once saved, the owner has decided.
+// effects is the plan as applied and chosen the selection that produced it.
+// With --reset (chosen.Forget) the earlier decided list is forgotten for the
+// effects listed. The decided list is always non-nil: once saved, the owner has
+// decided.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
-	selection := SelectionOf(OwnChoices(effects, chosen))
+	selection := SelectionOf(effects)
 	plan := operation.Plan{Effects: effects}
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {

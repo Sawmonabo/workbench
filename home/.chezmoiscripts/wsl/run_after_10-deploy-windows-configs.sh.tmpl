@@ -9,8 +9,13 @@
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
+{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+
 # What the probe or the apply says about a Windows host that cannot be used: one
-# line per effect this script carries, since each of them is affected.
+# line per effect this script carries, since each of them is affected. An apply
+# names each effect it was asked to do as blocked, in the file Workbench reads,
+# and ends the script successfully, so the scripts after it still run; Workbench
+# ends the apply blocked once the rest has run.
 blocked() {
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         for effect in windows-files wsl-preferences default-distro windows-path; do
@@ -18,8 +23,11 @@ blocked() {
         done
         exit 0
     fi
-    echo "WORKBENCH_EFFECT windows-config blocked: $1" >&2
-    exit 3
+    [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ] || part_blocked windows-files "$1"
+    [ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" != 1 ] || part_blocked wsl-preferences "$1"
+    [ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" != 1 ] || part_blocked default-distro "$1"
+    [ "${WORKBENCH_EFFECT_WINDOWS_PATH:-0}" != 1 ] || part_blocked windows-path "$1"
+    exit 0
 }
 
 # What the probe says when Windows could not be asked: one "could not check"
@@ -38,8 +46,6 @@ WSL_MEMORY={{ .wsl_memory | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
-
-{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
 # a call that fails leaves them empty, which is reported below. The probe asks
@@ -174,16 +180,17 @@ Write-Host "You can now use 'Restart WSL.bat' without admin rights." -Foreground
 SETUPSCRIPT
 }
 
-# The same todo-tree path the merge below writes, read without writing.
-todo_tree_is() {
-    python3 - "$1" "todo-tree.ripgrep.ripgrep" "$2" <<'PYEOF'
-import json, sys
-try:
-    with open(sys.argv[1], encoding="utf-8-sig") as stream:
-        data = json.load(stream)
-except (OSError, ValueError):
-    sys.exit(1)
-sys.exit(0 if isinstance(data, dict) and data.get(sys.argv[2]) == sys.argv[3] else 1)
+# The todo-tree path in a VS Code settings.json, one owner for the probe's read
+# and the apply's write (see merge-json.py, which accepts comments in the file):
+#   json_setting check FILE VALUE   0 when the file already has VALUE, 1 when it
+#                                   would change, 3 when it cannot be read
+#   json_setting merge FILE VALUE   sets it and changes nothing else; 3 when the
+#                                   file is refused, with the reason on stderr
+json_setting() {
+    local mode=()
+    [ "$1" != check ] || mode=(--check)
+    python3 - ${mode[@]+"${mode[@]}"} "$2" "todo-tree.ripgrep.ripgrep" "$3" <<'PYEOF'
+{{ include ".chezmoitemplates/merge-json.py" }}
 PYEOF
 }
 
@@ -317,9 +324,17 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     rm -rf "$helpers_tmp"
     [ "$helpers_current" = 1 ] || changes+=("rewrite the RestartWSL helpers")
     [ -f "$RG_EXE" ] || changes+=("install ripgrep for Windows")
-    todo_tree_set=1
-    if [ -f "$VSCODE_SETTINGS" ] && { [ ! -f "$RG_EXE" ] || ! todo_tree_is "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")"; }; then todo_tree_set=0; fi
-    if [ -n "$LINUX_RG" ] && ! todo_tree_is "$MACHINE_SETTINGS" "$LINUX_RG"; then todo_tree_set=0; fi
+    todo_tree_set=1 unreadable=()
+    # An unreadable settings file is not a change: the apply would not touch it.
+    todo_tree_check() {
+        local rc=0
+        json_setting check "$1" "$2" 2>/dev/null || rc=$?
+        case $rc in 0) ;; 3) unreadable+=("$3") ;; *) todo_tree_set=0 ;; esac
+    }
+    if [ -f "$VSCODE_SETTINGS" ]; then
+        if [ ! -f "$RG_EXE" ]; then todo_tree_set=0; else todo_tree_check "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"; fi
+    fi
+    if [ -n "$LINUX_RG" ]; then todo_tree_check "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"; fi
     [ "$todo_tree_set" = 1 ] || changes+=("point VS Code's todo-tree at ripgrep")
     if [ -d "$WIN_ROAMING/Notepad++" ] || [ -d "$WIN_PROGRAMFILES/Notepad++" ]; then
         for theme in Dracula Alucard; do
@@ -330,6 +345,10 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         echo "windows-files: = the RestartWSL helpers, ripgrep, the VS Code todo-tree path and the Notepad++ themes are in place"
     else
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
+    fi
+    if [ ${#unreadable[@]} -gt 0 ]; then
+        printf -v joined '%s, ' "${unreadable[@]}"
+        echo "windows-files: ? ${joined%, } is not valid JSON, so the todo-tree path can't be checked"
     fi
 
     # The calls to Windows were made above, together, under the probe's cap; a
@@ -359,6 +378,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     exit 0
 fi
+
+{{ includeTemplate ".chezmoitemplates/place-file.sh" . }}
 
 echo "==> Deploying WSL Windows configs..."
 echo "    Windows user: $WIN_USER"
@@ -427,11 +448,10 @@ fi
 
 # ---------- RestartWSL scripts ----------
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
-RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME")
+RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME") || RESTART_DIR=
 
 if [[ -z "$RESTART_DIR" ]]; then
-    echo "WORKBENCH_EFFECT restart-path blocked: empty path" >&2
-    exit 3
+    part_blocked windows-files "the RestartWSL folder path is empty or cannot be resolved, so the RestartWSL helpers were not written"
 else
     echo "==> Writing RestartWSL scripts to $RESTART_DIR..."
     mkdir -p "$RESTART_DIR"
@@ -451,12 +471,15 @@ fi
 # the default-distro effect is selected, the distro running this apply (named
 # in the approved plan) becomes the default.
 if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
-    [[ -n "${WSL_DISTRO_NAME:-}" ]] || { echo 'WORKBENCH_EFFECT default-distro blocked: WSL_DISTRO_NAME unavailable' >&2; exit 3; }
-    win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
-    if [ "${WIN_RC[default-distro]}" != 0 ]; then
-        part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
+    if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
+        part_blocked default-distro "WSL_DISTRO_NAME is not set in this session, so the distribution is unknown"
     else
-        [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+        win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
+        if [ "${WIN_RC[default-distro]}" != 0 ]; then
+            part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
+        else
+            [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+        fi
     fi
 fi
 
@@ -476,12 +499,14 @@ if [[ ! -f "$RG_EXE" ]]; then
     mkdir -p "$RG_DIR"
     RG_TMP=$(mktemp -d)
     RG_URL="https://github.com/BurntSushi/ripgrep/releases/download/${RG_VERSION}/ripgrep-${RG_VERSION}-x86_64-pc-windows-msvc.zip"
-    if curl -fsSL -o "$RG_TMP/rg.zip" "$RG_URL" && unzip -o -q "$RG_TMP/rg.zip" -d "$RG_TMP"; then
-        find "$RG_TMP" -name rg.exe -exec cp {} "$RG_EXE" \;
+    # A failed download blocks Windows setup and the rest goes on; rg.exe is
+    # placed whole, so a stopped copy is repeated instead of skipped.
+    if curl -fsSL -o "$RG_TMP/rg.zip" "$RG_URL" && unzip -o -q "$RG_TMP/rg.zip" -d "$RG_TMP" &&
+        RG_FOUND=$(find "$RG_TMP" -name rg.exe -print -quit) && [ -n "$RG_FOUND" ] &&
+        place_file "$RG_FOUND" "$RG_EXE"; then
         echo "    Installed $RG_EXE"
     else
-        echo "WORKBENCH_EFFECT windows-ripgrep failed: download" >&2
-        exit 1
+        part_blocked windows-files "ripgrep $RG_VERSION for Windows could not be installed, so VS Code's todo-tree was not pointed at it"
     fi
     rm -rf "$RG_TMP"
 else
@@ -546,13 +571,20 @@ fi
 # settings (~/.vscode-server/data/Machine/settings.json).
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 VSCODE_SETTINGS="$WIN_ROAMING/Code/User/settings.json"
+# A settings file that cannot be updated without risk (invalid JSON, duplicate
+# keys) is left as it is and reported blocked; the other steps go on.
+# Usage: merge_setting <file> <value> <what to call the file>
 merge_setting() {
-    python3 - "$1" "todo-tree.ripgrep.ripgrep" "$2" <<'PYEOF'
-{{ include ".chezmoitemplates/merge-json.py" }}
-PYEOF
+    local why rc=0
+    why=$(json_setting merge "$1" "$2" 2>&1) || rc=$?
+    case $rc in
+    0) ;;
+    3) part_blocked windows-files "$3 was left unchanged: $why" ;;
+    *) part_blocked windows-files "$3 could not be updated: $why" ;;
+    esac
 }
 if [[ -f "$VSCODE_SETTINGS" && -f "$RG_EXE" ]]; then
-    merge_setting "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")"
+    merge_setting "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"
 fi
 
 # Remote machine settings are distinct from Windows user/profile settings.
@@ -560,7 +592,7 @@ LINUX_RG=$(command -v rg || true)
 MACHINE_SETTINGS="$HOME/.vscode-server/data/Machine/settings.json"
 if [[ -n "$LINUX_RG" ]]; then
     mkdir -p "$(dirname "$MACHINE_SETTINGS")"
-    merge_setting "$MACHINE_SETTINGS" "$LINUX_RG"
+    merge_setting "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"
 fi
 fi
 
@@ -573,14 +605,15 @@ if [[ -d "$WIN_ROAMING/Notepad++" ]] || [[ -d "$WIN_PROGRAMFILES/Notepad++" ]]; 
     mkdir -p "$NPP_THEMES"
     for theme in Dracula Alucard; do
         if [[ ! -f "$NPP_THEMES/$theme.xml" ]]; then
-            if curl -fsSL -o "$NPP_THEMES/$theme.xml" \
-                "https://raw.githubusercontent.com/dracula/notepad-plus-plus/master/generated/$theme.xml"; then
+            npp_tmp=$(mktemp)
+            if curl -fsSL -o "$npp_tmp" \
+                "https://raw.githubusercontent.com/dracula/notepad-plus-plus/master/generated/$theme.xml" &&
+                place_file "$npp_tmp" "$NPP_THEMES/$theme.xml"; then
                 echo "==> Installed Notepad++ theme: $theme"
             else
-                rm -f "$NPP_THEMES/$theme.xml"
-                echo "WORKBENCH_EFFECT notepad-themes failed: $theme" >&2
-                exit 1
+                part_blocked windows-files "the Notepad++ $theme theme could not be downloaded"
             fi
+            rm -f "$npp_tmp"
         fi
     done
 fi

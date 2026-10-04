@@ -2,6 +2,11 @@
 #!/usr/bin/env bash
 # GUI apps (casks) and VS Code extensions from .chezmoidata/packages.toml,
 # plus the Homebrew updates the approved plan named.
+# Three kinds of step share this script, and each runs only when it is ticked:
+# the apps and extensions (macos-apps-extensions,
+# WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS), the work editor extension (work-tools,
+# WORKBENCH_EFFECT_WORK_TOOLS) and each update (named in WORKBENCH_APP_UPDATES and
+# WORKBENCH_TOOL_UPDATES). The two effect variables are 1 when run without Workbench.
 # Runs on every apply (run_after_, not run_onchange_) so it converges: an app
 # that was skipped because it was running, or a download that failed, is
 # retried on the next apply with no manual state reset. When every app is
@@ -41,11 +46,13 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- end }}
     exit 0
 fi
+skipped=()
+
+if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 echo "==> Apps and VS Code extensions..."
 managed_casks="$(brew list --cask 2>/dev/null || true)"
 bundle_casks=()
 outside=()
-skipped=()
 
 classify() {
     local cask="$1" info app
@@ -83,6 +90,7 @@ if brew bundle check --file="$bundle" --no-upgrade >/dev/null 2>&1; then
 else
     echo "==> Installing missing apps from packages.toml..."
     brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
+fi
 fi
 
 # The approved plan named every package these updates bring with them, so

@@ -17,6 +17,14 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
+// updateEffectPrefix starts the name of every update effect: update-<package>.
+// updatesScript is the script that carries them out, together with the apps and
+// extensions; see selectScripts.
+const (
+	updateEffectPrefix = "update-"
+	updatesScript      = "50-apps-and-extensions"
+)
+
 // brewUpdate is a listed Homebrew package older than Homebrew's current
 // version: an app (cask) or a command-line tool (formula).
 type brewUpdate struct {
@@ -68,7 +76,7 @@ func (p *preparation) planUpdates(
 	var kept, carried, unread []string
 	for _, update := range updates {
 		effect := operation.Effect{
-			Name: "update-" + update.name,
+			Name: updateEffectPrefix + update.name,
 			Description: "Update " + update.name + " " + update.installed + " → " +
 				update.latest + " through Homebrew",
 			Delta:     update.installed + " → " + update.latest,
@@ -397,8 +405,11 @@ func runBrew(
 }
 
 // brewOutput runs a read-only Homebrew command and returns its standard output.
-// Homebrew refreshes its own metadata first unless the user set
-// HOMEBREW_NO_AUTO_UPDATE.
+// Planning and the recheck read Homebrew's current index and never refresh it:
+// an automatic update would fetch from the network and rewrite Homebrew's own
+// folders during a preview, and could change the update list between the plan
+// and its recheck. A fresh index comes from the brew-maintenance step the owner
+// approves, which runs brew update.
 func brewOutput(
 	ctx context.Context,
 	c operation.Context,
@@ -408,9 +419,8 @@ func brewOutput(
 	environment := []string{
 		"HOME=" + c.Home,
 		"PATH=" + filepath.Dir(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin",
-	}
-	if value, ok := os.LookupEnv("HOMEBREW_NO_AUTO_UPDATE"); ok {
-		environment = append(environment, "HOMEBREW_NO_AUTO_UPDATE="+value)
+		"HOMEBREW_NO_AUTO_UPDATE=1",
+		"HOMEBREW_NO_ENV_HINTS=1",
 	}
 	output, err := operation.Run(ctx, c, nil, operation.Process{
 		Executable:  brew,

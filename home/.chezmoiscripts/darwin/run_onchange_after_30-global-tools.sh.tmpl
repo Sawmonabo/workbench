@@ -123,11 +123,15 @@ else
     failed+=(go-missing)
 fi
 
-# --- Docker Desktop provides the daemon on macOS; the docker CLI comes from Homebrew ---
-if command -v docker &>/dev/null; then
-    echo "    docker CLI present: $(docker --version)"
+# --- Docker: Docker Desktop (the Mac apps step) provides the docker CLI ---
+# Nothing in this script uses docker, and a clean Mac gets Docker Desktop later,
+# from the apps step that runs after this one, so a missing CLI is a note and
+# never a failure. Docker Desktop links its CLI into /usr/local/bin, which is
+# not on the PATH of a non-login shell on Apple Silicon.
+if command -v docker &>/dev/null || [ -x /usr/local/bin/docker ]; then
+    echo "    docker CLI present"
 else
-    failed+=(docker-missing)
+    echo "    docker CLI not installed yet; Docker Desktop provides it (Mac apps step)"
 fi
 
 if [ ${#failed[@]} -gt 0 ]; then
