@@ -233,7 +233,7 @@ func checkChoose(o *options) error {
 			"choose",
 			"--choose asks and --approve-plan does not; pick one",
 		)
-	case agentSession():
+	case operation.AgentSession():
 		return operation.Fail(operation.ExitInvalid, "choose", agentRefusal)
 	case !o.interactive() || !hasTerminal():
 		return operation.Fail(operation.ExitInvalid, "choose", "--choose needs a terminal")
@@ -379,7 +379,7 @@ func applyMachine(
 		selection.Forget = o.reset
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
-	case o.interactive() && agentSession():
+	case o.interactive() && operation.AgentSession():
 		return result, plan, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
 	default:
 		// --json, --non-interactive or no terminal: show the plan;

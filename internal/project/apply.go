@@ -184,12 +184,14 @@ func (p *Proposal) runResolution(
 			Executable: uv.Path,
 			Args:       append(args, missing...),
 			Directory:  root,
-			Environment: []string{
+			// Only the user's proxy and CA settings join the scrubbed
+			// environment; they let uv reach the package index.
+			Environment: append([]string{
 				"PATH=" + filepath.Dir(python.Path) + ":/usr/bin:/bin",
 				"HOME=" + scratch,
 				"XDG_CONFIG_HOME=" + scratch,
 				"UV_NO_PROGRESS=1",
-			},
+			}, operation.NetworkEnvironment()...),
 			Timeout:     5 * time.Minute,
 			OutputLimit: 1 << 20,
 			Mutates:     true,

@@ -10,7 +10,9 @@ import (
 // Handoff replaces this process with the activated runtime only after the
 // caller has released operation locks and verified its release-check
 // response. It is not a forwarding launcher and never grants consent to a
-// later setup/apply.
+// later setup/apply. The runtime gets a rebuilt environment: Workbench's own
+// paths, the presentation settings, the proxy and CA settings and the
+// coding-agent markers (agentVariables), and nothing else of the caller's.
 func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	state, err := ReadState(c.Paths)
 	if err != nil {
@@ -63,11 +65,9 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 		"WORKBENCH_CACHE_DIR=" + c.Paths.Cache,
 		"WORKBENCH_BIN_DIR=" + c.Paths.Bin,
 	}
-	for _, name := range []string{"TERM", "LANG", "LC_ALL", "WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV"} {
-		if value := os.Getenv(name); value != "" {
-			environment = append(environment, name+"="+value)
-		}
-	}
+	environment = append(environment, passedThrough(handoffVariables)...)
+	environment = append(environment, NetworkEnvironment()...)
+	environment = append(environment, passedThrough(agentVariables)...)
 	if err = syscall.Exec(
 		executable,
 		append([]string{executable}, args...),
@@ -80,4 +80,48 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 		)
 	}
 	return nil
+}
+
+// networkVariables are the proxy and CA settings of the tools that download
+// for Workbench: Go's HTTP transport, uv and curl read the proxy variables and
+// SSL_CERT_FILE, SSL_CERT_DIR or CURL_CA_BUNDLE; the setup scripts' npm and
+// Node tools read NODE_EXTRA_CA_CERTS, cargo reads CARGO_HTTP_CAINFO, and the
+// tmux plugin clone reads GIT_SSL_CAINFO. They describe the user's network,
+// not a credential store or an executable lookup, so the explicit
+// environments of subprocesses that download may carry them.
+var networkVariables = []string{
+	"HTTPS_PROXY", "https_proxy",
+	"HTTP_PROXY", "http_proxy",
+	"ALL_PROXY", "all_proxy",
+	"NO_PROXY", "no_proxy",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+	"NODE_EXTRA_CA_CERTS", "CARGO_HTTP_CAINFO", "GIT_SSL_CAINFO",
+}
+
+// handoffVariables are the settings the activated runtime reads to look like
+// the runtime that started it: terminal type, locale, color and width
+// choices, the temporary directory its scratch space lives in, and the WSL
+// variables Windows host steps need.
+var handoffVariables = []string{
+	"TERM", "COLORTERM", "NO_COLOR", "CLICOLOR", "CLICOLOR_FORCE", "COLUMNS",
+	"LANG", "LC_ALL", "LC_CTYPE", "TMPDIR",
+	"WSL_INTEROP", "WSL_DISTRO_NAME", "WSLENV",
+}
+
+// NetworkEnvironment returns the proxy and CA variables that are set, as
+// NAME=value entries to append to the explicit environment of a subprocess that
+// downloads. The values are the user's own settings and may hold a proxy
+// password, so nothing may print them; subprocess diagnostics are redacted
+// output, never an environment dump.
+func NetworkEnvironment() []string { return passedThrough(networkVariables) }
+
+// passedThrough returns NAME=value for each listed variable that is set and not empty.
+func passedThrough(names []string) []string {
+	var environment []string
+	for _, name := range names {
+		if value := os.Getenv(name); value != "" {
+			environment = append(environment, name+"="+value)
+		}
+	}
+	return environment
 }

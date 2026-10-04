@@ -196,7 +196,31 @@ func setupDependencies(
 	return qualified, nil
 }
 
+// writeNewOrIdentical installs data at target, or accepts a target that already
+// holds exactly data; any other existing target is a conflict and is retained.
+//
+// New content is written and flushed to a temporary file beside target, then
+// linked into place. A crash or a full disk therefore leaves at most the
+// temporary file, never a truncated target that every later setup would report
+// as a different tool. The link fails if target appeared meanwhile, where a
+// rename would replace it. The temporary file is disposable: each call removes
+// a leftover one first, so an interrupted attempt never blocks the next.
 func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
+	partial := partialName(target)
+	if info, err := os.Lstat(partial); err == nil {
+		if !info.Mode().IsRegular() {
+			return operation.Fail(
+				operation.ExitConflict,
+				"dependency_conflict",
+				"Unexpected entry "+partial+" beside a private tool; it was retained",
+			)
+		}
+		if err = os.Remove(partial); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	if info, err := os.Lstat(target); err == nil {
 		if !info.Mode().IsRegular() {
 			return operation.Fail(
@@ -217,7 +241,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	file, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
@@ -225,11 +249,52 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	if err == nil {
 		err = file.Sync()
 	}
-	closeErr := file.Close()
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Link(partial, target)
+	}
+	// Whatever happened, the temporary name goes. After a good link the data
+	// stays under target; a removal that fails there only leaves a file the
+	// next call deletes.
+	_ = os.Remove(partial)
+	if errors.Is(err, fs.ErrExist) {
+		return operation.Fail(
+			operation.ExitConflict,
+			"dependency_conflict",
+			"A private tool appeared while it was being installed; it was retained",
+		)
+	}
 	if err != nil {
 		return err
 	}
-	return closeErr
+	directory, err := os.Open(filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	err = directory.Sync()
+	if closeErr := directory.Close(); err == nil {
+		err = closeErr
+	}
+	return err
+}
+
+// partialName is the temporary file writeNewOrIdentical fills before linking
+// it to target.
+func partialName(target string) string {
+	return filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".partial")
+}
+
+// partialOf reports whether name is the temporary file of one of files, left
+// by an interrupted writeNewOrIdentical.
+func partialOf(name string, files map[string][]byte) bool {
+	for original := range files {
+		if partialName(original) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // acquireTool downloads the pinned chezmoi or uv release for this target,
@@ -318,10 +383,14 @@ func acquirePython(
 			"--no-bin",
 			requirements.Python,
 		},
-		Directory:   "/",
-		Environment: []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
-		Mutates:     true,
-		Timeout:     10 * time.Minute,
+		Directory: "/",
+		// uv downloads the interpreter, so it needs the user's proxy and CA settings.
+		Environment: append(
+			[]string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
+			operation.NetworkEnvironment()...,
+		),
+		Mutates: true,
+		Timeout: 10 * time.Minute,
 	})
 	if err != nil {
 		return operation.Dependency{}, err
@@ -536,6 +605,13 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 			return relErr
 		}
 		if _, ok := files[name]; !ok || entry.Type()&os.ModeSymlink != 0 {
+			if partialOf(name, files) && entry.Type().IsRegular() {
+				return operation.Fail(
+					operation.ExitBlocked,
+					"tomlkit",
+					"An interrupted TOML Kit install left "+name+"; workbench apply finishes the install",
+				)
+			}
 			return operation.Fail(
 				operation.ExitBlocked,
 				"tomlkit",

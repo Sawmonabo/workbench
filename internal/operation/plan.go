@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"os"
 	"slices"
 )
 
@@ -215,6 +216,32 @@ type Consent struct {
 	// Confirm must display the same plan and only prompt on an actual terminal.
 	// JSON/noninteractive callers leave it nil.
 	Confirm func(Plan, string) (bool, error)
+}
+
+// agentVariables are the variables by which a coding agent marks the commands
+// it runs: Claude Code sets CLAUDECODE=1, and Codex sets CODEX_CI,
+// CODEX_THREAD_ID and, in its sandbox, CODEX_SANDBOX and
+// CODEX_SANDBOX_NETWORK_DISABLED. The update handoff carries them, so the
+// activated runtime still knows an agent runs it.
+var agentVariables = []string{
+	"CLAUDECODE",
+	"CODEX_CI",
+	"CODEX_THREAD_ID",
+	"CODEX_SANDBOX",
+	"CODEX_SANDBOX_NETWORK_DISABLED",
+}
+
+// AgentSession reports whether a coding agent runs this command. An agent can
+// type at a pseudo-terminal, so one never counts as a person at a terminal: it
+// reads the plan with --dry-run --json and applies exactly that plan with
+// --approve-plan. Any value counts, so a marker never fails open.
+func AgentSession() bool {
+	for _, name := range agentVariables {
+		if os.Getenv(name) != "" {
+			return true
+		}
+	}
+	return false
 }
 
 // Mutation is valid only inside WithMutation, with shared then scope locks held.

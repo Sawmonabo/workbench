@@ -33,30 +33,10 @@ func shownAtPrompt(o *options, component *operation.Component) {
 // agentRefusal is why a coding agent's run never prompts or applies unasked.
 const agentRefusal = "An agent runs this; use --dry-run --json then --approve-plan"
 
-// agentSession reports whether a coding agent runs this command: Claude Code
-// sets CLAUDECODE=1 for the commands it runs, and Codex sets CODEX_CI,
-// CODEX_THREAD_ID and, in its sandbox, CODEX_SANDBOX and
-// CODEX_SANDBOX_NETWORK_DISABLED. An agent can type at a pseudo-terminal, so
-// one never counts as a person at a terminal: it reads the plan with --dry-run
-// --json and applies exactly that plan with --approve-plan.
-func agentSession() bool {
-	if os.Getenv("CLAUDECODE") == "1" {
-		return true
-	}
-	for _, name := range []string{
-		"CODEX_CI", "CODEX_THREAD_ID", "CODEX_SANDBOX", "CODEX_SANDBOX_NETWORK_DISABLED",
-	} {
-		if os.Getenv(name) != "" {
-			return true
-		}
-	}
-	return false
-}
-
 // openTerminal opens the controlling terminal for a prompt. A run without one,
 // or by an agent, never approves or chooses anything.
 func openTerminal() (*os.File, error) {
-	if agentSession() {
+	if operation.AgentSession() {
 		return nil, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
 	}
 	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
