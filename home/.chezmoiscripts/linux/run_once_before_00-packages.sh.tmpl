@@ -103,9 +103,12 @@ if ! command -v oh-my-posh &>/dev/null; then
     echo "==> Installing oh-my-posh..."
     # Download first: `curl | bash` runs an empty body and exits 0 when curl fails.
     omp_installer=$(mktemp)
-    curl -fsSL --retry 3 https://ohmyposh.dev/install.sh -o "$omp_installer"
-    [ -s "$omp_installer" ] || { echo "    oh-my-posh installer download failed" >&2; rm -f "$omp_installer"; exit 1; }
-    bash "$omp_installer" -d ~/.local/bin
+    if ! curl -fsSL --retry 3 https://ohmyposh.dev/install.sh -o "$omp_installer" || [ ! -s "$omp_installer" ]; then
+        echo "    oh-my-posh installer download failed" >&2
+        rm -f "$omp_installer"
+        exit 1
+    fi
+    bash "$omp_installer" -d ~/.local/bin || { rm -f "$omp_installer"; exit 1; }
     rm -f "$omp_installer"
     echo "    oh-my-posh installed."
 else

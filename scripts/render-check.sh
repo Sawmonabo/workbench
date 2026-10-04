@@ -144,7 +144,9 @@ matcher = "Bash"
 type = "command"
 command = "echo user-pretool"
 LIVE
-printf '%s\n' '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo user-start"}]}]}}' > "$dest/.claude/settings.json"
+# The second SessionStart group is an older release's copy of the managed hook
+# (different timeout); it must be replaced, not kept beside the current one.
+printf '%s\n' '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo user-start"}]},{"hooks":[{"type":"command","command":"~/.local/bin/workbench costs ingest","timeout":1}]}]}}' > "$dest/.claude/settings.json"
 for relative in .codex/config.toml .claude/settings.json; do
     "${chez[@]}" cat "$dest/$relative" > "$tmp/merge-1" || { echo "MERGE FAIL: $relative did not render"; fail=1; continue; }
     cp "$tmp/merge-1" "$dest/$relative"
@@ -156,6 +158,7 @@ for kept in 'default_tools_approval_mode = "prompt"' 'view_image = true' 'exampl
 done
 grep -qF 'echo user-start' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the user SessionStart hook'; fail=1; }
 grep -qF 'costs ingest' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the managed hook'; fail=1; }
+[ "$(grep -cF 'costs ingest' "$dest/.claude/settings.json")" = 2 ] || { echo 'MERGE FAIL: claude settings kept a stale copy of the managed hook'; fail=1; }
 cp "$tmp/codex-valid" "$dest/.codex/config.toml"
 cp "$tmp/claude-valid" "$dest/.claude/settings.json"
 

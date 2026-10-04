@@ -16,8 +16,25 @@
   {{- $granted := dig "permissions" $list (list) $live -}}
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
 {{- end -}}
+{{- /* A live group that runs `workbench costs` is a copy of an enforced hook,
+       possibly from an older release; drop it so a changed managed hook
+       replaces its old copy instead of running beside it. */ -}}
 {{- range $event, $groups := $enforced.hooks -}}
-  {{- $_ := set $enforced.hooks $event (concat $groups (dig "hooks" $event (list) $live) | uniq) -}}
+  {{- $kept := list -}}
+  {{- range $group := dig "hooks" $event (list) $live -}}
+    {{- $ours := false -}}
+    {{- if kindIs "map" $group -}}
+      {{- range $hook := get $group "hooks" | default list -}}
+        {{- if and (kindIs "map" $hook) (contains "workbench costs" (get $hook "command" | toString)) -}}
+          {{- $ours = true -}}
+        {{- end -}}
+      {{- end -}}
+    {{- end -}}
+    {{- if not $ours -}}
+      {{- $kept = append $kept $group -}}
+    {{- end -}}
+  {{- end -}}
+  {{- $_ := set $enforced.hooks $event (concat $groups $kept | uniq) -}}
 {{- end -}}
 {{- $merged := mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced -}}
 {{- if eq (toJson $merged) $unchanged -}}
