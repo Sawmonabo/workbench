@@ -137,8 +137,12 @@ def table_at(document, path):
     return node
 
 
-def added_tables(existing, managed, path=()):
-    """Render the tables in existing that managed does not have, at any depth."""
+def added_tables(existing, managed, headers, path=()):
+    """Render the tables in existing that managed does not have, at any depth.
+
+    A table the managed body only implies (it declares [a.b.c] but never [a.b])
+    has no header of its own to hang extra keys on, so it gets one here; TOML
+    allows a super-table to be defined after its sub-tables."""
     lines = []
     for key, value in existing.items():
         if not isinstance(value, dict):
@@ -146,7 +150,11 @@ def added_tables(existing, managed, path=()):
         if key not in managed:
             lines.extend(render_table(path + (key,), value))
         elif isinstance(managed[key], dict):
-            lines.extend(added_tables(value, managed[key], path + (key,)))
+            here = path + (key,)
+            keys = added_keys(value, managed[key], here)
+            if keys and here not in headers:
+                lines.extend(["", "[{}]".format(".".join(format_key(part) for part in here))] + keys)
+            lines.extend(added_tables(value, managed[key], headers, here))
     return lines
 
 
@@ -159,6 +167,19 @@ def added_keys(existing, managed, path):
         for key, value in existing.items()
         if key not in managed and not isinstance(value, dict)
     ]
+
+
+def lost_leaves(document, managed, merged, path=()):
+    """Paths of values in document that managed does not set and merged lacks."""
+    for key, value in document.items():
+        here = path + (key,)
+        if isinstance(value, dict):
+            yield from lost_leaves(
+                value, managed.get(key, {}) if isinstance(managed.get(key), dict) else {},
+                merged.get(key, {}) if isinstance(merged.get(key), dict) else {}, here,
+            )
+        elif key not in managed and merged.get(key) != value:
+            yield here
 
 
 def hook_hash(event, group, handler):
@@ -237,7 +258,7 @@ def main():
         if not state:
             del hooks["state"]
 
-    lines, first_header = [], None
+    lines, first_header, headers = [], None, set()
     for line in MANAGED.rstrip("\n").split("\n"):
         lines.append(line)
         match = TABLE_HEADER.match(line)
@@ -246,6 +267,7 @@ def main():
         if first_header is None:
             first_header = len(lines) - 1
         path = header_path(match.group(1))
+        headers.add(path)
         lines.extend(added_keys(table_at(document, path), table_at(managed, path), path))
     top = added_keys(document, managed, ())
     if top:
@@ -253,12 +275,22 @@ def main():
         lines[at:at] = top + [""]
     output = "\n".join(lines)
 
-    preserved = added_tables(document, managed)
+    preserved = added_tables(document, managed, headers)
     if preserved:
         output += "\n\n" + DELIMITER + "\n".join(preserved)
 
+    # Fail closed: every value the user's file holds that the managed body does
+    # not set must survive in the output, or the apply stops instead of
+    # silently dropping it.
+    merged = tomllib.loads(output)
+    for leaf in lost_leaves(document, managed, merged):
+        sys.stderr.write(
+            "modify_config.toml: cannot preserve {}; original input preserved\n".format(".".join(leaf))
+        )
+        return 1
+
     # Validate before emitting any replacement bytes.
-    if tomllib.loads(output) == existing:
+    if merged == existing:
         sys.stdout.buffer.write(raw)
     else:
         sys.stdout.write(output.rstrip("\n") + "\n")

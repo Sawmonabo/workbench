@@ -1,7 +1,9 @@
 {{- /* chezmoi:modify-template */ -}}
 {{- /* Claude Code rewrites its own settings. Defaults fill only missing keys,
        live values win over them, and enforced policy wins over both.
-       Permission lists keep entries granted in a session. The merge only adds
+       Permission lists and the hook lists of the events enforced below keep
+       entries the user added (a user SessionStart hook survives next to the
+       managed one). The merge only adds
        and overwrites, so an entry dropped from enforced stays in the live
        file. When the merge changes no value the file is left exactly as
        Claude Code wrote it, key order included. Invalid JSON fails the apply
@@ -13,6 +15,9 @@
   {{- $managed := index $enforced.permissions $list -}}
   {{- $granted := dig "permissions" $list (list) $live -}}
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
+{{- end -}}
+{{- range $event, $groups := $enforced.hooks -}}
+  {{- $_ := set $enforced.hooks $event (concat $groups (dig "hooks" $event (list) $live) | uniq) -}}
 {{- end -}}
 {{- $merged := mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced -}}
 {{- if eq (toJson $merged) $unchanged -}}

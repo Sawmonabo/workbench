@@ -120,6 +120,45 @@ if python3 - "$tmp/windows-settings.json" example value < "$repo/home/.chezmoite
 fi
 cmp -s "$tmp/windows-settings.json" "$tmp/invalid-config" || { echo 'PRESERVATION FAIL: invalid Windows settings replaced'; fail=1; }
 
+# Data-loss safeguard: the Codex and Claude modify templates once silently
+# dropped user-authored config (a Codex key inside a managed table, an inline
+# [[hooks.PreToolUse]] rule, a user SessionStart hook in Claude settings),
+# which are executable hooks the user wrote. Render over a synthetic live file,
+# require every one to survive, and require a second render to be byte-identical.
+echo "==> [$role/$mode] user config survives the codex and claude merges"
+cp "$dest/.codex/config.toml" "$tmp/codex-valid"
+cp "$dest/.claude/settings.json" "$tmp/claude-valid"
+cat > "$dest/.codex/config.toml" <<'LIVE'
+default_tools_approval_mode = "prompt"
+
+[tools]
+view_image = true
+
+[tools.web_search]
+allowed_domains = ["example.invalid"]
+
+[[hooks.PreToolUse]]
+matcher = "Bash"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "echo user-pretool"
+LIVE
+printf '%s\n' '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo user-start"}]}]}}' > "$dest/.claude/settings.json"
+for relative in .codex/config.toml .claude/settings.json; do
+    "${chez[@]}" cat "$dest/$relative" > "$tmp/merge-1" || { echo "MERGE FAIL: $relative did not render"; fail=1; continue; }
+    cp "$tmp/merge-1" "$dest/$relative"
+    "${chez[@]}" cat "$dest/$relative" > "$tmp/merge-2" || { echo "MERGE FAIL: $relative second render failed"; fail=1; continue; }
+    cmp -s "$tmp/merge-1" "$tmp/merge-2" || { echo "MERGE FAIL: $relative is not idempotent"; fail=1; }
+done
+for kept in 'default_tools_approval_mode = "prompt"' 'view_image = true' 'example.invalid' 'echo user-pretool'; do
+    grep -qF -- "$kept" "$dest/.codex/config.toml" || { echo "MERGE FAIL: codex config lost $kept"; fail=1; }
+done
+grep -qF 'echo user-start' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the user SessionStart hook'; fail=1; }
+grep -qF 'costs ingest' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the managed hook'; fail=1; }
+cp "$tmp/codex-valid" "$dest/.codex/config.toml"
+cp "$tmp/claude-valid" "$dest/.claude/settings.json"
+
 echo "==> [$role/$mode] leak checks"
 if grep -rIln -e '/home/sabossedgh' -e '/Users/sawmonabo' "$repo/home"; then
     echo "LEAK: hardcoded home directory in a source template"; fail=1
