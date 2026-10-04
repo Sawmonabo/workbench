@@ -54,8 +54,18 @@ func costsCommand(o *options) *cobra.Command {
 		"claude",
 		"The tab to open on, or the tool to print: claude or codex",
 	)
-	flags.StringVar(&f.since, "since", "", "First day to include, YYYY-MM-DD")
-	flags.StringVar(&f.until, "until", "", "Last day to include, YYYY-MM-DD")
+	flags.StringVar(
+		&f.since,
+		"since",
+		"",
+		"First day to include, YYYY-MM-DD in this machine's time zone",
+	)
+	flags.StringVar(
+		&f.until,
+		"until",
+		"",
+		"Last day to include, YYYY-MM-DD in this machine's time zone",
+	)
 	flags.BoolVar(&f.all, "all", false, "Include projects outside ~/dev and ~/repos")
 	flags.IntVar(&f.top, "top", 0, "Show the first N rows; totals still cover all")
 	flags.StringVar(&f.sort, "sort", "cost", "Row order: cost, name or calls")
@@ -432,7 +442,7 @@ func costsRatesCommand(o *options) *cobra.Command {
 func ratesCard(card costs.Card) ratesView {
 	view := ratesView{Official: map[string]string{}}
 	for tool, fetched := range card.Fetched {
-		view.Official[tool] = fetched.UTC().Format("2006-01-02")
+		view.Official[tool] = fetched.Local().Format(time.DateOnly)
 	}
 	disagree := card.Disagreements()
 	for _, model := range slices.Sorted(mapKeys(card.Rows)) {
@@ -501,8 +511,8 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	writeTable(&b, width, 2, spec)
 	b.WriteString("\n")
 	writeFaint(&b, width, 2, fmt.Sprintf(
-		"Sources in order: override, official, calibrated, built-in; longest prefix within a source. "+
-			"Overrides: %s. Refresh: workbench costs rates --refresh",
+		"A row from the overrides file always wins; otherwise the longest matching prefix, then this source order: "+
+			"official, calibrated, built-in. Overrides: %s. Refresh: workbench costs rates --refresh",
 		shortPath(card.Overrides),
 	))
 	return b.String()
@@ -775,7 +785,14 @@ func costsPage(
 	pal := toolPalette(tool.Name)
 	opts := report.Options
 	c := report.Coverage
-	period := fmt.Sprintf("%s responses · %s → %s", commas(c.Responses), day(c.First), day(c.Last))
+	// The count and the days are the table's: the period and scope the total
+	// below is for, not everything the ledger holds (costs status shows that).
+	period := fmt.Sprintf(
+		"%s responses · %s → %s",
+		commas(report.Total.Calls),
+		day(report.First),
+		day(report.Last),
+	)
 	writeText(
 		&b,
 		width,
@@ -1230,7 +1247,7 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 		switch {
 		case at == "":
 			return tool.Title + "'s transcripts record no " + part
-		case at[:min(len(at), 10)] <= report.Coverage.First:
+		case costs.LocalDate(at) <= report.Coverage.First:
 			// Named from the first row on: the rows without one are threads
 			// whose transcript never named it, not an earlier era.
 			come := "responses come"

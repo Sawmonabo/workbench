@@ -278,6 +278,7 @@ var Tools = []Tool{
 		// A subagent runs in its parent's process, under the credential the
 		// parent's latest credential_org names, and its own file may name none.
 		SessionPlan: planEarlier,
+		Tiers:       true, // fast mode: "claude-opus-5@fast"
 	},
 	{
 		Name: "codex", Title: "Codex", Source: codex{},

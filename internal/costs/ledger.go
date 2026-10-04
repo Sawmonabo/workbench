@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
+	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -184,6 +184,12 @@ type Ledger struct {
 // writes nothing. A zero-byte file (a crash between creating the file and
 // writing the schema) holds nothing and is treated as absent. create makes a
 // missing ledger instead of failing.
+//
+// The ledger copies emails, organization names and project paths out of the
+// tools' private files, so it is private too: a directory this call makes is
+// 0700, the file is made 0600, and a ledger an earlier build left readable by
+// others is tightened to 0600 once it is verified (the mode only, never the
+// content).
 func OpenLedger(path string, create bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -197,8 +203,21 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 			"No ledger at "+path+"; run `workbench costs ingest --worker` first",
 		)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if !exists {
+		// SQLite gives the -wal and -shm files the database file's mode, so
+		// creating the file here, private, keeps them private from their first
+		// byte. O_CREATE without O_EXCL leaves a file another process made
+		// first, and its content, alone.
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
 	// wait on the busy timeout instead of failing when a read turns into a write.
@@ -215,7 +234,21 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	makePrivate(path)
 	return ledger, nil
+}
+
+// makePrivate removes group and other access from the ledger and its WAL
+// files, when they have any. It runs only for a verified ledger, so a foreign
+// file is never touched, and it is best effort: a mode that cannot be changed
+// (a read-only mount) must not stop the ledger from being read or written,
+// which would risk the only lasting record of spend over a hardening step.
+func makePrivate(path string) {
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if info, err := os.Stat(name); err == nil && info.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
+		}
+	}
 }
 
 func (l *Ledger) prepare(exists bool) error {
@@ -263,14 +296,65 @@ func (l *Ledger) prepare(exists bool) error {
 	// Only a verified ledger is switched to WAL, so a foreign database is
 	// never modified. WAL lets a report read the last committed state while a
 	// worker ingests.
-	if _, err := l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+	if err := l.enableWAL(ctx); err != nil {
 		return fmt.Errorf("%s: %w", l.Path, err)
 	}
 	return nil
 }
 
+// sqliteBusy is SQLite's SQLITE_BUSY result code, which an extended code keeps
+// in its low byte.
+const sqliteBusy = 5
+
+// enableWAL switches the ledger to WAL. Doing so for a new ledger takes the
+// database exclusively, which two creators doing it at once cannot both be
+// granted: SQLite fails one of them with BUSY at once, without waiting out the
+// busy timeout. The other has switched the journal by the time that one tries
+// again, and a ledger already in WAL needs no lock.
+func (l *Ledger) enableWAL(ctx context.Context) error {
+	var err error
+	for attempt := range 50 {
+		_, err = l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+		var busy *sqlite.Error
+		if !errors.As(err, &busy) || busy.Code()&0xff != sqliteBusy {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return err
+}
+
+// create writes the schema of a ledger that was missing when OpenLedger looked.
+// Two processes can both have seen it missing (the first apply's ingest and a
+// session hook, say): the immediate transaction makes the second wait for the
+// first, and it then finds the ledger made and leaves it as it is. A plain
+// CREATE TABLE IF NOT EXISTS would instead accept a foreign database that
+// happens to share a table name.
 func (l *Ledger) create(ctx context.Context) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
+		var made int
+		if err := tx.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+		).Scan(&made); err != nil {
+			return err
+		}
+		if made > 0 {
+			// Another process created it while this one waited; it must be a
+			// ledger of this version, as prepare requires of an existing one.
+			var version string
+			if err := tx.QueryRowContext(
+				ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
+			).Scan(&version); err != nil || version != schemaVersion {
+				return operation.Fail(
+					operation.ExitInvalid,
+					"ledger",
+					"a database appeared here that is not a Workbench costs ledger of schema version "+
+						schemaVersion+"; move it aside",
+				)
+			}
+			return nil
+		}
 		if _, err := tx.ExecContext(ctx, schema); err != nil {
 			return err
 		}
@@ -642,6 +726,52 @@ const earlier = `(ts = '' OR (excluded.ts <> '' AND excluded.ts <= ts))`
 // timeLayout is how a response's time is stored: the form Claude Code writes,
 // UTC with milliseconds, which sorts as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
+
+// A report names days and months in the machine's time zone, the one the
+// session times beside them are shown in: a response belongs to the day on the
+// wall clock where it was made, not to the UTC day it is stored under. SQL
+// groups with the 'localtime' modifier; the bounds below are converted here.
+
+// periodClauses are the WHERE clauses and arguments for inclusive YYYY-MM-DD
+// bounds on a response's local day, "" for no bound: ts from the first day's
+// local midnight up to, not including, the next local midnight after the last
+// day, and dated. They compare ts itself, so the responses_ts index serves them.
+func periodClauses(since, until string) (clauses []string, args []any, err error) {
+	for _, bound := range []struct {
+		flag, day, clause string
+		plus              int
+	}{
+		{"--since", since, "ts >= ?", 0},
+		{"--until", until, "ts < ?", 1}, // the next midnight ends the last day
+	} {
+		if bound.day == "" {
+			continue
+		}
+		start, err := time.ParseInLocation(time.DateOnly, bound.day, time.Local)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s needs a YYYY-MM-DD date: %w", bound.flag, err)
+		}
+		clauses = append(clauses, bound.clause)
+		args = append(args, start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout))
+	}
+	if len(clauses) > 0 {
+		// An undated response ('') sorts before every day, so `ts < ?` alone
+		// would count it under --until while --since leaves it out. A period
+		// covers dated responses only.
+		clauses = append(clauses, "ts <> ''")
+	}
+	return clauses, args, nil
+}
+
+// LocalDate is the machine-local calendar day (YYYY-MM-DD) of a stored
+// response time, "none" when ts holds no time.
+func LocalDate(ts string) string {
+	when, err := time.Parse(timeLayout, ts)
+	if err != nil {
+		return "none"
+	}
+	return when.Local().Format(time.DateOnly)
+}
 
 // storedID is the ledger key of a response: Claude's id as is, every other
 // tool's as <tool>:<id>.

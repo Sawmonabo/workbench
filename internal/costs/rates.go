@@ -24,8 +24,8 @@ const (
 	fetchTimeout = 5 * time.Second
 )
 
-// sourceOrder ranks where a rate came from: the first source with a matching
-// rate decides, and the longest prefix decides within a source; see matchesRate.
+// sourceOrder ranks where a rate came from, for rates that are equally
+// specific; see Lookup.
 var sourceOrder = []string{"override", "official", "calibrated", "builtin"}
 
 // rateFields are the keys of a rate in the overrides and the official cache,
@@ -62,20 +62,63 @@ func matchesRate(model, prefix string, tiers bool) bool {
 }
 
 // Lookup returns the rate that prices model, a model id of a tool whose ids
-// carry a service tier when tiers is set.
+// carry a service tier when tiers is set. A rate from the manual overrides file
+// always wins: it is an explicit instruction, so an override keyed
+// "claude-opus" beats an official "claude-opus-5-5" row. Among the others the
+// row that names the model most specifically wins, wherever it comes from, so a
+// page that drops "claude-opus-4-5" and keeps the family row "claude-opus-4"
+// does not reprice the built-in "claude-opus-4-5" row away. Rows equally
+// specific fall to the source order.
 func (c RateCard) Lookup(model string, tiers bool) (Rate, bool) {
 	var best Rate
-	bestKey, found := [2]int{}, false
+	var bestRank [4]int
+	found := false
 	for prefix, rate := range c {
 		if !matchesRate(model, prefix, tiers) {
 			continue
 		}
-		key := [2]int{slices.Index(sourceOrder, rate.Source), -len(prefix)}
-		if !found || key[0] < bestKey[0] || (key[0] == bestKey[0] && key[1] < bestKey[1]) {
-			best, bestKey, found = rate, key, true
+		if rank := rateRank(prefix, rate); !found || slices.Compare(rank[:], bestRank[:]) < 0 {
+			best, bestRank, found = rate, rank, true
 		}
 	}
 	return best, found
+}
+
+// rateRank orders the rates that match a model, best first: an override, then
+// the most specific prefix, then the earlier source, then the longer prefix (so
+// the order never depends on map iteration).
+func rateRank(prefix string, rate Rate) [4]int {
+	override := 1
+	if rate.Source == "override" {
+		override = 0
+	}
+	return [4]int{
+		override, -specificity(prefix), slices.Index(sourceOrder, rate.Source), -len(prefix),
+	}
+}
+
+// specificity is how much of a model id a prefix names: its length without a
+// dated snapshot suffix ("-20251101" or "@20251101") and without a tier. Claude
+// Code's own cost records, which calibration reads, are keyed by the dated id
+// ("claude-opus-4-5-20251101"); that names the same model as the page's
+// "claude-opus-4-5", so the two tie and the source order, official first,
+// decides, as it always has.
+func specificity(prefix string) int {
+	base, _ := splitTier(prefix)
+	n := len(base)
+	if n > 9 && (base[n-9] == '-' || base[n-9] == '@') && isDigits(base[n-8:]) {
+		n -= 9
+	}
+	return n
+}
+
+func isDigits(s string) bool {
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // Cost is the list-price cost in USD of the tokens at this rate.
@@ -308,7 +351,9 @@ func readOfficial(paths Paths, tool Tool) officialFile {
 
 func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	path := officialPath(paths, tool)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	// The ledger's directory, which `costs rates --refresh` can create first:
+	// private like the ledger. The cache itself holds public prices.
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(file, "", " ")
