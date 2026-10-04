@@ -12,7 +12,7 @@ import (
 // response. It is not a forwarding launcher and never grants consent to a
 // later setup/apply. The runtime gets a rebuilt environment: Workbench's own
 // paths, the presentation settings, the proxy and CA settings and the
-// coding-agent markers below, and nothing else of the caller's.
+// coding-agent markers (agentVariables), and nothing else of the caller's.
 func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	state, err := ReadState(c.Paths)
 	if err != nil {
@@ -67,7 +67,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	}
 	environment = append(environment, passedThrough(handoffVariables)...)
 	environment = append(environment, NetworkEnvironment()...)
-	environment = append(environment, passedThrough(AgentVariables)...)
+	environment = append(environment, passedThrough(agentVariables)...)
 	if err = syscall.Exec(
 		executable,
 		append([]string{executable}, args...),
@@ -82,33 +82,20 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	return nil
 }
 
-// AgentVariables are the variables by which a coding agent marks the commands
-// it runs: Claude Code sets CLAUDECODE=1, and Codex sets CODEX_CI,
-// CODEX_THREAD_ID and, in its sandbox, CODEX_SANDBOX and
-// CODEX_SANDBOX_NETWORK_DISABLED. The handoff carries them so the activated
-// runtime still knows an agent runs it and never prompts or applies unasked.
-// internal/cli's agentSession must test the same names.
-var AgentVariables = []string{
-	"CLAUDECODE",
-	"CODEX_CI",
-	"CODEX_THREAD_ID",
-	"CODEX_SANDBOX",
-	"CODEX_SANDBOX_NETWORK_DISABLED",
-}
-
-// networkVariables are the proxy and CA settings Go's HTTP transport, uv, curl
-// and the tools behind them read. They describe the user's network, not a
-// credential store or an executable lookup, so the explicit environments of
-// subprocesses that download may carry them. Ecosystem-specific CA variables
-// (NODE_EXTRA_CA_CERTS, REQUESTS_CA_BUNDLE, CARGO_HTTP_CAINFO) stay out: Go,
-// uv and curl do not read them, and each would widen what every subprocess
-// inherits.
+// networkVariables are the proxy and CA settings of the tools that download
+// for Workbench: Go's HTTP transport, uv and curl read the proxy variables and
+// SSL_CERT_FILE, SSL_CERT_DIR or CURL_CA_BUNDLE; the setup scripts' npm and
+// Node tools read NODE_EXTRA_CA_CERTS, cargo reads CARGO_HTTP_CAINFO, and the
+// tmux plugin clone reads GIT_SSL_CAINFO. They describe the user's network,
+// not a credential store or an executable lookup, so the explicit
+// environments of subprocesses that download may carry them.
 var networkVariables = []string{
 	"HTTPS_PROXY", "https_proxy",
 	"HTTP_PROXY", "http_proxy",
 	"ALL_PROXY", "all_proxy",
 	"NO_PROXY", "no_proxy",
 	"SSL_CERT_FILE", "SSL_CERT_DIR", "CURL_CA_BUNDLE",
+	"NODE_EXTRA_CA_CERTS", "CARGO_HTTP_CAINFO", "GIT_SSL_CAINFO",
 }
 
 // handoffVariables are the settings the activated runtime reads to look like

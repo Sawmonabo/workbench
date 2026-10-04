@@ -206,7 +206,7 @@ func setupDependencies(
 // rename would replace it. The temporary file is disposable: each call removes
 // a leftover one first, so an interrupted attempt never blocks the next.
 func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
-	partial := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".partial")
+	partial := partialName(target)
 	if info, err := os.Lstat(partial); err == nil {
 		if !info.Mode().IsRegular() {
 			return operation.Fail(
@@ -278,6 +278,23 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 		err = closeErr
 	}
 	return err
+}
+
+// partialName is the temporary file writeNewOrIdentical fills before linking
+// it to target.
+func partialName(target string) string {
+	return filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".partial")
+}
+
+// partialOf reports whether name is the temporary file of one of files, left
+// by an interrupted writeNewOrIdentical.
+func partialOf(name string, files map[string][]byte) bool {
+	for original := range files {
+		if partialName(original) == name {
+			return true
+		}
+	}
+	return false
 }
 
 // acquireTool downloads the pinned chezmoi or uv release for this target,
@@ -588,6 +605,13 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 			return relErr
 		}
 		if _, ok := files[name]; !ok || entry.Type()&os.ModeSymlink != 0 {
+			if partialOf(name, files) && entry.Type().IsRegular() {
+				return operation.Fail(
+					operation.ExitBlocked,
+					"tomlkit",
+					"An interrupted TOML Kit install left "+name+"; workbench apply finishes the install",
+				)
+			}
 			return operation.Fail(
 				operation.ExitBlocked,
 				"tomlkit",
