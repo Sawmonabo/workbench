@@ -76,6 +76,7 @@ while IFS= read -r -d '' script; do
                 echo "PROBE FAIL: $script exited $? in probe mode:"; cat "$tmp/probe.err"; fail=1
             fi
             probe_end=$(grep -n 'WORKBENCH_PROBE' "$out" | tail -1 | cut -d: -f1 || true)
+            # shellcheck disable=SC2016 # the $( ... ) in the elif pattern is matched literally
             if [ -z "$probe_end" ]; then
                 echo "PROBE FAIL: $script has no WORKBENCH_PROBE block"; fail=1
             elif head -n "$probe_end" "$out" | grep -vE '^[[:space:]]*#' | grep -qE 'sudo |read -r|curl -f[^ ]* -o|brew install|apt-get install|npm install|cargo install|install -m|cp |mv |> "\$(WSLCONFIG|PS_PROFILE)'; then

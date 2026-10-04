@@ -19,10 +19,14 @@ jobs:
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9.3.0
         with:
           version-file: .golangci-lint-version
+      - name: Lint the darwin target
+        run: golangci-lint run ./...
+        env:
+          GOOS: darwin
       - name: Build
         run: go build ./...
-      - name: Lint installer
-        run: shellcheck -s sh install.sh
+      - name: Lint shell scripts
+        run: shellcheck -s sh install.sh && shellcheck -S warning scripts/render-check.sh scripts/scratch-init.sh
       - name: Check workflow action pins
         run: python3 scripts/check-action-pins.py
       - name: Safety safeguards (execution and data loss)
