@@ -184,6 +184,10 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			errs = append(errs, fmt.Sprintf("%s: %v", tool.Name, listErr))
 		}
 		stop := false
+		// The transcripts this run read, or found unchanged since the ledger read
+		// them, and committed: the only ones DropHeldCopies may trust to hold a
+		// response. A listed transcript whose read failed holds nothing yet.
+		var held []string
 		readEach(ctx, ledger, tool, transcripts, func(i int, read fileRead) bool {
 			if opts.Progress != nil {
 				opts.Progress.Step(fmt.Sprintf(
@@ -210,6 +214,9 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			case err != nil:
 				errs = append(errs, fmt.Sprintf("%s: %v", read.path, err))
 			}
+			if err == nil && !read.vanished {
+				held = append(held, read.path)
+			}
 			return true
 		})
 		if ctx.Err() != nil {
@@ -218,7 +225,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		if stop {
 			break
 		}
-		if err := ledger.DropHeldCopies(ctx, tool.Name, holdsIn(ledger, transcripts)); err != nil {
+		if err := ledger.DropHeldCopies(ctx, tool.Name, holdsIn(ledger, held)); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: copies: %v", tool.Name, err))
 		}
 	}
@@ -554,9 +561,8 @@ const (
 )
 
 // holdsIn reports, for a run that read paths, whether a transcript holds a
-// thread's lines up to a time: it is listed this run, as every listed one is
-// read in full, or the ledger read it after it was last written at or after
-// that time.
+// thread's lines up to a time: it was read and committed this run, in full, or
+// the ledger read it after it was last written at or after that time.
 func holdsIn(ledger *Ledger, paths []string) func(thread, since string) bool {
 	return func(thread, since string) bool {
 		if thread == "" {
