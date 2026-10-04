@@ -46,8 +46,10 @@ fi
 if command -v rustup &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
     rustup toolchain install {{ .versions.rust }} || failed+=(rust-toolchain)
+    rustup default {{ .versions.rust }} || failed+=(rust-default)
 {{- else }}
     rustup toolchain install stable || failed+=(rust-toolchain)
+    rustup default stable || failed+=(rust-default)
 {{- end }}
 else
     failed+=(rustup-missing)
