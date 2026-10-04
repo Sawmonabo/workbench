@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
@@ -155,10 +156,111 @@ func mergeExtensions(data []byte) ([]byte, error) {
 		return nil, err
 	}
 	result := changed.Pack()
+	if ownsLayout(doc) {
+		// Nothing of the user's is in the file, so lay it out like any new JSON file.
+		var indented bytes.Buffer
+		if err = json.Indent(&indented, bytes.TrimSpace(result), "", "  "); err != nil {
+			return nil, err
+		}
+		indented.WriteByte('\n')
+		result = indented.Bytes()
+	} else {
+		alignInserted(doc, changed)
+		result = changed.Pack()
+	}
 	if _, err = hujson.Parse(result); err != nil {
 		return nil, err
 	}
 	return result, nil
+}
+
+// ownsLayout reports a document that is an empty object without comments:
+// there is no user layout to preserve.
+func ownsLayout(doc hujson.Value) bool {
+	object, ok := doc.Value.(*hujson.Object)
+	return ok && len(object.Members) == 0 &&
+		len(bytes.TrimSpace(slices.Concat(doc.BeforeExtra, object.AfterExtra, doc.AfterExtra))) == 0
+}
+
+// alignInserted gives the values that Patch appended to changed the layout of
+// the values the user already wrote in original, so an existing multi-line
+// file keeps one entry per line. Layout is copied only from the user's own
+// values; a one-line array or object has none to copy and stays as written.
+func alignInserted(original, changed hujson.Value) {
+	before, isObject := original.Value.(*hujson.Object)
+	after, grownObject := changed.Value.(*hujson.Object)
+	if !isObject || !grownObject || len(before.Members) == 0 {
+		return
+	}
+	for i := range after.Members {
+		member := &after.Members[i]
+		if i < len(before.Members) {
+			existing, isArray := before.Members[i].Value.Value.(*hujson.Array)
+			grown, grownArray := member.Value.Value.(*hujson.Array)
+			if isArray && grownArray {
+				alignElements(existing, grown)
+			}
+			continue
+		}
+		indent, newline, multiline := lineLayout(after.Members[i-1].Name.BeforeExtra)
+		if !multiline {
+			continue
+		}
+		member.Name.BeforeExtra = breakLine(member.Name.BeforeExtra, indent, newline)
+		if len(member.Value.BeforeExtra) == 0 {
+			member.Value.BeforeExtra = hujson.Extra(" ")
+		}
+		if array, ok := member.Value.Value.(*hujson.Array); ok {
+			for j := 1; j < len(array.Elements); j++ {
+				if len(array.Elements[j].BeforeExtra) == 0 {
+					array.Elements[j].BeforeExtra = hujson.Extra(" ")
+				}
+			}
+		}
+	}
+}
+
+// alignElements puts each element that Patch appended to grown on its own
+// line, indented like the first element the user wrote in existing.
+func alignElements(existing, grown *hujson.Array) {
+	if len(existing.Elements) == 0 {
+		return
+	}
+	indent, newline, multiline := lineLayout(existing.Elements[0].BeforeExtra)
+	if !multiline {
+		return
+	}
+	for i := len(existing.Elements); i < len(grown.Elements); i++ {
+		grown.Elements[i].BeforeExtra = breakLine(grown.Elements[i].BeforeExtra, indent, newline)
+	}
+}
+
+// lineLayout returns the indentation and line ending that extra, the text
+// before a value, uses to start that value on its own line. multiline is false
+// when the value shares its line with the text before it.
+func lineLayout(extra hujson.Extra) (indent, newline string, multiline bool) {
+	text := string(extra)
+	last := strings.LastIndex(text, "\n")
+	if last < 0 {
+		return "", "", false
+	}
+	newline = "\n"
+	if last > 0 && text[last-1] == '\r' {
+		newline = "\r\n"
+	}
+	tail := text[last+1:]
+	return tail[:len(tail)-len(strings.TrimLeft(tail, " \t"))], newline, true
+}
+
+// breakLine starts a value on its own line at indent. Any comment already in
+// extra stays: hujson moves a comment written after the previous comma into
+// the leading text of the first value inserted after it.
+func breakLine(extra hujson.Extra, indent, newline string) hujson.Extra {
+	text := strings.TrimRight(string(extra), " \t")
+	if !strings.HasSuffix(text, "\n") {
+		text += newline
+	}
+	return hujson.Extra(text + indent)
 }
 
 func uniqueKeys(value hujson.Value) error {
