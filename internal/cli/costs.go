@@ -785,7 +785,14 @@ func costsPage(
 	pal := toolPalette(tool.Name)
 	opts := report.Options
 	c := report.Coverage
-	period := fmt.Sprintf("%s responses · %s → %s", commas(c.Responses), day(c.First), day(c.Last))
+	// The count and the days are the table's: the period and scope the total
+	// below is for, not everything the ledger holds (costs status shows that).
+	period := fmt.Sprintf(
+		"%s responses · %s → %s",
+		commas(report.Total.Calls),
+		day(report.First),
+		day(report.Last),
+	)
 	writeText(
 		&b,
 		width,

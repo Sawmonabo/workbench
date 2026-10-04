@@ -174,21 +174,26 @@ type ReportOptions struct {
 // Statement is one tool's rows, totals and coverage, as [Report] returns them.
 // (The type cannot share its function's name.)
 type Statement struct {
-	Options    ReportOptions `json:"-"` // what was asked; the report is laid out from it
-	Tool       string        `json:"tool"`
-	By         string        `json:"by"`
-	Coverage   Coverage      `json:"coverage"`
-	Rows       []Row         `json:"rows"` // the shown rows
-	RowCount   int           `json:"row_count"`
-	GrandTotal float64       `json:"grand_total"`
-	Total      Row           `json:"total"`
-	Models     []Row         `json:"models"`
-	Accounts   []Row         `json:"accounts"`
-	Detail     []Block       `json:"detail,omitempty"`
-	Hidden     int           `json:"hidden_projects"` // projects the default scope left out
-	Unpriced   []Unpriced    `json:"unpriced"`        // models without a rate, and why
-	Overrides  string        `json:"overrides"`       // the file a rate for them goes in
-	Sources    []string      `json:"rate_sources"`
+	Options  ReportOptions `json:"-"` // what was asked; the report is laid out from it
+	Tool     string        `json:"tool"`
+	By       string        `json:"by"`
+	Coverage Coverage      `json:"coverage"` // everything the ledger holds for the tool
+	// First and Last are the first and last day (YYYY-MM-DD, the machine's time
+	// zone) with a response in the rows the report covers: the period and the
+	// scope the total beside them is for. "none" when there are none.
+	First      string     `json:"first"`
+	Last       string     `json:"last"`
+	Rows       []Row      `json:"rows"` // the shown rows
+	RowCount   int        `json:"row_count"`
+	GrandTotal float64    `json:"grand_total"`
+	Total      Row        `json:"total"`
+	Models     []Row      `json:"models"`
+	Accounts   []Row      `json:"accounts"`
+	Detail     []Block    `json:"detail,omitempty"`
+	Hidden     int        `json:"hidden_projects"` // projects the default scope left out
+	Unpriced   []Unpriced `json:"unpriced"`        // models without a rate, and why
+	Overrides  string     `json:"overrides"`       // the file a rate for them goes in
+	Sources    []string   `json:"rate_sources"`
 }
 
 // Empty reports that nothing matched.
@@ -196,6 +201,9 @@ func (r Statement) Empty() bool { return r.RowCount == 0 }
 
 type group struct {
 	project, model, account, subscription, label, month string
+	// first and last are the earliest and latest dated response time (ledger
+	// layout) of the group, "" for none.
+	first, last string
 	Row
 }
 
@@ -215,7 +223,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	}
 	report := Statement{
 		Options: opts, Tool: opts.Tool, By: opts.By, Sources: card.Sources(),
-		Overrides: paths.Overrides,
+		Overrides: paths.Overrides, First: "none", Last: "none",
 	}
 	tool, _ := Lookup(opts.Tool)
 	groups, hidden, err := loadGroups(ctx, ledger, card, paths.Home, opts)
@@ -239,6 +247,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if len(groups) == 0 {
 		return report, nil
 	}
+	report.First, report.Last = span(groups)
 	rows := sortRows(aggregate(groups, opts.By), opts.Sort)
 	report.RowCount = len(rows)
 	report.Rows = rows
@@ -264,6 +273,19 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 		}
 	}
 	return report, nil
+}
+
+// span is the first and last local day with a dated response among groups,
+// "none" for a bound no group has.
+func span(groups []group) (first, last string) {
+	var lo, hi string
+	for _, g := range groups {
+		if g.first != "" && (lo == "" || g.first < lo) {
+			lo = g.first
+		}
+		hi = max(hi, g.last)
+	}
+	return LocalDate(lo), LocalDate(hi)
 }
 
 // rollup folds a session's working directory into its repository: the first
@@ -313,7 +335,7 @@ func loadGroups(
 		`SELECT r.project, r.model, r.account, r.subscription, COALESCE(s.label, ''),
 		        COALESCE(strftime('%Y-%m', r.ts, 'localtime'), ''), COUNT(*),
 		        SUM(r.input), SUM(r.output), SUM(r.cache_write_5m), SUM(r.cache_write_1h),
-		        SUM(r.cache_read)
+		        SUM(r.cache_read), COALESCE(MIN(NULLIF(r.ts, '')), ''), MAX(r.ts)
 		   FROM responses r LEFT JOIN subscriptions s ON s.id = r.subscription
 		  WHERE `+strings.Join(where, " AND ")+`
 		  GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 3, 4, 5, 6`, args...)
@@ -327,7 +349,7 @@ func loadGroups(
 		var g group
 		if err := rows.Scan(
 			&g.project, &g.model, &g.account, &g.subscription, &g.label, &g.month, &g.Calls,
-			&g.Input, &g.Output, &g.CacheWrite5m, &g.CacheWrite1h, &g.CacheRead,
+			&g.Input, &g.Output, &g.CacheWrite5m, &g.CacheWrite1h, &g.CacheRead, &g.first, &g.last,
 		); err != nil {
 			return nil, 0, err
 		}
