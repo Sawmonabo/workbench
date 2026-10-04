@@ -122,27 +122,31 @@ func scriptCode(t *testing.T, home, path string) string {
 	return strings.Join(lines, "\n")
 }
 
-// Windows setup is on by default, and three of its parts replace the owner's own
-// files and settings outside any checkpoint: the Windows Terminal settings, the
-// PowerShell profile and the font registry. If ticking Windows setup ticked
-// them, a first apply on a WSL host, or --yes on a machine that never decided,
-// would overwrite files the owner never picked. A part runs only when its own
-// name is selected, and only that choice is saved.
-func TestWindowsSetupNeverTicksItsParts(t *testing.T) {
+// Windows setup and its three parts write to the Windows side outside any
+// checkpoint, and the parts replace the owner's own files and settings: the
+// Windows Terminal settings, the PowerShell profile and the font registry. If
+// any of them were on by default, or ticking Windows setup ticked its parts, a
+// first apply on a WSL host, or --yes on a machine that never decided, would
+// overwrite files the owner never picked. Each runs only when its own name is
+// selected, and only that choice is saved. The real definitions are used, so a
+// step turned back on by default fails here.
+func TestWindowsStepsRunOnlyWhenSelectedByName(t *testing.T) {
 	windows := func() []operation.Effect {
-		return []operation.Effect{
-			{Name: "windows-files"},
-			{Name: "terminal-adoption", Parent: "windows-files", Optional: true},
-			{Name: "powershell-adoption", Parent: "windows-files", Optional: true},
-			{Name: "font-registry", Parent: "windows-files", Optional: true},
-		}
+		return append(slices.Clone(windowsHostEffects), optionalEffects...)
 	}
 	for _, test := range []struct {
 		chosen  Selection
 		checked []string
 	}{
-		{Selection{}, []string{"windows-files"}},
-		{Selection{Select: []string{"font-registry"}}, []string{"windows-files", "font-registry"}},
+		{Selection{}, []string{"wsl-preferences"}},
+		{
+			Selection{Select: []string{"windows-files"}},
+			[]string{"windows-files", "wsl-preferences"},
+		},
+		{
+			Selection{Select: []string{"font-registry"}},
+			[]string{"wsl-preferences", "font-registry"},
+		},
 	} {
 		var checked []string
 		for _, effect := range applySelection(windows(), test.chosen, test.chosen) {

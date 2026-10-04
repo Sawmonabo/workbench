@@ -232,10 +232,16 @@ var bitwardenSessionEffect = operation.Effect{
 	Undo:        "Restored from the checkpoint Workbench takes before applying",
 }
 
-// windowsHostEffects are the Windows-side owners a WSL host lists.
+// windowsHostEffects are the Windows-side owners a WSL host lists. Windows
+// setup is optional, off until ticked: it installs programs and fonts and edits
+// settings on the Windows side, outside the checkpoint and with no copy kept,
+// so a first apply, or --yes on a machine that never decided, must not do that
+// unasked. WSL networking stays on: it keeps the other .wslconfig settings and
+// saves a copy of the file first.
 var windowsHostEffects = []operation.Effect{
 	{
 		Name:        "windows-files",
+		Optional:    true,
 		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, RestartWSL helpers, bin/rg.exe, VS Code User settings and Notepad++ themes; ~/.vscode-server/data/Machine/settings.json",
 		Privilege:   "Windows user; not yet qualified on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
@@ -286,6 +292,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 var optionalEffects = []operation.Effect{
 	{
 		Name:        "terminal-adoption",
+		Optional:    true,
 		Description: "Replace an existing Windows Terminal settings.json with the managed one when it differs; a copy is kept beside it; register the font it uses",
 		Privilege:   "Windows user",
 		Recovery:    "copy only; not checkpointed",
@@ -298,6 +305,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "powershell-adoption",
+		Optional:    true,
 		Description: "Replace an existing PowerShell profile with the managed one; a copy is kept beside it",
 		Privilege:   "Windows user",
 		Recovery:    "copy only; not checkpointed",
@@ -310,6 +318,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "font-registry",
+		Optional:    true,
 		Description: "Register JetBrainsMono Nerd Font files in HKCU Fonts and load them into the session",
 		Privilege:   "Windows user registry",
 		Recovery:    "external; registry values are not reverted",
@@ -322,6 +331,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "default-distro",
+		Optional:    true,
 		Description: "Make this distribution the default WSL distribution",
 		Privilege:   "Windows user",
 		Recovery:    "external; previous default is not restored",
@@ -334,6 +344,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "windows-path",
+		Optional:    true,
 		Description: "Append %USERPROFILE%\\bin and %USERPROFILE%\\.local\\bin to the Windows user PATH, keeping existing entries",
 		Privilege:   "Windows user environment",
 		Recovery:    "external; PATH is not reverted",
@@ -346,6 +357,7 @@ var optionalEffects = []operation.Effect{
 	},
 	{
 		Name:        "sysctl",
+		Optional:    true,
 		Description: "Write /etc/sysctl.d/99-dev.conf with vm.swappiness=10 and apply it live",
 		Privilege:   "sudo",
 		Recovery:    "external; kernel setting and file are not reverted",
@@ -410,7 +422,6 @@ func hostOptionalEffects() []operation.Effect {
 	}
 	effects := slices.Clone(optionalEffects)
 	for i := range effects {
-		effects[i].Optional = true
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
 				effects[i].Description = "Make " + distribution + " the default WSL distribution"
