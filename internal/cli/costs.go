@@ -511,8 +511,8 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	writeTable(&b, width, 2, spec)
 	b.WriteString("\n")
 	writeFaint(&b, width, 2, fmt.Sprintf(
-		"Sources in order: override, official, calibrated, built-in; longest prefix within a source. "+
-			"Overrides: %s. Refresh: workbench costs rates --refresh",
+		"A row from the overrides file always wins; otherwise the longest matching prefix, then this source order: "+
+			"official, calibrated, built-in. Overrides: %s. Refresh: workbench costs rates --refresh",
 		shortPath(card.Overrides),
 	))
 	return b.String()
