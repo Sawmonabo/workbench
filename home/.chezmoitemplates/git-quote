@@ -1,0 +1,2 @@
+{{- /* A git config quoted value: git reads only \\ and \" escapes, so Go's \uXXXX from `quote` makes the file unreadable. */ -}}
+{{- printf "\"%s\"" (. | replace "\\" "\\\\" | replace "\"" "\\\"") -}}

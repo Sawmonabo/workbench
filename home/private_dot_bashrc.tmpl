@@ -82,7 +82,7 @@ export PATH="$BUN_INSTALL/bin:$PATH"
 eval "$(oh-my-posh init bash --config ~/.config/oh-my-posh/catppuccin_mocha.omp.json)"
 
 # --- Editor ---
-export EDITOR="{{ .editor }} --wait"
+export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 
 {{- if .has_work }}
 

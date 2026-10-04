@@ -1,0 +1,2 @@
+{{- /* The command git and $EDITOR run for the chosen editor answer. */ -}}
+{{- if eq . "code" }}code --wait{{ else }}{{ . }}{{ end -}}

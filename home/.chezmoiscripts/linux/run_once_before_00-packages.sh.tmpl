@@ -101,7 +101,15 @@ fi
 if ! command -v oh-my-posh &>/dev/null; then
     require_unused_command oh-my-posh
     echo "==> Installing oh-my-posh..."
-    curl -s https://ohmyposh.dev/install.sh | bash -s -- -d ~/.local/bin
+    # Download first: `curl | bash` runs an empty body and exits 0 when curl fails.
+    omp_installer=$(mktemp)
+    if ! curl -fsSL --retry 3 https://ohmyposh.dev/install.sh -o "$omp_installer" || [ ! -s "$omp_installer" ]; then
+        echo "    oh-my-posh installer download failed" >&2
+        rm -f "$omp_installer"
+        exit 1
+    fi
+    bash "$omp_installer" -d ~/.local/bin || { rm -f "$omp_installer"; exit 1; }
+    rm -f "$omp_installer"
     echo "    oh-my-posh installed."
 else
     echo "==> oh-my-posh already installed, skipping."
