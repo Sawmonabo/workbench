@@ -196,7 +196,31 @@ func setupDependencies(
 	return qualified, nil
 }
 
+// writeNewOrIdentical installs data at target, or accepts a target that already
+// holds exactly data; any other existing target is a conflict and is retained.
+//
+// New content is written and flushed to a temporary file beside target, then
+// linked into place. A crash or a full disk therefore leaves at most the
+// temporary file, never a truncated target that every later setup would report
+// as a different tool. The link fails if target appeared meanwhile, where a
+// rename would replace it. The temporary file is disposable: each call removes
+// a leftover one first, so an interrupted attempt never blocks the next.
 func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
+	partial := filepath.Join(filepath.Dir(target), "."+filepath.Base(target)+".partial")
+	if info, err := os.Lstat(partial); err == nil {
+		if !info.Mode().IsRegular() {
+			return operation.Fail(
+				operation.ExitConflict,
+				"dependency_conflict",
+				"Unexpected entry "+partial+" beside a private tool; it was retained",
+			)
+		}
+		if err = os.Remove(partial); err != nil {
+			return err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
 	if info, err := os.Lstat(target); err == nil {
 		if !info.Mode().IsRegular() {
 			return operation.Fail(
@@ -217,7 +241,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	} else if !os.IsNotExist(err) {
 		return err
 	}
-	file, err := os.OpenFile(target, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
+	file, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
 	if err != nil {
 		return err
 	}
@@ -225,11 +249,35 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 	if err == nil {
 		err = file.Sync()
 	}
-	closeErr := file.Close()
+	if closeErr := file.Close(); err == nil {
+		err = closeErr
+	}
+	if err == nil {
+		err = os.Link(partial, target)
+	}
+	// Whatever happened, the temporary name goes. After a good link the data
+	// stays under target; a removal that fails there only leaves a file the
+	// next call deletes.
+	_ = os.Remove(partial)
+	if errors.Is(err, fs.ErrExist) {
+		return operation.Fail(
+			operation.ExitConflict,
+			"dependency_conflict",
+			"A private tool appeared while it was being installed; it was retained",
+		)
+	}
 	if err != nil {
 		return err
 	}
-	return closeErr
+	directory, err := os.Open(filepath.Dir(target))
+	if err != nil {
+		return err
+	}
+	err = directory.Sync()
+	if closeErr := directory.Close(); err == nil {
+		err = closeErr
+	}
+	return err
 }
 
 // acquireTool downloads the pinned chezmoi or uv release for this target,
