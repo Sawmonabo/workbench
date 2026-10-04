@@ -41,7 +41,7 @@ main() {
     tmp=$(mktemp -d "${TMPDIR:-/tmp}/workbench-install.XXXXXX")
     trap 'rm -rf "$tmp"' EXIT HUP INT TERM
     # A logged-in gh also works if the repository is ever private again.
-    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+    if command -v gh >/dev/null 2>&1 && gh auth status --hostname github.com >/dev/null 2>&1; then
         if [ "$version" = latest ]; then
             version=$(gh release list -R "$repo" -L 1 --exclude-drafts --exclude-pre-releases --json tagName -q '.[0].tagName')
         fi
