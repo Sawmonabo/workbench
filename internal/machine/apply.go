@@ -141,13 +141,8 @@ func (a *applyRun) apply() error {
 }
 
 func (a *applyRun) withoutCheckpoint(state *operation.State) error {
-	if state != nil && state.PartialOperation != nil && state.PartialOperation.Scope != a.c.Scope {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"recovery",
-			"Apply "+state.PartialOperation.ID+" to "+state.PartialOperation.Scope.Root+
-				" did not finish; rerun apply for that destination first",
-		)
+	if err := state.Unfinished(a.c.Scope); err != nil {
+		return err
 	}
 	plan := a.prepared.Plan
 	provisioning := hasProvisioning(plan.Effects)
@@ -202,6 +197,11 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 func (a *applyRun) withCheckpoint(state *operation.State) error {
 	if state == nil {
 		state = &operation.State{SchemaVersion: 1}
+	}
+	// The single partial-operation record is replaced below; another
+	// destination's unfinished apply must not be overwritten.
+	if err := state.Unfinished(a.c.Scope); err != nil {
+		return err
 	}
 	plan := a.prepared.Plan
 	provisioning := hasProvisioning(plan.Effects)

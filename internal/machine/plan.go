@@ -146,7 +146,6 @@ func prepare(
 			return prepared, retentionErr
 		}
 		if retention != nil {
-			retention.Fixed, retention.Checked = true, true
 			plan.Effects = append(plan.Effects, *retention)
 		}
 	}
@@ -662,6 +661,10 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 	if err != nil {
 		return err
 	}
+	written, err := p.nativeWritten(ctx, c)
+	if err != nil {
+		return err
+	}
 	var candidates []string
 	for _, edit := range p.Plan.Edits {
 		if edit.Action != "remove" {
@@ -705,6 +708,12 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		var previous *operation.Image
 		if image, ok := last[edit.Path]; ok {
 			previous = &image
+		} else if before.Kind == operation.ImageFile &&
+			written[edit.Path] == operation.SHA256Hex(before.Data) {
+			// Retention may have removed the checkpoint that wrote this file.
+			// Native's own state still says what it last wrote, and the file
+			// still is that, so it was not edited outside Workbench.
+			previous = &before
 		}
 		edited := operation.EditedOutside(before, previous)
 		if merged[edit.Path] {
@@ -729,6 +738,35 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		)
 	}
 	return nil
+}
+
+// nativeWritten returns the SHA-256 of the contents native chezmoi last wrote
+// to each file target, by absolute path. A target native never wrote has no
+// entry.
+func (p *preparation) nativeWritten(
+	ctx context.Context,
+	c operation.Context,
+) (map[string]string, error) {
+	dump, err := p.run(ctx, c, "state", "dump", "--format=json")
+	if err != nil {
+		return nil, err
+	}
+	var state struct {
+		EntryState map[string]struct {
+			Type           string `json:"type"`
+			ContentsSHA256 string `json:"contentsSHA256"`
+		} `json:"entryState"`
+	}
+	if err = json.Unmarshal([]byte(dump), &state); err != nil {
+		return nil, operation.Fail(operation.ExitFailed, "native", "Unexpected native state output")
+	}
+	written := map[string]string{}
+	for target, entry := range state.EntryState {
+		if entry.Type == "file" && entry.ContentsSHA256 != "" {
+			written[target] = entry.ContentsSHA256
+		}
+	}
+	return written, nil
 }
 
 // describeSettings replaces the line diff of a merged JSON or TOML file with

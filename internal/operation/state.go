@@ -40,6 +40,26 @@ type PartialOperation struct {
 	Scope Scope  `json:"scope"`
 }
 
+// Unfinished returns the blocked error when the state records an unfinished
+// operation that this scope may not replace: one for another scope or, when own
+// is given, one whose ID is not in own. Callers check it before overwriting
+// PartialOperation, which holds a single record.
+func (s *State) Unfinished(scope Scope, own ...string) error {
+	if s == nil || s.PartialOperation == nil {
+		return nil
+	}
+	partial := s.PartialOperation
+	if partial.Scope == scope && (len(own) == 0 || slices.Contains(own, partial.ID)) {
+		return nil
+	}
+	return Fail(
+		ExitBlocked,
+		"recovery",
+		"Apply "+partial.ID+" to "+partial.Scope.Root+
+			" did not finish; rerun apply for that destination first",
+	)
+}
+
 var (
 	identifier  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	operationID = regexp.MustCompile(
