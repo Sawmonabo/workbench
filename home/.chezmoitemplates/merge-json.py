@@ -162,12 +162,14 @@ if previous is not None and (not stat.S_ISREG(previous.st_mode) or previous.st_n
     refuse("it must be an ordinary file with a single link")
 
 if previous is None:
-    text, data, mode = "", {}, 0o600
+    text, data, mode, blank = "", {}, 0o600, True
 else:
     try:
         with open(path, "rb") as stream:
             text = stream.read().decode("utf-8")
-        data = parse(text.removeprefix("﻿"))
+        # VS Code reads an empty settings.json as no settings.
+        blank = not text.removeprefix("﻿").strip()
+        data = {} if blank else parse(text.removeprefix("﻿"))
     except (UnicodeDecodeError, ValueError) as error:
         refuse("it is not valid JSON or JSONC (" + str(error) + ")")
     mode = stat.S_IMODE(previous.st_mode)
@@ -179,7 +181,7 @@ if check:
 
 bom = "﻿" if text.startswith("﻿") else ""
 body = text.removeprefix("﻿")
-if previous is None:
+if blank:
     updated = json.dumps({key: value}, ensure_ascii=False, indent=4) + "\n"
 else:
     try:
