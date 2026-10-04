@@ -326,6 +326,13 @@ func (p *preparation) stageNative(
 		"PYTHONNOUSERSITE=1",
 		"PYTHONDONTWRITEBYTECODE=1",
 	}
+	// A Windows-side script renders the distribution name into the PowerShell
+	// profile it writes. The apply renders with it (see scriptEnvironment), so
+	// the preview must as well, or the plan compares a different profile and
+	// never finds the one on disk already matching.
+	if name := os.Getenv("WSL_DISTRO_NAME"); isWSL() && name != "" {
+		p.environment = append(p.environment, "WSL_DISTRO_NAME="+name)
+	}
 	return nil
 }
 
