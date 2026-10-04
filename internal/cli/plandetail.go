@@ -52,7 +52,6 @@ func effectDetail(plan operation.Plan, effect operation.Effect, width int) []str
 		lines = append(lines, wrapPlain(s, width)...)
 	}
 	paragraph(effect.What)
-	paragraph(relation(plan, effect))
 	here := effect.Delta
 	if here == "" {
 		here = effect.ProbeNote
@@ -97,9 +96,6 @@ func effectStatus(plan operation.Plan, effect operation.Effect) string {
 	switch {
 	case effect.Fixed:
 		return "Always runs"
-	case isLocked(plan, effect):
-		parent := plan.Effects[effectIndex(plan, effect.Parent)]
-		return "Will run, with " + effectTitle(parent)
 	case isAlready(plan, effect):
 		return "Already set: nothing to change"
 	case effect.Checked:
@@ -110,30 +106,6 @@ func effectStatus(plan operation.Plan, effect operation.Effect) string {
 		return "Off: optional, turn on if you want it"
 	}
 	return "Off: you turned it off"
-}
-
-// relation says how a part and its parent belong together.
-func relation(plan operation.Plan, effect operation.Effect) string {
-	if parent := effectIndex(plan, effect.Parent); effect.Parent != "" && parent >= 0 {
-		name := effectTitle(plan.Effects[parent])
-		if isLocked(plan, effect) {
-			return "Included, because " + name + " is on."
-		}
-		return "Part of " + name + ". Pick it on its own, or turn on " + name +
-			" to get all of its parts."
-	}
-	parts := 0
-	for _, other := range plan.Effects {
-		if other.Parent == effect.Name {
-			parts++
-		}
-	}
-	if parts > 0 {
-		name := effectTitle(effect)
-		return "Includes the parts listed under it. To pick only some of them, leave " + name +
-			" off and tick those parts."
-	}
-	return ""
 }
 
 // fileDetail is the panel of one file: its title and counts, its path and

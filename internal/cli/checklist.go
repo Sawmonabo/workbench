@@ -9,7 +9,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
-	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -37,16 +36,15 @@ const terminalWidthDefault = 100
 
 // newChecklist is the live list of plan, with the plan's checks as the
 // starting boxes and the cursor on the first thing new to decide, else on the
-// first row. A part's box is its own choice from selection; while its parent is
-// checked the part shows included and locked, and its own choice waits.
-func newChecklist(plan operation.Plan, selection machine.Selection, verbose bool) *checklistModel {
+// first row.
+func newChecklist(plan operation.Plan, verbose bool) *checklistModel {
 	m := &checklistModel{
 		plan:    plan,
 		verbose: verbose,
 		width:   terminalWidthDefault,
 		view:    viewport.New(),
 	}
-	m.plan.Effects = machine.OwnChoices(plan.Effects, selection)
+	m.plan.Effects = slices.Clone(plan.Effects)
 	m.rows = selectableRows(m.plan)
 	if len(m.rows) > 0 {
 		m.cursor = m.rows[0]
@@ -61,9 +59,8 @@ func newChecklist(plan operation.Plan, selection machine.Selection, verbose bool
 	return m
 }
 
-// checkedNames lists the boxes the owner left checked, fixed effects, ones
-// with nothing to do that stay checked, and a part by its own choice even
-// while its parent includes it.
+// checkedNames lists the boxes the owner left checked, fixed effects and ones
+// with nothing to do that stay checked.
 func (m *checklistModel) checkedNames() []string {
 	var names []string
 	for _, effect := range m.plan.Effects {
@@ -74,17 +71,14 @@ func (m *checklistModel) checkedNames() []string {
 	return names
 }
 
-// toggle flips the box under the cursor. A fixed effect, one with nothing to
-// change (the cursor can rest on it to read its panel) and a part included with
-// its parent do not move. A part keeps its own box when its parent is
-// toggled: the parent's tick only shows it included, and unticking the parent
-// gives the part back as it was.
+// toggle flips the box under the cursor. A fixed effect and one with nothing
+// to change (the cursor can rest on it to read its panel) do not move.
 func (m *checklistModel) toggle() {
 	if m.cursor.Kind != rowEffect {
 		return
 	}
 	effect := &m.plan.Effects[m.cursor.Index]
-	if effect.Fixed || isLocked(m.plan, *effect) || isAlready(m.plan, *effect) {
+	if effect.Fixed || isAlready(m.plan, *effect) {
 		return
 	}
 	effect.Checked = !effect.Checked

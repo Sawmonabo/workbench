@@ -357,7 +357,7 @@ func applyMachine(
 		if savedErr != nil {
 			return result, plan, savedErr
 		}
-		checked, approved, chooseErr := choosePlan(plan, selection, o.verbose)
+		checked, approved, chooseErr := choosePlan(plan, o.verbose)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}
@@ -368,8 +368,6 @@ func applyMachine(
 				"Plan was not approved; no changes made",
 			)
 		}
-		// checked holds each part's own choice, not the force of a checked
-		// parent, which Reselect applies.
 		for i := range plan.Effects {
 			if !plan.Effects[i].Fixed {
 				plan.Effects[i].Checked = slices.Contains(checked, plan.Effects[i].Name)

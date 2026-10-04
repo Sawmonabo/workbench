@@ -414,8 +414,7 @@ func CheckSelection(selection Selection) error {
 // hostOptionalEffects lists every optional effect this host offers, naming
 // the distribution for default-distro so consent never covers an implicit
 // choice. Every one is its own choice, off until selected by name: none is
-// grouped under, or ticked by, another effect. Effect.Parent stays unset, since
-// a plan view treats a part as included whenever its parent is checked.
+// ticked by another effect.
 func hostOptionalEffects() []operation.Effect {
 	if !isWSL() {
 		return nil
@@ -496,13 +495,6 @@ func SelectionOf(effects []operation.Effect) Selection {
 	slices.Sort(selection.Skip)
 	slices.Sort(selection.Select)
 	return selection
-}
-
-// OwnChoices returns a copy of effects. An effect's Checked is its own choice,
-// since no effect is ticked by another (see [gate]), so there is nothing to
-// restore; the checklist still calls it when it starts.
-func OwnChoices(effects []operation.Effect, _ Selection) []operation.Effect {
-	return slices.Clone(effects)
 }
 
 // selectionToSave is the selection an approved apply remembers: what the

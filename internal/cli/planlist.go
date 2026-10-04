@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -34,27 +33,9 @@ func effectTitle(effect operation.Effect) string {
 	return effect.Name
 }
 
-// effectIndex is where the named effect is in the plan, -1 when it is not.
-func effectIndex(plan operation.Plan, name string) int {
-	return slices.IndexFunc(plan.Effects, func(effect operation.Effect) bool {
-		return effect.Name == name
-	})
-}
-
-// isLocked reports that effect is a part whose parent is checked: it is
-// included with the parent, shown checked and cannot be toggled.
-func isLocked(plan operation.Plan, effect operation.Effect) bool {
-	if effect.Parent == "" {
-		return false
-	}
-	parent := effectIndex(plan, effect.Parent)
-	return parent >= 0 && plan.Effects[parent].Checked
-}
-
-// runs reports that the effect is part of this apply: always, checked, or
-// included with its checked parent.
-func runs(plan operation.Plan, effect operation.Effect) bool {
-	return effect.Fixed || effect.Checked || isLocked(plan, effect)
+// runs reports that the effect is part of this apply: always, or checked.
+func runs(effect operation.Effect) bool {
+	return effect.Fixed || effect.Checked
 }
 
 // isAlready reports an effect the probe found nothing to do for. It collapses
@@ -97,7 +78,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 	case isAlready(plan, effect):
 		return groupNone
 	case compact:
-		if runs(plan, effect) {
+		if runs(effect) {
 			return groupWill
 		}
 		return groupNone
@@ -109,8 +90,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 	return groupWill
 }
 
-// layoutPlan groups the effects. A part sits right under its parent wherever
-// the parent is drawn; a part without a drawn parent is an ordinary row.
+// layoutPlan groups the effects, fixed ones first in each group.
 func layoutPlan(plan operation.Plan, compact bool) planLayout {
 	groups := []planGroup{
 		{Title: "Will run"},
@@ -118,28 +98,15 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 		{Title: "Optional", Note: "off unless you turn them on"},
 	}
 	var lay planLayout
-	children := map[int][]int{}
-	isChild := map[int]bool{}
-	for i, effect := range plan.Effects {
-		parent := effectIndex(plan, effect.Parent)
-		if effect.Parent != "" && parent >= 0 &&
-			groupOf(plan, plan.Effects[parent], compact) != groupNone {
-			children[parent] = append(children[parent], i)
-			isChild[i] = true
-		}
-	}
 	for _, fixed := range []bool{true, false} {
 		for i, effect := range plan.Effects {
-			if isChild[i] || effect.Fixed != fixed {
+			if effect.Fixed != fixed {
 				continue
 			}
 			group := groupOf(plan, effect, compact)
 			switch {
 			case group != groupNone:
 				groups[group].Rows = append(groups[group].Rows, planRow{rowEffect, i})
-				for _, child := range children[i] {
-					groups[group].Rows = append(groups[group].Rows, planRow{rowEffect, child})
-				}
 			case isAlready(plan, effect):
 				lay.Already = append(lay.Already, i)
 			case effect.SavedSkip:
@@ -157,8 +124,7 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 
 // selectableRows lists the rows a cursor can stop on, in the order they are
 // drawn: files, then the effects group by group, then the Already set effects.
-// Fixed and Already-set effects can be read but not toggled. Parts included
-// with a checked parent are not among them.
+// Fixed and Already-set effects can be read but not toggled.
 func selectableRows(plan operation.Plan) []planRow {
 	rows := make([]planRow, 0, len(plan.Edits)+len(plan.Effects))
 	for i, edit := range plan.Edits {
@@ -167,11 +133,7 @@ func selectableRows(plan operation.Plan) []planRow {
 		}
 	}
 	for _, group := range layoutPlan(plan, false).Groups {
-		for _, row := range group.Rows {
-			if !isLocked(plan, plan.Effects[row.Index]) {
-				rows = append(rows, row)
-			}
-		}
+		rows = append(rows, group.Rows...)
 	}
 	for _, i := range layoutPlan(plan, false).Already {
 		rows = append(rows, planRow{rowEffect, i})
@@ -191,7 +153,6 @@ type listLine struct {
 const (
 	livePrefix    = 6
 	compactPrefix = 2
-	childIndent   = 3
 )
 
 // listLines is the list: groups of rows, then the Already set line and the
@@ -416,17 +377,15 @@ func rowPrefix(
 	row planRow,
 	box string,
 	boxStyle lipgloss.Style,
-	depth int,
 ) (string, int) {
-	indent := strings.Repeat(" ", depth*childIndent)
 	if view.Applying {
-		return strings.Repeat(" ", compactPrefix) + indent, compactPrefix + len(indent)
+		return strings.Repeat(" ", compactPrefix), compactPrefix
 	}
 	cursor := " "
 	if !view.Done && view.Cursor == row {
 		cursor = brand.Render(forTerm("›"))
 	}
-	return cursor + " " + boxStyle.Render(box) + " " + indent, livePrefix + len(indent)
+	return cursor + " " + boxStyle.Render(box) + " ", livePrefix
 }
 
 // effectLines is an effect's row: its plain name and tags, then one faint line
@@ -434,26 +393,18 @@ func rowPrefix(
 func effectLines(plan operation.Plan, index, width int, view planView) []string {
 	effect := plan.Effects[index]
 	row := planRow{rowEffect, index}
-	locked := isLocked(plan, effect)
-	depth := 0
-	if parent := effectIndex(plan, effect.Parent); effect.Parent != "" && parent >= 0 &&
-		groupOf(plan, plan.Effects[parent], view.Applying) != groupNone {
-		depth = 1
-	}
 	box, boxStyle := "[ ]", faint
 	switch {
 	case effect.Fixed, isAlready(plan, effect):
 		// Always runs, or nothing to change: no box, since there is no choice.
 		box = "   "
-	case locked:
-		box = "[x]"
 	case effect.Checked:
 		box, boxStyle = "[x]", green
 	}
-	prefix, prefixWidth := rowPrefix(view, row, box, boxStyle, depth)
+	prefix, prefixWidth := rowPrefix(view, row, box, boxStyle)
 	titleStyle := bold
 	switch {
-	case locked, isAlready(plan, effect):
+	case isAlready(plan, effect):
 		titleStyle = faint
 	case !view.Done && view.Interactive && view.Cursor == row:
 		titleStyle = brand.Bold(true)
@@ -495,7 +446,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 // owned file was edited outside Workbench.
 func fileLines(plan operation.Plan, index, width int, view planView) []string {
 	edit := plan.Edits[index]
-	prefix, prefixWidth := rowPrefix(view, planRow{rowFile, index}, "   ", faint, 0)
+	prefix, prefixWidth := rowPrefix(view, planRow{rowFile, index}, "   ", faint)
 	title := edit.Title
 	if title == "" {
 		title = homePath(edit.Path)
@@ -562,7 +513,7 @@ func fileOwner(edit operation.Edit) string {
 // planCounts are the header's counts: files, steps that will run, new to decide.
 func planCounts(plan operation.Plan) (files, steps, undecided int) {
 	for _, effect := range plan.Effects {
-		if runs(plan, effect) && (effect.Fixed || !effect.NoChange) {
+		if runs(effect) && (effect.Fixed || !effect.NoChange) {
 			steps++
 		}
 		if effect.New && !isAlready(plan, effect) && !effect.Fixed {

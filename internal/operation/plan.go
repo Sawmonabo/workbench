@@ -91,17 +91,10 @@ func (p Plan) Files() int {
 }
 
 // AlreadySet reports that the effect has nothing to do: its probe found nothing
-// to change, the owner has not turned it off, and no part under it still has
-// something to do. The plan view folds such an effect into one faint line and
-// it cannot be chosen; a parent with a working part is never folded away, since
-// its box is how the owner turns that part on and off together.
+// to change and the owner has not turned it off. The plan view folds such an
+// effect into one faint line and it cannot be chosen.
 func (p Plan) AlreadySet(effect Effect) bool {
-	if !effect.NoChange || effect.SavedSkip || effect.Fixed {
-		return false
-	}
-	return !slices.ContainsFunc(p.Effects, func(part Effect) bool {
-		return part.Parent == effect.Name && (!part.NoChange || part.SavedSkip)
-	})
+	return effect.NoChange && !effect.SavedSkip && !effect.Fixed
 }
 
 // Effect is a planned change outside checkpointed files, with the privilege
@@ -134,11 +127,6 @@ type Effect struct {
 	New bool `json:"new,omitempty"`
 	// Optional marks an optional host effect: unchecked unless selected.
 	Optional bool `json:"optional,omitempty"`
-	// Parent names the effect this one is a part of ("windows-files" for the
-	// Windows adoptions and the font registry), "" otherwise. A part is listed
-	// under its parent; it runs when the parent is checked or when it is
-	// selected on its own.
-	Parent string `json:"parent,omitempty"`
 	// Title and Summary are the plan view's plain name and one faint line.
 	// What, Touches, RunsAs and Undo fill the detail panel (what it does, what
 	// it changes, who it runs as, how to undo it) beside Delta, which says what

@@ -14,7 +14,6 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
 )
@@ -118,15 +117,9 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 // the effects with the plan's checks as defaults. `a` approves exactly that
 // selection; q, esc or ctrl+c approves nothing. The list is dismissed by
 // leaving the alternate screen, and when approved its final frame is printed
-// once, with nothing blank below it. selection is the one the plan was made from: it holds
-// each Windows setup part's own choice, which the list keeps while the parent
-// includes the part. The names that come back are the effects the owner left
-// checked, a part by its own choice; the caller re-gates the plan from them.
-func choosePlan(
-	plan operation.Plan,
-	selection machine.Selection,
-	verbose bool,
-) ([]string, bool, error) {
+// once, with nothing blank below it. The names that come back are the effects
+// the owner left checked; the caller re-gates the plan from them.
+func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
 	terminal, err := openTerminal()
 	if err != nil {
 		return nil, false, err
@@ -134,7 +127,7 @@ func choosePlan(
 	defer func() { _ = terminal.Close() }()
 	// main owns SIGINT; ctrl+c arrives as a key.
 	final, err := tea.NewProgram(
-		newChecklist(plan, selection, verbose),
+		newChecklist(plan, verbose),
 		tea.WithInput(terminal),
 		tea.WithOutput(terminal),
 		tea.WithoutSignalHandler(),
