@@ -745,7 +745,7 @@ func LastApplied(c Context) (map[string]Image, error) {
 
 // RetentionEffect names the checkpoint that a new forward checkpoint replaces
 // once the scope holds MaxForwardCheckpoints: the oldest settled one, else the
-// oldest incomplete one superseded by a newer completed checkpoint. Plans list
+// oldest incomplete one that a newer checkpoint supersedes. Plans list
 // it so consent covers the removal. The checkpoint named by the recorded
 // partial operation is never a candidate.
 func RetentionEffect(c Context) (*Effect, error) {
@@ -798,12 +798,15 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	if err != nil {
 		return nil, err
 	}
-	// A running, partial or unknown checkpoint is superseded once a newer
-	// checkpoint in the scope completed: later applies no longer wait on it.
-	var newestComplete time.Time
+	// A running, partial or unknown checkpoint is superseded once any newer
+	// checkpoint exists in the scope: a later apply already took the targets'
+	// images as they were, so no later work waits on it. Requiring a newer
+	// *complete* one would let 20 partial applies (a step that keeps failing)
+	// fill every slot with nothing removable.
+	var newest time.Time
 	for _, cp := range checkpoints {
-		if cp.journal.Status == JournalComplete && cp.record.Created.After(newestComplete) {
-			newestComplete = cp.record.Created
+		if cp.record.Created.After(newest) {
+			newest = cp.record.Created
 		}
 	}
 	var settled, superseded *Checkpoint
@@ -816,7 +819,7 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 		switch cp.journal.Status {
 		case JournalComplete, JournalFailed:
 		case JournalRunning, JournalPartial, JournalUnknown:
-			if !cp.record.Created.Before(newestComplete) {
+			if !cp.record.Created.Before(newest) {
 				continue
 			}
 			slot = &superseded
