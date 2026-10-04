@@ -16,7 +16,7 @@ import (
 	"strings"
 	"time"
 
-	_ "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
+	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -296,10 +296,32 @@ func (l *Ledger) prepare(exists bool) error {
 	// Only a verified ledger is switched to WAL, so a foreign database is
 	// never modified. WAL lets a report read the last committed state while a
 	// worker ingests.
-	if _, err := l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL"); err != nil {
+	if err := l.enableWAL(ctx); err != nil {
 		return fmt.Errorf("%s: %w", l.Path, err)
 	}
 	return nil
+}
+
+// sqliteBusy is SQLite's SQLITE_BUSY result code, which an extended code keeps
+// in its low byte.
+const sqliteBusy = 5
+
+// enableWAL switches the ledger to WAL. Doing so for a new ledger takes the
+// database exclusively, which two creators doing it at once cannot both be
+// granted: SQLite fails one of them with BUSY at once, without waiting out the
+// busy timeout. The other has switched the journal by the time that one tries
+// again, and a ledger already in WAL needs no lock.
+func (l *Ledger) enableWAL(ctx context.Context) error {
+	var err error
+	for attempt := range 50 {
+		_, err = l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+		var busy *sqlite.Error
+		if !errors.As(err, &busy) || busy.Code()&0xff != sqliteBusy {
+			return err
+		}
+		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
+	}
+	return err
 }
 
 // create writes the schema of a ledger that was missing when OpenLedger looked.
