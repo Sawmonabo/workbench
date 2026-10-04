@@ -165,7 +165,9 @@ func mergeExtensions(data []byte) ([]byte, error) {
 		indented.WriteByte('\n')
 		result = indented.Bytes()
 	} else {
-		alignInserted(doc, changed)
+		if err = alignInserted(doc, changed); err != nil {
+			return nil, err
+		}
 		result = changed.Pack()
 	}
 	if _, err = hujson.Parse(result); err != nil {
@@ -182,15 +184,22 @@ func ownsLayout(doc hujson.Value) bool {
 		len(bytes.TrimSpace(slices.Concat(doc.BeforeExtra, object.AfterExtra, doc.AfterExtra))) == 0
 }
 
-// alignInserted gives the values that Patch appended to changed the layout of
-// the values the user already wrote in original, so an existing multi-line
-// file keeps one entry per line. Layout is copied only from the user's own
-// values; a one-line array or object has none to copy and stays as written.
-func alignInserted(original, changed hujson.Value) {
+// alignInserted lays out what Patch added to changed in the style of the
+// user's original: in a multi-line object each new member starts its own line
+// and a new array has one entry per line; in a one-line object new entries are
+// separated by ", ". A comment in an otherwise empty object stays above the new
+// members. Existing values keep their bytes.
+func alignInserted(original, changed hujson.Value) error {
 	before, isObject := original.Value.(*hujson.Object)
 	after, grownObject := changed.Value.(*hujson.Object)
-	if !isObject || !grownObject || len(before.Members) == 0 {
-		return
+	if !isObject || !grownObject ||
+		len(after.Members) == len(before.Members) && !grewArrays(before, after) {
+		return nil
+	}
+	indent, newline, multiline := objectLayout(before)
+	unit := indent
+	if unit == "" {
+		unit = "  "
 	}
 	for i := range after.Members {
 		member := &after.Members[i]
@@ -198,40 +207,129 @@ func alignInserted(original, changed hujson.Value) {
 			existing, isArray := before.Members[i].Value.Value.(*hujson.Array)
 			grown, grownArray := member.Value.Value.(*hujson.Array)
 			if isArray && grownArray {
-				alignElements(existing, grown)
+				alignElements(existing, grown, indent+unit, indent, newline, multiline)
 			}
 			continue
 		}
-		indent, newline, multiline := lineLayout(after.Members[i-1].Name.BeforeExtra)
 		if !multiline {
-			continue
-		}
-		member.Name.BeforeExtra = breakLine(member.Name.BeforeExtra, indent, newline)
-		if len(member.Value.BeforeExtra) == 0 {
+			member.Name.BeforeExtra = hujson.Extra(" ")
 			member.Value.BeforeExtra = hujson.Extra(" ")
-		}
-		if array, ok := member.Value.Value.(*hujson.Array); ok {
-			for j := 1; j < len(array.Elements); j++ {
-				if len(array.Elements[j].BeforeExtra) == 0 {
+			if array, ok := member.Value.Value.(*hujson.Array); ok {
+				for j := 1; j < len(array.Elements); j++ {
 					array.Elements[j].BeforeExtra = hujson.Extra(" ")
 				}
 			}
+			continue
+		}
+		member.Name.BeforeExtra = breakLine(member.Name.BeforeExtra, indent, newline)
+		member.Value.BeforeExtra = hujson.Extra(" ")
+		bare := member.Value.Clone()
+		bare.BeforeExtra, bare.AfterExtra = nil, nil
+		var laid bytes.Buffer
+		if err := json.Indent(&laid, bare.Pack(), indent, unit); err != nil {
+			return err
+		}
+		value, err := hujson.Parse(bytes.ReplaceAll(laid.Bytes(), []byte("\n"), []byte(newline)))
+		if err != nil {
+			return err
+		}
+		member.Value.Value = value.Value
+	}
+	if len(before.Members) == 0 && len(after.Members) > 0 {
+		// Patch puts members before the object's trailing text, which in an
+		// otherwise empty object is the user's comment: keep it above them.
+		// Patch may move that text into the first member; take it from the
+		// original so it appears exactly once.
+		comment := strings.TrimRight(string(before.AfterExtra), " \t\r\n")
+		first := &after.Members[0].Name.BeforeExtra
+		if multiline {
+			*first = hujson.Extra(comment + newline + indent)
+			after.AfterExtra = hujson.Extra(newline)
+		} else if comment != "" {
+			*first = hujson.Extra(comment + " ")
+			after.AfterExtra = hujson.Extra(" ")
 		}
 	}
+	return nil
 }
 
-// alignElements puts each element that Patch appended to grown on its own
-// line, indented like the first element the user wrote in existing.
-func alignElements(existing, grown *hujson.Array) {
-	if len(existing.Elements) == 0 {
+// grewArrays reports whether Patch appended entries to an existing array.
+func grewArrays(before, after *hujson.Object) bool {
+	for i := range before.Members {
+		existing, isArray := before.Members[i].Value.Value.(*hujson.Array)
+		grown, grownArray := after.Members[i].Value.Value.(*hujson.Array)
+		if isArray && grownArray && len(grown.Elements) > len(existing.Elements) {
+			return true
+		}
+	}
+	return false
+}
+
+// objectLayout returns the member indentation and line ending of a top-level
+// object, and whether its members sit on their own lines. An object with no
+// members is multi-line when its body (a comment) spans lines.
+func objectLayout(object *hujson.Object) (indent, newline string, multiline bool) {
+	if len(object.Members) > 0 {
+		return lineLayout(object.Members[0].Name.BeforeExtra)
+	}
+	body := strings.TrimRight(string(object.AfterExtra), " \t")
+	if !strings.Contains(body, "\n") {
+		return "", "", false
+	}
+	newline = "\n"
+	if strings.Contains(body, "\r\n") {
+		newline = "\r\n"
+	}
+	indent = "  "
+	// The first line shares the opening brace, so it says nothing about indentation.
+	_, rest, _ := strings.Cut(body, "\n")
+	for line := range strings.SplitSeq(rest, "\n") {
+		trimmed := strings.TrimLeft(line, " \t")
+		if trimmed != "" && trimmed != "\r" && line != trimmed {
+			indent = line[:len(line)-len(trimmed)]
+			break
+		}
+	}
+	return indent, newline, true
+}
+
+// alignElements lays out the entries Patch appended to grown: one per line at
+// the indentation of the user's first entry in a multi-line array, ", " apart
+// in a one-line array. An empty array takes the object's layout.
+func alignElements(
+	existing, grown *hujson.Array,
+	elementIndent, closeIndent, newline string,
+	multiline bool,
+) {
+	if len(grown.Elements) == len(existing.Elements) {
 		return
 	}
-	indent, newline, multiline := lineLayout(existing.Elements[0].BeforeExtra)
-	if !multiline {
-		return
+	if len(existing.Elements) > 0 {
+		var ownLine bool
+		elementIndent, newline, ownLine = lineLayout(existing.Elements[0].BeforeExtra)
+		if !ownLine {
+			for i := len(existing.Elements); i < len(grown.Elements); i++ {
+				grown.Elements[i].BeforeExtra = hujson.Extra(" ")
+			}
+			return
+		}
+		multiline = true
 	}
 	for i := len(existing.Elements); i < len(grown.Elements); i++ {
-		grown.Elements[i].BeforeExtra = breakLine(grown.Elements[i].BeforeExtra, indent, newline)
+		if !multiline {
+			if i > 0 {
+				grown.Elements[i].BeforeExtra = hujson.Extra(" ")
+			}
+			continue
+		}
+		grown.Elements[i].BeforeExtra = breakLine(
+			grown.Elements[i].BeforeExtra,
+			elementIndent,
+			newline,
+		)
+	}
+	if len(existing.Elements) == 0 && multiline {
+		grown.AfterExtra = hujson.Extra(newline + closeIndent)
 	}
 }
 
