@@ -201,36 +201,38 @@ func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Projec
 
 // enclosingProject recognizes the Python manifest above a selected package
 // subdirectory. It is reported but cannot authorize writes above selection.
+// The search stops at the repository root, like every other ownership walk, so
+// a selected repository never reports a project outside itself.
 func (r *Inventory) enclosingProject() error {
-	for parent := filepath.Dir(r.Directory); ; parent = filepath.Dir(parent) {
-		data, err := r.read(filepath.Join(parent, "pyproject.toml"))
-		if err != nil {
-			return err
-		}
-		if data != nil {
-			doc, err := decodeTOML(data)
-			if err != nil {
-				return err
-			}
-			p := Project{
-				Root:     parent,
-				Owner:    parent,
-				Language: "python",
-				Manager:  "unknown",
-				metadata: doc,
-			}
-			if err = r.pythonOwner(&p); err != nil {
-				return err
-			}
-			p.Supported = false
-			p.Reason = "Select enclosing project root explicitly: " + p.Owner
-			r.Projects = append(r.Projects, p)
-			return nil
-		}
-		if parent == filepath.Dir(parent) {
-			return nil
-		}
+	if _, err := os.Lstat(filepath.Join(r.Directory, ".git")); err == nil {
+		return nil // The selection is a repository root; nothing encloses it.
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
+	return ancestors(filepath.Dir(r.Directory), func(parent string) (bool, error) {
+		data, err := r.read(filepath.Join(parent, "pyproject.toml"))
+		if err != nil || data == nil {
+			return false, err
+		}
+		doc, err := decodeTOML(data)
+		if err != nil {
+			return false, err
+		}
+		p := Project{
+			Root:     parent,
+			Owner:    parent,
+			Language: "python",
+			Manager:  "unknown",
+			metadata: doc,
+		}
+		if err = r.pythonOwner(&p); err != nil {
+			return false, err
+		}
+		p.Supported = false
+		p.Reason = "Select enclosing project root explicitly: " + p.Owner
+		r.Projects = append(r.Projects, p)
+		return true, nil
+	})
 }
 
 // pythonOwner finds who owns p's tooling: the uv workspace that lists it as a
