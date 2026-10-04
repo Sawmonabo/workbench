@@ -405,8 +405,11 @@ func runBrew(
 }
 
 // brewOutput runs a read-only Homebrew command and returns its standard output.
-// Homebrew refreshes its own metadata first unless the user set
-// HOMEBREW_NO_AUTO_UPDATE.
+// Planning and the recheck read Homebrew's current index and never refresh it:
+// an automatic update would fetch from the network and rewrite Homebrew's own
+// folders during a preview, and could change the update list between the plan
+// and its recheck. A fresh index comes from the brew-maintenance step the owner
+// approves, which runs brew update.
 func brewOutput(
 	ctx context.Context,
 	c operation.Context,
@@ -416,9 +419,8 @@ func brewOutput(
 	environment := []string{
 		"HOME=" + c.Home,
 		"PATH=" + filepath.Dir(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin",
-	}
-	if value, ok := os.LookupEnv("HOMEBREW_NO_AUTO_UPDATE"); ok {
-		environment = append(environment, "HOMEBREW_NO_AUTO_UPDATE="+value)
+		"HOMEBREW_NO_AUTO_UPDATE=1",
+		"HOMEBREW_NO_ENV_HINTS=1",
 	}
 	output, err := operation.Run(ctx, c, nil, operation.Process{
 		Executable:  brew,
