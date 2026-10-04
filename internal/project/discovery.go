@@ -136,13 +136,16 @@ func (r *Inventory) resolve(ctx context.Context) error {
 			r.Warnings = append(r.Warnings, "Nested repository excluded: "+item.Path)
 			continue
 		}
+		// Only manifests are read here. Lockfiles and standalone configuration are
+		// read, bounded and bound as plan inputs on demand by the owner checks, so
+		// an unrelated lockfile of another language neither blocks nor pins a plan.
+		if item.Kind != "manifest" {
+			continue
+		}
 		path := filepath.Join(r.Directory, filepath.FromSlash(item.Path))
 		data, err := r.read(path)
 		if err != nil {
 			return err
-		}
-		if item.Kind != "manifest" {
-			continue
 		}
 		project, err := r.manifestProject(path, item.Ecosystem, data)
 		if err != nil {
@@ -198,36 +201,38 @@ func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Projec
 
 // enclosingProject recognizes the Python manifest above a selected package
 // subdirectory. It is reported but cannot authorize writes above selection.
+// The search stops at the repository root, like every other ownership walk, so
+// a selected repository never reports a project outside itself.
 func (r *Inventory) enclosingProject() error {
-	for parent := filepath.Dir(r.Directory); ; parent = filepath.Dir(parent) {
-		data, err := r.read(filepath.Join(parent, "pyproject.toml"))
-		if err != nil {
-			return err
-		}
-		if data != nil {
-			doc, err := decodeTOML(data)
-			if err != nil {
-				return err
-			}
-			p := Project{
-				Root:     parent,
-				Owner:    parent,
-				Language: "python",
-				Manager:  "unknown",
-				metadata: doc,
-			}
-			if err = r.pythonOwner(&p); err != nil {
-				return err
-			}
-			p.Supported = false
-			p.Reason = "Select enclosing project root explicitly: " + p.Owner
-			r.Projects = append(r.Projects, p)
-			return nil
-		}
-		if parent == filepath.Dir(parent) {
-			return nil
-		}
+	if _, err := os.Lstat(filepath.Join(r.Directory, ".git")); err == nil {
+		return nil // The selection is a repository root; nothing encloses it.
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return err
 	}
+	return ancestors(filepath.Dir(r.Directory), func(parent string) (bool, error) {
+		data, err := r.read(filepath.Join(parent, "pyproject.toml"))
+		if err != nil || data == nil {
+			return false, err
+		}
+		doc, err := decodeTOML(data)
+		if err != nil {
+			return false, err
+		}
+		p := Project{
+			Root:     parent,
+			Owner:    parent,
+			Language: "python",
+			Manager:  "unknown",
+			metadata: doc,
+		}
+		if err = r.pythonOwner(&p); err != nil {
+			return false, err
+		}
+		p.Supported = false
+		p.Reason = "Select enclosing project root explicitly: " + p.Owner
+		r.Projects = append(r.Projects, p)
+		return true, nil
+	})
 }
 
 // pythonOwner finds who owns p's tooling: the uv workspace that lists it as a
@@ -257,9 +262,16 @@ func (r *Inventory) pythonOwner(p *Project) error {
 		return err
 	}
 	p.Manager = "uv"
+	manifest := filepath.Join(p.Root, "pyproject.toml")
 	if _, inherits := nested(p.metadata, "tool", "ruff")["extend"]; inherits {
-		manifest := filepath.Join(p.Root, "pyproject.toml")
 		p.Reason = "Ruff extend configuration requires inherited-policy ownership review: " + manifest
+		return nil
+	}
+	// basedpyright refuses a pyproject.toml that holds both tool tables, so the
+	// policy's [tool.basedpyright] cannot be added beside an existing one.
+	if hasTool(p.metadata, "pyright") {
+		p.Reason = "Pyright configuration competes with basedpyright; review it before configuring: " +
+			manifest
 		return nil
 	}
 	p.Supported = true
@@ -317,14 +329,22 @@ func (r *Inventory) workspaceOwner(p *Project) (owner string, decided bool, err 
 }
 
 // inheritsToolPolicy reports an ancestor configuring a check that the project
-// leaves to inheritance.
+// leaves to inheritance. Pyright and basedpyright share one entry because
+// basedpyright reads either table and rejects a file holding both.
 func inheritsToolPolicy(project, ancestor map[string]any) bool {
-	for _, tool := range []string{"ruff", "ty", "basedpyright"} {
-		if nested(project, "tool", tool) == nil && nested(ancestor, "tool", tool) != nil {
+	for _, tools := range [][]string{{"ruff"}, {"ty"}, {"basedpyright", "pyright"}} {
+		if !hasTool(project, tools...) && hasTool(ancestor, tools...) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasTool reports whether doc configures any of the named [tool.*] tables.
+func hasTool(doc map[string]any, names ...string) bool {
+	return slices.ContainsFunc(names, func(name string) bool {
+		return nested(doc, "tool", name) != nil
+	})
 }
 
 // workspaceMember reports whether root is a member of the uv workspace declared
@@ -378,22 +398,44 @@ func exactPattern(pattern string) bool {
 }
 
 // checkStandalone refuses competing standalone tool configuration. Native
-// tools may inherit it from any ancestor, so every candidate is recorded.
+// tools may inherit it from any ancestor, so every candidate is recorded. Ruff
+// also applies the nearest ruff.toml to the files below it, so one in a folder
+// under p's root silently replaces the merged policy there and is refused too.
+// The other tools read only the root's configuration.
 func (r *Inventory) checkStandalone(p *Project) error {
-	return ancestors(p.Root, func(parent string) (bool, error) {
+	refuse := func(path string) {
+		p.Supported = false
+		p.Reason = "Standalone configuration requires reviewed integration: " + path
+	}
+	err := ancestors(p.Root, func(parent string) (bool, error) {
 		for _, name := range []string{"ruff.toml", ".ruff.toml", "ty.toml", "pyrightconfig.json", "uv.toml"} {
 			data, err := r.read(filepath.Join(parent, name))
 			if err != nil {
 				return false, err
 			}
 			if data != nil {
-				p.Supported = false
-				p.Reason = "Standalone configuration requires reviewed integration: " +
-					filepath.Join(parent, name)
+				refuse(filepath.Join(parent, name))
 			}
 		}
 		return false, nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, item := range r.Items {
+		path := filepath.Join(r.Directory, filepath.FromSlash(item.Path))
+		name := filepath.Base(path)
+		// Files in p.Root itself were read by the walk above.
+		if item.Kind != "configuration" || (name != "ruff.toml" && name != ".ruff.toml") ||
+			filepath.Dir(path) == p.Root || !operation.Within(p.Root, path) {
+			continue
+		}
+		if _, err = r.read(path); err != nil {
+			return err
+		}
+		refuse(path)
+	}
+	return nil
 }
 
 // ancestors calls visit for dir and each parent until visit stops the walk or

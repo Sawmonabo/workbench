@@ -181,11 +181,20 @@ func runsTests(job *ast.MappingValueNode) bool {
 		if !ok {
 			continue
 		}
-		run := mappingValue(mapping, "run")
-		if run == nil {
+		// A block scalar (run: | or >-) holds its text in a literal node; its token
+		// is only the indicator.
+		var command string
+		switch run := mappingValue(mapping, "run").(type) {
+		case *ast.LiteralNode:
+			if run.Value == nil {
+				continue
+			}
+			command = run.Value.Value
+		case *ast.StringNode:
+			command = run.Value
+		default:
 			continue
 		}
-		command := run.GetToken().Value
 		for _, runner := range []string{"pytest", "unittest", "tox", "nox"} {
 			if strings.Contains(command, runner) {
 				return true

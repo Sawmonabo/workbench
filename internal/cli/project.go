@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -39,7 +40,11 @@ func projectInspectCommand(o *options) *cobra.Command {
 				}
 				if err != nil {
 					component.Status = operation.StatusFailed
-					if ctx.Err() == nil {
+					// Keep a user interrupt (the parent context is canceled) and an
+					// actionable operation error. The five-second timeout cancels only
+					// the child context, so it still gets the narrowing message.
+					_, actionable := errors.AsType[*operation.Error](err)
+					if cmd.Context().Err() == nil && !actionable {
 						err = operation.Fail(
 							operation.ExitFailed,
 							"inventory",
