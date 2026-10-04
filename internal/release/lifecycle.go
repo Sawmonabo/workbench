@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -51,15 +52,8 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 	ctx, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
 	request = request.WithContext(ctx)
-	// Same proxy and TLS behavior as the default transport, plus a header deadline.
-	transport := &http.Transport{
-		Proxy:                 http.ProxyFromEnvironment,
-		ForceAttemptHTTP2:     true,
-		TLSHandshakeTimeout:   10 * time.Second,
-		ResponseHeaderTimeout: stallLimit,
-	}
 	client := &http.Client{
-		Transport: transport,
+		Transport: downloadTransport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || req.URL.Scheme != "https" {
 				return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
@@ -83,6 +77,14 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil, errNotFound
+	}
+	if response.StatusCode == http.StatusForbidden &&
+		response.Header.Get("X-RateLimit-Remaining") == "0" {
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
+		)
 	}
 	if token != "" && (response.StatusCode == http.StatusUnauthorized ||
 		response.StatusCode == http.StatusForbidden) {
@@ -127,6 +129,22 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 
 // stallLimit is how long a download may go without receiving a byte.
 const stallLimit = time.Minute
+
+// downloadTransport is the default transport's proxy, dial, TLS and idle
+// behavior plus a response-header deadline, shared so connections are reused.
+var downloadTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: time.Second,
+	ResponseHeaderTimeout: stallLimit,
+}
 
 var errStalled = errors.New("download stalled")
 

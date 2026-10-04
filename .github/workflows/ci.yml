@@ -26,7 +26,7 @@ jobs:
       - name: Build
         run: go build ./...
       - name: Lint shell scripts
-        run: shellcheck -s sh install.sh && shellcheck -S warning scripts/render-check.sh scripts/scratch-init.sh
+        run: shellcheck -s sh install.sh && shellcheck -S warning scripts/*.sh
       - name: Check workflow action pins
         run: python3 scripts/check-action-pins.py
       - name: Safety safeguards (execution and data loss)

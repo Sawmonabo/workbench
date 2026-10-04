@@ -4,10 +4,6 @@ on:
     tags: ['v*']
 permissions:
   contents: read
-# Tag runs queue in push order, so a later changelog commit never races an earlier one.
-concurrency:
-  group: release
-  cancel-in-progress: false
 jobs:
   # A tag publishes only a commit that passes every CI check, secret scan included.
   checks:
@@ -41,14 +37,7 @@ jobs:
           grep -q "^default_version=$VERSION\$" dist/install.sh
       # The release notes are this tag's section of CHANGELOG.md (cliff.toml).
       - name: Write release notes
-        shell: bash
-        run: |
-          cliff_dir=$(mktemp -d "$RUNNER_TEMP/git-cliff.XXXXXX")
-          curl -fsSL --retry 3 https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-unknown-linux-gnu.tar.gz -o "$cliff_dir/git-cliff.tar.gz"
-          # Pinned from the official v2.14.2 asset; it matches upstream's .sha512 file.
-          printf '%s  %s\n' '24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4' "$cliff_dir/git-cliff.tar.gz" | sha256sum --check --strict
-          tar -xzf "$cliff_dir/git-cliff.tar.gz" -C "$cliff_dir" git-cliff-2.14.2/git-cliff
-          "$cliff_dir/git-cliff-2.14.2/git-cliff" --config cliff.toml --latest --strip header -o "$RUNNER_TEMP/release-notes.md"
+        run: scripts/git-cliff.sh --config cliff.toml --latest --strip header -o "$RUNNER_TEMP/release-notes.md"
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -60,6 +49,12 @@ jobs:
   # main. A push with the workflow token starts no other workflow.
   changelog:
     needs: release
+    # One changelog commit at a time. GitHub replaces a pending run in this
+    # group with a newer one, which is fine here: the newest tag writes the
+    # whole history. Releases themselves are never queued or cancelled.
+    concurrency:
+      group: changelog
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -70,20 +65,16 @@ jobs:
           fetch-depth: 0
       # Generated at the tag, so commits after it on main stay out.
       - name: Generate the changelog
-        shell: bash
-        run: |
-          cliff_dir=$(mktemp -d "$RUNNER_TEMP/git-cliff.XXXXXX")
-          curl -fsSL --retry 3 https://github.com/orhun/git-cliff/releases/download/v2.14.2/git-cliff-2.14.2-x86_64-unknown-linux-gnu.tar.gz -o "$cliff_dir/git-cliff.tar.gz"
-          # Pinned from the official v2.14.2 asset; it matches upstream's .sha512 file.
-          printf '%s  %s\n' '24f397c733add5390fdceee3a2088588ab0d5f944ce00d34cb7029b888cf2db4' "$cliff_dir/git-cliff.tar.gz" | sha256sum --check --strict
-          tar -xzf "$cliff_dir/git-cliff.tar.gz" -C "$cliff_dir" git-cliff-2.14.2/git-cliff
-          "$cliff_dir/git-cliff-2.14.2/git-cliff" --config cliff.toml -o "$RUNNER_TEMP/CHANGELOG.md"
+        run: scripts/git-cliff.sh --config cliff.toml -o "$RUNNER_TEMP/CHANGELOG.md"
       - name: Commit it to main
         env:
           VERSION: ${{ github.ref_name }}
         run: |
           git checkout -B main origin/main
           git merge-base --is-ancestor "$GITHUB_SHA" HEAD || { echo "$VERSION is not on main; CHANGELOG.md left alone"; exit 0; }
+          # A newer tag's run writes the changelog; an older one must not overwrite it.
+          newest=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          [ "$newest" = "$VERSION" ] || { echo "$newest is newer than $VERSION; its run writes CHANGELOG.md"; exit 0; }
           cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
           git add CHANGELOG.md
           if git diff --cached --quiet; then
