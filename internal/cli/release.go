@@ -480,6 +480,9 @@ func handoffArgs(o *options, install string) []string {
 	if o.json {
 		args = append(args, "--json")
 	}
+	if o.verbose {
+		args = append(args, "--verbose")
+	}
 	if o.resolve.Destination != "" {
 		args = append(args, "--destination", o.resolve.Destination)
 	}

@@ -318,10 +318,14 @@ func acquirePython(
 			"--no-bin",
 			requirements.Python,
 		},
-		Directory:   "/",
-		Environment: []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
-		Mutates:     true,
-		Timeout:     10 * time.Minute,
+		Directory: "/",
+		// uv downloads the interpreter, so it needs the user's proxy and CA settings.
+		Environment: append(
+			[]string{"HOME=" + c.Home, "PATH=/usr/bin:/bin", "UV_NO_PROGRESS=1"},
+			operation.NetworkEnvironment()...,
+		),
+		Mutates: true,
+		Timeout: 10 * time.Minute,
 	})
 	if err != nil {
 		return operation.Dependency{}, err

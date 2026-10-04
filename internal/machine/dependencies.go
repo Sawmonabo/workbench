@@ -231,6 +231,9 @@ func scriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 		}
 		system = append(system, windowsSystemDirectories(os.Getenv("PATH"))...)
 	}
+	// The scripts download packages and tools, so they need the user's proxy
+	// and CA settings; nothing else of the caller's environment reaches them.
+	environment = append(environment, operation.NetworkEnvironment()...)
 	return append(
 		environment,
 		"WORKBENCH_TOOL_PATH="+path,
