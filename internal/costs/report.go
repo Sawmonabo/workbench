@@ -509,7 +509,8 @@ type ToolStatus struct {
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
-// Status reads the ledger and the live hook settings; it changes nothing.
+// Status reads the ledger (creating an empty one when none exists) and the live
+// hook settings; it ingests and fetches nothing itself.
 func Status(_ context.Context) (StatusInfo, error) {
 	paths, err := Locations()
 	if err != nil {

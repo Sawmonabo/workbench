@@ -184,6 +184,12 @@ type Ledger struct {
 // writes nothing. A zero-byte file (a crash between creating the file and
 // writing the schema) holds nothing and is treated as absent. create makes a
 // missing ledger instead of failing.
+//
+// The ledger copies emails, organization names and project paths out of the
+// tools' private files, so it is private too: a directory this call makes is
+// 0700, the file is made 0600, and a ledger an earlier build left readable by
+// others is tightened to 0600 once it is verified (the mode only, never the
+// content).
 func OpenLedger(path string, create bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -197,8 +203,21 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 			"No ledger at "+path+"; run `workbench costs ingest --worker` first",
 		)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("%s: %w", path, err)
+	}
+	if !exists {
+		// SQLite gives the -wal and -shm files the database file's mode, so
+		// creating the file here, private, keeps them private from their first
+		// byte. O_CREATE without O_EXCL leaves a file another process made
+		// first, and its content, alone.
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
 	}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
 	// wait on the busy timeout instead of failing when a read turns into a write.
@@ -215,7 +234,21 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	makePrivate(path)
 	return ledger, nil
+}
+
+// makePrivate removes group and other access from the ledger and its WAL
+// files, when they have any. It runs only for a verified ledger, so a foreign
+// file is never touched, and it is best effort: a mode that cannot be changed
+// (a read-only mount) must not stop the ledger from being read or written,
+// which would risk the only lasting record of spend over a hardening step.
+func makePrivate(path string) {
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if info, err := os.Stat(name); err == nil && info.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
+		}
+	}
 }
 
 func (l *Ledger) prepare(exists bool) error {
@@ -269,8 +302,37 @@ func (l *Ledger) prepare(exists bool) error {
 	return nil
 }
 
+// create writes the schema of a ledger that was missing when OpenLedger looked.
+// Two processes can both have seen it missing (the first apply's ingest and a
+// session hook, say): the immediate transaction makes the second wait for the
+// first, and it then finds the ledger made and leaves it as it is. A plain
+// CREATE TABLE IF NOT EXISTS would instead accept a foreign database that
+// happens to share a table name.
 func (l *Ledger) create(ctx context.Context) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
+		var made int
+		if err := tx.QueryRowContext(
+			ctx,
+			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+		).Scan(&made); err != nil {
+			return err
+		}
+		if made > 0 {
+			// Another process created it while this one waited; it must be a
+			// ledger of this version, as prepare requires of an existing one.
+			var version string
+			if err := tx.QueryRowContext(
+				ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
+			).Scan(&version); err != nil || version != schemaVersion {
+				return operation.Fail(
+					operation.ExitInvalid,
+					"ledger",
+					"a database appeared here that is not a Workbench costs ledger of schema version "+
+						schemaVersion+"; move it aside",
+				)
+			}
+			return nil
+		}
 		if _, err := tx.ExecContext(ctx, schema); err != nil {
 			return err
 		}
