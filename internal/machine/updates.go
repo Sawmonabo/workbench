@@ -422,6 +422,9 @@ func brewOutput(
 		"HOMEBREW_NO_AUTO_UPDATE=1",
 		"HOMEBREW_NO_ENV_HINTS=1",
 	}
+	// Homebrew still downloads its package list when no copy is cached yet, so
+	// it gets the user's proxy and CA settings.
+	environment = append(environment, operation.NetworkEnvironment()...)
 	output, err := operation.Run(ctx, c, nil, operation.Process{
 		Executable:  brew,
 		Args:        args,
