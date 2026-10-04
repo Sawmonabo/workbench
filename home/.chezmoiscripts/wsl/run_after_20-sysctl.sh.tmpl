@@ -6,7 +6,8 @@
 # page idle program memory out to make room for file cache; keep apps resident
 # and swap only under real pressure (the kernel default of 60 is eager).
 # Needs sudo; when no tty/sudo credential is available it prints the manual
-# step and exits 0 so the rest of `chezmoi apply` is not blocked.
+# step, names the step blocked in the file Workbench reads, and exits 0 so the
+# rest of the apply still runs.
 set -euo pipefail
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [[ -f /etc/sysctl.d/99-dev.conf ]] && grep -qx 'vm.swappiness=10' /etc/sysctl.d/99-dev.conf; then
@@ -32,11 +33,14 @@ fi
 if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
     echo "==> sysctl: sudo needs a password and there is no terminal — skipped."
     echo "    Apply manually:  echo '$WANT' | sudo tee $CONF && sudo sysctl -p $CONF"
-    exit 3
+    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
+        printf '%s\t%s\n' sysctl "sudo needs a password and there is no terminal; run the manual step above" >> "$WORKBENCH_EFFECT_REPORT"
+    fi
+    exit 0
 fi
 
 echo "==> sysctl: writing $CONF ($WANT)"
-printf '# managed by dotfiles (run_onchange_after_20-sysctl)\n%s\n' "$WANT" | sudo tee "$CONF" >/dev/null
+printf '# managed by Workbench (WSL kernel tuning step)\n%s\n' "$WANT" | sudo tee "$CONF" >/dev/null
 sudo sysctl -q -p "$CONF"
 echo "    vm.swappiness is now $(sysctl -n vm.swappiness)"
 {{ end -}}
