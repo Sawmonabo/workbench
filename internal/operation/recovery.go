@@ -206,6 +206,22 @@ func Recover(
 			if err = cp.preflight(reverse); err != nil {
 				return err
 			}
+			// Refuse before the journal changes: only this checkpoint's own
+			// unfinished apply or recovery may be replaced in the state.
+			var state *State
+			if c.Scope.Kind == "machine" {
+				state, err = ReadState(c.Paths)
+				if err != nil {
+					return err
+				}
+				if err = state.Unfinished(
+					c.Scope,
+					cp.record.ID,
+					cp.journal.OperationID,
+				); err != nil {
+					return err
+				}
+			}
 			operationID, err = NewID()
 			if err != nil {
 				return err
@@ -229,12 +245,7 @@ func Recover(
 			if err = cp.saveJournal(); err != nil {
 				return err
 			}
-			var state *State
 			if c.Scope.Kind == "machine" {
-				state, err = ReadState(c.Paths)
-				if err != nil {
-					return err
-				}
 				if state == nil {
 					state = &State{SchemaVersion: 1}
 				}
