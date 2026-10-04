@@ -43,7 +43,6 @@ uv_sha256 = { "darwin-amd64" = "f3c8e5708a84b920c18b691214d54d2b0da6b984789caae9
 "actions/setup-go" = { version = "v7.0.0", commit = "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e" }
 "astral-sh/setup-uv" = { version = "v10.1.0", commit = "bec219d24cd3e171d82865faccec33120bb574f4" }
 "golangci/golangci-lint-action" = { version = "v9.3.0", commit = "ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a" }
-"orhun/git-cliff-action" = { version = "v4.9.1", commit = "a9a95522b26fe6403f7bb24031f21fb573d0f5ff" }
 
 [corepack_globals]
 pnpm = "10.33.2"
