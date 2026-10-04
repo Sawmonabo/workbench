@@ -15,7 +15,7 @@ type Focus struct {
 	Name     string    `json:"name"`
 	Total    Row       `json:"total"`
 	Parts    []Row     `json:"parts"`    // a project's models, or a model's projects
-	Days     []Row     `json:"days"`     // Name is YYYY-MM-DD, newest first, active days only
+	Days     []Row     `json:"days"`     // Name is YYYY-MM-DD in the machine's time zone, newest first, active days only
 	Sessions []Session `json:"sessions"` // costliest first
 }
 
@@ -51,21 +51,24 @@ func FocusOn(
 	if err != nil {
 		return focus, err
 	}
-	where, args := []string{"tool = ?"}, []any{opts.Tool}
-	if opts.Since != "" {
-		where, args = append(where, "substr(ts, 1, 10) >= ?"), append(args, opts.Since)
+	period, bounds, err := periodClauses(opts.Since, opts.Until)
+	if err != nil {
+		return focus, err
 	}
-	if opts.Until != "" {
-		where, args = append(where, "substr(ts, 1, 10) <= ?"), append(args, opts.Until)
-	}
+	where, args := append([]string{"tool = ?"}, period...), append([]any{opts.Tool}, bounds...)
 	if kind == "model" {
 		where, args = append(where, "model = ?"), append(args, name)
 	}
-	rows, err := ledger.db.QueryContext(ctx,
-		`SELECT project, model, substr(ts, 1, 10), session_id, MIN(ts), MAX(ts), COUNT(*),
+	rows, err := ledger.db.QueryContext(
+		ctx,
+		`SELECT project, model, COALESCE(date(ts, 'localtime'), ''), session_id, MIN(ts), MAX(ts), COUNT(*),
 		        SUM(input), SUM(output), SUM(cache_write_5m), SUM(cache_write_1h), SUM(cache_read)
-		   FROM responses WHERE `+strings.Join(where, " AND ")+`
-		  GROUP BY 1, 2, 3, 4`, args...)
+		   FROM responses WHERE `+strings.Join(
+			where,
+			" AND ",
+		)+`
+		  GROUP BY 1, 2, 3, 4`,
+		args...)
 	if err != nil {
 		return focus, err
 	}

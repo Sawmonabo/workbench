@@ -705,6 +705,46 @@ const earlier = `(ts = '' OR (excluded.ts <> '' AND excluded.ts <= ts))`
 // UTC with milliseconds, which sorts as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
+// A report names days and months in the machine's time zone, the one the
+// session times beside them are shown in: a response belongs to the day on the
+// wall clock where it was made, not to the UTC day it is stored under. SQL
+// groups with the 'localtime' modifier; the bounds below are converted here.
+
+// periodClauses are the WHERE clauses and arguments for inclusive YYYY-MM-DD
+// bounds on a response's local day, "" for no bound: ts from the first day's
+// local midnight up to, not including, the next local midnight after the last
+// day. They compare ts itself, so the responses_ts index serves them.
+func periodClauses(since, until string) (clauses []string, args []any, err error) {
+	for _, bound := range []struct {
+		flag, day, clause string
+		plus              int
+	}{
+		{"--since", since, "ts >= ?", 0},
+		{"--until", until, "ts < ?", 1}, // the next midnight ends the last day
+	} {
+		if bound.day == "" {
+			continue
+		}
+		start, err := time.ParseInLocation(time.DateOnly, bound.day, time.Local)
+		if err != nil {
+			return nil, nil, fmt.Errorf("%s needs a YYYY-MM-DD date: %w", bound.flag, err)
+		}
+		clauses = append(clauses, bound.clause)
+		args = append(args, start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout))
+	}
+	return clauses, args, nil
+}
+
+// LocalDate is the machine-local calendar day (YYYY-MM-DD) of a stored
+// response time, "none" when ts holds no time.
+func LocalDate(ts string) string {
+	when, err := time.Parse(timeLayout, ts)
+	if err != nil {
+		return "none"
+	}
+	return when.Local().Format(time.DateOnly)
+}
+
 // storedID is the ledger key of a response: Claude's id as is, every other
 // tool's as <tool>:<id>.
 func storedID(u Usage) string {

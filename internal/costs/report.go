@@ -118,7 +118,7 @@ type Block struct {
 
 // Coverage is what the ledger holds for the tool, and when it last ingested.
 type Coverage struct {
-	First                string   `json:"first"` // YYYY-MM-DD, or "none"
+	First                string   `json:"first"` // YYYY-MM-DD in the machine's time zone, or "none"
 	Last                 string   `json:"last"`
 	Responses            int64    `json:"responses"`
 	AccountEvidence      Evidence `json:"account_evidence"`      // rows by the evidence of their email
@@ -132,7 +132,7 @@ type Coverage struct {
 	LastIngestAt           string `json:"last_ingest_at"`
 	LastIngestSummary      string `json:"last_ingest_summary"`
 	LastError              string `json:"last_error"`
-	RatesFetched           string `json:"rates_fetched"` // YYYY-MM-DD, or "never"
+	RatesFetched           string `json:"rates_fetched"` // YYYY-MM-DD in the machine's time zone, or "never"
 }
 
 // Evidence counts rows by the level of evidence one field of them rests on.
@@ -162,7 +162,7 @@ func (e *Evidence) add(level string, n int64) {
 type ReportOptions struct {
 	Tool         string // the ledger's tool column
 	By           string // project (default), model, account or month
-	Since, Until string // inclusive YYYY-MM-DD bounds on the response time
+	Since, Until string // inclusive YYYY-MM-DD bounds on the response's day in the machine's time zone
 	All          bool   // include projects outside ~/dev and ~/repos
 	Top          int    // show only the first N rows; totals still cover all
 	Sort         string // cost (default), name or calls
@@ -304,16 +304,14 @@ func loadGroups(
 	opts ReportOptions,
 ) ([]group, int, error) {
 	tool, _ := Lookup(opts.Tool)
-	where, args := []string{"tool = ?"}, []any{opts.Tool}
-	if opts.Since != "" {
-		where, args = append(where, "substr(ts, 1, 10) >= ?"), append(args, opts.Since)
+	period, bounds, err := periodClauses(opts.Since, opts.Until)
+	if err != nil {
+		return nil, 0, err
 	}
-	if opts.Until != "" {
-		where, args = append(where, "substr(ts, 1, 10) <= ?"), append(args, opts.Until)
-	}
+	where, args := append([]string{"tool = ?"}, period...), append([]any{opts.Tool}, bounds...)
 	rows, err := ledger.db.QueryContext(ctx,
 		`SELECT r.project, r.model, r.account, r.subscription, COALESCE(s.label, ''),
-		        substr(r.ts, 1, 7), COUNT(*),
+		        COALESCE(strftime('%Y-%m', r.ts, 'localtime'), ''), COUNT(*),
 		        SUM(r.input), SUM(r.output), SUM(r.cache_write_5m), SUM(r.cache_write_1h),
 		        SUM(r.cache_read)
 		   FROM responses r LEFT JOIN subscriptions s ON s.id = r.subscription
@@ -418,12 +416,13 @@ func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) 
 	var first, last string
 	var c Coverage
 	if err := ledger.db.QueryRow(
-		"SELECT COALESCE(MIN(ts), ''), COALESCE(MAX(ts), ''), COUNT(*) FROM responses WHERE tool = ?",
+		`SELECT COALESCE(MIN(NULLIF(ts, '')), ''), COALESCE(MAX(ts), ''), COUNT(*)
+		   FROM responses WHERE tool = ?`,
 		tool,
 	).Scan(&first, &last, &c.Responses); err != nil {
 		return c, err
 	}
-	c.First, c.Last = dateOf(first), dateOf(last)
+	c.First, c.Last = LocalDate(first), LocalDate(last)
 	var account, subscription string
 	if err := ledger.db.QueryRow(`SELECT
 		  COALESCE(MIN(CASE WHEN account_source = ?2 THEN ts END), ''),
@@ -461,16 +460,9 @@ func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) 
 	c.LastError, _ = ledger.Meta("last_error")
 	c.RatesFetched = "never"
 	if !fetched.IsZero() {
-		c.RatesFetched = fetched.UTC().Format("2006-01-02")
+		c.RatesFetched = fetched.Local().Format(time.DateOnly)
 	}
 	return c, nil
-}
-
-func dateOf(ts string) string {
-	if len(ts) < 10 {
-		return "none"
-	}
-	return ts[:10]
 }
 
 // StatusInfo is what `workbench costs status` shows.

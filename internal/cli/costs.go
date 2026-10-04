@@ -54,8 +54,18 @@ func costsCommand(o *options) *cobra.Command {
 		"claude",
 		"The tab to open on, or the tool to print: claude or codex",
 	)
-	flags.StringVar(&f.since, "since", "", "First day to include, YYYY-MM-DD")
-	flags.StringVar(&f.until, "until", "", "Last day to include, YYYY-MM-DD")
+	flags.StringVar(
+		&f.since,
+		"since",
+		"",
+		"First day to include, YYYY-MM-DD in this machine's time zone",
+	)
+	flags.StringVar(
+		&f.until,
+		"until",
+		"",
+		"Last day to include, YYYY-MM-DD in this machine's time zone",
+	)
 	flags.BoolVar(&f.all, "all", false, "Include projects outside ~/dev and ~/repos")
 	flags.IntVar(&f.top, "top", 0, "Show the first N rows; totals still cover all")
 	flags.StringVar(&f.sort, "sort", "cost", "Row order: cost, name or calls")
@@ -432,7 +442,7 @@ func costsRatesCommand(o *options) *cobra.Command {
 func ratesCard(card costs.Card) ratesView {
 	view := ratesView{Official: map[string]string{}}
 	for tool, fetched := range card.Fetched {
-		view.Official[tool] = fetched.UTC().Format("2006-01-02")
+		view.Official[tool] = fetched.Local().Format(time.DateOnly)
 	}
 	disagree := card.Disagreements()
 	for _, model := range slices.Sorted(mapKeys(card.Rows)) {
@@ -1230,7 +1240,7 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 		switch {
 		case at == "":
 			return tool.Title + "'s transcripts record no " + part
-		case at[:min(len(at), 10)] <= report.Coverage.First:
+		case costs.LocalDate(at) <= report.Coverage.First:
 			// Named from the first row on: the rows without one are threads
 			// whose transcript never named it, not an earlier era.
 			come := "responses come"
