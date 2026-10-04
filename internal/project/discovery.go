@@ -398,22 +398,44 @@ func exactPattern(pattern string) bool {
 }
 
 // checkStandalone refuses competing standalone tool configuration. Native
-// tools may inherit it from any ancestor, so every candidate is recorded.
+// tools may inherit it from any ancestor, so every candidate is recorded. Ruff
+// also applies the nearest ruff.toml to the files below it, so one in a folder
+// under p's root silently replaces the merged policy there and is refused too.
+// The other tools read only the root's configuration.
 func (r *Inventory) checkStandalone(p *Project) error {
-	return ancestors(p.Root, func(parent string) (bool, error) {
+	refuse := func(path string) {
+		p.Supported = false
+		p.Reason = "Standalone configuration requires reviewed integration: " + path
+	}
+	err := ancestors(p.Root, func(parent string) (bool, error) {
 		for _, name := range []string{"ruff.toml", ".ruff.toml", "ty.toml", "pyrightconfig.json", "uv.toml"} {
 			data, err := r.read(filepath.Join(parent, name))
 			if err != nil {
 				return false, err
 			}
 			if data != nil {
-				p.Supported = false
-				p.Reason = "Standalone configuration requires reviewed integration: " +
-					filepath.Join(parent, name)
+				refuse(filepath.Join(parent, name))
 			}
 		}
 		return false, nil
 	})
+	if err != nil {
+		return err
+	}
+	for _, item := range r.Items {
+		path := filepath.Join(r.Directory, filepath.FromSlash(item.Path))
+		name := filepath.Base(path)
+		// Files in p.Root itself were read by the walk above.
+		if item.Kind != "configuration" || (name != "ruff.toml" && name != ".ruff.toml") ||
+			filepath.Dir(path) == p.Root || !operation.Within(p.Root, path) {
+			continue
+		}
+		if _, err = r.read(path); err != nil {
+			return err
+		}
+		refuse(path)
+	}
+	return nil
 }
 
 // ancestors calls visit for dir and each parent until visit stops the walk or
