@@ -252,6 +252,9 @@ type message struct {
 
 type usage struct {
 	tokens
+	// Speed is "fast" for a response sent in fast mode, which the price page
+	// bills at its own, higher rates; "standard" otherwise.
+	Speed      string            `json:"speed"`
 	Iterations []json.RawMessage `json:"iterations"`
 }
 
@@ -285,8 +288,8 @@ func claudeStateOf(file *FileState) *claudeState {
 
 // ParseRevision changes when Parse learns to read something from lines it
 // has already read: ingest then reads every Claude Code transcript again from
-// the start, once. "2" reads credential_org attachments.
-func (claude) ParseRevision() string { return "2" }
+// the start, once. "2" reads credential_org attachments; "3" reads usage.speed.
+func (claude) ParseRevision() string { return "3" }
 
 // decode fills v from raw, tolerating fields of the wrong type (they stay
 // zero) but not a syntax error.
@@ -302,7 +305,10 @@ func decode(raw []byte, v any) bool {
 // the top-level counts; it is keyed <request id>:<iteration index>, which
 // stays stable as later records of the same request add iterations. A row
 // after a credential_org attachment is that organization's: its
-// subscription, and the email signed in to it (AccountKey).
+// subscription, and the email signed in to it (AccountKey). A fast-mode
+// response is the model at its fast service tier, "<model>@fast", as a Codex
+// one is: the price page bills it at other rates. An advisor row keeps the
+// advisor's own model, billed per its iteration, which carries no speed.
 func (claude) Parse(line []byte, file *FileState) []Usage {
 	if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`"cwd"`)) &&
 		!bytes.Contains(line, []byte(`"credential_org"`)) {
@@ -366,6 +372,9 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		base.AccountKey = org
 	}
 	response := base
+	if u.Speed == fastSpeed {
+		response.Model = model + "@" + fastSpeed
+	}
 	u.fill(&response)
 	rows := []Usage{response}
 	for i, raw := range u.Iterations {
@@ -381,6 +390,10 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 	}
 	return rows
 }
+
+// fastSpeed is the usage.speed of a fast-mode response, and the service tier
+// its model id carries.
+const fastSpeed = "fast"
 
 func firstNonEmpty(values ...string) string {
 	for _, v := range values {
@@ -470,7 +483,10 @@ func (claude) PricingURL() string {
 // input, output, 5m write, 1h write, cache read per million tokens. Longest
 // prefix wins, so a family row is the fallback for ids no specific row
 // covers. The official card and calibration override these at runtime; the
-// manual overrides file wins over everything.
+// manual overrides file wins over everything. A "@fast" row, read from the
+// page on 2026-10-04, is the model's fast-mode price (the page's fast mode
+// table, with the caching multipliers applied on top of it); only the models
+// the page lists for fast mode have one.
 var builtin = map[string][5]float64{
 	"claude-fable-5-1":  {10, 50, 12.5, 20, 0.25},
 	"claude-fable-5":    {10, 50, 12.5, 20, 1},
@@ -495,6 +511,10 @@ var builtin = map[string][5]float64{
 	"claude-haiku-4-5":  {1, 5, 1.25, 2, 0.1},
 	"claude-haiku-3-5":  {0.8, 4, 1, 1.6, 0.08},
 	"claude-haiku":      {1, 5, 1.25, 2, 0.1},
+
+	"claude-opus-5-5@fast": {8, 40, 10, 16, 0.4},
+	"claude-opus-5@fast":   {10, 50, 12.5, 20, 1},
+	"claude-opus-4-8@fast": {10, 50, 12.5, 20, 1},
 }
 
 func (claude) Builtin() RateCard {
@@ -573,10 +593,36 @@ func money(cells []string, j int) (float64, bool) {
 	return v, err == nil
 }
 
+// pricedModels are the model ids the first cell of a price table row prices.
+// The fast mode table names two models that share a price in one cell ("Claude
+// Opus 5 / Claude Opus 4.8"), so there each part counts; anywhere else a cell
+// that names several models prices none. A cell with a part that names no
+// model prices none either.
+func pricedModels(cell string, shared bool) []string {
+	if !shared {
+		if model := normalizeModel(cell); model != "" {
+			return []string{model}
+		}
+		return nil
+	}
+	var models []string
+	for part := range strings.SplitSeq(markupPattern.ReplaceAllString(cell, ""), "/") {
+		model := normalizeModel(part)
+		if model == "" {
+			return nil
+		}
+		models = append(models, model)
+	}
+	return models
+}
+
 // ParsePricing reads every Markdown table with an input and an output column.
-// The first table that prices a model wins, and tables under a batch or
-// fast-mode heading are skipped: the page repeats model names there at
-// discounted or premium rates.
+// The first table that prices a model wins. A table under a batch heading is
+// skipped: the page repeats model names there at discounted rates. A table
+// under a fast-mode heading prices "<model>@fast", at the page's input and
+// output rates and the caching multipliers of the model's standard row applied
+// on top, as the page says they are (Opus 5.5 reads its cache at 0.05x, the
+// others at 0.1x).
 func (claude) ParsePricing(page string) RateCard {
 	card := RateCard{}
 	lines := strings.Split(page, "\n")
@@ -591,55 +637,91 @@ func (claude) ParsePricing(page string) RateCard {
 			i++
 			continue
 		}
-		var headers []string
-		for h := range strings.SplitSeq(strings.Trim(head, "|"), "|") {
-			headers = append(headers, strings.ToLower(strings.TrimSpace(h)))
-		}
-		ci := findColumn(headers, []string{"input"}, "cache", "batch", "additional")
-		co := findColumn(headers, []string{"output"}, "batch")
-		c5 := findColumn(headers, []string{"5m", "5-minute"}, "1h")
-		if c5 < 0 {
-			c5 = findColumn(headers, []string{"write"}, "1h")
-		}
-		c1 := findColumn(headers, []string{"1h", "1-hour"})
-		cr := findColumn(headers, []string{"hit", "read", "refresh"})
+		columns := priceColumnsOf(head)
 		i += 2
-		if ci < 0 || co < 0 || strings.Contains(heading, "batch") ||
-			strings.Contains(heading, "fast") {
+		if columns.input < 0 || columns.output < 0 || strings.Contains(heading, "batch") {
 			continue
+		}
+		tier := ""
+		if strings.Contains(heading, fastSpeed) {
+			tier = "@" + fastSpeed
 		}
 		for ; i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|"); i++ {
 			var cells []string
 			for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(lines[i]), "|"), "|") {
 				cells = append(cells, strings.TrimSpace(c))
 			}
-			model := normalizeModel(cells[0])
-			if _, seen := card[model]; model == "" || seen {
-				continue
-			}
-			in, okIn := money(cells, ci)
-			out, okOut := money(cells, co)
-			if !okIn || !okOut {
-				continue
-			}
-			rate := Rate{
-				Input:        in,
-				Output:       out,
-				CacheWrite5m: in * 1.25,
-				CacheWrite1h: in * 2,
-				CacheRead:    in * 0.1,
-			}
-			if v, ok := money(cells, c5); ok {
-				rate.CacheWrite5m = v
-			}
-			if v, ok := money(cells, c1); ok {
-				rate.CacheWrite1h = v
-			}
-			if v, ok := money(cells, cr); ok {
-				rate.CacheRead = v
-			}
-			card[model] = rate
+			addPriceRow(card, cells, columns, tier)
 		}
 	}
 	return card
+}
+
+// priceColumns are the indexes of a price table's columns, -1 for a missing one.
+type priceColumns struct{ input, output, write5m, write1h, read int }
+
+// priceColumnsOf maps a table's header row to its columns by header text.
+func priceColumnsOf(head string) priceColumns {
+	var headers []string
+	for h := range strings.SplitSeq(strings.Trim(head, "|"), "|") {
+		headers = append(headers, strings.ToLower(strings.TrimSpace(h)))
+	}
+	columns := priceColumns{
+		input:   findColumn(headers, []string{"input"}, "cache", "batch", "additional"),
+		output:  findColumn(headers, []string{"output"}, "batch"),
+		write5m: findColumn(headers, []string{"5m", "5-minute"}, "1h"),
+		write1h: findColumn(headers, []string{"1h", "1-hour"}),
+		read:    findColumn(headers, []string{"hit", "read", "refresh"}),
+	}
+	if columns.write5m < 0 {
+		columns.write5m = findColumn(headers, []string{"write"}, "1h")
+	}
+	return columns
+}
+
+// addPriceRow adds the models a table row prices to card, at tier ("" for the
+// standard table, "@fast" for the fast mode table). The first row that prices a
+// model wins.
+func addPriceRow(card RateCard, cells []string, columns priceColumns, tier string) {
+	in, okIn := money(cells, columns.input)
+	out, okOut := money(cells, columns.output)
+	if !okIn || !okOut {
+		return
+	}
+	write5m, ok5m := money(cells, columns.write5m)
+	write1h, ok1h := money(cells, columns.write1h)
+	read, okRead := money(cells, columns.read)
+	for _, model := range pricedModels(cells[0], tier != "") {
+		if _, seen := card[model+tier]; seen {
+			continue
+		}
+		// A column the table lacks is the input rate times the model's
+		// multiplier: the page's 1.25x, 2x and 0.1x, or, for a fast price,
+		// those of the standard row it applies on top of.
+		multiplier := [3]float64{1.25, 2, 0.1}
+		if standard, ok := card[model]; tier != "" && ok && standard.Input > 0 {
+			multiplier = [3]float64{
+				standard.CacheWrite5m / standard.Input,
+				standard.CacheWrite1h / standard.Input,
+				standard.CacheRead / standard.Input,
+			}
+		}
+		rate := Rate{
+			Input:        in,
+			Output:       out,
+			CacheWrite5m: in * multiplier[0],
+			CacheWrite1h: in * multiplier[1],
+			CacheRead:    in * multiplier[2],
+		}
+		if ok5m {
+			rate.CacheWrite5m = write5m
+		}
+		if ok1h {
+			rate.CacheWrite1h = write1h
+		}
+		if okRead {
+			rate.CacheRead = read
+		}
+		card[model+tier] = rate
+	}
 }
