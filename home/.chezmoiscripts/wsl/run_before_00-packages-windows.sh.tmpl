@@ -103,6 +103,9 @@ fi
 OMP_WIN_DIR="$WIN_APPDATA/Programs/oh-my-posh"
 OMP_WIN_BIN="$OMP_WIN_DIR/bin"
 OMP_WIN_THEMES="$OMP_WIN_DIR/themes"
+# The theme the PowerShell profile below names. It is copied last, so finding it
+# means every theme was copied; with the program it makes oh-my-posh complete.
+OMP_WIN_THEME="$OMP_WIN_THEMES/catppuccin_mocha.omp.json"
 WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
 WT_PACKAGE_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe"
 WT_SETTINGS_DIR="$WT_PACKAGE_DIR/LocalState"
@@ -356,8 +359,17 @@ open(path, 'w', encoding='utf-8').write(s)
 PY
 }
 
-# Whether the JetBrainsMono font files are in the Windows user font folder.
+# Whether any JetBrainsMono font file is in the Windows user font folder.
 have_fonts() { compgen -G "$WIN_FONT_DIR/JetBrainsMono*.ttf" >/dev/null; }
+
+# Whether the whole Nerd Font family is in place. The regular face is copied
+# last, so finding it means every file before it was copied; a download or copy
+# that stopped halfway leaves some files and not this one, and runs again.
+FONT_LAST="JetBrainsMonoNerdFont-Regular.ttf"
+fonts_complete() { [ -f "$WIN_FONT_DIR/$FONT_LAST" ]; }
+
+# Whether oh-my-posh is in place for Windows: the program and the profile's theme.
+omp_complete() { [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && [ -f "$OMP_WIN_THEME" ]; }
 
 # Whether every JetBrainsMono font file is registered for the Windows user with
 # its real Windows path, from the registry read above. Succeeds when they all
@@ -378,7 +390,7 @@ fonts_registered() {
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fonts_have=0 fonts_reg=0 omp_have=0 reg_why=
-    have_fonts && fonts_have=1
+    fonts_complete && fonts_have=1
     fonts_state=0
     fonts_registered || fonts_state=$?
     [ "$fonts_state" != 0 ] || fonts_reg=1
@@ -387,7 +399,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ "$fonts_have" = 1 ] && [ "$fonts_state" = 2 ]; then
         reg_why=$(win_unanswered registry) || reg_why="Couldn't check the Windows side"
     fi
-    [ -f "$OMP_WIN_BIN/oh-my-posh.exe" ] && omp_have=1
+    omp_complete && omp_have=1
     changes=()
     [ "$omp_have" = 1 ] || changes+=("install oh-my-posh and its themes")
     [ "$fonts_have" = 1 ] || changes+=("install the JetBrainsMono fonts")
@@ -493,40 +505,69 @@ trap 'rm -rf "$download_dir"; win_cleanup' EXIT
 
 echo "    Windows user: $WIN_USER"
 
+# Copy the file $1 to $2 so that $2 only ever holds a complete file: copy it
+# beside $2 under another name, then rename it into place.
+place_file() {
+    cp "$1" "$2.part" && mv -f "$2.part" "$2" || { rm -f "$2.part"; return 1; }
+}
+
 # --- oh-my-posh for Windows ---
+# Downloaded and unpacked in a private folder first, then copied into place with
+# the program renamed in last, so a download or copy that stops halfway never
+# leaves a partial program the next run would skip. An install that is missing
+# its theme, or whose program does not start (a download cut off by an earlier
+# version of this script), is done again.
 if [ "$need_omp" = 1 ]; then
-if [ ! -f "$OMP_WIN_BIN/oh-my-posh.exe" ]; then
+omp_ready=0
+if omp_complete; then
+    win_call omp-check "$OMP_WIN_BIN/oh-my-posh.exe" --version
+    # A Windows that does not answer in time is no proof the program is broken.
+    case "${WIN_RC[omp-check]:-1}" in 0 | 124 | 137) omp_ready=1 ;; esac
+fi
+if [ "$omp_ready" = 0 ]; then
     echo "==> Installing oh-my-posh for Windows..."
-    mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
+    mkdir -p "$download_dir/omp"
 
     # Download oh-my-posh.exe
     OMP_URL=$(curl -fsSL https://api.github.com/repos/JanDeDobbeleer/oh-my-posh/releases/latest \
         | grep -o '"browser_download_url": *"[^"]*posh-windows-amd64.exe"' \
         | head -1 \
         | cut -d'"' -f4)
-    if [ -n "$OMP_URL" ]; then
-        curl -fsSL "$OMP_URL" -o "$OMP_WIN_BIN/oh-my-posh.exe"
-        echo "    oh-my-posh.exe installed."
-    else
+    if [ -z "$OMP_URL" ]; then
         echo "WORKBENCH_EFFECT windows-posh failed: no download URL" >&2
         exit 1
     fi
+    curl -fsSL "$OMP_URL" -o "$download_dir/omp/oh-my-posh.exe"
 
     # Download themes
     THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
-    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
-    unzip -o "$download_dir/themes.zip" -d "$OMP_WIN_THEMES"
-    echo "    oh-my-posh themes installed for Windows."
+    curl -fsSL "$THEMES_URL" -o "$download_dir/omp/themes.zip"
+    unzip -o "$download_dir/omp/themes.zip" -d "$download_dir/omp/themes"
+    if [ ! -f "$download_dir/omp/themes/$(basename "$OMP_WIN_THEME")" ]; then
+        echo "WORKBENCH_EFFECT windows-posh failed: the theme archive has no $(basename "$OMP_WIN_THEME")" >&2
+        exit 1
+    fi
+
+    # Both downloads are whole: now copy them into place.
+    mkdir -p "$OMP_WIN_BIN" "$OMP_WIN_THEMES"
+    for theme in "$download_dir/omp/themes/"*; do
+        [ "$theme" = "$download_dir/omp/themes/$(basename "$OMP_WIN_THEME")" ] || cp -R "$theme" "$OMP_WIN_THEMES/"
+    done
+    place_file "$download_dir/omp/themes/$(basename "$OMP_WIN_THEME")" "$OMP_WIN_THEME"
+    place_file "$download_dir/omp/oh-my-posh.exe" "$OMP_WIN_BIN/oh-my-posh.exe"
+    echo "    oh-my-posh and its themes installed for Windows."
 else
     echo "==> oh-my-posh for Windows already installed, skipping."
 fi
 fi
 
 # --- JetBrains Mono Nerd Font for Windows ---
+# Unpacked in a private folder first and copied into place file by file with the
+# regular face last (see fonts_complete), so a failed download or copy is done
+# again by the next run instead of being skipped for the files that did arrive.
 if [ "$need_fonts" = 1 ]; then
-if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/null; then
+if ! fonts_complete; then
     echo "==> Installing JetBrains Mono Nerd Font for Windows..."
-    mkdir -p "$WIN_FONT_DIR"
 
     FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
         | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
@@ -535,7 +576,15 @@ if [ ! -d "$WIN_FONT_DIR" ] || ! ls "$WIN_FONT_DIR"/JetBrainsMono*.ttf &>/dev/nu
     if [ -n "$FONT_URL" ]; then
         curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
         unzip -o "$download_dir/font.zip" -d "$download_dir/fonts"
-        cp "$download_dir/fonts/"*.ttf "$WIN_FONT_DIR/"
+        if [ ! -f "$download_dir/fonts/$FONT_LAST" ]; then
+            echo "WORKBENCH_EFFECT windows-fonts failed: the font archive has no $FONT_LAST" >&2
+            exit 1
+        fi
+        mkdir -p "$WIN_FONT_DIR"
+        for font in "$download_dir/fonts/"*.ttf; do
+            [ "$(basename "$font")" = "$FONT_LAST" ] || place_file "$font" "$WIN_FONT_DIR/$(basename "$font")"
+        done
+        place_file "$download_dir/fonts/$FONT_LAST" "$WIN_FONT_DIR/$FONT_LAST"
 
         echo "    JetBrains Mono Nerd Font installed for Windows."
     else
