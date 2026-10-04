@@ -4,7 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -44,8 +47,13 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 	if token != "" {
 		request.Header.Set("Authorization", "Bearer "+token)
 	}
+	// A stall limit, not a total-time limit: a slow link may take long as long
+	// as bytes keep arriving.
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	request = request.WithContext(ctx)
 	client := &http.Client{
-		Timeout: 2 * time.Minute,
+		Transport: downloadTransport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 || req.URL.Scheme != "https" {
 				return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
@@ -53,8 +61,13 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 			return nil
 		},
 	}
+	stall := time.AfterFunc(stallLimit, func() { cancel(errStalled) })
+	defer stall.Stop()
 	response, err := client.Do(request)
 	if err != nil {
+		if errors.Is(context.Cause(ctx), errStalled) {
+			return nil, stalledDownload()
+		}
 		return nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
@@ -65,14 +78,45 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 	if response.StatusCode == http.StatusNotFound {
 		return nil, errNotFound
 	}
-	if response.StatusCode != http.StatusOK || response.ContentLength > limit {
+	if response.StatusCode == http.StatusForbidden &&
+		response.Header.Get("X-RateLimit-Remaining") == "0" {
 		return nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
-			"Release asset unavailable or exceeds the download bound",
+			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
 		)
 	}
-	data, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
+	if token != "" && (response.StatusCode == http.StatusUnauthorized ||
+		response.StatusCode == http.StatusForbidden) {
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			fmt.Sprintf(
+				"GitHub refused the request (HTTP %d); check gh auth status or the GH_TOKEN/GITHUB_TOKEN variables",
+				response.StatusCode,
+			),
+		)
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			fmt.Sprintf("Release asset unavailable (HTTP %d)", response.StatusCode),
+		)
+	}
+	if response.ContentLength > limit {
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			"Release asset exceeds the download bound",
+		)
+	}
+	data, err := io.ReadAll(
+		io.LimitReader(&stallReader{body: response.Body, timer: stall}, limit+1),
+	)
+	if errors.Is(context.Cause(ctx), errStalled) {
+		return nil, stalledDownload()
+	}
 	if err != nil || int64(len(data)) > limit {
 		return nil, operation.Fail(
 			operation.ExitFailed,
@@ -81,6 +125,49 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 		)
 	}
 	return data, nil
+}
+
+// stallLimit is how long a download may go without receiving a byte.
+const stallLimit = time.Minute
+
+// downloadTransport is the default transport's proxy, dial, TLS and idle
+// behavior plus a response-header deadline, shared so connections are reused.
+var downloadTransport = &http.Transport{
+	Proxy: http.ProxyFromEnvironment,
+	DialContext: (&net.Dialer{
+		Timeout:   30 * time.Second,
+		KeepAlive: 30 * time.Second,
+	}).DialContext,
+	ForceAttemptHTTP2:     true,
+	MaxIdleConns:          10,
+	IdleConnTimeout:       90 * time.Second,
+	TLSHandshakeTimeout:   10 * time.Second,
+	ExpectContinueTimeout: time.Second,
+	ResponseHeaderTimeout: stallLimit,
+}
+
+var errStalled = errors.New("download stalled")
+
+func stalledDownload() error {
+	return operation.Fail(
+		operation.ExitFailed,
+		"download",
+		"Download stalled for a minute; check the network and rerun",
+	)
+}
+
+// stallReader restarts the stall timer after every successful read.
+type stallReader struct {
+	body  io.Reader
+	timer *time.Timer
+}
+
+func (r *stallReader) Read(p []byte) (int, error) {
+	n, err := r.body.Read(p)
+	if n > 0 {
+		r.timer.Reset(stallLimit)
+	}
+	return n, err
 }
 
 // ReadBundle verifies a release archive from a local file or HTTPS URL. A
@@ -129,12 +216,23 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 	if err != nil {
 		return plan, err
 	}
+	if _, statErr := os.Lstat(b.Directory(c)); statErr == nil &&
+		modifiedStage(b.CheckDirectory(b.Directory(c))) {
+		plan.Edits[0].Description = "Replace a modified staged copy of this release with the verified bundle"
+	}
 	raw, _ := json.Marshal(state)
 	plan.Inputs = append(
 		plan.Inputs,
 		operation.Input{Name: "state", Digest: operation.SHA256Hex(raw)},
 	)
 	return plan, nil
+}
+
+// modifiedStage reports whether err says a staged release's files differ from
+// its verified bundle, as opposed to the directory being unreadable.
+func modifiedStage(err error) bool {
+	var failure *operation.Error
+	return errors.As(err, &failure) && failure.Category == "release_conflict"
 }
 
 // Stage extracts b into its release directory, or rechecks an existing one,
@@ -149,7 +247,22 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	if _, err := os.Lstat(directory); err == nil {
-		return directory, b.CheckDirectory(directory)
+		checkErr := b.CheckDirectory(directory)
+		if !modifiedStage(checkErr) {
+			return directory, checkErr
+		}
+		// The bundle was fully verified in memory, so it is authoritative: a
+		// modified copy is replaced, unless it is the runtime now executing.
+		state, stateErr := operation.ReadState(c.Paths)
+		if stateErr != nil {
+			return "", stateErr
+		}
+		if state != nil && state.ActiveRelease != nil && state.ActiveRelease.Source == directory {
+			return "", checkErr
+		}
+		if err = m.RemovePrivateDirectory(directory); err != nil {
+			return "", err
+		}
 	} else if !os.IsNotExist(err) {
 		return "", err
 	}

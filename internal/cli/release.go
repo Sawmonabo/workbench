@@ -214,8 +214,15 @@ func updateRelease(
 	if args := cmd.Flags().Args(); len(args) > 0 {
 		tag = args[0]
 		// Release tags start with v; accept 0.2.0 for v0.2.0.
-		if tag[0] >= '0' && tag[0] <= '9' {
+		if tag != "" && tag[0] >= '0' && tag[0] <= '9' {
 			tag = "v" + tag
+		}
+		if !release.ValidTag(tag) {
+			return result, operation.Fail(
+				operation.ExitInvalid,
+				"input",
+				"VERSION must be a release tag such as v0.2.0",
+			)
 		}
 	}
 	bundle, err := readRelease(cmd, c, tag)

@@ -17,7 +17,7 @@ import (
 // activation is resumed), so storage stays bounded while going back to the
 // previous release stays possible. If a kept release's records cannot be
 // read, it returns no kept releases: nothing may be removed that an unknown
-// release could need.
+// release could need. Reinstalling the active release removes nothing.
 func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Metadata, error) {
 	journal, err := readActivation(c)
 	if err != nil {
@@ -26,6 +26,13 @@ func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Meta
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
 		return nil, nil, err
+	}
+	if state != nil && state.ActiveRelease != nil &&
+		state.ActiveRelease.Source == bundle.Directory(c) &&
+		(journal == nil || journal.Status != activationRunning) {
+		// Reinstalling the active release repairs it in place and replaces
+		// nothing, so the release before it stays.
+		return nil, nil, nil
 	}
 	keep := []string{bundle.Directory(c)}
 	if state != nil && state.ActiveRelease != nil {

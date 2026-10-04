@@ -28,6 +28,9 @@ const (
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
+// ValidTag reports whether tag is acceptable as a release identifier.
+func ValidTag(tag string) bool { return identifier.MatchString(tag) }
+
 // File is one bundle member's manifest entry.
 type File struct {
 	SHA256     string `json:"sha256"`
