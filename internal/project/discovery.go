@@ -262,9 +262,16 @@ func (r *Inventory) pythonOwner(p *Project) error {
 		return err
 	}
 	p.Manager = "uv"
+	manifest := filepath.Join(p.Root, "pyproject.toml")
 	if _, inherits := nested(p.metadata, "tool", "ruff")["extend"]; inherits {
-		manifest := filepath.Join(p.Root, "pyproject.toml")
 		p.Reason = "Ruff extend configuration requires inherited-policy ownership review: " + manifest
+		return nil
+	}
+	// basedpyright refuses a pyproject.toml that holds both tool tables, so the
+	// policy's [tool.basedpyright] cannot be added beside an existing one.
+	if hasTool(p.metadata, "pyright") {
+		p.Reason = "Pyright configuration competes with basedpyright; review it before configuring: " +
+			manifest
 		return nil
 	}
 	p.Supported = true
@@ -322,14 +329,22 @@ func (r *Inventory) workspaceOwner(p *Project) (owner string, decided bool, err 
 }
 
 // inheritsToolPolicy reports an ancestor configuring a check that the project
-// leaves to inheritance.
+// leaves to inheritance. Pyright and basedpyright share one entry because
+// basedpyright reads either table and rejects a file holding both.
 func inheritsToolPolicy(project, ancestor map[string]any) bool {
-	for _, tool := range []string{"ruff", "ty", "basedpyright"} {
-		if nested(project, "tool", tool) == nil && nested(ancestor, "tool", tool) != nil {
+	for _, tools := range [][]string{{"ruff"}, {"ty"}, {"basedpyright", "pyright"}} {
+		if !hasTool(project, tools...) && hasTool(ancestor, tools...) {
 			return true
 		}
 	}
 	return false
+}
+
+// hasTool reports whether doc configures any of the named [tool.*] tables.
+func hasTool(doc map[string]any, names ...string) bool {
+	return slices.ContainsFunc(names, func(name string) bool {
+		return nested(doc, "tool", name) != nil
+	})
 }
 
 // workspaceMember reports whether root is a member of the uv workspace declared

@@ -12,7 +12,9 @@ language blocks the plan.
 
 `policy.toml` adds missing tool settings while retaining existing scalars, rule
 lists, dependencies, Python constraints and build metadata. Existing standalone
-Ruff, ty, basedpyright or uv configuration requires manual ownership review.
+Ruff, ty, basedpyright or uv configuration, and an existing `[tool.pyright]`
+table (basedpyright rejects a file that has both), require manual ownership
+review.
 Native Ruff rule selections at either `tool.ruff` or `tool.ruff.lint` are retained;
 `tool.ruff.extend` requires explicit inherited-policy ownership review.
 Unsupported syntax or competing ownership stops the operation. The private,
