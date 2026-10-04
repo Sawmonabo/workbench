@@ -37,18 +37,6 @@ var macOSEffects = []operation.Effect{
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{
-		Name:        "terminal-font",
-		Description: "Native managed ~/.terminal-font-setup.sh provides instructions; Terminal font selection is a separate manual step",
-		Privilege:   "none during provisioning",
-		Recovery:    "helper checkpointed; manual UI external",
-		Title:       "Terminal font steps",
-		Summary:     "a helper that explains how to pick the Nerd Font",
-		What:        "Puts a small script in your home folder that explains how to choose the Nerd Font in Terminal. Choosing the font is still done by hand.",
-		Touches:     "~/.terminal-font-setup.sh",
-		RunsAs:      "you",
-		Undo:        "Restored from the checkpoint Workbench takes before applying",
-	},
-	{
 		Name:        "brew-maintenance",
 		Description: "Refresh Homebrew's package index, reinstall tap-sourced packages.toml formulae from homebrew/core, untap unused taps, autoremove, remove old versions and the download cache",
 		Privilege:   "user; network",
@@ -75,21 +63,21 @@ var effectSources = map[string][]string{
 	"costs-ingest":            {"90-costs-ingest"},
 	"macos-packages":          {"00-packages"},
 	"macos-apps-extensions":   {"50-apps-and-extensions"},
-	"terminal-font":           {".terminal-font-setup.sh"},
 	"brew-maintenance":        {"60-cleanup"},
 	"linux-packages":          {"00-packages"},
 	"linux-editor-extensions": {"35-vscode-extensions"},
 	"work-tools": {
-		"00-packages", "50-apps-and-extensions", "35-vscode-extensions", ".zshrc", ".bashrc",
+		"00-packages", "50-apps-and-extensions", "35-vscode-extensions",
 	},
-	"windows-files":       {"00-packages-windows", "10-deploy-windows-configs"},
-	"wsl-preferences":     {"10-deploy-windows-configs"},
-	"sysctl":              {"20-sysctl"},
-	"terminal-adoption":   {"00-packages-windows"},
-	"powershell-adoption": {"00-packages-windows"},
-	"font-registry":       {"00-packages-windows"},
-	"default-distro":      {"10-deploy-windows-configs"},
-	"windows-path":        {"10-deploy-windows-configs"},
+	"bitwarden-session-cache": {".zshrc", ".bashrc"},
+	"windows-files":           {"00-packages-windows", "10-deploy-windows-configs"},
+	"wsl-preferences":         {"10-deploy-windows-configs"},
+	"sysctl":                  {"20-sysctl"},
+	"terminal-adoption":       {"00-packages-windows"},
+	"powershell-adoption":     {"00-packages-windows"},
+	"font-registry":           {"00-packages-windows"},
+	"default-distro":          {"10-deploy-windows-configs"},
+	"windows-path":            {"10-deploy-windows-configs"},
 }
 
 // activeEffects keeps the effects with an active source; see [effectSources].
@@ -210,18 +198,38 @@ var linuxEditorEffect = operation.Effect{
 	Undo:        "Not reverted automatically: uninstall an extension in VS Code",
 }
 
-// workToolsEffect is the role-gated work tooling.
+// workToolsEffect is the role-gated work tooling. It carries only what its
+// scripts can switch off: the shell setup for Bitwarden is a file, which always
+// applies, and has its own fixed effect.
 var workToolsEffect = operation.Effect{
 	Name:        "work-tools",
-	Description: "Bitwarden CLI and work editor extension; existing Bitwarden session-caching shell policy",
+	Description: "Bitwarden CLI and work editor extension",
 	Privilege:   "user; network",
-	Recovery:    "packages external; shell configuration checkpointed",
+	Recovery:    "external; no package rollback",
 	Title:       "Work tools",
 	Summary:     "Bitwarden CLI and the work editor extension",
-	What:        "Installs the Bitwarden command-line tool and the work VS Code extension, and keeps the shell setup that caches your Bitwarden session.",
-	Touches:     "~/.local/bin, your shell startup files and VS Code extensions",
+	What:        "Installs the Bitwarden command-line tool and the work VS Code extension.",
+	Touches:     "the Bitwarden CLI and your VS Code extensions",
 	RunsAs:      "you; downloads from the vendor",
-	Undo:        "Shell files are restored from the checkpoint; the tools stay installed",
+	Undo:        "Not reverted automatically: uninstall the tools by hand",
+}
+
+// bitwardenSessionEffect is the fixed, role-gated disclosure of the Bitwarden
+// shell policy. The policy is text in the shell startup files, which apply with
+// every other file and cannot be switched off by a step, so it is listed like
+// the AI safety settings: always, with no box to untick.
+var bitwardenSessionEffect = operation.Effect{
+	Name:        "bitwarden-session-cache",
+	Description: "Shell startup files define a bw wrapper that caches the Bitwarden session key in a 0600 file every new shell reads; review policy before apply",
+	Privilege:   "user",
+	Recovery:    "configuration files only",
+	Fixed:       true,
+	Title:       "Bitwarden session caching",
+	Summary:     "bw unlock keeps your vault open for new shells",
+	What:        "Keeps a bw command in your shell startup files that, after bw unlock, saves the Bitwarden session key in a private file (mode 0600) every new shell reads, until bw lock removes it. While it is saved, anyone using your account can read the vault. Always runs.",
+	Touches:     "~/.zshrc, ~/.bashrc, ~/.config/Bitwarden CLI/session",
+	RunsAs:      "you",
+	Undo:        "Restored from the checkpoint Workbench takes before applying",
 }
 
 // windowsHostEffects are the Windows-side owners a WSL host lists.
@@ -265,7 +273,7 @@ func provisioningEffects(answers Answers) []operation.Effect {
 		}
 	}
 	if answers["has_work"] == true {
-		effects = append(effects, workToolsEffect)
+		effects = append(effects, workToolsEffect, bitwardenSessionEffect)
 	}
 	if answers["is_wsl"] == true {
 		effects = append(effects, windowsHostEffects...)
