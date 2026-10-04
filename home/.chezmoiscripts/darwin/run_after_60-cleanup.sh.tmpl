@@ -38,8 +38,20 @@ for name in {{ range .packages.darwin.brew }}"{{ . }}" {{ end }}; do
     tapped="$(grep -E "^[^/]+/[^/]+/${name}$" <<< "$installed_full" || true)"
     [ -n "$tapped" ] || continue
     echo "    $name is installed from ${tapped%/*}; reinstalling from homebrew/core"
-    if ! { brew uninstall --ignore-dependencies "$tapped" && brew install "$name"; }; then
-        echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core" >&2
+    # Download the core copy before removing anything: a download that fails then
+    # leaves the installed formula as it is.
+    if ! brew fetch "homebrew/core/$name"; then
+        echo "WORKBENCH_EFFECT brew-maintenance failed: could not download $name from homebrew/core; $tapped kept" >&2
+        exit 1
+    fi
+    if ! { brew uninstall --ignore-dependencies "$tapped" && brew install "homebrew/core/$name"; }; then
+        # The tap is still there (step 2 untaps it later), so the formula that was
+        # installed can be put back.
+        if brew install "$tapped"; then
+            echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core; $tapped is still installed" >&2
+        else
+            echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core and could not put $tapped back; run: brew install $tapped" >&2
+        fi
         exit 1
     fi
 done
