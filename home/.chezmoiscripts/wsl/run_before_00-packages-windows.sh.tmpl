@@ -14,8 +14,14 @@
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
+{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+
 # Everything the probe or the apply says about a Windows host that cannot be
-# used: one line per effect, since each of them is affected.
+# used: one line per effect, since each of them is affected. An apply names each
+# effect it was asked to do as blocked, in the file Workbench reads, and ends the
+# script successfully: this is a run_before_ script, so failing it would stop the
+# whole apply, files and every other step included, for a Windows side that
+# does not answer. Workbench ends the apply blocked after the rest has run.
 blocked() {
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         for effect in windows-files terminal-adoption powershell-adoption font-registry; do
@@ -23,8 +29,11 @@ blocked() {
         done
         exit 0
     fi
-    echo "WORKBENCH_EFFECT windows-files blocked: $1" >&2
-    exit 3
+    [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ] || part_blocked windows-files "$1"
+    [ "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" != 1 ] || part_blocked terminal-adoption "$1"
+    [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" != 1 ] || part_blocked powershell-adoption "$1"
+    [ "${WORKBENCH_EFFECT_FONT_REGISTRY:-0}" != 1 ] || part_blocked font-registry "$1"
+    exit 0
 }
 
 # What the probe says when Windows could not be asked: a "could not check" line
@@ -39,8 +48,6 @@ unchecked() {
 }
 
 command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on this host"
-
-{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
 # a call that fails leaves them empty, which is reported below. The other calls

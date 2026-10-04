@@ -9,8 +9,13 @@
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
+{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+
 # What the probe or the apply says about a Windows host that cannot be used: one
-# line per effect this script carries, since each of them is affected.
+# line per effect this script carries, since each of them is affected. An apply
+# names each effect it was asked to do as blocked, in the file Workbench reads,
+# and ends the script successfully, so the scripts after it still run; Workbench
+# ends the apply blocked once the rest has run.
 blocked() {
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         for effect in windows-files wsl-preferences default-distro windows-path; do
@@ -18,8 +23,11 @@ blocked() {
         done
         exit 0
     fi
-    echo "WORKBENCH_EFFECT windows-config blocked: $1" >&2
-    exit 3
+    [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ] || part_blocked windows-files "$1"
+    [ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" != 1 ] || part_blocked wsl-preferences "$1"
+    [ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" != 1 ] || part_blocked default-distro "$1"
+    [ "${WORKBENCH_EFFECT_WINDOWS_PATH:-0}" != 1 ] || part_blocked windows-path "$1"
+    exit 0
 }
 
 # What the probe says when Windows could not be asked: one "could not check"
@@ -38,8 +46,6 @@ WSL_MEMORY={{ .wsl_memory | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
-
-{{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
 # a call that fails leaves them empty, which is reported below. The probe asks
@@ -427,11 +433,10 @@ fi
 
 # ---------- RestartWSL scripts ----------
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
-RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME")
+RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME") || RESTART_DIR=
 
 if [[ -z "$RESTART_DIR" ]]; then
-    echo "WORKBENCH_EFFECT restart-path blocked: empty path" >&2
-    exit 3
+    part_blocked windows-files "the RestartWSL folder path is empty or cannot be resolved, so the RestartWSL helpers were not written"
 else
     echo "==> Writing RestartWSL scripts to $RESTART_DIR..."
     mkdir -p "$RESTART_DIR"
@@ -451,12 +456,15 @@ fi
 # the default-distro effect is selected, the distro running this apply (named
 # in the approved plan) becomes the default.
 if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
-    [[ -n "${WSL_DISTRO_NAME:-}" ]] || { echo 'WORKBENCH_EFFECT default-distro blocked: WSL_DISTRO_NAME unavailable' >&2; exit 3; }
-    win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
-    if [ "${WIN_RC[default-distro]}" != 0 ]; then
-        part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
+    if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
+        part_blocked default-distro "WSL_DISTRO_NAME is not set in this session, so the distribution is unknown"
     else
-        [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+        win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
+        if [ "${WIN_RC[default-distro]}" != 0 ]; then
+            part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
+        else
+            [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+        fi
     fi
 fi
 
