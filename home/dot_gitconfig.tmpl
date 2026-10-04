@@ -1,8 +1,8 @@
 [user]
-    name = {{ .name | quote }}
-    email = {{ .email | quote }}
+    name = {{ includeTemplate "git-quote" .name }}
+    email = {{ includeTemplate "git-quote" .email }}
 [core]
-    editor = {{ .editor }} --wait
+    editor = {{ includeTemplate "editor-command" .editor }}
 [init]
     defaultBranch = main
 [pull]

@@ -2,5 +2,5 @@
 # Work git overrides
 # Applied automatically for repos under ~/repos/ via includeIf
 [user]
-    email = {{ .work_email | quote }}
+    email = {{ includeTemplate "git-quote" .work_email }}
 {{ end -}}
