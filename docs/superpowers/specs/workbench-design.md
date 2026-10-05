@@ -48,9 +48,9 @@ Global VS Code merging accepts JSONC and preserves unrelated values/rules; it
 edits the file the way VS Code does, writing only the values that change in the
 file's own layout, so comments and key order stay, and leaves it untouched when
 no value changes. The Windows-side edit of Todo Tree's ripgrep path is the same
-editor on one setting; both refuse when they cannot prove the result. Project TOML/JSONC/YAML editing has stricter
-round-trip preservation gates. Invalid machine Codex TOML no longer falls back
-to a replacement body.
+editor on one setting; both refuse when they cannot prove the result. Project
+TOML/JSONC/YAML editing has stricter round-trip preservation gates. Invalid
+machine Codex TOML no longer falls back to a replacement body.
 
 Public command details are in [usage](../../usage.md). Doctor reports the
 installed release, the last applied source and any unfinished apply from

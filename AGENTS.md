@@ -98,16 +98,18 @@ Before committing `home/` changes, run the existing
 weaken the release source check or add a second renderer. The WSL argument is
 static simulation, not Windows qualification.
 
-Invalid existing configuration must fail without fallback replacement. Global
-VS Code merging accepts JSONC and edits the file the way VS Code does: only
-values that differ are written and new members follow the file's own layout, so
+Invalid existing configuration must fail without fallback replacement. Global VS
+Code merging accepts JSONC and edits the file the way VS Code does: only values
+that differ are written and new members follow the file's own layout, so
 comments, key order, a byte order mark and line endings stay, and the file is
 untouched when no value changes. The shared `modify_settings.json.tmpl` and the
 Windows-side one-setting edit both run the hidden `workbench vscode-settings`
 filter (`internal/machine/vscode.go`), which refuses, with the file untouched,
 invalid JSONC, a non-object, duplicate keys or an edit it cannot prove. Project
-JSONC editing preserves supported syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
-Do not change deferred TypeScript/import-color/Todo Tree policy incidentally.
+JSONC editing preserves supported syntax. Keep unowned nested settings/custom
+color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI
+only. Do not change deferred TypeScript/import-color/Todo Tree policy
+incidentally.
 
 ## Documentation and release boundaries
 

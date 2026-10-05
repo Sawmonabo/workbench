@@ -302,11 +302,12 @@ func arrayEntries(have, want []any) []jsonc.Entry {
 // Windows user's. check only reports whether that would change the file. A
 // file that is missing is created, unless check. The file must be an ordinary
 // file with a single link; the new text is written to a file beside it, synced
-// and renamed over it, with the file's mode.
+// and renamed over it, with the file's mode. A file that cannot be read is
+// refused like an invalid one, so check never reports it as a change.
 func EditVSCodeSettingsFile(path string, managedJSON []byte, check bool) (changed bool, err error) {
 	info, err := os.Lstat(path)
 	if err != nil && !os.IsNotExist(err) {
-		return false, err
+		return false, refuseVSCode("it cannot be read (" + oneLine(err.Error()) + ")")
 	}
 	var existing []byte
 	mode := os.FileMode(0o600)
@@ -317,7 +318,7 @@ func EditVSCodeSettingsFile(path string, managedJSON []byte, check bool) (change
 		}
 		mode = info.Mode().Perm()
 		if existing, err = os.ReadFile(path); err != nil {
-			return false, err
+			return false, refuseVSCode("it cannot be read (" + oneLine(err.Error()) + ")")
 		}
 	}
 	merged, err := MergeVSCodeSettings(existing, managedJSON)
