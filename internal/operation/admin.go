@@ -8,8 +8,6 @@ import (
 	"os/exec"
 	"strings"
 	"time"
-
-	"github.com/charmbracelet/x/term"
 )
 
 // sudoPath is the one sudo Workbench runs. It is always this absolute path, never
@@ -160,33 +158,6 @@ func askVerified(ctx context.Context, terminal *os.File, announce string) (strin
 		}
 	}
 	return "", errors.New("the Mac password was not accepted")
-}
-
-// readPassword reads a line from terminal without echo. A read that is blocked
-// does not return when ctx ends, so on ctrl+c it puts the terminal back as it was
-// itself, which the read's own deferred restore would do only after a key.
-func readPassword(ctx context.Context, terminal *os.File) (string, error) {
-	fd := terminal.Fd()
-	saved, err := term.GetState(fd)
-	if err != nil {
-		return "", err
-	}
-	type typed struct {
-		password []byte
-		err      error
-	}
-	done := make(chan typed, 1)
-	go func() {
-		password, readErr := term.ReadPassword(fd)
-		done <- typed{password, readErr}
-	}()
-	select {
-	case t := <-done:
-		return string(t.password), t.err
-	case <-ctx.Done():
-		_ = term.Restore(fd, saved)
-		return "", ctx.Err()
-	}
 }
 
 // checkPassword reports whether sudo accepts password. It runs sudo -k -S -v with
