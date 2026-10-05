@@ -116,9 +116,8 @@ func (o *options) approveFlag(cmd *cobra.Command) {
 		&o.approvePlan,
 		"approve-plan",
 		"",
-		"Approve exactly the plan with this SHA-256 digest, for unattended runs",
+		"Approve exactly the plan with this SHA-256 digest, from --dry-run --json, for unattended runs",
 	)
-	_ = cmd.Flags().MarkHidden("approve-plan")
 }
 
 func (o *options) localBuildFlag(cmd *cobra.Command) {
