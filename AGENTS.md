@@ -50,6 +50,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
   the saved selection, not for a caller that did not read the plan; it never
   asks, so use it only when new effects may take their defaults. A coding agent
   is refused it. From a checkout, add `--local-build` to both `apply` calls.
+  After a tool pin changes in its `versions.toml`, run
+  `workbench update --local-build` first: it installs the new tools without
+  asking (an agent may run it) and `apply --dry-run` then plans.
 - Use isolated destinations and synthetic credentials for smoke checks. Never
   provision the developer's live machine to validate code.
 

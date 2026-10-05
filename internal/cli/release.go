@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -20,7 +21,8 @@ import (
 var buildReleaseVersion = "dev"
 
 // updateCommand installs the latest release, or VERSION, and the tools it
-// pins, then stops. Applying the machine is apply's job.
+// pins, then stops. Applying the machine is apply's job. The hidden
+// --local-build installs the tools a checkout pins instead, with no release.
 func updateCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update [VERSION]",
@@ -48,6 +50,7 @@ func updateCommand(o *options) *cobra.Command {
 		"Continue the verified runtime handoff after an install that is new or unchanged",
 	)
 	_ = cmd.Flags().MarkHidden("runtime-ready")
+	o.localBuildFlag(cmd)
 	return cmd
 }
 
@@ -183,7 +186,8 @@ func releaseCheckCommand(o *options) *cobra.Command {
 }
 
 // updateRelease downloads (or reads --bundle), verifies, stages and activates
-// a release, then hands off to it to install the tools it pins.
+// a release, then hands off to it to install the tools it pins. With
+// --local-build it installs the checkout's tools instead.
 func updateRelease(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -208,6 +212,9 @@ func updateRelease(
 			}
 		}
 	}()
+	if c.Native.Developer {
+		return installCheckoutTools(cmd, c, o, result)
+	}
 	c.ReadOnly = false
 	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
 		return continueInstall(cmd, c, o, result, ready == "unchanged")
@@ -287,6 +294,62 @@ func updateRelease(
 		bundle.Metadata.Release,
 	)
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(o, "installed"))
+}
+
+// installCheckoutTools is update --local-build: it puts the tools the checkout's
+// versions.toml pins in place, without asking, and stops. No release is
+// downloaded, activated or handed off to, and the machine is not applied. As
+// for a release, running it is the go-ahead: the tools go only into Workbench's
+// own directory, each checked against the digest the checkout pins.
+func installCheckoutTools(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	result operation.Result,
+) (operation.Result, error) {
+	if len(cmd.Flags().Args()) > 0 {
+		return result, operation.Fail(
+			operation.ExitInvalid,
+			"input",
+			"--local-build installs the checkout's tools; drop VERSION",
+		)
+	}
+	for _, name := range []string{"bundle", "runtime-ready"} {
+		if cmd.Flags().Changed(name) {
+			return result, operation.Fail(
+				operation.ExitInvalid,
+				"input",
+				"--local-build installs the checkout's tools; drop --"+name,
+			)
+		}
+	}
+	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
+		plan, err := machine.ToolsPlan(cmd.Context(), c)
+		if err != nil {
+			return result, err
+		}
+		result.PlanDigest = plan.Digest()
+		result.Results = append(
+			result.Results,
+			operation.Component{
+				Name:    "tools-plan",
+				Status:  operation.StatusComplete,
+				Details: plan,
+			},
+		)
+		return result, nil
+	}
+	c.ReadOnly = false
+	if _, err := setUp(cmd, c, o, nil, &result, false, nil); err != nil {
+		return result, err
+	}
+	result.Summary = "[WorkBench] This checkout's tools are in place; run workbench apply --local-build"
+	if slices.ContainsFunc(result.Results, func(component operation.Component) bool {
+		return component.Name == "setup" && component.Status == operation.StatusComplete
+	}) {
+		result.Summary = "[WorkBench] Installed this checkout's tools; run workbench apply --local-build"
+	}
+	return result, nil
 }
 
 // continueInstalled hands off to the already active release to install its
