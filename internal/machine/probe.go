@@ -249,6 +249,7 @@ func (p *preparation) runProbe(
 			text:       match[3],
 			noChange:   match[2] == "= ",
 			unanswered: match[2] == "? ",
+			admin:      match[2] == "! ",
 		}
 		if previous, ok := lines[match[1]]; ok {
 			next = previous.merge(next)
