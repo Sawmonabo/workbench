@@ -2435,10 +2435,10 @@ Run:
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 python3 -m py_compile home/dot_local/bin/executable_claude-costs
-uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
-uvx ruff format --check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+uvx ruff check --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+uvx ruff format --check --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
 ```
-Expected: `All checks passed!` and `1 file already formatted`. If `ruff format --check` reports a reformat, run `uvx ruff format --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and rerun the check.
+Expected: `All checks passed!` and `1 file already formatted`. If `ruff format --check` reports a reformat, run `uvx ruff format --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and rerun the check.
 
 - [ ] **Step 6: Check every view against a synthetic ledger**
 

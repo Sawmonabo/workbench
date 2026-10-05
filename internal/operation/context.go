@@ -262,6 +262,24 @@ func runtimePaths(home string) (Paths, error) {
 	return Paths{defaults[0], defaults[1], defaults[2], defaults[3], defaults[4]}, nil
 }
 
+// configHome is the XDG configuration folder: $XDG_CONFIG_HOME when it is
+// absolute, as for the config directory itself, otherwise ~/.config. It is empty
+// when the home cannot be resolved.
+func configHome() string {
+	if base := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(base) {
+		return filepath.Clean(base)
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	// Resolve gives every default path the canonical home.
+	if canonical, err := ExistingDirectory(home); err == nil {
+		home = canonical
+	}
+	return filepath.Join(home, ".config")
+}
+
 // Reject symlink parents rather than letting an override redirect private writes.
 func safeParents(path string) error {
 	for current := filepath.Clean(path); ; current = filepath.Dir(current) {

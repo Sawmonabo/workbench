@@ -311,7 +311,7 @@ Extend the existing `[uv_tools]` table without removing unrelated tools. Verifie
 
 ### Machine fallback policy
 
-Implemented `home/dot_config/ty/ty.toml` contents:
+Implemented `home/private_dot_config/ty/ty.toml` contents:
 
 ```toml
 [rules]
@@ -321,7 +321,7 @@ possibly-unresolved-reference = "warn"
 unsound-return-statement = "error"
 ```
 
-Implemented `home/dot_config/ruff/pyproject.toml` contents (Ruff's native user fallback filename):
+Implemented `home/private_dot_config/ruff/pyproject.toml` contents (Ruff's native user fallback filename):
 
 ```toml
 [tool.ruff]

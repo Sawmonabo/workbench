@@ -331,10 +331,8 @@ func ensurePrivateDirectory(path string) error {
 	return owned(info)
 }
 
-// ensureRoot creates a missing runtime root 0700. Its missing parents, such as
-// ~/.config or ~/.local on Linux, get the usual 0755 instead: the machine
-// configuration manages some of them, and it refuses to change the mode of a
-// directory that holds Workbench state.
+// ensureRoot creates a missing runtime root 0700. [MakeParents] sets the modes
+// of its missing parents.
 func ensureRoot(root string) error {
 	if err := safeParents(root); err != nil {
 		return err
@@ -342,10 +340,30 @@ func ensureRoot(root string) error {
 	if err := privateFilesystem(root); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+	if err := MakeParents(root); err != nil {
 		return err
 	}
 	return ensurePrivateDirectory(root)
+}
+
+// MakeParents creates the missing folders above a runtime root. They get 0755,
+// the mode the machine configuration gives its own folders such as ~/.local on
+// Linux, so applying it later changes nothing for a folder that holds Workbench
+// state. The exception is the XDG configuration home (~/.config): the
+// specification asks for 0700 and the configuration keeps it there.
+func MakeParents(root string) error {
+	parent := filepath.Dir(root)
+	if config := configHome(); config != "" && Within(config, parent) {
+		if _, err := os.Lstat(config); os.IsNotExist(err) {
+			if err = os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
+				return err
+			}
+			if err = os.Mkdir(config, 0o700); err != nil && !os.IsExist(err) {
+				return err
+			}
+		}
+	}
+	return os.MkdirAll(parent, 0o755)
 }
 
 type locks struct{ files []*os.File }

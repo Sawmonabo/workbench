@@ -351,11 +351,14 @@ Do not share these overrides with project-owned directories or Windows mounts.
 
 Workbench runs with your umask plus 022, so nothing it, chezmoi or its tools
 create is writable by other users, even where the login default is 002, as on
-Ubuntu. Missing parents of its directories, such as `~/.config`, are created
-0755. When the configuration sets such a folder to a different safe mode, the
+Ubuntu. Missing parents of its directories, such as `~/.local`, are created
+0755, except `~/.config`, which is created 0700 as the XDG specification asks.
+When the configuration sets such a folder to a different safe mode, the
 plan lists the change under "Folder that holds Workbench's own files; mode
-only", and revert restores the old mode like any other change. On a Mac the
-configuration keeps `~/Library/Application Support` private (0700), as macOS
+only", and revert restores the old mode like any other change. The
+configuration keeps `~/.config` private (0700), so a `~/.config` that other
+users can list sees that edit. On a Mac it likewise keeps
+`~/Library/Application Support` private (0700), as macOS
 creates it, so a Mac whose folder was loosened sees that edit, with the folder's
 ACL kept. A folder with other flags, ACLs or attributes stops Workbench with the
 `chmod` that matches the configuration.

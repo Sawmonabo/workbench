@@ -52,10 +52,7 @@ func PrivateDirectory(root, target string, create bool) error {
 		}
 	}
 	if create {
-		// Missing parents of the root, such as ~/.local, get the usual 0755:
-		// the machine configuration may manage them, and it refuses to change
-		// the mode of a directory that holds Workbench state.
-		if err := os.MkdirAll(filepath.Dir(root), 0o755); err != nil {
+		if err := operation.MakeParents(root); err != nil {
 			return err
 		}
 		return os.MkdirAll(target, 0o700)

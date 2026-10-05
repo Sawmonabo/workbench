@@ -220,7 +220,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 - Update `home/.chezmoidata/vscode.json`, `packages.toml` and `versions.toml`.
 - Reuse `home/.chezmoitemplates/vscode-settings.sh.tmpl` and both existing VS Code target files.
-- Use `home/dot_config/ty/ty.toml` and `home/dot_config/ruff/pyproject.toml`, the verified native user fallback filenames.
+- Use `home/private_dot_config/ty/ty.toml` and `home/private_dot_config/ruff/pyproject.toml`, the verified native user fallback filenames.
 - Reuse existing extension provisioning; do not create a second platform extension list or new extension test suite.
 
 ### Work
