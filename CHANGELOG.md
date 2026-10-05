@@ -3,6 +3,26 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.13](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.13) - 2026-10-05
+
+### Fixes
+
+- Say plainly what a skipped step is missing, including the Command Line Tools for cargo
+- The apps step says Homebrew is missing rather than that an install failed
+- A failed setup step reports itself and the others still run
+- A failed setup step no longer stops the steps after it
+- Restore the rest and keep folders that now hold other files
+- A failed setup step keeps correct files recorded as written and says plainly what to do
+- A failed download or app install blocks its own step instead of stopping the apply
+- Name the edited files and the folders that block a revert
+
+### Documentation
+
+- Record failed steps that leave the others running and the revert that keeps filled folders
+- Describe the kept folders on revert and steps that never stop the others
+- Record the v0.1.12 release checks and the failed-step fix
+- Describe blocked apps and extensions and a failed setup step
+
 ## [v0.1.12](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.12) - 2026-10-05
 
 ### Features
