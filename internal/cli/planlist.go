@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -536,7 +537,8 @@ func releaseLabel(source operation.SourceIdentity) string {
 }
 
 // planHeader is the brand line, the counts, and what must not be missed: an
-// incomplete plan and the warnings, which stand above the list.
+// incomplete plan, the Mac password the apply asks for and the warnings, which
+// stand above the list.
 func planHeader(plan operation.Plan, width int, view planView) []string {
 	files, steps, undecided := planCounts(plan)
 	title := "Plan for this PC"
@@ -564,6 +566,14 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 		for _, part := range wrapPlain("This plan is incomplete and cannot be applied as shown.", width) {
 			lines = append(lines, yellow.Render(part))
 		}
+	}
+	// What the checked steps need the password for follows the boxes, so
+	// unticking Homebrew in the live list drops the line.
+	if reason := machine.AdminReason(plan); reason != "" {
+		lines = append(lines, wrapPlain(
+			"Applying at a terminal asks for your Mac password once, before it starts, to "+reason+".",
+			width,
+		)...)
 	}
 	for _, warning := range plan.Warnings {
 		for i, part := range wrapPlain(warning, width-9) {

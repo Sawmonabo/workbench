@@ -21,11 +21,13 @@ func consentFor(o *options, digest string) operation.Consent {
 	return consent
 }
 
-// nativeConsole gives interactive native runs the controlling terminal so sudo
-// and installers can prompt. Unattended runs stream redacted diagnostics. A
-// coding agent never gets the terminal: it cannot answer the machine
-// questions, and its native output streams instead (sudo still opens
-// /dev/tty itself, so an approved agent apply is unchanged).
+// nativeConsole gives interactive native runs the controlling terminal so
+// installers can prompt, and an apply that needs the Mac password asks for it
+// once on that terminal before it starts (see [operation.WithAdmin]). Unattended
+// runs stream redacted diagnostics. A coding agent never gets the terminal: it
+// cannot answer the machine questions, and its native output streams instead
+// (sudo still opens /dev/tty itself, so an approved agent apply is unchanged,
+// except that it is never asked up front).
 func nativeConsole(o *options, diagnostics io.Writer) (*os.File, io.Writer, func()) {
 	if o.interactive() && !operation.AgentSession() {
 		if terminal := operation.StandardTerminal(); terminal != nil {

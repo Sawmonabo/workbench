@@ -122,6 +122,11 @@ type Effect struct {
 	// for every line of every script that carries the effect; Delta then holds
 	// what is already in place.
 	NoChange bool `json:"no_change,omitempty"`
+	// NeedsAdmin marks an effect expected to use sudo while it runs, so an apply
+	// at a terminal asks for the Mac password once before it starts (see
+	// [WithAdmin]). Like Delta it is a finding on this machine, not part of what
+	// is approved, and apply's recheck carries it from the plan that was shown.
+	NeedsAdmin bool `json:"needs_admin,omitempty"`
 	// New marks an effect the owner has not yet decided on: not in the saved
 	// [effects] decided list. It is display only.
 	New bool `json:"new,omitempty"`
@@ -172,8 +177,8 @@ type Plan struct {
 }
 
 // Digest returns the SHA-256 that consent approves: the public plan plus its
-// private inputs, with each effect's probed Delta, Probe, ProbeNote and
-// NoChange and its New mark blanked, and each edit's display-only Diff left
+// private inputs, with each effect's probed Delta, Probe, ProbeNote, NoChange
+// and NeedsAdmin and its New mark blanked, and each edit's display-only Diff left
 // out, so what is approved is the files, the effects and which are checked. A plan holds
 // only strings, slices and bools, so marshalling cannot fail.
 func (p Plan) Digest() string {
@@ -186,7 +191,7 @@ func (p Plan) Digest() string {
 	for i := range approved.Effects {
 		effect := &approved.Effects[i]
 		effect.Delta, effect.Probe, effect.ProbeNote = "", "", ""
-		effect.NoChange, effect.New = false, false
+		effect.NoChange, effect.NeedsAdmin, effect.New = false, false, false
 	}
 	data, _ := json.Marshal(struct {
 		Plan   Plan
