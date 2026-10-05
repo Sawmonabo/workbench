@@ -33,7 +33,8 @@ synthetic answers.
   apply refused before setup, a project marker in the home folder never making
   a project-controlled tool trusted, the Mac password staying out of files,
   sudo's arguments and environment, answered only to the apply's own processes
-  and its sudo approval dropped when the apply ends (macOS), and the costs ledger keeping every response and upgrade
+  and its sudo approval dropped when the apply ends, no password read or
+  helper made where sudo already uses Touch ID (all macOS), and the costs ledger keeping every response and upgrade
   row.
 
 ### Releases, install and update
@@ -229,6 +230,26 @@ synthetic answers.
     folder was made.
   - Three wrong answers ending the apply blocked, and a coding agent's apply,
     were observed only with a stand-in sudo.
+- Touch ID for sudo, on macOS. The `touch-id-sudo` script, run against scratch
+  copies of the PAM files and Apple's template with a stand-in `sudo` and
+  `install`, created `sudo_local` from the template with only its `pam_tid.so`
+  line uncommented (root, read-only), uncommented or added only that line in an
+  existing file with every other line, its owner and mode kept, did nothing when
+  Touch ID for sudo was already on in either file, and was blocked, with the file
+  untouched, for a symlink, a missing template or a refused sudo; its probe ran
+  no sudo and wrote nothing. A stand-in `sudo` showed that where sudo uses Touch
+  ID the apply reads no password, makes no helper folder and no `SUDO_ASKPASS`,
+  runs `sudo -v` and drops the approval it made. Target, not yet observed: an
+  apply on a Mac with Touch ID for sudo on asking by Touch ID only when Homebrew
+  must be installed and no approval is valid, then each app that needs
+  administrator rights asking for its own touch; the fallback to sudo's own
+  password where Touch ID cannot be used (a virtual Mac has no sensor, so there
+  an apply covers only this fallback and the file the step writes); three wrong
+  passwords or a refusal ending the apply blocked (exit 3) and ctrl+c
+  interrupted (exit 130) with nothing changed and the terminal still echoing; an
+  approval that was already valid left alone; and the step on a real Mac, with
+  `sudo` still working afterwards and revert leaving the file. (target; not yet
+  observed)
 
 ### On a WSL2 host
 

@@ -39,8 +39,8 @@ func AdminLine(plan operation.Plan) string {
 }
 
 // markHomebrewInstall flags macos-packages as using sudo when Homebrew is not
-// installed: its installer then needs the password, and it cannot ask for it
-// itself because it runs non-interactively.
+// installed: its installer then needs administrator rights, and it cannot ask
+// for them itself because it runs non-interactively.
 func markHomebrewInstall(effects []operation.Effect) {
 	if homebrew() != "" {
 		return

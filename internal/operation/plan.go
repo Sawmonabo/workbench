@@ -123,11 +123,12 @@ type Effect struct {
 	// for every line of every script that carries the effect; Delta then holds
 	// what is already in place.
 	NoChange bool `json:"no_change,omitempty"`
-	// NeedsAdmin marks an effect that needs the Mac password before it runs
-	// because its installer cannot ask for it (Homebrew's, while Homebrew is
-	// missing), so an apply at a terminal asks for it once before it starts (see
-	// [WithAdmin]). Like Delta it is a finding on this machine, not
-	// part of what is approved, and apply's recheck finds it again.
+	// NeedsAdmin marks an effect that needs administrator rights before it runs
+	// because its installer cannot ask for them (Homebrew's, while Homebrew is
+	// missing), so an apply at a terminal asks for the Mac password, or sudo asks
+	// by Touch ID where it uses it, once before it starts (see [WithAdmin]). Like
+	// Delta it is a finding on this machine, not part of what is approved, and
+	// apply's recheck finds it again.
 	NeedsAdmin bool `json:"needs_admin,omitempty"`
 	// New marks an effect the owner has not yet decided on: not in the saved
 	// [effects] decided list. It is display only.

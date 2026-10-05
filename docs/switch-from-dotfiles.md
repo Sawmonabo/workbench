@@ -67,7 +67,9 @@ over the same files.
    they skip tools that are already installed.
    If the apply has to install Homebrew, it asks for your Mac password once
    before it starts, then uses your terminal for installers; an app that needs
-   the password is answered with the same one, so nothing asks again.
+   the password is answered with the same one, so nothing asks again. Where Touch
+   ID for sudo is on, `sudo` asks for your fingerprint instead, and each app that
+   needs administrator rights asks for its own touch.
 
 6. **Archive the dotfiles repository** with a README pointer to Workbench, for
    example `gh repo archive Sawmonabo/dotfiles` after pushing the pointer.

@@ -47,16 +47,25 @@ Distinguish implemented code, observed checks and unqualified release targets.
   a Homebrew command needs it (an app such as Docker Desktop). It lives only in
   Workbench's memory for that apply, in its redaction set, never on disk, in the
   environment, arguments, logs, plan or `--json`. The darwin scripts give
-  `SUDO_ASKPASS` to Homebrew's installer and `brew` only, pointing at a helper
-  in a private folder made for that apply, which asks Workbench over a Unix
-  socket that answers only processes the apply started. Homebrew drops earlier
-  sudo approvals each time it runs, which is why Workbench keeps the password,
-  not an approval. An unattended run (no terminal) never asks and makes no
-  helper, and is refused (exit 3) before any change only when Homebrew must be
-  installed with no valid sudo ticket. On WSL, Windows setup and each of
-  its parts (Terminal settings, PowerShell profile, font registry) are separate
-  optional steps, off until ticked, and ticking Windows setup ticks none of its
-  parts; only WSL networking is on by default.
+  `SUDO_ASKPASS` to Homebrew's installer, `brew` and the `touch-id-sudo` step's
+  one sudo command only, pointing at a helper in a private folder made for that
+  apply, which asks Workbench over a Unix socket that answers only processes the
+  apply started. Homebrew drops earlier sudo approvals each time it runs, which
+  is why Workbench keeps the password, not an approval. Where Touch ID for sudo
+  is on (an active `auth` line naming `pam_tid.so` in `/etc/pam.d/sudo_local` or
+  `/etc/pam.d/sudo`), an attended apply never reads the password and makes no
+  helper: when a checked step has to install Homebrew and no sudo approval is
+  valid, Workbench runs `/usr/bin/sudo -v` at the terminal before it writes
+  anything, sudo asks by Touch ID (or for its own password where Touch ID cannot
+  be used), and Homebrew's own sudo asks for itself later. An unattended run (no
+  terminal) never asks and makes no helper, and is refused (exit 3) before any
+  change only when Homebrew must be installed with no valid sudo ticket.
+  Optional steps are off until ticked, each its own choice. On WSL, Windows
+  setup and each of its parts (Terminal settings, PowerShell profile, font
+  registry) are separate optional steps, and ticking Windows setup ticks none of
+  its parts; only WSL networking is on by default. On macOS the one optional
+  step is `touch-id-sudo`, which turns on Touch ID for sudo through
+  `/etc/pam.d/sudo_local`; Linux has none.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved

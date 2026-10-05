@@ -193,9 +193,13 @@ func applyCommand(o *options) *cobra.Command {
 			"once before it changes anything; otherwise it asks the first time an app that " +
 			"Homebrew installs or updates needs it, such as Docker Desktop, and never twice in " +
 			"one apply. Workbench keeps the password in memory for that apply only and answers " +
-			"Homebrew's requests with it. Without a terminal nobody is asked, and installing " +
-			"Homebrew then needs a sudo ticket that is still valid; Homebrew asks for the " +
-			"password of apps itself.",
+			"Homebrew's requests with it. Where Touch ID for sudo is on, Workbench reads no " +
+			"password: when the plan has to install Homebrew, sudo asks by Touch ID (or for " +
+			"its own password where Touch ID cannot be used) before anything changes, and " +
+			"Homebrew's own sudo asks again for each app that needs it. The optional " +
+			"touch-id-sudo step turns Touch ID for sudo on. Without a terminal nobody is " +
+			"asked, and installing Homebrew then needs a sudo ticket that is still valid; " +
+			"Homebrew asks for the password of apps itself.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,

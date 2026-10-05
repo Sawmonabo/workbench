@@ -19,6 +19,14 @@ answered with the same one; an apply that does not install Homebrew asks the
 first time such an app needs it, and only once per apply (again only after a
 wrong password). Without a terminal nobody is asked, and installing Homebrew
 needs a sudo ticket that is still valid, or the apply stops before any change.
+Where Touch ID for sudo is on (an active `auth` line naming `pam_tid.so` in
+`/etc/pam.d/sudo_local` or `/etc/pam.d/sudo`), Workbench reads no password and
+makes no helper: when it has to install Homebrew, `sudo -v` asks at the terminal
+by Touch ID, or for its password where Touch ID cannot be used (over SSH, in
+tmux, with the lid closed), and Homebrew's own `sudo` then asks again, each time
+an app such as Docker Desktop needs administrator rights. The optional
+`touch-id-sudo` step, off until ticked, turns it on by writing
+`/etc/pam.d/sudo_local` (see [usage](usage.md)); revert does not undo it.
 Missing required effects return incomplete results.
 Planning reads Homebrew's package index as it is and never refreshes it, so
 `apply --dry-run` and `apply --approve-plan` show the updates as of the last
