@@ -331,17 +331,6 @@ func (p *preparation) stageNative(
 	if err = os.Symlink(self, filepath.Join(bin, "workbench")); err != nil {
 		return err
 	}
-	// gh only affects a native lookPath branch; do not execute it in preview.
-	search, excluded := os.Getenv("PATH"), []string{c.Native.Source}
-	if gh, findErr := operation.FindExecutable("gh", search, excluded); findErr == nil {
-		if err = os.Symlink(gh, filepath.Join(bin, "gh")); err != nil {
-			return err
-		}
-		p.Plan.Inputs = append(
-			p.Plan.Inputs,
-			operation.Input{Name: "gh-location", Digest: operation.SHA256Hex([]byte(gh))},
-		)
-	}
 	p.environment = []string{
 		"HOME=" + c.Native.Destination,
 		"PATH=" + bin + ":/usr/bin:/bin",
