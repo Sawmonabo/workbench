@@ -23,6 +23,7 @@ func Revert(
 		)
 	}
 	result.PlanDigest = plan.Digest()
+	result.Warnings = append(result.Warnings, plan.Warnings...)
 	result.Warnings = append(result.Warnings, plan.RecoveryLimits...)
 	var err error
 	result.OperationID, err = operation.Recover(ctx, c, plan, selector, consent)

@@ -288,3 +288,119 @@ func TestSettleFailedNativeLeavesDifferingContentAlone(t *testing.T) {
 		t.Fatal("a file with different content was changed")
 	}
 }
+
+// Prevent a revert from deleting files Workbench never wrote. A folder the apply
+// created can later hold other files, such as plugins a setup step installed;
+// revert restores everything else and leaves that folder, and every folder
+// holding it, with those files in it.
+func TestRevertKeepsFoldersHoldingOtherFiles(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Context{
+		Paths: Paths{
+			State:  filepath.Join(root, "state"),
+			Config: filepath.Join(root, "config"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")},
+	}
+	if err = os.Mkdir(c.Scope.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// New entries take the scope folder's group; read it from one.
+	probe := filepath.Join(c.Scope.Root, "probe")
+	if err = os.WriteFile(probe, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	scope, err := ReadImage(c, probe)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = os.Remove(probe); err != nil {
+		t.Fatal(err)
+	}
+	folder := filepath.Join(c.Scope.Root, "tools")
+	inner := filepath.Join(folder, "tmux")
+	written := filepath.Join(inner, "tmux.conf")
+	other := filepath.Join(c.Scope.Root, "notes")
+	absent := Image{Kind: ImageAbsent}
+	directory := Image{Kind: ImageDirectory, Mode: 0o700, Group: scope.Group}
+	changes := []TargetChange{
+		{Path: folder, Before: absent, After: directory},
+		{Path: inner, Before: absent, After: directory},
+		{
+			Path:   written,
+			Before: absent,
+			After:  Image{Kind: ImageFile, Mode: 0o600, Data: []byte("set"), Group: scope.Group},
+		},
+		{
+			Path:   other,
+			Before: absent,
+			After:  Image{Kind: ImageFile, Mode: 0o600, Data: []byte("x"), Group: scope.Group},
+		},
+	}
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(directory)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
+	id := ""
+	err = WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
+			if beginErr != nil {
+				return beginErr
+			}
+			id = cp.ID
+			return cp.Apply(context.Background())
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	plugin := filepath.Join(inner, "plugins", "tpm")
+	if err = os.MkdirAll(plugin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err = os.WriteFile(filepath.Join(plugin, "tpm"), []byte("plugin"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	selector := RecoverySelector{Checkpoint: id}
+	recovery, err := RecoveryPlan(c, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(recovery.Warnings) != 2 {
+		t.Fatalf("expected both held folders named, got %q", recovery.Warnings)
+	}
+	if _, err = Recover(
+		context.Background(),
+		c,
+		recovery,
+		selector,
+		Consent{ApprovedDigest: recovery.Digest(), CompleteInputs: true},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if data, readErr := os.ReadFile(
+		filepath.Join(plugin, "tpm"),
+	); readErr != nil ||
+		string(data) != "plugin" {
+		t.Fatal("revert removed a file Workbench did not write")
+	}
+	for _, gone := range []string{written, other} {
+		if _, statErr := os.Lstat(gone); !os.IsNotExist(statErr) {
+			t.Fatalf("revert left %s that the apply created", gone)
+		}
+	}
+}

@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -65,12 +67,15 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 	return selected, reverse, nil
 }
 
-func (cp *Checkpoint) preflight(reverse bool) error {
+// preflight checks that every target still holds the image the checkpoint
+// recorded, and returns the folders the restore would remove that now hold
+// something it would not remove (see heldDirectories).
+func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 	c := cp.mutation.context
 	var edited []string
 	for i, change := range cp.changes {
 		if cp.journal.Known[i] == outcomeUnknown {
-			return Fail(
+			return nil, Fail(
 				ExitConflict,
 				"recovery",
 				"Workbench could not confirm every file this checkpoint wrote, so revert cannot undo it",
@@ -79,7 +84,7 @@ func (cp *Checkpoint) preflight(reverse bool) error {
 		expected := cp.expectedImage(i)
 		current, err := ReadImage(c, change.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		if !sameImage(current, expected) {
 			edited = append(edited, c.ShowPath(change.Path))
@@ -92,17 +97,21 @@ func (cp *Checkpoint) preflight(reverse bool) error {
 		if len(edited) > shown {
 			names += fmt.Sprintf(" and %d more", len(edited)-shown)
 		}
-		return Fail(
+		return nil, Fail(
 			ExitConflict,
 			"conflict",
 			"Changed since Workbench wrote them, so nothing was restored: "+names+
 				". Undo those changes, then run revert again",
 		)
 	}
-	return preflightDirectories(c, cp.changes, reverse)
+	return heldDirectories(c, cp.changes, reverse)
 }
 
-func preflightDirectories(c Context, changes []TargetChange, reverse bool) error {
+// heldDirectories returns, by change index, each folder the change set would
+// remove that now holds something it would not remove: a file Workbench did not
+// write, or a folder that is itself held. Removal never recurses, so such a
+// folder can only stay. Each is named with what holds it.
+func heldDirectories(c Context, changes []TargetChange, reverse bool) (map[int]string, error) {
 	desired := map[string]Image{}
 	for _, change := range changes {
 		image := change.After
@@ -111,49 +120,83 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 		}
 		desired[change.Path] = image
 	}
-	var held []string
-	for _, change := range changes {
-		image := desired[change.Path]
-		if image.Kind != ImageAbsent {
+	var removed []int
+	for i, change := range changes {
+		if desired[change.Path].Kind != ImageAbsent {
 			continue
 		}
 		current, err := ReadImage(c, change.Path)
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if current.Kind != ImageDirectory {
-			continue
+		if current.Kind == ImageDirectory {
+			removed = append(removed, i)
 		}
-		entries, err := os.ReadDir(change.Path)
+	}
+	// A folder's path sorts after its parent's, so going from the last path
+	// back settles every folder before the one that holds it.
+	slices.SortFunc(
+		removed,
+		func(a, b int) int { return strings.Compare(changes[b].Path, changes[a].Path) },
+	)
+	held := map[int]string{}
+	heldPaths := map[string]bool{}
+	for _, i := range removed {
+		path := changes[i].Path
+		entries, err := os.ReadDir(path)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		var others []string
 		for _, entry := range entries {
-			child, ok := desired[filepath.Join(change.Path, entry.Name())]
-			if !ok || child.Kind != ImageAbsent {
+			child := filepath.Join(path, entry.Name())
+			image, ok := desired[child]
+			if !ok || image.Kind != ImageAbsent || heldPaths[child] {
 				others = append(others, entry.Name())
 			}
 		}
-		if len(others) > 0 {
-			const shown = 3
-			names := strings.Join(others[:min(len(others), shown)], ", ")
-			if len(others) > shown {
-				names += fmt.Sprintf(" and %d more", len(others)-shown)
-			}
-			held = append(held, c.ShowPath(change.Path)+" ("+names+")")
+		if len(others) == 0 {
+			continue
 		}
+		const shown = 3
+		names := strings.Join(others[:min(len(others), shown)], ", ")
+		if len(others) > shown {
+			names += fmt.Sprintf(" and %d more", len(others)-shown)
+		}
+		heldPaths[path] = true
+		held[i] = c.ShowPath(path) + " (" + names + ")"
 	}
-	if len(held) > 0 {
-		// Name the folders and what is in them, so the person knows why.
-		return Fail(
-			ExitConflict,
-			"conflict",
-			"Folders the revert would remove now hold files Workbench did not write, so "+
-				"nothing was restored: "+strings.Join(held, "; "),
-		)
+	return held, nil
+}
+
+// heldNames lists the held folders in path order.
+func heldNames(held map[int]string) []string {
+	names := slices.Collect(maps.Values(held))
+	slices.Sort(names)
+	return names
+}
+
+// preflightDirectories refuses an apply that would remove a folder now holding
+// files Workbench did not write. Only a revert leaves such a folder in place.
+func preflightDirectories(c Context, changes []TargetChange, reverse bool) error {
+	held, err := heldDirectories(c, changes, reverse)
+	if err != nil || len(held) == 0 {
+		return err
 	}
-	return nil
+	return heldConflict(held)
+}
+
+func heldConflict(held map[int]string) error {
+	// Name the folders and what is in them, so the person knows why.
+	return Fail(
+		ExitConflict,
+		"conflict",
+		"Folders this would remove now hold files Workbench did not write, so nothing was changed: "+
+			strings.Join(
+				heldNames(held),
+				"; ",
+			),
+	)
 }
 
 // RecoveryPlan previews restoring the selected checkpoint after checking
@@ -171,8 +214,16 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 		return plan, err
 	}
 	cp.mutation = &Mutation{context: c}
-	if err = cp.preflight(reverse); err != nil {
+	held, err := cp.preflight(reverse)
+	if err != nil {
 		return plan, err
+	}
+	// A folder that now holds other files stays; everything else is restored.
+	for _, name := range heldNames(held) {
+		plan.Warnings = append(
+			plan.Warnings,
+			"Stays, because it holds files Workbench did not write: "+name,
+		)
 	}
 	plan.Source = cp.record.Applied
 	if reverse && cp.record.Before != nil {
@@ -191,7 +242,7 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 			target = change.Before
 		}
 		plan.Inputs = append(plan.Inputs, Input{Name: change.Path, Digest: ImageDigest(current)})
-		if !sameImage(current, target) {
+		if _, stays := held[i]; !stays && !sameImage(current, target) {
 			plan.Edits = append(
 				plan.Edits,
 				Edit{
@@ -230,7 +281,7 @@ func Recover(
 				return err
 			}
 			cp.mutation = m
-			if err = cp.preflight(reverse); err != nil {
+			if _, err = cp.preflight(reverse); err != nil {
 				return err
 			}
 			// Refuse before the journal changes: only this checkpoint's own
@@ -281,7 +332,7 @@ func Recover(
 					return err
 				}
 			}
-			if err = cp.applyImages(ctx, reverse); err != nil {
+			if err = cp.applyImages(ctx, reverse, true); err != nil {
 				return err
 			}
 			return finishRecovery(c, m, state, cp, reverse)

@@ -672,14 +672,21 @@ func (cp *Checkpoint) Finish(runErr error) error {
 }
 
 // Apply is the shared exact-write owner for project configuration and recovery.
-func (cp *Checkpoint) Apply(ctx context.Context) error { return cp.applyImages(ctx, false) }
+func (cp *Checkpoint) Apply(ctx context.Context) error { return cp.applyImages(ctx, false, false) }
 
-func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
+// applyImages writes each target's image for the direction. A folder it would
+// remove that now holds other files refuses the whole write, unless keepHeld
+// (a revert) leaves it in place with the image it has.
+func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) error {
 	if err := cp.mutation.Check(); err != nil {
 		return err
 	}
-	if err := cp.preflight(reverse); err != nil {
+	held, err := cp.preflight(reverse)
+	if err != nil {
 		return err
+	}
+	if len(held) > 0 && !keepHeld {
+		return heldConflict(held)
 	}
 	cp.journal.Status = JournalRunning
 	if err := cp.saveJournal(); err != nil {
@@ -712,6 +719,10 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse bool) error {
 			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
 			return err
+		}
+		if _, stays := held[i]; stays {
+			// Preflight found it as the journal records it, so its outcome stands.
+			continue
 		}
 		change := cp.changes[i]
 		expected := cp.expectedImage(i)
