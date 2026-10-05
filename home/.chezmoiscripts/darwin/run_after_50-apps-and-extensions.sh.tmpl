@@ -54,7 +54,9 @@ fi
 {{ template "effect-report.sh" }}
 status=0
 
-if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
+if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ] && ! command -v brew >/dev/null 2>&1; then
+    part_failed macos-apps-extensions "Homebrew is not installed (the Homebrew packages step installs it), so the apps were not installed" || status=1
+elif [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 echo "==> Apps and VS Code extensions..."
 managed_casks="$(brew list --cask 2>/dev/null || true)"
 bundle_casks=()
