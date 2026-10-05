@@ -171,6 +171,9 @@ func (p *preparation) selectEffects(
 	if err != nil {
 		return err
 	}
+	if !selection.Forget {
+		p.Plan.Warnings = append(p.Plan.Warnings, staleSelectionWarnings(saved)...)
+	}
 	p.Plan.Effects = applySelection(p.Plan.Effects, selection, saved)
 	if c.Native.Destination != c.Home {
 		for i := range p.Plan.Effects {
@@ -250,9 +253,6 @@ func (p *preparation) checkPrerequisites(
 		plan.Inputs,
 		operation.Input{Name: "machine-answers", Digest: operation.SHA256Hex(answersRaw)},
 	)
-	if err = CheckSelection(p.selection); err != nil {
-		return nil, err
-	}
 	p.executable, p.secrets = dependency(dependencies, "chezmoi"), answers.secrets()
 	return answers, nil
 }

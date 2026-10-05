@@ -1,7 +1,6 @@
 package machine
 
 import (
-	"cmp"
 	"os"
 	"runtime"
 	"slices"
@@ -382,33 +381,21 @@ func optionalNames() []string {
 	return names
 }
 
-// AvailableEffects lists this host's optional effect names for messages.
-func AvailableEffects() string { return strings.Join(optionalNames(), ", ") }
-
-// CheckSelection refuses an optional effect this host does not offer. Skips
-// are not validated: a skip saved on another platform is kept and ignored.
-func CheckSelection(selection Selection) error {
+// staleSelectionWarnings names each saved select this host does not offer: a
+// choice saved before an optional step was renamed or removed, or on another
+// platform. It is ignored, not refused, so one stale name never blocks a plan.
+// The warnings follow the saved file, not the selection being planned, so a
+// plan and its recheck under the locks read them alike.
+func staleSelectionWarnings(saved Selection) []string {
 	available := optionalNames()
-	if slices.Contains(selection.Select, "default-distro") && os.Getenv("WSL_DISTRO_NAME") == "" {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"effect",
-			"default-distro requires WSL_DISTRO_NAME from a WSL session",
-		)
-	}
-	for _, name := range selection.Select {
+	var warnings []string
+	for _, name := range saved.Select {
 		if !slices.Contains(available, name) {
-			return operation.Fail(
-				operation.ExitInvalid,
-				"effect",
-				"Unknown or unavailable effect "+name+"; available here: "+cmp.Or(
-					AvailableEffects(),
-					"none",
-				),
-			)
+			warnings = append(warnings, "Saved choice "+name+" is not offered here and is "+
+				"ignored; workbench apply --reset forgets it")
 		}
 	}
-	return nil
+	return warnings
 }
 
 // hostOptionalEffects lists every optional effect this host offers, naming
@@ -506,8 +493,9 @@ func SelectionOf(effects []operation.Effect) Selection {
 // it is asked about, marked new, the first time it has something to do.
 // effects is the plan as applied and chosen the selection that produced it.
 // With --reset (chosen.Forget) the earlier decided list is forgotten for the
-// effects listed. The decided list is always non-nil: once saved, the owner has
-// decided.
+// effects listed, and so are saved selects for effects this host does not offer,
+// which the plan warns about; unlisted skips and decisions are kept. The decided
+// list is always non-nil: once saved, the owner has decided.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
 	selection := SelectionOf(effects)
 	plan := operation.Plan{Effects: effects}
@@ -529,7 +517,7 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 		}
 	}
 	for _, name := range saved.Select {
-		if !listed(name) {
+		if !listed(name) && !chosen.Forget {
 			selection.Select = append(selection.Select, name)
 		}
 	}
