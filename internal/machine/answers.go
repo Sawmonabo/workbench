@@ -111,87 +111,132 @@ func CheckAsk(c operation.Context, ask []string) error {
 }
 
 // validateAnswers is also the post-init gate. It never silently defaults missing
-// unattended inputs or normalizes a persisted role/editor/version policy.
+// unattended inputs or normalizes a persisted role/editor/version policy. Its
+// refusal names the key, never the value, which may be a token.
 func validateAnswers(c operation.Context, a Answers) error {
-	fail := func() error {
+	if unknown := a.unknownKeys(); len(unknown) > 0 {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"answers",
+			"Machine answers have keys Workbench does not ask for: "+strings.Join(unknown, ", ")+
+				"; remove them from the [data] table",
+		)
+	}
+	if key := a.invalidKey(); key != "" {
 		command := c.WorkbenchCommand()
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Incomplete or invalid machine answers; "+command+" apply at a terminal, without --local-build, "+
-				"asks the missing ones, or save them with "+command+" init --answers-from FILE",
+			"Machine answer "+key+" is missing or invalid; "+command+" apply at a terminal, "+
+				"without --local-build, asks the missing ones, or save them with "+command+
+				" init --answers-from FILE",
 		)
 	}
-	text := func(key string) string { value, _ := a[key].(string); return value }
-	role := text("machine_role")
-	if !slices.Contains([]string{"personal", "work", "both"}, role) ||
-		!slices.Contains([]string{"code", "vim"}, text("editor")) ||
-		!slices.Contains([]string{"pinned", "latest"}, text("versions_mode")) {
-		return fail()
+	return nil
+}
+
+// answerKeys are every key the questionnaire can save.
+var answerKeys = []string{
+	"name",
+	"email",
+	"machine_role",
+	"has_work",
+	"has_personal",
+	"is_wsl",
+	"editor",
+	"versions_mode",
+	"personal_email",
+	"work_email",
+	"jira_api_token",
+	"gitlab_token",
+	"wsl_memory",
+	"wsl_processors",
+	"wsl_swap",
+	"restart_wsl_path",
+}
+
+// unknownKeys are the keys the questionnaire never saves, sorted.
+func (a Answers) unknownKeys() []string {
+	var unknown []string
+	for key := range a {
+		if !slices.Contains(answerKeys, key) {
+			unknown = append(unknown, key)
+		}
 	}
+	slices.Sort(unknown)
+	return unknown
+}
+
+func (a Answers) text(key string) string { value, _ := a[key].(string); return value }
+
+// invalidKey is the first answer, in question order, that is missing or invalid,
+// or "" when every answer this machine needs is valid.
+func (a Answers) invalidKey() string {
+	choices := []struct {
+		key     string
+		allowed []string
+	}{
+		{"machine_role", []string{"personal", "work", "both"}},
+		{"editor", []string{"code", "vim"}},
+		{"versions_mode", []string{"pinned", "latest"}},
+	}
+	for _, choice := range choices {
+		if !slices.Contains(choice.allowed, a.text(choice.key)) {
+			return choice.key
+		}
+	}
+	role := a.text("machine_role")
 	work, personal := role != "personal", role != "work"
-	if a["has_work"] != work || a["has_personal"] != personal || a["is_wsl"] != isWSL() {
-		return fail()
+	for i, want := range []bool{work, personal, isWSL()} {
+		if key := derivedAnswers[i]; a[key] != want {
+			return key
+		}
 	}
 	identity := []string{"name", "email"}
 	if role == "both" {
 		identity = append(identity, "personal_email", "work_email")
 	}
 	for _, key := range identity {
-		value := text(key)
+		value := a.text(key)
 		if value == "" || strings.ContainsFunc(value, unicode.IsControl) {
-			return fail()
+			return key
 		}
 	}
 	if work {
 		for _, key := range []string{"jira_api_token", "gitlab_token"} {
 			if _, ok := a[key].(string); !ok {
-				return fail()
+				return key
 			}
 		}
 	}
 	if isWSL() {
-		if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(text("wsl_memory")) ||
-			!regexp.MustCompile(`^(0|[1-9][0-9]{0,6}(MB|GB))$`).MatchString(text("wsl_swap")) {
-			return fail()
-		}
-		processors, ok := a["wsl_processors"].(int64)
-		if !ok || processors < 1 || processors > 1024 {
-			return fail()
-		}
-		path := text("restart_wsl_path")
-		if path == "" || strings.ContainsFunc(path, unicode.IsControl) ||
-			slices.Contains(
-				strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }),
-				"..",
-			) {
-			return fail()
-		}
+		return a.invalidWSLKey()
 	}
-	allowed := []string{
-		"name",
-		"email",
-		"machine_role",
-		"has_work",
-		"has_personal",
-		"is_wsl",
-		"editor",
-		"versions_mode",
-		"personal_email",
-		"work_email",
-		"jira_api_token",
-		"gitlab_token",
-		"wsl_memory",
-		"wsl_processors",
-		"wsl_swap",
-		"restart_wsl_path",
+	return ""
+}
+
+// invalidWSLKey is the first WSL sizing or restart answer that is missing or
+// invalid, or "".
+func (a Answers) invalidWSLKey() string {
+	if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(a.text("wsl_memory")) {
+		return "wsl_memory"
 	}
-	for key := range a {
-		if !slices.Contains(allowed, key) {
-			return fail()
-		}
+	if !regexp.MustCompile(`^(0|[1-9][0-9]{0,6}(MB|GB))$`).MatchString(a.text("wsl_swap")) {
+		return "wsl_swap"
 	}
-	return nil
+	processors, ok := a["wsl_processors"].(int64)
+	if !ok || processors < 1 || processors > 1024 {
+		return "wsl_processors"
+	}
+	path := a.text("restart_wsl_path")
+	if path == "" || strings.ContainsFunc(path, unicode.IsControl) ||
+		slices.Contains(
+			strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }),
+			"..",
+		) {
+		return "restart_wsl_path"
+	}
+	return ""
 }
 
 func (a Answers) secrets() []string {
