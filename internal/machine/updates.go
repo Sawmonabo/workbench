@@ -408,28 +408,20 @@ func runBrew(
 // Planning and the recheck read Homebrew's current index and never refresh it:
 // an automatic update would fetch from the network and rewrite Homebrew's own
 // folders during a preview, and could change the update list between the plan
-// and its recheck. A fresh index comes from the brew-maintenance step the owner
-// approves, which runs brew update.
+// and its recheck. A fresh index comes from [RefreshHomebrew], which an apply
+// that nobody bound to a plan digest runs before it plans, or else from the
+// brew-maintenance step the owner approves, which runs brew update at the end.
 func brewOutput(
 	ctx context.Context,
 	c operation.Context,
 	brew string,
 	args ...string,
 ) (string, error) {
-	environment := []string{
-		"HOME=" + c.Home,
-		"PATH=" + filepath.Dir(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin",
-		"HOMEBREW_NO_AUTO_UPDATE=1",
-		"HOMEBREW_NO_ENV_HINTS=1",
-	}
-	// Homebrew still downloads its package list when no copy is cached yet, so
-	// it gets the user's proxy and CA settings.
-	environment = append(environment, operation.NetworkEnvironment()...)
 	output, err := operation.Run(ctx, c, nil, operation.Process{
 		Executable:  brew,
 		Args:        args,
 		Directory:   "/",
-		Environment: environment,
+		Environment: brewEnvironment(c, brew),
 		Timeout:     5 * time.Minute,
 		OutputLimit: 8 << 20,
 	})
@@ -437,6 +429,74 @@ func brewOutput(
 		return "", err
 	}
 	return output.Stdout, nil
+}
+
+// brewEnvironment is the whole environment of a Homebrew run: Homebrew never
+// refreshes on its own, and it does not hint.
+func brewEnvironment(c operation.Context, brew string) []string {
+	environment := []string{
+		"HOME=" + c.Home,
+		"PATH=" + filepath.Dir(brew) + ":/usr/bin:/bin:/usr/sbin:/sbin",
+		"HOMEBREW_NO_AUTO_UPDATE=1",
+		"HOMEBREW_NO_ENV_HINTS=1",
+	}
+	// Homebrew downloads its package list when it is refreshed and when no copy
+	// is cached yet, so it gets the user's proxy and CA settings.
+	return append(environment, operation.NetworkEnvironment()...)
+}
+
+// RefreshHomebrew runs brew update, so the update effects a plan lists are
+// current instead of as old as the last apply. Only an apply that nobody bound
+// to a plan digest may call it, before it plans: planning and the recheck read
+// the index as it is (see [brewOutput]), and a refresh between a digest and its
+// recheck would change the plan under the approval. It does nothing, and
+// reports false, where the plan lists no Homebrew updates: off macOS, without
+// Homebrew, and for an isolated destination, which runs no scripts and leaves
+// the machine's Homebrew alone. Otherwise it reports whether the refresh
+// succeeded; a failure leaves the index as it was, and the caller plans from
+// that. An interrupt returns its own error.
+func RefreshHomebrew(ctx context.Context, c operation.Context) (refreshed bool, err error) {
+	brew := homebrew()
+	if runtime.GOOS != "darwin" || !c.RecordsHome() || brew == "" {
+		return false, nil
+	}
+	defer c.ShowProgress("Refreshing Homebrew's package list")()
+	// The refresh rewrites Homebrew's own folders, so it runs as a mutation,
+	// approved here as setup approves its tool installs: the person running
+	// apply asked for the plan's updates to be current.
+	plan := operation.Plan{
+		Scope:    c.Scope,
+		Complete: true,
+		Effects: []operation.Effect{{
+			Name:        "refresh-homebrew",
+			Description: "Refresh Homebrew's package index so the plan lists current updates",
+			Privilege:   "user; network",
+			Recovery:    "external; Homebrew's previous index is not kept",
+		}},
+	}
+	err = operation.WithMutation(
+		ctx,
+		c,
+		plan,
+		operation.Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, operation.Context) (operation.Plan, error) { return plan, nil },
+		func(m *operation.Mutation) error {
+			_, runErr := operation.Run(ctx, c, m, operation.Process{
+				Executable:  brew,
+				Args:        []string{"update", "--quiet"},
+				Directory:   "/",
+				Environment: brewEnvironment(c, brew),
+				Timeout:     10 * time.Minute,
+				OutputLimit: 8 << 20,
+				Mutates:     true,
+			})
+			return runErr
+		},
+	)
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+	return err == nil, err
 }
 
 // newerVersion reports whether dotted numeric version a is newer than b.

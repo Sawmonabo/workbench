@@ -19,7 +19,8 @@ const NothingToApply = "Every file already matches and no effect is checked; not
 // Apply shares native preparation with preview and obtains fresh exact images
 // under the operation locks before granting the native engine write authority.
 // An interactive apply gives native chezmoi terminal; otherwise its redacted
-// output goes to progress.
+// output goes to progress. brewRefreshed says [RefreshHomebrew] refreshed
+// Homebrew's index before this apply planned, so its scripts need not.
 func Apply(
 	ctx context.Context,
 	c operation.Context,
@@ -28,6 +29,7 @@ func Apply(
 	consent operation.Consent,
 	terminal *os.File,
 	progress io.Writer,
+	brewRefreshed bool,
 ) (_ operation.Result, err error) {
 	defer operation.Annotate(&err, "apply machine configuration")
 	result := operation.NewResult("workbench apply")
@@ -76,6 +78,7 @@ func Apply(
 		var err error
 		prepared, err = prepare(ctx, preview, selection, false)
 		if err == nil {
+			prepared.brewRefreshed = brewRefreshed
 			// The recheck does not probe; carry the shown deltas so the
 			// result messages keep them. The digest ignores these fields.
 			for i, effect := range prepared.Plan.Effects {
