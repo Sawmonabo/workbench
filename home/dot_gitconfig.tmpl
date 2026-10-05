@@ -20,15 +20,17 @@
 {{- end }}
 [alias]
     refresh = !git fetch --all --prune && git pull --all --prune
-{{- if lookPath "gh" }}
 
-# GitHub auth via the gh CLI (gh auth login). Path-independent so the same
-# block works on Linux/WSL (apt) and macOS (brew). The empty helper line
-# clears any system-level helper first, as `gh auth setup-git` writes it.
+# GitHub auth via the gh CLI (gh auth login). Always written, so the first
+# apply on a fresh machine already has it; it does nothing until gh is on
+# PATH: the command -v guard makes a missing gh answer nothing, so git asks as
+# usual instead of printing "command not found" on every GitHub fetch.
+# Path-independent so the same block works on Linux/WSL and macOS (brew). The
+# empty helper line clears any system-level helper first, as
+# `gh auth setup-git` writes it.
 [credential "https://github.com"]
     helper =
-    helper = !gh auth git-credential
+    helper = !command -v gh >/dev/null 2>&1 && gh auth git-credential
 [credential "https://gist.github.com"]
     helper =
-    helper = !gh auth git-credential
-{{- end }}
+    helper = !command -v gh >/dev/null 2>&1 && gh auth git-credential
