@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/charmbracelet/x/term"
 	"golang.org/x/sys/unix"
 )
 
@@ -247,12 +248,19 @@ func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), e
 	if err != nil {
 		return nil, Fail(ExitBlocked, "terminal", "Cannot inspect native setup terminal")
 	}
+	lent, err := term.GetState(uintptr(fd))
+	if err != nil {
+		return nil, Fail(ExitBlocked, "terminal", "Cannot inspect native setup terminal")
+	}
 	attributes.Foreground = true
 	attributes.Ctty = fd
 	return func() {
 		signal.Ignore(syscall.SIGTTOU)
 		defer signal.Reset(syscall.SIGTTOU)
 		_ = unix.IoctlSetPointerInt(fd, unix.TIOCSPGRP, foreground)
+		// The terminal comes back as it was lent: a child that ended mid-prompt,
+		// such as the password helper on ctrl+c, may have left echo off.
+		_ = term.Restore(uintptr(fd), lent)
 	}, nil
 }
 

@@ -8,9 +8,11 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -175,6 +177,10 @@ func (s *askpassService) close() {
 // Prompts go to the terminal, never to out. Three wrong answers fail this one
 // sudo, as sudo's own prompt would.
 func AskPass(ctx context.Context, socket string, out io.Writer) error {
+	// After a ctrl+c, Workbench takes the terminal back while this process may
+	// still be putting echo back; from the background that would stop it
+	// (SIGTTOU) instead.
+	signal.Ignore(syscall.SIGTTOU)
 	password, held, err := askpassGet(socket)
 	if err != nil {
 		return Fail(
