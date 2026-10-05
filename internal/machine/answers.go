@@ -18,12 +18,12 @@ import (
 // data every render uses.
 type Answers map[string]any
 
-func parseAnswers(raw []byte) (Answers, error) {
+func parseAnswers(c operation.Context, raw []byte) (Answers, error) {
 	answers, err := readAnswers(raw)
 	if err != nil {
 		return nil, err
 	}
-	return answers, validateAnswers(answers)
+	return answers, validateAnswers(c, answers)
 }
 
 // readAnswers reads a [data]-only machine config without checking that it
@@ -70,16 +70,17 @@ var derivedAnswers = []string{"has_work", "has_personal", "is_wsl"}
 
 // CheckAsk reports whether every key in ask is a saved answer that the
 // questionnaire asks, so setup can drop it from the seed and ask it again.
-func CheckAsk(config string, ask []string) error {
+func CheckAsk(c operation.Context, ask []string) error {
 	if len(ask) == 0 {
 		return nil
 	}
-	raw, err := operation.ReadPrivateInput(config, 1<<20)
+	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"--ask changes saved answers, and this machine has none; workbench apply asks every question",
+			"--ask changes saved answers, and this machine has none; "+
+				c.WorkbenchCommand()+" apply asks every question",
 		)
 	}
 	answers, err := readAnswers(raw)
@@ -111,12 +112,14 @@ func CheckAsk(config string, ask []string) error {
 
 // validateAnswers is also the post-init gate. It never silently defaults missing
 // unattended inputs or normalizes a persisted role/editor/version policy.
-func validateAnswers(a Answers) error {
+func validateAnswers(c operation.Context, a Answers) error {
 	fail := func() error {
+		command := c.WorkbenchCommand()
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Incomplete or invalid machine answers; workbench apply at a terminal, without --local-build, asks the missing ones, or save them with workbench init --answers-from FILE",
+			"Incomplete or invalid machine answers; "+command+" apply at a terminal, without --local-build, "+
+				"asks the missing ones, or save them with "+command+" init --answers-from FILE",
 		)
 	}
 	text := func(key string) string { value, _ := a[key].(string); return value }
@@ -237,7 +240,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		)
 	}
 	answers := Answers(data)
-	if err = validateAnswers(answers); err != nil {
+	if err = validateAnswers(c, answers); err != nil {
 		return plan, nil, err
 	}
 	target := filepath.Join(c.Paths.Config, "machine.toml")

@@ -20,7 +20,11 @@ every other argument through:
 - `--dry-run` verifies the bundle and shows only the install plan.
 
 Installing never applies the machine; the CLI's last line says to run
-`workbench apply`.
+`workbench apply`. A fresh machine's shell does not have `~/.local/bin` on `PATH`
+yet, so that line and the other hints that name `workbench` give its full path,
+`~/.local/bin/workbench`, until it is. The first apply writes the shell setup that
+adds it and ends by telling you to open a new terminal, which finds `workbench`
+and the tools it installed.
 
 Every install, update and apply puts Workbench's own tools in place first,
 without asking: chezmoi, uv, Python and TOML Kit, pinned by the release,

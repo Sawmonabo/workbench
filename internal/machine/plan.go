@@ -243,14 +243,16 @@ func (p *preparation) checkPrerequisites(
 	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
-		message := "Machine answers are missing; run workbench apply at a terminal to answer them, or workbench init --answers-from FILE"
+		command := c.WorkbenchCommand()
+		message := "Machine answers are missing; run " + command + " apply at a terminal to answer them, or " +
+			command + " init --answers-from FILE"
 		if c.Native.Developer {
 			// apply --local-build never asks the questions.
-			message = "Machine answers are missing; save them with workbench init --answers-from FILE"
+			message = "Machine answers are missing; save them with " + command + " init --answers-from FILE"
 		}
 		return nil, operation.Fail(operation.ExitBlocked, "answers", message)
 	}
-	answers, err := parseAnswers(answersRaw)
+	answers, err := parseAnswers(c, answersRaw)
 	if err != nil {
 		return nil, err
 	}
