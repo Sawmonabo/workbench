@@ -47,8 +47,9 @@ type preparation struct {
 	// brewRefreshed is, for Apply, whether Homebrew's index was refreshed
 	// before planning; the apply scripts then leave it be.
 	brewRefreshed bool
-	// askpass is, for Apply, the SUDO_ASKPASS helper that answers Homebrew's
-	// sudo requests during an apply at a terminal on a Mac, or "" for none.
+	// askpass is, for Apply, the SUDO_ASKPASS helper that answers Homebrew's and
+	// the Touch ID step's sudo requests during an apply at a terminal on a Mac,
+	// or "" for none (also where sudo asks for Touch ID itself).
 	askpass string
 	// desired is native's rendered image of every target, by relative path.
 	desired map[string]nativeEntry
@@ -930,7 +931,8 @@ func (p *preparation) Apply(
 		report = filepath.Join(p.scratch, "effect-report")
 		environment = append(environment, "WORKBENCH_EFFECT_REPORT="+report)
 		if p.askpass != "" {
-			// The darwin scripts give it to Homebrew's own commands only.
+			// The darwin scripts give it to Homebrew's own commands and the
+			// Touch ID step's one sudo command only.
 			environment = append(environment, "WORKBENCH_SUDO_ASKPASS="+p.askpass)
 		}
 		// Every effect is gated on its own: a shared script runs only the

@@ -537,8 +537,8 @@ func releaseLabel(source operation.SourceIdentity) string {
 }
 
 // planHeader is the brand line, the counts, and what must not be missed: an
-// incomplete plan, the Mac password the apply asks for and the warnings, which
-// stand above the list.
+// incomplete plan, the Mac password or Touch ID the apply asks for and the
+// warnings, which stand above the list.
 func planHeader(plan operation.Plan, width int, view planView) []string {
 	files, steps, undecided := planCounts(plan)
 	title := "Plan for this PC"
@@ -567,13 +567,10 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 			lines = append(lines, yellow.Render(part))
 		}
 	}
-	// What the checked steps need the password for follows the boxes, so
+	// What the checked steps need the password or Touch ID for follows the boxes, so
 	// unticking Homebrew in the live list drops the line.
-	if reason := machine.AdminReason(plan); reason != "" {
-		lines = append(lines, wrapPlain(
-			"Applying at a terminal asks for your Mac password once, before it starts, to "+reason+".",
-			width,
-		)...)
+	if line := machine.AdminLine(plan); line != "" {
+		lines = append(lines, wrapPlain(line, width)...)
 	}
 	for _, warning := range plan.Warnings {
 		for i, part := range wrapPlain(warning, width-9) {

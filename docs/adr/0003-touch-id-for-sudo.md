@@ -81,7 +81,8 @@ administrator rights asks again, by Touch ID.
    - It never edits `/etc/pam.d/sudo`. When Touch ID is already on, it does
      nothing.
    - Its one sudo command gets its password the way any other sudo in the apply
-     does (ADR 1 or Touch ID).
+     does (ADR 1 or Touch ID). Without a terminal it never asks: it needs a
+     valid sudo ticket, or the step is blocked.
    - Its probe reads only. It reports that Touch ID for sudo is on (nothing to
      do), or that the step will turn it on and which file it writes.
    - Revert does not undo it, because it is a system change. The step's undo text
