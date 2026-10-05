@@ -96,9 +96,11 @@ This applies to an apply at a terminal on macOS.
    foreground process group during the native scripts. It checks the answer
    with sudo and passes only a correct one to Workbench to remember. Three wrong
    answers fail that one step, as sudo's own prompt would.
-5. **Unattended runs do not change.** These are runs with no terminal, with
-   `--approve-plan`, with `--yes` and no terminal, or from coding agents.
-   Nothing is asked and no helper is created. A plan that must install Homebrew
+5. **Unattended runs do not change.** These are runs with no terminal (with
+   `--approve-plan` or `--yes`) and runs from coding agents, even in a
+   pseudo-terminal. `--approve-plan` from a person at a terminal counts as
+   attended, as it already does for the terminal handoff. In unattended runs,
+   nothing is asked and no helper is created. A plan that must install Homebrew
    is refused (exit 3) before any change unless sudo approval is still valid.
 6. **Linux and WSL do not change.**
 7. **Cleanup.** The minute-by-minute renewal of sudo approval is removed.
