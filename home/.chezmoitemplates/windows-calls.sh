@@ -24,10 +24,7 @@
 #   win_failed NAME             the same for an apply: why a call that did not
 #                               succeed did not, in plain words
 #   part_blocked EFFECT REASON  say that one effect could not be done, without
-#                               stopping the rest of the script: it is named on
-#                               stderr and in the file Workbench reads
-#                               ($WORKBENCH_EFFECT_REPORT) to show it on that
-#                               effect's result line
+#                               stopping the rest of the script (effect-report.sh)
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then win_cap=8; else win_cap=60; fi
 declare -A WIN_OUT=() WIN_RC=() win_pid=()
 win_work=$(mktemp -d)
@@ -86,9 +83,4 @@ win_failed() {
     esac
 }
 
-part_blocked() {
-    echo "WORKBENCH_EFFECT $1 blocked: $2" >&2
-    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
-        printf '%s\t%s\n' "$1" "$2" >>"$WORKBENCH_EFFECT_REPORT"
-    fi
-}
+{{ includeTemplate ".chezmoitemplates/effect-report.sh" . }}

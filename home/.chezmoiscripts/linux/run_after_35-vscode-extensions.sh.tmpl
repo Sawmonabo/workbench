@@ -3,6 +3,9 @@
 # Install the canonical local VS Code extension set. This never contacts a
 # remote extension host or selects a non-default profile. On WSL the editor is
 # the Windows desktop, which this cannot install into, so WSL renders nothing.
+# Runs on every apply, so an extension that failed is tried again; the failure
+# is named blocked under its effect (part_failed) and the scripts after this one
+# still run. Run directly, without Workbench's report file, it ends nonzero.
 set -euo pipefail
 status=0
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
@@ -19,6 +22,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 
+{{ template "effect-report.sh" }}
 {{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
 exit "$status"
 {{ end -}}

@@ -991,20 +991,31 @@ func (p *preparation) updateEnvironment() []string {
 }
 
 // readBlocked reads the file in which a script names each effect it could not
-// do, one "effect, tab, reason" line each, keeping the effects of this plan.
+// do, one "effect, tab, reason" line each, keeping the effects of this plan. An
+// effect that more than one part of its script could not do has a line for each,
+// and its reason is all of theirs, so none is lost.
 func readBlocked(path string, effects []operation.Effect) map[string]string {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
-	blocked := map[string]string{}
+	reasons := map[string][]string{}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		name, reason, ok := strings.Cut(line, "\t")
-		if ok && slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+		if !ok || !slices.ContainsFunc(effects, func(effect operation.Effect) bool {
 			return effect.Name == name
 		}) {
-			blocked[name] = reason
+			continue
 		}
+		list := reasons[name]
+		if reason != "" && !slices.Contains(list, reason) {
+			list = append(list, reason)
+		}
+		reasons[name] = list
+	}
+	blocked := map[string]string{}
+	for name, list := range reasons {
+		blocked[name] = strings.Join(list, "; ")
 	}
 	return blocked
 }

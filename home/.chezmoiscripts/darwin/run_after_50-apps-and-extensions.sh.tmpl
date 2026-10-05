@@ -12,6 +12,11 @@
 # retried on the next apply with no manual state reset. When every app is
 # installed, the app part is a single `brew bundle check`.
 #
+# A part that fails does not stop the rest, or the scripts after this one. It is
+# named blocked under its own effect (part_failed), and Workbench shows that step
+# blocked with the reason once everything else has run. Run directly, without
+# Workbench's report file, the script still ends nonzero.
+#
 # - A missing app is installed at the cask's current version.
 # - An app already installed outside Homebrew is left alone; Homebrew would
 #   refuse to install over it.
@@ -47,7 +52,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- end }}
     exit 0
 fi
-skipped=()
+{{ template "effect-report.sh" }}
+status=0
 
 if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 echo "==> Apps and VS Code extensions..."
@@ -90,30 +96,35 @@ if brew bundle check --file="$bundle" --no-upgrade >/dev/null 2>&1; then
     echo "==> Apps already installed."
 else
     echo "==> Installing missing apps from packages.toml..."
-    brew bundle install --file="$bundle" --no-upgrade || skipped+=("brew bundle reported failures (see above); retried on the next apply")
+    brew bundle install --file="$bundle" --no-upgrade ||
+        part_failed macos-apps-extensions "Homebrew could not install some of the apps (the output above says why), so the next apply tries again" || status=1
 fi
 fi
+
+# update_failed NAME...: Homebrew did not finish updating these packages, so each
+# one's own update effect says so.
+update_failed() {
+    local name
+    for name in "$@"; do
+        part_failed "update-$name" "Homebrew did not finish updating $* (the output above says why), so the next apply tries again" || status=1
+    done
+}
 
 # The approved plan named every package these updates bring with them, so
 # Homebrew is told not to ask again.
 if [ -n "${WORKBENCH_TOOL_UPDATES:-}" ]; then
     read -ra tools <<< "$WORKBENCH_TOOL_UPDATES"
     echo "==> Updating ${tools[*]}..."
-    HOMEBREW_NO_ASK=1 brew upgrade --formula "${tools[@]}" || skipped+=("updating ${tools[*]} failed (see above)")
+    HOMEBREW_NO_ASK=1 brew upgrade --formula "${tools[@]}" || update_failed "${tools[@]}"
 fi
 
 if [ -n "${WORKBENCH_APP_UPDATES:-}" ]; then
     read -ra updates <<< "$WORKBENCH_APP_UPDATES"
     echo "==> Updating ${updates[*]}..."
-    HOMEBREW_NO_ASK=1 brew upgrade --cask "${updates[@]}" || skipped+=("updating ${updates[*]} failed (see above)")
+    HOMEBREW_NO_ASK=1 brew upgrade --cask "${updates[@]}" || update_failed "${updates[@]}"
 fi
 
-# A skipped app must not cancel the unrelated extension step; report it after.
-status=0
-if [ ${#skipped[@]} -gt 0 ]; then
-    printf '    WARNING: %s\n' "${skipped[@]}" >&2
-    status=1
-fi
+# A failed app or update must not cancel the unrelated extension step.
 {{ includeTemplate ".chezmoitemplates/vscode-extensions.sh.tmpl" . }}
 exit "$status"
 {{ end -}}

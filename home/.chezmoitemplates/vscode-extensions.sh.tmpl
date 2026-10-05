@@ -2,25 +2,33 @@
 # canonical list with the platform's editor effect, the work editor extension
 # with work-tools. The variables are 1 when run without Workbench. With nothing
 # ticked no editor is looked up or launched.
-extensions=()
+#
+# An install that fails is tried once more after a short pause. What still fails,
+# or cannot be tried at all, is named blocked under the effect that owns it
+# (part_failed, from the script that includes this), so one flaky download does
+# not stop the scripts after it; every apply tries the missing ones again.
+{{- $editor := "linux-editor-extensions" }}
+{{- if eq .chezmoi.os "darwin" }}{{ $editor = "macos-apps-extensions" }}{{ end }}
+editor_extensions=()
+work_extensions=()
 {{- if eq .chezmoi.os "darwin" }}
 if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 {{- else }}
 if [ "${WORKBENCH_EFFECT_LINUX_EDITOR_EXTENSIONS:-1}" = 1 ]; then
 {{- end }}
-    extensions+=({{ range .packages.vscode_extensions }} '{{ . }}'{{ end }} )
+    editor_extensions+=({{ range .packages.vscode_extensions }} '{{ . }}'{{ end }} )
 fi
 {{- if .has_work }}
 if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
-    extensions+=(jasonn-porch.gitlab-mr)
+    work_extensions+=(jasonn-porch.gitlab-mr)
 fi
 {{- end }}
-if [ ${#extensions[@]} -gt 0 ]; then
+if [ $((${#editor_extensions[@]} + ${#work_extensions[@]})) -gt 0 ]; then
 # Resolve the actual desktop installation without launching an editor/server.
 # Explicit directories below select its local default profile, never a remote.
 # Exit 3 means there is no local desktop to install into (none on PATH, or the
 # code on PATH is a remote, Windows or other CLI): nothing to do, not a
-# failure. Any other refusal is about a real desktop and fails the step.
+# failure. Any other refusal is about a real desktop: its parts are blocked.
 desktop_status=0
 code_desktop=$(python3 - <<'PY'
 import json, os, pathlib, shutil, sys
@@ -58,10 +66,40 @@ for directory in (data, home / '.vscode/extensions'):
 print(cli)
 PY
 ) || desktop_status=$?
+# blocked_extensions REASON: nothing could be installed, so every part that had
+# extensions to install says so.
+blocked_extensions() {
+    [ ${#editor_extensions[@]} -eq 0 ] || part_failed {{ $editor }} "$1" || status=1
+{{- if .has_work }}
+    [ ${#work_extensions[@]} -eq 0 ] || part_failed work-tools "$1" || status=1
+{{- end }}
+}
+# install_extensions EFFECT EXTENSION...: install the ones that are missing, one
+# failed install not stopping the rest, and say under EFFECT what still failed.
+# Extension IDs compare without case.
+install_extensions() {
+    local effect=$1 extension names
+    local -a failed=()
+    shift
+    for extension in "$@"; do
+        if printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
+            continue
+        fi
+        tried=1
+        "${code_cli[@]}" --install-extension "$extension" && continue
+        echo "    Trying $extension once more in a moment..." >&2
+        sleep 3
+        "${code_cli[@]}" --install-extension "$extension" || failed+=("$extension")
+    done
+    if [ ${#failed[@]} -gt 0 ]; then
+        printf -v names '%s, ' "${failed[@]}"
+        part_failed "$effect" "VS Code could not install ${names%, } even after a second try (the output above says why), so the next apply tries again" || status=1
+    fi
+}
 if [ "$desktop_status" -eq 3 ]; then
     echo "==> VS Code extensions skipped: no local VS Code desktop to install into."
 elif [ "$desktop_status" -ne 0 ]; then
-    status=1
+    blocked_extensions "the local VS Code could not be checked (the message above says why), so no extension was installed and the next apply tries again"
 else
 {{ if eq .chezmoi.os "darwin" -}}
     code_user_data="$HOME/Library/Application Support/Code"
@@ -69,25 +107,17 @@ else
     code_user_data="$HOME/.config/Code"
 {{ end -}}
     code_cli=(env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER "$code_desktop" --user-data-dir "$code_user_data" --extensions-dir "$HOME/.vscode/extensions")
-    # Install only what is missing; extension IDs compare without case.
-    installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]')
-    missing=()
-    for extension in "${extensions[@]}"; do
-        if ! printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
-            missing+=("$extension")
+    if ! installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]'); then
+        blocked_extensions "VS Code did not list its installed extensions (the output above says why), so no extension was installed and the next apply tries again"
+    else
+        tried=0
+        install_extensions {{ $editor }} ${editor_extensions[@]+"${editor_extensions[@]}"}
+{{- if .has_work }}
+        install_extensions work-tools ${work_extensions[@]+"${work_extensions[@]}"}
+{{- end }}
+        if [ "$tried" = 0 ]; then
+            echo "==> VS Code extensions already installed."
         fi
-    done
-    if [ ${#missing[@]} -eq 0 ]; then
-        echo "==> VS Code extensions already installed."
-    fi
-    # One failed install must not stop the rest; report every failure at the end.
-    failed_extensions=()
-    for extension in ${missing[@]+"${missing[@]}"}; do
-        "${code_cli[@]}" --install-extension "$extension" || failed_extensions+=("$extension")
-    done
-    if [ ${#failed_extensions[@]} -gt 0 ]; then
-        printf '    WARNING: could not install VS Code extension %s\n' "${failed_extensions[@]}" >&2
-        status=1
     fi
 fi
 fi
