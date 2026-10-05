@@ -184,3 +184,107 @@ func TestCheckpointChangesOnlyTheModeOfWorkbenchFolders(t *testing.T) {
 		t.Errorf("mode-only change was refused: %v", err)
 	}
 }
+
+// Prevent a new group write from reaching a file the person changed. After a
+// native run that failed (a script exited nonzero), Workbench puts the approved
+// group back on each file that already holds exactly its approved content, so
+// the checkpoint records it as written. A file whose content differs, such as
+// one edited meanwhile, must keep its bytes and its group: Workbench never
+// verified it, and a later apply or revert would act on it as if it had.
+func TestSettleFailedNativeLeavesDifferingContentAlone(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Context{
+		Paths: Paths{
+			State:  filepath.Join(root, "state"),
+			Config: filepath.Join(root, "config"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")},
+	}
+	if err = os.Mkdir(c.Scope.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	approved, other := os.Getegid(), os.Getegid()
+	groups, err := os.Getgroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range groups {
+		if candidate != approved {
+			other = candidate
+			break
+		}
+	}
+	if other == approved {
+		t.Skip("needs a second group to stand in for the inherited one")
+	}
+	written, edited := filepath.Join(c.Scope.Root, "written"), filepath.Join(c.Scope.Root, "edited")
+	var changes []TargetChange
+	for _, path := range []string{written, edited} {
+		if err = os.WriteFile(path, []byte("original"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, readErr := ReadImage(c, path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		after := before
+		after.Data = []byte("applied")
+		changes = append(changes, TargetChange{Path: path, Before: before, After: after})
+	}
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(changes[0].Before)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
+	var cp *Checkpoint
+	err = WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			var beginErr error
+			if cp, beginErr = BeginCheckpoint(m, plan, nil, changes); beginErr != nil {
+				return beginErr
+			}
+			if beginErr = cp.StartNative(); beginErr != nil {
+				return beginErr
+			}
+			// Native wrote the approved content with the group it inherited, then a
+			// script failed; the other file was edited by someone else meanwhile.
+			for path, content := range map[string]string{written: "applied", edited: "someone's edit"} {
+				if beginErr = os.WriteFile(path, []byte(content), 0o644); beginErr != nil {
+					return beginErr
+				}
+				if beginErr = os.Chown(path, -1, other); beginErr != nil {
+					return beginErr
+				}
+			}
+			cp.SettleFailedNative()
+			_ = cp.Finish(Fail(ExitPartial, "partial", "A setup step failed"))
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if image, readErr := ReadImage(c, written); readErr != nil ||
+		string(image.Data) != "applied" || *image.Group != uint32(approved) {
+		t.Fatalf("a file holding its approved content did not get its group back: %v", readErr)
+	}
+	if cp.journal.Known[0] != outcomeAfter {
+		t.Fatalf("a file with its approved content was recorded as %s", cp.journal.Known[0])
+	}
+	image, err := ReadImage(c, edited)
+	if err != nil || string(image.Data) != "someone's edit" || *image.Group != uint32(other) {
+		t.Fatal("a file with different content was changed")
+	}
+}

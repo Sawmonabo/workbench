@@ -73,7 +73,7 @@ func (cp *Checkpoint) preflight(reverse bool) error {
 			return Fail(
 				ExitConflict,
 				"recovery",
-				"Checkpoint has unknown post-images; reviewed reconciliation is required",
+				"Workbench could not confirm every file this checkpoint wrote, so revert cannot undo it",
 			)
 		}
 		expected := cp.expectedImage(i)

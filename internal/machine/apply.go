@@ -173,7 +173,7 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	provisioning := hasProvisioning(plan.Effects)
 	if provisioning {
 		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil {
-			return provisioningFailure(err)
+			return provisioningFailure(a.c, err)
 		}
 	}
 	current, err := operation.ReadState(a.c.Paths)
@@ -243,11 +243,18 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		return err
 	}
 	runErr := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress)
-	if runErr == nil {
+	switch {
+	case runErr == nil:
 		runErr = cp.FinalizeNative()
-	}
-	if provisioning && runErr != nil {
-		runErr = provisioningFailure(runErr)
+	case operation.ExitCode(runErr) != operation.ExitInterrupted:
+		// The files are written before the scripts run, so a script that failed
+		// leaves them as approved except for the group native creation gave
+		// them. Settle that, so the checkpoint records them as written and not
+		// as unknown.
+		cp.SettleFailedNative()
+		if provisioning {
+			runErr = provisioningFailure(a.c, runErr)
+		}
 	}
 	if err = cp.Finish(runErr); err != nil {
 		status := operation.StatusFailed
@@ -258,7 +265,7 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		a.result.Results = append(a.result.Results, operation.Component{
 			Name:     "configuration",
 			Status:   status,
-			Recovery: "Checkpoint " + cp.ID + " retained; unknown outcomes require reconciliation",
+			Recovery: "Checkpoint " + cp.ID + " retained",
 		})
 		return err
 	}
@@ -354,15 +361,19 @@ func checkedEffects(effects []operation.Effect) []operation.Effect {
 	)
 }
 
-// provisioningFailure keeps the native cause; external effects are not rolled back.
-func provisioningFailure(err error) error {
+// provisioningFailure is what a failed setup run says: what failed, what it
+// means for the steps after it and what to do. The native cause is kept; the
+// output above it says why. External effects are not rolled back, and files the
+// run wrote are kept.
+func provisioningFailure(c operation.Context, err error) error {
 	if operation.ExitCode(err) == operation.ExitInterrupted {
 		return err
 	}
 	return operation.Fail(
 		operation.ExitPartial,
 		"partial",
-		"Native provisioning failed after it started ("+err.Error()+"); external effects may be partial and are not rolled back",
+		"A setup step failed ("+err.Error()+"), so the steps after it did not run; what already ran is kept. "+
+			"Its output above says why; fix that, then run "+c.WorkbenchCommand()+" apply again.",
 	)
 }
 

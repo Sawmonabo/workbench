@@ -495,59 +495,97 @@ func (cp *Checkpoint) StartNative() error {
 // inherited its temporary directory's group. Every target's expected content,
 // type and mode is checked first; unknown content never authorizes metadata edits.
 // It is called only following successful native execution, not interruption.
-func (cp *Checkpoint) FinalizeNative() error {
+func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeGroups(false) }
+
+// SettleFailedNative is FinalizeNative for a native run that failed (a script
+// exited nonzero, say) and was not interrupted. The files written before the
+// failure carry the inherited group too, which [Checkpoint.Finish] would record
+// as unknown outcomes. FinalizeNative's rule applies one target at a time: a
+// target whose content, type and mode already match its approved image gets the
+// approved group, and any other target, such as one the run never wrote or
+// someone edited, is left exactly as it is. A target that cannot be corrected
+// does not stop the others; Finish records each as it finds it. The only error
+// it could return, a lost mutation, makes Finish fail as well.
+func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeGroups(true) }
+
+// restoreNativeGroups is the shared body of both. Without failed, any target
+// that does not match its approved image fails the call before any group is
+// changed.
+func (cp *Checkpoint) restoreNativeGroups(failed bool) error {
 	if err := cp.mutation.Check(); err != nil {
 		return err
 	}
 	c := cp.mutation.context
 	observed := make([]Image, len(cp.changes))
+	settled := make([]bool, len(cp.changes))
 	for i, change := range cp.changes {
-		current, err := ReadImage(c, change.Path)
+		current, err := nativeOutput(c, change)
 		if err != nil {
+			if failed {
+				continue
+			}
 			return err
 		}
-		comparison := current
-		comparison.Group = change.After.Group
-		if !sameImageContent(comparison, change.After) {
-			return Fail(
-				ExitPartial,
-				"native_image",
-				"Native output differs from the approved images; metadata was not changed",
-			)
-		}
-		if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
-			return Fail(
-				ExitBlocked,
-				"metadata",
-				"Native link group correction is unqualified; retained images require review",
-			)
-		}
-		observed[i] = current
+		observed[i], settled[i] = current, true
 	}
 	for i, change := range cp.changes {
-		if change.After.Kind == ImageAbsent || *observed[i].Group == *change.After.Group {
+		if !settled[i] || change.After.Kind == ImageAbsent ||
+			*observed[i].Group == *change.After.Group {
 			continue
 		}
-		current, err := ReadImage(c, change.Path)
-		if err != nil {
-			return err
-		}
-		if !sameImage(current, observed[i]) {
-			return Fail(
-				ExitPartial,
-				"native_image",
-				"Native target changed before group preservation; stop for review",
-			)
-		}
-		if err = enforceNativeGroup(c, change.Path, observed[i], *change.After.Group); err != nil {
+		if err := correctNativeGroup(c, change, observed[i]); err != nil && !failed {
 			return err
 		}
 	}
 	return nil
 }
 
+// nativeOutput reads a target after a native run and returns it when it is the
+// approved image apart from a group that atomic creation may have inherited.
+func nativeOutput(c Context, change TargetChange) (Image, error) {
+	current, err := ReadImage(c, change.Path)
+	if err != nil {
+		return Image{}, err
+	}
+	comparison := current
+	comparison.Group = change.After.Group
+	if !sameImageContent(comparison, change.After) {
+		return Image{}, Fail(
+			ExitPartial,
+			"native_image",
+			"Native output differs from the approved images; metadata was not changed",
+		)
+	}
+	if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
+		return Image{}, Fail(
+			ExitBlocked,
+			"metadata",
+			"Native link group correction is unqualified; retained images require review",
+		)
+	}
+	return current, nil
+}
+
+// correctNativeGroup gives a target the approved group, once it is still the
+// image nativeOutput observed.
+func correctNativeGroup(c Context, change TargetChange, observed Image) error {
+	current, err := ReadImage(c, change.Path)
+	if err != nil {
+		return err
+	}
+	if !sameImage(current, observed) {
+		return Fail(
+			ExitPartial,
+			"native_image",
+			"Native target changed before group preservation; stop for review",
+		)
+	}
+	return enforceNativeGroup(c, change.Path, observed, *change.After.Group)
+}
+
 // Finish records each target's observed outcome after a native run and
-// returns runErr, or a partial or unknown-outcome error when targets changed.
+// returns runErr, or a partial or unknown-outcome error when targets changed. A
+// runErr that already reports a partial apply is returned as it is.
 func (cp *Checkpoint) Finish(runErr error) error {
 	changed, unknown, incomplete := false, false, false
 	for i, change := range cp.changes {
@@ -603,13 +641,27 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		return runErr
 	}
 	if unknown {
+		cannot := "could not confirm every file this apply wrote, so revert cannot undo it (checkpoint " + cp.ID + ")."
+		if runErr == nil {
+			return Fail(
+				ExitPartial,
+				"recovery",
+				"Workbench "+cannot+" Run "+cp.mutation.context.WorkbenchCommand()+" apply again to check the files.",
+			)
+		}
+		// The failure comes first: it is what the person has to act on.
 		return Fail(
 			ExitPartial,
 			"recovery",
-			"Unrecognized target outcomes require reviewed reconciliation; original images retained",
+			strings.TrimRight(runErr.Error(), ".")+". Workbench also "+cannot,
 		)
 	}
 	if changed && runErr != nil {
+		// A failure that already reports a partial apply says what failed and what
+		// to do; the generic line below would replace it.
+		if ExitCode(runErr) == ExitPartial {
+			return runErr
+		}
 		return Fail(
 			ExitPartial,
 			"partial",
