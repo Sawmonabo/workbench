@@ -65,8 +65,9 @@ over the same files.
    (`brew-maintenance` in the plan). Workbench keeps its own chezmoi state, so
    the first full apply runs every `run_once_` and `run_onchange_` script again;
    they skip tools that are already installed.
-   If the apply has to install Homebrew or apps, it asks for your Mac password
-   once before it starts, then uses your terminal for installers.
+   If the apply has to install Homebrew, it asks for your Mac password once
+   before it starts, then uses your terminal for installers; an app that needs
+   the password is asked for it by Homebrew while it installs.
 
 6. **Archive the dotfiles repository** with a README pointer to Workbench, for
    example `gh repo archive Sawmonabo/dotfiles` after pushing the pointer.

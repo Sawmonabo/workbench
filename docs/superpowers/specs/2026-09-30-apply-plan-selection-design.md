@@ -200,9 +200,7 @@ existing timeouts.
 
 A line is `NAME: TEXT` when the effect would change something,
 `NAME: = TEXT` when it has nothing to do (`=` and one space, then what is
-already in place, for example `sysctl: = vm.swappiness 10`),
-`NAME: ! TEXT` for a change that may use sudo (`!` and one space; the apply then
-asks for the Mac password before it starts) and
+already in place, for example `sysctl: = vm.swappiness 10`) and
 `NAME: ? TEXT` when the script could not check (`?` and one space, then why in
 plain words, for example `Windows didn't answer in time`). The marker is
 structural; nothing matches on the words of `TEXT`. An effect that several

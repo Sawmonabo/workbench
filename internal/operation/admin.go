@@ -31,7 +31,7 @@ const (
 type Admin struct {
 	// Terminal is where a person can type the password, nil when nobody can.
 	Terminal *os.File
-	// Why finishes the line shown before the prompt: "install Homebrew and apps".
+	// Why finishes the line shown before the prompt: "install Homebrew".
 	Why string
 	// Refusal is, when nobody can type the password and no ticket exists, the
 	// message of the blocked error that ends the apply before any change. Empty
@@ -40,9 +40,9 @@ type Admin struct {
 }
 
 // WithAdmin makes the administrator ticket available while run does its work, so
-// the apply asks for the password once, up front, and then runs without being
-// asked again. Workbench never reads the password: sudo reads it from the
-// terminal itself.
+// the apply asks for the password once, up front, and Homebrew's installer, which
+// cannot ask for it, finds a valid ticket. Workbench never reads the password:
+// sudo reads it from the terminal itself.
 //
 // An existing ticket (a recent sudo, or passwordless sudo) is used as it is. With
 // none, a person at the terminal is asked once; an account that is not an
@@ -50,10 +50,13 @@ type Admin struct {
 // a ctrl+c as interrupted, before run starts. Without a terminal nobody is asked.
 //
 // While run works the ticket is renewed about every minute from Workbench's own
-// process, which sudo ties to the same terminal as the scripts' sudo, so a long
-// apply is not asked again. When run returns, however it ends, the renewing stops
-// and a ticket this call created is dropped with sudo -k; one that already
-// existed is left as it was.
+// process, which sudo ties to the same terminal as the scripts' sudo, until a
+// renewal fails. Homebrew drops the ticket (sudo --reset-timestamp) each time brew
+// runs, on purpose, so nothing Workbench holds outlives the first brew command;
+// an app that needs the password after that, such as Docker Desktop, is asked for
+// it by Homebrew itself. When run returns, however it ends, the renewing stops
+// and a ticket this call created is dropped with sudo -k, which does no harm if
+// Homebrew already dropped it; one that already existed is left as it was.
 func WithAdmin(ctx context.Context, c Context, m *Mutation, admin Admin, run func() error) error {
 	held, created, err := admin.acquire(ctx, c, m)
 	if err != nil {
@@ -159,8 +162,11 @@ func interruptedBeforeChange() error {
 }
 
 // keepTicket renews the ticket every [adminRefresh] until the returned function
-// is called, which waits for a renewal still running. A failed renewal is
-// ignored: the scripts' own sudo then asks, as it always did.
+// is called, which waits for a renewal still running, or until a renewal fails.
+// The first failure ends the renewing: Homebrew drops the ticket whenever brew
+// runs, so there is nothing left to keep alive, and trying again every minute
+// would only fill the system log with refused attempts. The scripts' own sudo
+// then asks, as it always did.
 func keepTicket(ctx context.Context, c Context, m *Mutation) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
@@ -173,7 +179,9 @@ func keepTicket(ctx context.Context, c Context, m *Mutation) (stop func()) {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				_ = sudo(ctx, c, m, "-n", "-v")
+				if sudo(ctx, c, m, "-n", "-v") != nil {
+					return
+				}
 			}
 		}
 	}()

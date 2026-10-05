@@ -21,20 +21,18 @@ import (
 const probeTimeout = 15 * time.Second
 
 // probeLine is one probe output line: "NAME: TEXT" for a change, "NAME: = TEXT"
-// when the effect has nothing to do, "NAME: ? TEXT" when the script could
-// not check, TEXT then saying why in plain words, and "NAME: ! TEXT" for a
-// change that may use sudo. The marker is the only signal; nothing matches on
-// the words of TEXT.
-var probeLine = regexp.MustCompile(`^([a-z0-9-]+): ([=?!] )?(.+)$`)
+// when the effect has nothing to do and "NAME: ? TEXT" when the script could
+// not check, TEXT then saying why in plain words. The marker is the only
+// signal; nothing matches on the words of TEXT.
+var probeLine = regexp.MustCompile(`^([a-z0-9-]+): ([=?] )?(.+)$`)
 
 // probeResult is what the probe lines of one effect said: their text joined
-// with "; ", whether every line reported no change, whether any line could
-// not check and whether any line is a change that may use sudo.
+// with "; ", whether every line reported no change, and whether any line could
+// not check.
 type probeResult struct {
 	text       string
 	noChange   bool
 	unanswered bool
-	admin      bool
 }
 
 // merge adds another result for the same effect.
@@ -43,7 +41,6 @@ func (r probeResult) merge(other probeResult) probeResult {
 		r.text + "; " + other.text,
 		r.noChange && other.noChange,
 		r.unanswered || other.unanswered,
-		r.admin || other.admin,
 	}
 }
 
@@ -133,7 +130,6 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 			}
 			texts = append(texts, result.text)
 			noChange = noChange && result.noChange
-			effect.NeedsAdmin = effect.NeedsAdmin || result.admin
 		}
 		if len(why) > 0 {
 			slices.Sort(why)
@@ -249,7 +245,6 @@ func (p *preparation) runProbe(
 			text:       match[3],
 			noChange:   match[2] == "= ",
 			unanswered: match[2] == "? ",
-			admin:      match[2] == "! ",
 		}
 		if previous, ok := lines[match[1]]; ok {
 			next = previous.merge(next)

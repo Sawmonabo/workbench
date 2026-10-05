@@ -12,15 +12,17 @@ runtimes and global tools. Package names are in
 Linux pins. Compatible management dependencies are borrowed, not installed twice.
 
 Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
-network access. Installing Homebrew, installing an app or updating one may
-need the Mac password: an `apply` at a terminal asks for it once, after approval
-and before it changes anything (see [usage](usage.md)), and keeps the sudo
-ticket alive until it ends. Without a terminal nobody is asked, and installing
-Homebrew needs a sudo ticket that is still valid, or the apply stops before any
-change. Missing required effects return incomplete results. Planning reads
-Homebrew's package index as it is and never refreshes it, so `apply --dry-run`
-and `apply --approve-plan` show the updates as of the last refresh. An `apply` not given `--approve-plan` runs `brew update` first,
-before it plans (a failure only warns), so the plan lists current updates. Every
+network access. Installing Homebrew needs the Mac password: an `apply` at a
+terminal asks for it once, after approval and before it changes anything (see
+[usage](usage.md)). Without a terminal nobody is asked, and installing Homebrew
+needs a sudo ticket that is still valid, or the apply stops before any change.
+Homebrew drops earlier sudo approvals each time it runs, so an app that needs
+the password, such as Docker Desktop, is asked for it by Homebrew itself while
+it installs or updates. Missing required effects return incomplete results.
+Planning reads Homebrew's package index as it is and never refreshes it, so
+`apply --dry-run` and `apply --approve-plan` show the updates as of the last
+refresh. An `apply` not given `--approve-plan` runs `brew update` first, before
+it plans (a failure only warns), so the plan lists current updates. Every
 full apply ends with `brew-maintenance`: it runs `brew update` unless the apply
 already did (so a machine that applies only with `--approve-plan` still gets a
 fresh index for its next plan), tap-sourced `packages.toml` formulae move to

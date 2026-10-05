@@ -68,7 +68,7 @@ func TestWithAdminDropsOnlyTheTicketItCreated(t *testing.T) {
 					ctx,
 					c,
 					m,
-					Admin{Terminal: terminal, Why: "install apps"},
+					Admin{Terminal: terminal, Why: "install Homebrew"},
 					func() error {
 						return test.run(cancel)
 					},
