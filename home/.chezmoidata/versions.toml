@@ -21,7 +21,7 @@ claude = "2.1.263"
 
 # Management acquisition consumes versions.uv and versions.python_pinned[0].
 # These compatibility qualifications do not change user runtime version policy.
-# Workbench reads this file from the selected source (--source, else the active
+# Workbench reads this file from the selected source (--local-build, else the active
 # release) each time it runs, so a change here takes effect on the next plan.
 [management]
 chezmoi = "2.70.3"

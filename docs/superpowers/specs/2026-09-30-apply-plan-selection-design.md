@@ -43,7 +43,7 @@ switched from dotfiles on 2026-09-30:
   beforehand.
 - Skips are saved per machine and honoured until `--reset`.
 - The command surface: `apply` shows `--dry-run`, `--yes`, `--choose`,
-  `--reset`; `--approve-plan` and `--local-build` are hidden;
+  `--reset` and `--approve-plan`; `--local-build` and `--destination` are hidden;
   `--config-only`, `--install-only`, `--skip`, `--only`, `--machine-config`,
   `--effect` and `--source` are removed. `--ask` moves to `init`.
 
@@ -55,7 +55,7 @@ every-run checklist are deleted, not aliased.
 | Command | Does | Flags |
 | --- | --- | --- |
 | `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. Prints `[WorkBench] Installed vX; run workbench apply`. Never applies. | `--dry-run`, `--bundle` (hidden) |
-| `workbench apply` | Ask the missing machine questions on a first run, plan files and effects, apply the saved choices, and show the checklist only when something needs deciding or the owner asks (section 5). | `--dry-run`, `--yes`, `--choose`, `--reset`; hidden: `--approve-plan DIGEST`, `--local-build` |
+| `workbench apply` | Ask the missing machine questions on a first run, plan files and effects, apply the saved choices, and show the checklist only when something needs deciding or the owner asks (section 5). | `--dry-run`, `--yes`, `--choose`, `--reset`, `--approve-plan DIGEST`; hidden: `--local-build`, `--destination` |
 | `workbench init` | One-time adoption (`--answers-from`) and re-asking a saved answer (`--ask NAME`, moved from `apply`). | `--answers-from`, `--ask`, `--dry-run` |
 | `workbench doctor` | As today, plus the saved skips and the last apply's release and date. | |
 | `install.sh` | Installs through `update`, then prints the `apply` instruction. Extra arguments go to `update` only. | |
@@ -90,15 +90,15 @@ Will run
   [x] Record AI usage  NEW
         new usage shows up in workbench costs
 Off
-  [ ] Windows setup
-        theme, fonts and VS Code settings on the Windows side
-        [ ] Replace Windows Terminal settings
-              replaces yours; a copy is kept
-        [ ] Replace PowerShell profile
-        [ ] Install fonts for Windows apps
   [ ] WSL networking
         Windows and WSL share localhost (mirrored)
 Optional     off unless you turn them on
+  [ ] Windows setup
+        theme, fonts and VS Code settings on the Windows side
+  [ ] Replace Windows Terminal settings
+        replaces yours; a copy is kept
+  [ ] Replace PowerShell profile
+  [ ] Install fonts for Windows apps
   [ ] Make <distro> your default
 Already set  Lower swapping, Work tools
 
@@ -119,43 +119,48 @@ Rules:
   effect carries a plain `Title` and one-line `Summary` (for example
   `windows-files` is "Windows setup", `wsl-preferences` "WSL networking",
   `costs-ingest` "Record AI usage", `ai-security-settings` "AI safety
-  settings", `terminal-adoption` "Replace Windows Terminal settings",
+  settings", `bitwarden-session-cache` "Bitwarden session caching",
+  `terminal-adoption` "Replace Windows Terminal settings",
   `powershell-adoption` "Replace PowerShell profile", `font-registry` "Install
   fonts for Windows apps", `default-distro` "Make <distro> your default",
   `windows-path` "Add Windows bin folders to PATH", `sysctl` "Lower swapping",
-  `work-tools` "Work tools"). Fixed effects are tagged `always`, effects new to
-  this release since the last approved apply `NEW`.
+  `work-tools` "Work tools"). Fixed effects (the AI safety settings,
+  Bitwarden session caching on a work machine and checkpoint retention) are
+  tagged `always`, effects new to this release since the last approved apply
+  `NEW`.
 - Files: one row per changed file with a friendly title (for example "Claude
   Code settings") and coloured `+N −N`, and a faint line with the path and
   `your own settings kept` (a merged file: a modify template that keeps the
   owner's own keys) or `owned by Workbench` (a file Workbench writes whole). An
   owned file edited outside Workbench since Workbench last wrote it says so and
-  that the edit will be replaced. Selecting a file shows its unified diff in the
+  that the edit will be replaced. "Last wrote" is Workbench's last checkpoint
+  image, else chezmoi's own persistent state (the SHA-256 of the contents it
+  last wrote), so a file whose last writer was a pruned checkpoint is not
+  flagged; a file chezmoi never wrote is still "not previously written".
+  Selecting a file shows its unified diff in the
   detail panel; enter opens it full screen, and `q` or esc goes back. The plan
   carries each file's diff text, capped (and marked as shortened when it is).
   Unchanged files are counted in the header, not listed.
 - Groups, each under a header: `Will run` (checked effects with a change; fixed
-  effects first, unselectable), `Off` (saved skips, plus Windows setup's parts
-  while they are unticked; the heading says only "Off", and each row's panel
-  says why: you turned it off, or it is optional), `Optional` (the optional
-  host effects, unchecked unless selected), then the faint `Already set` line,
-  names only. The cursor can rest on an Already set name to read its panel (what
-  is already in place) but never toggles it. A parent whose parts still have
-  something to do is not folded into it. An empty group is not printed. The
+  effects first, unselectable), `Off` (saved skips; the heading says only
+  "Off", and each row's panel says it was turned off before), `Optional` (the
+  optional host effects, unchecked unless selected), then the faint
+  `Already set` line, names only. The cursor can rest on an Already set name to
+  read its panel (what is already in place) but never toggles it. An empty group
+  is not printed. The
   no-prompt view lists only what will run, then one faint `Off` line naming the
   skipped effects and `--choose`.
-- Windows setup and its parts. `terminal-adoption`, `powershell-adoption` and
-  `font-registry` are listed indented under Windows setup (indent only, no tree
-  glyphs), wherever Windows setup is. Windows setup on: its parts show `[x]`,
-  faint, and cannot be selected or toggled, because they are included. Windows
-  setup off: each part is full brightness and can be ticked on its own. Each
-  part installs what it needs itself and no longer depends on `windows-files`
-  having run, so there is no partial state.
+- Windows setup and its parts. Windows setup (`windows-files`) and its three
+  parts, `terminal-adoption`, `powershell-adoption` and `font-registry`, are
+  ordinary `Optional` rows, off until ticked. Ticking Windows setup ticks none
+  of the parts, and each part installs what it needs itself without depending
+  on `windows-files` having run, so there is no partial state. Only WSL
+  networking (`wsl-preferences`) is on by default among the Windows steps.
 - The detail panel, for the row under the cursor: what it does, what it would
   do on this machine now (the probe's text), what it changes, who it runs as
   (with `network` when the script fetches), how to undo it, its status (always
-  runs, will run, off because you turned it off, off and optional) and its
-  relation to Windows setup. Non-interactive `--verbose` prints the panel for
+  runs, will run, off because you turned it off, off and optional).
+  Non-interactive `--verbose` prints the panel for
   every listed row, and the recovery limits.
 - Keys: ↑↓ move, space on/off, enter open (the full-screen diff for a file),
   `a` apply, `q` quit; mouse click selects a row, clicking the selected row
@@ -169,11 +174,12 @@ Rules:
   runs, for example `Windows didn't answer in time; checked again when
   applied`. The effect stays checked and its script runs normally.
 - `--dry-run` prints the same view once, without the key line, and exits 0.
-  `--json` carries the same data: per file `path`, `title`, `action`, `summary`,
-  `added`, `removed`, `diff`, `diff_truncated`, `merged`, `edited_outside`; per
-  effect `name`, `title`, `summary`, `what`, `touches`, `runs_as`, `undo`,
-  `delta`, `privilege`, `checked`, `saved_skip`, `no_change`, `new`, `optional`,
-  `parent`, `probe` (`ok`, `failed`, `timeout`), `probe_note`; plus
+  `--json` carries the same data except the diff text: per file `path`, `title`,
+  `action`, `description`, `summary`, `added`, `removed`, `settings`, `merged`,
+  `folder`, `edited_outside`; per effect `name`, `title`, `summary`,
+  `description`, `what`, `touches`, `runs_as`, `undo`, `delta`, `privilege`,
+  `recovery`, `checked`, `fixed`, `saved_skip`, `no_change`, `new`, `optional`,
+  `probe` (`ok`, `failed`, `timeout`, `unanswered`), `probe_note`; plus
   `plan_digest`. The digest covers the files, the effect names and which are
   checked, never the probed text, the no-change or new marks or the probe note,
   so a probe that answers differently at recheck cannot void an approval.
@@ -250,22 +256,28 @@ checked and its script runs normally. The plan never blocks on a probe.
     in it (or in `skip` or `select`), and no owned file was edited outside
     Workbench since Workbench last wrote it: the plan prints and the saved
     selection applies without a prompt, but only at a controlling terminal;
-    without one apply refuses unless `--approve-plan` or `--yes` is given;
+    without one apply refuses unless `--approve-plan` or `--yes` is given (a
+    coding agent is refused `--yes` and needs `--approve-plan`); the refusal
+    comes before setup, so nothing is downloaded or saved;
   - otherwise the checklist opens with the saved choices set, the undecided
     effects marked `new` and the edited owned files named, and an approval
     saves the result and `decided`.
   The first apply on a release that introduces `decided` has none saved, so it
   asks once.
 - `--choose`: always show the checklist with the saved choices set. It needs a
-  terminal and cannot be combined with `--yes`, which never asks (exit 2).
-  `--reset` cannot be combined with `--yes` either (exit 2): `--yes` would turn
-  every step the owner skipped back on and apply it unasked.
+  terminal (exit 3 without one) and cannot be combined with `--yes`, which never
+  asks, with `--approve-plan`, or with `--json` or `--non-interactive` (exit 2);
+  a coding agent is refused (exit 3). `--reset` cannot be combined with `--yes`
+  either (exit 2): `--yes` would turn every step the owner skipped back on and
+  apply it unasked.
 - `--reset`: forget `skip`, `select` and `decided` for this host's effects and
   show the checklist with defaults (everything default checked, optional
   effects unchecked). Saved entries for effects this host does not list (for
-  example a macOS effect on Linux) are kept in `machine.toml` and ignored.
+  example a macOS effect on Linux) are kept in `machine.toml` and ignored,
+  except a saved `select`, which is shown as a plan warning and which `--reset`
+  forgets.
 - `--yes` (`-y`): never prompt; undecided effects take their defaults (or their
-  saved choice) and become decided.
+  saved choice) and become decided. Refused for a coding agent (exit 3).
 - `--dry-run` and `--approve-plan DIGEST` are unchanged: a dry run saves
   nothing; an approved digest applies exactly that plan without a prompt, and a
   changed machine, release or selection exits 4 (conflict) with
@@ -283,23 +295,27 @@ checked and its script runs normally. The plan never blocks on a probe.
   `WORKBENCH_EFFECT_<NAME>=1` or `=0` for every effect, a script whose effects
   are all unchecked is not run at all, and a shared script wraps each
   effect's section in its own gate (`linux-packages`/`work-tools`,
-  `windows-files`/`wsl-preferences`). A shared script with one effect
-  unchecked still runs its other sections; its private copy gets a
-  `# workbench: skipped <names>` line after the shebang, so chezmoi reruns it
-  once the effect is checked again. Checking `windows-files` includes
-  `terminal-adoption`, `powershell-adoption` and `font-registry` (they are its
-  parts, shown checked and locked); with it unchecked each part is its own
-  choice. A part installs what it needs itself. Saving records each part's own
-  choice, also while `windows-files` is checked, so the included state is never
-  saved as a choice: unticking Windows setup later brings back what the owner had
-  picked for each part. The Terminal part rewrites `settings.json` only when it
+  `macos-packages`/`work-tools`, `macos-apps-extensions`/`work-tools`,
+  `linux-editor-extensions`/`work-tools`, `windows-files`/`wsl-preferences`).
+  The shared VS Code extension template builds its extension list from the same
+  gates. A shared script with one effect unchecked still runs its other
+  sections; its private copy gets a `# workbench: skipped <names>` line after
+  the shebang, so chezmoi reruns it once the effect is checked again. A checked
+  `update-<name>` effect owns the `50-apps-and-extensions` script like a listed
+  effect, so an update is never dropped with the apps unticked. The Windows
+  parts are separate choices: ticking `windows-files` ticks none of
+  `terminal-adoption`, `powershell-adoption` and `font-registry`, and each part
+  installs what it needs itself. The Terminal part rewrites `settings.json`
+  only when it
   differs from what it would write (the probe renders it and compares), keeps a
   `before-workbench` copy of the old one, and registers the fonts it uses.
-- The optional WSL effects (`terminal-adoption`, `powershell-adoption`,
-  `font-registry`, `default-distro`, `windows-path`, `sysctl`) are unchecked by
-  default and saved the same way; the three Windows parts are listed under
-  Windows setup, the others under `Optional`.
-  Checking one is remembered as `[effects] select = ["sysctl"]`.
+- The optional WSL effects (`windows-files`, `terminal-adoption`,
+  `powershell-adoption`, `font-registry`, `default-distro`, `windows-path`,
+  `sysctl`) are unchecked by default and saved the same way, and all are listed
+  under `Optional`. Checking one is remembered as `[effects] select = ["sysctl"]`.
+  A selected `default-distro` with no `WSL_DISTRO_NAME` no longer refuses the
+  plan: its script reports the step blocked and the apply finishes the rest
+  (exit 3).
 - `doctor` prints `effects: skipped windows-files (saved)` and
   `applied: v0.1.8 on <date>`.
 
@@ -313,8 +329,8 @@ workbench apply --approve-plan DIGEST # applies exactly that plan, exit 4 if it 
 workbench init --answers-from FILE --dry-run --json   # same pattern for init
 ```
 
-`--yes` is for a person who trusts the saved selection; `--approve-plan` is
-for a caller that read the plan first.
+`--yes` is for a person who trusts the saved selection (a coding agent is
+refused it); `--approve-plan` is for a caller that read the plan first.
 
 ## 7. Failures
 
@@ -335,11 +351,13 @@ for a caller that read the plan first.
   `WORKBENCH_PROBE=1` must exit 0 and print only lines of the form
   `<effect-name>: <text>` or `<effect-name>: = <text>`. The WSL probes run under the existing static
   simulation.
-- One Go test: a digest approved for a selection must be refused when the
-  saved skip list changes between dry run and apply. It guards the consent
-  boundary, the one place a wrong answer runs unapproved scripts. The
-  no-prompt apply adds one more guarded risk, running an effect the owner
-  skipped, and may add one safeguard for it.
+- A few Go tests guard the consent boundary, where a wrong answer runs
+  unapproved scripts: a digest approved for a selection is refused when the
+  saved skip list changes between dry run and apply; a saved skip is never
+  checked again by the no-prompt apply; every shared script gates each section
+  on its own effect; the Windows steps run only when selected by name; a step
+  never shown is not recorded as decided; a coding agent's apply is refused
+  before setup.
 - No script run by apply asks a second question (every `read -p`-style prompt
   in an apply-run script is gone; the WSL networking row lists each `.wslconfig`
   setting the merge will change, and the merge still writes its recovery copy).

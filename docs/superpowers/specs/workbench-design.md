@@ -38,6 +38,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
+| `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
 | `home/.chezmoitemplates/` | Shared shell/native configuration fragments and merges. |
@@ -45,7 +46,9 @@ Native qualification and final acceptance are tracked separately in
 
 Global VS Code merging accepts JSONC and preserves unrelated values/rules; it
 leaves the file untouched when no value changes and otherwise emits JSON
-without comments. Project TOML/JSONC/YAML editing has stricter
+without comments; the Windows-side edit of Todo Tree's ripgrep path is a
+separate one-setting edit that keeps comments and every other byte and refuses
+when it cannot prove the result. Project TOML/JSONC/YAML editing has stricter
 round-trip preservation gates. Invalid machine Codex TOML no longer falls back
 to a replacement body.
 
@@ -55,9 +58,10 @@ recorded state, not package health or complete drift, and performs bounded local
 checks but does not qualify a live editor profile. Project configuration supports
 uv Python; other languages are discovery-only. `update` and `install.sh`
 default to GitHub's latest release; no production-qualified activation exists. WSL full provisioning runs the
-Linux scripts plus Windows host steps, with Terminal/PowerShell adoption and
-other host changes as selected optional effects; none of it has run on a real
-Windows host yet. Do not infer native acceptance from code,
+Linux scripts plus Windows host steps: WSL networking is on by default, and
+Windows setup, Terminal/PowerShell adoption and other host changes are optional
+effects, off until selected; none of it has run on a real Windows host yet.
+Do not infer native acceptance from code,
 cross-compilation or static WSL rendering.
 
 ## 3. Architecture and reuse
@@ -94,6 +98,7 @@ internal/operation/                Shared plans, consent, state and checkpoints
 internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
 internal/project/                  Discovery and project configuration
+internal/costs/                    AI-tool cost ledger and reports
 home/                             Existing canonical machine configuration
 project/python/                   Portable configuration policy, not app scaffolding
 scripts/                          Existing validation plus release tooling
@@ -129,7 +134,7 @@ This table defines the command contract. Exact flags, install options and suppor
 
 | Command | Contract |
 | --- | --- |
-| `workbench apply` | Set up Workbench's own tools and ask missing machine questions, then preflight, preview the changed files and each provisioning effect's probed delta as a checklist, confirm the checked selection, checkpoint, execute approved operations, validate and record the result. Choices are saved (`skip`, `select`, `decided`) and a later apply with nothing new applies them without asking; `--choose` asks again, `--reset` forgets them and `--yes` never asks. A `--local-build` checkout uses the saved answers and tools as they are. |
+| `workbench apply` | Set up Workbench's own tools and ask missing machine questions, then preflight, preview the changed files and each provisioning effect's probed delta as a checklist, confirm the checked selection, checkpoint, execute approved operations, validate and record the result. Choices are saved (`skip`, `select`, `decided`) and a later apply with nothing new applies them without asking; `--choose` asks again, `--reset` forgets them and `--yes` never asks. A coding agent always needs `--approve-plan` from a `--dry-run --json` plan and is refused `--yes`. A `--local-build` checkout installs the tools its own `versions.toml` pins when they are missing and uses the saved answers as they are. |
 | `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no setup, application or provisioning. |
 | `workbench init` | One-time adoption of a chezmoi config's `[data]` answers (`--answers-from FILE`), or asking a saved answer again (`--ask KEY`). |
 | `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging and journaled activation, and hand off to the new runtime, which installs its pinned tools and stops. An older VERSION goes back. An already active release is not reinstalled; `apply` is a separate command. |
@@ -139,6 +144,8 @@ This table defines the command contract. Exact flags, install options and suppor
 | `workbench project inspect [PATH]` | Read-only discovery of languages, project boundaries, tool ownership, shared configuration and unsupported cases. PATH defaults to `.` and must exist. |
 | `workbench project configure [PATH] [--language NAME ...]` | Preview and configure supported tooling in existing projects. Repeated language flags narrow selection; no flags means supported detected languages. |
 | `workbench project configure [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
+| `workbench project revert [PATH]` | Undo a project configure's file changes from a saved checkpoint of that project, chosen at a terminal or by `--checkpoint ID`. |
+| `workbench costs` | Usage figures for Claude Code and Codex from the local ledger the session hooks keep (see the [ledger design](2026-09-30-claude-costs-ledger-design.md)); `costs rates`, `costs status` and the hook command `costs ingest` belong to it. |
 
 Examples:
 
@@ -179,9 +186,9 @@ Resolve runtime locations from the user's supported platform conventions and app
 
 One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets: `workbench init --answers-from` copies only its `[data]` table, under plan consent (see [switching from dotfiles](../../switch-from-dotfiles.md)). Do not maintain two competing active source selectors.
 
-Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization belongs to the setup stage of `update`, never an implicit effect of doctor or a preview. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths and source identity. Do not replace Git with a no-op command or duplicate the questions.
+Archive-based setup reuses native configuration templating without cloning a repository or requiring external Git. Use `chezmoi --use-builtin-git=true init` in a verified private application context: native init creates empty local Git metadata, without a remote, commits or checkout download. This metadata is generated private state, never part of published assets. Initialization belongs to the setup stage of `apply`, never an implicit effect of doctor or a preview. The [native initialization proof](workbench-contracts.md#native-initialization) defines paths and source identity. Do not replace Git with a no-op command or duplicate the questions.
 
-The CLI itself does not require a Python installation, but existing modify scripts can. Preflight must account for every rendering prerequisite, including Python with `tomllib`, before claiming clean-machine application works. Installing those prerequisites is the setup stage of `update`, which the command itself requests; previews and configuration-only apply must not install them implicitly.
+The CLI itself does not require a Python installation, but existing modify scripts can. Preflight must account for every rendering prerequisite, including Python with `tomllib`, before claiming clean-machine application works. Installing those prerequisites is the setup stage of `update` and `apply`, which the command itself requests; previews must not install them implicitly.
 
 An optional hidden `--local-build` developer flag selects the checkout containing the current directory; ordinary release installation and project configuration work without one once a release is installed, since they read tool version pins from the active release. Hash its inputs for every plan and never change the checkout during inspection. Paths and other overrides are defined in the implementation contracts.
 
@@ -298,7 +305,7 @@ TypeScript service selection, imported-name colors, and changes to Todo Tree con
 
 Update the canonical extension list by adding `astral-sh.ty`, keeping `charliermarsh.ruff`, `ms-python.python`, `ms-python.debugpy`, `ms-python.vscode-python-envs` and existing notebook support, and removing Pylance/mypy from desired installation. Do not add the basedpyright/Pyright extensions or the Python Ruff server to this default stack.
 
-Removing a desired-list entry does not uninstall an extension. Inspect the selected profile and obtain consent for targeted conflicting-extension removal/disablement; never delete extension directories or uninstall every unlisted extension. Report extension changes as external effects outside configuration-only revert.
+Removing a desired-list entry does not uninstall an extension. Inspect the selected profile and obtain consent for targeted conflicting-extension removal/disablement; never delete extension directories or uninstall every unlisted extension. Report extension changes as external effects outside checkpoint revert.
 
 Extend the existing `[uv_tools]` table without removing unrelated tools. Verified selected pins are ty `0.0.82`, Ruff `0.16.8` and basedpyright `1.40.1`. They are not assertions of latest versions or mandatory project downgrades. No Copier dependency is required.
 

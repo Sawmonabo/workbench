@@ -12,9 +12,9 @@ earlier `claude-costs` script and its row in [contracts](workbench-contracts.md)
 ## 1. Problem
 
 `claude-costs` reports per-project, per-model Claude Code spend by re-reading
-the session transcripts under `~/.claude/projects` on every run. Observed on one
-developer machine on 2026-09-30, that gives a total several times too low, for
-six independent reasons:
+the session transcripts under `~/.claude/projects` on every run. Observed on a
+real history on 2026-09-30, that gives a total several times too low, for six
+independent reasons:
 
 1. Discovery globs one directory level, so subagent transcripts under
    `<session>/subagents/` are never read. They held 97% of the files and 86% of
@@ -73,7 +73,7 @@ one rate source inside `rates`, and there is no cache to clean.
 
 | Path on the machine | Role |
 | --- | --- |
-| `~/.local/share/claude-costs/ledger.sqlite` | The durable record. User data; the tool never deletes, renames or recreates it. |
+| `~/.local/share/claude-costs/ledger.sqlite` | The durable record. User data; the tool never deletes, renames or recreates it. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
 | `~/.local/share/claude-costs/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. |
 | `~/.config/claude-costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `~/.local/state/claude-costs/ingest.log` | Bounded worker log. |
@@ -158,6 +158,10 @@ Row semantics:
   `usage.cache_creation.ephemeral_5m_input_tokens` and
   `ephemeral_1h_input_tokens`. When that object is absent, the whole
   `cache_creation_input_tokens` count is stored as `cache_write_5m`.
+- `usage.speed` of `"fast"` stores the response's model as `<model>@fast` (the
+  service-tier id Codex uses, section 4 of the Codex spec); any other value, or
+  none, is the plain model. An advisor row keeps the advisor's own model, which
+  its iteration bills; iterations carry no speed.
 - `project` is the record's `cwd`. A record without one inherits the last cwd
   seen in the same file, else the project directory name decoded from the path.
 - Each `usage.iterations` entry of type `advisor_message` becomes its own row,
@@ -208,9 +212,10 @@ and stored in `last_error`; committed files are not reprocessed next time.
 
 ### Inline first run
 
-`report` and `status` on a ledger with no `responses` rows run the worker
-inline with a progress line on stderr, so the tool works before the hooks are
-applied. This is the same worker function; there is no second ingest path.
+`report` and `status` run the worker inline, with a progress line on stderr,
+when a recorded tool has transcripts but no rows in the ledger (a new ledger, or
+a tool added after the hooks were installed), so the tool works before the hooks
+are applied. This is the same worker function; there is no second ingest path.
 
 ### Backfill limit
 
@@ -223,11 +228,17 @@ rows carry each source.
 
 A rate card maps a model-id prefix to five USD-per-million-token fields:
 `input`, `output`, `cache_write_5m`, `cache_write_1h`, `cache_read`. Cost of a
-row is the dot product of its five token columns with those fields. Matching is
-longest prefix within a source, so `claude-opus-5-5` beats `claude-opus`.
+row is the dot product of its five token columns with those fields. Fast-mode
+prices are `@fast` rows; a model with no `@fast` row is reported unpriced when it
+has fast-mode responses, never priced at the standard rate.
 
-Sources, in this order; the first source with a matching prefix decides, so an
-override keyed `claude-opus` beats an official `claude-opus-5-5` row:
+Matching: an override row with a matching prefix always wins, so an override
+keyed `claude-opus` beats an official `claude-opus-5-5` row. Among the other
+sources the longest matching prefix wins, wherever it comes from, so
+`claude-opus-5-5` beats `claude-opus`; a dated snapshot suffix (`-20251101`)
+does not make a prefix longer, so Claude Code's dated calibration key ties the
+page's undated row for the same model. Rows equally specific go by this source
+order:
 
 1. `~/.config/claude-costs/rates.json`, the manual override file.
 2. `rates-official.json`, parsed from
@@ -240,7 +251,8 @@ override keyed `claude-opus` beats an official `claude-opus-5-5` row:
 
 ### Refresh policy
 
-Only the background worker fetches, after ingesting, and only when the cached
+Only an ingest run fetches (the background worker, or the inline first run of
+section 5), after ingesting, and only when the cached
 card is older than seven days or the ledger contains a model that no source
 prices, and at most one attempt per day whatever the outcome. The request is a conditional GET carrying the stored ETag and
 Last-Modified, with a five-second timeout. A 304 updates only the fetch time.
@@ -252,8 +264,13 @@ and reports the outcome.
 
 The page is Markdown. The parser reads each table whose header row contains a
 cell matching `input` and one matching `output`. The first table that prices a
-model wins; tables under batch or fast-mode headings are skipped, and names with
-parenthesized notes are cleaned while cells naming several models are dropped. Columns are mapped by header
+model wins; tables under a batch heading are skipped; the table under the
+fast-mode heading prices `<model>@fast`, where one cell may name several models
+joined by `/` (`Claude Opus 5 / Claude Opus 4.8`) and each gets the row, and the
+caching multipliers of the model's standard row (1.25x, 2x, and 0.1x or 0.05x for
+reads) apply on top of the fast input rate; names with parenthesized notes are
+cleaned and, outside the fast-mode table, cells naming several models are
+dropped. Columns are mapped by header
 text: `input`, `output`, `5m` or `write` for the five-minute write, `1h` for
 the one-hour write, `read` for cache read. Missing write columns are derived as
 1.25x and 2x input. A row is accepted when its first cell names a model and the
@@ -323,8 +340,9 @@ Rules:
   `--detail` (project view only) prints one block per project, header
   `<project>  $cost  share · calls`, with its own model table, then a
   `model (all projects)` table carrying the total row.
-- Headline: the total in the tool's color, then the response count and
-  period, then a faint `API list-price equivalent, not a subscription bill ·
+- Headline: the total in the tool's color, then the response count and first
+  and last day of the rows the table covers (the same period and scope as the
+  total, so `--since`, `--until` and the default scope apply), then a faint `API list-price equivalent, not a subscription bill ·
   updated <local time>`. Rate sources are not repeated here; `costs rates`
   and `costs status` show them.
 - Look: each tool has its own color (Claude Code `#D97757`, Codex `#10A37F`)
@@ -351,14 +369,14 @@ Rules:
 | --- | --- |
 | `--by project` | Default. One line per repository. |
 | `--by model`, `--by account`, `--by month` | One line per value of that dimension. |
-| `--since`, `--until` | Inclusive `YYYY-MM-DD` bounds on the response timestamp. |
+| `--since`, `--until` | Inclusive `YYYY-MM-DD` bounds on the response's day in the machine's local time zone; months and days in the report (`--by month`, a focus page's day table) and the dates of `status` coverage are local too. |
 | `--all` | Include projects outside `~/dev` and `~/repos`. |
 | `--top N` | Show the first N rows; totals and shares still cover every row. |
 | `--sort cost\|name\|calls` | Row order; cost descending by default. |
 | `--detail` | Per-project blocks with model rows (project view). |
 | `--tokens` | The five token columns instead of `share`, `tokens`, `cached`. |
 | `--no-rollup` | Keep every working directory separate. |
-| `--json`, `--csv` | Machine output of the same rows; JSON adds `hidden_projects`. |
+| `--json`, `--csv` | Machine output of the same rows; JSON adds `hidden_projects` and top-level `first` and `last` (the local days of the rows the table covers, `none` when empty); `coverage` keeps meaning the whole ledger and is what `status` shows. |
 
 `--compact` is removed: the default view is the compact one.
 
@@ -381,10 +399,11 @@ holds the lock, rate card age, and whether both hooks are present in the live
 
 ## 9. Verification
 
-One test, per the repository rule: `internal/costs/ledger_test.go` guards the
-only catastrophic-loss path, a resumed session's smaller copy lowering stored
-usage or the version 2 upgrade dropping rows. Everything else is observed
-checks before commit:
+`internal/costs/ledger_test.go` guards a resumed session's smaller copy lowering
+stored usage, the version 1 and 2 upgrades dropping rows, and a weaker copy
+overwriting a stronger account attribution; `codex_test.go` guards a fork's copy
+being counted twice or dropped. Everything else is observed checks before
+commit:
 
 1. Backfill on a machine with real transcripts, then compare the ledger's cost for each
    session whose transcript still exists against that project's `lastCost` in
@@ -399,11 +418,11 @@ checks before commit:
 
 ### Observed 2026-09-30
 
-Backfill of one developer machine's real transcripts into a scratch ledger
+Backfill of several weeks of real transcripts into a scratch ledger
 (read-only on `~/.claude`; nothing written to the real ledger paths):
 
-- 1,164 transcript files and 71,138 ledger rows covering six weeks, ingested in
-  5.2 seconds. The official pricing page fetch succeeded and priced 19 models.
+- About a thousand transcript files, ingested in seconds. The official pricing
+  page fetch succeeded and priced every model the transcripts named.
   All rows are sweep-tagged because no hook has run.
 - The ledger total was about eight times the total from the script it replaces
   and about 1.4 times the sum of the per-project `lastCost` counters, which only
@@ -494,7 +513,7 @@ internal/costs/
   claude.go   Claude Code: transcripts, record parsing, advisor rows, account, prices
   ledger.go   SQLite ledger: open, schema check, max-wins upsert, files, meta
   ingest.go   worker over every source: offsets, lock, log, rate refresh
-  rates.go    card resolution: override, official, calibrated, built-in; longest prefix
+  rates.go    card resolution: override first, then the most specific prefix, then official, calibrated, built-in
   report.go   groups, rollup, scope, totals; returns rows and prints nothing
 internal/cli/
   costs.go      the four commands and their flags; the plain report
@@ -567,8 +586,12 @@ overrides (`CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES`),
 because transcripts expire and the ledger is the only lasting record. Schema
 version 2 adds one column, `tool TEXT NOT NULL DEFAULT 'claude'`; opening a
 version 1 ledger adds it in one transaction and sets the version, keeping every
-row. That additive change is the only write to existing data. Claude request
-IDs stay as they are; another tool's IDs are stored as `<tool>:<id>`, so the
+row. Versions 1 and 2 are upgraded in place to version 4 in one transaction that
+keeps every row (the Codex costs design, section 4, lists what version 4
+adds); any other version is refused without modification. Later ingests refine
+the account, subscription and tier of rows they recorded and drop duplicate fork
+copies (Codex costs design, sections 3 and 4); nothing else rewrites existing
+rows. Claude request IDs stay as they are; another tool's IDs are stored as `<tool>:<id>`, so the
 primary key never collides and the table is not rebuilt. Any other version is
 refused without modification, as section 4 says.
 

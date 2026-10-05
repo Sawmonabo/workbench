@@ -1,5 +1,7 @@
 # claude-costs Ledger Implementation Plan
 
+Status: executed; the checkboxes are the task script, not progress. The [spec](../specs/2026-09-30-claude-costs-ledger-design.md) records what shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the transcript-scanning `claude-costs` script with a durable SQLite ledger fed by async Claude Code hooks, priced at current rates, reported by project, model, account and month.
@@ -2008,7 +2010,7 @@ export CLAUDE_COSTS_LEDGER="$S/real/ledger.sqlite" CLAUDE_COSTS_STATE="$S/real/s
 python3 home/dot_local/bin/executable_claude-costs ingest --worker
 python3 home/dot_local/bin/executable_claude-costs status
 ```
-`unset CLAUDE_CONFIG_DIR` makes the script read the real `~/.claude/projects` and `~/.claude.json` (read-only); everything it writes lands under `$S/real`. Expected: `status` shows coverage starting at the oldest surviving transcript date (2026-08-18 on 2026-09-30), on the order of 69,000 responses, all sweep-tagged, `last error none`, and an ingest summary like `manual: 1164 files, 137829 records in 9.1s; rates: official card updated (19 models)` (observed 2026-09-30; records exceed responses because streamed responses are upserted more than once) or ending in `fetch failed … keeping cached card` when offline. Either fetch outcome is acceptable. `claude-costs rates` then shows `official` for every current model on the pricing page and flags any calibrated row that disagrees with it.
+`unset CLAUDE_CONFIG_DIR` makes the script read the real `~/.claude/projects` and `~/.claude.json` (read-only); everything it writes lands under `$S/real`. Expected: `status` shows coverage starting at the oldest surviving transcript date, all sweep-tagged, `last error none`, and an ingest summary like `manual: N files, M records in Ts; rates: official card updated (K models)` (records exceed responses because streamed responses are upserted more than once) or ending in `fetch failed … keeping cached card` when offline. Either fetch outcome is acceptable. `claude-costs rates` then shows `official` for every current model on the pricing page and flags any calibrated row that disagrees with it.
 
 - [ ] **Step 2: Compare per-session cost against Claude Code's own `lastCost`**
 

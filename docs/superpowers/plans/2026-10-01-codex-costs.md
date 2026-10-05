@@ -1,5 +1,7 @@
 # Codex Costs Implementation Plan
 
+Status: executed; the checkboxes are the task script, not progress. The [spec](../specs/2026-10-01-codex-costs-design.md) records what shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Record every Codex response in the `workbench costs` ledger, priced from OpenAI's live price page at the service tier it ran at, and install Codex ingest hooks that Workbench itself marks trusted.

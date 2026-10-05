@@ -8,14 +8,19 @@ Distinguish implemented code, observed checks and unqualified release targets.
 ## Development contract
 
 - Greenfield: update canonical code, callers and docs in place. No migrations,
-  compatibility readers/flags, obsolete aliases or dual paths.
+  compatibility readers/flags, obsolete aliases or dual paths. One exception:
+  the costs ledger (`internal/costs/ledger.go`) upgrades older schema versions
+  in place, in one transaction that keeps every row, because transcripts expire
+  and the ledger is the only lasting record of spend.
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.
 - Reuse common functionality at its existing owner. One Go/Cobra CLI, one Go
   module, focused internal packages; no public `pkg`, generic `utils`, mock-only
   interfaces, extra task runner or speculative plugin framework.
-- Keep tests near zero. Add one only for concrete catastrophic data loss,
-  credential exposure or unauthorized execution. Explain that risk beside it.
+- Keep tests near zero. Add one only for concrete catastrophic data loss
+  (including silent, unrecoverable corruption of the costs ledger, the only
+  lasting record of spend), credential exposure or unauthorized execution.
+  Explain that risk beside it.
   No coverage target, TDD mandate, per-feature suite or broad failure matrix.
 - Routine gates: `golangci-lint fmt`, `golangci-lint config verify`,
   `golangci-lint run ./...`, `go build ./...`; run the tiny safeguards with
@@ -27,20 +32,24 @@ Distinguish implemented code, observed checks and unqualified release targets.
   has never decided asks once. `--choose` always asks, `--reset` forgets the
   choices, `--yes` never asks (refused with `--choose` or `--reset`). Applying
   without asking needs a controlling terminal and no coding agent: a caller
-  without a terminal, or an agent even in a pseudo-terminal (`CLAUDECODE=1`,
-  or `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX`,
-  `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), needs `--approve-plan`. The
-  scripts apply runs never prompt: ticking the step is the approval (one-time
-  helpers the owner runs later may prompt). A Windows setup part ticked on its
-  own keeps its own choice while Windows setup is on.
+  without a terminal needs `--approve-plan` or `--yes`, and a coding agent,
+  even in a pseudo-terminal (`CLAUDECODE=1`, or `CODEX_CI`, `CODEX_THREAD_ID`,
+  `CODEX_SANDBOX`, `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), always needs
+  `--approve-plan` and is refused `--yes` and `--choose`. A run nobody approved
+  is refused (exit 3) before Workbench downloads or saves anything. The scripts
+  apply runs never prompt: ticking the step is the approval (one-time helpers
+  the owner runs later may prompt). On WSL, Windows setup and each of its parts
+  (Terminal settings, PowerShell profile, font registry) are separate optional
+  steps, off until ticked, and ticking Windows setup ticks none of its parts;
+  only WSL networking is on by default.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
   selection changed since. `workbench init --answers-from FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
   the saved selection, not for a caller that did not read the plan; it never
-  asks, so use it only when new effects may take their defaults. From a
-  checkout, add `--local-build` to both `apply` calls.
+  asks, so use it only when new effects may take their defaults. A coding agent
+  is refused it. From a checkout, add `--local-build` to both `apply` calls.
 - Use isolated destinations and synthetic credentials for smoke checks. Never
   provision the developer's live machine to validate code.
 
@@ -58,6 +67,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the shared merge |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/python/` |
+| AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/private_dot_codex/private_hooks.json.tmpl`) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
 not home deployment targets. Keep chezmoi naming and platform selection in
@@ -86,9 +96,11 @@ weaken the release source check or add a second renderer. The WSL argument is
 static simulation, not Windows qualification.
 
 Invalid existing configuration must fail without fallback replacement. Global
-VS Code merging accepts JSONC, leaves the file untouched when no value changes
-and otherwise emits JSON without comments; project JSONC editing preserves
-supported syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
+VS Code merging (the shared chezmoi merge) accepts JSONC, leaves the file
+untouched when no value changes and otherwise emits JSON without comments; the
+Windows-side one-setting edit keeps comments and every other byte, and refuses
+when it cannot prove the result. Project JSONC editing preserves supported
+syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
 Do not change deferred TypeScript/import-color/Todo Tree policy incidentally.
 
 ## Documentation and release boundaries

@@ -13,10 +13,13 @@ Linux pins. Compatible management dependencies are borrowed, not installed twice
 
 Full provisioning requires Xcode Command Line Tools/Homebrew prerequisites and
 may need elevation/network access. Missing required effects return incomplete
-results. Every full apply ends with `brew-maintenance`: tap-sourced
-`packages.toml` formulae move to homebrew/core, unused taps are removed, and
-`brew autoremove` and `brew cleanup -s --prune=all` run. Cleanup's one warning
-per outdated formula it skips is folded into a single count; `brew outdated`
+results. Every full apply ends with `brew-maintenance`: it first runs
+`brew update` (a failure only warns), so the next plan sees new versions
+(planning reads Homebrew's index as it is and never refreshes it), tap-sourced
+`packages.toml` formulae move to homebrew/core (the core copy is downloaded
+first, and if the move fails the tapped formula is reinstalled), unused taps are
+removed, and `brew autoremove` and `brew cleanup -s --prune=all` run. Cleanup's
+one warning per outdated formula it skips is folded into a single count; `brew outdated`
 lists them. VS Code extensions install only when missing. Homebrew's own
 automatic cleanup after installs and upgrades stays on, as it is by default.
 

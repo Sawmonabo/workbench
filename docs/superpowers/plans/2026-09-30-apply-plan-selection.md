@@ -1,5 +1,7 @@
 # Apply Plan Selection Implementation Plan
 
+Status: executed; the checkboxes are the task script, not progress. The [spec](../specs/2026-09-30-apply-plan-selection-design.md) records what shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `update` only installs, `apply` shows a branded checklist of concrete per-effect deltas, remembers which effects a machine skips, and approves exactly what was shown; `claude-costs` prints one readable line per repository and then becomes `workbench costs` behind a generic source interface; every table fits the terminal.

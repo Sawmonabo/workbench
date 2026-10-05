@@ -58,12 +58,20 @@ and does not authorize application.
   modify target; malformed TOML fails rather than replacing unrelated state.
   Tables the managed body writes only for another role are removed.
   The body sets no model or reasoning effort, so Codex keeps each machine's.
+  Keys you add to a table the managed body declares are kept, such as
+  `allowed_domains` under `[tools.web_search]` (a table, so it can hold them),
+  and so are your own `[[hooks.*]]` rules. When the merge cannot place a value of
+  yours, it fails and leaves the file as it was rather than drop the value.
 - Claude Code settings are owned by `home/.chezmoidata/claude.json`. Its
   `defaults` (output style, theme and other `/config` choices; no model or
   effort, which Claude Code keeps per machine)
   are written only when missing, so what you pick in a session survives apply.
-  Its `enforced` policy (env, permissions, plugins, marketplaces, status line)
-  wins every apply. Permission lists keep entries granted in a session, keys
+  Its `enforced` policy (env, permissions, hooks, plugins, marketplaces, status
+  line) wins every apply. Permission lists keep entries granted in a session, and
+  so do the hook lists of the enforced events (`SessionStart`, `SessionEnd`): a
+  hook you add survives next to the managed one. A hook group that runs
+  `workbench costs` counts as a copy of the managed hook and is replaced by it,
+  so editing the managed entry itself, for example its timeout, is undone. Keys
   the repo doesn't know are left alone, and malformed JSON fails the apply.
   Apply only adds and overwrites: an entry or key you drop from `enforced`
   stays in the live `~/.claude/settings.json` until you delete it there.

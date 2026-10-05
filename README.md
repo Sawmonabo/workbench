@@ -57,8 +57,9 @@ answers lack; `--dry-run` previews only and never installs or asks. The first
 space turns a step off, `a` applies, and your choices are remembered. After that,
 `apply` prints the plan and applies your saved choices without asking, unless
 a step is new or a file Workbench owns was edited outside it; `--choose` asks
-again, `--reset` forgets your choices and `--yes` never asks. `update` never applies. Unattended use requires the
-plan's exact digest. See [usage](docs/usage.md) for install options, recovery selection and
+again, `--reset` forgets your choices and `--yes` never asks (a coding agent is
+refused it). `update` never applies. Unattended use passes the plan's exact
+digest with `--approve-plan`. See [usage](docs/usage.md) for install options, recovery selection and
 limits.
 
 Python configuration supports existing uv projects/workspaces. Other languages
@@ -93,7 +94,7 @@ acceptance checks.
 ## Development
 
 One Go module, thin `cmd/workbench`, focused
-`internal/{cli,operation,machine,release,project}` packages, canonical machine
+`internal/{cli,operation,machine,release,project,costs}` packages, canonical machine
 sources in `home/`, portable policy in `project/`. Reuse native owners and shared
 operations; no competing installers, compatibility layers or migration machinery.
 

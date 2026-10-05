@@ -12,7 +12,7 @@ import (
 )
 
 // selectPrivateContext is an internal verified application-context selector.
-// The public developer --source resolver never grants this runtime exception.
+// The public developer --local-build resolver never grants this runtime exception.
 func selectPrivateContext(c operation.Context, source string) (operation.Context, error) {
 	path, err := operation.ExistingDirectory(source)
 	if err != nil {

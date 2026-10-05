@@ -7,20 +7,34 @@ not qualified. Real Windows-host testing remains a release gate.
 
 Linux guest configuration and Windows-host effects are distinct.
 Turn every step off in the `apply` plan to apply files only. Full
-provisioning runs the Linux scripts and the Windows host steps: prompt engine,
-fonts, `.wslconfig`, RestartWSL helpers and editor settings. Existing Terminal
-settings and PowerShell profiles are left unchanged unless the matching part
-(`terminal-adoption`, `powershell-adoption`) is on. Those two and `font-registry`
-are parts of Windows setup (`windows-files`): with Windows setup on they are
-included, and with it off each can be ticked on its own, installing what it needs
-itself. `default-distro`, `windows-path` and `sysctl` start off, and your choice
-for each is remembered like any other. The `.wslconfig` merge asks nothing
-during apply: the WSL networking row lists each setting it will change beforehand
-(for example `networkingMode is virtioproxy, will be mirrored`), and a recovery
-copy is written when it changes anything. The Terminal part rewrites
-`settings.json` only when it differs from the managed one, keeping a copy of the
-old file, and registers the font it uses. Windows-side script writes are not checkpointed. No real Windows host run is recorded yet; static
-rendering does not qualify these scripts.
+provisioning runs the Linux scripts and the Windows host steps you leave on or
+tick. WSL networking (`.wslconfig`) is the one Windows step that is on by
+default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep, RestartWSL
+helpers, editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
+remembered. Existing Terminal settings and PowerShell profiles are left
+unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)
+is on. Those two and `font-registry` are optional steps of their own: off until
+you tick them, whether or not Windows setup is on, and each installs what it
+needs itself. `default-distro`, `windows-path` and `sysctl` are optional too, and
+your choice for each is remembered like any other. The `.wslconfig` merge asks
+nothing during apply: the WSL networking row lists each setting it will change
+beforehand (for example `networkingMode is virtioproxy, will be mirrored`), keeps
+the other settings, and a recovery copy is written when it changes anything. The
+Terminal step rewrites `settings.json` only when it differs from the managed one,
+keeping a copy of the old file, and registers the font it uses.
+
+A Windows side that cannot be used at all (no interop, not x64) blocks every
+Windows step you ticked, and a failed Windows download (oh-my-posh, fonts,
+ripgrep, Notepad++ themes) blocks the steps that need it, never the files or the
+other steps; the apply goes on and ends blocked (exit 3). Pointing VS Code's
+todo-tree at ripgrep edits only that one setting, in the Windows user
+`settings.json` and the WSL machine `settings.json`. Comments and trailing
+commas are accepted and kept, a file that already has the value is left
+untouched, and an empty file counts as no settings. A file that is invalid JSON,
+has duplicate keys or cannot be edited without risk is left as it is, and Windows
+setup is reported blocked with the reason while the other steps still run.
+Windows-side script writes are not checkpointed. No real Windows host run is
+recorded yet; static rendering does not qualify these scripts.
 Project inspection/configuration is not Windows-host provisioning.
 
 The canonical WSL scripts describe these effects:
