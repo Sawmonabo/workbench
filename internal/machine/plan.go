@@ -227,11 +227,11 @@ func (p *preparation) checkPrerequisites(
 		}
 	}
 	if len(plan.Prerequisites) > 0 {
-		message := "Workbench's tools are missing; run workbench update, or workbench apply at a terminal, to install them"
+		missing := "Workbench's tools are missing; "
 		if c.Native.Developer {
-			message = "This checkout's pinned tools are not installed; run workbench apply --local-build at a terminal to install them"
+			missing = "This checkout's pinned tools are not installed; "
 		}
-		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", message)
+		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", missing+InstallHint(c))
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)

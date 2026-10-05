@@ -116,7 +116,7 @@ func validateAnswers(a Answers) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"answers",
-			"Incomplete or invalid machine answers; workbench apply asks any missing question",
+			"Incomplete or invalid machine answers; workbench apply at a terminal, without --local-build, asks the missing ones, or save them with workbench init --answers-from FILE",
 		)
 	}
 	text := func(key string) string { value, _ := a[key].(string); return value }

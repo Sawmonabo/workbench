@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
 )
@@ -165,7 +166,7 @@ func (p *Proposal) addPolicy(
 	if err != nil {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Workbench's private Python and TOML Kit are missing; workbench apply installs them",
+			"Workbench's private Python and TOML Kit are missing; "+machine.InstallHint(c),
 		)
 		return err
 	}

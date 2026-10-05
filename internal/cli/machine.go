@@ -198,7 +198,7 @@ func applyCommand(o *options) *cobra.Command {
 					return operation.NewResult(cmd.CommandPath()), err
 				}
 				c.ReadOnly = false
-				result, plan, err := applyMachine(cmd, c, o, nil)
+				result, plan, err := applyMachine(cmd, c, o)
 				if err == nil {
 					result.Summary = appliedSummary(result, plan)
 				}
@@ -327,14 +327,13 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 }
 
 // applyMachine installs Workbench's tools when missing and asks the machine
-// questions the saved answers lack (or ask names), plans, gets the selection
+// questions the saved answers lack, plans, gets the selection
 // approved and applies it. A local checkout installs the tools its own
 // versions.toml pins when missing and uses the saved answers as they are.
 func applyMachine(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
-	ask []string,
 ) (operation.Result, operation.Plan, error) {
 	result := operation.NewResult(cmd.CommandPath())
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
@@ -345,7 +344,7 @@ func applyMachine(
 		// its versions.toml pins when they are missing.
 		c, err = setUp(cmd, c, o, nil, &result, false, nil)
 	} else {
-		c, err = setUp(cmd, c, o, terminal, &result, true, ask)
+		c, err = setUp(cmd, c, o, terminal, &result, true, nil)
 	}
 	if err != nil {
 		return result, operation.Plan{}, err
