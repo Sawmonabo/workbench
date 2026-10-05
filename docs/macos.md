@@ -23,8 +23,9 @@ fresh index for its next plan), tap-sourced `packages.toml` formulae move to
 homebrew/core (the core copy is downloaded first, and if the move fails the
 tapped formula is reinstalled), unused taps are removed, and `brew autoremove`
 and `brew cleanup -s --prune=all` run. Cleanup's one warning per outdated
-formula it skips is folded into a single count; `brew outdated` lists them. VS Code extensions install only when missing. Homebrew's own
-automatic cleanup after installs and upgrades stays on, as it is by default.
+formula it skips is folded into a single count; `brew outdated` lists them. VS
+Code extensions install only when missing. Homebrew's own automatic cleanup
+after installs and upgrades stays on, as it is by default.
 
 Apps in `packages.toml` that are missing install at the cask's current version.
 An app already installed outside Homebrew is left alone. Each full plan asks
