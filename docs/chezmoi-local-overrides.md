@@ -52,8 +52,9 @@ and does not authorize application.
 - `.zshrc.local` and `.bash_aliases` remain unmanaged shell overrides.
 - Global VS Code preferences are owned by `home/.chezmoidata/vscode.json`.
   The shared merge preserves unrelated nested values and custom color rules
-  and accepts JSONC. When it changes no value it leaves the file exactly as
-  VS Code wrote it; otherwise it writes JSON without comments.
+  and accepts JSONC. It edits the file the way VS Code does: when it changes no
+  value it leaves the file exactly as VS Code wrote it, and otherwise it writes
+  only the values that differ, keeping comments, key order and layout.
 - Codex's managed body and application-owned state use the existing native
   modify target; malformed TOML fails rather than replacing unrelated state.
   Tables the managed body writes only for another role are removed.

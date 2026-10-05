@@ -181,17 +181,20 @@ SETUPSCRIPT
 }
 
 # The todo-tree path in a VS Code settings.json, one owner for the probe's read
-# and the apply's write (see merge-json.py, which accepts comments in the file):
+# and the apply's write. Workbench edits the file the way VS Code does, so
+# comments and the rest of the file stay as they are (see MergeVSCodeSettings):
 #   json_setting check FILE VALUE   0 when the file already has VALUE, 1 when it
 #                                   would change, 3 when it cannot be read
 #   json_setting merge FILE VALUE   sets it and changes nothing else; 3 when the
 #                                   file is refused, with the reason on stderr
 json_setting() {
-    local mode=()
+    local mode=() value=$3
     [ "$1" != check ] || mode=(--check)
-    python3 - ${mode[@]+"${mode[@]}"} "$2" "todo-tree.ripgrep.ripgrep" "$3" <<'PYEOF'
-{{ include ".chezmoitemplates/merge-json.py" }}
-PYEOF
+    # A path may hold backslashes and quotes; nothing else needs escaping in JSON.
+    value=${value//\\/\\\\}
+    value=${value//\"/\\\"}
+    workbench vscode-settings --file "$2" ${mode[@]+"${mode[@]}"} \
+        '{"todo-tree.ripgrep.ripgrep":"'"$value"'"}'
 }
 
 # Merge a key=value into a specific INI section, preserving all other content.

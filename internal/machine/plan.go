@@ -312,6 +312,22 @@ func (p *preparation) stageNative(
 	if err = os.Symlink(python, filepath.Join(bin, "python3")); err != nil {
 		return err
 	}
+	// The settings modify scripts run `workbench vscode-settings`, a plain
+	// filter, so this executable answers on the scripts' PATH in the preview,
+	// the probes and the apply alike. It is not a plan input of its own: the
+	// merge it runs decides the rendered after-image of the settings files,
+	// which the plan binds, so an executable that merges differently makes a
+	// different plan and --approve-plan refuses the old digest.
+	self, err := os.Executable()
+	if err == nil {
+		self, err = filepath.EvalSymlinks(self)
+	}
+	if err != nil {
+		return err
+	}
+	if err = os.Symlink(self, filepath.Join(bin, "workbench")); err != nil {
+		return err
+	}
 	// gh only affects a native lookPath branch; do not execute it in preview.
 	search, excluded := os.Getenv("PATH"), []string{c.Native.Source}
 	if gh, findErr := operation.FindExecutable("gh", search, excluded); findErr == nil {

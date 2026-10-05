@@ -67,7 +67,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Existing-project discovery/planning | `internal/project/` |
 | Machine questions | `home/.chezmoi.toml.tmpl` |
 | Package/extension names and pins | `home/.chezmoidata/packages.toml`, `versions.toml` |
-| All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the shared merge |
+| All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/python/` |
 | AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/private_dot_codex/private_hooks.json.tmpl`) |
@@ -99,11 +99,14 @@ weaken the release source check or add a second renderer. The WSL argument is
 static simulation, not Windows qualification.
 
 Invalid existing configuration must fail without fallback replacement. Global
-VS Code merging (the shared chezmoi merge) accepts JSONC, leaves the file
-untouched when no value changes and otherwise emits JSON without comments; the
-Windows-side one-setting edit keeps comments and every other byte, and refuses
-when it cannot prove the result. Project JSONC editing preserves supported
-syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
+VS Code merging accepts JSONC and edits the file the way VS Code does: only
+values that differ are written and new members follow the file's own layout, so
+comments, key order, a byte order mark and line endings stay, and the file is
+untouched when no value changes. The shared `modify_settings.json.tmpl` and the
+Windows-side one-setting edit both run the hidden `workbench vscode-settings`
+filter (`internal/machine/vscode.go`), which refuses, with the file untouched,
+invalid JSONC, a non-object, duplicate keys or an edit it cannot prove. Project
+JSONC editing preserves supported syntax. Keep unowned nested settings/custom color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI only.
 Do not change deferred TypeScript/import-color/Todo Tree policy incidentally.
 
 ## Documentation and release boundaries

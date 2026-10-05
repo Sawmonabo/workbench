@@ -45,10 +45,10 @@ Native qualification and final acceptance are tracked separately in
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Existing role/mode renders, script lint, secret scanning and Go quality gates. |
 
 Global VS Code merging accepts JSONC and preserves unrelated values/rules; it
-leaves the file untouched when no value changes and otherwise emits JSON
-without comments; the Windows-side edit of Todo Tree's ripgrep path is a
-separate one-setting edit that keeps comments and every other byte and refuses
-when it cannot prove the result. Project TOML/JSONC/YAML editing has stricter
+edits the file the way VS Code does, writing only the values that change in the
+file's own layout, so comments and key order stay, and leaves it untouched when
+no value changes. The Windows-side edit of Todo Tree's ripgrep path is the same
+editor on one setting; both refuse when they cannot prove the result. Project TOML/JSONC/YAML editing has stricter
 round-trip preservation gates. Invalid machine Codex TOML no longer falls back
 to a replacement body.
 

@@ -77,7 +77,9 @@ func parseSettings(format string, data []byte) (any, bool) {
 			return nil, false
 		}
 	case "json":
-		standard, err := hujson.Standardize(data)
+		// Standardize blanks comments in the buffer it parses, which is the
+		// caller's file image, so it works on a copy.
+		standard, err := hujson.Standardize(bytes.Clone(data))
 		if err != nil {
 			return nil, false
 		}

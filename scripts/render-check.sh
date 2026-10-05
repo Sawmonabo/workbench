@@ -26,6 +26,15 @@ dest="$tmp/home"
 mkdir -p "$dest"
 fail=0
 
+# The VS Code settings modify_ scripts run `workbench vscode-settings`, so the
+# native commands below need a workbench on PATH, as Workbench itself provides
+# in a real apply. The wsl mode only lints and never renders them.
+if [ "$extra" != wsl ]; then
+    echo "==> [$role/$mode] build workbench for the settings merge"
+    (cd "$repo" && go build -o "$tmp/bin/workbench" ./cmd/workbench)
+    export PATH="$tmp/bin:$PATH"
+fi
+
 echo "==> [$role/$mode] init: every prompt must be answerable non-interactively"
 config=$("$repo/scripts/scratch-init.sh" "$role" "$mode")
 config_dir=$(dirname "$config")
@@ -116,7 +125,7 @@ for relative in .codex/config.toml .claude/settings.json 'Library/Application Su
 done
 printf '[invalid input\n' > "$tmp/windows-settings.json"
 cp "$tmp/windows-settings.json" "$tmp/invalid-config"
-if python3 - "$tmp/windows-settings.json" example value < "$repo/home/.chezmoitemplates/merge-json.py" >"$tmp/invalid-output" 2>&1; then
+if workbench vscode-settings --file "$tmp/windows-settings.json" '{"example":"value"}' >"$tmp/invalid-output" 2>&1; then
     echo 'PRESERVATION FAIL: invalid Windows settings accepted'; fail=1
 fi
 cmp -s "$tmp/windows-settings.json" "$tmp/invalid-config" || { echo 'PRESERVATION FAIL: invalid Windows settings replaced'; fail=1; }
@@ -162,6 +171,48 @@ grep -qF 'costs ingest' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: cla
 [ "$(grep -cF 'costs ingest' "$dest/.claude/settings.json")" = 2 ] || { echo 'MERGE FAIL: claude settings kept a stale copy of the managed hook'; fail=1; }
 cp "$tmp/codex-valid" "$dest/.codex/config.toml"
 cp "$tmp/claude-valid" "$dest/.claude/settings.json"
+
+# Data-loss safeguard: the VS Code settings merge once rewrote the whole file
+# and deleted every comment the owner had written. Render over a synthetic live
+# file for each settings target this platform has, require every comment and
+# user value to survive and the managed value to be set, and require a second
+# render to be byte-identical.
+echo "==> [$role/$mode] user settings survive the VS Code merge"
+for relative in 'Library/Application Support/Code/User/settings.json' .config/Code/User/settings.json; do
+    target="$dest/$relative"
+    [ -f "$target" ] || continue
+    cp "$target" "$tmp/vscode-valid"
+    cat > "$target" <<'LIVE'
+// user line comment
+{
+    /* user block comment */
+    "workbench.colorTheme": "Monokai", // user comment after a managed key
+    "user.setting": "mine",
+    "[python]": {
+        "editor.tabSize": 8, // user key inside a managed object
+    },
+    "editor.tokenColorCustomizations": {
+        "[Dark 2026]": {
+            "textMateRules": [
+                // user rule comment
+                { "name": "User rule", "scope": "comment", "settings": { "foreground": "#888888" } },
+            ],
+        },
+    },
+}
+LIVE
+    "${chez[@]}" cat "$target" > "$tmp/merge-1" || { echo "MERGE FAIL: $relative did not render"; fail=1; cp "$tmp/vscode-valid" "$target"; continue; }
+    cp "$tmp/merge-1" "$target"
+    "${chez[@]}" cat "$target" > "$tmp/merge-2" || { echo "MERGE FAIL: $relative second render failed"; fail=1; cp "$tmp/vscode-valid" "$target"; continue; }
+    cmp -s "$tmp/merge-1" "$tmp/merge-2" || { echo "MERGE FAIL: $relative is not idempotent"; fail=1; }
+    for kept in '// user line comment' '/* user block comment */' '// user comment after a managed key' \
+        '"user.setting": "mine"' '"editor.tabSize": 8, // user key inside a managed object' \
+        '// user rule comment' '"name": "User rule"' '"workbench.colorTheme": "Dark 2026"'; do
+        grep -qF -- "$kept" "$target" || { echo "MERGE FAIL: $relative lost $kept"; fail=1; }
+    done
+    ! grep -qF 'Monokai' "$target" || { echo "MERGE FAIL: $relative kept a managed value the owner had changed"; fail=1; }
+    cp "$tmp/vscode-valid" "$target"
+done
 
 echo "==> [$role/$mode] leak checks"
 if grep -rIln -e '/home/sabossedgh' -e '/Users/sawmonabo' "$repo/home"; then
