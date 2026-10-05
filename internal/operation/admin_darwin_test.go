@@ -17,8 +17,9 @@ import (
 // helper's folder (any process under the account can list /tmp), or the
 // arguments or environment of sudo (visible to ps); sudo gets it on standard
 // input only. The helper must answer only processes the apply started, not
-// Workbench itself or any other process, and nothing once the apply ends. A
-// stand-in script plays sudo and records what it was given.
+// Workbench itself or any other process, and nothing once the apply ends, when
+// the sudo approval its answer left is dropped too. A stand-in script plays sudo
+// and records what it was given.
 func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 	const wrong, right = "wrong-password", "right-password"
 	directory := t.TempDir()
@@ -26,6 +27,7 @@ func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 	script := "#!/bin/sh\n" +
 		`{ echo "args: $*"; env; } >> ` + log + "\n" +
 		`[ "$1" = -n ] && exit 1` + "\n" +
+		`[ "$*" = -k ] && exit 0` + "\n" +
 		`IFS= read -r typed; echo "$typed" >> ` + stdin + "\n" +
 		`[ "$typed" = ` + right + " ]\n"
 	stand := filepath.Join(directory, "sudo")
@@ -95,6 +97,9 @@ func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 	}
 
 	recorded, _ := os.ReadFile(log)
+	if !strings.Contains(string(recorded), "args: -k\n") {
+		t.Errorf("the sudo approval the helper's answer left was not dropped; log:\n%s", recorded)
+	}
 	if !strings.Contains(string(recorded), "args: -k -S -v") {
 		t.Errorf("sudo was not run as sudo -k -S -v; log:\n%s", recorded)
 	}

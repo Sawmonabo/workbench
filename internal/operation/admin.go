@@ -84,7 +84,13 @@ func WithAdmin(
 	if err != nil {
 		return err
 	}
-	defer service.close()
+	defer func() {
+		if service.close() {
+			// sudo keeps an approval for this terminal after the helper answered
+			// it; nothing of the apply's access is left behind.
+			dropTicket(context.WithoutCancel(ctx), c, m)
+		}
+	}()
 	if admin.Why != "" && !hasTicket(ctx, c, m) {
 		if ctx.Err() != nil {
 			return interruptedBeforeChange()
@@ -207,4 +213,16 @@ func hasTicket(ctx context.Context, c Context, m *Mutation) bool {
 		Mutates:     true,
 	})
 	return err == nil
+}
+
+// dropTicket ends this terminal's sudo approval with sudo -k, which never asks.
+func dropTicket(ctx context.Context, c Context, m *Mutation) {
+	_, _ = Run(ctx, c, m, Process{
+		Executable:  sudoPath,
+		Args:        []string{"-k"},
+		Directory:   "/",
+		Environment: sudoEnvironment,
+		Timeout:     30 * time.Second,
+		Mutates:     true,
+	})
 }

@@ -43,6 +43,9 @@ type askpassService struct {
 
 	mu       sync.Mutex
 	password string
+	// handedOut says a helper got the password for sudo, which then keeps a
+	// sudo approval for this terminal; the apply drops it when it ends.
+	handedOut bool
 }
 
 // startAskpass makes the folder, helper and socket, and starts answering.
@@ -134,11 +137,15 @@ func (s *askpassService) answer(conn *net.UnixConn) {
 	switch password, isSet := strings.CutPrefix(request, "set "); {
 	case isSet:
 		s.remember(strings.TrimSuffix(password, "\n"))
+		s.mu.Lock()
+		s.handedOut = true
+		s.mu.Unlock()
 	case request == "get\n":
 		s.mu.Lock()
 		reply := "none\n"
 		if s.password != "" {
 			reply = "password " + s.password + "\n"
+			s.handedOut = true
 		}
 		s.mu.Unlock()
 		_, _ = io.WriteString(conn, reply)
@@ -158,15 +165,18 @@ func (s *askpassService) remember(password string) {
 }
 
 // close stops answering, lets go of the password and removes the folder, the
-// helper and the socket. The apply calls it however it ends.
-func (s *askpassService) close() {
+// helper and the socket. The apply calls it however it ends. It reports whether
+// a helper ever got the password.
+func (s *askpassService) close() (handedOut bool) {
 	_ = s.listener.Close()
 	<-s.stopped
 	s.handlers.Wait()
 	s.mu.Lock()
 	s.password = ""
+	handedOut = s.handedOut
 	s.mu.Unlock()
 	_ = os.RemoveAll(s.dir)
+	return handedOut
 }
 
 // AskPass is the SUDO_ASKPASS helper's work, run by the hidden askpass command
