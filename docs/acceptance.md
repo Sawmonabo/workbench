@@ -32,8 +32,8 @@ synthetic answers.
   by its own step, Windows steps only when selected by name), a coding agent's
   apply refused before setup, a project marker in the home folder never making
   a project-controlled tool trusted, the Mac password staying out of files,
-  sudo's arguments and environment and answered only to the apply's own
-  processes (macOS), and the costs ledger keeping every response and upgrade
+  sudo's arguments and environment, answered only to the apply's own processes
+  and its sudo approval dropped when the apply ends (macOS), and the costs ledger keeping every response and upgrade
   row.
 
 ### Releases, install and update
@@ -137,7 +137,7 @@ synthetic answers.
   activation resumes. A staged release with a missing `release.json`, a changed
   file or another source digest is refused, and an unstamped build refuses any
   release source. Missing parents of Workbench's directories are created 0755,
-  except `~/.config`, which is created 0700. (target; not yet observed)
+  except `~/.config`, which is created 0700 (observed on an Ubuntu 24.04 VM).
 
 ### Planning and apply
 
@@ -206,16 +206,29 @@ synthetic answers.
   nothing else written; the latest-mode plan read `install the newest Node once
   nvm is in place; …; install stable Rust once rustup is in place and make it the
   default`.
-- On a clean macOS VM with no sudo ticket, an interactive apply that installs
-  Homebrew asks for the Mac password once, without echo, before it changes
-  anything, asks again after a wrong one and ends blocked (exit 3) after three,
-  and Homebrew's installer, the Command Line Tools and the apps step (Docker
-  Desktop's cask) then install with no further prompt. No `wb-askpass-*`
-  folder is left in `$TMPDIR` when the apply ends, ctrl+c at the prompt leaves
-  the terminal echoing and changes nothing, and a coding agent's or a
-  terminal-less `--approve-plan` apply asks nothing and makes no folder. A later
-  apply that only updates such an app asks once, when Homebrew first needs it.
-  (target; not yet observed)
+- The Mac password, on clean macOS 15.7.7 arm64 VMs with no sudo ticket:
+  - An interactive apply that installs Homebrew asked for it once, without echo,
+    before it changed anything. A wrong one got `Sorry, try again.` and was asked
+    again.
+  - Homebrew's installer, the Command Line Tools and Docker Desktop's package
+    (which links into `/usr/local/bin`) then installed with no further prompt.
+    Every step completed (exit 0, about 15 minutes).
+  - No `wb-askpass-*` folder was left, and no sudo approval was still valid
+    afterwards.
+  - On a set-up VM with Docker Desktop removed, an apply of the saved choices
+    asked once, when Homebrew first needed it (`Homebrew needs your Mac
+    password; Workbench asks once for this apply.`). It asked again after a wrong
+    answer, reinstalled Docker Desktop, and left no folder and no approval.
+  - ctrl+c at the up-front prompt exited 130 within a second, with nothing
+    changed and the terminal still echoing.
+  - ctrl+c at the helper's prompt ended the apply as interrupted provisioning
+    (exit 5). The terminal was still echoing, and no folder or helper process
+    remained.
+  - Without a terminal, `apply --approve-plan` of a plan that installs Homebrew
+    exited 3. `machine.toml` and Workbench's state stayed byte-identical, and no
+    folder was made.
+  - Three wrong answers ending the apply blocked, and a coding agent's apply,
+    were observed only with a stand-in sudo.
 
 ### On a WSL2 host
 
@@ -326,10 +339,21 @@ synthetic answers.
   `~/.local` group-writable, the install stopped with the `chmod go-w` that
   fixes it.
 - On the same umask, an apply with every effect unchecked writes files at 0644
-  and folders at 0755, except `~/.config` at 0700. With `~/.config` at 0755 the
-  plan lists a mode-only edit to 0700, and revert restores 0755; with it
-  already at 0700 the plan lists no edit for it. (target; the `~/.config`
-  behavior is not yet observed)
+  and folders at 0755, except `~/.config` at 0700. (target; not yet observed in
+  the container)
+- On an Ubuntu 24.04 arm64 VM (not a container; login umask 0002), from a local
+  linux-arm64 bundle with synthetic personal/pinned answers: saving the answers
+  created `~/.config` 0700 (`~/.local` and `~/.local/share` 0755) and the plan
+  listed no edit for it. A full apply without a terminal (`--approve-plan`)
+  completed every step except podman, whose apt install found the package lock
+  held by unattended-upgrades; the Linux scripts now wait up to ten minutes for
+  that lock, and in the VM `apt-get -o DPkg::Lock::Timeout=600` waited out a
+  held lock and installed podman (the full apply with the wait is not yet
+  observed). With `~/.config` at 0755 the plan listed `mode 0755 → 0700` as a
+  folder that holds Workbench's own files, mode only; the apply made it 0700,
+  and `revert --checkpoint` with `--approve-plan` restored 0755. An attended
+  apply then applied the saved choices (exit 0), tightened `~/.config` again
+  and left the terminal echoing.
 
 ### Projects
 
@@ -408,7 +432,7 @@ synthetic answers.
 | Area | Remaining evidence or decision |
 | --- | --- |
 | macOS | Intel runs; `install.sh` from a published release on a clean Mac; on a clean Mac, revert with a later-edit conflict, a step turned off, and the work and both roles. A clean macOS 15.7.7 arm64 VM (the minimum OS) completed personal/pinned provisioning from a local bundle. |
-| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. |
+| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed, not rerun). |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
