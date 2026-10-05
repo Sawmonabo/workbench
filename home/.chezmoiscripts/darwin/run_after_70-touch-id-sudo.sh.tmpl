@@ -17,7 +17,9 @@
 # One sudo command writes it, run as /usr/bin/sudo and /usr/bin/install by their
 # full paths so nothing earlier on PATH can stand in for them. During an apply at
 # a terminal it gets the Mac password through WORKBENCH_SUDO_ASKPASS, as
-# Homebrew's own sudo does. It needs no Homebrew. It is the last of the Mac
+# Homebrew's own sudo does. Without it (no terminal, or a coding agent's apply)
+# sudo runs with -n and never prompts: a valid sudo ticket writes the file, and
+# without one the step is blocked. It needs no Homebrew. It is the last of the Mac
 # scripts, so the apply's other steps run in the mode the apply started in.
 # Revert does not undo it: delete /etc/pam.d/sudo_local, or comment out its
 # pam_tid.so line again.
@@ -95,8 +97,8 @@ if [ -n "${WORKBENCH_SUDO_ASKPASS:-}" ]; then
     SUDO_ASKPASS="$WORKBENCH_SUDO_ASKPASS" /usr/bin/sudo -A /usr/bin/install -S -m "$mode" -o "$owner" -g "$group" "$new" "$target" ||
         blocked "sudo did not let it write $target; $target was not changed"
 else
-    /usr/bin/sudo /usr/bin/install -S -m "$mode" -o "$owner" -g "$group" "$new" "$target" ||
-        blocked "sudo did not let it write $target; $target was not changed"
+    /usr/bin/sudo -n /usr/bin/install -S -m "$mode" -o "$owner" -g "$group" "$new" "$target" ||
+        blocked "sudo needs your Mac password, which only an apply at a terminal asks for; $target was not changed"
 fi
 if ! touch_id_on; then
     echo "WORKBENCH_EFFECT touch-id-sudo failed: wrote $target, but Touch ID for sudo is still off; check the file" >&2

@@ -212,7 +212,7 @@ func AskPass(ctx context.Context, socket string, out io.Writer) error {
 		password, err = askVerified(
 			ctx,
 			terminal,
-			"Homebrew needs your Mac password; Workbench asks once for this apply.",
+			"A step of this apply needs your Mac password; Workbench asks for it once.",
 		)
 		switch {
 		case err == nil:

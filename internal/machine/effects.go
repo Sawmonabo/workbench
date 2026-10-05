@@ -302,7 +302,7 @@ var macOSOptionalEffects = []operation.Effect{
 		Summary:     "sudo asks for your fingerprint, and for the password where that cannot be used",
 		What:        "Turns on Touch ID for sudo in every terminal, not only for Workbench. With no /etc/pam.d/sudo_local it creates the file from Apple's template with the pam_tid.so line switched on (owned by root, read-only, as the template is); with one already there it switches on or adds only that line and every other line stays. It never edits /etc/pam.d/sudo, and does nothing when Touch ID for sudo is already on. A system update keeps the file. Where Touch ID cannot be used, over SSH or in tmux for example, sudo asks for the password as before.",
 		Touches:     "/etc/pam.d/sudo_local",
-		RunsAs:      "you, with sudo; its one sudo command uses the Mac password an apply at a terminal asks for once",
+		RunsAs:      "you, with sudo; its one sudo command uses the Mac password an apply at a terminal asks for once, and without a terminal needs a valid sudo ticket",
 		Undo:        "Not reverted automatically: with sudo, delete /etc/pam.d/sudo_local, or comment out its pam_tid.so line again",
 	},
 }

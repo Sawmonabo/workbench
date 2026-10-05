@@ -194,7 +194,8 @@ not change. The optional `touch-id-sudo` step turns Touch ID for sudo on: with n
 read-only, as the template is); with one already there it switches on or adds
 only that line and keeps every other line. It never edits `/etc/pam.d/sudo`. Its
 one `sudo` command gets the password the way any other `sudo` in the apply
-does. Revert does not undo it: delete `/etc/pam.d/sudo_local`, or comment out
+does; without a terminal it never asks, so it needs a valid sudo ticket and is
+otherwise blocked. Revert does not undo it: delete `/etc/pam.d/sudo_local`, or comment out
 its `pam_tid.so` line again. A system update keeps the file.
 
 Unattended runs. Agents and scripts read the plan first, then apply exactly that plan:
