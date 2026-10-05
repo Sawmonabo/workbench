@@ -35,9 +35,11 @@ base_missing=0
 for tool in cc curl unzip git fc-cache; do
     command -v "$tool" >/dev/null || base_missing=1
 done
+# Every apt-get here waits up to ten minutes for the package lock: on a new
+# Ubuntu machine unattended-upgrades often holds it while this runs.
 if command -v apt-get &>/dev/null && [ "$base_missing" -eq 1 ]; then
     echo "==> Installing build-essential, curl, unzip, git (sudo)..."
-    sudo apt-get update -qq && sudo apt-get install -y -qq build-essential curl unzip git ca-certificates fontconfig
+    sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig
 fi
 
 # --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
@@ -50,7 +52,7 @@ mkdir -p "$HOME/repos" "$HOME/dev"
 if ! command -v bat &>/dev/null; then
     if command -v apt-get &>/dev/null; then
         echo "==> Installing bat via apt..."
-        sudo apt-get install -y -qq bat
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq bat
         if ! command -v bat &>/dev/null && command -v batcat &>/dev/null; then
             mkdir -p "$HOME/.local/bin"
             require_unused_command bat
@@ -77,7 +79,7 @@ fi
 if ! command -v fd &>/dev/null; then
     if command -v apt-get &>/dev/null; then
         echo "==> Installing fd via apt..."
-        sudo apt-get install -y -qq fd-find
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq fd-find
         if ! command -v fd &>/dev/null && command -v fdfind &>/dev/null; then
             mkdir -p "$HOME/.local/bin"
             require_unused_command fd
@@ -221,7 +223,7 @@ if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 if ! command -v tmux &>/dev/null; then
     echo "==> Installing tmux..."
     if command -v apt-get &>/dev/null; then
-        sudo apt-get update && sudo apt-get install -y tmux
+        sudo apt-get -o DPkg::Lock::Timeout=600 update && sudo apt-get -o DPkg::Lock::Timeout=600 install -y tmux
     elif command -v dnf &>/dev/null; then
         sudo dnf install -y tmux
     else

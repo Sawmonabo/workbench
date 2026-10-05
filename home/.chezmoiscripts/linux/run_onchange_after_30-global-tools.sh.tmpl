@@ -115,9 +115,11 @@ else
 fi
 
 # --- podman (Ubuntu repository package) ---
+# apt-get waits up to ten minutes for the package lock, which unattended-upgrades
+# often holds on a new Ubuntu machine.
 if ! command -v podman &>/dev/null; then
     echo "==> Installing podman via apt (sudo may prompt)..."
-    sudo apt-get install -y podman || failed+=(podman)
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y podman || failed+=(podman)
 else
     echo "    podman already installed: $(podman --version)"
 fi
