@@ -39,9 +39,8 @@ func runs(effect operation.Effect) bool {
 }
 
 // isAlready reports an effect the probe found nothing to do for. It collapses
-// into the Already set line and cannot be toggled; a saved skip stays listed, and
-// so does a parent while a part under it still has something to do. See
-// [operation.Plan.AlreadySet].
+// into the Already set line and cannot be toggled; a saved skip stays listed.
+// See [operation.Plan.AlreadySet].
 func isAlready(plan operation.Plan, effect operation.Effect) bool {
 	return plan.AlreadySet(effect)
 }

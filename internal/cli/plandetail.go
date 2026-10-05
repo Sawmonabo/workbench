@@ -14,10 +14,10 @@ import (
 const labelWidth = 11
 
 // renderDetail is the detail panel for a row, width columns wide: for an
-// effect, its name and status, what it does, its relation to its parent, then
-// what it would do on this PC now, what it changes, who it runs as and how to
-// undo it; for a file, its title, owner and unified diff, which diff leaves
-// out when the output is not a terminal. It returns no lines for rowNone.
+// effect, its name and status, what it does, then what it would do on this PC
+// now, what it changes, who it runs as and how to undo it; for a file, its
+// title, owner and unified diff, which diff leaves out when the output is not a
+// terminal. It returns no lines for rowNone.
 func renderDetail(plan operation.Plan, row planRow, width int, diff bool) []string {
 	switch row.Kind {
 	case rowFile:
