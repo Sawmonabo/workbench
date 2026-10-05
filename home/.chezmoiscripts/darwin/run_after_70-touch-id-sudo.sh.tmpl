@@ -1,0 +1,106 @@
+{{ if eq .chezmoi.os "darwin" -}}
+#!/usr/bin/env bash
+# Touch ID for sudo, the optional touch-id-sudo step (off until ticked): sudo
+# asks for a fingerprint, and for the password where Touch ID cannot be used.
+# It turns on Apple's pam_tid.so through /etc/pam.d/sudo_local, the file that
+# /etc/pam.d/sudo reads first and a system update keeps. /etc/pam.d/sudo itself
+# is never edited.
+#
+# - Touch ID for sudo is already on (an active auth line naming pam_tid.so in
+#   either file): nothing to do.
+# - No sudo_local: it is created from Apple's sudo_local.template with its
+#   pam_tid.so line uncommented, owned by root and read-only, as the template is.
+# - A sudo_local already there: only the pam_tid.so line changes (a commented one
+#   is uncommented, else one is added before the first auth line), every other
+#   line stays, and the file keeps its owner and mode.
+#
+# One sudo command writes it, run as /usr/bin/sudo and /usr/bin/install by their
+# full paths so nothing earlier on PATH can stand in for them. During an apply at
+# a terminal it gets the Mac password through WORKBENCH_SUDO_ASKPASS, as
+# Homebrew's own sudo does. It needs no Homebrew. It is the last of the Mac
+# scripts, so the apply's other steps run in the mode the apply started in.
+# Revert does not undo it: delete /etc/pam.d/sudo_local, or comment out its
+# pam_tid.so line again.
+set -euo pipefail
+trap 'rm -rf "${work:-}"' EXIT
+
+# The same rule as Workbench's own check: an active line whose first field is
+# auth names pam_tid.so. A file that is missing or unreadable says nothing.
+target=/etc/pam.d/sudo_local
+system_file=/etc/pam.d/sudo
+touch_id_on() {
+    { cat "$target" "$system_file" 2>/dev/null || true; } |
+        awk '{ sub(/#.*/, "") } $1 == "auth" { for (i = 2; i <= NF; i++) if ($i == "pam_tid.so") found = 1 } END { exit !found }'
+}
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    # A probe writes nothing and runs no sudo.
+    if touch_id_on; then
+        echo "touch-id-sudo: = Touch ID for sudo is on"
+    else
+        echo "touch-id-sudo: turn on Touch ID for sudo (writes /etc/pam.d/sudo_local)"
+    fi
+    exit 0
+fi
+if [ "${WORKBENCH_EFFECT_TOUCH_ID_SUDO:-}" != 1 ]; then
+    echo 'WORKBENCH_EFFECT touch-id-sudo disabled (not selected)' >&2
+    exit 0
+fi
+if touch_id_on; then
+    echo "==> Touch ID for sudo is already on."
+    exit 0
+fi
+
+# blocked ends the step without failing the apply: the report file is where
+# Workbench reads what a script could not do, and the rest of the apply goes on.
+blocked() {
+    echo "WORKBENCH_EFFECT touch-id-sudo blocked: $1" >&2
+    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
+        printf '%s\t%s\n' touch-id-sudo "$1" >> "$WORKBENCH_EFFECT_REPORT"
+    fi
+    exit 0
+}
+
+template=/etc/pam.d/sudo_local.template
+line='auth       sufficient     pam_tid.so'
+# A commented-out pam_tid.so auth line and nothing else on it, as Apple's
+# template has. [.] rather than a backslash: awk -v would eat the backslash.
+commented='^[[:space:]]*#[[:space:]]*auth[[:space:]]+[^[:space:]]+[[:space:]]+pam_tid[.]so[[:space:]]*$'
+
+if [ -L "$target" ] || { [ -e "$target" ] && [ ! -f "$target" ]; }; then
+    blocked "$target is not a plain file, so it was not changed"
+elif [ -f "$target" ]; then
+    [ -r "$target" ] || blocked "$target cannot be read, so it was not changed"
+    base="$target"
+    owner="$(stat -f %u "$target")"
+    group="$(stat -f %g "$target")"
+    mode="$(stat -f %Lp "$target")"
+elif [ -r "$template" ]; then
+    base="$template"
+    owner=root group=wheel mode=0444
+else
+    blocked "Apple's template $template is missing"
+fi
+
+work="$(mktemp -d)"
+new="$work/sudo_local"
+if grep -Eq "$commented" "$base"; then
+    awk -v re="$commented" '!done && $0 ~ re { sub(/#[[:space:]]*/, ""); done = 1 } { print }' "$base" > "$new"
+else
+    awk -v line="$line" '!done && $1 == "auth" { print line; done = 1 } { print } END { if (!done) print line }' "$base" > "$new"
+fi
+
+echo "==> Turning on Touch ID for sudo ($target)..."
+if [ -n "${WORKBENCH_SUDO_ASKPASS:-}" ]; then
+    SUDO_ASKPASS="$WORKBENCH_SUDO_ASKPASS" /usr/bin/sudo -A /usr/bin/install -S -m "$mode" -o "$owner" -g "$group" "$new" "$target" ||
+        blocked "sudo did not let it write $target; $target was not changed"
+else
+    /usr/bin/sudo /usr/bin/install -S -m "$mode" -o "$owner" -g "$group" "$new" "$target" ||
+        blocked "sudo did not let it write $target; $target was not changed"
+fi
+if ! touch_id_on; then
+    echo "WORKBENCH_EFFECT touch-id-sudo failed: wrote $target, but Touch ID for sudo is still off; check the file" >&2
+    exit 1
+fi
+echo "==> Touch ID for sudo is on."
+{{ end -}}

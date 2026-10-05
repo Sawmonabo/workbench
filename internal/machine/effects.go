@@ -20,7 +20,7 @@ var macOSEffects = []operation.Effect{
 		Summary:     "Homebrew and the tools Workbench lists",
 		What:        "Installs Homebrew if it is missing, then every formula Workbench lists that is not installed yet. Nothing is upgraded.",
 		Touches:     "Homebrew's folders and the tools it installs",
-		RunsAs:      "you; downloads packages. If Homebrew is missing, its installer needs your Mac password, which an apply at a terminal asks for once before it starts",
+		RunsAs:      "you; downloads packages. If Homebrew is missing, its installer needs administrator rights, which an apply at a terminal asks for once before it starts: Touch ID where sudo uses it, otherwise your Mac password",
 		Undo:        "Not reverted automatically: remove packages with brew uninstall",
 	},
 	{
@@ -32,7 +32,7 @@ var macOSEffects = []operation.Effect{
 		Summary:     "the apps and VS Code extensions Workbench lists",
 		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing. Apps you installed another way are left alone.",
 		Touches:     "/Applications and your VS Code extensions",
-		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need your Mac password, which an apply at a terminal asks for once",
+		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need administrator rights: your Mac password, which an apply at a terminal asks for once, or Touch ID each time where sudo uses it",
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{
@@ -72,6 +72,7 @@ var effectSources = map[string][]string{
 	"windows-files":           {"00-packages-windows", "10-deploy-windows-configs"},
 	"wsl-preferences":         {"10-deploy-windows-configs"},
 	"sysctl":                  {"20-sysctl"},
+	"touch-id-sudo":           {"70-touch-id-sudo"},
 	"terminal-adoption":       {"00-packages-windows"},
 	"powershell-adoption":     {"00-packages-windows"},
 	"font-registry":           {"00-packages-windows"},
@@ -286,6 +287,26 @@ func provisioningEffects(answers Answers) []operation.Effect {
 	return effects
 }
 
+// macOSOptionalEffects are the Mac steps that run only when selected by name,
+// like [optionalEffects] on WSL. The owning script checks WORKBENCH_EFFECT_<NAME>;
+// see [effectVariable]. Touch ID for sudo changes how every sudo on the Mac asks,
+// and writes a system file outside the checkpoint, so it is never on by default.
+var macOSOptionalEffects = []operation.Effect{
+	{
+		Name:        "touch-id-sudo",
+		Optional:    true,
+		Description: "Turn on Touch ID for sudo: switch on the pam_tid.so line in /etc/pam.d/sudo_local, created from Apple's template when missing; nothing when it is already on",
+		Privilege:   "sudo; writes /etc/pam.d/sudo_local",
+		Recovery:    "external; revert does not undo it",
+		Title:       "Touch ID for sudo",
+		Summary:     "sudo asks for your fingerprint, and for the password where that cannot be used",
+		What:        "Turns on Touch ID for sudo in every terminal, not only for Workbench. With no /etc/pam.d/sudo_local it creates the file from Apple's template with the pam_tid.so line switched on (owned by root, read-only, as the template is); with one already there it switches on or adds only that line and every other line stays. It never edits /etc/pam.d/sudo, and does nothing when Touch ID for sudo is already on. A system update keeps the file. Where Touch ID cannot be used, over SSH or in tmux for example, sudo asks for the password as before.",
+		Touches:     "/etc/pam.d/sudo_local",
+		RunsAs:      "you, with sudo; its one sudo command uses the Mac password an apply at a terminal asks for once",
+		Undo:        "Not reverted automatically: with sudo, delete /etc/pam.d/sudo_local, or comment out its pam_tid.so line again",
+	},
+}
+
 // optionalEffects are the WSL host steps, which run only when selected by name.
 // The owning script checks WORKBENCH_EFFECT_<NAME>; see [effectVariable].
 var optionalEffects = []operation.Effect{
@@ -369,13 +390,22 @@ var optionalEffects = []operation.Effect{
 	},
 }
 
+// platformOptionalEffects are the optional effects this host's platform offers:
+// the Mac's on macOS, the Windows host's on WSL, none on other Linux.
+func platformOptionalEffects() []operation.Effect {
+	switch {
+	case runtime.GOOS == "darwin":
+		return macOSOptionalEffects
+	case isWSL():
+		return optionalEffects
+	}
+	return nil
+}
+
 // optionalNames lists this host's optional effects.
 func optionalNames() []string {
-	if !isWSL() {
-		return nil
-	}
-	names := make([]string, 0, len(optionalEffects))
-	for _, effect := range optionalEffects {
+	var names []string
+	for _, effect := range platformOptionalEffects() {
 		names = append(names, effect.Name)
 	}
 	return names
@@ -403,10 +433,7 @@ func staleSelectionWarnings(saved Selection) []string {
 // choice. Every one is its own choice, off until selected by name: none is
 // ticked by another effect.
 func hostOptionalEffects() []operation.Effect {
-	if !isWSL() {
-		return nil
-	}
-	effects := slices.Clone(optionalEffects)
+	effects := slices.Clone(platformOptionalEffects())
 	for i := range effects {
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
