@@ -62,8 +62,9 @@ synthetic answers.
 - Installing Workbench and its pinned tools needs no separate approval: from a
   fresh home with no chezmoi or uv on `PATH`, `update` downloads chezmoi, uv,
   Python 3.12.12 and TOML Kit with a progress line and without a prompt, and
-  rerunning it finishes a stage that was declined or failed. (target; not yet
-  observed from a fresh home)
+  rerunning it finishes a stage that was declined or failed. (target; observed
+  from a clean macOS VM's home with standard input from `/dev/null`; the rerun
+  after a declined or failed stage is not observed)
 - `apply` decides once: the first approved apply shows the plan and asks, saving
   `skip`, `select` and `decided`; a later apply with nothing new prints the plan
   and applies the saved choices without asking. Observed on an isolated home with
@@ -117,7 +118,10 @@ synthetic answers.
   `apply --dry-run` with a missing answer asks nothing and names the fix. A
   `--local-build` apply installs the tools its checkout pins when they are
   missing and uses the saved answers without setup questions, and
-  `init --answers-from` adopts an existing chezmoi `[data]` table.
+  `init --answers-from` adopts an existing chezmoi `[data]` table. It refuses a
+  FILE open to other users, naming the file, its mode and `chmod 600`, and
+  answers with a missing, invalid or unknown key, naming the key and never its
+  value (observed in a scratch home).
   `update --local-build` installs those tools alone: in an isolated home with a
   scratch copy of the checkout, `--dry-run` listed the four tools and wrote
   nothing, the install put chezmoi, uv, Python 3.12.12 and TOML Kit in place
@@ -179,11 +183,29 @@ synthetic answers.
   ones install, and Homebrew cleanup, whose per-formula "Skipping" warnings fold
   into one count. Updating a running app quit it, and Homebrew reopened it. The interactive apply handed the terminal to provisioning
   and took it back without stopping under a job-control shell.
-- On a clean macOS 15.7.7 VM, an interactive apply asked for the Mac password
-  once, before it changed anything, and Homebrew's installer and the Command
-  Line Tools then installed with no further prompt. Homebrew dropped the sudo
-  ticket when `brew` first ran, and Docker Desktop's cask then asked for the
-  password itself.
+- On a clean macOS 15.7.7 arm64 VM (no Homebrew, no Command Line Tools, no sudo
+  ticket, `~/.local/bin` not on `PATH`), from a local bundle with synthetic
+  personal/pinned answers: `update` ended `run ~/.local/bin/workbench apply`. The
+  interactive apply's plan said `Applying at a terminal asks for your Mac
+  password once, before it starts, to install Homebrew.`, asked once before it
+  changed anything, and Homebrew's installer and the Command Line Tools then
+  installed with no further prompt. Homebrew dropped the sudo ticket when `brew`
+  first ran, and the apps step (Docker Desktop's cask) then asked for the
+  password itself. Every effect completed (exit 0, about 15 minutes); the
+  runtimes step, planned before nvm and rustup existed, read `install Node … once
+  nvm is in place, … the default; …; install Rust … once rustup is in place and
+  make it the default`; the run ended `open a new terminal so your shell finds
+  workbench and the other tools`. A second apply from a new login shell found
+  `workbench` on `PATH`, applied the saved choices without asking or a password
+  and changed no file (the GitHub credential helper was already written on the
+  first apply, before `gh` existed). On another clean clone, with no terminal and
+  no sudo ticket, `apply --dry-run --json` marked only `macos-packages`
+  `needs_admin`, and `apply --approve-plan DIGEST` exited 3 with `Installing
+  Homebrew needs your Mac password; run ~/.local/bin/workbench apply in a
+  terminal`, leaving `machine.toml` and Workbench's state byte-identical and
+  nothing else written; the latest-mode plan read `install the newest Node once
+  nvm is in place; …; install stable Rust once rustup is in place and make it the
+  default`.
 
 ### On a WSL2 host
 
@@ -275,8 +297,10 @@ synthetic answers.
   a mode-only edit to 0700 and applied it, keeping the ACL and the hidden flag;
   revert restored 0755 with both intact. With the folder already at 0700 the plan
   listed no edit for it. An inheritable ACL, a flag on the folder itself and an ACL
-  on an ordinary managed folder still stopped planning. (target; not observed on
-  a fresh Mac or in a macOS VM)
+  on an ordinary managed folder still stopped planning. On a clean macOS 15.7.7
+  VM, where the folder is 0700 by default, the first apply listed no edit for it
+  and kept its mode and ACL and `Library`'s hidden flag. (target; the 0755
+  tightening and its revert are not observed on a real Mac)
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded
@@ -371,7 +395,7 @@ synthetic answers.
 
 | Area | Remaining evidence or decision |
 | --- | --- |
-| macOS | Complete disposable-user provisioning, minimum OS and Intel runs. |
+| macOS | Intel runs; `install.sh` from a published release on a clean Mac; on a clean Mac, revert with a later-edit conflict, a step turned off, and the work and both roles. A clean macOS 15.7.7 arm64 VM (the minimum OS) completed personal/pinned provisioning from a local bundle. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |

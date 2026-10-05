@@ -1,9 +1,9 @@
 # macOS notes
 
-Target: macOS 15+ on Apple Silicon and Intel. Isolated macOS arm64 checks exist;
-complete disposable-user provisioning and Intel/minimum-OS qualification remain
-open. See [acceptance](acceptance.md) and use the shared [installation](usage.md)
-path, not a separate native installer.
+Target: macOS 15+ on Apple Silicon and Intel. A clean macOS 15.7.7 arm64 VM
+completed full provisioning from a local bundle; Intel and the rest of the
+qualification remain open. See [acceptance](acceptance.md) and use the shared
+[installation](usage.md) path, not a separate native installer.
 
 The canonical Darwin scripts own Homebrew formulae/casks, runtime managers,
 runtimes and global tools. Package names are in
