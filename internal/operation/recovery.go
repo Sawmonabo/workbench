@@ -3,6 +3,7 @@ package operation
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,6 +67,7 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 
 func (cp *Checkpoint) preflight(reverse bool) error {
 	c := cp.mutation.context
+	var edited []string
 	for i, change := range cp.changes {
 		if cp.journal.Known[i] == outcomeUnknown {
 			return Fail(
@@ -80,12 +82,22 @@ func (cp *Checkpoint) preflight(reverse bool) error {
 			return err
 		}
 		if !sameImage(current, expected) {
-			return Fail(
-				ExitConflict,
-				"conflict",
-				"At least one target has later edits; no targets were restored",
-			)
+			edited = append(edited, c.ShowPath(change.Path))
 		}
+	}
+	if len(edited) > 0 {
+		// Name the files, so the person knows which ones to put back.
+		const shown = 10
+		names := strings.Join(edited[:min(len(edited), shown)], ", ")
+		if len(edited) > shown {
+			names += fmt.Sprintf(" and %d more", len(edited)-shown)
+		}
+		return Fail(
+			ExitConflict,
+			"conflict",
+			"Changed since Workbench wrote them, so nothing was restored: "+names+
+				". Undo those changes, then run revert again",
+		)
 	}
 	return preflightDirectories(c, cp.changes, reverse)
 }
@@ -99,6 +111,7 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 		}
 		desired[change.Path] = image
 	}
+	var held []string
 	for _, change := range changes {
 		image := desired[change.Path]
 		if image.Kind != ImageAbsent {
@@ -115,16 +128,30 @@ func preflightDirectories(c Context, changes []TargetChange, reverse bool) error
 		if err != nil {
 			return err
 		}
+		var others []string
 		for _, entry := range entries {
 			child, ok := desired[filepath.Join(change.Path, entry.Name())]
 			if !ok || child.Kind != ImageAbsent {
-				return Fail(
-					ExitConflict,
-					"conflict",
-					"Directory contains uncheckpointed children; no targets were restored",
-				)
+				others = append(others, entry.Name())
 			}
 		}
+		if len(others) > 0 {
+			const shown = 3
+			names := strings.Join(others[:min(len(others), shown)], ", ")
+			if len(others) > shown {
+				names += fmt.Sprintf(" and %d more", len(others)-shown)
+			}
+			held = append(held, c.ShowPath(change.Path)+" ("+names+")")
+		}
+	}
+	if len(held) > 0 {
+		// Name the folders and what is in them, so the person knows why.
+		return Fail(
+			ExitConflict,
+			"conflict",
+			"Folders the revert would remove now hold files Workbench did not write, so "+
+				"nothing was restored: "+strings.Join(held, "; "),
+		)
 	}
 	return nil
 }

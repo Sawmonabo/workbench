@@ -331,8 +331,10 @@ a manual proposal, not a second pipeline or fabricated tests. See the
 
 Machine and project checkpoints are separate scopes. Recovery checks every
 recorded post-image before restoring anything; later user edits, corrupt images
-or unknown interrupted outcomes block. Keep the reported checkpoint ID and
-resolve conflicts manually; do not delete state to bypass a failure.
+or unknown interrupted outcomes block. A later edit is reported with the names of
+the changed files (`Changed since Workbench wrote them, so nothing was restored:
+~/.gitconfig. …`). Keep the reported checkpoint ID and resolve conflicts
+manually; do not delete state to bypass a failure.
 
 An apply that stops after it starts writing files is recorded as unfinished.
 Rerun `workbench apply`: once a fresh approved plan finishes, the record is

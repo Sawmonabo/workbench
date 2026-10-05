@@ -41,10 +41,15 @@ func (c Context) WorkbenchCommand() string {
 	if _, err := os.Lstat(entry); err != nil {
 		return "workbench"
 	}
-	if Within(c.Home, entry) {
-		if relative, err := filepath.Rel(c.Home, entry); err == nil {
+	return c.ShowPath(entry)
+}
+
+// ShowPath writes path for a person: from ~ when it is under home.
+func (c Context) ShowPath(path string) string {
+	if c.Home != "" && Within(c.Home, path) {
+		if relative, err := filepath.Rel(c.Home, path); err == nil && relative != "." {
 			return "~/" + filepath.ToSlash(relative)
 		}
 	}
-	return entry
+	return path
 }
