@@ -172,7 +172,8 @@ func (a *applyRun) withoutCheckpoint(state *operation.State) error {
 	plan := a.prepared.Plan
 	provisioning := hasProvisioning(plan.Effects)
 	if provisioning {
-		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil {
+		if err := a.prepared.Apply(a.ctx, a.c, a.m, a.terminal, a.progress); err != nil &&
+			!a.stepsReported(err) {
 			return provisioningFailure(a.c, err)
 		}
 	}
@@ -246,6 +247,10 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 	switch {
 	case runErr == nil:
 		runErr = cp.FinalizeNative()
+	case a.stepsReported(runErr) && cp.FinalizeNative() == nil:
+		// Every file is as approved and each step that failed named itself:
+		// the apply finishes, and reportEffects shows those steps blocked.
+		runErr = nil
 	case operation.ExitCode(runErr) != operation.ExitInterrupted:
 		// The files are written before the scripts run, so a script that failed
 		// leaves them as approved except for the group native creation gave
@@ -361,10 +366,18 @@ func checkedEffects(effects []operation.Effect) []operation.Effect {
 	)
 }
 
-// provisioningFailure is what a failed setup run says: what failed, what it
-// means for the steps after it and what to do. The native cause is kept; the
-// output above it says why. External effects are not rolled back, and files the
-// run wrote are kept.
+// stepsReported reports whether a native run that failed did so only in setup
+// steps that named themselves in the effect report. chezmoi runs with
+// --keep-going, so every other step ran; an interrupted run is not one.
+func (a *applyRun) stepsReported(err error) bool {
+	return err != nil && operation.ExitCode(err) != operation.ExitInterrupted &&
+		len(a.prepared.blocked) > 0
+}
+
+// provisioningFailure is what a failed setup run says when no step named
+// itself or a file is not as approved: what failed and what to do. The native
+// cause is kept; the output above it says why. External effects are not rolled
+// back, and files the run wrote are kept.
 func provisioningFailure(c operation.Context, err error) error {
 	if operation.ExitCode(err) == operation.ExitInterrupted {
 		return err
@@ -372,15 +385,16 @@ func provisioningFailure(c operation.Context, err error) error {
 	return operation.Fail(
 		operation.ExitPartial,
 		"partial",
-		"A setup step failed ("+err.Error()+"), so the steps after it did not run; what already ran is kept. "+
-			"Its output above says why; fix that, then run "+c.WorkbenchCommand()+" apply again.",
+		"Setup did not finish ("+err.Error()+"); the other steps ran and what they did is kept. "+
+			"The output above says why; fix that, then run "+c.WorkbenchCommand()+" apply again.",
 	)
 }
 
 // reportEffects adds one result line per effect this apply ran. An effect its
-// script could not do (a Windows call that did not answer) is blocked and says
-// why on its line; the others ran, and the apply then ends blocked so that a
-// caller reading only the exit status is told.
+// script could not do (a failed download, a Windows call that did not answer)
+// is blocked and says why on its line; the others ran, and the apply then ends
+// blocked so that a caller reading only the exit status is told. The next apply
+// tries a blocked step again.
 func (a *applyRun) reportEffects(plan operation.Plan) error {
 	a.result.Results = append(
 		a.result.Results,
@@ -392,7 +406,7 @@ func (a *applyRun) reportEffects(plan operation.Plan) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"effects",
-		"A step could not be done (marked blocked above); everything else was applied",
+		"A step could not be done (marked blocked above); everything else was applied, and the next apply tries it again",
 	)
 }
 

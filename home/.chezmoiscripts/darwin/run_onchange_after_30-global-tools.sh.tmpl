@@ -13,7 +13,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
-failed=()
+failed=() missing=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # The planner's PATH holds Workbench's tools and the system directories
     # only; look where the installers put things.
@@ -54,10 +54,12 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 fi
 
 {{- $mode := .versions_mode }}
+{{ template "effect-report.sh" }}
+status=0
 
 # --- npm globals + codex + claude (into the default Node) ---
 {{ template "nvm-load.sh" }}
-    nvm use default || failed+=(node-default-missing)
+    nvm use default || missing+=("the default Node")
 {{- if eq $mode "pinned" }}
     # macOS: claude and codex usually come from their native installers in
     # ~/.local/bin, which self-update. Only fall back to npm when absent, so
@@ -69,30 +71,30 @@ fi
     command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code@latest || failed+=(claude)
 {{- end }}
     # Node >= 25 no longer bundles corepack; install it into the default Node first.
-    command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=(corepack-install)
-    corepack enable || failed+=(corepack)
+    command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=(corepack)
+    corepack enable || failed+=("corepack enable")
 {{- range $tool, $ver := .corepack_globals }}
 {{- if eq $mode "pinned" }}
-    corepack install --global "{{ $tool }}@{{ $ver }}" || failed+=("corepack:{{ $tool }}")
+    corepack install --global "{{ $tool }}@{{ $ver }}" || failed+=("{{ $tool }}")
 {{- else }}
-    corepack install --global "{{ $tool }}@latest" || failed+=("corepack:{{ $tool }}")
+    corepack install --global "{{ $tool }}@latest" || failed+=("{{ $tool }}")
 {{- end }}
 {{- end }}
 else
-    failed+=(nvm-missing)
+    missing+=(nvm)
 fi
 
 # --- uv tools ---
 if command -v uv &>/dev/null; then
 {{- range $pkg, $ver := .uv_tools }}
 {{- if eq $mode "pinned" }}
-    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("uv:{{ $pkg }}")
+    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("{{ $pkg }}")
 {{- else }}
-    uv tool install --upgrade "{{ $pkg }}" || failed+=("uv:{{ $pkg }}")
+    uv tool install --upgrade "{{ $pkg }}" || failed+=("{{ $pkg }}")
 {{- end }}
 {{- end }}
 else
-    failed+=(uv-missing)
+    missing+=(uv)
 fi
 
 # --- cargo tools ---
@@ -101,26 +103,26 @@ if command -v cargo &>/dev/null; then
     :
 {{- range $pkg, $ver := .cargo_tools }}
 {{- if eq $mode "pinned" }}
-    cargo install --locked "{{ $pkg }}" --version "{{ $ver }}" || failed+=("cargo:{{ $pkg }}")
+    cargo install --locked "{{ $pkg }}" --version "{{ $ver }}" || failed+=("{{ $pkg }}")
 {{- else }}
-    cargo install --locked "{{ $pkg }}" || failed+=("cargo:{{ $pkg }}")
+    cargo install --locked "{{ $pkg }}" || failed+=("{{ $pkg }}")
 {{- end }}
 {{- end }}
 else
-    failed+=(cargo-missing)
+    missing+=(cargo)
 fi
 
 # --- go tools ---
 if command -v go &>/dev/null; then
 {{- range $mod, $ver := .go_tools }}
 {{- if eq $mode "pinned" }}
-    go install "{{ $mod }}@{{ $ver }}" || failed+=("go:{{ $mod }}")
+    go install "{{ $mod }}@{{ $ver }}" || failed+=("{{ $mod }}")
 {{- else }}
-    go install "{{ $mod }}@latest" || failed+=("go:{{ $mod }}")
+    go install "{{ $mod }}@latest" || failed+=("{{ $mod }}")
 {{- end }}
 {{- end }}
 else
-    failed+=(go-missing)
+    missing+=(Go)
 fi
 
 # --- Docker: Docker Desktop (the Mac apps step) provides the docker CLI ---
@@ -135,8 +137,13 @@ else
 fi
 
 if [ ${#failed[@]} -gt 0 ]; then
-    printf 'WARNING: tool installs failed: %s\n' "${failed[*]}" >&2
-    exit 1
+    printf -v joined '%s, ' "${failed[@]}"
+    part_failed global-tools "${joined%, } could not be installed (the output above says why)" || status=1
 fi
+if [ ${#missing[@]} -gt 0 ]; then
+    printf -v joined '%s, ' "${missing[@]}"
+    part_failed global-tools "${joined%, } not installed yet (earlier setup steps install them), so the tools that need them were skipped" || status=1
+fi
+[ "$status" -eq 0 ] || exit "$status"
 echo "==> Global tools done."
 {{ end -}}

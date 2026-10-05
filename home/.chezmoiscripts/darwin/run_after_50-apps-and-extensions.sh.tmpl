@@ -12,10 +12,9 @@
 # retried on the next apply with no manual state reset. When every app is
 # installed, the app part is a single `brew bundle check`.
 #
-# A part that fails does not stop the rest, or the scripts after this one. It is
-# named blocked under its own effect (part_failed), and Workbench shows that step
-# blocked with the reason once everything else has run. Run directly, without
-# Workbench's report file, the script still ends nonzero.
+# A part that fails does not stop the rest. It is named blocked under its own
+# effect (part_failed), the script ends nonzero, and Workbench shows that step
+# blocked with the reason once everything else has run.
 #
 # - A missing app is installed at the cask's current version.
 # - An app already installed outside Homebrew is left alone; Homebrew would

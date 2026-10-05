@@ -1,7 +1,8 @@
 #!/bin/bash
 # Install TPM, then the tmux plugins through it, whenever tmux.conf changes
-# (every platform). A failed download fails only this step, which chezmoi
-# reruns on the next apply because it did not finish.
+# (every platform). A failed download, or tmux or git not installed yet, fails
+# only this step, which says why and ends nonzero, so chezmoi reruns it on the
+# next apply.
 # hash: {{ include "private_dot_config/tmux/tmux.conf" | sha256sum }}
 set -euo pipefail
 # TPM runs tmux itself; Workbench's script PATH has no Homebrew directory.
@@ -24,11 +25,22 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     exit 0
 fi
+{{ template "effect-report.sh" }}
+missing=()
+for tool in tmux git; do
+    command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+done
+if [ ${#missing[@]} -gt 0 ]; then
+    printf -v joined '%s, ' "${missing[@]}"
+    part_failed tmux-plugins "${joined%, } not installed yet (the packages step installs them), so the plugins were not installed" || exit 1
+fi
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
     echo "==> Installing TPM (Tmux Plugin Manager)..."
-    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm"
+    git clone https://github.com/tmux-plugins/tpm "$HOME/.tmux/plugins/tpm" ||
+        part_failed tmux-plugins "the plugin manager (TPM) could not be downloaded, so the plugins were not installed" || exit 1
 fi
 
 echo "==> Installing tmux plugins..."
-"$HOME/.tmux/plugins/tpm/bin/install_plugins"
+"$HOME/.tmux/plugins/tpm/bin/install_plugins" ||
+    part_failed tmux-plugins "TPM could not install every plugin (the output above says why)" || exit 1
 echo "    tmux plugins installed."

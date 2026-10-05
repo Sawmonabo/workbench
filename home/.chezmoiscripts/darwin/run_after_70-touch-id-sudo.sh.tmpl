@@ -53,13 +53,11 @@ if touch_id_on; then
     exit 0
 fi
 
-# blocked ends the step without failing the apply: the report file is where
-# Workbench reads what a script could not do, and the rest of the apply goes on.
+{{ template "effect-report.sh" }}
+# blocked ends the step, reported, with nothing changed; it runs again on the
+# next apply.
 blocked() {
-    echo "WORKBENCH_EFFECT touch-id-sudo blocked: $1" >&2
-    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
-        printf '%s\t%s\n' touch-id-sudo "$1" >> "$WORKBENCH_EFFECT_REPORT"
-    fi
+    part_blocked touch-id-sudo "$1"
     exit 0
 }
 
@@ -101,8 +99,7 @@ else
         blocked "sudo needs your Mac password, which only an apply at a terminal asks for; $target was not changed"
 fi
 if ! touch_id_on; then
-    echo "WORKBENCH_EFFECT touch-id-sudo failed: wrote $target, but Touch ID for sudo is still off; check the file" >&2
-    exit 1
+    part_failed touch-id-sudo "wrote $target, but Touch ID for sudo is still off; check the file" || exit 1
 fi
 echo "==> Touch ID for sudo is on."
 {{ end -}}

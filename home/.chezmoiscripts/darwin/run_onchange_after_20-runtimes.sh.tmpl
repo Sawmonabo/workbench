@@ -13,57 +13,64 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
-failed=()
+failed=() missing=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{ template "runtimes-probe.sh" . }}
 fi
+{{ template "effect-report.sh" }}
+status=0
 
 # --- Node via nvm ---
 {{ template "nvm-load.sh" }}
 {{- if eq .versions_mode "pinned" }}
 {{- range .versions.node }}
-    nvm install {{ . }} || failed+=("node-{{ . }}")
+    nvm install {{ . }} || failed+=("Node {{ . }}")
 {{- end }}
-    nvm alias default {{ .versions.node_default }} || failed+=(node-default)
+    nvm alias default {{ .versions.node_default }} || failed+=("the default Node")
 {{- else }}
     # latest: one newest Node only; other versions are a `nvm install <ver>` away.
-    nvm install node || failed+=(node-latest)
-    nvm alias default node || failed+=(node-default)
+    nvm install node || failed+=("the latest Node")
+    nvm alias default node || failed+=("the default Node")
 {{- end }}
 else
-    failed+=(nvm-missing)
+    missing+=(nvm)
 fi
 
 # --- Python via uv ---
 if command -v uv &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
 {{- range .versions.python_pinned }}
-    uv python install {{ . }} || failed+=("python-{{ . }}")
+    uv python install {{ . }} || failed+=("Python {{ . }}")
 {{- end }}
 {{- else }}
     # latest: one newest stable Python only.
-    uv python install || failed+=(python-latest)
+    uv python install || failed+=("the latest Python")
 {{- end }}
 else
-    failed+=(uv-missing)
+    missing+=(uv)
 fi
 
 # --- Rust toolchain ---
 if command -v rustup &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
-    rustup toolchain install {{ .versions.rust }} || failed+=(rust-toolchain)
-    rustup default {{ .versions.rust }} || failed+=(rust-default)
+    rustup toolchain install {{ .versions.rust }} || failed+=("Rust {{ .versions.rust }}")
+    rustup default {{ .versions.rust }} || failed+=("the default Rust")
 {{- else }}
-    rustup toolchain install stable || failed+=(rust-toolchain)
-    rustup default stable || failed+=(rust-default)
+    rustup toolchain install stable || failed+=("Rust stable")
+    rustup default stable || failed+=("the default Rust")
 {{- end }}
 else
-    failed+=(rustup-missing)
+    missing+=(rustup)
 fi
 
 if [ ${#failed[@]} -gt 0 ]; then
-    printf 'WARNING: runtime installs failed: %s\n' "${failed[*]}" >&2
-    exit 1
+    printf -v joined '%s, ' "${failed[@]}"
+    part_failed runtimes "${joined%, } could not be installed (the output above says why)" || status=1
 fi
+if [ ${#missing[@]} -gt 0 ]; then
+    printf -v joined '%s, ' "${missing[@]}"
+    part_failed runtimes "${joined%, } not installed yet (earlier setup steps install them), so the runtimes that need them were skipped" || status=1
+fi
+[ "$status" -eq 0 ] || exit "$status"
 echo "==> Runtimes done."
 {{ end -}}

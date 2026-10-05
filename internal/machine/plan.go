@@ -915,7 +915,9 @@ func (p *preparation) Apply(
 	if terminal == nil {
 		args = append(args, "--no-tty")
 	}
-	args = append(args, "apply", "--force")
+	// --keep-going: a failed step does not stop the steps after it, and chezmoi
+	// runs a run_once_ or run_onchange_ script that failed again next time.
+	args = append(args, "apply", "--force", "--keep-going")
 	environment := p.environment
 	if c.Native.Destination != c.Home {
 		// An isolated destination gets files only, rendered under the same
@@ -929,6 +931,9 @@ func (p *preparation) Apply(
 		// A script that cannot do one effect says so here and goes on with the
 		// others, so one part's failure does not stop the rest.
 		report = filepath.Join(p.scratch, "effect-report")
+		if err = p.runScriptsThroughStepRunner(); err != nil {
+			return err
+		}
 		environment = append(environment, "WORKBENCH_EFFECT_REPORT="+report)
 		if p.askpass != "" {
 			// The darwin scripts give it to Homebrew's own commands and the
@@ -988,6 +993,84 @@ func (p *preparation) updateEnvironment() []string {
 		environment = append(environment, "WORKBENCH_BREW_REFRESHED=1")
 	}
 	return environment
+}
+
+// stepRunner is the interpreter chezmoi runs each setup script with. A script
+// that ends nonzero without naming any of its effects in the report gets each
+// checked effect it owns named there (see the case list Workbench writes in),
+// so the apply shows which step failed. A script ended by a signal, such as an
+// interrupt, is not reported.
+const stepRunner = `#!/bin/sh
+script=$1
+bash "$script"
+status=$?
+if [ "$status" -eq 0 ] || [ "$status" -ge 128 ] || [ -z "${WORKBENCH_EFFECT_REPORT:-}" ]; then
+    exit "$status"
+fi
+name=${script##*/}
+name=${name%%.sh}
+name=${name##*.}
+effects=
+case $name in
+%s
+esac
+tab=$(printf '\t')
+for effect in $effects; do
+    if grep -q "^$effect$tab" "$WORKBENCH_EFFECT_REPORT" 2>/dev/null; then
+        exit "$status"
+    fi
+done
+for effect in $effects; do
+    printf '%%s\t%%s\n' "$effect" "its script stopped with exit status $status before it finished; the output above says why, and the next apply tries again" >>"$WORKBENCH_EFFECT_REPORT"
+done
+exit "$status"
+`
+
+// runScriptsThroughStepRunner writes [stepRunner] for this plan's checked
+// effects and makes it chezmoi's interpreter for .sh scripts in the private
+// config.
+func (p *preparation) runScriptsThroughStepRunner() error {
+	owned := map[string][]string{}
+	for _, effect := range p.Plan.Effects {
+		if !effect.Checked || effect.Fixed {
+			continue
+		}
+		sources := effectSources[effect.Name]
+		if strings.HasPrefix(effect.Name, updateEffectPrefix) {
+			sources = []string{updatesScript}
+		}
+		for _, source := range sources {
+			if !strings.HasPrefix(source, ".") {
+				owned[source] = append(owned[source], effect.Name)
+			}
+		}
+	}
+	var cases []string
+	for _, script := range slices.Sorted(maps.Keys(owned)) {
+		cases = append(
+			cases,
+			fmt.Sprintf("%s) effects='%s' ;;", script, strings.Join(owned[script], " ")),
+		)
+	}
+	runner := filepath.Join(p.scratch, "step-runner")
+	if err := os.WriteFile(
+		runner,
+		fmt.Appendf(nil, stepRunner, strings.Join(cases, "\n")),
+		0o700,
+	); err != nil {
+		return err
+	}
+	data, err := os.ReadFile(p.native.Config)
+	if err != nil {
+		return err
+	}
+	config := map[string]any{}
+	if err = json.Unmarshal(data, &config); err != nil {
+		return err
+	}
+	config["interpreters"] = map[string]any{"sh": map[string]any{"command": runner}}
+	data, _ = json.Marshal(config)
+	return os.WriteFile(p.native.Config, data, 0o600)
 }
 
 // readBlocked reads the file in which a script names each effect it could not

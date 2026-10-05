@@ -2,7 +2,9 @@
 #!/usr/bin/env bash
 # Install runtime MANAGERS on macOS: nvm and rustup via their upstream
 # installers; uv, bun, and Go come from Homebrew (00-packages) and are only
-# checked here. Mirrors linux/10-runtime-managers.
+# checked here. Mirrors linux/10-runtime-managers. Each manager is tried on its
+# own: one that fails is reported, the others still install, and the script
+# ends nonzero so chezmoi runs it again on the next apply.
 set -euo pipefail
 
 # Homebrew is not on PATH in the non-login shell chezmoi runs scripts in.
@@ -28,6 +30,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 fi
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
 {{ template "operation-context.sh" }}
+{{ template "effect-report.sh" }}
+status=0
 
 # --- nvm ---
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
@@ -38,13 +42,16 @@ if [ ! -r "$NVM_DIR/nvm.sh" ]; then
     nvm_installer=$(mktemp)
     trap 'rm -f "$nvm_installer"' EXIT
 {{- if eq .versions_mode "pinned" }}
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/{{ .versions.nvm }}/install.sh" -o "$nvm_installer"
+    nvm_url="https://raw.githubusercontent.com/nvm-sh/nvm/{{ .versions.nvm }}/install.sh"
 {{- else }}
-    latest_nvm=$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep -om1 '"tag_name": *"[^"]*"' | cut -d'"' -f4)
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${latest_nvm}/install.sh" -o "$nvm_installer"
+    latest_nvm=$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep -om1 '"tag_name": *"[^"]*"' | cut -d'"' -f4 || true)
+    nvm_url="https://raw.githubusercontent.com/nvm-sh/nvm/${latest_nvm}/install.sh"
 {{- end }}
-    [ -s "$nvm_installer" ] || { echo "    nvm installer download failed" >&2; exit 1; }
-    PROFILE=/dev/null bash "$nvm_installer"
+    if ! curl -fsSL "$nvm_url" -o "$nvm_installer" || [ ! -s "$nvm_installer" ]; then
+        part_failed runtime-managers "nvm's installer could not be downloaded, so nvm was not installed" || status=1
+    elif ! PROFILE=/dev/null bash "$nvm_installer"; then
+        part_failed runtime-managers "nvm's installer failed (the output above says why)" || status=1
+    fi
     rm -f "$nvm_installer"
 else
     echo "    nvm already present; keeping it."
@@ -52,20 +59,32 @@ fi
 
 # --- rustup ---
 if ! command -v rustup &>/dev/null && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    rustup_installer=$(mktemp)
+    trap 'rm -f "${nvm_installer:-}" "$rustup_installer"' EXIT
+    if ! curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o "$rustup_installer" || [ ! -s "$rustup_installer" ]; then
+        part_failed runtime-managers "rustup's installer could not be downloaded, so rustup was not installed" || status=1
+    elif ! sh "$rustup_installer" -y --no-modify-path; then
+        part_failed runtime-managers "rustup's installer failed (the output above says why)" || status=1
+    fi
+    rm -f "$rustup_installer"
 else
     echo "    rustup already present."
 fi
 
 # --- uv, bun, Go (Homebrew) ---
+missing=()
 for tool in uv bun go; do
     if command -v "$tool" &>/dev/null; then
         echo "    $tool present: $({ "$tool" --version || "$tool" version; } 2>/dev/null | head -n1)"
     else
-        echo "    WARNING: $tool missing; 00-packages should have installed it via Homebrew." >&2
-        exit 1
+        missing+=("$tool")
     fi
 done
+if [ ${#missing[@]} -gt 0 ]; then
+    printf -v joined '%s, ' "${missing[@]}"
+    part_failed runtime-managers "${joined%, } not installed; the Homebrew packages step installs them" || status=1
+fi
 
+[ "$status" -eq 0 ] || exit "$status"
 echo "==> Runtime managers done."
 {{ end -}}

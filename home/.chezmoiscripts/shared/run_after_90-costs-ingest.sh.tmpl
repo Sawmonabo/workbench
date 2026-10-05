@@ -22,4 +22,6 @@ if [ ! -x "$workbench" ]; then
     exit 0
 fi
 echo "==> costs: reading new usage into the ledger"
-"$workbench" costs ingest --worker
+{{ template "effect-report.sh" }}
+"$workbench" costs ingest --worker ||
+    part_failed costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1

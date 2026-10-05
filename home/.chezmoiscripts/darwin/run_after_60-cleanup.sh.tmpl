@@ -15,7 +15,8 @@
 #   3. dependencies nothing needs any more, superseded versions of installed
 #      formulae and casks, and the whole download cache are removed.
 # Nothing here touches runtimes managed by nvm, uv or rustup: older versions
-# there are kept on purpose for per-project use.
+# there are kept on purpose for per-project use. A part that fails is reported
+# and the others still run.
 set -euo pipefail
 export HOMEBREW_NO_AUTO_UPDATE=1 HOMEBREW_NO_ENV_HINTS=1
 if [ -x /opt/homebrew/bin/brew ]; then
@@ -30,6 +31,11 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 echo "==> Homebrew cleanup..."
+{{ template "effect-report.sh" }}
+status=0
+if ! command -v brew >/dev/null 2>&1; then
+    part_failed brew-maintenance "Homebrew is not installed (the Homebrew packages step installs it), so there was nothing to clean up" || exit 1
+fi
 
 # --- 0. fresh package index (a failure only warns: the rest works from the old one) ---
 if [ "${WORKBENCH_BREW_REFRESHED:-}" = 1 ]; then
@@ -47,18 +53,17 @@ for name in {{ range .packages.darwin.brew }}"{{ . }}" {{ end }}; do
     # Download the core copy before removing anything: a download that fails then
     # leaves the installed formula as it is.
     if ! brew fetch "homebrew/core/$name"; then
-        echo "WORKBENCH_EFFECT brew-maintenance failed: could not download $name from homebrew/core; $tapped kept" >&2
-        exit 1
+        part_failed brew-maintenance "could not download $name from homebrew/core; $tapped kept" || status=1
+        continue
     fi
     if ! { brew uninstall --ignore-dependencies "$tapped" && brew install "homebrew/core/$name"; }; then
         # The tap is still there (step 2 untaps it later), so the formula that was
         # installed can be put back.
         if brew install "$tapped"; then
-            echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core; $tapped is still installed" >&2
+            part_failed brew-maintenance "could not move $name to homebrew/core; $tapped is still installed" || status=1
         else
-            echo "WORKBENCH_EFFECT brew-maintenance failed: could not move $name to core and could not put $tapped back; run: brew install $tapped" >&2
+            part_failed brew-maintenance "could not move $name to homebrew/core and could not put $tapped back; run: brew install $tapped" || status=1
         fi
-        exit 1
     fi
 done
 
@@ -68,11 +73,11 @@ installed_taps="$( { brew list --formula --full-name; brew list --cask --full-na
 for tap in $(brew tap 2>/dev/null | grep -v '^homebrew/' || true); do
     grep -qx "$tap" <<< "$installed_taps" && continue
     echo "    untapping $tap (nothing installed comes from it)"
-    brew untap "$tap"
+    brew untap "$tap" || part_failed brew-maintenance "could not remove the unused tap $tap" || status=1
 done
 
 # --- 3. orphans, old versions, cache ---
-brew autoremove
+brew autoremove || part_failed brew-maintenance "brew autoremove failed (the output above says why)" || status=1
 # Cleanup warns once for every installed formula with a newer version it
 # skips; Workbench updates only the formulae a plan names, so fold those
 # lines into one.
@@ -81,8 +86,9 @@ brew cleanup -s --prune=all 2>&1 | awk '
     { print; fflush() }
     END {
         if (skipped) printf "    %d other installed formulae have newer versions; brew outdated lists them\n", skipped
-    }'
+    }' || part_failed brew-maintenance "brew cleanup failed (the output above says why)" || status=1
 
+[ "$status" -eq 0 ] || exit "$status"
 echo "==> Homebrew cleanup done."
 exit 0
 {{ end -}}

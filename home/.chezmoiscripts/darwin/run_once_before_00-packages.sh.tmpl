@@ -2,10 +2,12 @@
 #!/usr/bin/env bash
 # macOS bootstrap, before-phase: Homebrew, the command-line formulae under
 # [packages.darwin] in .chezmoidata/packages.toml and the oh-my-posh config
-# directory. Deliberately limited to what the rc files and the
-# after-phase scripts depend on, because anything that fails here blocks the
-# apply before a single file deploys. GUI apps (casks) and VS Code extensions
-# are installed best-effort afterwards by 50-apps-and-extensions.
+# directory. Deliberately limited to what the rc files and the after-phase
+# scripts depend on. A part that fails is reported (see effect-report.sh), the
+# others still run, and the script ends nonzero so chezmoi runs it again on the
+# next apply; the files and the scripts after it are applied either way. GUI apps
+# (casks) and VS Code extensions are installed afterwards by
+# 50-apps-and-extensions.
 #
 {{- if .has_work }}
 # Two effects share this script, and each section runs only when its own effect
@@ -57,6 +59,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 echo "==> macOS bootstrap starting..."
+{{ template "effect-report.sh" }}
+status=0
 
 if [ "${WORKBENCH_EFFECT_MACOS_PACKAGES:-1}" = 1 ]; then
 # --- Homebrew ---
@@ -68,17 +72,16 @@ if [ "${WORKBENCH_EFFECT_MACOS_PACKAGES:-1}" = 1 ]; then
 if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
     echo "==> Installing Homebrew..."
     installer="$(mktemp)"
-    curl -fsSL --retry 5 --retry-all-errors https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$installer"
-    [ -s "$installer" ] || { echo "Homebrew installer download failed" >&2; exit 1; }
     # NONINTERACTIVE: no RETURN prompt, and the installer's sudo check never asks
     # for a password (sudo -n) unless SUDO_ASKPASS names a program that does. During
     # an apply at a terminal Workbench has asked for the Mac password once and
     # provides that program, which answers the installer's sudo and Homebrew's
     # later ones. Run without it, chezmoi needs a recent sudo first.
-    if [ -n "${WORKBENCH_SUDO_ASKPASS:-}" ]; then
-        SUDO_ASKPASS="$WORKBENCH_SUDO_ASKPASS" NONINTERACTIVE=1 /bin/bash "$installer"
-    else
-        NONINTERACTIVE=1 /bin/bash "$installer"
+    if ! curl -fsSL --retry 5 --retry-all-errors https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$installer" ||
+        [ ! -s "$installer" ]; then
+        part_failed macos-packages "Homebrew's installer could not be downloaded, so Homebrew and the tools it installs were not installed" || status=1
+    elif ! env ${WORKBENCH_SUDO_ASKPASS:+"SUDO_ASKPASS=$WORKBENCH_SUDO_ASKPASS"} NONINTERACTIVE=1 /bin/bash "$installer"; then
+        part_failed macos-packages "Homebrew's installer failed (the output above says why), so the tools it installs were not installed" || status=1
     fi
 fi
 fi
@@ -93,16 +96,20 @@ fi
 {{ template "operation-context.sh" }}
 
 if [ "${WORKBENCH_EFFECT_MACOS_PACKAGES:-1}" = 1 ]; then
-# --- Formulae (strict; idempotent: brew bundle skips what is installed) ---
-# Strict on purpose: this is the CLI set the rc files and the later scripts
-# assume, and a re-run resumes idempotently.
+# --- Formulae (idempotent: brew bundle skips what is installed) ---
+# This is the CLI set the rc files and the later scripts assume, and a re-run
+# resumes idempotently.
 # brew bundle resolves aliases (postgresql -> postgresql@N), so it does not
 # reinstall on every run the way a `brew list <alias>` probe would.
 # --no-upgrade: bootstrap installs what is missing, it never upgrades what is there.
-brewfile="$(mktemp)"
-write_brewfile > "$brewfile"
-echo "==> Installing formulae from packages.toml..."
-brew bundle install --file="$brewfile" --no-upgrade
+if command -v brew >/dev/null 2>&1; then
+    brewfile="$(mktemp)"
+    write_brewfile > "$brewfile"
+    echo "==> Installing formulae from packages.toml..."
+    if ! brew bundle install --file="$brewfile" --no-upgrade; then
+        part_failed macos-packages "Homebrew could not install every listed tool (the output above names them)" || status=1
+    fi
+fi
 
 # --- Oh My Posh config directory ---
 mkdir -p "$HOME/.config/oh-my-posh"
@@ -118,15 +125,18 @@ if command -v brew >/dev/null 2>&1; then
     echo "==> Installing Bitwarden CLI..."
     bw_brewfile="$(mktemp)"
     echo 'brew "bitwarden-cli"' > "$bw_brewfile"
-    brew bundle install --file="$bw_brewfile" --no-upgrade
-else
-    echo "WORKBENCH_EFFECT work-tools blocked: Homebrew is not installed, so the Bitwarden CLI was not installed" >&2
-    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
-        printf '%s\t%s\n' work-tools "Homebrew is not installed, so the Bitwarden CLI was not installed" >> "$WORKBENCH_EFFECT_REPORT"
+    if ! brew bundle install --file="$bw_brewfile" --no-upgrade; then
+        part_failed work-tools "Homebrew could not install the Bitwarden CLI (the output above says why)" || status=1
     fi
+else
+    part_failed work-tools "Homebrew is not installed, so the Bitwarden CLI was not installed" || status=1
 fi
 fi
 {{- end }}
 
+if [ "$status" -ne 0 ]; then
+    echo "==> macOS bootstrap finished with a step that could not be done (named above)."
+    exit "$status"
+fi
 echo "==> macOS bootstrap complete."
 {{ end -}}
