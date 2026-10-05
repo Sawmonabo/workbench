@@ -56,9 +56,13 @@ plan's approval is the only question and the updates run with
 `HOMEBREW_NO_ASK=1`. A tool whose upgrade would also change Workbench's own
 chezmoi, uv or Python is not updated. `brew pin` holds a tool and
 `brew pin --cask <app>` an app; the plan names held and kept packages in its
-warnings. A failed install or update does not block VS Code
-extension installs; the step still exits nonzero afterwards so the failure
-stays visible.
+warnings. A failed app install, a failed update or a VS Code extension that
+still fails after a second try does not stop the rest. The step it belongs to
+(Mac apps and editor extensions, Work tools for the work extension, or that
+app's or tool's update) shows `blocked` with the reason, the other steps and
+the scripts after it still run, and the apply ends with exit 3; the next apply
+tries again. Run by chezmoi alone, without Workbench's report file, the script
+still exits nonzero.
 Do not delete native script state to force all installers to rerun.
 
 The managed shell is zsh; `.zshrc.local` remains an unmanaged override.
