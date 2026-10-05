@@ -338,7 +338,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		state = &operation.State{}
 	}
 	recorded := state.Dependencies
-	results := installed(state)
+	results := installed(c, state)
 	selection, selectionErr := ReadSelection(c.Native.Config)
 	effects := operation.Component{
 		Name:    "effects",
@@ -424,7 +424,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 
 // installed reports the active release, the last applied configuration and
 // any apply that did not finish, from recorded state without probing.
-func installed(state *operation.State) []operation.Component {
+func installed(c operation.Context, state *operation.State) []operation.Component {
 	release := operation.Component{
 		Name:    "release",
 		Status:  operation.StatusAbsent,
@@ -452,9 +452,10 @@ func installed(state *operation.State) []operation.Component {
 	results := []operation.Component{release, applied}
 	if partial := state.PartialOperation; partial != nil {
 		results = append(results, operation.Component{
-			Name:    "unfinished-apply",
-			Status:  operation.StatusPartial,
-			Message: "Apply " + partial.ID + " to " + partial.Scope.Root + " did not finish; rerun workbench apply",
+			Name:   "unfinished-apply",
+			Status: operation.StatusPartial,
+			Message: "Apply " + partial.ID + " to " + partial.Scope.Root +
+				" did not finish; rerun " + c.WorkbenchCommand() + " apply",
 		})
 	}
 	return results
