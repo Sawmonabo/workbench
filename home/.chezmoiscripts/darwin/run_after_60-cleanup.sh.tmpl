@@ -23,6 +23,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
 elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
+{{ template "brew-askpass.sh" }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     echo "brew-maintenance: refresh Homebrew's index unless this apply already did, then remove leftover packages, old versions and the download cache"

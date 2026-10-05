@@ -39,13 +39,20 @@ Distinguish implemented code, observed checks and unqualified release targets.
   is refused (exit 3) before Workbench downloads or saves anything. The scripts
   apply runs never prompt: ticking the step is the approval (one-time helpers
   the owner runs later may prompt). The one thing the apply asks for itself is
-  the Mac password: at a terminal, once, after approval and before it writes
-  anything, when a checked step has to install Homebrew (`operation.WithAdmin`;
-  `/usr/bin/sudo` reads it, Workbench never does). Homebrew drops earlier sudo
-  approvals each time it runs, so an app that needs the password (such as Docker
-  Desktop) is asked for it by Homebrew itself while it installs. An unattended
-  run never asks, and is refused (exit 3) before any change only when Homebrew
-  must be installed with no valid sudo ticket. On WSL, Windows setup and each of
+  the Mac password, at most once per apply, at a terminal on a Mac
+  (`operation.WithAdmin`). Workbench reads it itself, without echo, and
+  checks it with `/usr/bin/sudo -k -S -v`: after approval and before it writes
+  anything when a checked step has to install Homebrew, otherwise the first time
+  a Homebrew command needs it (an app such as Docker Desktop). It lives only in
+  Workbench's memory for that apply, in its redaction set, never on disk, in the
+  environment, arguments, logs, plan or `--json`. The darwin scripts give
+  `SUDO_ASKPASS` to Homebrew's installer and `brew` only, pointing at a helper
+  in a private folder made for that apply, which asks Workbench over a Unix
+  socket that answers only processes the apply started. Homebrew drops earlier
+  sudo approvals each time it runs, which is why Workbench keeps the password,
+  not an approval. An unattended run (no terminal) never asks and makes no
+  helper, and is refused (exit 3) before any change only when Homebrew must be
+  installed with no valid sudo ticket. On WSL, Windows setup and each of
   its parts (Terminal settings, PowerShell profile, font registry) are separate
   optional steps, off until ticked, and ticking Windows setup ticks none of its
   parts; only WSL networking is on by default.

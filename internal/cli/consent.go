@@ -22,12 +22,12 @@ func consentFor(o *options, digest string) operation.Consent {
 }
 
 // nativeConsole gives interactive native runs the controlling terminal so
-// installers can prompt, and an apply that has to install Homebrew asks for the
-// Mac password once on that terminal before it starts (see
+// installers can prompt, and an apply at it on a Mac asks for the Mac password
+// once there, up front or when Homebrew first needs it (see
 // [operation.WithAdmin]). Unattended runs stream redacted diagnostics. A coding
 // agent never gets the terminal: it cannot answer the machine questions, and its
 // native output streams instead (sudo still opens /dev/tty itself, so an approved
-// agent apply is unchanged, except that it is never asked up front).
+// agent apply is unchanged: it is never asked by Workbench and gets no helper).
 func nativeConsole(o *options, diagnostics io.Writer) (*os.File, io.Writer, func()) {
 	if o.interactive() && !operation.AgentSession() {
 		if terminal := operation.StandardTerminal(); terminal != nil {

@@ -208,7 +208,7 @@ type Process struct {
 	PrivateOutput bool
 	// Terminal is only for approved interactive native setup, never preview.
 	// The child owns it as the foreground process group, so installers and a
-	// script's sudo can prompt; the apply's own password prompt is [WithAdmin].
+	// script's sudo can prompt; the apply's Mac password is [WithAdmin]'s.
 	Terminal *os.File
 	// Progress receives redacted output lines as they arrive instead of
 	// capturing them, for unattended native runs without a terminal.
@@ -280,8 +280,9 @@ func StartDetached(executable string, args []string, log *os.File) error {
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
-// Run is the subprocess owner; [StartDetached] and the sudo password prompt of
-// [WithAdmin] are the two documented exceptions. Read-only requests are reviewed
+// Run is the subprocess owner; [StartDetached] and the sudo password check of
+// [WithAdmin] (made by the password helper's process too, which holds no
+// [Mutation]) are the two documented exceptions. Read-only requests are reviewed
 // native probes, not a sandbox for arbitrary tools; never label a modifying
 // command read-only.
 func Run(
@@ -328,10 +329,16 @@ func Run(
 	case request.Terminal != nil:
 		cmd.Stdin, cmd.Stdout, cmd.Stderr = request.Terminal, request.Terminal, request.Terminal
 	case request.Progress != nil:
-		progress = &redactingWriter{out: request.Progress, secrets: request.Secrets}
+		progress = &redactingWriter{
+			out:     request.Progress,
+			secrets: mutation.redactions(request.Secrets),
+		}
 		cmd.Stdout, cmd.Stderr = progress, progress
 	}
 	err = cmd.Run()
+	// What the run learned, such as the Mac password a helper was asked for, is
+	// redacted too.
+	secrets := mutation.redactions(request.Secrets)
 	// A tool may exit while a child retains its pipes. WaitDelay bounds the
 	// wait, and the process group cleanup prevents retained children lingering.
 	if errors.Is(err, exec.ErrWaitDelay) && cmd.Process != nil {
@@ -361,11 +368,11 @@ func Run(
 		return output, failure(
 			filepath.Base(executable),
 			err,
-			redact(stderr.String(), request.Secrets),
+			redact(stderr.String(), secrets),
 		)
 	}
-	output.Stdout = redact(stdout.String(), request.Secrets)
-	output.Stderr = redact(stderr.String(), request.Secrets)
+	output.Stdout = redact(stdout.String(), secrets)
+	output.Stderr = redact(stderr.String(), secrets)
 	if request.PrivateOutput {
 		output.Stdout = stdout.String()
 	}

@@ -190,10 +190,12 @@ func applyCommand(o *options) *cobra.Command {
 			"--approve-plan DIGEST first refreshes Homebrew's package list, so the updates it " +
 			"plans are current; --dry-run and --approve-plan leave the list as it is. When the " +
 			"plan has to install Homebrew, an apply at a terminal asks for your Mac password " +
-			"once before it changes anything; without a terminal nobody is asked, and " +
-			"installing Homebrew then needs a sudo ticket that is still valid. Apps that need " +
-			"the password, such as Docker Desktop, are asked for it by Homebrew itself while " +
-			"they install.",
+			"once before it changes anything; otherwise it asks the first time an app that " +
+			"Homebrew installs or updates needs it, such as Docker Desktop, and never twice in " +
+			"one apply. Workbench keeps the password in memory for that apply only and answers " +
+			"Homebrew's requests with it. Without a terminal nobody is asked, and installing " +
+			"Homebrew then needs a sudo ticket that is still valid; Homebrew asks for the " +
+			"password of apps itself.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,

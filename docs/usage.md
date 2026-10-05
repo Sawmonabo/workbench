@@ -131,7 +131,7 @@ Deciding once. The first approved `apply` shows the plan and saves two things in
 
 What the plan shows. One view serves the interactive list and `--dry-run`: a header with counts (files, steps that will run, new to decide), the files, then `Will run`, `Off` (steps you turned off), `Optional` and a faint `Already set` line, names only, for steps whose check found nothing to change (the cursor can rest on one to read what is already in place, but it cannot be turned off). Each step is its plain name with one faint line under it; the cursor row opens a detail panel (what it does, what it would do on this machine now, what it changes, who it runs as, how to undo it). A file's diff and a merged file's settings list have these masked: known secrets Workbench holds; the value of a key whose name contains token, secret, password, passwd, passphrase, api key, access key, private key, credential or authorization, or ends in key, pat, auth, cookie, session, pass or pwd (`DB_PASS`, `MYSQL_PWD`), judged on the key's last name however long the path, and everything under a table named that way; a `Bearer` value; the value after a command-line flag named like that (`--token x`, `--db-pass x`), and after `-p` or `-P` unless it is a path or variable (`mkdir -p ~/x` stays), with `-psecret` attached only on a line naming mysql, mariadb, sshpass or mongo; the password in `https://user:password@host`, and a key of 16 or more characters used as the user (a Sentry DSN); a Slack, Discord, Microsoft Teams or Zapier webhook path or any `/webhook/` path; a URL query value named like a credential (`?client_secret=`, `&sig=`); and token shapes (GitHub, GitLab, OpenAI, AWS, Slack, JWT, 40 or more hex characters, a 40 or more character letters-and-digits run). Other values are shown as they are, so a credential with none of these shapes under an ordinary key name is not masked. The diff is printed only at a terminal: never to a pipe or a file, not even with `--verbose`. A step that cannot apply on this host, such as the Linux editor extensions on WSL, is not listed. A step that runs from a script chezmoi reruns when it changes is listed again on the first apply after a release changes that script (the language runtimes, command-line tools and tmux plugin steps, for one), even when nothing else is new. Steps that always run with the files, such as AI safety settings and, on a work machine, Bitwarden session caching, show without a box. Keys: up and down move, space turns a step on or off, enter opens the detail (a file's diff, full screen; `q` or esc to return), `a` applies, `q` or ctrl+c quits with nothing applied; a mouse click selects a row and clicking the selected row toggles it. Closing the list prints its final frame once. A saved plan run without a prompt prints a compact view headed `Applying your saved choices`. When the checked steps will need the Mac password, a line under the header says so and why (`Applying at a terminal asks for your Mac password once, before it starts, to install Homebrew.`); it follows the boxes. Add `--verbose` to see each row's detail panel and the recovery limits.
 
-Ticking a step is the approval: scripts Workbench runs during apply never stop to ask a second question. The one thing an apply asks besides the plan is the Mac password, once, before it starts, and only when it has to install Homebrew. What a step would change is in its detail panel beforehand (WSL networking lists each `.wslconfig` setting it will change, for example `networkingMode is virtioproxy, will be mirrored`), and the recovery copy of a file it replaces is still written.
+Ticking a step is the approval: scripts Workbench runs during apply never stop to ask a second question. The one thing an apply asks besides the plan is the Mac password, at most once: before it starts when it has to install Homebrew, otherwise the first time Homebrew needs it. What a step would change is in its detail panel beforehand (WSL networking lists each `.wslconfig` setting it will change, for example `networkingMode is virtioproxy, will be mirrored`), and the recovery copy of a file it replaces is still written.
 
 `revert` and `project` still ask "Approve this exact plan?" with Yes and No (y or n, or the arrow keys and Enter; Enter alone, esc and ctrl+c refuse).
 
@@ -148,23 +148,29 @@ provisioning, so installers can prompt and you see their output as it
 runs, and takes it back when they finish. JSON mode does not
 prompt; it streams redacted provisioning output on stderr.
 
-The Mac password. On a Mac, an `apply` at a terminal whose checked steps have to
-install Homebrew asks for the Mac password once, after you approve and before it
-changes anything, because Homebrew's installer cannot ask for it. `sudo` reads
-the password from the terminal itself (Touch ID for sudo works); Workbench never
-reads it. A sudo ticket that is already valid (a recent `sudo`, or passwordless
-sudo) is used and nothing is asked. Workbench renews the ticket about every
-minute and drops it with `sudo -k` when the apply ends, if it created it.
-Homebrew drops earlier sudo approvals each time it runs, on purpose, so the
-renewing stops at the first refused renewal, and an app that needs the password
-(Docker Desktop, for one) is asked for it by Homebrew itself while it installs
-or updates. Three wrong passwords, an account that is not an administrator or a
-refusal end the apply as blocked (exit 3) and ctrl+c as interrupted (exit 130),
-with nothing changed. Without a terminal, which includes every `--approve-plan`
-run by a script or a coding agent, nobody is asked: a valid ticket is used, and
-without one the apply is refused (exit 3, before any change) only when Homebrew
-has to be installed, because its installer cannot ask; apps and app updates go
-ahead as before.
+The Mac password. On a Mac, an `apply` at a terminal asks for the Mac password at
+most once. When its checked steps have to install Homebrew, it asks after you
+approve and before it changes anything, because Homebrew's installer cannot ask
+for it. Otherwise it asks the first time a Homebrew command needs it, for
+example when an app such as Docker Desktop installs or updates. Workbench reads
+the password itself, without echo, and checks it with `sudo` before it
+remembers it, so a wrong one is asked again. A sudo ticket that is already valid
+(a recent `sudo`, or passwordless sudo) is used for the up-front step and
+nothing is asked there. Homebrew drops earlier sudo approvals each time it runs,
+on purpose, so Workbench keeps the password, not an approval, and answers each
+later request of the apply with it through `SUDO_ASKPASS`, given to Homebrew's
+commands only. The password stays in Workbench's memory until the apply ends;
+it is never written to a file, the environment, a command's arguments, a log,
+the plan or `--json`. The helper that passes it to Homebrew answers only
+programs the apply started, and its folder is removed when the apply ends,
+however it ends. Three wrong passwords, an account that is not an administrator
+or a refusal end the apply as blocked (exit 3) and ctrl+c as interrupted
+(exit 130), with nothing changed when it happens up front. Without a terminal,
+which includes every `--approve-plan` run by a script or a coding agent, nobody
+is asked and no helper is made: a valid ticket is used, and without one the
+apply is refused (exit 3, before any change) only when Homebrew has to be
+installed, because its installer cannot ask; apps and app updates go ahead as
+before, with Homebrew asking for the password itself.
 
 Unattended runs. Agents and scripts read the plan first, then apply exactly that plan:
 

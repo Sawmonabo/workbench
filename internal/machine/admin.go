@@ -4,9 +4,10 @@ import "github.com/Sawmonabo/workbench/internal/operation"
 
 // adminReason finishes "asks for your Mac password once, to ...". The one thing
 // an apply asks it for up front is Homebrew's installer, which cannot ask for
-// itself because it runs non-interactively. Homebrew drops earlier sudo
-// approvals each time it runs, so an app that needs the password is asked for it
-// by Homebrew itself while it installs, and is not covered here.
+// itself because it runs non-interactively. An app that needs the password later,
+// such as Docker Desktop, is covered too: the same password answers Homebrew's
+// request through the apply's SUDO_ASKPASS helper, asked at that point only when
+// nothing was asked up front.
 const adminReason = "install Homebrew"
 
 // installsHomebrew reports whether a checked effect has to install Homebrew,

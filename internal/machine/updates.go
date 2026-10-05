@@ -94,7 +94,7 @@ func (p *preparation) planUpdates(
 			effect.Description += "; a running app may be quit"
 			effect.Privilege += "; some apps prompt for sudo"
 			effect.What += " A running copy of the app may be quit."
-			effect.RunsAs += "; some apps ask for your Mac password while they update, and Homebrew asks for it then"
+			effect.RunsAs += "; some apps need your Mac password while they update, which an apply at a terminal asks for once"
 			p.appUpdates = append(p.appUpdates, update.name)
 			p.Plan.Effects = append(p.Plan.Effects, effect)
 			continue

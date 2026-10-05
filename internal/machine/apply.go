@@ -130,20 +130,24 @@ type applyRun struct {
 	result    *operation.Result
 }
 
-// apply asks for the Mac password first when the plan installs Homebrew, before
-// anything is written: a checkpoint, a state file or a script. See
-// [operation.WithAdmin].
+// apply makes the Mac password available before anything is written: a
+// checkpoint, a state file or a script. See [operation.WithAdmin]. A plan with no
+// script to run has no use for it.
 func (a *applyRun) apply() error {
-	if !installsHomebrew(a.prepared.Plan.Effects) {
+	effects := a.prepared.Plan.Effects
+	if !hasProvisioning(effects) {
 		return a.write()
 	}
-	admin := operation.Admin{
-		Terminal: a.terminal,
-		Why:      adminReason,
-		Refusal: "Installing Homebrew needs your Mac password; run " +
-			a.c.WorkbenchCommand() + " apply in a terminal",
+	admin := operation.Admin{Terminal: a.terminal}
+	if installsHomebrew(effects) {
+		admin.Why = adminReason
+		admin.Refusal = "Installing Homebrew needs your Mac password; run " +
+			a.c.WorkbenchCommand() + " apply in a terminal"
 	}
-	return operation.WithAdmin(a.ctx, a.c, a.m, admin, a.write)
+	return operation.WithAdmin(a.ctx, a.c, a.m, admin, func(askpass string) error {
+		a.prepared.askpass = askpass
+		return a.write()
+	})
 }
 
 // write checkpoints, provisions and records the apply.

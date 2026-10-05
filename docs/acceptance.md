@@ -31,8 +31,10 @@ synthetic answers.
   skipped step never runs again unasked, each section of a shared script gated
   by its own step, Windows steps only when selected by name), a coding agent's
   apply refused before setup, a project marker in the home folder never making
-  a project-controlled tool trusted, and the costs ledger keeping every
-  response and upgrade row.
+  a project-controlled tool trusted, the Mac password staying out of files,
+  sudo's arguments and environment and answered only to the apply's own
+  processes (macOS), and the costs ledger keeping every response and upgrade
+  row.
 
 ### Releases, install and update
 
@@ -187,11 +189,8 @@ synthetic answers.
   ticket, `~/.local/bin` not on `PATH`), from a local bundle with synthetic
   personal/pinned answers: `update` ended `run ~/.local/bin/workbench apply`. The
   interactive apply's plan said `Applying at a terminal asks for your Mac
-  password once, before it starts, to install Homebrew.`, asked once before it
-  changed anything, and Homebrew's installer and the Command Line Tools then
-  installed with no further prompt. Homebrew dropped the sudo ticket when `brew`
-  first ran, and the apps step (Docker Desktop's cask) then asked for the
-  password itself. Every effect completed (exit 0, about 15 minutes); the
+  password once, before it starts, to install Homebrew.` Every effect completed
+  (exit 0, about 15 minutes); the
   runtimes step, planned before nvm and rustup existed, read `install Node … once
   nvm is in place, … the default; …; install Rust … once rustup is in place and
   make it the default`; the run ended `open a new terminal so your shell finds
@@ -206,6 +205,16 @@ synthetic answers.
   nothing else written; the latest-mode plan read `install the newest Node once
   nvm is in place; …; install stable Rust once rustup is in place and make it the
   default`.
+- On a clean macOS VM with no sudo ticket, an interactive apply that installs
+  Homebrew asks for the Mac password once, without echo, before it changes
+  anything, asks again after a wrong one and ends blocked (exit 3) after three,
+  and Homebrew's installer, the Command Line Tools and the apps step (Docker
+  Desktop's cask) then install with no further prompt. No `wb-askpass-*`
+  folder is left in `$TMPDIR` when the apply ends, ctrl+c at the prompt leaves
+  the terminal echoing and changes nothing, and a coding agent's or a
+  terminal-less `--approve-plan` apply asks nothing and makes no folder. A later
+  apply that only updates such an app asks once, when Homebrew first needs it.
+  (target; not yet observed)
 
 ### On a WSL2 host
 
