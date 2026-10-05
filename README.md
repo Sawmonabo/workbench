@@ -70,7 +70,8 @@ selection of the workspace root; selecting a child never grants parent writes.
 
 Personal VS Code settings have one owner:
 [home/.chezmoidata/vscode.json](home/.chezmoidata/vscode.json). The shared merge
-preserves unrelated settings and custom color rules. Dark 2026 remains selected;
+edits only the values that differ and preserves comments, unrelated settings and
+custom color rules. Dark 2026 remains selected;
 TypeScript properties use light blue, readonly properties a distinct blue.
 
 Python uses ty for editor features, native Ruff for lint/format/imports, and

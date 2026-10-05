@@ -160,7 +160,8 @@ synthetic answers.
   A VS Code extension that fails to install no longer stops the rest; the step
   reports it and exits nonzero.
 - The Claude, Codex and VS Code merges leave a file byte for byte when no value
-  changes. They keep unowned keys, JSONC comments and VS Code's 0644. A
+  changes. They keep unowned keys and VS Code's 0644, and the VS Code merge keeps
+  JSONC comments, key order and layout (observed in an isolated destination). A
   changed enforced value is restored. Quarantine, Finder info and last-used-date
   attributes survive apply and revert.
 - On an existing macOS 27 arm64 machine with Homebrew, a full apply completed

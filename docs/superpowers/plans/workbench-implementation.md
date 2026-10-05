@@ -43,7 +43,7 @@ Workbench is greenfield: update the canonical implementation and all affected ca
 | `.chezmoiroot`, `home/` | Preserve the machine deployment boundary. Product code and project policies stay outside it. |
 | `home/.chezmoi.toml.tmpl` | Reuse questions, role flags, WSL detection and stored answers. Test archive-based initialization and secret-safe quoting. |
 | `home/.chezmoidata/packages.toml`, `versions.toml` | Reuse canonical names/pins. Resolve duplicated ownership of management dependencies; the apt list is not currently the executed Linux package plan. |
-| `home/.chezmoitemplates/vscode-settings.json.tmpl`, `home/.chezmoidata/vscode.json` | Reuse the single editor merge/data source. JSONC input is accepted but comments are not retained by this machine-settings merge. |
+| `home/.chezmoitemplates/vscode-settings.sh.tmpl`, `home/.chezmoidata/vscode.json`, `internal/machine/vscode.go` | Reuse the single editor merge/data source. JSONC input is accepted and edited in place, so comments, key order and layout are retained. |
 | `home/.chezmoiscripts/` | Reuse provisioning owners. Audit hidden writes, cleanup, elevation, architecture assumptions, partial outcomes and duplicate dependency installs. |
 | `home/private_dot_codex/modify_private_config.toml.tmpl` | Account for Python with `tomllib`; invalid input must not silently lose unowned state. |
 | `home/.chezmoiignore`, `home/.chezmoiremove` | Preserve platform/role selection. Preview and checkpoint removals. |
@@ -219,7 +219,7 @@ owner pushes a `v*` tag, not when files are implemented.
 ### Files
 
 - Update `home/.chezmoidata/vscode.json`, `packages.toml` and `versions.toml`.
-- Reuse `home/.chezmoitemplates/vscode-settings.json.tmpl` and both existing VS Code target files.
+- Reuse `home/.chezmoitemplates/vscode-settings.sh.tmpl` and both existing VS Code target files.
 - Use `home/dot_config/ty/ty.toml` and `home/dot_config/ruff/pyproject.toml`, the verified native user fallback filenames.
 - Reuse existing extension provisioning; do not create a second platform extension list or new extension test suite.
 

@@ -1,0 +1,11 @@
+#!/bin/sh
+# Rendered by chezmoi as a modify_ script for VS Code's settings.json: the
+# current file is on stdin and the new file is what this prints. Workbench does
+# the merge, the way VS Code edits its own settings, so the owner's comments,
+# key order and layout survive; see MergeVSCodeSettings. It prints nothing
+# only when it fails, and then chezmoi leaves the file as it is.
+command -v workbench >/dev/null 2>&1 || {
+    echo 'workbench is not on PATH, so VS Code settings.json was left unchanged' >&2
+    exit 127
+}
+exec workbench vscode-settings {{ .vscode.settings | toJson | replace "'" "'\\''" | printf "'%s'" }}
