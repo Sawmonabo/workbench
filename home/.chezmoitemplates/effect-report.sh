@@ -20,3 +20,21 @@ part_failed() {
     part_blocked "$@"
     return 1
 }
+
+# part_missing EFFECT WHAT NAME... is part_failed for each NAME, which an
+# earlier setup step installs, not being installed yet; WHAT, unless empty,
+# names what was skipped for it.
+part_missing() {
+    local effect=$1 what=$2 names reason
+    shift 2
+    printf -v names '%s, ' "$@"
+    names=${names%, }
+    if [ $# -eq 1 ]; then
+        reason="$names is not installed yet (an earlier setup step installs it)"
+        [ -z "$what" ] || reason="$reason, so $what that need it were skipped"
+    else
+        reason="$names are not installed yet (earlier setup steps install them)"
+        [ -z "$what" ] || reason="$reason, so $what that need them were skipped"
+    fi
+    part_failed "$effect" "$reason"
+}

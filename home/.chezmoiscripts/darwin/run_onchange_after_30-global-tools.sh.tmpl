@@ -99,7 +99,11 @@ fi
 
 # --- cargo tools ---
 # (an empty cargo_tools table must still render a valid if-body, hence the no-op)
-if command -v cargo &>/dev/null; then
+# cargo builds them with the C linker from the Xcode Command Line Tools, which
+# Homebrew's installer installs.
+if ! xcode-select -p >/dev/null 2>&1; then
+    missing+=("the Xcode Command Line Tools")
+elif command -v cargo &>/dev/null; then
     :
 {{- range $pkg, $ver := .cargo_tools }}
 {{- if eq $mode "pinned" }}
@@ -141,8 +145,7 @@ if [ ${#failed[@]} -gt 0 ]; then
     part_failed global-tools "${joined%, } could not be installed (the output above says why)" || status=1
 fi
 if [ ${#missing[@]} -gt 0 ]; then
-    printf -v joined '%s, ' "${missing[@]}"
-    part_failed global-tools "${joined%, } not installed yet (earlier setup steps install them), so the tools that need them were skipped" || status=1
+    part_missing global-tools "the tools" "${missing[@]}" || status=1
 fi
 [ "$status" -eq 0 ] || exit "$status"
 echo "==> Global tools done."

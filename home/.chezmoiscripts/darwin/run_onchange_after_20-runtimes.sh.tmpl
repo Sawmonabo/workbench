@@ -68,8 +68,7 @@ if [ ${#failed[@]} -gt 0 ]; then
     part_failed runtimes "${joined%, } could not be installed (the output above says why)" || status=1
 fi
 if [ ${#missing[@]} -gt 0 ]; then
-    printf -v joined '%s, ' "${missing[@]}"
-    part_failed runtimes "${joined%, } not installed yet (earlier setup steps install them), so the runtimes that need them were skipped" || status=1
+    part_missing runtimes "the runtimes" "${missing[@]}" || status=1
 fi
 [ "$status" -eq 0 ] || exit "$status"
 echo "==> Runtimes done."

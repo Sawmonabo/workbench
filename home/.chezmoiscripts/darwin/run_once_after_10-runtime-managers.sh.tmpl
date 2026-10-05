@@ -81,8 +81,7 @@ for tool in uv bun go; do
     fi
 done
 if [ ${#missing[@]} -gt 0 ]; then
-    printf -v joined '%s, ' "${missing[@]}"
-    part_failed runtime-managers "${joined%, } not installed; the Homebrew packages step installs them" || status=1
+    part_missing runtime-managers "" "${missing[@]}" || status=1
 fi
 
 [ "$status" -eq 0 ] || exit "$status"

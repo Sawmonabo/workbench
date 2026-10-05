@@ -31,8 +31,7 @@ for tool in tmux git; do
     command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
 done
 if [ ${#missing[@]} -gt 0 ]; then
-    printf -v joined '%s, ' "${missing[@]}"
-    part_failed tmux-plugins "${joined%, } not installed yet (the packages step installs them), so the plugins were not installed" || exit 1
+    part_missing tmux-plugins "the plugins" "${missing[@]}" || exit 1
 fi
 if [ ! -d "$HOME/.tmux/plugins/tpm" ]; then
     echo "==> Installing TPM (Tmux Plugin Manager)..."
