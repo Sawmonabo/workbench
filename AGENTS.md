@@ -3,6 +3,7 @@
 Read [README](README.md), [design](docs/superpowers/specs/workbench-design.md),
 [contracts](docs/superpowers/specs/workbench-contracts.md) and the relevant
 [implementation plan](docs/superpowers/plans/workbench-implementation.md).
+Decisions and the reasons for them are in [docs/adr](docs/adr/).
 Distinguish implemented code, observed checks and unqualified release targets.
 
 ## Development contract
