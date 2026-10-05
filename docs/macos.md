@@ -16,10 +16,10 @@ network access. Installing Homebrew needs the Mac password: an `apply` at a
 terminal asks for it once, after approval and before it changes anything (see
 [usage](usage.md)). An app that needs the password, such as Docker Desktop, is
 answered with the same one; an apply that does not install Homebrew asks the
-first time such an app needs it, and never twice in one apply. Without a
-terminal nobody is asked, and installing Homebrew needs a sudo ticket that is
-still valid, or the apply stops before any change. Missing required effects
-return incomplete results.
+first time such an app needs it, and only once per apply (again only after a
+wrong password). Without a terminal nobody is asked, and installing Homebrew
+needs a sudo ticket that is still valid, or the apply stops before any change.
+Missing required effects return incomplete results.
 Planning reads Homebrew's package index as it is and never refreshes it, so
 `apply --dry-run` and `apply --approve-plan` show the updates as of the last
 refresh. An `apply` not given `--approve-plan` runs `brew update` first, before
