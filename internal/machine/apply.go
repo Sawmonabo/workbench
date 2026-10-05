@@ -141,7 +141,8 @@ func (a *applyRun) apply() error {
 	}
 	admin := operation.Admin{Terminal: a.terminal, Why: need.reason()}
 	if need.homebrew {
-		admin.Refusal = "Installing Homebrew needs your Mac password; run workbench apply in a terminal"
+		admin.Refusal = "Installing Homebrew needs your Mac password; run " +
+			a.c.WorkbenchCommand() + " apply in a terminal"
 	}
 	return operation.WithAdmin(a.ctx, a.c, a.m, admin, a.write)
 }

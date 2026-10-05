@@ -17,9 +17,9 @@ need the Mac password: an `apply` at a terminal asks for it once, after approval
 and before it changes anything (see [usage](usage.md)), and keeps the sudo
 ticket alive until it ends. Without a terminal nobody is asked, and installing
 Homebrew needs a sudo ticket that is still valid, or the apply stops before any
-change. Missing required effects return incomplete results. Planning reads Homebrew's package index as it is and never refreshes
-it, so `apply --dry-run` and `apply --approve-plan` show the updates as of the
-last refresh. An `apply` not given `--approve-plan` runs `brew update` first,
+change. Missing required effects return incomplete results. Planning reads
+Homebrew's package index as it is and never refreshes it, so `apply --dry-run`
+and `apply --approve-plan` show the updates as of the last refresh. An `apply` not given `--approve-plan` runs `brew update` first,
 before it plans (a failure only warns), so the plan lists current updates. Every
 full apply ends with `brew-maintenance`: it runs `brew update` unless the apply
 already did (so a machine that applies only with `--approve-plan` still gets a

@@ -91,7 +91,7 @@ func (a Admin) acquire(
 		}
 		return false, false, nil
 	}
-	if err = a.prompt(ctx); err != nil {
+	if err = a.prompt(ctx, c); err != nil {
 		return false, false, err
 	}
 	return true, true, nil
@@ -104,7 +104,7 @@ func (a Admin) acquire(
 // deliver it to sudo alone, which cannot be told from a wrong password.
 // It is the one run that is not through [Run], like [StartDetached], because it
 // must share Workbench's process group.
-func (a Admin) prompt(ctx context.Context) error {
+func (a Admin) prompt(ctx context.Context, c Context) error {
 	executable, err := trustedExecutable(sudoPath, nil)
 	if err != nil {
 		return err
@@ -139,7 +139,7 @@ func (a Admin) prompt(ctx context.Context) error {
 		ExitBlocked,
 		"privilege",
 		"Workbench could not get administrator rights, so nothing was changed. "+
-			"Check that this account is an administrator, then run workbench apply again",
+			"Check that this account is an administrator, then run "+c.WorkbenchCommand()+" apply again",
 	)
 }
 
