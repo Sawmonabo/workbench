@@ -26,13 +26,13 @@ var macOSEffects = []operation.Effect{
 	{
 		Name:        "macos-apps-extensions",
 		Description: "Missing casks and VS Code extensions; apps installed outside Homebrew are left alone",
-		Privilege:   "user; installing an app may use sudo",
+		Privilege:   "user; casks may require elevation",
 		Recovery:    "external; no package rollback",
 		Title:       "Mac apps and editor extensions",
 		Summary:     "the apps and VS Code extensions Workbench lists",
 		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing. Apps you installed another way are left alone.",
 		Touches:     "/Applications and your VS Code extensions",
-		RunsAs:      "you; downloads apps. Some need your Mac password, which an apply at a terminal asks for once before it starts",
+		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need your Mac password, and Homebrew asks for it while they install",
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{

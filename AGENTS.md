@@ -40,13 +40,15 @@ Distinguish implemented code, observed checks and unqualified release targets.
   apply runs never prompt: ticking the step is the approval (one-time helpers
   the owner runs later may prompt). The one thing the apply asks for itself is
   the Mac password: at a terminal, once, after approval and before it writes
-  anything, when a checked step installs Homebrew or apps or updates apps
-  (`operation.WithAdmin`; `/usr/bin/sudo` reads it, Workbench never does). An
-  unattended run never asks, and is refused (exit 3) before any change only
-  when Homebrew must be installed with no valid sudo ticket. On WSL, Windows
-  setup and each of its parts (Terminal settings, PowerShell profile, font
-  registry) are separate optional steps, off until ticked, and ticking Windows
-  setup ticks none of its parts; only WSL networking is on by default.
+  anything, when a checked step has to install Homebrew (`operation.WithAdmin`;
+  `/usr/bin/sudo` reads it, Workbench never does). Homebrew drops earlier sudo
+  approvals each time it runs, so an app that needs the password (such as Docker
+  Desktop) is asked for it by Homebrew itself while it installs. An unattended
+  run never asks, and is refused (exit 3) before any change only when Homebrew
+  must be installed with no valid sudo ticket. On WSL, Windows setup and each of
+  its parts (Terminal settings, PowerShell profile, font registry) are separate
+  optional steps, off until ticked, and ticking Windows setup ticks none of its
+  parts; only WSL networking is on by default.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved

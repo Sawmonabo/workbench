@@ -79,9 +79,8 @@ func Apply(
 		prepared, err = prepare(ctx, preview, selection, false)
 		if err == nil {
 			prepared.brewRefreshed = brewRefreshed
-			// The recheck does not probe; carry the shown deltas, and which
-			// steps need the Mac password, so the result messages and the
-			// password ask keep them. The digest ignores these fields.
+			// The recheck does not probe; carry the shown deltas so the
+			// result messages keep them. The digest ignores these fields.
 			for i, effect := range prepared.Plan.Effects {
 				if j := slices.IndexFunc(displayed.Effects, func(shown operation.Effect) bool {
 					return shown.Name == effect.Name
@@ -90,7 +89,6 @@ func Apply(
 					prepared.Plan.Effects[i].Probe = displayed.Effects[j].Probe
 					prepared.Plan.Effects[i].ProbeNote = displayed.Effects[j].ProbeNote
 					prepared.Plan.Effects[i].NoChange = displayed.Effects[j].NoChange
-					prepared.Plan.Effects[i].NeedsAdmin = displayed.Effects[j].NeedsAdmin
 					prepared.Plan.Effects[i].New = displayed.Effects[j].New
 				}
 			}
@@ -132,17 +130,18 @@ type applyRun struct {
 	result    *operation.Result
 }
 
-// apply asks for the Mac password first when the plan needs it, before anything
-// is written: a checkpoint, a state file or a script. See [operation.WithAdmin].
+// apply asks for the Mac password first when the plan installs Homebrew, before
+// anything is written: a checkpoint, a state file or a script. See
+// [operation.WithAdmin].
 func (a *applyRun) apply() error {
-	need := adminNeeded(a.prepared.Plan.Effects)
-	if !need.any() {
+	if !installsHomebrew(a.prepared.Plan.Effects) {
 		return a.write()
 	}
-	admin := operation.Admin{Terminal: a.terminal, Why: need.reason()}
-	if need.homebrew {
-		admin.Refusal = "Installing Homebrew needs your Mac password; run " +
-			a.c.WorkbenchCommand() + " apply in a terminal"
+	admin := operation.Admin{
+		Terminal: a.terminal,
+		Why:      adminReason,
+		Refusal: "Installing Homebrew needs your Mac password; run " +
+			a.c.WorkbenchCommand() + " apply in a terminal",
 	}
 	return operation.WithAdmin(a.ctx, a.c, a.m, admin, a.write)
 }

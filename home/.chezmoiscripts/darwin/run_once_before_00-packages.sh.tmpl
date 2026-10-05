@@ -72,8 +72,10 @@ if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
     [ -s "$installer" ] || { echo "Homebrew installer download failed" >&2; exit 1; }
     # NONINTERACTIVE: no RETURN prompt, and the installer's sudo check never asks
     # for a password (sudo -n), so it needs a sudo ticket that is still valid.
-    # Workbench asks for the Mac password once before the apply starts and keeps
-    # that ticket alive; run without Workbench, chezmoi needs a recent sudo first.
+    # Workbench asks for the Mac password once before the apply starts, which
+    # covers this install; run without Workbench, chezmoi needs a recent sudo first.
+    # Homebrew drops the ticket whenever brew runs, so an app that needs the
+    # password later is asked for it by Homebrew itself.
     NONINTERACTIVE=1 /bin/bash "$installer"
 fi
 fi

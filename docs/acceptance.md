@@ -179,6 +179,11 @@ synthetic answers.
   ones install, and Homebrew cleanup, whose per-formula "Skipping" warnings fold
   into one count. Updating a running app quit it, and Homebrew reopened it. The interactive apply handed the terminal to provisioning
   and took it back without stopping under a job-control shell.
+- On a clean macOS 15.7.7 VM, an interactive apply asked for the Mac password
+  once, before it changed anything, and Homebrew's installer and the Command
+  Line Tools then installed with no further prompt. Homebrew dropped the sudo
+  ticket when `brew` first ran, and Docker Desktop's cask then asked for the
+  password itself.
 
 ### On a WSL2 host
 

@@ -189,9 +189,11 @@ func applyCommand(o *options) *cobra.Command {
 			"only with --approve-plan DIGEST or --yes. On a Mac, an apply that is not given " +
 			"--approve-plan DIGEST first refreshes Homebrew's package list, so the updates it " +
 			"plans are current; --dry-run and --approve-plan leave the list as it is. When the " +
-			"plan has to install Homebrew or apps, or update apps, an apply at a terminal asks " +
-			"for your Mac password once before it changes anything; without a terminal nobody " +
-			"is asked, and installing Homebrew then needs a sudo ticket that is still valid.",
+			"plan has to install Homebrew, an apply at a terminal asks for your Mac password " +
+			"once before it changes anything; without a terminal nobody is asked, and " +
+			"installing Homebrew then needs a sudo ticket that is still valid. Apps that need " +
+			"the password, such as Docker Desktop, are asked for it by Homebrew itself while " +
+			"they install.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
