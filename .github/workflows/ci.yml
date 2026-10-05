@@ -40,14 +40,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-24.04, macos-latest]
         machine_role: [personal, work, both]
         versions_mode: [pinned, latest]
         extra: ['']
         include:
           # The wsl/ scripts render empty on every other host, so lint them once
           # against a config that claims to be WSL.
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             machine_role: work
             versions_mode: pinned
             extra: wsl
@@ -80,7 +80,7 @@ jobs:
       - name: Render, lint, and leak-check
         run: scripts/render-check.sh "${{ matrix.machine_role }}" "${{ matrix.versions_mode }}" "${{ matrix.extra }}"
   secret-scan:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
