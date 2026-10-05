@@ -3,6 +3,131 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.12](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.12) - 2026-10-05
+
+### Features
+
+- Add an optional step that turns on Touch ID for sudo
+- Leave the Mac password to sudo where Touch ID is on for it
+- Install a checkout's pinned tools with update --local-build
+
+### Fixes
+
+- Keep the Touch ID step from prompting without a terminal
+- Drop the sudo approval the password helper's answer leaves when the apply ends
+- Give the terminal back as it was lent, so ctrl+c at the password helper's prompt leaves echo on
+- Never leave a password read pending, so ctrl+c at the prompt cannot hang the apply
+- Wait for the package lock that unattended-upgrades holds on a new Ubuntu machine
+- Keep ~/.config private (0700)
+- Ask for the Mac password once per apply and answer Homebrew's sudo requests
+- Name the missing, invalid or unknown key when machine answers are refused
+- Name the file and the chmod that fixes a private file open to other users
+- Name the workbench path the shell can run in the unfinished-apply hint
+- Write the GitHub sign-in helper on the first apply, before gh is installed
+- Ask for the Mac password up front only to install Homebrew
+- Say what the runtimes step will install before nvm, uv or rustup exist
+- Keep ~/Library/Application Support private as macOS makes it
+- Ask for the Mac password up front when an apply installs apps
+- Name the full workbench path in the Mac password messages
+- Name the full workbench path until a new terminal finds it
+- Ask for the Mac password once before an apply installs Homebrew or apps
+- Refuse an unreadable Windows settings file instead of reporting a change
+- Keep comments and layout when merging VS Code settings
+- Keep the comments of a settings file intact while planning
+- Refresh Homebrew's index before an attended apply plans updates
+- Name a qualified uv version once when the pin repeats an extra
+- Refuse tool pins that name another download host or path
+- Messages and comments no longer name the removed --source flag
+- Missing-tool and missing-answer messages name a command that works
+- Apply --local-build installs the checkout's pinned tools
+- A saved choice this host does not offer warns instead of blocking
+- A signal ends a prompt instead of waiting for a key
+- Keep plan details when --approve-plan skips the prompt
+- Version works when the saved state is unreadable
+- Invocation errors say what was wrong
+- List --approve-plan in --help
+- Refuse an apply nobody approved before it downloads or saves anything
+- Homebrew's update check uses the proxy and CA settings
+- An empty VS Code settings.json counts as no settings
+- A failed Windows download blocks only the steps that need it
+- Windows setup is off until you tick it
+- The pinned Rust toolchain becomes the default
+- Windows setup no longer ticks the Terminal, PowerShell and font steps
+- Stop listing toggles that cannot switch their files off
+- The WSL plan renders the Windows scripts with the distribution name
+- The Windows VS Code settings merge leaves unchanged files alone and keeps comments
+- A broken or interrupted Windows oh-my-posh or font install is repaired
+- An unreachable Windows side blocks its own steps, not the whole apply
+- Homebrew cleanup keeps a formula when moving it to core fails
+- Previewing an apply no longer refreshes Homebrew
+- A missing docker CLI no longer fails the clean-Mac tools step
+- Skip unticked sections in shared macOS and editor scripts
+- Share one coding-agent check and carry npm, cargo and git CA settings
+- Install private tools without leaving a truncated file behind
+- Carry proxy, CA, color, locale and agent settings into the new runtime
+- A date filter covers dated responses only
+- Retry the WAL switch when two creators race for a new ledger
+- Price Claude Code fast mode at the fast-mode rates
+- Keep a forked Codex response when its parent was not read
+- Price a model by its most specific rate, not its highest source
+- Count and date the headline from the rows the report shows
+- Report days and months in the machine's time zone
+- Keep the ledger private and let two first-time creators share it
+- Lay out new extensions.json entries in the file's own style
+- --extensions indents the entries it adds to extensions.json
+- --ci recognizes a test step written as a block scalar
+- A ruff.toml below the project root blocks Python configure
+- An existing [tool.pyright] table stops Python configure
+- Stop the enclosing-project search at the repository root
+- An unrelated lockfile no longer blocks Python configure, and a slow inspect says to narrow the scope
+- Replace an older copy of the managed Claude hook instead of keeping both
+- Fail when the oh-my-posh installer download fails
+- Escape name and email for git and render vim without --wait
+- Keep Codex-owned keys, inline hooks and user Claude hooks on apply
+- Reuse download connections and say when GitHub limits requests
+- Use gh only when it is logged in to github.com
+- Repair a modified staged release, keep the previous release on reinstall, and time out stalled downloads
+- Reject an empty or malformed VERSION instead of panicking
+- Trust Workbench and home-level tool directories when $HOME holds a project marker
+- Let any newer checkpoint supersede an incomplete one
+- Do not flag files as edited outside when native wrote them last
+- Do not overwrite another destination's unfinished-apply record
+- Keep applies unblocked by retention, torn journals, stray files and incomplete checkpoints
+
+### Documentation
+
+- Say the Touch ID step can be the first to need the Mac password
+- Record the Touch ID for sudo VM runs
+- Describe Touch ID for sudo and the touch-id-sudo step
+- Use Touch ID for sudo where it is on, and offer a step to turn it on
+- Say a wrong password is asked again
+- Describe dropping the helper's sudo approval and restoring the lent terminal
+- Record the Mac password and ~/.config VM runs
+- Point contributors at the decision records
+- Count --approve-plan at a terminal as attended
+- Note that the password check leaves no sudo approval behind
+- Record the decisions to ask for the Mac password once per apply and keep ~/.config private
+- Record the clean macOS 15.7.7 VM provisioning run
+- Rewrap the Homebrew refresh paragraphs
+- Describe the Homebrew refresh before an attended apply plans updates
+- Describe cost checks and specs without one machine's figures
+- Acceptance header, WSL themes, line widths, and --approve-plan keeping the plan
+- Costs JSON span, update-time private tool files and release notes placement
+- Acceptance record, ledger and Codex specs, plans and Python policy match the code
+- Contracts, design and selection spec describe the checkpoint, consent and Windows rules as implemented
+- Plan view comments no longer describe parent steps
+- Usage, WSL and macOS notes describe the consent gate, opt-in Windows steps and recovery as they now work
+- AGENTS.md states the consent rule, Windows setup rule, ledger exception and test scope
+
+### Maintenance
+
+- Pin the render and secret-scan runners to ubuntu-24.04
+- Drop the plan view's locked parts
+- The shared-script safeguard also reads the WSL scripts
+- Lint the darwin target and shellcheck the repo scripts
+- Verify git-cliff by checksum, guard the changelog commit, require pin SHAs
+- Make the archive traversal safeguard fail when either path guard is off
+
 ## [v0.1.11](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.11) - 2026-10-03
 
 ### Fixes
