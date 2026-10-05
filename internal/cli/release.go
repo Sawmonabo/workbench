@@ -58,7 +58,7 @@ func versionCommand(o *options) *cobra.Command {
 		Short: "Show this Workbench version; --list shows every release",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
-			releaseAction,
+			versionAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
 				if list, _ := cmd.Flags().GetBool("list"); !list {
@@ -74,13 +74,15 @@ func versionCommand(o *options) *cobra.Command {
 					})
 					return result, nil
 				}
-				stop := c.ShowProgress("Asking GitHub for releases")
-				published, err := release.Releases(cmd.Context(), c)
-				stop()
+				// Read the state first: a malformed one fails here, not after
+				// the network round trip.
+				installed, err := installedRelease(c)
 				if err != nil {
 					return result, err
 				}
-				installed, err := installedRelease(c)
+				stop := c.ShowProgress("Asking GitHub for releases")
+				published, err := release.Releases(cmd.Context(), c)
+				stop()
 				if err != nil {
 					return result, err
 				}

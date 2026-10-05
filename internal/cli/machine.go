@@ -125,7 +125,8 @@ func initCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// askAnswers asks the named saved machine answers again, at a terminal.
+// askAnswers asks the named saved machine answers again, at a terminal that a
+// person, not a coding agent, sits at.
 func askAnswers(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -141,7 +142,16 @@ func askAnswers(
 		)
 	}
 	if !o.interactive() {
-		return result, operation.Fail(operation.ExitInvalid, "ask", "--ask needs a terminal")
+		return result, operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--ask asks at a terminal; drop --json and --non-interactive",
+		)
+	}
+	// An agent cannot answer the owner's machine questions, and what it typed
+	// at a pseudo-terminal would be saved as the owner's answers.
+	if operation.AgentSession() {
+		return result, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
 	}
 	if err := selectSource(&c); err != nil {
 		return result, err
@@ -173,9 +183,10 @@ func applyCommand(o *options) *cobra.Command {
 			"them without asking. --choose shows the checklist anyway; --reset forgets the " +
 			"remembered choices and asks again with the defaults; --yes never asks, taking the " +
 			"remembered choice or the default for what is new (it cannot be combined with --choose " +
-			"or --reset); --dry-run only shows the plan. Without a terminal, or when a coding agent " +
-			"runs it (Claude Code, Codex), apply never applies unasked: pass --approve-plan DIGEST " +
-			"from a --dry-run --json plan, or --yes.",
+			"or --reset, and a coding agent is refused it); --dry-run only shows the plan. When a " +
+			"coding agent runs it (Claude Code, Codex), apply never applies unasked: pass " +
+			"--approve-plan DIGEST from a --dry-run --json plan. Without a terminal it applies " +
+			"only with --approve-plan DIGEST or --yes.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
@@ -183,11 +194,11 @@ func applyCommand(o *options) *cobra.Command {
 				if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 					return machinePlan(cmd, c, o)
 				}
-				if err := checkChoose(o); err != nil {
+				if err := checkApply(o); err != nil {
 					return operation.NewResult(cmd.CommandPath()), err
 				}
 				c.ReadOnly = false
-				result, plan, err := applyMachine(cmd, c, o, nil)
+				result, plan, err := applyMachine(cmd, c, o)
 				if err == nil {
 					result.Summary = appliedSummary(result, plan)
 				}
@@ -196,7 +207,13 @@ func applyCommand(o *options) *cobra.Command {
 		),
 	}
 	cmd.Flags().Bool("dry-run", false, "Show the checklist without installing, asking or applying")
-	cmd.Flags().BoolVarP(&o.yes, "yes", "y", false, "Apply the saved selection without asking")
+	cmd.Flags().BoolVarP(
+		&o.yes,
+		"yes",
+		"y",
+		false,
+		"Apply the saved selection without asking (refused for coding agents)",
+	)
 	cmd.Flags().
 		BoolVar(&o.choose, "choose", false, "Show the checklist with your saved choices, even when nothing is new")
 	cmd.Flags().
@@ -207,11 +224,16 @@ func applyCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// checkChoose refuses --choose and --reset where they cannot ask: with --yes
-// (--choose also with --approve-plan), which never prompt, or --choose without a
-// terminal. --reset forgets the saved choices, so --yes would turn every step
-// the owner skipped back on and apply it unasked.
-func checkChoose(o *options) error {
+// checkApply is apply's one consent gate. It runs before anything else
+// happens, so a run that is certain to be refused downloads no tools and
+// touches no machine.toml. Flags that contradict each other are an invalid
+// invocation (exit 2). A run nobody approved is refused (exit 3): it needs
+// --approve-plan from a plan someone read, --yes from a person who trusts the
+// saved selection, or a person at a terminal. A coding agent can type at a
+// pseudo-terminal and --yes would apply a plan it never read, so it gets only
+// --approve-plan. --reset forgets the saved choices, so --yes would turn every
+// step the owner skipped back on and apply it unasked.
+func checkApply(o *options) error {
 	switch {
 	case o.reset && o.yes:
 		return operation.Fail(
@@ -219,26 +241,39 @@ func checkChoose(o *options) error {
 			"reset",
 			"--reset asks and --yes does not; pick one",
 		)
-	case !o.choose:
-		return nil
-	case o.yes:
+	case o.choose && o.yes:
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
 			"--choose asks and --yes does not; pick one",
 		)
-	case o.approvePlan != "":
+	case o.choose && o.approvePlan != "":
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
 			"--choose asks and --approve-plan does not; pick one",
 		)
-	case operation.AgentSession():
-		return operation.Fail(operation.ExitInvalid, "choose", agentRefusal)
-	case !o.interactive() || !hasTerminal():
-		return operation.Fail(operation.ExitInvalid, "choose", "--choose needs a terminal")
+	case o.choose && !o.interactive():
+		return operation.Fail(
+			operation.ExitInvalid,
+			"choose",
+			"--choose asks at a terminal; drop --json and --non-interactive",
+		)
+	case operation.AgentSession() && (o.yes || o.approvePlan == ""):
+		return operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
+	case o.yes || o.approvePlan != "":
+		return nil
+	case o.interactive() && hasTerminal():
+		return nil
+	case o.choose:
+		return operation.Fail(operation.ExitBlocked, "choose", "--choose needs a terminal")
 	}
-	return nil
+	return operation.Fail(
+		operation.ExitBlocked,
+		"consent",
+		"Nothing approved this plan; read it with workbench apply --dry-run --json, "+
+			"then pass --approve-plan DIGEST",
+	)
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply
@@ -292,24 +327,27 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 }
 
 // applyMachine installs Workbench's tools when missing and asks the machine
-// questions the saved answers lack (or ask names), plans, gets the selection
-// approved and applies it. A local checkout uses the saved answers and tools
-// as they are.
+// questions the saved answers lack, plans, gets the selection
+// approved and applies it. A local checkout installs the tools its own
+// versions.toml pins when missing and uses the saved answers as they are.
 func applyMachine(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
-	ask []string,
 ) (operation.Result, operation.Plan, error) {
 	result := operation.NewResult(cmd.CommandPath())
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
-	if !c.Native.Developer {
-		var err error
-		c, err = setUp(cmd, c, o, terminal, &result, true, ask)
-		if err != nil {
-			return result, operation.Plan{}, err
-		}
+	var err error
+	if c.Native.Developer {
+		// A checkout uses the saved answers as they are, but installs the tools
+		// its versions.toml pins when they are missing.
+		c, err = setUp(cmd, c, o, nil, &result, false, nil)
+	} else {
+		c, err = setUp(cmd, c, o, terminal, &result, true, nil)
+	}
+	if err != nil {
+		return result, operation.Plan{}, err
 	}
 	selection, err := machineSelection(c, o)
 	if err != nil {
@@ -320,11 +358,9 @@ func applyMachine(
 		return result, plan, err
 	}
 	consent := consentFor(o, o.approvePlan)
-	// Prompting, and applying without a prompt, both need a person: a controlling
-	// terminal to read the plan on and answer at. A cron job without one, and an
-	// agent even with a pseudo-terminal, never reaches either; it needs
-	// --approve-plan or --yes.
-	attended := o.interactive() && hasTerminal()
+	// checkApply already refused every run that is neither approved by digest,
+	// --yes nor at a person's terminal, so the cases below that ask, or apply
+	// the saved selection unasked, have a person to read the plan.
 	switch {
 	case o.approvePlan != "":
 	case o.yes:
@@ -343,13 +379,13 @@ func applyMachine(
 				return result, plan, err
 			}
 		}
-	case attended && !o.choose && !o.reset && !needsChoice(plan, selection):
+	case !o.choose && !o.reset && !needsChoice(plan, selection):
 		// Nothing new to decide: show the plan and apply the saved selection.
 		if err = writePlanView(cmd.OutOrStdout(), plan, o.verbose, true); err != nil {
 			return result, plan, err
 		}
 		consent.ApprovedDigest = plan.Digest()
-	case attended:
+	default:
 		// Tag saved skips from machine.toml even under --reset: Apply's recheck
 		// reads the file the same way, and SavedSkip is part of the digest the
 		// approval must equal.
@@ -357,7 +393,7 @@ func applyMachine(
 		if savedErr != nil {
 			return result, plan, savedErr
 		}
-		checked, approved, chooseErr := choosePlan(plan, o.verbose)
+		checked, approved, chooseErr := choosePlan(cmd.Context(), plan, o.verbose)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}
@@ -377,16 +413,6 @@ func applyMachine(
 		selection.Forget = o.reset
 		plan = machine.Reselect(plan, selection, saved)
 		consent.ApprovedDigest = plan.Digest()
-	case o.interactive() && operation.AgentSession():
-		return result, plan, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
-	default:
-		// --json, --non-interactive or no terminal: show the plan;
-		// WithMutation then refuses without a digest.
-		result.Results = append(result.Results, operation.Component{
-			Name:    "machine-plan",
-			Status:  operation.StatusComplete,
-			Details: plan,
-		})
 	}
 	result.PlanDigest = plan.Digest()
 	applied, err := machine.Apply(cmd.Context(), c, selection, plan, consent, terminal, progress)

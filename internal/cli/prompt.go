@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -21,10 +22,11 @@ import (
 // interactive reports whether this run may prompt at all.
 func (o *options) interactive() bool { return !o.nonInteractive && !o.json }
 
-// shownAtPrompt drops a plan component's details after an interactive
-// approval, which already showed the plan; JSON and unattended runs keep them.
+// shownAtPrompt drops a plan component's details after an approval that
+// showed the plan at a prompt. JSON and unattended runs keep them, and so does
+// --approve-plan at a terminal, which approves by digest without showing it.
 func shownAtPrompt(o *options, component *operation.Component) {
-	if o.interactive() {
+	if o.interactive() && o.approvePlan == "" {
 		component.Details = nil
 	}
 }
@@ -61,24 +63,38 @@ func hasTerminal() bool {
 }
 
 // ask runs one huh field on the terminal and reports whether it was answered;
-// esc or ctrl+c leaves it unanswered.
-func ask(terminal *os.File, field huh.Field) (bool, error) {
+// esc or ctrl+c leaves it unanswered. A signal that ends ctx ends the prompt
+// with ctx's error.
+func ask(ctx context.Context, terminal *os.File, field huh.Field) (bool, error) {
 	keys := huh.NewDefaultKeyMap()
 	keys.Quit = key.NewBinding(key.WithKeys("esc", "ctrl+c"), key.WithHelp("esc", "cancel"))
 	err := huh.NewForm(huh.NewGroup(field)).
 		WithKeyMap(keys).
 		WithInput(terminal).
 		WithOutput(terminal).
-		Run()
+		RunWithContext(ctx)
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
 	if errors.Is(err, huh.ErrUserAborted) {
 		return false, nil
 	}
 	return err == nil, err
 }
 
+// promptFailure is the error for a prompt that did not finish: ctx's own when
+// a signal ended it, so the run exits as interrupted with nothing written,
+// otherwise a refusal for lack of a complete answer.
+func promptFailure(ctx context.Context, category, message string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return operation.Fail(operation.ExitBlocked, category, message)
+}
+
 // confirmPlan shows the plan on the controlling terminal and asks Yes or No;
 // No is the default, so Enter alone approves nothing.
-func confirmPlan(plan operation.Plan, digest string) (bool, error) {
+func confirmPlan(ctx context.Context, plan operation.Plan, digest string) (bool, error) {
 	terminal, err := openTerminal()
 	if err != nil {
 		return false, err
@@ -91,17 +107,13 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 		return false, err
 	}
 	approved := false
-	answered, err := ask(terminal, huh.NewConfirm().
+	answered, err := ask(ctx, terminal, huh.NewConfirm().
 		Title("Approve this exact plan?").
 		Affirmative("Yes").
 		Negative("No").
 		Value(&approved))
 	if err != nil {
-		return false, operation.Fail(
-			operation.ExitBlocked,
-			"consent",
-			"No complete approval was received",
-		)
+		return false, promptFailure(ctx, "consent", "No complete approval was received")
 	}
 	approved = answered && approved
 	// huh clears the prompt once answered; leave the answer on screen.
@@ -119,25 +131,27 @@ func confirmPlan(plan operation.Plan, digest string) (bool, error) {
 // leaving the alternate screen, and when approved its final frame is printed
 // once, with nothing blank below it. The names that come back are the effects
 // the owner left checked; the caller re-gates the plan from them.
-func choosePlan(plan operation.Plan, verbose bool) ([]string, bool, error) {
+func choosePlan(
+	ctx context.Context,
+	plan operation.Plan,
+	verbose bool,
+) ([]string, bool, error) {
 	terminal, err := openTerminal()
 	if err != nil {
 		return nil, false, err
 	}
 	defer func() { _ = terminal.Close() }()
-	// main owns SIGINT; ctrl+c arrives as a key.
+	// main owns the signals and ends ctx on SIGINT, SIGTERM and SIGHUP; ctrl+c
+	// arrives as a key.
 	final, err := tea.NewProgram(
 		newChecklist(plan, verbose),
+		tea.WithContext(ctx),
 		tea.WithInput(terminal),
 		tea.WithOutput(terminal),
 		tea.WithoutSignalHandler(),
 	).Run()
 	if err != nil {
-		return nil, false, operation.Fail(
-			operation.ExitBlocked,
-			"consent",
-			"No complete approval was received",
-		)
+		return nil, false, promptFailure(ctx, "consent", "No complete approval was received")
 	}
 	list, ok := final.(*checklistModel)
 	if !ok {
@@ -183,7 +197,7 @@ func (o *options) checkpointChoice(
 	if o.interactive() {
 		if terminal, openErr := openTerminal(); openErr == nil {
 			defer func() { _ = terminal.Close() }()
-			return chooseCheckpoint(terminal, checkpoints)
+			return chooseCheckpoint(cmd.Context(), terminal, checkpoints)
 		}
 	}
 	result.Results = append(result.Results, operation.Component{
@@ -200,6 +214,7 @@ func (o *options) checkpointChoice(
 
 // chooseCheckpoint asks which checkpoint to restore, newest first.
 func chooseCheckpoint(
+	ctx context.Context,
 	terminal *os.File,
 	checkpoints []operation.CheckpointSummary,
 ) (string, error) {
@@ -208,16 +223,12 @@ func chooseCheckpoint(
 		options = append(options, huh.NewOption(checkpointLabel(checkpoint), checkpoint.ID))
 	}
 	var id string
-	answered, err := ask(terminal, huh.NewSelect[string]().
+	answered, err := ask(ctx, terminal, huh.NewSelect[string]().
 		Title("Restore which checkpoint?").
 		Options(options...).
 		Value(&id))
 	if err != nil || !answered {
-		return "", operation.Fail(
-			operation.ExitBlocked,
-			"selection",
-			"No checkpoint was chosen; nothing restored",
-		)
+		return "", promptFailure(ctx, "selection", "No checkpoint was chosen; nothing restored")
 	}
 	return id, nil
 }

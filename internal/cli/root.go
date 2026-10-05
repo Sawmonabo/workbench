@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -44,17 +45,18 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 			if arg == "--" {
 				break
 			}
-			if arg == "--json" || arg == "--json=true" {
+			if arg == "--json" {
 				o.json = true
-			}
-			if arg == "--json=false" {
-				o.json = false
+			} else if value, ok := strings.CutPrefix(arg, "--json="); ok {
+				if parsed, parseErr := strconv.ParseBool(value); parseErr == nil {
+					o.json = parsed
+				}
 			}
 		}
 		err = operation.Fail(
 			operation.ExitInvalid,
 			"invocation",
-			"Invalid command, flags or arguments; run workbench --help",
+			"Invalid command, flags or arguments: "+err.Error()+"; run workbench --help",
 		)
 		name := "workbench"
 		if cmd != nil {
@@ -116,9 +118,8 @@ func (o *options) approveFlag(cmd *cobra.Command) {
 		&o.approvePlan,
 		"approve-plan",
 		"",
-		"Approve exactly the plan with this SHA-256 digest, for unattended runs",
+		"Approve exactly the plan with this SHA-256 digest, from --dry-run --json, for unattended runs",
 	)
-	_ = cmd.Flags().MarkHidden("approve-plan")
 }
 
 func (o *options) localBuildFlag(cmd *cobra.Command) {
@@ -159,9 +160,13 @@ const (
 	nativeAction
 	// projectAction selects the project at PATH, narrowed by --language.
 	projectAction
-	// releaseAction updates to, lists or checks a release. It skips validating
+	// releaseAction updates to or checks a release. It skips validating
 	// the current selection, which an interrupted update resumes to repair.
 	releaseAction
+	// versionAction only resolves paths. It reads no state before the handler,
+	// so version still reports the version when state.json is malformed, which
+	// is when it is asked for; --list reads the state where it needs it.
+	versionAction
 )
 
 func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []string) error {
@@ -187,7 +192,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 		}
 		resolved, err := operation.Resolve(selection)
 		switch {
-		case err != nil:
+		case err != nil, kind == versionAction:
 		case kind == releaseAction:
 			// Malformed state still stops a release command before any work.
 			_, err = operation.ReadState(resolved.Paths)

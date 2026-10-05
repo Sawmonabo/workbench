@@ -46,7 +46,7 @@ func setupPlan(
 			"Private tool acquisition and native answer initialization are separate from configuration apply; borrowed installations are retained",
 		},
 	}
-	files, identity, err := SourceSnapshot(c.Native.Source, false)
+	files, identity, err := SourceSnapshot(c.Native.Source, c.Native.Developer)
 	plan.Source = identity
 	if err != nil {
 		return plan, err
@@ -565,6 +565,19 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 	return files, nil
 }
 
+// InstallHint says how to install Workbench's missing tools, to finish a
+// sentence such as "Workbench's tools are missing; ": workbench update, or an
+// apply at a terminal, for a release; an apply with --local-build at a
+// terminal for a checkout, which installs the tools its versions.toml pins. A
+// coding agent's apply is refused before it installs anything (see the CLI's
+// consent gate), so neither suggests an unattended apply.
+func InstallHint(c operation.Context) string {
+	if c.Native.Developer {
+		return "run workbench apply --local-build at a terminal to install them"
+	}
+	return "run workbench update, or workbench apply at a terminal, to install them"
+}
+
 // TomlkitPath is read-only and rechecks the trusted wheel and every installed
 // member before the caller gives that directory to isolated Python.
 func TomlkitPath(c operation.Context, requirements Requirements) (string, error) {
@@ -577,7 +590,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
-			"Workbench's TOML Kit is missing; workbench apply installs it",
+			"Workbench's TOML Kit is missing; "+InstallHint(c),
 		)
 	}
 	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))
@@ -609,7 +622,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 				return operation.Fail(
 					operation.ExitBlocked,
 					"tomlkit",
-					"An interrupted TOML Kit install left "+name+"; workbench apply finishes the install",
+					"An interrupted TOML Kit install left "+name+"; "+InstallHint(c),
 				)
 			}
 			return operation.Fail(
