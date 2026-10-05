@@ -155,7 +155,7 @@ type actionKind int
 const (
 	// machineAction runs against the current release selection.
 	machineAction actionKind = iota
-	// nativeAction also selects the machine source: --source, else the active
+	// nativeAction also selects the machine source: --local-build, else the active
 	// release. apply uses it.
 	nativeAction
 	// projectAction selects the project at PATH, narrowed by --language.
@@ -225,7 +225,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 }
 
 // selectSource fills in the active release as the machine source of a
-// [nativeAction] run without --source.
+// [nativeAction] run without --local-build.
 func selectSource(c *operation.Context) error {
 	if c.Native.Source != "" {
 		return nil

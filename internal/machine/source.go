@@ -57,7 +57,7 @@ func (r Requirements) Uses(name string) (string, error) {
 }
 
 // ManagementRequirements reads the pins from the machine source this command
-// uses: --source, else the active release. The source passes the same checks
+// uses: --local-build, else the active release. The source passes the same checks
 // as any other read, so a release's pins are the ones it was released with.
 func ManagementRequirements(c operation.Context) (Requirements, error) {
 	source := c.Native.Source
@@ -74,7 +74,8 @@ func ManagementRequirements(c operation.Context) (Requirements, error) {
 		return Requirements{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
-			"No machine source to read tool versions from; pass --source or install a release",
+			"No Workbench release is active to read tool versions from; "+
+				"install one with the installer or `workbench update`",
 		)
 	}
 	files, _, err := SourceSnapshot(source, c.Native.Developer)
@@ -163,7 +164,7 @@ func SourceDigest(files map[string][]byte) string {
 // evaluation. A release source (one with release.json) must be exactly the
 // source its release build digested into release.json and stamped into this
 // executable, so no other code runs during a release preview. Only a
-// developer source, one selected with --source, may lack release.json: that
+// developer source, one selected with --local-build, may lack release.json: that
 // checkout is bound by its actual content instead, and the digest enters the
 // plan the user approves, so editing home/ needs no rebuild. Repository Git
 // metadata is outside home and never copied or executed.
@@ -175,7 +176,7 @@ func SourceSnapshot(
 		return nil, operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
-			"Select --source or activate a verified source before planning",
+			"No verified Workbench release is active; install one with `workbench update` before planning",
 		)
 	}
 	files, err := readSource(source)

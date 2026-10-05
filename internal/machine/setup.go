@@ -121,7 +121,7 @@ func setupPlan(
 }
 
 // setupDependencies is the sole management acquisition owner. It is called only
-// inside an approved setup mutation, never from preview or config-only apply.
+// inside an approved setup mutation, never from preview.
 func setupDependencies(
 	ctx context.Context,
 	c operation.Context,

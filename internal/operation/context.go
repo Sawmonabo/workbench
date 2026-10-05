@@ -29,7 +29,7 @@ func (c Context) RecordsHome() bool { return c.Scope.Root == c.Home }
 
 // NativeContext is the source, answers, destination, state and cache that
 // every native chezmoi call receives. Developer marks a source selected with
-// --source, which may be a checkout bound by its content instead of a release.
+// --local-build, which may be a checkout bound by its content instead of a release.
 type NativeContext struct {
 	Source, Config, Destination, PersistentState, Cache string
 	Developer                                           bool
