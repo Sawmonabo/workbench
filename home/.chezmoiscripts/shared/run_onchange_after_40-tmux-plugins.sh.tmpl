@@ -2,7 +2,7 @@
 # Install TPM, then the tmux plugins through it, whenever tmux.conf changes
 # (every platform). A failed download fails only this step, which chezmoi
 # reruns on the next apply because it did not finish.
-# hash: {{ include "dot_config/tmux/tmux.conf" | sha256sum }}
+# hash: {{ include "private_dot_config/tmux/tmux.conf" | sha256sum }}
 set -euo pipefail
 # TPM runs tmux itself; Workbench's script PATH has no Homebrew directory.
 if [ -x /opt/homebrew/bin/brew ]; then
@@ -14,7 +14,7 @@ fi
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # Every plugin tmux.conf lists, by the directory TPM puts it in.
     missing=()
-    for plugin in{{ range regexFindAll "@plugin '[^']+'" (include "dot_config/tmux/tmux.conf") -1 }} '{{ regexReplaceAll "^@plugin '(.*)'$" . "${1}" }}'{{ end }}; do
+    for plugin in{{ range regexFindAll "@plugin '[^']+'" (include "private_dot_config/tmux/tmux.conf") -1 }} '{{ regexReplaceAll "^@plugin '(.*)'$" . "${1}" }}'{{ end }}; do
         [ -d "$HOME/.tmux/plugins/${plugin##*/}" ] || missing+=("$plugin")
     done
     if [ ${#missing[@]} -eq 0 ]; then

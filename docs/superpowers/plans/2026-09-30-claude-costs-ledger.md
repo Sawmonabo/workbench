@@ -23,7 +23,7 @@ Status: executed; the checkboxes are the task script, not progress. The [spec](.
 - No test suite (repository rule). Each task ends with an observed smoke check whose expected output is written down.
 - Tracked docs and commit messages carry no personal repository names, project paths, account identifiers or absolute checkout paths; describe observations generically and use `git rev-parse --show-toplevel` for the checkout.
 - Conventional commit subjects. End commit messages with the attribution line your session's instructions specify.
-- Ruff: `uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and `uvx ruff format --check` with the same config must pass before each commit that touches the script. The installed Ruff (0.16.x) applies its own wide default rule set on top of that config's `extend-select = ["I"]` (bugbear, blind-except, datetime-tz, bandit, simplify, pyupgrade and more), so the code blocks below are written to pass it and are already `ruff format` output; paste them verbatim. Each task's block lists the imports it needs, so every stage lints clean without unused imports.
+- Ruff: `uvx ruff check --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs` and `uvx ruff format --check` with the same config must pass before each commit that touches the script. The installed Ruff (0.16.x) applies its own wide default rule set on top of that config's `extend-select = ["I"]` (bugbear, blind-except, datetime-tz, bandit, simplify, pyupgrade and more), so the code blocks below are written to pass it and are already `ruff format` output; paste them verbatim. Each task's block lists the imports it needs, so every stage lints clean without unused imports.
 - Every code block in this plan was assembled in the order given, and each stage was compiled under Python 3.14 and 3.9 and linted; the Task 1 to 5 smoke checks were run under Python 3.14 (the finished script also end to end under 3.9) on 2026-09-30, so their expected outputs are observed outputs with only timestamps and scratch paths abbreviated. Task 6's render-check and positive merge outputs are predicted from those scripts' own success lines, not observed: the review host was WSL, where they need a terminal.
 
 ## Review Focus
@@ -387,10 +387,10 @@ Run:
 ```bash
 cd "$(git rev-parse --show-toplevel)"
 python3 -m py_compile home/dot_local/bin/executable_claude-costs
-uvx ruff check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
-uvx ruff format --check --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+uvx ruff check --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
+uvx ruff format --check --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs
 ```
-Expected: no output from py_compile, `All checks passed!` from ruff check, `1 file already formatted` from ruff format. If `ruff format --check` reports the file would be reformatted, a block was not pasted verbatim: run `uvx ruff format --config home/dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs`, re-check, and keep the formatted result. On macOS also run `/usr/bin/python3 -m py_compile home/dot_local/bin/executable_claude-costs` (the system Python 3.9) when it is available.
+Expected: no output from py_compile, `All checks passed!` from ruff check, `1 file already formatted` from ruff format. If `ruff format --check` reports the file would be reformatted, a block was not pasted verbatim: run `uvx ruff format --config home/private_dot_config/ruff/pyproject.toml home/dot_local/bin/executable_claude-costs`, re-check, and keep the formatted result. On macOS also run `/usr/bin/python3 -m py_compile home/dot_local/bin/executable_claude-costs` (the system Python 3.9) when it is available.
 
 - [ ] **Step 3: Smoke check the ledger open path**
 

@@ -134,7 +134,8 @@ synthetic answers.
   setup contexts and tool versions that no kept release uses. An interrupted
   activation resumes. A staged release with a missing `release.json`, a changed
   file or another source digest is refused, and an unstamped build refuses any
-  release source. Missing parents of Workbench's directories are created 0755.
+  release source. Missing parents of Workbench's directories are created 0755,
+  except `~/.config`, which is created 0700. (target; not yet observed)
 
 ### Planning and apply
 
@@ -316,8 +317,10 @@ synthetic answers.
   `~/.local` group-writable, the install stopped with the `chmod go-w` that
   fixes it.
 - On the same umask, an apply with every effect unchecked writes files at 0644
-  and folders at 0755. With `~/.config` at 0700 the plan lists a mode-only edit
-  to 0755, and revert restores 0700. (target; not yet observed)
+  and folders at 0755, except `~/.config` at 0700. With `~/.config` at 0755 the
+  plan lists a mode-only edit to 0700, and revert restores 0755; with it
+  already at 0700 the plan lists no edit for it. (target; the `~/.config`
+  behavior is not yet observed)
 
 ### Projects
 
