@@ -104,9 +104,14 @@ This applies to an apply at a terminal on macOS.
    is refused (exit 3) before any change unless sudo approval is still valid.
 6. **Linux and WSL do not change.**
 7. **Cleanup.** The minute-by-minute renewal of sudo approval is removed.
-   Workbench's own check, `sudo -k -S -v`, leaves no sudo approval behind: on a
-   clean macOS 15.7.7 VM it exited 1 for a wrong password and 0 for the right
-   one, and `sudo -n true` failed right after.
+   - Workbench's own check, `sudo -k -S -v`, leaves no sudo approval behind. On
+     a clean macOS 15.7.7 VM it exited 1 for a wrong password and 0 for the
+     right one, and `sudo -n true` failed right after.
+   - A sudo that gets the password from the helper keeps an approval for the
+     terminal, as any sudo does. When the helper gave the password out,
+     Workbench drops that approval with `sudo -k` when the apply ends.
+   - The terminal comes back to Workbench with the settings it had when
+     Workbench lent it, so ctrl+c at the helper's prompt cannot leave echo off.
 
 ## Consequences
 
