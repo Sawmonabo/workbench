@@ -390,7 +390,7 @@ func applyMachine(
 		if savedErr != nil {
 			return result, plan, savedErr
 		}
-		checked, approved, chooseErr := choosePlan(plan, o.verbose)
+		checked, approved, chooseErr := choosePlan(cmd.Context(), plan, o.verbose)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}

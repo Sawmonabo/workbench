@@ -201,9 +201,10 @@ type Consent struct {
 	ApprovedDigest string
 	NonInteractive bool
 	CompleteInputs bool
-	// Confirm must display the same plan and only prompt on an actual terminal.
-	// JSON/noninteractive callers leave it nil.
-	Confirm func(Plan, string) (bool, error)
+	// Confirm must display the same plan and only prompt on an actual terminal,
+	// and give up with ctx's error when ctx ends. JSON/noninteractive callers
+	// leave it nil.
+	Confirm func(context.Context, Plan, string) (bool, error)
 }
 
 // agentVariables are the variables by which a coding agent marks the commands
@@ -294,7 +295,7 @@ func WithMutation(
 				"Approve at a terminal, or pass the displayed plan digest to --approve-plan",
 			)
 		}
-		accepted, err := consent.Confirm(displayed, digest)
+		accepted, err := consent.Confirm(ctx, displayed, digest)
 		if err != nil {
 			return err
 		}
