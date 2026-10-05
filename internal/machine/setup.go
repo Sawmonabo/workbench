@@ -112,7 +112,7 @@ func setupPlan(
 		return plan, err
 	}
 	input := operation.Input{Name: "answers", Digest: operation.SHA256Hex(raw)}
-	if validateAnswers(answers) != nil {
+	if validateAnswers(c, answers) != nil {
 		// The questionnaire asks for what this release needs and they lack.
 		input.Name = "incomplete-answers"
 	}
@@ -573,10 +573,11 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 // run either update; its apply is refused before it installs anything (see the
 // CLI's consent gate), so neither suggests an unattended apply.
 func InstallHint(c operation.Context) string {
+	command := c.WorkbenchCommand()
 	if c.Native.Developer {
-		return "run workbench update --local-build to install them"
+		return "run " + command + " update --local-build to install them"
 	}
-	return "run workbench update, or workbench apply at a terminal, to install them"
+	return "run " + command + " update, or " + command + " apply at a terminal, to install them"
 }
 
 // TomlkitPath is read-only and rechecks the trusted wheel and every installed

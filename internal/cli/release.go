@@ -343,11 +343,13 @@ func installCheckoutTools(
 	if _, err := setUp(cmd, c, o, nil, &result, false, nil); err != nil {
 		return result, err
 	}
-	result.Summary = "[WorkBench] This checkout's tools are in place; run workbench apply --local-build"
+	result.Summary = "[WorkBench] This checkout's tools are in place; run " +
+		c.WorkbenchCommand() + " apply --local-build"
 	if slices.ContainsFunc(result.Results, func(component operation.Component) bool {
 		return component.Name == "setup" && component.Status == operation.StatusComplete
 	}) {
-		result.Summary = "[WorkBench] Installed this checkout's tools; run workbench apply --local-build"
+		result.Summary = "[WorkBench] Installed this checkout's tools; run " +
+			c.WorkbenchCommand() + " apply --local-build"
 	}
 	return result, nil
 }
@@ -568,9 +570,11 @@ func installTools(
 	if err != nil {
 		return result, err
 	}
-	result.Summary = "[WorkBench] Installed " + version + " and its tools; run workbench apply"
+	result.Summary = "[WorkBench] Installed " + version + " and its tools; run " +
+		c.WorkbenchCommand() + " apply"
 	if unchanged {
-		result.Summary = "[WorkBench] " + version + " is already installed; run workbench apply"
+		result.Summary = "[WorkBench] " + version + " is already installed; run " +
+			c.WorkbenchCommand() + " apply"
 	}
 	return result, nil
 }
@@ -604,7 +608,8 @@ func setUp(
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"answers",
-				"Without a terminal, setup needs saved answers; save them with workbench init --answers-from FILE",
+				"Without a terminal, setup needs saved answers; save them with "+
+					c.WorkbenchCommand()+" init --answers-from FILE",
 			)
 		}
 	}

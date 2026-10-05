@@ -117,7 +117,7 @@ func initCommand(o *options) *cobra.Command {
 						Message: "Saved; apply now uses them",
 					},
 				)
-				result.Summary = "[WorkBench] Saved your machine answers; run workbench apply"
+				result.Summary = "[WorkBench] Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
 			}
 			return result, err
 		},
@@ -156,7 +156,7 @@ func askAnswers(
 	if err := selectSource(&c); err != nil {
 		return result, err
 	}
-	if err := machine.CheckAsk(c.Native.Config, ask); err != nil {
+	if err := machine.CheckAsk(c, ask); err != nil {
 		return result, err
 	}
 	terminal, _, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
@@ -165,7 +165,7 @@ func askAnswers(
 	if _, err := setUp(cmd, c, o, terminal, &result, true, ask); err != nil {
 		return result, err
 	}
-	result.Summary = "[WorkBench] Saved your machine answers; run workbench apply"
+	result.Summary = "[WorkBench] Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
 	return result, nil
 }
 
@@ -203,6 +203,11 @@ func applyCommand(o *options) *cobra.Command {
 				result, plan, err := applyMachine(cmd, c, o)
 				if err == nil {
 					result.Summary = appliedSummary(result, plan)
+					// This shell started before the apply wrote the shell setup that
+					// finds workbench and the tools; only a new terminal reads it.
+					if c.RecordsHome() && !c.BinOnPath() {
+						result.Summary += "; open a new terminal so your shell finds workbench and the other tools"
+					}
 				}
 				return result, err
 			},

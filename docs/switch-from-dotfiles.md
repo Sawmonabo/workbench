@@ -11,7 +11,8 @@ over the same files.
    ```
 
    Installing never applies the machine; the CLI's last line says to run
-   `workbench apply`. From a checkout instead, build with
+   `workbench apply` (with the full path `~/.local/bin/workbench` while that
+   folder is not on `PATH`). From a checkout instead, build with
    `go build -o bin/workbench ./cmd/workbench` and add `--local-build` to every
    `apply` below, run inside the checkout.
 

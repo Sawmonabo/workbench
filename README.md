@@ -28,6 +28,10 @@ Release users need no checkout, Go, or separately installed chezmoi:
 curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
 ```
 
+Installing applies nothing: its last line says to run `workbench apply`, with the
+full path `~/.local/bin/workbench` while that folder is not on `PATH`. After the
+first apply, a new terminal finds `workbench`.
+
 See [installation and commands](docs/usage.md) for `--version`, the `gh` form
 and install options, and [switch from dotfiles](docs/switch-from-dotfiles.md)
 to move a machine over.
