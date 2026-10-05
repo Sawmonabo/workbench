@@ -160,9 +160,13 @@ const (
 	nativeAction
 	// projectAction selects the project at PATH, narrowed by --language.
 	projectAction
-	// releaseAction updates to, lists or checks a release. It skips validating
+	// releaseAction updates to or checks a release. It skips validating
 	// the current selection, which an interrupted update resumes to repair.
 	releaseAction
+	// versionAction only resolves paths. It reads no state before the handler,
+	// so version still reports the version when state.json is malformed, which
+	// is when it is asked for; --list reads the state where it needs it.
+	versionAction
 )
 
 func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []string) error {
@@ -188,7 +192,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 		}
 		resolved, err := operation.Resolve(selection)
 		switch {
-		case err != nil:
+		case err != nil, kind == versionAction:
 		case kind == releaseAction:
 			// Malformed state still stops a release command before any work.
 			_, err = operation.ReadState(resolved.Paths)
