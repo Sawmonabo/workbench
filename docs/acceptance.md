@@ -101,8 +101,8 @@ synthetic answers.
   `select = ["no-such-effect"]`, `apply --dry-run --local-build` exited 0 with
   the warning `Saved choice no-such-effect is not offered here and is ignored;
   workbench apply --reset forgets it` and the same digest on two runs. With
-  Workbench's tools hidden from `PATH`, `apply --dry-run --local-build`
-  exited 3 saying to run `workbench apply --local-build` at a terminal, and
+  no Workbench tools installed in an isolated home, `apply --dry-run
+  --local-build` exited 3 saying to run `workbench update --local-build`, and
   without `--local-build` and with no release active it exited 3 saying to
   install one with `workbench update`.
 - A fresh interactive setup asks every machine question from `apply`,
@@ -117,9 +117,15 @@ synthetic answers.
   `apply --dry-run` with a missing answer asks nothing and names the fix. A
   `--local-build` apply installs the tools its checkout pins when they are
   missing and uses the saved answers without setup questions, and
-  `init --answers-from` adopts an existing chezmoi `[data]` table. (target;
-  the questions were not re-asked on a real host, and the checkout's tool
-  install was not observed)
+  `init --answers-from` adopts an existing chezmoi `[data]` table.
+  `update --local-build` installs those tools alone: in an isolated home with a
+  scratch copy of the checkout, `--dry-run` listed the four tools and wrote
+  nothing, the install put chezmoi, uv, Python 3.12.12 and TOML Kit in place
+  without a prompt, a repeat found nothing to do, and with `CLAUDECODE=1` set a
+  bumped uv pin installed only the new uv (a wrong digest was refused and kept
+  nothing) after which `apply --dry-run --local-build` planned instead of
+  blocking. (target; the questions were not re-asked on a real host, and
+  apply's own tool install was not observed)
 - Successive installs keep only the new and replaced releases, and remove
   setup contexts and tool versions that no kept release uses. An interrupted
   activation resumes. A staged release with a missing `release.json`, a changed

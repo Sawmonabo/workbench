@@ -179,7 +179,13 @@ func qualify(name, version string, requirements Requirements) (bool, []string) {
 func qualifiedVersions(name string, requirements Requirements) string {
 	switch name {
 	case "uv":
-		return strings.Join(append([]string{requirements.UV}, requirements.UVAdditional...), " or ")
+		versions := []string{requirements.UV}
+		for _, version := range requirements.UVAdditional {
+			if !slices.Contains(versions, version) {
+				versions = append(versions, version)
+			}
+		}
+		return strings.Join(versions, " or ")
 	case "python3":
 		return fmt.Sprintf("3.%d–3.%d", requirements.PythonMinMinor, requirements.PythonMaxMinor)
 	}

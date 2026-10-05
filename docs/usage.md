@@ -79,10 +79,18 @@ files a revert replaced). Without a terminal it lists them with their IDs and
 asks for `--checkpoint ID`; `--dry-run` shows the restore plan.
 
 Developers inside a checkout add the hidden `--local-build` (no value) to
-`apply`, `doctor` and `project configure` to use that checkout instead of the
-installed release. With it, `apply` installs the tools the checkout's
-`versions.toml` pins when they are missing (at a terminal, or with `--yes`, as
-for any apply) and uses your saved answers as they are; save them with
+`apply`, `update`, `doctor` and `project configure` to use that checkout instead
+of the installed release. With it, `update` installs the tools the checkout's
+`versions.toml` pins when they are missing, and nothing else: no release is
+downloaded, the machine is not applied, and it takes no VERSION or `--bundle`
+(exit 2). `--dry-run` shows those tools and the plan digest. Running it is the
+go-ahead, as for any update, so a coding agent can run it after a pin changes;
+each tool is checked against the digest the checkout pins before it is kept. It
+ends with `[WorkBench] Installed this checkout's tools; run workbench apply
+--local-build`, or with `[WorkBench] This checkout's tools are in place; run
+workbench apply --local-build` when nothing was missing. `apply` installs the
+same tools when they are missing (at a terminal, or with `--yes`, as for any
+apply) and uses your saved answers as they are; save them with
 `init --answers-from FILE`. `apply`, `update` and `revert` take the hidden
 `--destination PATH`, an existing folder to configure instead of your home.
 Full provisioning requires the real home destination because native scripts
@@ -153,8 +161,9 @@ changes nothing. `--approve-plan` is listed in `--help`. From a checkout, add
 them. `--yes` is for a person who trusts your saved choices, not for a caller that
 did not read the plan, and a coding agent is refused it. When Workbench's own tools
 are missing, `apply --dry-run` exits 3 and says to run `workbench update`, or
-`workbench apply` at a terminal; from a checkout, run `workbench apply --local-build`
-at a terminal once to install the tools it pins.
+`workbench apply` at a terminal; from a checkout it says to run
+`workbench update --local-build`, which installs the tools it pins and which an
+agent may run, for example after a pin changes.
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own

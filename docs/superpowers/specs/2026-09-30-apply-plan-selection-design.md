@@ -54,7 +54,7 @@ every-run checklist are deleted, not aliased.
 
 | Command | Does | Flags |
 | --- | --- | --- |
-| `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. Prints `[WorkBench] Installed vX; run workbench apply`. Never applies. | `--dry-run`, `--bundle` (hidden) |
+| `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. Prints `[WorkBench] Installed vX; run workbench apply`. Never applies. With `--local-build`, installs only the tools the checkout's `versions.toml` pins. | `--dry-run`, `--bundle` (hidden), `--local-build` (hidden) |
 | `workbench apply` | Ask the missing machine questions on a first run, plan files and effects, apply the saved choices, and show the checklist only when something needs deciding or the owner asks (section 5). | `--dry-run`, `--yes`, `--choose`, `--reset`, `--approve-plan DIGEST`; hidden: `--local-build`, `--destination` |
 | `workbench init` | One-time adoption (`--answers-from`) and re-asking a saved answer (`--ask NAME`, moved from `apply`). | `--answers-from`, `--ask`, `--dry-run` |
 | `workbench doctor` | As today, plus the saved skips and the last apply's release and date. | |

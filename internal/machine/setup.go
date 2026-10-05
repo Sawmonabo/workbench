@@ -567,13 +567,14 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 
 // InstallHint says how to install Workbench's missing tools, to finish a
 // sentence such as "Workbench's tools are missing; ": workbench update, or an
-// apply at a terminal, for a release; an apply with --local-build at a
-// terminal for a checkout, which installs the tools its versions.toml pins. A
-// coding agent's apply is refused before it installs anything (see the CLI's
-// consent gate), so neither suggests an unattended apply.
+// apply at a terminal, for a release; workbench update --local-build for a
+// checkout, which installs the tools its versions.toml pins. Update installs
+// only Workbench's own checked tool files and never asks, so a coding agent can
+// run either update; its apply is refused before it installs anything (see the
+// CLI's consent gate), so neither suggests an unattended apply.
 func InstallHint(c operation.Context) string {
 	if c.Native.Developer {
-		return "run workbench apply --local-build at a terminal to install them"
+		return "run workbench update --local-build to install them"
 	}
 	return "run workbench update, or workbench apply at a terminal, to install them"
 }

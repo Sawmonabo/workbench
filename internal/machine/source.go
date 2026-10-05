@@ -7,9 +7,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -88,6 +92,9 @@ func ManagementRequirements(c operation.Context) (Requirements, error) {
 // SourceRequirements reads the pins from a machine source snapshot.
 func SourceRequirements(files map[string][]byte) (Requirements, error) {
 	requirements, err := ParseRequirements(files[versionsFile])
+	if err == nil {
+		err = requirements.validate()
+	}
 	if err != nil {
 		return Requirements{}, operation.Fail(
 			operation.ExitInvalid,
@@ -96,6 +103,41 @@ func SourceRequirements(files map[string][]byte) (Requirements, error) {
 		)
 	}
 	return requirements, nil
+}
+
+// pinnedVersion is the only shape a management version may take.
+var pinnedVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// tomlkitHost serves the pinned TOML Kit wheel, under /packages/.
+const tomlkitHost = "files.pythonhosted.org"
+
+// validate refuses a pin that would send an acquisition anywhere but the tools'
+// own distribution points. Workbench builds the chezmoi and uv download URLs,
+// the uv arguments and the private tool directories from these versions, and
+// downloads the TOML Kit wheel from tomlkit_url. A checkout's versions.toml is
+// edited freely, and update --local-build installs what it pins without
+// asking, so none of them may name another host, a path or an option.
+func (r Requirements) validate() error {
+	for _, pin := range []struct{ name, version string }{
+		{"management.chezmoi", r.Chezmoi},
+		{"versions.uv", r.UV},
+		{"versions.python_pinned[0]", r.Python},
+		{"management.tomlkit", r.Tomlkit},
+	} {
+		if !pinnedVersion.MatchString(pin.version) {
+			return fmt.Errorf("%s %q is not a version such as 1.2.3", pin.name, pin.version)
+		}
+	}
+	location, err := url.Parse(r.TomlkitURL)
+	if err != nil || location.Scheme != "https" || location.Host != tomlkitHost ||
+		location.User != nil || !strings.HasPrefix(location.Path, "/packages/") ||
+		path.Clean(location.Path) != location.Path {
+		return fmt.Errorf(
+			"management.tomlkit_url must be an https://%s/packages/ link",
+			tomlkitHost,
+		)
+	}
+	return nil
 }
 
 // ParseRequirements reads the management pins from a versions.toml. Setup
