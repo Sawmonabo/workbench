@@ -46,7 +46,7 @@ func setupPlan(
 			"Private tool acquisition and native answer initialization are separate from configuration apply; borrowed installations are retained",
 		},
 	}
-	files, identity, err := SourceSnapshot(c.Native.Source, false)
+	files, identity, err := SourceSnapshot(c.Native.Source, c.Native.Developer)
 	plan.Source = identity
 	if err != nil {
 		return plan, err

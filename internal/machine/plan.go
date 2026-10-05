@@ -227,11 +227,11 @@ func (p *preparation) checkPrerequisites(
 		}
 	}
 	if len(plan.Prerequisites) > 0 {
-		return nil, operation.Fail(
-			operation.ExitBlocked,
-			"prerequisites",
-			"Workbench's tools are missing; run workbench update, or workbench apply at a terminal, to install them",
-		)
+		message := "Workbench's tools are missing; run workbench update, or workbench apply at a terminal, to install them"
+		if c.Native.Developer {
+			message = "This checkout's pinned tools are not installed; run workbench apply --local-build at a terminal to install them"
+		}
+		return nil, operation.Fail(operation.ExitBlocked, "prerequisites", message)
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
@@ -239,11 +239,12 @@ func (p *preparation) checkPrerequisites(
 	}
 	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
-		return nil, operation.Fail(
-			operation.ExitBlocked,
-			"answers",
-			"Machine answers are missing; run workbench apply at a terminal to answer them, or workbench init --answers-from FILE",
-		)
+		message := "Machine answers are missing; run workbench apply at a terminal to answer them, or workbench init --answers-from FILE"
+		if c.Native.Developer {
+			// apply --local-build never asks the questions.
+			message = "Machine answers are missing; save them with workbench init --answers-from FILE"
+		}
+		return nil, operation.Fail(operation.ExitBlocked, "answers", message)
 	}
 	answers, err := parseAnswers(answersRaw)
 	if err != nil {
