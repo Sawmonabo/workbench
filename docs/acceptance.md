@@ -217,8 +217,7 @@ synthetic answers.
   - No `wb-askpass-*` folder was left, and no sudo approval was still valid
     afterwards.
   - On a set-up VM with Docker Desktop removed, an apply of the saved choices
-    asked once, when Homebrew first needed it (`Homebrew needs your Mac
-    password; Workbench asks once for this apply.`). It asked again after a wrong
+    asked once, when Homebrew first needed it. It asked again after a wrong
     answer, reinstalled Docker Desktop, and left no folder and no approval.
   - ctrl+c at the up-front prompt exited 130 within a second, with nothing
     changed and the terminal still echoing.
@@ -230,26 +229,34 @@ synthetic answers.
     folder was made.
   - Three wrong answers ending the apply blocked, and a coding agent's apply,
     were observed only with a stand-in sudo.
-- Touch ID for sudo, on macOS. The `touch-id-sudo` script, run against scratch
-  copies of the PAM files and Apple's template with a stand-in `sudo` and
-  `install`, created `sudo_local` from the template with only its `pam_tid.so`
-  line uncommented (root, read-only), uncommented or added only that line in an
-  existing file with every other line, its owner and mode kept, did nothing when
-  Touch ID for sudo was already on in either file, and was blocked, with the file
-  untouched, for a symlink, a missing template or a refused sudo; its probe ran
-  no sudo and wrote nothing. A stand-in `sudo` showed that where sudo uses Touch
-  ID the apply reads no password, makes no helper folder and no `SUDO_ASKPASS`,
-  runs `sudo -v` and drops the approval it made. Target, not yet observed: an
-  apply on a Mac with Touch ID for sudo on asking by Touch ID only when Homebrew
-  must be installed and no approval is valid, then each app that needs
-  administrator rights asking for its own touch; the fallback to sudo's own
-  password where Touch ID cannot be used (a virtual Mac has no sensor, so there
-  an apply covers only this fallback and the file the step writes); three wrong
-  passwords or a refusal ending the apply blocked (exit 3) and ctrl+c
-  interrupted (exit 130) with nothing changed and the terminal still echoing; an
-  approval that was already valid left alone; and the step on a real Mac, with
-  `sudo` still working afterwards and revert leaving the file. (target; not yet
-  observed)
+- Touch ID for sudo, on clean macOS 15.7.7 arm64 VMs with no sudo ticket. A
+  virtual Mac has no fingerprint sensor, so sudo there always falls back to its
+  password:
+  - With Touch ID for sudo off and only `touch-id-sudo` ticked, an interactive
+    apply asked once, when the step's sudo needed it (`A step of this apply needs
+    your Mac password; Workbench asks for it once.`). With no `sudo_local` it
+    created the file from Apple's template, owned by root:wheel, mode 0444, with
+    only the `pam_tid.so` line switched on. With a `sudo_local` already there (the
+    template plus a comment line, mode 0644) it switched on only that line and
+    kept the comment and the mode. No folder or approval was left, sudo still
+    took the password afterwards, and the next plan showed the step on the
+    `Already set` line. Revert of the apply left `sudo_local` unchanged.
+  - Without a terminal, `apply --approve-plan` with the step ticked reported it
+    blocked (`sudo needs your Mac password, which only an apply at a terminal asks
+    for; /etc/pam.d/sudo_local was not changed`), exited 3 after the rest, and
+    left the file byte-identical.
+  - With Touch ID for sudo on and a plan that installs Homebrew, the plan line
+    read `Applying at a terminal asks for Touch ID (your Mac password where Touch
+    ID cannot be used) before it starts, to install Homebrew.` The apply read no
+    password itself: it printed its one line, and sudo asked once with its own
+    prompt. Homebrew's installer then used that approval, and the apply ended
+    with exit 0 after about 90 seconds, with no helper folder, the terminal
+    echoing and no approval left. ctrl+c at sudo's prompt exited 130 with
+    nothing installed and the terminal echoing.
+  - Observed only with a stand-in sudo: three wrong passwords or a refusal ending
+    the apply blocked, and an approval that was already valid left alone.
+  - Target, not yet observed: an actual touch on a real Mac, and each app that
+    needs administrator rights asking for its own touch.
 
 ### On a WSL2 host
 
