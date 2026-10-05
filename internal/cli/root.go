@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"runtime/debug"
+	"strconv"
 	"strings"
 
 	"charm.land/lipgloss/v2"
@@ -44,17 +45,18 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 			if arg == "--" {
 				break
 			}
-			if arg == "--json" || arg == "--json=true" {
+			if arg == "--json" {
 				o.json = true
-			}
-			if arg == "--json=false" {
-				o.json = false
+			} else if value, ok := strings.CutPrefix(arg, "--json="); ok {
+				if parsed, parseErr := strconv.ParseBool(value); parseErr == nil {
+					o.json = parsed
+				}
 			}
 		}
 		err = operation.Fail(
 			operation.ExitInvalid,
 			"invocation",
-			"Invalid command, flags or arguments; run workbench --help",
+			"Invalid command, flags or arguments: "+err.Error()+"; run workbench --help",
 		)
 		name := "workbench"
 		if cmd != nil {
