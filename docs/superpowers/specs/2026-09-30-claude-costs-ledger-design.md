@@ -376,7 +376,7 @@ Rules:
 | `--detail` | Per-project blocks with model rows (project view). |
 | `--tokens` | The five token columns instead of `share`, `tokens`, `cached`. |
 | `--no-rollup` | Keep every working directory separate. |
-| `--json`, `--csv` | Machine output of the same rows; JSON adds `hidden_projects`. |
+| `--json`, `--csv` | Machine output of the same rows; JSON adds `hidden_projects` and top-level `first` and `last` (the local days of the rows the table covers, `none` when empty); `coverage` keeps meaning the whole ledger and is what `status` shows. |
 
 `--compact` is removed: the default view is the compact one.
 

@@ -312,7 +312,10 @@ Activation is journaled, not a multi-file atomic transaction. An interrupted
 entry-point/state switch fails closed while retaining the prior runtime. Rerun
 `update` for the same release; do not manually edit the active-release record.
 Existing processes retain their inherited environment: Workbench never injects
-PATH changes into running terminals or AI sessions.
+PATH changes into running terminals or AI sessions. A private tool or TOML Kit
+file is written to a `.NAME.partial` file beside its final path and linked into
+place, so an interrupted install leaves no truncated tool; the next `update` or
+`apply` removes a leftover `.NAME.partial` and installs again.
 
 Updates hand off to the new runtime with a rebuilt environment: Workbench's own
 directories, the terminal and presentation settings (`TERM`, `COLORTERM`,
@@ -332,11 +335,9 @@ ecosystem-specific variables are not carried.
 
 Updates keep storage bounded. The activation plan lists, as `remove` edits,
 every staged release except the new one and the one it replaces, plus setup
-contexts and private tool versions that nothing kept or recorded uses. They are deleted after activation succeeds, so the previous
-release stays available to reinstall. A private tool or TOML Kit file is written
-to a `.NAME.partial` file beside its final path and linked into place, so an
-interrupted install leaves no truncated tool; the next `update` or `apply`
-removes a leftover `.NAME.partial` and installs again.
+contexts and private tool versions that nothing kept or recorded uses. They are
+deleted after activation succeeds, so the previous release stays available to
+reinstall.
 
 ## Releases
 
