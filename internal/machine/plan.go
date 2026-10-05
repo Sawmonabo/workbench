@@ -657,8 +657,11 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 			"Native plan would replace or loosen "+target+", which holds Workbench's own files",
 		)
 	}
-	// macOS keeps flags on ~/Library that a checkpoint cannot record; a real
-	// Mac already has these folders at the configuration's modes.
+	// Revert must be able to restore the mode, so the checkpoint has to record
+	// the folder. It admits what macOS puts on ~/Library/Application Support
+	// (the "deny delete" ACL) and on ~/Library above it (the hidden flag, the
+	// same ACL); a folder with other flags, ACLs or attributes is refused with
+	// the chmod to run.
 	if _, err = operation.ReadImage(c, target); err != nil {
 		return operation.Fail(
 			operation.ExitBlocked,

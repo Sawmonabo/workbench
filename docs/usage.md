@@ -310,7 +310,9 @@ registry, environment, services, package caches or uncheckpointed script effects
 Supported bytes/types/modes/groups/link targets are recorded, along with the
 macOS provenance, quarantine, Finder info and last-used-date attributes; other
 extended attributes, ACLs, file flags, hard links and special files block
-preservation.
+preservation. The exception is what macOS puts on its own folders: the default
+"deny delete" ACL on a folder Workbench writes into or one that holds its files,
+and the hidden flag on a folder Workbench writes into, such as `~/Library`.
 Native machine apply currently rejects group-exclusive modes such as `0640` and
 `0750`, avoiding transient exposure before group correction. The shared direct
 project/recovery writer sets the group before permissions and atomic replacement.
@@ -342,7 +344,11 @@ create is writable by other users, even where the login default is 002, as on
 Ubuntu. Missing parents of its directories, such as `~/.config`, are created
 0755. When the configuration sets such a folder to a different safe mode, the
 plan lists the change under "Folder that holds Workbench's own files; mode
-only", and revert restores the old mode like any other change.
+only", and revert restores the old mode like any other change. On a Mac the
+configuration keeps `~/Library/Application Support` private (0700), as macOS
+creates it, so a Mac whose folder was loosened sees that edit, with the folder's
+ACL kept. A folder with other flags, ACLs or attributes stops Workbench with the
+`chmod` that matches the configuration.
 A parent that other users can write to stops Workbench with the `chmod go-w`
 that fixes it.
 

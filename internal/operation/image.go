@@ -257,7 +257,7 @@ func ReadImage(c Context, path string) (Image, error) {
 		if opened.Ino != stat.Ino || opened.Dev != stat.Dev {
 			return Image{}, Fail(ExitConflict, "conflict", "Target changed during image capture")
 		}
-		if err = fileMetadata(fd, path); err != nil {
+		if err = c.openMetadata(fd, path, stat.Mode&unix.S_IFMT == unix.S_IFDIR); err != nil {
 			return Image{}, err
 		}
 		image.Attributes, err = readImageAttributes(fd, path)
@@ -280,6 +280,18 @@ func ReadImage(c Context, path string) (Image, error) {
 		return Image{}, err
 	}
 	return image, nil
+}
+
+// openMetadata rejects metadata a checkpoint cannot preserve on the opened
+// target at path. A folder that holds Workbench's own files is only ever
+// changed in place, never removed or replaced, so it may keep the ACL
+// containerMetadata admits; any other directory is held to the file rules,
+// because removing one and restoring it would drop that ACL.
+func (c Context) openMetadata(fd int, path string, directory bool) error {
+	if directory && c.isContainer(path) {
+		return containerMetadata(fd, path)
+	}
+	return fileMetadata(fd, path)
 }
 
 func sameImage(a, b Image) bool {
@@ -487,7 +499,7 @@ func enforceNativeGroup(c Context, path string, observed Image, group uint32) er
 	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
 	currentGroup := uint32(stat.Gid)
 	current.Group = &currentGroup
-	if err = fileMetadata(fd, path); err != nil {
+	if err = c.openMetadata(fd, path, observed.Kind == ImageDirectory); err != nil {
 		return err
 	}
 	current.Attributes, err = readImageAttributes(fd, path)

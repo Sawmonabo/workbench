@@ -27,6 +27,10 @@ func fileMetadata(fd int, path string) error {
 	return nil
 }
 
+// containerMetadata is fileMetadata: Linux admits no extra metadata on a
+// folder that holds Workbench's own files.
+func containerMetadata(fd int, path string) error { return fileMetadata(fd, path) }
+
 // parentMetadata applies the target rules to the folder a target is written
 // into: any extended attribute there blocks planning.
 func parentMetadata(fd int, path string) error { return fileMetadata(fd, path) }

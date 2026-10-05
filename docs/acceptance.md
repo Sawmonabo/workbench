@@ -264,6 +264,14 @@ synthetic answers.
   the apply of …". Without a terminal it lists their IDs and exits 3. It
   restored exact files, modes and attributes, including a folder mode above
   Workbench's data. A later edit to any target blocks restoring all of them.
+- In an isolated destination shaped like a Mac's folders (`Library` private,
+  hidden and with the `group:everyone deny delete` ACL; `Library/Application
+  Support` with the same ACL), an apply with `Application Support` at 0755 listed
+  a mode-only edit to 0700 and applied it, keeping the ACL and the hidden flag;
+  revert restored 0755 with both intact. With the folder already at 0700 the plan
+  listed no edit for it. An inheritable ACL, a flag on the folder itself and an ACL
+  on an ordinary managed folder still stopped planning. (target; not observed on
+  a fresh Mac or in a macOS VM)
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded
