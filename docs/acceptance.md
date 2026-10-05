@@ -264,6 +264,32 @@ synthetic answers.
     status 1)), so the steps after it did not run; what already ran is kept. …`,
     and the checkpoint recorded the file as written, with the group `staff`. The
     next apply settled the unfinished apply and ran the cleanup (exit 0).
+- A failed step no longer stops the others, and revert keeps folders that hold
+  other files, from local bundles on a clean macOS 15.7.7 arm64 VM (no Homebrew,
+  no Command Line Tools, sudo needing a password) and an Ubuntu 24.04 arm64 VM:
+  - On the Mac, personal role, with `raw.githubusercontent.com` unreachable, an
+    interactive apply asked for the Mac password once and ran every step in
+    about two minutes. Homebrew packages, Runtime managers (nvm's installer; bun
+    and Go missing), Language runtimes (nvm missing), Command-line tools, tmux
+    plugins (tmux missing), Mac apps and Homebrew cleanup (Homebrew missing)
+    each showed `blocked` with that reason; the files and the usage step were
+    applied, and the apply ended with exit 3 and `A step could not be done
+    (marked blocked above); everything else was applied, and the next apply tries
+    it again`. The cargo tools had failed for want of the Command Line Tools, so
+    that step now checks for them first.
+  - With the host reachable, the next apply installed Homebrew, nvm, bun, Go, the
+    runtimes, the tools, the tmux plugins and the apps (exit 0, about 15 minutes,
+    one password prompt).
+  - Revert of the first apply then restored 21 files (`~/.gitconfig` and
+    `~/.zshrc`, which it had created, were removed) and kept `~/.config`,
+    `~/.config/tmux` (plugins) and `~/Library/Application Support/Code` (VS
+    Code's own data), each named `Stays, because it holds files Workbench did not
+    write: …` in the plan and the result (exit 0).
+  - On Ubuntu, with the same host unreachable, an unattended apply ended with
+    exit 3: Runtime managers, Language runtimes and Command-line tools named nvm,
+    and System packages, tmux plugins and the rest completed. With the host
+    reachable, the same build's next apply ran the failed one-time steps again
+    and installed nvm, Node 20, 22 and 24, codex, claude and pnpm (exit 0).
 - Touch ID for sudo, on clean macOS 15.7.7 arm64 VMs with no sudo ticket. A
   virtual Mac has no fingerprint sensor, so sudo there always falls back to its
   password:
@@ -494,8 +520,8 @@ synthetic answers.
 
 | Area | Remaining evidence or decision |
 | --- | --- |
-| macOS | Intel runs; revert of a first apply whose folders later steps filled (refused today). Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict and a step turned off in the list were observed. |
-| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed, not rerun). |
+| macOS | Intel runs. Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict, a step turned off in the list, failed downloads that left the other steps running, and a revert of a first apply that kept the folders other files filled were observed. |
+| Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
