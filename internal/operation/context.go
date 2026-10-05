@@ -471,6 +471,13 @@ func (c Context) ValidateContainer(path string) error {
 	return nil
 }
 
+// isContainer reports whether path is a directory that holds Workbench's own
+// files rather than a target: ValidateTarget refuses it only because it
+// overlaps Workbench's runtime state, and ValidateContainer accepts it.
+func (c Context) isContainer(path string) bool {
+	return c.ValidateTarget(path) != nil && c.ValidateContainer(path) == nil
+}
+
 // validateImagePath is ValidateTarget, plus an existing directory that holds
 // Workbench's own files. Image writes to such a directory change only its
 // mode, group and attributes: writeImage refuses to replace a directory, and
