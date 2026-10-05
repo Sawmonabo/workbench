@@ -1,6 +1,8 @@
 # 1. Ask for the Mac password once per apply
 
 - Status: Accepted, October 5, 2026
+- Amended by: [ADR 3](0003-touch-id-for-sudo.md), for Macs where Touch ID for
+  sudo is on.
 - Supersedes: the Mac password rule in [AGENTS.md](../../AGENTS.md) ("`/usr/bin/sudo`
   reads it, Workbench never does … an app that needs the password (such as Docker
   Desktop) is asked for it by Homebrew itself") and the matching sentence in
