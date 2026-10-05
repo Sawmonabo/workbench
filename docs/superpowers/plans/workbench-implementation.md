@@ -20,6 +20,7 @@ every native release acceptance gate has passed.
 | 7 Existing projects | uv Python/workspaces and conservative existing GitHub workflow integration verified in fixtures | Unsupported owners remain blocked. |
 | 8 Acceptance | Local static/safety/bundle checks and consolidated reviews passed | Full native provisioning, Linux/Intel/WSL and production qualification. |
 | 9 Documentation/artifacts | Current documentation and release packaging complete; releases publish from `v*` tags | None beyond the native gates above. |
+| Apply plan selection and costs ledger | Implemented 2026-09-30 to 10-03; see the dated specs | The native gates above. |
 
 [Acceptance](../../acceptance.md) is the maintained evidence record. Do not turn
 cross-compilation, static template checks or source inspection into native support
@@ -29,7 +30,7 @@ claims. No live-machine application is required to finish code/documentation wor
 
 Deliver one Go/Cobra CLI for developer-machine configuration and existing-project tooling. Install from release bundles through a minimal POSIX bootstrap; reuse chezmoi and existing provisioning owners. Support macOS Apple Silicon/Intel, declared Linux/Ubuntu targets, and WSL with Windows integration. Native Windows without WSL is outside the initial compatibility commitment.
 
-The application must provide apply (with preview and configuration-only modes), update, version, doctor, scoped configuration revert, project inspect, project configure and project revert. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
+The application must provide apply (with preview), init, update, version, doctor, costs, scoped configuration revert, project inspect, project configure and project revert. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
 
 Do not implement a second package manager, shell CLI, per-language installer, generic plugin framework or task runner. Shared operations own planning, consent, dependency ownership, execution, locking, reporting and checkpoint behavior. Preserve current native tool functionality unless the specification explicitly requires a safety correction.
 
@@ -45,7 +46,7 @@ Workbench is greenfield: update the canonical implementation and all affected ca
 | `home/.chezmoitemplates/vscode-settings.json.tmpl`, `home/.chezmoidata/vscode.json` | Reuse the single editor merge/data source. JSONC input is accepted but comments are not retained by this machine-settings merge. |
 | `home/.chezmoiscripts/` | Reuse provisioning owners. Audit hidden writes, cleanup, elevation, architecture assumptions, partial outcomes and duplicate dependency installs. |
 | `home/private_dot_codex/modify_private_config.toml.tmpl` | Account for Python with `tomllib`; invalid input must not silently lose unowned state. |
-| `home/.chezmoiignore`, `home/.chezmoiremove` | Preserve platform/role selection. Preview and checkpoint removals, including configuration-only operations. |
+| `home/.chezmoiignore`, `home/.chezmoiremove` | Preserve platform/role selection. Preview and checkpoint removals. |
 | `scripts/render-check.sh`, `.github/workflows/ci.yml` | Extend the current render/lint/role/mode coverage. Simulated WSL rendering does not validate Windows integration. |
 
 The shared CLI, installer and lifecycle engines exist. Native script-written Windows configuration still requires explicit path/ACL qualification; uncheckpointed external effects must never be described as file recovery.
@@ -117,7 +118,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 ### Work
 
-1. Register one Cobra command tree: `apply`, `update`, `version`, `doctor`, `revert`, `project inspect`, `project configure` and `project revert`.
+1. Register one Cobra command tree: `apply`, `init`, `update`, `version`, `doctor`, `revert`, `costs`, `project inspect`, `project configure` and `project revert`.
 2. Implement explicit PATH resolution, existing-directory validation and repeatable `--language` selection. Omitted project PATH means `.`. Unsupported explicit language requests fail before mutation.
 3. Define one resolved operation context and plan/result model. A plan contains source identity, scope, observed inputs, intended target edits/removals, prerequisites, external effects and recovery limits.
 4. Add one cancellable subprocess runner with argument arrays, controlled environment, bounded output and redaction. Do not build shell command strings from project paths or answers, or introduce a mock framework.
@@ -145,7 +146,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 1. Pass the same explicit source, configuration, destination and persistent-state context to every native invocation. Preserve role flags and conditional work settings.
 2. Reuse native target enumeration, diff and apply behavior. Audit template functions, hooks and modify scripts before claiming read-only previews.
-3. Preflight rendering dependencies, including Python with `tomllib`, before attempting target rendering. Setup installs Workbench's own pinned tools as part of `apply` and `update`, config-only included; a preview never installs them.
+3. Preflight rendering dependencies, including Python with `tomllib`, before attempting target rendering. Setup installs Workbench's own pinned tools as part of `apply` and `update`; a preview never installs them.
 4. Establish one dependency owner per tool. Coordinate clean installs, existing package-manager installations and privately owned tools. Avoid duplicate chezmoi/uv installations and preserve compatible user-owned tools.
 5. Make destructive maintenance/app replacement separately approved. Correct the macOS scripts' cleanup/recovery-copy behavior at their existing owner; do not add another package/app installer in Go.
 6. Make skips/failures machine-detectable and preserve retry semantics. Audit native run-once/on-change state so a skipped required action is not permanently treated as successful.
@@ -157,7 +158,6 @@ owner pushes a `v*` tag, not when files are implemented.
 
 - Reuse the existing role/mode render entry point; do not add another matrix.
 - Manually check an already-owned dependency and a clean isolated environment with prerequisites absent.
-- Config-only apply invokes no provisioning scripts and still reports any managed removals accurately.
 - Review failure/skip reporting and manually exercise relevant changed paths. Automate malformed-input handling only where it would otherwise overwrite user data, through the shared safety test rather than per-script suites.
 - Diff/doctor evaluation must not modify targets. Any helper incapable of that is blocked from the read-only path until corrected.
 
@@ -198,7 +198,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 1. Build per-target bundles containing the CLI, machine sources, project policies, licenses and generated release metadata. Exclude host state and maintainer-only files through an explicit payload definition.
 2. Implement target validation, bounded downloads and archive validation. Reject unsafe members, escaping links, malformed metadata, incompatible state/runtime versions and mismatched integrity data.
-3. Implement `update [VERSION]`: find the latest release or VERSION on GitHub (or read `--bundle`), then stage, activate and hand off to the new runtime, which runs `apply`: setup, then the machine plan and apply. When that release is already active, skip staging and hand off to it, so a rerun finishes a declined or failed setup. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
+3. Implement `update [VERSION]`: find the latest release or VERSION on GitHub (or read `--bundle`), then stage, activate and hand off to the new runtime, which installs its pinned tools and stops; `apply` is a separate command. An already active release is not reinstalled. Reinstallation calls the same shared setup functions rather than duplicating them in the installer.
 4. Keep CLI, active release and applied-configuration versions separate. Validate a runtime handoff before activation and keep the previous working runtime available.
 5. Implement `version --list` from the same GitHub release data.
 6. Implement POSIX bootstrap target detection, minimal prerequisite checks, initial download/verification and handoff. Do not add package lists, machine questions, language setup or revert logic to shell.
@@ -210,7 +210,7 @@ owner pushes a `v*` tag, not when files are implemented.
 - Fresh installation works without a source checkout, Go compiler, preinstalled Python or manually installed management tools, while declared bootstrap utilities remain prerequisites.
 - Keep a minimal automated release-safety check only for unsafe extraction or unverified executable activation; do not retest library behavior or build a broad download-error matrix.
 - Manually check representative failed installation/activation and an existing command collision in an isolated destination.
-- Previews never fetch missing dependencies; config-only apply sets up only Workbench's own tools.
+- Previews never fetch missing dependencies.
 - A failed update does not destroy the working runtime; rollback limitations remain honest.
 - A manual installation smoke check from a published-style bundle, not the working tree, verifies the user path.
 

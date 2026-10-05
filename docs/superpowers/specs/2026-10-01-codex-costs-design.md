@@ -351,7 +351,7 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   the word after its last `@` (a lowercase letter, then lowercase letters,
   digits, `_` or `-`), so a tier OpenAI adds later needs no code change, and
   `@` followed by a digit stays a dated snapshot. Only a tool whose source
-  composes such ids (`Tool.Tiers`, Codex) has its ids split: every other
+  composes such ids (`Tool.Tiers`: Codex, and Claude Code for fast mode) has its ids split: every other
   tool's model id, such as a vendor's `foo@latest`, is read whole by the
   rate lookup, the report and the unpriced note. A rate prices a model only
   at the same tier, and only when its key is the whole model id or is followed by `-` or `@` and a
@@ -433,8 +433,7 @@ unchanged once the source is set.
 
 ## 9. Verification
 
-- `go build ./...`, the golangci-lint gates and `go test ./...` (the upgrade
-  test is the only new test: it guards existing ledger rows).
+- `go build ./...`, the golangci-lint gates and `go test ./...` (see the ledger design, section 9, for the tests).
 - A reference count from the rollout files, by a script outside the repository,
   matched against `workbench costs --tool codex --json` totals per model for
   one month of record-era files and one month of legacy files.
@@ -646,7 +645,7 @@ sign-in that names the id, so a renamed organization relabels its history.
   The "no `SessionEnd` on exit" observation was not reproduced:
   interactive sessions in an isolated `CLAUDE_CONFIG_DIR` logged a
   `SessionEnd` worker line on `/exit`, Ctrl-C, Ctrl-D, hang-up and TERM, with
-  or without `async`. In the owner's worker log six of the nine
+  or without `async`. In one worker log, six of the nine
   `SessionStart` runs match `compact_boundary` records of the one long
   session, and no other session ended in that window, so the log does not show
   a failed exit.

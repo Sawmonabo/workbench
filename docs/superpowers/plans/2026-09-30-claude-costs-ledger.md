@@ -1,5 +1,7 @@
 # claude-costs Ledger Implementation Plan
 
+Status: executed; the checkboxes are the task script, not progress. The [spec](../specs/2026-09-30-claude-costs-ledger-design.md) records what shipped.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the transcript-scanning `claude-costs` script with a durable SQLite ledger fed by async Claude Code hooks, priced at current rates, reported by project, model, account and month.
