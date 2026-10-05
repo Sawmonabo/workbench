@@ -11,53 +11,59 @@ failed=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{ template "runtimes-probe.sh" . }}
 fi
+# Each runtime is tried on its own. What failed, or what was skipped because its
+# manager is missing, is reported on runtimes, and the script then ends nonzero,
+# so the next apply runs it again.
+{{ template "effect-report.sh" }}
+status=0
 
 # --- Node via nvm ---
 {{ template "nvm-load.sh" }}
 {{- if eq .versions_mode "pinned" }}
 {{- range .versions.node }}
-    nvm install {{ . }} || failed+=("node-{{ . }}")
+    nvm install {{ . }} || failed+=("Node {{ . }} could not be installed")
 {{- end }}
-    nvm alias default {{ .versions.node_default }} || failed+=(node-default)
+    nvm alias default {{ .versions.node_default }} || failed+=("Node {{ .versions.node_default }} could not be made the default")
 {{- else }}
     # latest: one newest Node only; other versions are a `nvm install <ver>` away.
-    nvm install node || failed+=(node-latest)
-    nvm alias default node || failed+=(node-default)
+    nvm install node || failed+=("the latest Node could not be installed")
+    nvm alias default node || failed+=("the latest Node could not be made the default")
 {{- end }}
 else
-    failed+=(nvm-missing)
+    part_failed runtimes "Node was not installed: nvm is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 # --- Python via uv ---
 if command -v uv &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
 {{- range .versions.python_pinned }}
-    uv python install {{ . }} || failed+=("python-{{ . }}")
+    uv python install {{ . }} || failed+=("Python {{ . }} could not be installed")
 {{- end }}
 {{- else }}
     # latest: one newest stable Python only.
-    uv python install || failed+=(python-latest)
+    uv python install || failed+=("the latest Python could not be installed")
 {{- end }}
 else
-    failed+=(uv-missing)
+    part_failed runtimes "Python was not installed: uv is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 # --- Rust toolchain ---
 if command -v rustup &>/dev/null; then
 {{- if eq .versions_mode "pinned" }}
-    rustup toolchain install {{ .versions.rust }} || failed+=(rust-toolchain)
-    rustup default {{ .versions.rust }} || failed+=(rust-default)
+    rustup toolchain install {{ .versions.rust }} || failed+=("Rust {{ .versions.rust }} could not be installed")
+    rustup default {{ .versions.rust }} || failed+=("Rust {{ .versions.rust }} could not be made the default")
 {{- else }}
-    rustup toolchain install stable || failed+=(rust-toolchain)
-    rustup default stable || failed+=(rust-default)
+    rustup toolchain install stable || failed+=("stable Rust could not be installed")
+    rustup default stable || failed+=("stable Rust could not be made the default")
 {{- end }}
 else
-    failed+=(rustup-missing)
+    part_failed runtimes "Rust was not installed: rustup is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 if [ ${#failed[@]} -gt 0 ]; then
-    printf 'WARNING: runtime installs failed: %s\n' "${failed[*]}" >&2
-    exit 1
+    printf -v joined '%s; ' "${failed[@]}"
+    part_failed runtimes "${joined%; } (the output above says why)" || status=1
 fi
 echo "==> Runtimes done."
+exit "$status"
 {{ end -}}

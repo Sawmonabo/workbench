@@ -46,44 +46,49 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     exit 0
 fi
+# Each tool is tried on its own. What failed, or what was skipped because the
+# runtime it needs is missing, is reported on global-tools, and the script then
+# ends nonzero, so the next apply runs it again.
+{{ template "effect-report.sh" }}
+status=0
 
 {{- $mode := .versions_mode }}
 
 # --- npm globals + codex + claude (into the default Node) ---
 {{ template "nvm-load.sh" }}
-    nvm use default || failed+=(node-default-missing)
+    nvm use default || failed+=("the default Node could not be selected")
 {{- if eq $mode "pinned" }}
-    npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=(codex)
-    npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=(claude)
+    npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
+    npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
 {{- else }}
-    npm install -g @openai/codex@latest || failed+=(codex)
-    npm install -g @anthropic-ai/claude-code@latest || failed+=(claude)
+    npm install -g @openai/codex@latest || failed+=("codex could not be installed")
+    npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
 {{- end }}
     # Node >= 25 no longer bundles corepack; install it into the default Node first.
-    command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=(corepack-install)
-    corepack enable || failed+=(corepack)
+    command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=("corepack could not be installed")
+    corepack enable || failed+=("corepack could not be enabled")
 {{- range $tool, $ver := .corepack_globals }}
 {{- if eq $mode "pinned" }}
-    corepack install --global "{{ $tool }}@{{ $ver }}" || failed+=("corepack:{{ $tool }}")
+    corepack install --global "{{ $tool }}@{{ $ver }}" || failed+=("{{ $tool }} could not be installed")
 {{- else }}
-    corepack install --global "{{ $tool }}@latest" || failed+=("corepack:{{ $tool }}")
+    corepack install --global "{{ $tool }}@latest" || failed+=("{{ $tool }} could not be installed")
 {{- end }}
 {{- end }}
 else
-    failed+=(nvm-missing)
+    part_failed global-tools "codex, claude and the npm tools were not installed: nvm is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 # --- uv tools ---
 if command -v uv &>/dev/null; then
 {{- range $pkg, $ver := .uv_tools }}
 {{- if eq $mode "pinned" }}
-    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("uv:{{ $pkg }}")
+    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("{{ $pkg }} could not be installed")
 {{- else }}
-    uv tool install --upgrade "{{ $pkg }}" || failed+=("uv:{{ $pkg }}")
+    uv tool install --upgrade "{{ $pkg }}" || failed+=("{{ $pkg }} could not be installed")
 {{- end }}
 {{- end }}
 else
-    failed+=(uv-missing)
+    part_failed global-tools "the uv tools were not installed: uv is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 # --- cargo tools ---
@@ -92,26 +97,26 @@ if command -v cargo &>/dev/null; then
     :
 {{- range $pkg, $ver := .cargo_tools }}
 {{- if eq $mode "pinned" }}
-    cargo install --locked "{{ $pkg }}" --version "{{ $ver }}" || failed+=("cargo:{{ $pkg }}")
+    cargo install --locked "{{ $pkg }}" --version "{{ $ver }}" || failed+=("{{ $pkg }} could not be installed")
 {{- else }}
-    cargo install --locked "{{ $pkg }}" || failed+=("cargo:{{ $pkg }}")
+    cargo install --locked "{{ $pkg }}" || failed+=("{{ $pkg }} could not be installed")
 {{- end }}
 {{- end }}
 else
-    failed+=(cargo-missing)
+    part_failed global-tools "the cargo tools were not installed: cargo is not installed (the Runtime managers step installs it with rustup)" || status=1
 fi
 
 # --- go tools ---
 if command -v go &>/dev/null; then
 {{- range $mod, $ver := .go_tools }}
 {{- if eq $mode "pinned" }}
-    go install "{{ $mod }}@{{ $ver }}" || failed+=("go:{{ $mod }}")
+    go install "{{ $mod }}@{{ $ver }}" || failed+=("{{ base $mod }} could not be installed")
 {{- else }}
-    go install "{{ $mod }}@latest" || failed+=("go:{{ $mod }}")
+    go install "{{ $mod }}@latest" || failed+=("{{ base $mod }} could not be installed")
 {{- end }}
 {{- end }}
 else
-    failed+=(go-missing)
+    part_failed global-tools "the Go tools were not installed: Go is not installed (the Runtime managers step installs it)" || status=1
 fi
 
 # --- podman (Ubuntu repository package) ---
@@ -119,14 +124,15 @@ fi
 # often holds on a new Ubuntu machine.
 if ! command -v podman &>/dev/null; then
     echo "==> Installing podman via apt (sudo may prompt)..."
-    sudo apt-get -o DPkg::Lock::Timeout=600 install -y podman || failed+=(podman)
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y podman || failed+=("podman could not be installed")
 else
     echo "    podman already installed: $(podman --version)"
 fi
 
 if [ ${#failed[@]} -gt 0 ]; then
-    printf 'WARNING: tool installs failed: %s\n' "${failed[*]}" >&2
-    exit 1
+    printf -v joined '%s; ' "${failed[@]}"
+    part_failed global-tools "${joined%; } (the output above says why)" || status=1
 fi
 echo "==> Global tools done."
+exit "$status"
 {{ end -}}

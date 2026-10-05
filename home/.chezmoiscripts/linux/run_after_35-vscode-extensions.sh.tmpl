@@ -4,8 +4,9 @@
 # remote extension host or selects a non-default profile. On WSL the editor is
 # the Windows desktop, which this cannot install into, so WSL renders nothing.
 # Runs on every apply, so an extension that failed is tried again; the failure
-# is named blocked under its effect (part_failed) and the scripts after this one
-# still run. Run directly, without Workbench's report file, it ends nonzero.
+# is named blocked under its effect (part_failed) and the script ends nonzero.
+# Workbench runs chezmoi with --keep-going, so the scripts after this one still
+# run.
 set -euo pipefail
 status=0
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then

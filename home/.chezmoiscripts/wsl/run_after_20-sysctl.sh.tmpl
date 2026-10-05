@@ -6,8 +6,9 @@
 # page idle program memory out to make room for file cache; keep apps resident
 # and swap only under real pressure (the kernel default of 60 is eager).
 # Needs sudo; when no tty/sudo credential is available it prints the manual
-# step, names the step blocked in the file Workbench reads, and exits 0 so the
-# rest of the apply still runs.
+# step, names the step blocked in the file Workbench reads, and exits 0: it runs
+# again on the next apply. A write that fails is named the same way and ends
+# the script nonzero.
 set -euo pipefail
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [[ -f /etc/sysctl.d/99-dev.conf ]] && grep -qx 'vm.swappiness=10' /etc/sysctl.d/99-dev.conf; then
@@ -21,6 +22,7 @@ if [[ "${WORKBENCH_EFFECT_SYSCTL:-}" != 1 ]]; then
     echo 'WORKBENCH_EFFECT sysctl disabled (not selected)' >&2
     exit 0
 fi
+{{ template "effect-report.sh" }}
 
 CONF=/etc/sysctl.d/99-dev.conf
 WANT='vm.swappiness=10'
@@ -33,14 +35,16 @@ fi
 if ! sudo -n true 2>/dev/null && [[ ! -t 0 ]]; then
     echo "==> sysctl: sudo needs a password and there is no terminal — skipped."
     echo "    Apply manually:  echo '$WANT' | sudo tee $CONF && sudo sysctl -p $CONF"
-    if [ -n "${WORKBENCH_EFFECT_REPORT:-}" ]; then
-        printf '%s\t%s\n' sysctl "sudo needs a password and there is no terminal; run the manual step above" >> "$WORKBENCH_EFFECT_REPORT"
-    fi
+    part_blocked sysctl "sudo needs a password and there is no terminal; run the manual step above"
     exit 0
 fi
 
 echo "==> sysctl: writing $CONF ($WANT)"
-printf '# managed by Workbench (WSL kernel tuning step)\n%s\n' "$WANT" | sudo tee "$CONF" >/dev/null
-sudo sysctl -q -p "$CONF"
+printf '# managed by Workbench (WSL kernel tuning step)\n%s\n' "$WANT" | sudo tee "$CONF" >/dev/null ||
+    part_failed sysctl "$CONF could not be written (the output above says why), so vm.swappiness was not changed" ||
+    exit 1
+sudo sysctl -q -p "$CONF" ||
+    part_failed sysctl "$CONF was written but could not be loaded (the output above says why); run: sudo sysctl -p $CONF" ||
+    exit 1
 echo "    vm.swappiness is now $(sysctl -n vm.swappiness)"
 {{ end -}}

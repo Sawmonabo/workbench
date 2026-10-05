@@ -19,9 +19,8 @@ set -euo pipefail
 # Everything the probe or the apply says about a Windows host that cannot be
 # used: one line per effect, since each of them is affected. An apply names each
 # effect it was asked to do as blocked, in the file Workbench reads, and ends the
-# script successfully: this is a run_before_ script, so failing it would stop the
-# whole apply, files and every other step included, for a Windows side that
-# does not answer. Workbench ends the apply blocked after the rest has run.
+# script successfully: it runs on every apply, so it tries again next time.
+# Workbench ends the apply blocked after the rest has run.
 blocked() {
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         for effect in windows-files terminal-adoption powershell-adoption font-registry; do

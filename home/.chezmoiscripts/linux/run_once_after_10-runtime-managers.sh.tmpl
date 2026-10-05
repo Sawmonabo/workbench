@@ -2,7 +2,9 @@
 #!/bin/bash
 # Install runtime MANAGERS: nvm, uv, rustup, bun, and the Go toolchain.
 # Version policy comes from the versions_mode prompt ({{ .versions_mode }})
-# and the pins in .chezmoidata/versions.toml.
+# and the pins in .chezmoidata/versions.toml. Each manager is a part of its
+# own: one that fails is reported on runtime-managers and the others still
+# install; the script then ends nonzero, so the next apply runs it again.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 
@@ -40,62 +42,94 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     exit 0
 fi
+{{ template "effect-report.sh" }}
+status=0
+why=
+# part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
+# function called as a condition, so each part returns at its first failed
+# command itself, optionally saying why; the effect is then reported and the
+# script goes on with the next part.
+part() {
+    why=
+    "$3" && return 0
+    part_failed "$1" "$2: ${why:-the output above says why}" || status=1
+}
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
 echo "==> Runtime managers ({{ .versions_mode }} mode)..."
 
 # --- nvm ---
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-if [ ! -r "$NVM_DIR/nvm.sh" ]; then
+install_nvm() {
     # Download the installer, then run it. `bash -c "curl ... | bash"` pipes an
     # empty body into bash and exits 0 when curl fails, so the real error would
     # only surface later as nvm-missing in 20-runtimes.
-    nvm_installer=$(mktemp)
-    trap 'rm -f "$nvm_installer"' EXIT
+    nvm_installer="$download_dir/nvm-install.sh"
 {{- if eq .versions_mode "pinned" }}
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/{{ .versions.nvm }}/install.sh" -o "$nvm_installer"
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/{{ .versions.nvm }}/install.sh" -o "$nvm_installer" ||
+        { why="its installer could not be downloaded"; return 1; }
 {{- else }}
-    latest_nvm=$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep -om1 '"tag_name": *"[^"]*"' | cut -d'"' -f4)
-    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${latest_nvm}/install.sh" -o "$nvm_installer"
+    latest_nvm=$(curl -fsSL https://api.github.com/repos/nvm-sh/nvm/releases/latest | grep -om1 '"tag_name": *"[^"]*"' | cut -d'"' -f4) || true
+    [ -n "$latest_nvm" ] || { why="its latest release could not be looked up on GitHub"; return 1; }
+    curl -fsSL "https://raw.githubusercontent.com/nvm-sh/nvm/${latest_nvm}/install.sh" -o "$nvm_installer" ||
+        { why="its installer could not be downloaded"; return 1; }
 {{- end }}
-    [ -s "$nvm_installer" ] || { echo "    nvm installer download failed" >&2; exit 1; }
-    PROFILE=/dev/null bash "$nvm_installer"
-    rm -f "$nvm_installer"
+    [ -s "$nvm_installer" ] || { why="its installer could not be downloaded"; return 1; }
+    PROFILE=/dev/null bash "$nvm_installer" || return 1
+}
+if [ ! -r "$NVM_DIR/nvm.sh" ]; then
+    part runtime-managers "nvm was not installed" install_nvm
 else
     echo "    nvm already present; keeping it."
 fi
 
 # --- uv ---
-if [ -n "${WORKBENCH_UV:-}" ]; then
-    [ -x "$WORKBENCH_UV" ] || { echo 'WORKBENCH_EFFECT uv blocked: selected owner is unavailable' >&2; exit 1; }
-elif ! command -v uv &>/dev/null; then
+install_uv() {
+    why="its installer could not be downloaded or did not finish"
 {{- if eq .versions_mode "pinned" }}
-    curl -LsSf "https://astral.sh/uv/{{ .versions.uv }}/install.sh" | env UV_NO_MODIFY_PATH=1 sh
+    curl -LsSf "https://astral.sh/uv/{{ .versions.uv }}/install.sh" | env UV_NO_MODIFY_PATH=1 sh || return 1
 {{- else }}
-    curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh
+    curl -LsSf https://astral.sh/uv/install.sh | env UV_NO_MODIFY_PATH=1 sh || return 1
 {{- end }}
+}
+if [ -n "${WORKBENCH_UV:-}" ]; then
+    [ -x "$WORKBENCH_UV" ] ||
+        part_failed runtime-managers "uv was not set up: the uv Workbench chose to use ($WORKBENCH_UV) is missing" ||
+        status=1
+elif ! command -v uv &>/dev/null; then
+    part runtime-managers "uv was not installed" install_uv
 else
     echo "    uv already present: $(uv --version)"
 fi
 
 # --- rustup ---
+install_rustup() {
+    why="its installer could not be downloaded or did not finish"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path || return 1
+}
 if ! command -v rustup &>/dev/null && [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
+    part runtime-managers "rustup was not installed" install_rustup
 else
     echo "    rustup already present."
 fi
 
 # --- bun ---
-if ! command -v bun &>/dev/null && [ ! -x "$HOME/.bun/bin/bun" ]; then
-    bun_installer=$(mktemp)
-    trap 'rm -f "$bun_installer"' EXIT
-    curl -fsSL https://bun.com/install -o "$bun_installer"
-    [ -s "$bun_installer" ] || exit 1
+install_bun() {
+    bun_installer="$download_dir/bun-install.sh"
+    if ! curl -fsSL https://bun.com/install -o "$bun_installer" || [ ! -s "$bun_installer" ]; then
+        why="its installer could not be downloaded"
+        return 1
+    fi
 # The upstream installer only edits profiles for bash/zsh/fish. Its generic sh
 # branch prints PATH instructions; our canonical shell targets already own PATH.
 {{- if eq .versions_mode "pinned" }}
-    SHELL=/bin/sh bash "$bun_installer" "bun-v{{ .versions.bun }}"
+    SHELL=/bin/sh bash "$bun_installer" "bun-v{{ .versions.bun }}" || return 1
 {{- else }}
-    SHELL=/bin/sh bash "$bun_installer"
+    SHELL=/bin/sh bash "$bun_installer" || return 1
 {{- end }}
+}
+if ! command -v bun &>/dev/null && [ ! -x "$HOME/.bun/bin/bun" ]; then
+    part runtime-managers "bun was not installed" install_bun
 else
     echo "    bun already present."
 fi
@@ -104,19 +138,17 @@ fi
 {{- if eq .versions_mode "pinned" }}
 go_target="{{ .versions.go }}"
 {{- else }}
-go_target=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1); go_target=${go_target#go}
+go_target=$(curl -fsSL 'https://go.dev/VERSION?m=text' | head -n1) || true
+go_target=${go_target#go}
 {{- end }}
-if command -v go &>/dev/null && go version | grep -q "go${go_target}"; then
-    echo "    Go ${go_target} already installed."
-else
-    echo "==> Installing Go ${go_target}..."
+install_go() {
     case "$(uname -m)" in
         x86_64) go_arch=amd64 ;;
         aarch64|arm64) go_arch=arm64 ;;
-        *) echo 'WORKBENCH_EFFECT go blocked: unsupported architecture' >&2; exit 1 ;;
+        *) why="go.dev publishes no Go for $(uname -m)"; return 1 ;;
     esac
     install_root="$HOME/.local/share/go-versions"
-    safe_user_directory "$install_root"
+    safe_user_directory "$install_root" || return 1
     # Updating aliases belonging to this runtime root is an approved runtime
     # effect. Ordinary files and unrelated links remain untouched.
     for command in go gofmt; do
@@ -125,25 +157,39 @@ else
             old=$(readlink "$target")
             case "$old" in "$install_root"/*/bin/"$command")
                 old_version=${old#"$install_root/"}; old_version=${old_version%"/bin/$command"}
-                [[ "$old_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] || { echo "Existing command preserved: $target" >&2; exit 1; }
-                safe_user_directory "${old%/*}"
-                ;; *) echo "Existing command preserved: $target" >&2; exit 1 ;; esac
+                [[ "$old_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] ||
+                    { why="$target links somewhere Workbench does not recognise, so it was kept"; return 1; }
+                safe_user_directory "${old%/*}" || return 1
+                ;; *) why="$target links somewhere Workbench does not recognise, so it was kept"; return 1 ;; esac
         elif [ -e "$target" ]; then
-            echo "Existing command preserved: $target" >&2; exit 1
+            why="$target already exists and is not Workbench's, so it was kept"
+            return 1
         fi
     done
-    tmp=$(mktemp -d)
-    curl -fsSL "https://go.dev/dl/go${go_target}.linux-${go_arch}.tar.gz" -o "$tmp/go.tar.gz"
-    tar -C "$tmp" -xzf "$tmp/go.tar.gz"
-    mkdir -p "$install_root" "$HOME/.local/bin"
+    tmp="$download_dir/go"
+    mkdir -p "$tmp" || return 1
+    curl -fsSL "https://go.dev/dl/go${go_target}.linux-${go_arch}.tar.gz" -o "$tmp/go.tar.gz" ||
+        { why="it could not be downloaded"; return 1; }
+    tar -C "$tmp" -xzf "$tmp/go.tar.gz" || return 1
+    mkdir -p "$install_root" "$HOME/.local/bin" || return 1
     if [ -e "$install_root/$go_target" ]; then
-        mv "$install_root/$go_target" "$install_root/$go_target.backup.$(date +%Y%m%d%H%M%S)"
+        mv "$install_root/$go_target" "$install_root/$go_target.backup.$(date +%Y%m%d%H%M%S)" || return 1
     fi
-    mv "$tmp/go" "$install_root/$go_target"
-    ln -sfn "$install_root/$go_target/bin/go" "$HOME/.local/bin/go"
-    ln -sfn "$install_root/$go_target/bin/gofmt" "$HOME/.local/bin/gofmt"
-    rm -rf "$tmp"
+    mv "$tmp/go" "$install_root/$go_target" || return 1
+    ln -sfn "$install_root/$go_target/bin/go" "$HOME/.local/bin/go" || return 1
+    ln -sfn "$install_root/$go_target/bin/gofmt" "$HOME/.local/bin/gofmt" || return 1
+}
+if [ -z "$go_target" ] && command -v go &>/dev/null; then
+    echo "    Go is installed; the latest version could not be looked up, so it was kept."
+elif [ -z "$go_target" ]; then
+    part_failed runtime-managers "Go was not installed: the latest version could not be looked up on go.dev" || status=1
+elif command -v go &>/dev/null && go version | grep -q "go${go_target}"; then
+    echo "    Go ${go_target} already installed."
+else
+    echo "==> Installing Go ${go_target}..."
+    part runtime-managers "Go ${go_target} was not installed" install_go
 fi
 
 echo "==> Runtime managers done."
+exit "$status"
 {{ end -}}

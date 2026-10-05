@@ -1,7 +1,9 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
 # Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh
-# (and bitwarden-cli on work machines)
+# (and bitwarden-cli on work machines). Each tool is a part of its own: one that
+# fails is reported on its step (linux-packages or work-tools) and the others
+# still install; the script then ends nonzero, so the next apply runs it again.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
@@ -24,6 +26,18 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- end }}
     exit 0
 fi
+{{ template "effect-report.sh" }}
+status=0
+why=
+# part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
+# function called as a condition, so each part returns at its first failed
+# command itself, optionally saying why; the effect is then reported and the
+# script goes on with the next part.
+part() {
+    why=
+    "$3" && return 0
+    part_failed "$1" "$2: ${why:-the output above says why}" || status=1
+}
 download_dir=$(mktemp -d)
 trap 'rm -rf "$download_dir"' EXIT
 
@@ -37,37 +51,49 @@ for tool in cc curl unzip git fc-cache; do
 done
 # Every apt-get here waits up to ten minutes for the package lock: on a new
 # Ubuntu machine unattended-upgrades often holds it while this runs.
+install_base() {
+    sudo apt-get -o DPkg::Lock::Timeout=600 update -qq || return 1
+    sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig || return 1
+}
 if command -v apt-get &>/dev/null && [ "$base_missing" -eq 1 ]; then
     echo "==> Installing build-essential, curl, unzip, git (sudo)..."
-    sudo apt-get -o DPkg::Lock::Timeout=600 update -qq && sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig
+    part linux-packages "apt could not install build-essential, curl, unzip, git and fontconfig" install_base
 fi
 
 # --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
 mkdir -p "$HOME/repos" "$HOME/dev"
 
+# cargo, for bat and fd where apt is unavailable.
+install_cargo() {
+    command -v cargo &>/dev/null && return 0
+    echo "    Installing rustup first..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path ||
+        { why="rustup, which builds it, could not be installed"; return 1; }
+    . "$HOME/.cargo/env" || return 1
+}
+
 # --- bat ---
 # Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
 # binary as `batcat`; expose it as `bat` in ~/.local/bin. Fall back to cargo
 # only where apt is unavailable.
-if ! command -v bat &>/dev/null; then
+install_bat() {
     if command -v apt-get &>/dev/null; then
         echo "==> Installing bat via apt..."
-        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq bat
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq bat || return 1
         if ! command -v bat &>/dev/null && command -v batcat &>/dev/null; then
-            mkdir -p "$HOME/.local/bin"
-            require_unused_command bat
-            ln -s "$(command -v batcat)" "$HOME/.local/bin/bat"
+            mkdir -p "$HOME/.local/bin" || return 1
+            require_unused_command bat || return 1
+            ln -s "$(command -v batcat)" "$HOME/.local/bin/bat" || return 1
         fi
     else
         echo "==> Installing bat via cargo..."
-        if ! command -v cargo &>/dev/null; then
-            echo "    Installing rustup first..."
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-            . "$HOME/.cargo/env"
-        fi
-        cargo install bat
+        install_cargo || return 1
+        cargo install bat || return 1
     fi
     echo "    bat installed."
+}
+if ! command -v bat &>/dev/null; then
+    part linux-packages "bat was not installed" install_bat
 else
     echo "==> bat already installed, skipping."
 fi
@@ -76,57 +102,61 @@ fi
 # Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
 # binary as `fdfind` (name clash with fdclone); expose it as `fd` in
 # ~/.local/bin. Fall back to cargo only where apt is unavailable.
-if ! command -v fd &>/dev/null; then
+install_fd() {
     if command -v apt-get &>/dev/null; then
         echo "==> Installing fd via apt..."
-        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq fd-find
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq fd-find || return 1
         if ! command -v fd &>/dev/null && command -v fdfind &>/dev/null; then
-            mkdir -p "$HOME/.local/bin"
-            require_unused_command fd
-            ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd"
+            mkdir -p "$HOME/.local/bin" || return 1
+            require_unused_command fd || return 1
+            ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd" || return 1
         fi
     else
         echo "==> Installing fd via cargo..."
-        if ! command -v cargo &>/dev/null; then
-            echo "    Installing rustup first..."
-            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --no-modify-path
-            . "$HOME/.cargo/env"
-        fi
-        cargo install fd-find
+        install_cargo || return 1
+        cargo install fd-find || return 1
     fi
     echo "    fd installed."
+}
+if ! command -v fd &>/dev/null; then
+    part linux-packages "fd was not installed" install_fd
 else
     echo "==> fd already installed, skipping."
 fi
 
 # --- oh-my-posh ---
-if ! command -v oh-my-posh &>/dev/null; then
-    require_unused_command oh-my-posh
+install_omp() {
+    require_unused_command oh-my-posh || return 1
     echo "==> Installing oh-my-posh..."
     # Download first: `curl | bash` runs an empty body and exits 0 when curl fails.
-    omp_installer=$(mktemp)
-    if ! curl -fsSL --retry 3 https://ohmyposh.dev/install.sh -o "$omp_installer" || [ ! -s "$omp_installer" ]; then
-        echo "    oh-my-posh installer download failed" >&2
-        rm -f "$omp_installer"
-        exit 1
+    if ! curl -fsSL --retry 3 https://ohmyposh.dev/install.sh -o "$download_dir/omp-install.sh" ||
+        [ ! -s "$download_dir/omp-install.sh" ]; then
+        why="its installer could not be downloaded"
+        return 1
     fi
-    bash "$omp_installer" -d ~/.local/bin || { rm -f "$omp_installer"; exit 1; }
-    rm -f "$omp_installer"
+    bash "$download_dir/omp-install.sh" -d ~/.local/bin || return 1
     echo "    oh-my-posh installed."
+}
+if ! command -v oh-my-posh &>/dev/null; then
+    part linux-packages "oh-my-posh was not installed" install_omp
 else
     echo "==> oh-my-posh already installed, skipping."
 fi
 
 # --- Oh My Posh themes (downloaded to cache) ---
 THEMES_DIR="$HOME/.cache/oh-my-posh/themes"
-if [ ! -d "$THEMES_DIR" ] || [ -z "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]; then
+install_themes() {
+    command -v unzip >/dev/null || { why="unzip is not installed (the apt install above provides it)"; return 1; }
     echo "==> Downloading oh-my-posh themes..."
-    mkdir -p "$THEMES_DIR"
+    mkdir -p "$THEMES_DIR" || return 1
     THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
-    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip"
-    unzip -o "$download_dir/themes.zip" -d "$THEMES_DIR"
-    chmod u+rw "$THEMES_DIR"/*.omp.*
+    curl -fsSL "$THEMES_URL" -o "$download_dir/themes.zip" || { why="they could not be downloaded"; return 1; }
+    unzip -o "$download_dir/themes.zip" -d "$THEMES_DIR" || return 1
+    chmod u+rw "$THEMES_DIR"/*.omp.* || return 1
     echo "    Themes installed to $THEMES_DIR"
+}
+if [ ! -d "$THEMES_DIR" ] || [ -z "$(ls -A "$THEMES_DIR" 2>/dev/null)" ]; then
+    part linux-packages "the oh-my-posh themes were not installed" install_themes
 else
     echo "==> oh-my-posh themes already present, skipping."
 fi
@@ -145,22 +175,24 @@ font_installed() {
     compgen -G "$FONT_DIR/JetBrainsMono*NerdFont*.ttf" >/dev/null \
         || { command -v fc-list >/dev/null && fc-list 2>/dev/null | grep -ci "JetBrainsMono Nerd Font" | grep -qv '^0$'; }
 }
-if ! font_installed; then
+install_font() {
+    for tool in unzip fc-cache; do
+        command -v "$tool" >/dev/null || { why="$tool is not installed (the apt install above provides it)"; return 1; }
+    done
     echo "==> Installing JetBrains Mono Nerd Font..."
-    mkdir -p "$FONT_DIR"
+    mkdir -p "$FONT_DIR" || return 1
     FONT_URL=$(curl -fsSL https://api.github.com/repos/ryanoasis/nerd-fonts/releases/latest \
         | grep -o '"browser_download_url": *"[^"]*JetBrainsMono[^"]*\.zip"' \
         | head -1 \
-        | cut -d'"' -f4)
-    if [ -n "$FONT_URL" ]; then
-        curl -fsSL "$FONT_URL" -o "$download_dir/font.zip"
-        unzip -o "$download_dir/font.zip" -d "$FONT_DIR"
-        fc-cache -fv
-        echo "    JetBrains Mono Nerd Font installed."
-    else
-        echo "    WARNING: Could not find JetBrains Mono Nerd Font download URL."
-        exit 1
-    fi
+        | cut -d'"' -f4) || true
+    [ -n "$FONT_URL" ] || { why="its download link could not be found on GitHub"; return 1; }
+    curl -fsSL "$FONT_URL" -o "$download_dir/font.zip" || { why="it could not be downloaded"; return 1; }
+    unzip -o "$download_dir/font.zip" -d "$FONT_DIR" || return 1
+    fc-cache -fv || return 1
+    echo "    JetBrains Mono Nerd Font installed."
+}
+if ! font_installed; then
+    part linux-packages "the JetBrains Mono Nerd Font was not installed" install_font
 else
     echo "==> JetBrains Mono Nerd Font already installed, skipping."
 fi
@@ -169,30 +201,29 @@ fi
 # Per-user install of the upstream static binary into ~/.local/bin: no sudo,
 # no distro repo (Ubuntu universe lags a year+: 26.04 ships 2.46 vs 2.9x).
 # ~/.local/bin precedes /usr/bin in PATH, so this shadows any apt-installed gh.
-if [ ! -x "$HOME/.local/bin/gh" ]; then
-    require_unused_command gh
+install_gh() {
+    require_unused_command gh || return 1
     echo "==> Installing gh (GitHub CLI) to ~/.local/bin..."
     case "$(uname -m)" in
         x86_64) GH_ARCH=amd64 ;;
         aarch64|arm64) GH_ARCH=arm64 ;;
-        *) GH_ARCH="" ;;
+        *) why="GitHub publishes no gh for $(uname -m); install it from https://cli.github.com"; return 1 ;;
     esac
     GH_TAG=$(curl -fsSL https://api.github.com/repos/cli/cli/releases/latest \
-        | grep -o '"tag_name": *"v[^"]*"' | cut -d'"' -f4)
-    if [ -n "$GH_ARCH" ] && [ -n "$GH_TAG" ]; then
-        GH_VER=${GH_TAG#v}
-        GH_TMP=$(mktemp -d)
-        curl -fsSL "https://github.com/cli/cli/releases/download/${GH_TAG}/gh_${GH_VER}_linux_${GH_ARCH}.tar.gz" \
-            | tar -xz -C "$GH_TMP"
-        mkdir -p "$HOME/.local/bin" "$HOME/.local/share/man/man1"
-        install -m 755 "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh"
-        cp "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/share/man/man1/"*.1 "$HOME/.local/share/man/man1/"
-        rm -rf "$GH_TMP"
-        echo "    gh installed: $("$HOME/.local/bin/gh" --version | head -1)"
-    else
-        echo "    WARNING: could not determine gh release/arch; install manually from https://cli.github.com"
-        exit 1
-    fi
+        | grep -o '"tag_name": *"v[^"]*"' | cut -d'"' -f4) || true
+    [ -n "$GH_TAG" ] || { why="its latest release could not be looked up on GitHub"; return 1; }
+    GH_VER=${GH_TAG#v}
+    GH_TMP="$download_dir/gh"
+    mkdir -p "$GH_TMP" || return 1
+    curl -fsSL "https://github.com/cli/cli/releases/download/${GH_TAG}/gh_${GH_VER}_linux_${GH_ARCH}.tar.gz" \
+        | tar -xz -C "$GH_TMP" || { why="it could not be downloaded"; return 1; }
+    mkdir -p "$HOME/.local/bin" "$HOME/.local/share/man/man1" || return 1
+    install -m 755 "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/bin/gh" "$HOME/.local/bin/gh" || return 1
+    cp "$GH_TMP/gh_${GH_VER}_linux_${GH_ARCH}/share/man/man1/"*.1 "$HOME/.local/share/man/man1/" || return 1
+    echo "    gh installed: $("$HOME/.local/bin/gh" --version | head -1)"
+}
+if [ ! -x "$HOME/.local/bin/gh" ]; then
+    part linux-packages "gh was not installed" install_gh
 else
     echo "==> gh already installed ($("$HOME/.local/bin/gh" --version | head -1)), skipping."
 fi
@@ -201,17 +232,22 @@ fi
 {{ if .has_work -}}
 if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
 # --- Bitwarden CLI (work machines only; the bw wrapper in .bashrc expects it) ---
-# Same per-user, no-sudo shape as gh above; unzip came from the apt line at the top.
-if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
-    require_unused_command bw
+# Same per-user, no-sudo shape as gh above; unzip comes from the apt line at the top.
+install_bw() {
+    require_unused_command bw || return 1
+    command -v unzip >/dev/null || { why="unzip is not installed (the System packages step installs it)"; return 1; }
     echo "==> Installing Bitwarden CLI to ~/.local/bin..."
-    BW_TMP=$(mktemp -d)
-    curl -fsSL "https://bitwarden.com/download/?app=cli&platform=linux" -o "$BW_TMP/bw.zip"
-    unzip -oq "$BW_TMP/bw.zip" -d "$BW_TMP"
-    mkdir -p "$HOME/.local/bin"
-    install -m 0755 "$BW_TMP/bw" "$HOME/.local/bin/bw"
-    rm -rf "$BW_TMP"
+    BW_TMP="$download_dir/bw"
+    mkdir -p "$BW_TMP" || return 1
+    curl -fsSL "https://bitwarden.com/download/?app=cli&platform=linux" -o "$BW_TMP/bw.zip" ||
+        { why="it could not be downloaded"; return 1; }
+    unzip -oq "$BW_TMP/bw.zip" -d "$BW_TMP" || return 1
+    mkdir -p "$HOME/.local/bin" || return 1
+    install -m 0755 "$BW_TMP/bw" "$HOME/.local/bin/bw" || return 1
     echo "    bw installed: $("$HOME/.local/bin/bw" --version)"
+}
+if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
+    part work-tools "the Bitwarden CLI was not installed" install_bw
 else
     echo "==> Bitwarden CLI already installed, skipping."
 fi
@@ -220,21 +256,25 @@ fi
 {{ end -}}
 if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- tmux ---
-if ! command -v tmux &>/dev/null; then
+install_tmux() {
     echo "==> Installing tmux..."
     if command -v apt-get &>/dev/null; then
-        sudo apt-get -o DPkg::Lock::Timeout=600 update && sudo apt-get -o DPkg::Lock::Timeout=600 install -y tmux
+        sudo apt-get -o DPkg::Lock::Timeout=600 update && sudo apt-get -o DPkg::Lock::Timeout=600 install -y tmux || return 1
     elif command -v dnf &>/dev/null; then
-        sudo dnf install -y tmux
+        sudo dnf install -y tmux || return 1
     else
-        echo "    WARNING: Could not detect package manager. Install tmux manually."
-        exit 1
+        why="neither apt-get nor dnf was found; install tmux with this system's package manager"
+        return 1
     fi
     echo "    tmux installed."
+}
+if ! command -v tmux &>/dev/null; then
+    part linux-packages "tmux was not installed" install_tmux
 else
     echo "==> tmux already installed, skipping."
 fi
 fi
 
 echo "==> Linux/WSL bootstrap complete."
+exit "$status"
 {{ end -}}
