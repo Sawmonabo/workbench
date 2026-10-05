@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sync"
 )
 
 // SourceIdentity names a machine source: its release and the digest of its
@@ -122,10 +123,10 @@ type Effect struct {
 	// for every line of every script that carries the effect; Delta then holds
 	// what is already in place.
 	NoChange bool `json:"no_change,omitempty"`
-	// NeedsAdmin marks an effect that needs a valid sudo ticket because its
-	// installer cannot ask for the password (Homebrew's, while Homebrew is
-	// missing), so an apply at a terminal asks for the Mac password once before
-	// it starts (see [WithAdmin]). Like Delta it is a finding on this machine, not
+	// NeedsAdmin marks an effect that needs the Mac password before it runs
+	// because its installer cannot ask for it (Homebrew's, while Homebrew is
+	// missing), so an apply at a terminal asks for it once before it starts (see
+	// [WithAdmin]). Like Delta it is a finding on this machine, not
 	// part of what is approved, and apply's recheck finds it again.
 	NeedsAdmin bool `json:"needs_admin,omitempty"`
 	// New marks an effect the owner has not yet decided on: not in the saved
@@ -244,6 +245,29 @@ func AgentSession() bool {
 type Mutation struct {
 	context Context
 	active  bool
+	// secrets are values learned while the mutation runs, such as the Mac
+	// password the apply asks for; every [Run] under it redacts them like its
+	// own request's. mu guards them: the password helper adds to them from
+	// its own goroutine.
+	mu      sync.Mutex
+	secrets []string
+}
+
+// remember adds secret to what every [Run] under m redacts.
+func (m *Mutation) remember(secret string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.secrets = append(m.secrets, secret)
+}
+
+// redactions is secrets plus what m remembered; m may be nil.
+func (m *Mutation) redactions(secrets []string) []string {
+	if m == nil {
+		return secrets
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append(slices.Clone(secrets), m.secrets...)
 }
 
 // Check reports an error unless m is an active, writable mutation.

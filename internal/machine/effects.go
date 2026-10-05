@@ -32,7 +32,7 @@ var macOSEffects = []operation.Effect{
 		Summary:     "the apps and VS Code extensions Workbench lists",
 		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing. Apps you installed another way are left alone.",
 		Touches:     "/Applications and your VS Code extensions",
-		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need your Mac password, and Homebrew asks for it while they install",
+		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need your Mac password, which an apply at a terminal asks for once",
 		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{

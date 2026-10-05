@@ -26,6 +26,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
 elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
+{{ template "brew-askpass.sh" }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     installed="$(brew list --cask 2>/dev/null || true)"

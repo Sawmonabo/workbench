@@ -67,7 +67,7 @@ over the same files.
    they skip tools that are already installed.
    If the apply has to install Homebrew, it asks for your Mac password once
    before it starts, then uses your terminal for installers; an app that needs
-   the password is asked for it by Homebrew while it installs.
+   the password is answered with the same one, so nothing asks again.
 
 6. **Archive the dotfiles repository** with a README pointer to Workbench, for
    example `gh repo archive Sawmonabo/dotfiles` after pushing the pointer.

@@ -71,12 +71,15 @@ if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
     curl -fsSL --retry 5 --retry-all-errors https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh -o "$installer"
     [ -s "$installer" ] || { echo "Homebrew installer download failed" >&2; exit 1; }
     # NONINTERACTIVE: no RETURN prompt, and the installer's sudo check never asks
-    # for a password (sudo -n), so it needs a sudo ticket that is still valid.
-    # Workbench asks for the Mac password once before the apply starts, which
-    # covers this install; run without Workbench, chezmoi needs a recent sudo first.
-    # Homebrew drops the ticket whenever brew runs, so an app that needs the
-    # password later is asked for it by Homebrew itself.
-    NONINTERACTIVE=1 /bin/bash "$installer"
+    # for a password (sudo -n) unless SUDO_ASKPASS names a program that does. During
+    # an apply at a terminal Workbench has asked for the Mac password once and
+    # provides that program, which answers the installer's sudo and Homebrew's
+    # later ones. Run without it, chezmoi needs a recent sudo first.
+    if [ -n "${WORKBENCH_SUDO_ASKPASS:-}" ]; then
+        SUDO_ASKPASS="$WORKBENCH_SUDO_ASKPASS" NONINTERACTIVE=1 /bin/bash "$installer"
+    else
+        NONINTERACTIVE=1 /bin/bash "$installer"
+    fi
 fi
 fi
 # Homebrew is not on PATH in the non-login shell chezmoi runs scripts in. Both
@@ -86,6 +89,7 @@ if [ -x /opt/homebrew/bin/brew ]; then
 elif [ -x /usr/local/bin/brew ]; then
     eval "$(/usr/local/bin/brew shellenv)"
 fi
+{{ template "brew-askpass.sh" }}
 {{ template "operation-context.sh" }}
 
 if [ "${WORKBENCH_EFFECT_MACOS_PACKAGES:-1}" = 1 ]; then
