@@ -27,7 +27,11 @@
             same+=("Node $node_have")
         fi
     else
-        parts+=("Node can't be installed until nvm is")
+{{- if eq .versions_mode "pinned" }}
+        parts+=("install Node {{ join ", " .versions.node }} once nvm is in place, {{ .versions.node_default }} the default")
+{{- else }}
+        parts+=("install the newest Node once nvm is in place")
+{{- end }}
     fi
     if command -v uv >/dev/null 2>&1; then
 {{- if eq .versions_mode "pinned" }}
@@ -45,7 +49,11 @@
         parts+=("Python is brought to the newest release")
 {{- end }}
     else
-        parts+=("Python can't be installed until uv is")
+{{- if eq .versions_mode "pinned" }}
+        parts+=("install Python {{ join ", " .versions.python_pinned }} once uv is in place")
+{{- else }}
+        parts+=("install the newest Python once uv is in place")
+{{- end }}
     fi
     if command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ]; then
         # The default toolchain is rustup's own record; reading it runs nothing.
@@ -66,7 +74,11 @@
         fi
 {{- end }}
     else
-        parts+=("Rust can't be installed until rustup is")
+{{- if eq .versions_mode "pinned" }}
+        parts+=("install Rust {{ .versions.rust }} once rustup is in place and make it the default")
+{{- else }}
+        parts+=("install stable Rust once rustup is in place and make it the default")
+{{- end }}
     fi
     if [ ${#parts[@]} -eq 0 ]; then
         printf -v joined '%s, ' "${same[@]}"; echo "runtimes: = ${joined%, } are installed"
