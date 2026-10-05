@@ -44,9 +44,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   (`operation.WithAdmin`). Workbench reads it itself, without echo, and
   checks it with `/usr/bin/sudo -k -S -v`: after approval and before it writes
   anything when a checked step has to install Homebrew, otherwise the first time
-  a Homebrew command needs it (an app such as Docker Desktop). It lives only in
-  Workbench's memory for that apply, in its redaction set, never on disk, in the
-  environment, arguments, logs, plan or `--json`. The darwin scripts give
+  a Homebrew command (an app such as Docker Desktop) or the `touch-id-sudo`
+  step needs it. It lives only in Workbench's memory for that apply, in its
+  redaction set, never on disk, in the environment, arguments, logs, plan or
+  `--json`. The darwin scripts give
   `SUDO_ASKPASS` to Homebrew's installer, `brew` and the `touch-id-sudo` step's
   one sudo command only, pointing at a helper in a private folder made for that
   apply, which asks Workbench over a Unix socket that answers only processes the

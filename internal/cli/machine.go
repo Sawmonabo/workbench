@@ -191,7 +191,8 @@ func applyCommand(o *options) *cobra.Command {
 			"plans are current; --dry-run and --approve-plan leave the list as it is. When the " +
 			"plan has to install Homebrew, an apply at a terminal asks for your Mac password " +
 			"once before it changes anything; otherwise it asks the first time an app that " +
-			"Homebrew installs or updates needs it, such as Docker Desktop, and never twice in " +
+			"Homebrew installs or updates needs it, such as Docker Desktop, or the " +
+			"touch-id-sudo step's sudo does, and never twice in " +
 			"one apply. Workbench keeps the password in memory for that apply only and answers " +
 			"Homebrew's requests with it. Where Touch ID for sudo is on, Workbench reads no " +
 			"password: when the plan has to install Homebrew, sudo asks by Touch ID (or for " +

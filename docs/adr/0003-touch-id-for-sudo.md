@@ -112,7 +112,7 @@ administrator rights asks again, by Touch ID.
 
 ## Sources
 
-- Apple's `/etc/pam.d/sudo_local.template` and `/etc/pam.d/sudo` (macOS 27)
+- Apple's `/etc/pam.d/sudo_local.template` and `/etc/pam.d/sudo` (read on macOS 15.7.7 and 27)
 - [Dotfiles PR: Touch ID for sudo during install](https://github.com/ryan953/dotFiles/pull/7)
 - [mac9sb/config: Touch ID setup](https://www.mintlify.com/mac9sb/config/setup/touchid)
 - [macos-touchid-sudo](https://github.com/abd3lraouf-studios/macos-touchid-sudo)
