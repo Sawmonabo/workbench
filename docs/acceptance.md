@@ -142,6 +142,10 @@ synthetic answers.
   Workbench runs, are held, and a rerun keeps the digest.
   Unchecking every effect applies files only and is saved like any other
   selection. (target; not yet observed on a real host)
+- On macOS, an apply not given `--approve-plan` runs `brew update` after tool
+  setup and before it plans, so the update effects are current; `--dry-run`,
+  `--approve-plan` and an isolated `--destination` never do, and a failed
+  refresh only warns. (target; not yet observed on a real host)
 - A live status line shows planning, the recheck after approval and setup.
   ctrl+c exits 130, writes nothing and leaves `stty -a` unchanged. SIGTERM
   and SIGHUP during the checklist, the checkpoint picker or the Yes/No prompt
