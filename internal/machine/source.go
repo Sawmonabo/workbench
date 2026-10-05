@@ -75,7 +75,7 @@ func ManagementRequirements(c operation.Context) (Requirements, error) {
 			operation.ExitBlocked,
 			"source",
 			"No Workbench release is active to read tool versions from; "+
-				"install one with the installer or `workbench update`",
+				"install one with install.sh or workbench update",
 		)
 	}
 	files, _, err := SourceSnapshot(source, c.Native.Developer)
@@ -176,7 +176,7 @@ func SourceSnapshot(
 		return nil, operation.SourceIdentity{}, operation.Fail(
 			operation.ExitBlocked,
 			"source",
-			"No verified Workbench release is active; install one with `workbench update` before planning",
+			"No verified Workbench release is active; install one with workbench update before planning",
 		)
 	}
 	files, err := readSource(source)

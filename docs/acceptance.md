@@ -240,8 +240,9 @@ synthetic answers.
   `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` set, exited 3 with "An
   agent runs this; use --dry-run --json then --approve-plan", as did `init --ask
   machine_role`, leaving `machine.toml` unchanged and downloading nothing; with
-  `--json`, `--choose` exits 2. `--dry-run --json` and `--approve-plan` worked
-  before the consent check moved ahead of setup (target; not yet re-observed).
+  `--json`, `--choose` exits 2. With `CLAUDECODE=1`, `--dry-run --json` and then
+  `--approve-plan` with its digest applied exactly that plan to an isolated
+  destination, after the consent check moved ahead of setup.
   The Codex variable names were confirmed in the
   openai/codex source (`unified_exec/process_manager.rs`, `spawn.rs`,
   `shell_environment.rs`) and in the installed binary (0.159.3).
@@ -287,54 +288,45 @@ synthetic answers.
 
 ### Costs
 
-- On 2026-10-01, the 2,969 Codex rollouts (23 GB) of a 16-core WSL2 host
-  were ingested into an empty scratch ledger held in memory in 18 seconds at
-  450% CPU and a peak of 472 MB, against 2 minutes 54 seconds for the previous
-  build, and into one on the host's disk in 24 to 26 seconds, with most
-  rollouts read from disk rather than the page cache; its
-  responses and tier tables were byte-identical, as were those of a ledger
-  built in two runs whose second finished four half-written rollouts. A
-  second run with nothing new took 0.3 seconds. Per-model response and token
-  counts matched an independent Python count for one record-era month
-  (September 2026) and one legacy month (May 2026). The script takes a
-  response's month from its rollout's dated folder, and the report of that
-  build took it from the response's UTC time, so September differed by 259
-  responses timestamped October 1 UTC in three sessions whose rollouts sit in
-  September folders (two in September 30, one spread over September 22 to 30);
-  those 259 are exactly that build's October 2026 rows. The report now splits
-  days and months in the machine's time zone (target; the comparison has not
-  been repeated). The Codex hooks rendered from the `both`
-  role were all `trusted` in Codex's own `hooks/list` (app server 0.159),
-  with `currentHash` equal to the `trusted_hash` the config merge wrote, and
-  the hash Codex had recorded for the existing approved `UserPromptSubmit`
-  hook was reproduced exactly.
+- On 2026-10-01, a WSL2 host's full Codex history (thousands of rollouts, tens
+  of gigabytes) was ingested into an empty scratch ledger, in memory and on
+  disk, about ten times faster than the previous build; its responses and tier
+  tables were byte-identical, as were those of a ledger built in two runs
+  whose second finished half-written rollouts. A second run with nothing new
+  took well under a second. Per-model response and token counts matched an
+  independent Python count for one record-era month and one legacy month,
+  apart from responses timestamped on the first of the next month in UTC whose
+  rollouts sit in the previous month's dated folders: the script dated them by
+  folder and that build by UTC time. The report now splits days and months in
+  the machine's time zone (target; the comparison has not been repeated). The
+  Codex hooks rendered from the `both` role were all `trusted` in Codex's own
+  `hooks/list` (app server 0.159), with `currentHash` equal to the
+  `trusted_hash` the config merge wrote, and the hash Codex had recorded for
+  an existing approved `UserPromptSubmit` hook was reproduced exactly.
   Applying them to a real machine is not yet observed.
-- On 2026-10-01, the same host's Claude Code transcripts (1,205 files) and
-  Codex rollouts (2,979), read through links, were ingested read-only into an
-  empty scratch ledger in 38 seconds, and the build before this change
-  ingested the same files into another: both held 421,451 rows, and no
-  row's time, model, project, session, tool or counts differed. The Codex
-  rows took their plan from their rollouts (Pro, Pro Lite and Plus). On that
-  first ingest every Claude Code row (72,839) had email and subscription
-  `unknown`, as no sign-in had been observed yet; Codex rows split into
-  342,378 with a plan and no email, 5,822 with both from their rollouts,
-  364 with neither and 48 with an email and no plan. 2,353 rows in 153 Codex
-  sessions, depth-2 subagents of Codex 0.118 to 0.134, were stored under
-  their parent thread by the earlier build and under their root thread by
-  this one; no row's root still names a thread that has a parent. Ingesting
-  the rollouts that are not a parent of another first and the parents
-  second, or the parents first, gave the same roots and attribution as one
-  pass. A simulated `SessionStart` hook for a synthetic Claude Code session
-  stored one `session_accounts` binding, and the session's rows took
-  `session` evidence for both email and subscription under Max; a second
-  session with no hook took `observed`. The hook process returned in 0.04 to
-  0.09 s. A hook naming a Codex rollout bound a Codex session, and one naming
-  a path under neither tool logged that the session was not bound. `costs
-  status` reported Claude Code hooks as `missing (workbench apply)` for a
-  settings file with the old `async` hooks and `ok` for the synchronous
-  ones. The real Claude Code sign-in was not read in this run (a synthetic
-  `oauthAccount` stood in), and a running session's behavior after a
-  `/login` elsewhere is not observed.
+- On 2026-10-01, the same host's Claude Code transcripts and Codex rollouts,
+  read through links, were ingested read-only into an empty scratch ledger,
+  and the build before this change ingested the same files into another: both
+  held the same rows, and no row's time, model, project, session, tool or
+  counts differed. The Codex rows took their plan from their rollouts. On that
+  first ingest every Claude Code row had email and subscription `unknown`, as
+  no sign-in had been observed yet, and each Codex row carried a plan, an
+  email, both or neither as its rollout named them. Rows of depth-2 subagents
+  of Codex 0.118 to 0.134, stored under their parent thread by the earlier
+  build, were stored under their root thread by this one; no row's root still
+  names a thread that has a parent. Ingesting the rollouts that are not a
+  parent of another first and the parents second, or the parents first, gave
+  the same roots and attribution as one pass. A simulated `SessionStart` hook
+  for a synthetic Claude Code session stored one `session_accounts` binding,
+  and the session's rows took `session` evidence for both email and
+  subscription; a second session with no hook took `observed`. The hook
+  process returned in under a tenth of a second. A hook naming a Codex rollout
+  bound a Codex session, and one naming a path under neither tool logged that
+  the session was not bound. `costs status` reported Claude Code hooks as
+  `missing (workbench apply)` for a settings file with the old `async` hooks
+  and `ok` for the synchronous ones. The real Claude Code sign-in was not read
+  in this run (a synthetic `oauthAccount` stood in), and a running session's
+  behavior after a `/login` elsewhere is not observed.
 
 - Fast-mode Claude Code responses are priced at `@fast` rates, a specific rate
   row beats a family row except for a manual override, the ledger is created

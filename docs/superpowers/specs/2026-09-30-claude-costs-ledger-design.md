@@ -12,9 +12,9 @@ earlier `claude-costs` script and its row in [contracts](workbench-contracts.md)
 ## 1. Problem
 
 `claude-costs` reports per-project, per-model Claude Code spend by re-reading
-the session transcripts under `~/.claude/projects` on every run. Observed on one
-developer machine on 2026-09-30, that gives a total several times too low, for
-six independent reasons:
+the session transcripts under `~/.claude/projects` on every run. Observed on a
+real history on 2026-09-30, that gives a total several times too low, for six
+independent reasons:
 
 1. Discovery globs one directory level, so subagent transcripts under
    `<session>/subagents/` are never read. They held 97% of the files and 86% of
@@ -418,11 +418,11 @@ commit:
 
 ### Observed 2026-09-30
 
-Backfill of one developer machine's real transcripts into a scratch ledger
+Backfill of several weeks of real transcripts into a scratch ledger
 (read-only on `~/.claude`; nothing written to the real ledger paths):
 
-- 1,164 transcript files and 71,138 ledger rows covering six weeks, ingested in
-  5.2 seconds. The official pricing page fetch succeeded and priced 19 models.
+- About a thousand transcript files, ingested in seconds. The official pricing
+  page fetch succeeded and priced every model the transcripts named.
   All rows are sweep-tagged because no hook has run.
 - The ledger total was about eight times the total from the script it replaces
   and about 1.4 times the sum of the per-project `lastCost` counters, which only

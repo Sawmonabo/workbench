@@ -9,8 +9,8 @@ tables as Claude Code.
 ## 1. Facts this design rests on
 
 Read from the Codex open-source repository (`openai/codex`, `codex-rs/`) and
-checked against the rollout files of a machine with about 3,000 sessions
-(22 GB) written by Codex 0.13x–0.160.
+checked against a large real history of rollout files written by Codex
+0.13x–0.160.
 
 - **Only the rollout files record per-response usage.** Codex writes one JSONL
   file per thread under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`
@@ -53,9 +53,9 @@ checked against the rollout files of a machine with about 3,000 sessions
   forks always copy). A legacy-mode fork re-writes its parent's lines into
   the child file (a fresh `session_meta` first, then the parent's, then the
   parent's history with new timestamps), and a legacy subagent file keeps the
-  parent's `token_count` lines. On the sample machine 3,335,720 `token_count`
-  events that change the running total reduce to 347,339 distinct ones: summed
-  naively, Codex would be counted about ten times over. Copied records keep the
+  parent's `token_count` lines. In a long history the `token_count` events that
+  change the running total reduce to about a tenth as many distinct ones:
+  summed naively, Codex would be counted about ten times over. Copied records keep the
   parent's `thread_id`. Paginated forks and resumes copy nothing.
 - **Files are rewritten in place** by `codex migrate-rollouts` (legacy to
   paginated), with usage lines preserved but bytes and offsets changed.
@@ -73,7 +73,7 @@ checked against the rollout files of a machine with about 3,000 sessions
   long-context input, cached input, cache writes and output per million tokens,
   followed by Batch, Flex, Fast and Ultrafast tables, each headed "<Tier>
   pricing data". Long-context prices apply above
-  272K input tokens; the largest Codex request on the sample machine was 255,813.
+  272K input tokens.
 - **Service tier.** A thread's tier is in every `thread_settings_applied`
   event (`thread_settings.service_tier`: `default`, `priority`, and so on).
   The field is left out when the thread requests no tier, and Codex then
@@ -109,15 +109,12 @@ checked against the rollout files of a machine with about 3,000 sessions
   the settings after they are persisted: `session/turn_context.rs`
   `new_turn_with_sub_id_if`) only the turn it starts. The TUI and `codex exec`
   send neither (the TUI changes the thread's settings, `codex exec` passes
-  `service_tier_for_turn: None`), and no client on the sample machine sends
-  them.
+  `service_tier_for_turn: None`), and no client observed sends them.
   OpenAI renamed priority processing to Fast mode on 2026-07-30; the price
   page's "Fast pricing data" table prices `priority`/`fast` and its
-  "Ultrafast pricing data" table prices `ultrafast`. In one month of
-  record-era files 6,167 of 6,501 responses without a tier in their own file
-  were subagents'. Of that
-  month's 26,007 responses, 112 ran at `priority`; 279 rollout files set
-  `priority` at some point. The rollout records the tier Codex requested,
+  "Ultrafast pricing data" table prices `ultrafast`. In record-era files nearly
+  every response without a tier in its own file was a subagent's, and only a
+  small share of responses ran at `priority`. The rollout records the tier Codex requested,
   not the one OpenAI served; the API's served tier is not saved.
 
 ## 2. Decision
@@ -189,17 +186,15 @@ with any other head is decoded if it contains one of those five names.
   response and counts, and the result does not depend on which file is read
   first. A fork
   that copied nothing starts its counts from the parent's total, and its first
-  `token_count` is its own response. On the sample machine
-  (2,971 files) the `token_count` rows number 321,557 with this key without
-  the fork rule, 321,551 with it, and 321,547 keyed on the totals alone. The
-  six the fork rule removes are exactly such copies, each a second row with
+  `token_count` is its own response. On a real history the fork rule removed
+  only a handful of rows, and each was exactly such a copy, a second row with
   no model for a response the parent's file records: for each, the parent's
   file holds an earlier event with the same total and last usage but other
   `rate_limits`, whose row the ledger holds with the parent's model, and a
   later re-emission with the copy's `rate_limits`, which has no row.
-  Keying on the totals alone would also merge four pairs of distinct
+  Keying on the totals alone would also merge pairs of distinct
   responses: the first responses of two sibling subagents started with the
-  same prompt, with equal counts minutes apart. Every one of the 159 fork files whose first
+  same prompt, with equal counts minutes apart. Every fork file seen whose first
   `token_count` is a copy has that response recorded in another file.
 
 Each row: `Model` = `Model` (or `unknown`), `Project` = `Cwd`, `Session` =
@@ -307,7 +302,7 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   `thread_parents`, and `ResolveAccounts` first moves every row stored under
   a thread that has a parent to the root of that chain, whatever order the
   files were read in, and attributes the roots that gained rows again. Codex
-  0.142 and later (on the sample machine) name the root in `session_id`, so
+  0.142 and later name the root in `session_id`, so
   their rows already carry it.
 - **Rewrite check.** `head` is the SHA-256 of the file's first line, `""`
   while that line is still being written. When it differs from a stored
@@ -327,11 +322,11 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   Each transaction prepares its statements once, and a run remembers what it
   committed so a fork's copy that would change nothing never reaches SQLite.
   The first full read is then bounded by the single SQLite writer storing each
-  distinct response once, not by reading: on the sample machine (2,969 files,
-  23 GB, 16 cores, warm page cache) it takes 18 s, of which reading is about
-  45 CPU-seconds spread over the cores and the writer about 15 s of the wall
-  time; `rg` scans the same files in 4.5 s. Later runs read only appended
-  bytes; a run with nothing new takes 0.3 s.
+  distinct response once, not by reading: for tens of gigabytes of rollouts in
+  a warm page cache, reading is spread over the cores and the writer takes
+  most of the wall time, a few times what `rg` needs to scan the same files.
+  Later runs read only appended bytes; a run with nothing new takes well
+  under a second.
 
 ## 5. Rates
 
@@ -441,7 +436,7 @@ unchanged once the source is set.
   incremental ingest, and the legacy row count equals the distinct-key count.
 - Rewrite check: a copy of a rollout re-serialized line by line (as
   `migrate-rollouts` would) adds no rows.
-- Timing of the first full ingest on this machine, reported with the result.
+- Timing of a first full ingest of a large history, reported with the result.
 - `render-check.sh` for every role and mode, including `wsl`.
 
 ## 10. Subscriptions
@@ -456,8 +451,8 @@ email and subscription, for example `you@example.com · Max` and
 ### What each tool records
 
 - **Claude Code.** An assistant record carries only the model, usage,
-  `service_tier` and request ids. From 2.1.282 on the sample machine (the
-  earliest version seen writing it, first on Sept 25; 2.1.280 wrote none) a
+  `service_tier` and request ids. From 2.1.282 (the earliest version seen
+  writing it; 2.1.280 wrote none) a
   transcript also holds `attachment` records of type
   `credential_org` with an `organizationUuid`: the organization the session's
   credential belongs to from that line on. Claude Code writes one when a
@@ -478,7 +473,7 @@ email and subscription, for example `you@example.com · Max` and
   `token_usage_record` (0.153+) has no `rate_limits`; its plan is the latest
   `plan_type` read in the same file at or before it, kept in the file's saved
   state. A `token_usage_record` names its root `session_id` (Codex 0.142 and
-  later on the sample machine); an older subagent's file names only the
+  later); an older subagent's file names only the
   thread that spawned it, and the ledger walks the spawning links of its
   ancestors' files up to the root (section 4). Recent `session_meta` lines carry
   `creator_account_id`, the ChatGPT account (workspace) id that also appears
@@ -596,17 +591,16 @@ sign-in that names the id, so a renamed organization relabels its history.
   given; only a later `ParseRevision` re-read after the backup is gone would
   leave that organization's rows to rules 2 and 3 for the email.
 - Claude Code history written by a version that writes no `credential_org`
-  (about 52,000 of
-  77,000 rows on the sample machine), or before its file's first
+  (most of a history from before 2.1.282), or before its file's first
   `credential_org`, names no organization; ingested before the first
   observation it keeps subscription `unknown`. So does every Codex row before
   the first observation whose file names no creator account. Nothing on disk
   records either: the transcripts, `.claude.json` backups (a few days deep),
   Codex's state and log databases and its auth files were all searched.
-- Codex rows of a thread that never names a plan (3 of 350,000 on the sample
-  machine) keep subscription `unknown`. A row whose file names no
-  `creator_account_id` (Codex before 0.160, all but 7,300 of the sample's
-  rows) has a plan and no email until a binding or an observation names it.
+- Codex rows of a thread that never names a plan (rare) keep subscription
+  `unknown`. A row whose file names no `creator_account_id` (Codex before
+  0.160, most of an older history) has a plan and no email until a binding or
+  an observation names it.
 
 ### Report and status
 
