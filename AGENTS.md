@@ -38,10 +38,15 @@ Distinguish implemented code, observed checks and unqualified release targets.
   `--approve-plan` and is refused `--yes` and `--choose`. A run nobody approved
   is refused (exit 3) before Workbench downloads or saves anything. The scripts
   apply runs never prompt: ticking the step is the approval (one-time helpers
-  the owner runs later may prompt). On WSL, Windows setup and each of its parts
-  (Terminal settings, PowerShell profile, font registry) are separate optional
-  steps, off until ticked, and ticking Windows setup ticks none of its parts;
-  only WSL networking is on by default.
+  the owner runs later may prompt). The one thing the apply asks for itself is
+  the Mac password: at a terminal, once, after approval and before it writes
+  anything, when a checked step installs Homebrew or apps or updates apps
+  (`operation.WithAdmin`; `/usr/bin/sudo` reads it, Workbench never does). An
+  unattended run never asks, and is refused (exit 3) before any change only
+  when Homebrew must be installed with no valid sudo ticket. On WSL, Windows
+  setup and each of its parts (Terminal settings, PowerShell profile, font
+  registry) are separate optional steps, off until ticked, and ticking Windows
+  setup ticks none of its parts; only WSL networking is on by default.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved

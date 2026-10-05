@@ -129,6 +129,7 @@ func prepare(
 	}
 	plan.Effects = append(plan.Effects, activeEffects(effects, prepared.active)...)
 	plan.Effects = append(plan.Effects, hostOptionalEffects()...)
+	markHomebrewInstall(plan.Effects)
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
 	}

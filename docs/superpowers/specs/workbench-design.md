@@ -231,7 +231,7 @@ Maintain one feature/platform checklist derived from current source owners, cove
 - Windows Terminal/PowerShell writes require explicit ownership/adoption and preservation. Their adoption is a selected optional effect; unselected existing files are left unchanged. A real Windows host run is still required to qualify the integration.
 - The full personal VS Code settings merge currently targets macOS and Linux. WSL scripts separately adjust selected Windows/remote editor keys. Do not describe this as full Windows-hosted settings deployment.
 
-Native package-manager calls may need elevation, network access or executable build hooks. Disclose these operations and request only necessary privilege. Never run the entire bootstrap as root. Missing privilege is an incomplete/blocked operation, not permission to skip silently.
+Native package-manager calls may need elevation, network access or executable build hooks. Disclose these operations and request only necessary privilege. Never run the entire bootstrap as root. Missing privilege is an incomplete/blocked operation, not permission to skip silently. An apply that needs sudo asks for the Mac password once, up front, at the terminal; sudo reads it and Workbench never does. An unattended apply never asks and stops before any change only where the missing ticket would fail the run (Homebrew's installer).
 
 ## 7. Recovery, privacy and bounded operation
 

@@ -207,7 +207,8 @@ type Process struct {
 	// stderr tail, and overflow withholds all output.
 	PrivateOutput bool
 	// Terminal is only for approved interactive native setup, never preview.
-	// The child owns it as the foreground process group, so sudo can prompt.
+	// The child owns it as the foreground process group, so installers and a
+	// script's sudo can prompt; the apply's own password prompt is [WithAdmin].
 	Terminal *os.File
 	// Progress receives redacted output lines as they arrive instead of
 	// capturing them, for unattended native runs without a terminal.
@@ -279,8 +280,10 @@ func StartDetached(executable string, args []string, log *os.File) error {
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
-// Run is the only subprocess owner. Read-only requests are reviewed native probes,
-// not a sandbox for arbitrary tools; never label a modifying command read-only.
+// Run is the subprocess owner; [StartDetached] and the sudo password prompt of
+// [WithAdmin] are the two documented exceptions. Read-only requests are reviewed
+// native probes, not a sandbox for arbitrary tools; never label a modifying
+// command read-only.
 func Run(
 	ctx context.Context,
 	c Context,
