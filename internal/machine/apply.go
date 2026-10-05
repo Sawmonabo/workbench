@@ -130,9 +130,10 @@ type applyRun struct {
 	result    *operation.Result
 }
 
-// apply makes the Mac password available before anything is written: a
-// checkpoint, a state file or a script. See [operation.WithAdmin]. A plan with no
-// script to run has no use for it.
+// apply makes administrator rights available before anything is written: a
+// checkpoint, a state file or a script, by the Mac password or, where sudo asks
+// for Touch ID, by sudo itself. See [operation.WithAdmin]. A plan with no script
+// to run has no use for it.
 func (a *applyRun) apply() error {
 	effects := a.prepared.Plan.Effects
 	if !hasProvisioning(effects) {

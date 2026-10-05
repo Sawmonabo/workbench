@@ -288,9 +288,10 @@ func StartDetached(executable string, args []string, log *os.File) error {
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
-// Run is the subprocess owner; [StartDetached] and the sudo password check of
+// Run is the subprocess owner; [StartDetached], the sudo password check of
 // [WithAdmin] (made by the password helper's process too, which holds no
-// [Mutation]) are the two documented exceptions. Read-only requests are reviewed
+// [Mutation]) and the sudo -v it runs on the terminal where sudo uses Touch ID
+// are the documented exceptions. Read-only requests are reviewed
 // native probes, not a sandbox for arbitrary tools; never label a modifying
 // command read-only.
 func Run(
