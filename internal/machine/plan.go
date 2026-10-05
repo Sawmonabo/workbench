@@ -44,6 +44,9 @@ type preparation struct {
 	// appUpdates and toolUpdates name the casks and formulae the plan's
 	// update effects cover.
 	appUpdates, toolUpdates []string
+	// brewRefreshed is, for Apply, whether Homebrew's index was refreshed
+	// before planning; the apply scripts then leave it be.
+	brewRefreshed bool
 	// desired is native's rendered image of every target, by relative path.
 	desired map[string]nativeEntry
 	// blocked is, after Apply, the reason a script gave for each effect it
@@ -925,12 +928,7 @@ func (p *preparation) Apply(
 			}
 			environment = append(environment, effectVariable(effect.Name)+"="+value)
 		}
-		if updates := p.checkedUpdates(p.appUpdates); len(updates) > 0 {
-			environment = append(environment, "WORKBENCH_APP_UPDATES="+strings.Join(updates, " "))
-		}
-		if updates := p.checkedUpdates(p.toolUpdates); len(updates) > 0 {
-			environment = append(environment, "WORKBENCH_TOOL_UPDATES="+strings.Join(updates, " "))
-		}
+		environment = append(environment, p.updateEnvironment()...)
 		for i, value := range environment {
 			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
 				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
@@ -954,6 +952,22 @@ func (p *preparation) Apply(
 		p.blocked = readBlocked(report, p.Plan.Effects)
 	}
 	return err
+}
+
+// updateEnvironment tells the apply scripts which Homebrew updates the plan
+// checks, and whether Homebrew's index is already fresh.
+func (p *preparation) updateEnvironment() []string {
+	var environment []string
+	if updates := p.checkedUpdates(p.appUpdates); len(updates) > 0 {
+		environment = append(environment, "WORKBENCH_APP_UPDATES="+strings.Join(updates, " "))
+	}
+	if updates := p.checkedUpdates(p.toolUpdates); len(updates) > 0 {
+		environment = append(environment, "WORKBENCH_TOOL_UPDATES="+strings.Join(updates, " "))
+	}
+	if p.brewRefreshed {
+		environment = append(environment, "WORKBENCH_BREW_REFRESHED=1")
+	}
+	return environment
 }
 
 // readBlocked reads the file in which a script names each effect it could not

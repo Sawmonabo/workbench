@@ -2,9 +2,12 @@
 #!/usr/bin/env bash
 # Homebrew hygiene on every full apply, listed in each plan as
 # brew-maintenance, so nothing stale is left behind by the install scripts above:
-#   0. Homebrew's package index is refreshed. Planning never does that itself
-#      (it reads the index as it is), so this approved step is what lets the
-#      next plan see new versions;
+#   0. Homebrew's package index is refreshed unless this apply already did:
+#      planning never does that itself (it reads the index as it is), so an
+#      apply that approves a plan digest, which cannot refresh before it plans,
+#      refreshes here and the next plan sees new versions. Any other apply
+#      refreshes before it plans and, when that worked, sets
+#      WORKBENCH_BREW_REFRESHED, so this step does not repeat it;
 #   1. a packages.toml formula installed from a third-party tap is reinstalled
 #      from homebrew/core (Homebrew's tap-trust policy ignores untrusted taps,
 #      so such a keg would never update again);
@@ -22,13 +25,15 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    echo "brew-maintenance: refresh Homebrew's index, then remove leftover packages, old versions and the download cache"
+    echo "brew-maintenance: refresh Homebrew's index unless this apply already did, then remove leftover packages, old versions and the download cache"
     exit 0
 fi
 echo "==> Homebrew cleanup..."
 
 # --- 0. fresh package index (a failure only warns: the rest works from the old one) ---
-if ! brew update --quiet; then
+if [ "${WORKBENCH_BREW_REFRESHED:-}" = 1 ]; then
+    echo "    Homebrew's index was refreshed before this apply planned"
+elif ! brew update --quiet; then
     echo "    WARNING: brew update failed; new versions will not show until it works" >&2
 fi
 

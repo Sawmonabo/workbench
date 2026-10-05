@@ -186,7 +186,9 @@ func applyCommand(o *options) *cobra.Command {
 			"or --reset, and a coding agent is refused it); --dry-run only shows the plan. When a " +
 			"coding agent runs it (Claude Code, Codex), apply never applies unasked: pass " +
 			"--approve-plan DIGEST from a --dry-run --json plan. Without a terminal it applies " +
-			"only with --approve-plan DIGEST or --yes.",
+			"only with --approve-plan DIGEST or --yes. On a Mac, an apply that is not given " +
+			"--approve-plan DIGEST first refreshes Homebrew's package list, so the updates it " +
+			"plans are current; --dry-run and --approve-plan leave the list as it is.",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,
@@ -327,9 +329,10 @@ func machinePlan(cmd *cobra.Command, c operation.Context, o *options) (operation
 }
 
 // applyMachine installs Workbench's tools when missing and asks the machine
-// questions the saved answers lack, plans, gets the selection
-// approved and applies it. A local checkout installs the tools its own
-// versions.toml pins when missing and uses the saved answers as they are.
+// questions the saved answers lack, refreshes Homebrew's package list unless a
+// plan digest was approved, plans, gets the selection approved and applies it.
+// A local checkout installs the tools its own versions.toml pins when missing
+// and uses the saved answers as they are.
 func applyMachine(
 	cmd *cobra.Command,
 	c operation.Context,
@@ -350,6 +353,10 @@ func applyMachine(
 		return result, operation.Plan{}, err
 	}
 	selection, err := machineSelection(c, o)
+	if err != nil {
+		return result, operation.Plan{}, err
+	}
+	refreshed, err := refreshHomebrew(cmd.Context(), c, o, &result)
 	if err != nil {
 		return result, operation.Plan{}, err
 	}
@@ -415,10 +422,42 @@ func applyMachine(
 		consent.ApprovedDigest = plan.Digest()
 	}
 	result.PlanDigest = plan.Digest()
-	applied, err := machine.Apply(cmd.Context(), c, selection, plan, consent, terminal, progress)
+	applied, err := machine.Apply(
+		cmd.Context(), c, selection, plan, consent, terminal, progress, refreshed,
+	)
 	result.Results = append(result.Results, applied.Results...)
 	result.OperationID = applied.OperationID
 	return result, plan, err
+}
+
+// refreshHomebrew refreshes Homebrew's package list before apply plans, so the
+// updates the plan lists are current, and reports whether it did. A run that
+// approves a plan digest never refreshes: the digest was computed from the list
+// as it was, so a refresh would change the plan under the approval, and the
+// brew-maintenance step refreshes at the end of such a run instead. A refresh
+// that fails only warns, and apply plans from the list as it is; an interrupt
+// stops apply.
+func refreshHomebrew(
+	ctx context.Context,
+	c operation.Context,
+	o *options,
+	result *operation.Result,
+) (bool, error) {
+	if o.approvePlan != "" {
+		return false, nil
+	}
+	refreshed, err := machine.RefreshHomebrew(ctx, c)
+	if operation.ExitCode(err) == operation.ExitInterrupted {
+		return false, err
+	}
+	if err != nil {
+		result.Warnings = append(
+			result.Warnings,
+			"Homebrew's package list was not refreshed, so the updates listed may be out of date; "+
+				"run brew update to see why",
+		)
+	}
+	return refreshed, nil
 }
 
 // appliedSummary is the branded result line. Apply's early return, with no

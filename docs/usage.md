@@ -134,8 +134,8 @@ On WSL, Windows setup is an optional step: it starts off, and ticking it is reme
 
 Probes. Each step's line is what its script would do on this machine, found by running the script in a read-only probe mode before the plan. A script reports `NAME: = TEXT` when it has nothing to do, `NAME: TEXT` for a change and `NAME: ? TEXT` when it could not check, with the reason as `TEXT`. A probe that fails or takes longer than 15 seconds does not block the plan: the step says in plain words what could not be checked, for example "Windows didn't answer in time", and apply checks again when it runs. A step that could not be checked is never shown as a change or as nothing to change. The two WSL Windows scripts make their calls to Windows together (an 8 second limit for all of them in a probe) so that a slow first call after a quiet spell still fits the 15 seconds; a call that does not answer in time or fails gives that step the "could not check" note. Probes write nothing. An apply caps every call it makes to Windows at 60 seconds, and a call that fails or does not answer blocks only the step it belongs to: the script says so, the other steps still run, and that step's result line reads `blocked` with the reason in plain words (`PowerShell didn't report where your profile is (Windows didn't answer within 60 seconds); your profile was not changed`). A Windows side that cannot be used at all (no interop, not x64) blocks every Windows step the same way. A failed Windows download (oh-my-posh, fonts, ripgrep, Notepad++ themes) blocks the steps that need it, and kernel tuning without sudo blocks its own step; the files and the other steps still apply. The apply then exits 3 after finishing the rest. The calls' temporary files are removed and any call still running is stopped when the script ends, is interrupted or fails.
 
-While Workbench plans, rechecks an approved plan or sets up
-chezmoi, uv and Python, a live line on stderr names the current step and the
+While Workbench plans, rechecks an approved plan, refreshes Homebrew's
+package list or sets up chezmoi, uv and Python, a live line on stderr names the current step and the
 time so far, for example `⠧ Planning: asking Homebrew for updates (2s)`; it
 clears before any prompt. Without a terminal, and in JSON or non-interactive
 mode, each step prints as its own line instead. An interactive apply then hands the terminal to native
@@ -167,7 +167,8 @@ agent may run, for example after a pin changes.
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own
-files, and `update` keeps the replaced release. Setup asks only the machine
+files (on a Mac, `apply` also refreshes Homebrew's package list, below), and
+`update` keeps the replaced release. Setup asks only the machine
 questions your saved answers lack; each asks once, so nothing already answered
 is asked again. Esc or ctrl+c at a question stops with nothing saved, and the
 next `workbench apply` asks again. To change an answer, name it with
@@ -193,9 +194,8 @@ scripts chezmoi would run (a once-only script that already ran is left out, as
 is an on-change script whose content has not changed) and the steps whose files
 change. On macOS, every full plan lists its
 steps as effects, and checking them approves them. They include
-`brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, which first
-refreshes Homebrew's package index (planning reads the index as it is and never
-refreshes it, so the next plan sees new versions), and an `update-<name>` effect for each app or command-line tool in `packages.toml`
+`brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
+`update-<name>` effect for each app or command-line tool in `packages.toml`
 that Homebrew reports as outdated, for example `Update docker-desktop 4.89.0 →
 4.92.0`. The first version is Homebrew's record, or the app's own version when
 the app updated itself past it. A tool's effect also lists the other packages Homebrew would install
@@ -205,6 +205,14 @@ does not ask again during apply. Hold one at its version with `brew pin`
 (`brew pin --cask <app>` for an app; `brew unpin` releases it). The chezmoi, uv
 and Python that Workbench runs stay at the versions it qualified, and so does
 any tool whose update would change them; the plan names them in its warnings.
+
+The update list is as fresh as Homebrew's package index, which planning reads as
+it is and never refreshes. An `apply` not given `--approve-plan` runs `brew update`
+first, after setting up its tools and before it plans, so the plan lists current
+updates; a failure only warns, and the plan uses the index as it was. `apply
+--dry-run` and `apply --approve-plan` never refresh, so an approved digest still
+matches, and `brew-maintenance` runs `brew update` at the end of an apply that
+did not refresh at its start.
 
 `--json` produces one versioned object with `schema_version`, `command`, `status`,
 `results`, `warnings`, `errors`, and applicable `operation_id`/`plan_digest`.
