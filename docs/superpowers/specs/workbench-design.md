@@ -239,7 +239,7 @@ Native package-manager calls may need elevation, network access or executable bu
 
 Before modifying configuration, record the exact affected paths, previous existence, content, object type, permissions, group and link targets. Record post-application images and the owning scope afterward. Include supported script-written configuration targets explicitly; unsupported external effects stay separately reported.
 
-Revert uses recorded checkpoints, not reverse-running old scripts. Preflight all recovery targets against recorded post-images. If the user changed a target afterward, stop and show a conflict; do not silently overwrite their work. Remove a newly created file only when its prior absence and unchanged post-image are established. Never recursively delete a broad directory to implement recovery.
+Revert uses recorded checkpoints, not reverse-running old scripts. Preflight all recovery targets against recorded post-images. If the user changed a target afterward, stop and show a conflict; do not silently overwrite their work. Remove a newly created file only when its prior absence and unchanged post-image are established. Never recursively delete a broad directory to implement recovery: a folder that now holds files Workbench did not write stays, named in the result, and everything else is restored.
 
 An additive settings merge does not remove newly introduced keys merely because an older release is selected. Recovery must restore a suitable pre-image or require a reviewed merge. Do not build a generic per-key version-control system.
 

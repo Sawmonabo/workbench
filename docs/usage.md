@@ -334,7 +334,12 @@ recorded post-image before restoring anything; later user edits, corrupt images
 or unknown interrupted outcomes block. A later edit is reported with the names of
 the changed files (`Changed since Workbench wrote them, so nothing was restored:
 ~/.gitconfig. …`). Keep the reported checkpoint ID and resolve conflicts
-manually; do not delete state to bypass a failure.
+manually; do not delete state to bypass a failure. A folder the apply created
+that now holds files Workbench did not write, such as `~/.config/tmux` with the
+tmux plugins a later step installed, stays with those files in it, and so does
+each folder that holds it; revert restores everything else and names each one
+in its plan and result (`Stays, because it holds files Workbench did not write:
+~/.config/tmux (plugins)`). Revert never deletes a folder's contents.
 
 An apply that stops after it starts writing files is recorded as unfinished.
 Rerun `workbench apply`: once a fresh approved plan finishes, the record is
@@ -344,17 +349,26 @@ replaces the record; the unfinished checkpoint keeps its images and stays
 revertable. An unfinished apply of another destination blocks, and so does
 reverting a checkpoint other than the one the record names.
 
-A setup step that fails (a script exits nonzero) stops chezmoi there: the steps
-after it do not run, and the apply ends with exit 5 and `A setup step failed
-(…), so the steps after it did not run; what already ran is kept. Its output
-above says why; fix that, then run workbench apply again.` chezmoi writes the
-files before it runs the scripts that follow them, so they stay as approved and
-the checkpoint records them as written; where native creation gave a file a
-different group than the plan approved, only that group is put back, and a file
-whose content differs is never touched. Rerunning `workbench apply` finishes the
-steps that did not run. When Workbench cannot confirm every file, the message
-adds that revert cannot undo that checkpoint; run `apply` again to check the
-files.
+A setup step that fails never stops the others: Workbench runs chezmoi with
+`--keep-going`, so every other step still runs. A step names what it could not
+do (`Runtime managers: blocked — nvm's installer could not be downloaded, so nvm
+was not installed`), and a step that needs one that did not finish says what is
+missing and skips only what needs it (`Language runtimes: blocked — nvm, uv not
+installed yet (earlier setup steps install them), so the runtimes that need them
+were skipped`). A script that ends nonzero without saying why is named too: it
+stopped with that exit status, and its output above says why. The apply then
+ends with exit 3 and `A step could not be done (marked blocked above);
+everything else was applied, and the next apply tries it again`. chezmoi does
+not record a one-time script that failed as run, so rerunning `workbench apply`
+tries those steps again. When a file is not as approved after such a run, or no
+step named itself, the apply ends with exit 5 and `Setup did not finish (…); the
+other steps ran and what they did is kept. The output above says why; fix that,
+then run workbench apply again.` chezmoi writes the files before it runs the
+scripts that follow them, so they stay as approved and the checkpoint records
+them as written; where native creation gave a file a different group than the
+plan approved, only that group is put back, and a file whose content differs is
+never touched. When Workbench cannot confirm every file, the message adds that
+revert cannot undo that checkpoint; run `apply` again to check the files.
 
 File recovery does not uninstall tools/extensions, undo runtime upgrades or revert
 registry, environment, services, package caches or uncheckpointed script effects.
