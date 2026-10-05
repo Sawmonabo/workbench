@@ -1,6 +1,7 @@
 package operation
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -326,11 +327,23 @@ func checkPrivateFile(path string) error {
 		return err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || info.Mode().Perm()&0o077 != 0 || stat.Nlink != 1 {
+	if !ok || stat.Nlink != 1 {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			"Private files require mode 0600 and exactly one link",
+			path+" has other hard links; a private file must have exactly one",
+		)
+	}
+	if mode := info.Mode().Perm(); mode&0o077 != 0 {
+		return Fail(
+			ExitInvalid,
+			"permissions",
+			fmt.Sprintf(
+				"%s is open to other users (mode %04o); run chmod 600 %q and retry",
+				path,
+				mode,
+				path,
+			),
 		)
 	}
 	return nil

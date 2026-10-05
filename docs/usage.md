@@ -100,7 +100,8 @@ apply) and uses your saved answers as they are; save them with
 Full provisioning requires the real home destination because native scripts
 have external effects. See
 [configuration ownership](chezmoi-local-overrides.md). `init --answers-from FILE`
-saves the `[data]` table of an existing chezmoi config as machine answers, and
+saves the `[data]` table of an existing chezmoi config as machine answers (FILE
+must be private, mode 0600, since answers can hold tokens), and
 `init --ask KEY` asks one saved answer again; see
 [switching from dotfiles](switch-from-dotfiles.md). `init --ask` needs a
 terminal and refuses `--dry-run`, because it saves what it asks.
