@@ -175,8 +175,9 @@ synthetic answers.
 - In the Ubuntu container, the Linux bootstrap put the current `gh` and its
   man pages in `~/.local/bin` over an apt-installed one, the tmux step cloned
   TPM and installed the plugins, and without network it failed only that step.
-  A VS Code extension that fails to install no longer stops the rest; the step
-  reports it and exits nonzero.
+  A VS Code extension that failed to install no longer stopped the rest, and
+  the step then exited nonzero (now it is reported blocked; see the macOS VM
+  record below).
 - The Claude, Codex and VS Code merges leave a file byte for byte when no value
   changes. They keep unowned keys and VS Code's 0644, and the VS Code merge keeps
   JSONC comments, key order and layout (observed in an isolated destination). A
@@ -229,6 +230,40 @@ synthetic answers.
     folder was made.
   - Three wrong answers ending the apply blocked, and a coding agent's apply,
     were observed only with a stand-in sudo.
+- The published v0.1.12 release, on clean macOS 15.7.7 arm64 VMs (no Homebrew,
+  no Command Line Tools, sudo needing a password):
+  - `curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh`
+    installed v0.1.12 and its tools and ended with `run ~/.local/bin/workbench
+    apply`.
+  - An interactive apply with the personal role, and another with both roles,
+    asked for the Mac password once and completed every default step (exit 0,
+    about 16 and 17 minutes). The both-roles apply wrote `~/.gitconfig-personal`
+    and `~/.gitconfig-work` behind `includeIf` for `~/dev/` and `~/repos/`, and
+    installed the Bitwarden CLI and the GitLab extension.
+  - `apply --choose` with Homebrew cleanup turned off in the list saved
+    `skip = ['brew-maintenance']`, applied the rest, and the next plan listed it
+    under `Off`.
+  - After a line was added to `~/.gitconfig`, revert of the first apply exited
+    4 with nothing restored, naming the file. With the edit undone, it was still
+    refused: folders the first apply created (`~/.config/tmux`, VS Code's
+    folder) now held files later steps put there (tmux plugins, VS Code's own
+    data).
+  - In a work-role apply, the extension store returned truncated downloads for
+    three VS Code extensions. The script exited 1, so the scripts after it did
+    not run and the apply ended with exit 5 and an unclear message; the files
+    were correct except for their group, so the checkpoint recorded them as
+    unknown. A rerun planned normally.
+- The fix for that, from a local bundle on a set-up VM:
+  - With two extensions removed and the extension store blocked, the apply tried
+    each one twice, reported `Mac apps and editor extensions: blocked — VS Code
+    could not install foxundermoon.shell-format, timonwong.shellcheck even after
+    a second try …`, still ran Homebrew cleanup and the usage step, and exited 3.
+    With the store reachable again, the next apply installed both (exit 0).
+  - With the cleanup script made to exit 1 and a managed file deleted, the apply
+    rewrote the file, exited 5 with `A setup step failed (chezmoi failed (exit
+    status 1)), so the steps after it did not run; what already ran is kept. …`,
+    and the checkpoint recorded the file as written, with the group `staff`. The
+    next apply settled the unfinished apply and ran the cleanup (exit 0).
 - Touch ID for sudo, on clean macOS 15.7.7 arm64 VMs with no sudo ticket. A
   virtual Mac has no fingerprint sensor, so sudo there always falls back to its
   password:
@@ -459,7 +494,7 @@ synthetic answers.
 
 | Area | Remaining evidence or decision |
 | --- | --- |
-| macOS | Intel runs; `install.sh` from a published release on a clean Mac; on a clean Mac, revert with a later-edit conflict, a step turned off, and the work and both roles. A clean macOS 15.7.7 arm64 VM (the minimum OS) completed personal/pinned provisioning from a local bundle. |
+| macOS | Intel runs; revert of a first apply whose folders later steps filled (refused today). Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict and a step turned off in the list were observed. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed, not rerun). |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
