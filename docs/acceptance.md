@@ -7,7 +7,7 @@ native target is qualified; the open gates are listed below.
 
 ## Verified
 
-Checks ran on macOS 27.0 arm64 (Go 1.26.8, golangci-lint 2.14.0, Homebrew
+Checks ran on macOS 27.0 arm64 (Go 1.27.1, go.mod 1.26.8, golangci-lint 2.14.0, Homebrew
 chezmoi 2.70.3, uv 0.12.3, Python 3.13.7), in an Ubuntu 24.04 container and in
 GitHub Actions. Interactive checks ran under a pseudo-terminal. Unless an entry
 says otherwise, changes went only to disposable homes and destinations with
@@ -235,8 +235,8 @@ synthetic answers.
   on the next run, and VS Code's todo-tree path is set by a one-setting edit
   that keeps comments and every other byte and refuses invalid JSON or
   duplicate keys. (target; not yet observed on a real WSL host)
-- Coding agents: under a pseudo-terminal in a scratch home, `apply --yes` and
-  `apply --choose` with `CLAUDECODE=1`, or with `CODEX_CI`, `CODEX_THREAD_ID`,
+- Coding agents: under a pseudo-terminal in a scratch home, a bare `apply`,
+  `apply --yes` and `apply --choose` with `CLAUDECODE=1`, or with `CODEX_CI`, `CODEX_THREAD_ID`,
   `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` set, exited 3 with "An
   agent runs this; use --dry-run --json then --approve-plan", as did `init --ask
   machine_role`, leaving `machine.toml` unchanged and downloading nothing; with

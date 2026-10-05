@@ -174,7 +174,9 @@ done) in color, and a successful run ends with a green `[WorkBench]` line
 saying what it achieved, for example
 `[WorkBench] Applied: 3 files, 4 effects; 1 skipped`, or, when the files match and no effect is checked,
 `[WorkBench] Nothing to apply; this machine already matches`.
-Plans already shown at a prompt are not repeated. Piped output, and `NO_COLOR`,
+Plans already shown at a prompt are not repeated; `init`, `project configure`
+and `project revert` with `--approve-plan` show no prompt, so their result keeps
+the plan. Piped output, and `NO_COLOR`,
 give the same lines without symbols or color.
 
 A plan lists only the steps this apply would actually run: the provisioning

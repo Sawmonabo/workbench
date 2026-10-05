@@ -10,7 +10,7 @@ Turn every step off in the `apply` plan to apply files only. Full
 provisioning runs the Linux scripts and the Windows host steps you leave on or
 tick. WSL networking (`.wslconfig`) is the one Windows step that is on by
 default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep, RestartWSL
-helpers and editor settings) starts off on a new WSL machine, and ticking it is
+helpers, editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
 remembered. Existing Terminal settings and PowerShell profiles are left
 unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)
 is on. Those two and `font-registry` are optional steps of their own: off until

@@ -60,7 +60,8 @@ uv Python; other languages are discovery-only. `update` and `install.sh`
 default to GitHub's latest release; no production-qualified activation exists. WSL full provisioning runs the
 Linux scripts plus Windows host steps: WSL networking is on by default, and
 Windows setup, Terminal/PowerShell adoption and other host changes are optional
-effects, off until selected; none of it has run on a real Windows host yet. Do not infer native acceptance from code,
+effects, off until selected; none of it has run on a real Windows host yet.
+Do not infer native acceptance from code,
 cross-compilation or static WSL rendering.
 
 ## 3. Architecture and reuse
