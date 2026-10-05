@@ -21,10 +21,11 @@ import (
 // interactive reports whether this run may prompt at all.
 func (o *options) interactive() bool { return !o.nonInteractive && !o.json }
 
-// shownAtPrompt drops a plan component's details after an interactive
-// approval, which already showed the plan; JSON and unattended runs keep them.
+// shownAtPrompt drops a plan component's details after an approval that
+// showed the plan at a prompt. JSON and unattended runs keep them, and so does
+// --approve-plan at a terminal, which approves by digest without showing it.
 func shownAtPrompt(o *options, component *operation.Component) {
-	if o.interactive() {
+	if o.interactive() && o.approvePlan == "" {
 		component.Details = nil
 	}
 }
