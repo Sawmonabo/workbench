@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.18](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.18) - 2026-10-06
+
+### Fixes
+
+- Name each Claude Code row by the organization that answered
+
 ## [v0.1.17](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.17) - 2026-10-06
 
 ### Features
