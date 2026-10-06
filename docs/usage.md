@@ -66,10 +66,13 @@ refuses (HTTP 401 or 403) is reported as such and names `gh auth status`,
 `GH_TOKEN` and `GITHUB_TOKEN`; a used-up rate limit says so. VERSION must be a
 release tag such as `v0.2.0` (`0.2.0` is accepted); an empty or malformed value
 exits 2. `update` ends with
-`[WorkBench] Installed vX and its tools; run workbench apply`. When that
-release is already installed it installs no release, still completes any missing
-tool, and says `[WorkBench] vX is already installed; run workbench apply`, so
-rerunning it finishes a setup that was stopped. A staged copy of a release that
+`[WorkBench] Installed vX and its tools; nothing was applied: run workbench apply`.
+When that release is already installed it installs no release, still completes
+any missing tool, and says `[WorkBench] vX is already installed; nothing was
+applied: run workbench apply`, so rerunning it finishes a setup that was stopped.
+The installed release runs the update, so one older than v0.1.8 first prints its
+own `Installed Workbench vX; continuing with setup and apply`; the new release
+then installs only its tools, as above. A staged copy of a release that
 was modified is replaced with the verified bundle, except the active release's
 own folder, which is left alone and reported as a conflict; reinstalling the
 active release removes no older release. The hidden

@@ -570,11 +570,13 @@ func installTools(
 	if err != nil {
 		return result, err
 	}
-	result.Summary = "[WorkBench] Installed " + version + " and its tools; run " +
-		c.WorkbenchCommand() + " apply"
+	// The line says outright that nothing was applied: a release before
+	// v0.1.8, which hands its update over to this one, first announces
+	// "continuing with setup and apply".
+	next := "; nothing was applied: run " + c.WorkbenchCommand() + " apply"
+	result.Summary = "[WorkBench] Installed " + version + " and its tools" + next
 	if unchanged {
-		result.Summary = "[WorkBench] " + version + " is already installed; run " +
-			c.WorkbenchCommand() + " apply"
+		result.Summary = "[WorkBench] " + version + " is already installed" + next
 	}
 	return result, nil
 }
