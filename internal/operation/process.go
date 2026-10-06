@@ -532,6 +532,12 @@ func failure(name string, err error, stderr string) error {
 	if !errors.As(err, &exit) {
 		return Fail(ExitFailed, "subprocess", name+" could not run: "+err.Error())
 	}
+	// Only a child Workbench lent the terminal to gets the terminal's ctrl+c, so
+	// one it stopped was interrupted by the person, not a failure to fix.
+	if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() &&
+		status.Signal() == syscall.SIGINT {
+		return Fail(ExitInterrupted, "interrupted", name+" was interrupted (ctrl+c)")
+	}
 	message := name + " failed (" + exit.String() + ")"
 	if len(stderr) > 4096 {
 		stderr = stderr[len(stderr)-4096:]

@@ -251,11 +251,13 @@ func (a *applyRun) withCheckpoint(state *operation.State) error {
 		// Every file is as approved and each step that failed named itself:
 		// the apply finishes, and reportEffects shows those steps blocked.
 		runErr = nil
-	case operation.ExitCode(runErr) != operation.ExitInterrupted:
+	default:
 		// The files are written before the scripts run, so a script that failed
-		// leaves them as approved except for the group native creation gave
-		// them. Settle that, so the checkpoint records them as written and not
-		// as unknown.
+		// or was interrupted leaves them as approved except for the group native
+		// creation gave them. Settle that, so the checkpoint records them as
+		// written and not as unknown. An interrupted run is settled too: the
+		// process runner kills native's whole process group and waits for it, so
+		// nothing native started is still writing.
 		cp.SettleFailedNative()
 		if provisioning {
 			runErr = provisioningFailure(a.c, runErr)
@@ -377,10 +379,16 @@ func (a *applyRun) stepsReported(err error) bool {
 // provisioningFailure is what a failed setup run says when no step named
 // itself or a file is not as approved: what failed and what to do. The native
 // cause is kept; the output above it says why. External effects are not rolled
-// back, and files the run wrote are kept.
+// back, and files the run wrote are kept. An interrupted run says only that,
+// since there is nothing to fix.
 func provisioningFailure(c operation.Context, err error) error {
 	if operation.ExitCode(err) == operation.ExitInterrupted {
-		return err
+		return operation.Fail(
+			operation.ExitInterrupted,
+			"interrupted",
+			"Interrupted; what already ran is kept, and running "+c.WorkbenchCommand()+
+				" apply again finishes the rest.",
+		)
 	}
 	return operation.Fail(
 		operation.ExitPartial,

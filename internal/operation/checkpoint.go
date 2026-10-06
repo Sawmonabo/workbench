@@ -88,6 +88,9 @@ type Checkpoint struct {
 	journal   checkpointJournal
 	changes   []TargetChange
 	directory string
+	// regroup holds the targets preflight confirmed as written apart from the
+	// group native creation gave them, with what it observed (see confirm).
+	regroup map[int]Image
 }
 
 // CheckpointSummary is the public view of one selectable checkpoint or its
@@ -494,18 +497,19 @@ func (cp *Checkpoint) StartNative() error {
 // FinalizeNative restores only the approved group after native atomic creation
 // inherited its temporary directory's group. Every target's expected content,
 // type and mode is checked first; unknown content never authorizes metadata edits.
-// It is called only following successful native execution, not interruption.
+// It is called only following successful native execution.
 func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeGroups(false) }
 
 // SettleFailedNative is FinalizeNative for a native run that failed (a script
-// exited nonzero, say) and was not interrupted. The files written before the
-// failure carry the inherited group too, which [Checkpoint.Finish] would record
-// as unknown outcomes. FinalizeNative's rule applies one target at a time: a
-// target whose content, type and mode already match its approved image gets the
-// approved group, and any other target, such as one the run never wrote or
-// someone edited, is left exactly as it is. A target that cannot be corrected
-// does not stop the others; Finish records each as it finds it. The only error
-// it could return, a lost mutation, makes Finish fail as well.
+// exited nonzero, say) or was interrupted once native had stopped. The files
+// written before the failure carry the inherited group too, which
+// [Checkpoint.Finish] would record as unknown outcomes. FinalizeNative's rule
+// applies one target at a time: a target whose content, type and mode already
+// match its approved image gets the approved group, and any other target, such
+// as one the run never wrote or someone edited, is left exactly as it is. A
+// target that cannot be corrected does not stop the others; Finish records each
+// as it finds it. The only error it could return, a lost mutation, makes Finish
+// fail as well.
 func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeGroups(true) }
 
 // restoreNativeGroups is the shared body of both. Without failed, any target
@@ -628,7 +632,7 @@ func (cp *Checkpoint) Finish(runErr error) error {
 		cp.journal.Status = JournalUnknown
 	}
 	if err := cp.saveJournal(); err != nil {
-		if errors.Is(runErr, context.Canceled) {
+		if ExitCode(runErr) == ExitInterrupted {
 			return runErr
 		}
 		return Fail(
@@ -637,11 +641,11 @@ func (cp *Checkpoint) Finish(runErr error) error {
 			"Target outcome could not be recorded; retained images require reviewed reconciliation",
 		)
 	}
-	if errors.Is(runErr, context.Canceled) {
+	if ExitCode(runErr) == ExitInterrupted {
 		return runErr
 	}
 	if unknown {
-		cannot := "could not confirm every file this apply wrote, so revert cannot undo it (checkpoint " + cp.ID + ")."
+		cannot := "could not confirm every file this apply wrote (checkpoint " + cp.ID + "); revert checks them again and names any it cannot undo."
 		if runErr == nil {
 			return Fail(
 				ExitPartial,

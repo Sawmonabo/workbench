@@ -69,24 +69,25 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 
 // preflight checks that every target still holds the image the checkpoint
 // recorded, and returns the folders the restore would remove that now hold
-// something it would not remove (see heldDirectories).
+// something it would not remove (see heldDirectories). A target whose outcome
+// the journal could not record is decided first from what it holds now (see
+// confirm).
 func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 	c := cp.mutation.context
+	cp.regroup = map[int]Image{}
 	var edited []string
 	for i, change := range cp.changes {
-		if cp.journal.Known[i] == outcomeUnknown {
-			return nil, Fail(
-				ExitConflict,
-				"recovery",
-				"Workbench could not confirm every file this checkpoint wrote, so revert cannot undo it",
-			)
-		}
-		expected := cp.expectedImage(i)
 		current, err := ReadImage(c, change.Path)
 		if err != nil {
 			return nil, err
 		}
-		if !sameImage(current, expected) {
+		if cp.journal.Known[i] == outcomeUnknown {
+			if !cp.confirm(i, current) {
+				edited = append(edited, c.ShowPath(change.Path))
+			}
+			continue
+		}
+		if !sameImage(current, cp.expectedImage(i)) {
 			edited = append(edited, c.ShowPath(change.Path))
 		}
 	}
@@ -105,6 +106,52 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 		)
 	}
 	return heldDirectories(c, cp.changes, reverse)
+}
+
+// confirm decides the outcome of target i, which the journal marked unknown
+// before handing the target to a writer and could not settle because
+// Workbench was stopped or crashed meanwhile, from what the target holds now:
+// the approved image means written, the earlier one untouched. Only an exact
+// match of either counts, so a revert never undoes anything the checkpoint did
+// not write. A target native created may still carry the group its temporary
+// file had, as nativeOutput allows; it counts as written, and Recover gives it
+// the approved group before restoring anything. It returns false, and records
+// nothing, for a target that holds neither.
+func (cp *Checkpoint) confirm(i int, current Image) bool {
+	change := cp.changes[i]
+	native := cp.journal.Direction == "forward" && !cp.journal.RecoveryCreated
+	inherited := current
+	inherited.Group = change.After.Group
+	known := outcomeAfter
+	switch {
+	case sameImageContent(current, change.After):
+	case native && current.Kind != ImageSymlink && sameImageContent(inherited, change.After):
+		cp.regroup[i] = current
+	case sameImageContent(current, change.Before):
+		known = outcomeBefore
+	default:
+		return false
+	}
+	cp.journal.Known[i] = known
+	cp.journal.ObservedAttributes[i] = current.Attributes
+	if native && known == outcomeAfter {
+		cp.journal.PostAttributes[i] = current.Attributes
+		cp.changes[i].After.Attributes = current.Attributes
+	}
+	return true
+}
+
+// regroupConfirmed gives each target preflight confirmed as written apart from
+// the group native creation gave it the group its apply approved, so it is
+// exactly the image the restore expects; the revert then restores it, or keeps
+// it if it is a folder holding other files.
+func (cp *Checkpoint) regroupConfirmed() error {
+	for i, observed := range cp.regroup {
+		if err := correctNativeGroup(cp.mutation.context, cp.changes[i], observed); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // heldDirectories returns, by change index, each folder the change set would
@@ -214,9 +261,16 @@ func RecoveryPlan(c Context, selector RecoverySelector) (_ Plan, err error) {
 		return plan, err
 	}
 	cp.mutation = &Mutation{context: c}
+	unconfirmed := slices.Contains(cp.journal.Known, outcomeUnknown)
 	held, err := cp.preflight(reverse)
 	if err != nil {
 		return plan, err
+	}
+	if unconfirmed {
+		plan.Warnings = append(
+			plan.Warnings,
+			"This apply stopped before Workbench recorded every file, so each was checked now: only files holding exactly what it wrote are restored",
+		)
 	}
 	// A folder that now holds other files stays; everything else is restored.
 	for _, name := range heldNames(held) {
@@ -299,6 +353,9 @@ func Recover(
 				); err != nil {
 					return err
 				}
+			}
+			if err = cp.regroupConfirmed(); err != nil {
+				return err
 			}
 			operationID, err = NewID()
 			if err != nil {

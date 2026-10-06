@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -402,5 +403,134 @@ func TestRevertKeepsFoldersHoldingOtherFiles(t *testing.T) {
 		if _, statErr := os.Lstat(gone); !os.IsNotExist(statErr) {
 			t.Fatalf("revert left %s that the apply created", gone)
 		}
+	}
+}
+
+// Prevent a revert from undoing what a checkpoint did not write. When
+// Workbench is stopped or crashes while native writes, the journal still says
+// every outcome is unknown; revert then decides each file from what it holds
+// now. Only a file holding exactly what the apply approved (apart from the
+// group native creation gave it) or exactly what was there before may count,
+// and a file holding anything else must stop the revert before any write.
+func TestRevertConfirmsFilesAnInterruptedApplyLeftUnknown(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Context{
+		Paths: Paths{
+			State:  filepath.Join(root, "state"),
+			Config: filepath.Join(root, "config"),
+			Data:   filepath.Join(root, "data"),
+			Cache:  filepath.Join(root, "cache"),
+			Bin:    filepath.Join(root, "bin"),
+		},
+		Scope: Scope{Kind: "project", Root: filepath.Join(root, "project")},
+	}
+	if err = os.Mkdir(c.Scope.Root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	approved, inherited := os.Getegid(), os.Getegid()
+	groups, err := os.Getgroups()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, candidate := range groups {
+		if candidate != approved {
+			inherited = candidate
+			break
+		}
+	}
+	written := filepath.Join(c.Scope.Root, "written")
+	untouched := filepath.Join(c.Scope.Root, "untouched")
+	edited := filepath.Join(c.Scope.Root, "edited")
+	created := filepath.Join(c.Scope.Root, "created")
+	var changes []TargetChange
+	for _, path := range []string{written, untouched, edited} {
+		if err = os.WriteFile(path, []byte("original"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		before, readErr := ReadImage(c, path)
+		if readErr != nil {
+			t.Fatal(readErr)
+		}
+		after := before
+		after.Data = []byte("applied")
+		changes = append(changes, TargetChange{Path: path, Before: before, After: after})
+	}
+	newFile := changes[0].After
+	newFile.Attributes = nil
+	changes = append(
+		changes,
+		TargetChange{Path: created, Before: Image{Kind: ImageAbsent}, After: newFile},
+	)
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ImageDigest(changes[0].Before)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
+	id := ""
+	err = WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
+			if beginErr != nil {
+				return beginErr
+			}
+			id = cp.ID
+			// Native wrote two files, one with the group its temporary file
+			// had, and Workbench died before it could record anything; someone
+			// edited a third.
+			if beginErr = cp.StartNative(); beginErr != nil {
+				return beginErr
+			}
+			for path, content := range map[string]string{
+				written: "applied",
+				created: "applied",
+				edited:  "someone's edit",
+			} {
+				if beginErr = os.WriteFile(path, []byte(content), 0o644); beginErr != nil {
+					return beginErr
+				}
+			}
+			return os.Chown(created, -1, inherited)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	selector := RecoverySelector{Checkpoint: id}
+	if _, err = RecoveryPlan(c, selector); ExitCode(err) != ExitConflict ||
+		!strings.Contains(err.Error(), "edited") {
+		t.Fatalf("a file holding neither image did not stop the revert: %v", err)
+	}
+	if err = os.WriteFile(edited, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	recovery, err := RecoveryPlan(c, selector)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Recover(
+		context.Background(),
+		c,
+		recovery,
+		selector,
+		Consent{ApprovedDigest: recovery.Digest(), CompleteInputs: true},
+	); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{written, untouched, edited} {
+		if data, readErr := os.ReadFile(path); readErr != nil || string(data) != "original" {
+			t.Fatalf("revert did not restore %s: %q %v", path, data, readErr)
+		}
+	}
+	if _, err = os.Lstat(created); !os.IsNotExist(err) {
+		t.Fatal("revert left the file the interrupted apply created")
 	}
 }
