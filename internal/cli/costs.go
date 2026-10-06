@@ -331,7 +331,9 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 	)
 	progress, stop := ingestProgress(o, cmd.ErrOrStderr())
 	defer stop()
-	_, err = costs.Ingest(cmd.Context(), costs.IngestOptions{Progress: progress})
+	// A hook's worker may be reading them already: wait for it rather than
+	// report an empty ledger.
+	_, err = costs.Ingest(cmd.Context(), costs.IngestOptions{Progress: progress, Wait: true})
 	return err
 }
 

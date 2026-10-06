@@ -30,11 +30,13 @@ type IngestOptions struct {
 	Transcript string             // the hook's transcript_path: names the tool the hook fired for
 	SessionID  string             // the hook's session_id: the root session the worker binds to the sign-in
 	Progress   operation.Progress // optional: a step per transcript
+	Wait       bool               // wait for a running ingest to finish instead of skipping
 }
 
 // Ingest copies the usage of every recorded tool's transcripts into the
 // ledger, one transaction per file, resuming from the stored offsets. Only one
-// runs at a time: while another holds the lock this one logs that and returns.
+// runs at a time: while another holds the lock this one logs that and returns,
+// or with Wait runs once the other is done.
 // Every failure is also written to the log and, once the ledger is open, to
 // its last_error note; committed files are not reprocessed next time.
 //
@@ -48,6 +50,14 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 	}
 	bindSession(ctx, paths, opts)
 	release, held, err := operation.TryLock(paths.lock())
+	for err == nil && held && opts.Wait {
+		select {
+		case <-ctx.Done():
+			return "", ctx.Err()
+		case <-time.After(200 * time.Millisecond):
+		}
+		release, held, err = operation.TryLock(paths.lock())
+	}
 	if err != nil {
 		return "", fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
 	}
