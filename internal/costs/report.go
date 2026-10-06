@@ -227,12 +227,12 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 		Overrides: paths.Overrides, First: "none", Last: "none",
 	}
 	tool, _ := Lookup(opts.Tool)
-	groups, hidden, err := loadGroups(ctx, ledger, card, paths.Home, opts)
+	groups, hidden, tally, err := loadGroups(ctx, ledger, card, paths.Home, opts)
 	if err != nil {
 		return report, err
 	}
 	report.Scope, report.Hidden = scopeRoots(paths.Home), hidden
-	if report.Coverage, err = coverage(ledger, card.Fetched[opts.Tool], opts.Tool); err != nil {
+	if report.Coverage, err = tally.coverage(ledger, card.Fetched[opts.Tool]); err != nil {
 		return report, err
 	}
 	seen := map[string]bool{}
@@ -334,43 +334,68 @@ func inScope(project string, roots []string) bool {
 	return false
 }
 
-// loadGroups is one group per (project, model, account, month) with tokens,
-// calls and cost, plus how many projects the default scope left out.
+// loadGroups is one group per (project, model, account, subscription, month)
+// with tokens, calls and cost, plus how many projects the default scope left
+// out and the tool's coverage tally, all from one pass over its responses.
 func loadGroups(
 	ctx context.Context,
 	ledger *Ledger,
 	card Card,
 	home string,
 	opts ReportOptions,
-) ([]group, int, error) {
+) ([]group, int, coverageTally, error) {
 	tool, _ := Lookup(opts.Tool)
-	period, bounds, err := periodClauses(opts.Since, opts.Until)
+	var tally coverageTally
+	inPeriod, err := periodFilter(opts.Since, opts.Until)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, tally, err
 	}
-	where, args := append([]string{"tool = ?"}, period...), append([]any{opts.Tool}, bounds...)
-	rows, err := ledger.db.QueryContext(ctx,
-		`SELECT r.project, r.model, r.account, r.subscription, COALESCE(s.label, ''),
-		        COALESCE(strftime('%Y-%m', r.ts, 'localtime'), ''), COUNT(*),
-		        SUM(r.input), SUM(r.output), SUM(r.cache_write_5m), SUM(r.cache_write_1h),
-		        SUM(r.cache_read), COALESCE(MIN(NULLIF(r.ts, '')), ''), MAX(r.ts)
-		   FROM responses r LEFT JOIN subscriptions s ON s.id = r.subscription
-		  WHERE `+strings.Join(where, " AND ")+`
-		  GROUP BY 1, 2, 3, 4, 5, 6 ORDER BY 1, 2, 3, 4, 5, 6`, args...)
+	labels, err := ledger.labels(ctx)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, tally, err
 	}
-	defer func() { _ = rows.Close() }()
+	type key struct{ project, model, account, subscription, month string }
+	byKey := map[key]*group{}
+	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {
+		tally.add(r)
+		if !inPeriod(r.ts) {
+			return
+		}
+		k := key{r.project, r.model, r.account, r.subscription, localMonth(r.ts)}
+		g := byKey[k]
+		if g == nil {
+			g = &group{
+				project: k.project, model: k.model, account: k.account,
+				subscription: k.subscription, label: labels[k.subscription], month: k.month,
+			}
+			byKey[k] = g
+		}
+		g.Calls++
+		g.add(r.Tokens)
+		if r.ts != "" && (g.first == "" || r.ts < g.first) {
+			g.first = r.ts
+		}
+		g.last = max(g.last, r.ts)
+	})
+	if err != nil {
+		return nil, 0, tally, err
+	}
+	sorted := make([]*group, 0, len(byKey))
+	for _, g := range byKey {
+		sorted = append(sorted, g)
+	}
+	// The order a GROUP BY gave, so rows of equal cost keep their order.
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		return cmp.Or(
+			cmp.Compare(a.project, b.project), cmp.Compare(a.model, b.model),
+			cmp.Compare(a.account, b.account), cmp.Compare(a.subscription, b.subscription),
+			cmp.Compare(a.month, b.month),
+		) < 0
+	})
 	var groups []group
 	hidden, roots := map[string]bool{}, scopeRoots(home)
-	for rows.Next() {
-		var g group
-		if err := rows.Scan(
-			&g.project, &g.model, &g.account, &g.subscription, &g.label, &g.month, &g.Calls,
-			&g.Input, &g.Output, &g.CacheWrite5m, &g.CacheWrite1h, &g.CacheRead, &g.first, &g.last,
-		); err != nil {
-			return nil, 0, err
-		}
+	for _, g := range sorted {
 		if !opts.NoRollup {
 			g.project = rollup(g.project, home)
 		}
@@ -387,9 +412,43 @@ func loadGroups(
 		if priced {
 			g.Cost = rate.Cost(g.Tokens)
 		}
-		groups = append(groups, g)
+		groups = append(groups, *g)
 	}
-	return groups, len(hidden), rows.Err()
+	return groups, len(hidden), tally, nil
+}
+
+// response is one ledger row as a report reads it.
+type response struct {
+	project, model, account, subscription, ts, session string
+	accountSource, subscriptionSource                  string
+	Tokens
+}
+
+// scanResponses calls visit with every response of tool, in no set order. A
+// report reads them once and sums them here: grouping in SQL sorted every row
+// by its text columns and worked out each local month with the 'localtime'
+// modifier, which took several times as long as reading the rows.
+func scanResponses(ctx context.Context, ledger *Ledger, tool string, visit func(response)) error {
+	rows, err := ledger.db.QueryContext(ctx,
+		`SELECT project, model, account, subscription, ts, session_id, account_source,
+		        subscription_source, input, output, cache_write_5m, cache_write_1h, cache_read
+		   FROM responses WHERE tool = ?`, tool)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var r response
+		if err := rows.Scan(
+			&r.project, &r.model, &r.account, &r.subscription, &r.ts, &r.session,
+			&r.accountSource, &r.subscriptionSource,
+			&r.Input, &r.Output, &r.CacheWrite5m, &r.CacheWrite1h, &r.CacheRead,
+		); err != nil {
+			return err
+		}
+		visit(r)
+	}
+	return rows.Err()
 }
 
 func (g group) key(by string) string {
@@ -452,45 +511,56 @@ func total(rows []Row) Row {
 	return t
 }
 
-func coverage(ledger *Ledger, fetched time.Time, tool string) (Coverage, error) {
-	var first, last string
-	var c Coverage
-	if err := ledger.db.QueryRow(
-		`SELECT COALESCE(MIN(NULLIF(ts, '')), ''), COALESCE(MAX(ts), ''), COUNT(*)
-		   FROM responses WHERE tool = ?`,
-		tool,
-	).Scan(&first, &last, &c.Responses); err != nil {
-		return c, err
+// coverageTally is what a pass over a tool's responses learns for its
+// Coverage.
+type coverageTally struct {
+	responses   int64
+	first, last string // the earliest dated and the latest response time
+	// accountSince and subscriptionSince are the earliest time of a row whose
+	// transcript named that, once named is set.
+	accountSince, subscriptionSince string
+	accountNamed, subscriptionNamed bool
+	account, subscription           Evidence
+}
+
+func (t *coverageTally) add(r response) {
+	t.responses++
+	if r.ts != "" && (t.first == "" || r.ts < t.first) {
+		t.first = r.ts
 	}
-	c.First, c.Last = LocalDate(first), LocalDate(last)
-	var account, subscription string
-	if err := ledger.db.QueryRow(`SELECT
-		  COALESCE(MIN(CASE WHEN account_source = ?2 THEN ts END), ''),
-		  COALESCE(MIN(CASE WHEN subscription_source = ?2 THEN ts END), '')
-		FROM responses WHERE tool = ?1`, tool, EvidenceTranscript,
-	).Scan(&account, &subscription); err != nil {
-		return c, err
+	t.last = max(t.last, r.ts)
+	if r.accountSource == EvidenceTranscript && (!t.accountNamed || r.ts < t.accountSince) {
+		t.accountSince, t.accountNamed = r.ts, true
 	}
-	c.AccountNamedSince, c.SubscriptionNamedSince = account, subscription
-	rows, err := ledger.db.Query(
-		`SELECT account_source, subscription_source, COUNT(*) FROM responses
-		  WHERE tool = ? GROUP BY 1, 2`, tool,
-	)
-	if err != nil {
-		return c, err
+	if r.subscriptionSource == EvidenceTranscript &&
+		(!t.subscriptionNamed || r.ts < t.subscriptionSince) {
+		t.subscriptionSince, t.subscriptionNamed = r.ts, true
 	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		var account, subscription string
-		var n int64
-		if err := rows.Scan(&account, &subscription, &n); err != nil {
-			return c, err
-		}
-		c.AccountEvidence.add(account, n)
-		c.SubscriptionEvidence.add(subscription, n)
+	t.account.add(r.accountSource, 1)
+	t.subscription.add(r.subscriptionSource, 1)
+}
+
+// coverage reads every response of tool for its Coverage.
+func coverage(
+	ctx context.Context,
+	ledger *Ledger,
+	fetched time.Time,
+	tool string,
+) (Coverage, error) {
+	var tally coverageTally
+	if err := scanResponses(ctx, ledger, tool, tally.add); err != nil {
+		return Coverage{}, err
 	}
-	if err := rows.Err(); err != nil {
-		return c, err
+	return tally.coverage(ledger, fetched)
+}
+
+// coverage is the tally's Coverage, with the ledger's last ingest and the
+// time the official rates were fetched.
+func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, error) {
+	c := Coverage{
+		First: LocalDate(t.first), Last: LocalDate(t.last), Responses: t.responses,
+		AccountEvidence: t.account, SubscriptionEvidence: t.subscription,
+		AccountNamedSince: t.accountSince, SubscriptionNamedSince: t.subscriptionSince,
 	}
 	c.LastIngestAt, c.LastIngestSummary, c.LastError = "never", "", ""
 	if v, err := ledger.Meta("last_ingest_at"); err == nil && v != "" {
@@ -543,7 +613,7 @@ type ToolStatus struct {
 
 // Status reads the ledger (creating an empty one when none exists) and the live
 // hook settings; it ingests and fetches nothing itself.
-func Status(_ context.Context) (StatusInfo, error) {
+func Status(ctx context.Context) (StatusInfo, error) {
 	paths, err := Locations()
 	if err != nil {
 		return StatusInfo{}, err
@@ -580,7 +650,7 @@ func Status(_ context.Context) (StatusInfo, error) {
 			if f := readOfficial(paths, tool).FetchedAt; f > 0 {
 				fetched = time.Unix(int64(f), 0)
 			}
-			if status.Coverage, err = coverage(ledger, fetched, tool.Name); err != nil {
+			if status.Coverage, err = coverage(ctx, ledger, fetched, tool.Name); err != nil {
 				return info, err
 			}
 			signIn := tool.Source.SignIn(paths.Home)

@@ -14,6 +14,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -182,13 +183,26 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 		return err
 	}
 	defer func() { _ = ledger.Close() }()
-	reports := map[string]costs.Statement{}
-	for _, t := range costs.Tools {
+	// The tabs need every tool's report; each reads its own rows, so they are
+	// read side by side.
+	var group errgroup.Group
+	statements := make([]costs.Statement, len(costs.Tools))
+	for i, t := range costs.Tools {
 		if t.Source == nil || (!tabs && t.Name != tool.Name) {
 			continue
 		}
-		if reports[t.Name], err = costs.Report(cmd.Context(), ledger, f.options(t)); err != nil {
+		group.Go(func() (err error) {
+			statements[i], err = costs.Report(cmd.Context(), ledger, f.options(t))
 			return err
+		})
+	}
+	if err := group.Wait(); err != nil {
+		return err
+	}
+	reports := map[string]costs.Statement{}
+	for i, t := range costs.Tools {
+		if t.Source != nil && (tabs || t.Name == tool.Name) {
+			reports[t.Name] = statements[i]
 		}
 	}
 	switch {
@@ -312,7 +326,10 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 			_ = ledger.Close()
 			return err
 		}
-		if transcripts, _ := tool.Source.Transcripts(paths.Home); empty && len(transcripts) > 0 {
+		if !empty {
+			continue
+		}
+		if transcripts, _ := tool.Source.Transcripts(paths.Home); len(transcripts) > 0 {
 			missing = append(missing, tool.Title)
 		}
 	}

@@ -729,48 +729,83 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 
 // A report names days and months in the machine's time zone, the one the
 // session times beside them are shown in: a response belongs to the day on the
-// wall clock where it was made, not to the UTC day it is stored under. SQL
-// groups with the 'localtime' modifier; the bounds below are converted here.
+// wall clock where it was made, not to the UTC day it is stored under.
 
-// periodClauses are the WHERE clauses and arguments for inclusive YYYY-MM-DD
-// bounds on a response's local day, "" for no bound: ts from the first day's
+// periodFilter reports whether a stored response time falls within inclusive
+// YYYY-MM-DD bounds on its local day, "" for no bound: from the first day's
 // local midnight up to, not including, the next local midnight after the last
-// day, and dated. They compare ts itself, so the responses_ts index serves them.
-func periodClauses(since, until string) (clauses []string, args []any, err error) {
+// day. A period covers dated responses only: an undated one ("") sorts before
+// every day, so the end bound alone would count it while the start left it
+// out.
+func periodFilter(since, until string) (func(ts string) bool, error) {
+	var lo, hi string
 	for _, bound := range []struct {
-		flag, day, clause string
-		plus              int
+		flag, day string
+		plus      int
+		at        *string
 	}{
-		{"--since", since, "ts >= ?", 0},
-		{"--until", until, "ts < ?", 1}, // the next midnight ends the last day
+		{"--since", since, 0, &lo},
+		{"--until", until, 1, &hi}, // the next midnight ends the last day
 	} {
 		if bound.day == "" {
 			continue
 		}
 		start, err := time.ParseInLocation(time.DateOnly, bound.day, time.Local)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s needs a YYYY-MM-DD date: %w", bound.flag, err)
+			return nil, fmt.Errorf("%s needs a YYYY-MM-DD date: %w", bound.flag, err)
 		}
-		clauses = append(clauses, bound.clause)
-		args = append(args, start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout))
+		*bound.at = start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout)
 	}
-	if len(clauses) > 0 {
-		// An undated response ('') sorts before every day, so `ts < ?` alone
-		// would count it under --until while --since leaves it out. A period
-		// covers dated responses only.
-		clauses = append(clauses, "ts <> ''")
+	if lo == "" && hi == "" {
+		return func(string) bool { return true }, nil
 	}
-	return clauses, args, nil
+	return func(ts string) bool {
+		return ts != "" && (lo == "" || ts >= lo) && (hi == "" || ts < hi)
+	}, nil
 }
 
 // LocalDate is the machine-local calendar day (YYYY-MM-DD) of a stored
 // response time, "none" when ts holds no time.
 func LocalDate(ts string) string {
-	when, err := time.Parse(timeLayout, ts)
+	return cmp.Or(localDay(ts), "none")
+}
+
+// localDay is the machine-local calendar day (YYYY-MM-DD) of a stored response
+// time, "" when ts holds no time.
+func localDay(ts string) string {
+	when, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
-		return "none"
+		return ""
 	}
 	return when.Local().Format(time.DateOnly)
+}
+
+// localMonth is the machine-local month (YYYY-MM) of a stored response time,
+// "" when ts holds no time.
+func localMonth(ts string) string {
+	day := localDay(ts)
+	if day == "" {
+		return ""
+	}
+	return day[:7]
+}
+
+// labels is the subscriptions table: each subscription id's label.
+func (l *Ledger) labels(ctx context.Context) (map[string]string, error) {
+	rows, err := l.db.QueryContext(ctx, "SELECT id, label FROM subscriptions")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	labels := map[string]string{}
+	for rows.Next() {
+		var id, label string
+		if err := rows.Scan(&id, &label); err != nil {
+			return nil, err
+		}
+		labels[id] = label
+	}
+	return labels, rows.Err()
 }
 
 // storedID is the ledger key of a response: Claude's id as is, every other

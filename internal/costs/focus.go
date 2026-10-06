@@ -1,9 +1,9 @@
 package costs
 
 import (
+	"cmp"
 	"context"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -51,38 +51,50 @@ func FocusOn(
 	if err != nil {
 		return focus, err
 	}
-	period, bounds, err := periodClauses(opts.Since, opts.Until)
+	inPeriod, err := periodFilter(opts.Since, opts.Until)
 	if err != nil {
 		return focus, err
 	}
-	where, args := append([]string{"tool = ?"}, period...), append([]any{opts.Tool}, bounds...)
-	if kind == "model" {
-		where, args = append(where, "model = ?"), append(args, name)
-	}
-	rows, err := ledger.db.QueryContext(
-		ctx,
-		`SELECT project, model, COALESCE(date(ts, 'localtime'), ''), session_id, MIN(ts), MAX(ts), COUNT(*),
-		        SUM(input), SUM(output), SUM(cache_write_5m), SUM(cache_write_1h), SUM(cache_read)
-		   FROM responses WHERE `+strings.Join(
-			where,
-			" AND ",
-		)+`
-		  GROUP BY 1, 2, 3, 4`,
-		args...)
+	type key struct{ project, model, day, session string }
+	byKey := map[key]*focusGroup{}
+	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {
+		if !inPeriod(r.ts) || (kind == "model" && r.model != name) {
+			return
+		}
+		k := key{r.project, r.model, localDay(r.ts), r.session}
+		g := byKey[k]
+		if g == nil {
+			g = &focusGroup{
+				project: k.project,
+				model:   k.model,
+				day:     k.day,
+				session: k.session,
+				first:   r.ts,
+			}
+			byKey[k] = g
+		}
+		g.Calls++
+		g.add(r.Tokens)
+		g.first, g.last = min(g.first, r.ts), max(g.last, r.ts)
+	})
 	if err != nil {
 		return focus, err
 	}
-	defer func() { _ = rows.Close() }()
+	sorted := make([]*focusGroup, 0, len(byKey))
+	for _, g := range byKey {
+		sorted = append(sorted, g)
+	}
+	// The order a GROUP BY gave, so parts and sessions of equal cost keep theirs.
+	sort.Slice(sorted, func(i, j int) bool {
+		a, b := sorted[i], sorted[j]
+		return cmp.Or(
+			cmp.Compare(a.project, b.project), cmp.Compare(a.model, b.model),
+			cmp.Compare(a.day, b.day), cmp.Compare(a.session, b.session),
+		) < 0
+	})
 	var groups []focusGroup
 	roots := scopeRoots(paths.Home)
-	for rows.Next() {
-		var g focusGroup
-		if err := rows.Scan(
-			&g.project, &g.model, &g.day, &g.session, &g.first, &g.last, &g.Calls,
-			&g.Input, &g.Output, &g.CacheWrite5m, &g.CacheWrite1h, &g.CacheRead,
-		); err != nil {
-			return focus, err
-		}
+	for _, g := range sorted {
 		if !opts.NoRollup {
 			g.project = rollup(g.project, paths.Home)
 		}
@@ -95,10 +107,7 @@ func FocusOn(
 		if priced {
 			g.Cost = rate.Cost(g.Tokens)
 		}
-		groups = append(groups, g)
-	}
-	if err := rows.Err(); err != nil {
-		return focus, err
+		groups = append(groups, *g)
 	}
 	focus.Parts = sortRows(sumBy(groups, func(g focusGroup) string {
 		if kind == "model" {
