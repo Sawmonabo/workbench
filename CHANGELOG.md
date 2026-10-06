@@ -3,6 +3,22 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.17](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.17) - 2026-10-06
+
+### Features
+
+- Name a plan no sign-in recorded by its organization
+
+### Fixes
+
+- --all help names this machine's project folders
+- Wait for a running ingest before the first report
+- Name only the project folders that exist on this machine
+
+### Maintenance
+
+- Sum a report in one pass instead of grouping in SQLite
+
 ## [v0.1.16](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.16) - 2026-10-06
 
 ### Fixes
