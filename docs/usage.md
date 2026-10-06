@@ -282,7 +282,11 @@ flag or argument, whose message names the reason, for example
 `Invalid command, flags or arguments: unknown flag: --bogus; run workbench --help`.
 A signal that stops Workbench (SIGINT, SIGTERM, or SIGHUP when the terminal closes)
 during a prompt ends it with exit 130 and writes nothing; during an apply the
-checkpoint is recorded as partial or failed rather than left running.
+checkpoint is recorded as partial or failed rather than left running. The files
+chezmoi already wrote are recorded as written, after the same group fix a failed
+step gets, so revert can undo them. ctrl+c while a setup step runs stops that
+step and ends the apply the same way, with exit 130 and `Interrupted; what
+already ran is kept, and running workbench apply again finishes the rest.`
 If release activation already completed before a later setup/apply failure,
 the command reports partial mutation rather than implying nothing changed.
 
@@ -330,8 +334,14 @@ a manual proposal, not a second pipeline or fabricated tests. See the
 ## Recovery and runtime storage
 
 Machine and project checkpoints are separate scopes. Recovery checks every
-recorded post-image before restoring anything; later user edits, corrupt images
-or unknown interrupted outcomes block. A later edit is reported with the names of
+recorded post-image before restoring anything; later user edits or corrupt
+images block. A file whose outcome Workbench could not record, because it was
+stopped or crashed while chezmoi wrote, is checked when you revert: a file
+holding exactly what the apply wrote is restored, one holding exactly what was
+there before needs nothing, and the plan says the files were checked now. On a
+Mac, a file chezmoi created may still have the group its temporary file had;
+revert gives it the group the apply approved, then restores it. A file holding
+anything else blocks like a later edit. A later edit is reported with the names of
 the changed files (`Changed since Workbench wrote them, so nothing was restored:
 ~/.gitconfig. …`). Keep the reported checkpoint ID and resolve conflicts
 manually; do not delete state to bypass a failure. A folder the apply created
@@ -367,8 +377,8 @@ then run workbench apply again.` chezmoi writes the files before it runs the
 scripts that follow them, so they stay as approved and the checkpoint records
 them as written; where native creation gave a file a different group than the
 plan approved, only that group is put back, and a file whose content differs is
-never touched. When Workbench cannot confirm every file, the message adds that
-revert cannot undo that checkpoint; run `apply` again to check the files.
+never touched. When Workbench cannot confirm every file, the message says so;
+revert checks those files again and names any it cannot undo.
 
 File recovery does not uninstall tools/extensions, undo runtime upgrades or revert
 registry, environment, services, package caches or uncheckpointed script effects.
