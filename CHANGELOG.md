@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.15](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.15) - 2026-10-06
+
+### Fixes
+
+- Say outright that nothing was applied
+
 ## [v0.1.14](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.14) - 2026-10-06
 
 ### Fixes
