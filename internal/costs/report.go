@@ -247,7 +247,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if err != nil {
 		return report, err
 	}
-	report.Scope, report.Hidden = scopeRoots(paths.Home), hidden
+	report.Scope, report.Hidden = ScopeRoots(paths.Home), hidden
 	if report.Coverage, err = tally.coverage(ledger, card.Fetched[opts.Tool]); err != nil {
 		return report, err
 	}
@@ -325,9 +325,9 @@ func projectRoots(home string) []string {
 	return []string{filepath.Join(home, "dev"), filepath.Join(home, "repos")}
 }
 
-// scopeRoots are the project folders that exist on this machine, which the
+// ScopeRoots are the project folders that exist on this machine, which the
 // default view covers and the report names; both when neither exists.
-func scopeRoots(home string) []string {
+func ScopeRoots(home string) []string {
 	var roots []string
 	for _, root := range projectRoots(home) {
 		if info, err := os.Stat(root); err == nil && info.IsDir() {
@@ -410,7 +410,7 @@ func loadGroups(
 		) < 0
 	})
 	var groups []group
-	hidden, roots := map[string]bool{}, scopeRoots(home)
+	hidden, roots := map[string]bool{}, ScopeRoots(home)
 	for _, g := range sorted {
 		if !opts.NoRollup {
 			g.project = rollup(g.project, home)

@@ -67,11 +67,12 @@ func costsCommand(o *options) *cobra.Command {
 		"",
 		"Last day to include, YYYY-MM-DD in this machine's time zone",
 	)
+	home, _ := os.UserHomeDir()
 	flags.BoolVar(
 		&f.all,
 		"all",
 		false,
-		"Include projects outside your project folders, ~/dev and ~/repos where present",
+		"Include projects outside "+scopeNames(costs.ScopeRoots(home)),
 	)
 	flags.IntVar(&f.top, "top", 0, "Show the first N rows; totals still cover all")
 	flags.StringVar(&f.sort, "sort", "cost", "Row order: cost, name or calls")

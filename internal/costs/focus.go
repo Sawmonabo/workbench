@@ -93,7 +93,7 @@ func FocusOn(
 		) < 0
 	})
 	var groups []focusGroup
-	roots := scopeRoots(paths.Home)
+	roots := ScopeRoots(paths.Home)
 	for _, g := range sorted {
 		if !opts.NoRollup {
 			g.project = rollup(g.project, paths.Home)
