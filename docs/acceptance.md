@@ -264,6 +264,30 @@ synthetic answers.
     status 1)), so the steps after it did not run; what already ran is kept. …`,
     and the checkpoint recorded the file as written, with the group `staff`. The
     next apply settled the unfinished apply and ran the cleanup (exit 0).
+- Interrupted and crashed applies, from local bundles on a clean macOS 15.7.7
+  arm64 VM (Command Line Tools present) and an Ubuntu 24.04 arm64 VM:
+  - On the Mac, ctrl+c at the terminal as the Runtime managers step began ended
+    the apply with exit 130 and `Interrupted; what already ran is kept, and
+    running workbench apply again finishes the rest.` (the build before this fix
+    said `Setup did not finish (chezmoi failed (signal: interrupt)) … fix that`,
+    exit 5). SIGTERM to Workbench at the same point also ended it with exit 130.
+    Both times the checkpoint recorded all 24 files as written, and revert
+    restored them (exit 0).
+  - `kill -9` of Workbench while VS Code extensions installed left the checkpoint
+    `running` with all 24 outcomes unknown, and the files chezmoi wrote had the
+    group `wheel` instead of `staff`. The next `apply --dry-run` planned no file
+    edits. Revert said `This apply stopped before Workbench recorded every file,
+    so each was checked now: …`, gave those files their approved group, removed
+    the ones the apply had created and kept `~/Library/Application Support/Code`
+    (exit 0).
+  - On Ubuntu, a linked `~/.local/bin` stopped Workbench before planning with
+    `/home/admin/.local/bin is a link; Workbench keeps its own files only in real
+    folders, so make it one` (exit 2). A file of the owner's at
+    `~/.local/bin/gh` made an unattended apply end with exit 3 and `System
+    packages: blocked — gh was not installed: ~/.local/bin/gh already exists and
+    Workbench did not make it, so it was left alone`, with the file untouched and
+    everything else applied; once it was removed, the next apply installed gh
+    (exit 0).
 - A failed step no longer stops the others, and revert keeps folders that hold
   other files, from local bundles on a clean macOS 15.7.7 arm64 VM (no Homebrew,
   no Command Line Tools, sudo needing a password) and an Ubuntu 24.04 arm64 VM:
@@ -520,7 +544,7 @@ synthetic answers.
 
 | Area | Remaining evidence or decision |
 | --- | --- |
-| macOS | Intel runs. Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict, a step turned off in the list, failed downloads that left the other steps running, and a revert of a first apply that kept the folders other files filled were observed. |
+| macOS | Intel runs. Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict, a step turned off in the list, failed downloads that left the other steps running, a revert of a first apply that kept the folders other files filled, and reverts of applies stopped by ctrl+c, SIGTERM and `kill -9` were observed. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
