@@ -7,6 +7,7 @@
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    user_bin_refused linux-packages{{ if .has_work }} work-tools{{ end }}
     missing=()
     for tool in bat fd oh-my-posh gh tmux; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
@@ -27,6 +28,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 {{ template "effect-report.sh" }}
+user_bin_refused linux-packages{{ if .has_work }} work-tools{{ end }}
 status=0
 why=
 # part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a

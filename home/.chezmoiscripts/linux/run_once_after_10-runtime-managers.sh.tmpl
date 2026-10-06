@@ -9,6 +9,7 @@ set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    user_bin_refused runtime-managers
     parts=() missing=()
     [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] || missing+=(nvm)
     for tool in uv rustup bun; do
@@ -43,6 +44,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 {{ template "effect-report.sh" }}
+user_bin_refused runtime-managers
 status=0
 why=
 # part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
@@ -158,11 +160,11 @@ install_go() {
             case "$old" in "$install_root"/*/bin/"$command")
                 old_version=${old#"$install_root/"}; old_version=${old_version%"/bin/$command"}
                 [[ "$old_version" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] ||
-                    { why="$target links somewhere Workbench does not recognise, so it was kept"; return 1; }
+                    { why="$(shown "$target") links somewhere Workbench does not recognise, so it was kept"; return 1; }
                 safe_user_directory "${old%/*}" || return 1
-                ;; *) why="$target links somewhere Workbench does not recognise, so it was kept"; return 1 ;; esac
+                ;; *) why="$(shown "$target") links somewhere Workbench does not recognise, so it was kept"; return 1 ;; esac
         elif [ -e "$target" ]; then
-            why="$target already exists and is not Workbench's, so it was kept"
+            why="$(shown "$target") already exists and is not Workbench's, so it was kept"
             return 1
         fi
     done

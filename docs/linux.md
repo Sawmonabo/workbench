@@ -25,6 +25,14 @@ stops the others (see [usage](usage.md)): a failed package, runtime or tool
 install, or one missing because an earlier step could not install it, is named on
 its own step, the other steps still run, the apply ends with exit 3 and the next
 apply tries again.
+Programs go into `~/.local/bin` only when it, and `~/.local`, are real folders:
+when either is a link (into a dotfiles repository, say) or a file, the System
+packages and Runtime managers steps install nothing and say so in the plan and
+on their result lines (`~/.local/bin is a link to another folder, and Workbench
+installs nothing through a link; make it a real folder`). A command already in
+`~/.local/bin` that Workbench did not put there is left alone, and the part that
+would install it says so (`gh was not installed: ~/.local/bin/gh already exists
+and Workbench did not make it, so it was left alone`).
 Headless hosts can turn every step off in the `apply` plan to apply files only; that does not install extensions.
 
 Keep private runtime state on a qualified Linux filesystem. For Windows-host
