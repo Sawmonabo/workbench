@@ -1011,14 +1011,20 @@ func (t *Tx) AddTierChange(c TierChange) error {
 // The meta notes of ResolveAccounts. accountsUnresolved lists the sessions
 // (rootKey, as a JSON array) that BindSession bound since the last
 // resolution, "*" when too many to list; ResolveAccounts attributes their rows
-// again and clears it. accountsChecked is stored by every ResolveAccounts:
-// without it no resolution has run on the ledger (it is new or upgraded), so
-// every row may be waiting. accountsThrough+tool is the latest sign-in
+// again and clears it. accountsChecked is stored by every ResolveAccounts as
+// accountsRule, the revision of its rules: without it, or with another, no
+// resolution under these rules has run on the ledger (it is new, upgraded, or
+// an earlier build resolved it), so every row may be waiting. accountsThrough+tool is the latest sign-in
 // observation of a tool at the end of the last resolution: a row after it had
 // no observation on its far side then, so a later one may decide it.
+// accountsOwned lists the subscriptions (a JSON array) whose email the last
+// resolution knew (accountBasis.owners): one missing from it is learned now,
+// and only its rows are read again for it.
 const (
+	accountsOwned      = "accounts_owned"
 	accountsUnresolved = "accounts_unresolved"
 	accountsChecked    = "accounts_checked"
+	accountsRule       = "2" // 2: a row whose transcript names its organization takes that organization's email
 	accountsThrough    = "accounts_through:"
 	dirtyRootsAll      = "*"
 	maxDirtyRoots      = 256
@@ -1194,23 +1200,76 @@ type (
 	signInPoint struct{ at, account, subscription string }
 	// attribution is what a row is attributed to: source is the evidence of
 	// both values, "" for no decision. An empty or "unknown" value names
-	// nothing and leaves that field of the row as it is.
-	attribution struct{ account, subscription, source string }
+	// nothing and leaves that field of the row as it is. byOrg marks a row
+	// whose transcript named its organization (accountBasis.attribute): its
+	// email is decided anew from that organization's evidence alone.
+	attribution struct {
+		account, subscription, source string
+		byOrg                         bool
+	}
 )
 
 // accountBasis is what rows are attributed from: the session bindings and the
-// sign-in observations of the ledger, each in time order.
+// sign-in observations of the ledger, each in time order, and the email that
+// holds each subscription.
 type accountBasis struct {
 	bindings map[bindingKey][]signInPoint
 	observed map[string][]signInPoint
 	through  map[string]string // each tool's watermark of the last resolution
+	// owners maps a subscription to the one email every sign-in to it names:
+	// the bindings, the observations and the sign-ins the tools keep on disk.
+	// One that two emails held maps to "" (a team's organization, whose members
+	// share it), and its rows fall back to a binding or an observation of it.
+	owners map[string]string
+	// orgTools are the tools whose transcripts name an account (Tool.OrgAccount).
+	orgTools map[string]bool
+	// known are the subscriptions owners named an email for at the last
+	// resolution (accountsOwned).
+	known map[string]bool
 }
 
-func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
+// owned are the subscriptions owners names an email for, sorted.
+func (b accountBasis) owned() []string {
+	var out []string
+	for subscription, email := range b.owners {
+		if email != "" {
+			out = append(out, subscription)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// claim records that a sign-in to subscription named account.
+func (b accountBasis) claim(account, subscription string) {
+	if account == "" || account == "unknown" || subscription == "" || subscription == "unknown" {
+		return
+	}
+	if prev, seen := b.owners[subscription]; seen && prev != account {
+		account = ""
+	}
+	b.owners[subscription] = account
+}
+
+func loadAccountBasis(
+	ctx context.Context,
+	tx *sql.Tx,
+	signIns map[string][]SignIn,
+) (accountBasis, error) {
 	basis := accountBasis{
 		bindings: map[bindingKey][]signInPoint{},
 		observed: map[string][]signInPoint{},
 		through:  map[string]string{},
+		owners:   map[string]string{},
+		orgTools: map[string]bool{},
+	}
+	for _, tool := range Tools {
+		basis.orgTools[tool.Name] = tool.OrgAccount
+	}
+	for _, list := range signIns {
+		for _, s := range list {
+			basis.claim(s.Account, s.Subscription)
+		}
 	}
 	rows, err := tx.QueryContext(ctx,
 		"SELECT tool, session, since, account, subscription FROM session_accounts ORDER BY since")
@@ -1231,6 +1290,7 @@ func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
 			return basis, err
 		}
 		basis.bindings[key] = append(basis.bindings[key], p)
+		basis.claim(p.account, p.subscription)
 	}
 	if err := rows.Close(); err != nil {
 		return basis, err
@@ -1253,6 +1313,7 @@ func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
 			return basis, err
 		}
 		basis.observed[tool] = append(basis.observed[tool], p)
+		basis.claim(p.account, p.subscription)
 	}
 	if err := rows.Close(); err != nil {
 		return basis, err
@@ -1265,20 +1326,55 @@ func loadAccountBasis(ctx context.Context, tx *sql.Tx) (accountBasis, error) {
 			return basis, err
 		}
 	}
+	note, err := metaIn(ctx, tx, accountsOwned)
+	if err != nil {
+		return basis, err
+	}
+	var known []string
+	_ = json.Unmarshal([]byte(note), &known) // unreadable: every one is learned now
+	basis.known = map[string]bool{}
+	for _, subscription := range known {
+		basis.known[subscription] = true
+	}
 	return basis, nil
 }
 
-// attribute is what the ledger's evidence says of a row of tool, its root
-// session and its time ts: the binding of its session with the latest since at
-// or before ts; else the sign-in observed on both sides of ts when the two
-// agree; else unknown, which names no email and no subscription and so changes
-// nothing in a row (a row an earlier build stored keeps its email). A row before
-// the first observation is unknown. A row after
-// the last one has no decision yet (source ""): a later observation may decide it.
-func (b accountBasis) attribute(tool, root, ts string) attribution {
+// attribute is what the ledger's evidence says of row r.
+//
+// A row of a tool whose transcripts name an account (Tool.OrgAccount), whose
+// transcript named its organization, is that organization's: its email is the
+// one every sign-in to it names (owners), as transcript evidence; else that of
+// the evidence below when it is a sign-in to the same organization; else none.
+// The sign-in that was current when the row was made or read may be another:
+// a /login in a running session moves its later responses to another
+// organization without a new binding.
+func (b accountBasis) attribute(r accountRow) attribution {
+	if r.subscriptionSource != EvidenceTranscript || !b.orgTools[r.tool] {
+		return b.signedIn(r.tool, r.root, r.ts)
+	}
+	if email := b.owners[r.subscription]; email != "" {
+		return attribution{email, r.subscription, EvidenceTranscript, true}
+	}
+	want := b.signedIn(r.tool, r.root, r.ts)
+	if want.source != "" && want.subscription != r.subscription {
+		want = attribution{subscription: "unknown", source: EvidenceUnknown}
+	}
+	want.byOrg = true
+	return want
+}
+
+// signedIn is the sign-in the ledger's evidence puts a row of tool, its root
+// session and its time ts under: the binding of its session with the latest
+// since at or before ts; else the sign-in observed on both sides of ts when
+// the two agree; else unknown, which names no email and no subscription and
+// so changes nothing in a row (a row an earlier build stored keeps its email,
+// which no report shows). A row before the first observation is unknown. A
+// row after the last one has no decision yet (source ""): a later observation
+// may decide it.
+func (b accountBasis) signedIn(tool, root, ts string) attribution {
 	if bound := b.bindings[bindingKey{tool, root}]; root != "" {
 		if i := sort.Search(len(bound), func(i int) bool { return bound[i].at > ts }); i > 0 {
-			return attribution{bound[i-1].account, bound[i-1].subscription, EvidenceSession}
+			return attribution{bound[i-1].account, bound[i-1].subscription, EvidenceSession, false}
 		}
 	}
 	seen := b.observed[tool]
@@ -1297,7 +1393,7 @@ func (b accountBasis) attribute(tool, root, ts string) attribution {
 		before.account == "unknown" && before.subscription == "unknown" {
 		return attribution{subscription: "unknown", source: EvidenceUnknown}
 	}
-	return attribution{before.account, before.subscription, EvidenceObserved}
+	return attribution{before.account, before.subscription, EvidenceObserved, false}
 }
 
 type accountRow struct {
@@ -1312,11 +1408,27 @@ type accountRow struct {
 // its transcript never changes. A value that is "unknown" is no evidence and
 // leaves the field as it is, so a row keeps an email an earlier build stored
 // until something names a real one.
+//
+// A row attributed by its organization (byOrg) is the exception: its
+// organization is final, and its email takes the organization's evidence
+// whatever the stored one rests on, which loses its standing when there is none
+// (the text stays, and no report shows it) because it may be another
+// organization's.
 func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 	next = r
 	rank := EvidenceRank(want.source)
-	if rank > 0 && rank >= EvidenceRank(r.accountSource) &&
-		want.account != "" && want.account != "unknown" {
+	named := want.account != "" && want.account != "unknown"
+	switch {
+	case want.byOrg && want.source != "":
+		next.accountSource = EvidenceUnknown
+		if named && rank > 0 {
+			next.account, next.accountSource = want.account, want.source
+		}
+		return next, next != r
+	case want.byOrg:
+		return r, false
+	}
+	if rank > 0 && rank >= EvidenceRank(r.accountSource) && named {
 		next.account, next.accountSource = want.account, want.source
 	}
 	if rank > 0 && rank >= EvidenceRank(r.subscriptionSource) &&
@@ -1329,8 +1441,12 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 // accountsQuery selects the rows ResolveAccounts attributes: those with a
 // field not decided by its transcript, all when scope is nil,
 // else the rows scope stored, the rows of its sessions and of the sessions in
-// dirty, and each tool's rows after its watermark.
-func accountsQuery(scope *Run, dirty []string, through map[string]string) (string, []any, error) {
+// dirty, each tool's rows after its watermark, and the rows of a subscription
+// whose email owners names for the first time (not in known) whose email no
+// transcript decided, so a sign-in seen for the first time names every row of
+// its organization. That last condition reads every row, so it is added only
+// when there is such a subscription.
+func accountsQuery(scope *Run, dirty []string, basis accountBasis) (string, []any, error) {
 	query := `SELECT request_id, tool, ts, root, account, account_source,
 	  subscription, subscription_source FROM responses
 	 WHERE ts <> '' AND (account_source <> '` + EvidenceTranscript + `'
@@ -1357,9 +1473,27 @@ func accountsQuery(scope *Run, dirty []string, through map[string]string) (strin
 		conds = append(conds, "(tool = ? AND root IN (SELECT value FROM json_each(?)))")
 		args = append(args, tool, string(encoded))
 	}
-	for _, tool := range slices.Sorted(maps.Keys(through)) {
+	for _, tool := range slices.Sorted(maps.Keys(basis.through)) {
 		conds = append(conds, "(tool = ? AND ts > ?)")
-		args = append(args, tool, through[tool])
+		args = append(args, tool, basis.through[tool])
+	}
+	var learned []string
+	for _, subscription := range basis.owned() {
+		if !basis.known[subscription] {
+			learned = append(learned, subscription)
+		}
+	}
+	if len(learned) > 0 {
+		encoded, err := json.Marshal(learned)
+		if err != nil {
+			return "", nil, err
+		}
+		conds = append(
+			conds,
+			`(subscription_source = '`+EvidenceTranscript+`' AND account_source <> '`+
+				EvidenceTranscript+`' AND subscription IN (SELECT value FROM json_each(?)))`,
+		)
+		args = append(args, string(encoded))
 	}
 	return query + " AND (" + strings.Join(conds, " OR ") + ")", args, nil
 }
@@ -1376,7 +1510,7 @@ func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, er
 	if err != nil {
 		return nil, false, err
 	}
-	if checked == "" || note == dirtyRootsAll {
+	if checked != accountsRule || note == dirtyRootsAll {
 		return nil, true, nil
 	}
 	if note != "" && json.Unmarshal([]byte(note), &dirty) != nil {
@@ -1393,7 +1527,10 @@ func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, er
 // decided by its transcript never changes, so a row whose transcript named its
 // plan but not its account still takes the email of a binding or an
 // observation. A field is never given weaker evidence than it has, and a row
-// after a tool's latest observation waits for a later one. Rows of a Codex
+// after a tool's latest observation waits for a later one. A row whose
+// transcript named its organization takes that organization's email instead
+// (accountBasis.attribute), learned from every sign-in the ledger recorded and
+// from signIns, the ones each tool keeps on disk now. Rows of a Codex
 // subagent stored under a spawning parent are first moved to the root thread of
 // the links ingest recorded (moveRowsToRoots).
 //
@@ -1405,7 +1542,11 @@ func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, er
 // every row. Either way it clears accountsUnresolved and stores
 // accountsChecked. Ingest calls it after every file of a run is committed, as
 // it calls ResolveTiers.
-func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
+func (l *Ledger) ResolveAccounts(
+	ctx context.Context,
+	scope *Run,
+	signIns map[string][]SignIn,
+) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
 		dirty, full, err := accountsDue(ctx, tx)
 		if err != nil {
@@ -1419,14 +1560,14 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 		if err := fillSessionPlans(ctx, tx); err != nil {
 			return err
 		}
-		basis, err := loadAccountBasis(ctx, tx)
+		basis, err := loadAccountBasis(ctx, tx, signIns)
 		if err != nil {
 			return err
 		}
 		if full {
 			scope = nil
 		}
-		query, args, err := accountsQuery(scope, dirty, basis.through)
+		query, args, err := accountsQuery(scope, dirty, basis)
 		if err != nil {
 			return err
 		}
@@ -1448,7 +1589,7 @@ func (l *Ledger) ResolveAccounts(ctx context.Context, scope *Run) error {
 				_ = rows.Close()
 				return err
 			}
-			if next, ok := r.update(basis.attribute(r.tool, r.root, r.ts)); ok {
+			if next, ok := r.update(basis.attribute(r)); ok {
 				changes = append(changes, change{r.id, next})
 			}
 		}
@@ -1659,12 +1800,20 @@ func moveRowsToRoots(ctx context.Context, tx *sql.Tx) ([]string, error) {
 }
 
 // finishAccounts stores that a resolution ran: each tool's latest observation
-// as its watermark, and no session left to attribute.
+// as its watermark, the subscriptions whose email it knew, and no session left
+// to attribute.
 func finishAccounts(ctx context.Context, tx *sql.Tx, basis accountBasis) error {
 	for tool, points := range basis.observed {
 		if err := setMeta(ctx, tx, accountsThrough+tool, points[len(points)-1].at); err != nil {
 			return err
 		}
+	}
+	owned, err := json.Marshal(basis.owned())
+	if err != nil {
+		return err
+	}
+	if err := setMeta(ctx, tx, accountsOwned, string(owned)); err != nil {
+		return err
 	}
 	if _, err := tx.ExecContext(
 		ctx,
@@ -1673,7 +1822,7 @@ func finishAccounts(ctx context.Context, tx *sql.Tx, basis accountBasis) error {
 	); err != nil {
 		return err
 	}
-	return setMeta(ctx, tx, accountsChecked, "1")
+	return setMeta(ctx, tx, accountsChecked, accountsRule)
 }
 
 // tierSeries are the ledger's tier changes, by series key, in time order.

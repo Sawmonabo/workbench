@@ -160,6 +160,20 @@ func (claude) Accounts(home string) map[string]string {
 	return accounts
 }
 
+// SignIns are the sign-ins on disk (claudeSignIns), oldest first, each as
+// SignIn names the current one.
+func (claude) SignIns(home string) []SignIn {
+	var out []SignIn
+	for _, acct := range claudeSignIns(home) {
+		out = append(out, SignIn{
+			Account:      firstNonEmpty(acct.EmailAddress, "unknown"),
+			Subscription: "claude:" + acct.OrganizationUUID,
+			Label:        claudePlanLabel(acct.OrganizationType, acct.OrganizationName),
+		})
+	}
+	return out
+}
+
 // Labels maps the subscription id of each organization a sign-in on disk
 // belongs to (claudeSignIns) to its report label, the latest sign-in's.
 func (claude) Labels(home string) map[string]string {

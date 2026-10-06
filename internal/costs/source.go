@@ -44,6 +44,14 @@ type accountDirectory interface {
 	Accounts(home string) map[string]string
 }
 
+// signInDirectory is a source that keeps earlier sign-ins on disk: SignIns
+// is each of them and the current one, oldest first. ResolveAccounts learns
+// from them which email holds a subscription that names an account
+// (Tool.OrgAccount), as it does from the sign-ins the ledger recorded.
+type signInDirectory interface {
+	SignIns(home string) []SignIn
+}
+
 // labelDirectory is a source whose transcripts name a subscription by id but
 // not its label: Labels maps each id a sign-in on disk holds to the label the
 // report shows. Ingest uses it for rows whose transcript names the
@@ -71,7 +79,7 @@ const (
 	EvidenceTranscript = "transcript"
 	EvidenceSession    = "session"  // the sign-in a hook bound to the row's root session
 	EvidenceObserved   = "observed" // the sign-in observed on both sides of the row's time
-	EvidenceUnknown    = "unknown"  // no evidence (an upgraded row keeps the email an earlier build stored)
+	EvidenceUnknown    = "unknown"  // no evidence (a row keeps an email an earlier build stored, which no report shows)
 )
 
 // EvidenceRank orders the evidence levels: 3 transcript, 2 session, 1 observed,
@@ -247,6 +255,13 @@ type Tool struct {
 	// first named at or after it; "earlier", the latest named at or before
 	// it; "" nowhere.
 	SessionPlan string
+	// OrgAccount is whether a subscription the tool's transcript names is an
+	// account of its own: Claude Code's credential_org names the organization
+	// that answered, a sign-in's own (or a team's), so a row so named takes the
+	// email of a sign-in to that organization, never that of whichever sign-in
+	// was current when the row was made or read (ResolveAccounts). A Codex plan
+	// is shared by every account on it.
+	OrgAccount bool
 	// Tiers is whether the tool's model ids carry a service tier after "@",
 	// which only its source composes; any other tool's ids are read as they
 	// are, so a vendor id such as "foo@latest" is never split.
@@ -278,6 +293,7 @@ var Tools = []Tool{
 		// A subagent runs in its parent's process, under the credential the
 		// parent's latest credential_org names, and its own file may name none.
 		SessionPlan: planEarlier,
+		OrgAccount:  true,
 		Tiers:       true, // fast mode: "claude-opus-5@fast"
 	},
 	{

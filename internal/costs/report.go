@@ -76,20 +76,33 @@ func subscriptionLabel(id, label string) string {
 }
 
 // planName is how the report names a subscription whose label is label (as
-// subscriptionLabel gives it): the label, or, when no sign-in on disk named the
-// plan and the label is only the id, "plan unknown (org 1234abcd)" with the
-// first part of a Claude organization id, else "plan unknown (<id>)". The
+// subscriptionLabel gives it): the label, or, when no sign-in named the plan
+// and the label is only the id, "plan unknown (org 1234abcd)" (unlabeled). The
 // stored label, the CSV and the JSON keep the id.
 func planName(id, label string) string {
-	if id == "" || label != id {
-		return label
+	if unlabeled(id, label) {
+		return "plan unknown (" + shortID(id) + ")"
 	}
+	return label
+}
+
+// unlabeled reports whether no sign-in named the plan of subscription id,
+// whose label is label (as subscriptionLabel gives it).
+func unlabeled(id, label string) bool { return id != "" && label == id }
+
+// shortID names a subscription id briefly: "org 1234abcd", the first part of
+// a Claude organization id; any other id as it is.
+func shortID(id string) string {
 	if org, ok := strings.CutPrefix(id, "claude:"); ok {
 		short, _, _ := strings.Cut(org, "-")
-		return "plan unknown (org " + short + ")"
+		return "org " + short
 	}
-	return "plan unknown (" + id + ")"
+	return id
 }
+
+// isOrg reports whether subscription id is a Claude organization, which is an
+// account of its own (Tool.OrgAccount).
+func isOrg(id string) bool { return strings.HasPrefix(id, "claude:") }
 
 // AccountName writes an account as the report shows it, "you@example.com · Max":
 // the email, a middle dot, the subscription's label. When neither the account
@@ -106,7 +119,9 @@ func AccountName(account, label string) string {
 
 // Display is how the report names the row: an account row as AccountName,
 // saying which part its tool's transcripts did not record ("you@example.com ·
-// plan not recorded", "account not recorded · Pro", "not recorded"); any
+// plan not recorded", "account not recorded · Pro", "not recorded"), or
+// "unknown account (org 1234abcd)" for an organization whose email no sign-in
+// named; any
 // other by its Name.
 func (r Row) Display() string {
 	if r.Subscription == "" {
@@ -118,12 +133,26 @@ func (r Row) Display() string {
 	switch {
 	case noAccount && noPlan:
 		return "not recorded"
+	case r.UnsignedOrg():
+		// An organization whose email no sign-in named yet: the transcript
+		// named it, so it is one account, just not one seen signed in here.
+		name := "unknown account (" + shortID(r.Subscription) + ")"
+		if !unlabeled(r.Subscription, r.SubscriptionLabel) {
+			name = AccountName(name, label)
+		}
+		return name
 	case noAccount:
 		account = "account not recorded"
 	case noPlan:
 		label = "plan not recorded"
 	}
 	return AccountName(account, label)
+}
+
+// UnsignedOrg reports whether the row is an organization whose email no
+// sign-in named, which Display shows as "unknown account (org 1234abcd)".
+func (r Row) UnsignedOrg() bool {
+	return (r.Name == "" || r.Name == "unknown") && isOrg(r.Subscription)
 }
 
 // Block is one project of a --detail report with its own model rows.
@@ -377,7 +406,7 @@ func loadGroups(
 		if !inPeriod(r.ts) {
 			return
 		}
-		k := key{r.project, r.model, r.account, r.subscription, localMonth(r.ts)}
+		k := key{r.project, r.model, shownAccount(r), r.subscription, localMonth(r.ts)}
 		g := byKey[k]
 		if g == nil {
 			g = &group{
@@ -431,6 +460,17 @@ func loadGroups(
 		groups = append(groups, *g)
 	}
 	return groups, len(hidden), tally, nil
+}
+
+// shownAccount is the email a report names a response under: the stored one
+// when evidence names it, else "unknown". An email with no evidence is one an
+// earlier build stamped with whoever was signed in when it read the row, which
+// says nothing of who made it.
+func shownAccount(r response) string {
+	if EvidenceRank(r.accountSource) == 0 {
+		return "unknown"
+	}
+	return r.account
 }
 
 // response is one ledger row as a report reads it.

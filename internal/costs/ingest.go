@@ -172,6 +172,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	}
 	run := NewRun()
 	served := map[string]func(model, tier string) string{}
+	signIns := keptSignIns(paths.Home)
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
@@ -242,7 +243,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	if full {
 		run = nil
 	}
-	resolved, err := resolveRun(ctx, ledger, paths.Home, run, served)
+	resolved, err := resolveRun(ctx, ledger, paths.Home, run, signIns, served)
 	if err != nil {
 		return "", err
 	}
@@ -263,6 +264,19 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	return summary, finishIngest(ledger, paths, summary, errs)
 }
 
+// keptSignIns are the sign-ins each tool keeps on disk now (signInDirectory),
+// read before its transcripts so a sign-in that moves on during the run still
+// names the rows it made.
+func keptSignIns(home string) map[string][]SignIn {
+	out := map[string][]SignIn{}
+	for _, tool := range Tools {
+		if directory, ok := tool.Source.(signInDirectory); ok {
+			out[tool.Name] = directory.SignIns(home)
+		}
+	}
+	return out
+}
+
 // resolveRun is what a run does once every transcript is committed: observe
 // the sign-ins, then attribute rows to accounts and price their tiers. A
 // cancelled run stops with ctx's error before the rates refresh and leaves the
@@ -272,6 +286,7 @@ func resolveRun(
 	ledger *Ledger,
 	home string,
 	run *Run,
+	signIns map[string][]SignIn,
 	served map[string]func(model, tier string) string,
 ) (errs []string, err error) {
 	for _, step := range []struct {
@@ -279,7 +294,7 @@ func resolveRun(
 		do   func() error
 	}{
 		{"sign-ins", func() error { return observeSignIns(ctx, ledger, home) }},
-		{"accounts", func() error { return ledger.ResolveAccounts(ctx, run) }},
+		{"accounts", func() error { return ledger.ResolveAccounts(ctx, run, signIns) }},
 		{"service tiers", func() error { _, err := ledger.ResolveTiers(ctx, run, served); return err }},
 	} {
 		if err := step.do(); err != nil {

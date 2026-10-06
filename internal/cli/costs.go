@@ -1275,9 +1275,14 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 	if report.By != "account" && len(report.Accounts) < 2 {
 		return nil
 	}
-	var account, plan bool
+	var account, plan, unsigned bool
 	for _, row := range report.Accounts {
-		account = account || row.Name == "" || row.Name == "unknown"
+		switch {
+		case row.UnsignedOrg():
+			unsigned = true
+		case row.Name == "" || row.Name == "unknown":
+			account = true
+		}
 		plan = plan || row.Subscription == "unknown"
 	}
 	since := func(part, at string, missing int64) string {
@@ -1299,14 +1304,32 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 	}
 	var notes []string
 	c := report.Coverage
-	if account {
-		notes = append(notes, since("account", c.AccountNamedSince, c.AccountEvidence.Unknown))
+	if tool.OrgAccount {
+		// The organization a transcript names is the account: what names one
+		// names the other, from the same row on.
+		c.AccountNamedSince, c.AccountEvidence = c.SubscriptionNamedSince, c.SubscriptionEvidence
 	}
-	if plan {
-		notes = append(
-			notes,
-			since("plan", c.SubscriptionNamedSince, c.SubscriptionEvidence.Unknown),
-		)
+	switch {
+	case account && plan && c.AccountNamedSince != "" &&
+		c.AccountNamedSince == c.SubscriptionNamedSince &&
+		costs.LocalDate(c.AccountNamedSince) > c.First:
+		notes = append(notes, fmt.Sprintf(
+			"%s records the account and plan only since %s; earlier usage has no record of them",
+			tool.Title, localTime(c.AccountNamedSince)))
+	default:
+		if account {
+			notes = append(notes, since("account", c.AccountNamedSince, c.AccountEvidence.Unknown))
+		}
+		if plan {
+			notes = append(
+				notes,
+				since("plan", c.SubscriptionNamedSince, c.SubscriptionEvidence.Unknown),
+			)
+		}
+	}
+	if unsigned {
+		notes = append(notes, "unknown account (org …): Workbench has not seen that account "+
+			"signed in yet; sign in to it once and its rows show its email and plan")
 	}
 	return notes
 }

@@ -488,23 +488,33 @@ Each row stores `account` (the email) with `account_source`, and
 with the evidence it came from, decided on their own because a transcript can
 name a plan without naming an account. A copy of a row with stronger evidence
 for a field replaces that field; equal evidence keeps the stored value. A row
-shows an email only with evidence for it: its transcript's account id, a
-session binding, or agreeing observations (or, for a row a version 1 or 2
-ledger held, the email that build stored). A value that is `unknown` is no
-evidence and never raises a field.
+shows an email only with evidence for it: its transcript's account id or
+organization, a session binding, or agreeing observations. An email stored at
+evidence `unknown` (one an earlier build stamped with whoever was signed in
+when it read the row) stays in the ledger but no report shows it. A value that
+is `unknown` is no evidence and never raises a field.
 
 1. `transcript`: Codex: the plan from the response's file as above is the
    subscription's evidence, and the sign-in whose `chatgpt_account_id` equals
    the file's `creator_account_id` is the email's. Claude Code: the latest
    `credential_org` read in the response's file, kept in the file's saved
-   state, is the subscription (`claude:<organizationUuid>`), and the email
-   signed in to that organization in `.claude.json` or one of its backups is
-   the email's; an organization two emails were signed in to names no email.
-   A row before its file's first `credential_org` names neither. Without these
-   ids the email (and for Claude Code the subscription) takes rule 2 or 3 on
-   its own, so a row whose transcript named only the plan still takes the
-   email of a binding or an observation, and nothing but a transcript changes
-   what a transcript decided. A row whose own file names no subscription
+   state, is the subscription (`claude:<organizationUuid>`). The organization
+   is the account (`Tool.OrgAccount`): the email every sign-in to it names is
+   the email's, whether `.claude.json` or one of its backups holds that
+   sign-in or the ledger recorded it as a binding or an observation (rules 2
+   and 3), so a sign-in seen once names every row of its organization, past
+   and future. An organization two emails were signed in to (a team's) names
+   no email this way, and its rows take rule 2 or 3 only from a sign-in to that
+   same organization. A row so named never takes the email of a binding or an
+   observation of another organization: a `/login` in a running session moves
+   its later responses to another organization without a new binding, and
+   the sign-in current when Workbench reads the rows may be another again. With
+   none, the row has no email and shows `unknown account (org 1234abcd)` until
+   a sign-in to it is seen. A row before its file's first `credential_org`
+   names neither. Without these ids the email (and for Claude Code the
+   subscription) takes rule 2 or 3 on its own, so a Codex row whose transcript
+   named only the plan still takes the email of a binding or an observation,
+   and nothing but a transcript changes what a transcript decided. A row whose own file names no subscription
    takes one its session's transcript names, as transcript evidence, with the
    email that row's transcript named: a Codex row the first plan its own
    thread names at or after it (a thread's first `token_count` lines can have
@@ -542,7 +552,8 @@ evidence and never raises a field.
    the first observation, or of a bound session, take an email. The one
    exception is a row an earlier build stored: a version 1 or 2 ledger's row
    keeps its email, at evidence `unknown`, until evidence names another, and
-   its subscription is `unknown`.
+   its subscription is `unknown`. No report shows that email: the row reads
+   `not recorded`.
 
 Subscription ids and labels: Claude `claude:<organizationUuid>`, label from
 `organizationType` with the `claude_` prefix removed and the first letter
@@ -562,10 +573,10 @@ sign-in that names the id, so a renamed organization relabels its history.
 
 - A Claude Code `/login` to another organization inside a running session:
   on a version that writes `credential_org` the next one names the new organization
-  and its rows follow it. On earlier versions its rows keep the subscription
-  of the session's binding, because a session binding outranks an
-  observation, until a later `SessionStart` of that session (a resume,
-  `/clear` or compaction) binds the new sign-in.
+  and its rows follow it, email and plan (rule 1). On earlier versions its rows
+  keep the subscription of the session's binding, because a session binding
+  outranks an observation, until a later `SessionStart` of that session (a
+  resume, `/clear` or compaction) binds the new sign-in.
 - Whether a running Claude Code session follows a `/login` made in another
   terminal is not stated by the official docs, which say only that parallel
   sessions on one machine "share a saved login and coordinate its renewal so
@@ -579,17 +590,20 @@ sign-in that names the id, so a renamed organization relabels its history.
   in-memory token is not re-read after a `/login` elsewhere
   (`anthropics/claude-code` issue 95262, v2.1.268). Workbench therefore
   assumes a running session keeps the login it started or resumed under, which
-  is what rule 2 records; it does not claim the docs confirm it. A session
-  started or resumed after the `/login` is bound to the new sign-in.
+  is what rule 2 records for a row whose transcript names no organization; it
+  does not claim the docs confirm it. A session started or resumed after the
+  `/login` is bound to the new sign-in.
 - A `SessionEnd` binding attributes nothing: it is stored at the exit time,
   after every row of its session, and a session that had a `SessionStart`
   binding keeps that one for all its rows. The final rows of a session that
   had none (it began before the hooks were installed) are attributed by the
   run's observation, rule 3.
 - An organization's email comes from `.claude.json` and its backups, which
-  Claude Code rotates (a few days deep). A stored row keeps the email it was
-  given; only a later `ParseRevision` re-read after the backup is gone would
-  leave that organization's rows to rules 2 and 3 for the email.
+  Claude Code rotates (it keeps a few recent copies), and from the bindings and
+  observations the ledger recorded, which it keeps. An organization Workbench
+  never saw signed in, one used only before its hooks were installed, shows
+  `unknown account (org 1234abcd)` until a sign-in to it is seen; that sign-in
+  then names all of its rows.
 - Claude Code history written by a version that writes no `credential_org`
   (most of a history from before 2.1.282), or before its file's first
   `credential_org`, names no organization; ingested before the first
@@ -608,9 +622,13 @@ sign-in that names the id, so a renamed organization relabels its history.
   under other groupings does too. JSON rows gain `subscription` and
   `subscription_label`. A row names what its tool did not record:
   `you@example.com · plan not recorded`, `account not recorded · Pro`, or
-  `not recorded`. A subscription no sign-in on disk labelled shows as
+  `not recorded`. A subscription no sign-in labelled shows as
   `plan unknown (org 1234abcd)`, the start of its organization id (the CSV
-  and JSON keep the id). Under the table a note says since when the tool records
+  and JSON keep the id), and a Claude Code organization whose email no
+  sign-in named as `unknown account (org 1234abcd)`, with a note that signing
+  in to it once names it. When the account and plan are recorded from the
+  same row on, as for Claude Code, whose organization is both, one note says
+  so for both. Under the table a note says since when the tool records
   each missing part (the first row whose transcript named it), or, when it
   did so from the first row, how many responses come from conversations that
   never named it. The JSON `coverage` has `account_named_since` and

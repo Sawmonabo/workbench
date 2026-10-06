@@ -122,7 +122,11 @@ prefix, with any of `input`, `output`, `cache_write_5m`, `cache_write_1h` and
 `cache_read` in USD per million tokens.
 The account table names each row's email and plan only from what Claude Code
 and Codex wrote down; usage they never recorded shows `not recorded`, with a
-note saying since when each tool records it. See the
+note saying since when each tool records it. A Claude Code row belongs to the
+organization its transcript names, whoever was signed in when Workbench read
+it: an organization Workbench has not seen signed in shows `unknown account
+(org 1234abcd)` until you sign in to that account once, which names all of its
+rows. See the
 [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md) and
 [subscriptions](superpowers/specs/2026-10-01-codex-costs-design.md).
 
