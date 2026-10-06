@@ -339,7 +339,7 @@ images block. A file whose outcome Workbench could not record, because it was
 stopped or crashed while chezmoi wrote, is checked when you revert: a file
 holding exactly what the apply wrote is restored, one holding exactly what was
 there before needs nothing, and the plan says the files were checked now. On a
-Mac, a file chezmoi created may still have the group its temporary file had;
+Mac, a file chezmoi created may still have the group of its temporary folder;
 revert gives it the group the apply approved, then restores it. A file holding
 anything else blocks like a later edit. A later edit is reported with the names of
 the changed files (`Changed since Workbench wrote them, so nothing was restored:

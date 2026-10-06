@@ -113,8 +113,8 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 // Workbench was stopped or crashed meanwhile, from what the target holds now:
 // the approved image means written, the earlier one untouched. Only an exact
 // match of either counts, so a revert never undoes anything the checkpoint did
-// not write. A target native created may still carry the group its temporary
-// file had, as nativeOutput allows; it counts as written, and Recover gives it
+// not write. A target native created may still carry the group of its
+// temporary folder, as nativeOutput allows; it counts as written, and Recover gives it
 // the approved group before restoring anything. It returns false, and records
 // nothing, for a target that holds neither.
 func (cp *Checkpoint) confirm(i int, current Image) bool {

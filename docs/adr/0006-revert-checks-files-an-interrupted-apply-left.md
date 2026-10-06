@@ -47,7 +47,7 @@ that, then run workbench apply again", though there was nothing to fix.
   again finishes the rest."), not as a failed step to fix.
 - Revert decides each file still unknown from what it holds now: exactly the
   approved content means written, exactly the earlier content means untouched.
-  A file chezmoi created that differs only by the group its temporary file had
+  A file chezmoi created that differs only by the group of its temporary folder
   counts as written; revert gives it the approved group, then restores it. A
   file holding anything else stops the revert, named like a later edit.
 - The check runs at revert, not at the next apply. Every apply binds each
