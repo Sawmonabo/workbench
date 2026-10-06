@@ -354,7 +354,8 @@ Rules:
   short form for narrow terminals.
 - Footer: only notes that report something: `N of M <key>s shown; totals
   cover all` under `--top`; `N projects outside ~/dev and ~/repos hidden
-  (--all shows them)` when N > 0; the `--tokens` legend under `--tokens`.
+  (--all shows them)` when N > 0, naming only those of the two folders that
+  exist (both when neither does); the `--tokens` legend under `--tokens`.
   Notes join with ` · ` on one line when that fits, otherwise one per line.
 - Empty result: `no responses matched (check \`claude-costs status\`)`, or
   when the scope hid projects, `no responses matched in ~/dev and ~/repos;
@@ -370,7 +371,7 @@ Rules:
 | `--by project` | Default. One line per repository. |
 | `--by model`, `--by account`, `--by month` | One line per value of that dimension. |
 | `--since`, `--until` | Inclusive `YYYY-MM-DD` bounds on the response's day in the machine's local time zone; months and days in the report (`--by month`, a focus page's day table) and the dates of `status` coverage are local too. |
-| `--all` | Include projects outside `~/dev` and `~/repos`. |
+| `--all` | Include projects outside `~/dev` and `~/repos` (those that exist). |
 | `--top N` | Show the first N rows; totals and shares still cover every row. |
 | `--sort cost\|name\|calls` | Row order; cost descending by default. |
 | `--detail` | Per-project blocks with model rows (project view). |

@@ -163,7 +163,7 @@ type ReportOptions struct {
 	Tool         string // the ledger's tool column
 	By           string // project (default), model, account or month
 	Since, Until string // inclusive YYYY-MM-DD bounds on the response's day in the machine's time zone
-	All          bool   // include projects outside ~/dev and ~/repos
+	All          bool   // include projects outside the project folders (Statement.Scope)
 	Top          int    // show only the first N rows; totals still cover all
 	Sort         string // cost (default), name or calls
 	Detail       bool   // project view: a model table per project
@@ -190,6 +190,7 @@ type Statement struct {
 	Models     []Row      `json:"models"`
 	Accounts   []Row      `json:"accounts"`
 	Detail     []Block    `json:"detail,omitempty"`
+	Scope      []string   `json:"scope"`           // the project folders the default view covers
 	Hidden     int        `json:"hidden_projects"` // projects the default scope left out
 	Unpriced   []Unpriced `json:"unpriced"`        // models without a rate, and why
 	Overrides  string     `json:"overrides"`       // the file a rate for them goes in
@@ -230,7 +231,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if err != nil {
 		return report, err
 	}
-	report.Hidden = hidden
+	report.Scope, report.Hidden = scopeRoots(paths.Home), hidden
 	if report.Coverage, err = coverage(ledger, card.Fetched[opts.Tool], opts.Tool); err != nil {
 		return report, err
 	}
@@ -292,7 +293,7 @@ func span(groups []group) (first, last string) {
 // directory below a scope root, else the path before `/.worktrees/`.
 func rollup(project, home string) string {
 	clean := filepath.Clean(project)
-	for _, root := range scopeRoots(home) {
+	for _, root := range projectRoots(home) {
 		if rel, ok := strings.CutPrefix(clean, root+string(filepath.Separator)); ok {
 			first, _, _ := strings.Cut(rel, string(filepath.Separator))
 			return filepath.Join(root, first)
@@ -302,13 +303,30 @@ func rollup(project, home string) string {
 	return before
 }
 
-func scopeRoots(home string) []string {
+// projectRoots are the project folders: ~/dev for personal projects and
+// ~/repos for work ones, the folders the machine roles use.
+func projectRoots(home string) []string {
 	return []string{filepath.Join(home, "dev"), filepath.Join(home, "repos")}
 }
 
-func inScope(project, home string) bool {
+// scopeRoots are the project folders that exist on this machine, which the
+// default view covers and the report names; both when neither exists.
+func scopeRoots(home string) []string {
+	var roots []string
+	for _, root := range projectRoots(home) {
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			roots = append(roots, root)
+		}
+	}
+	if len(roots) == 0 {
+		return projectRoots(home)
+	}
+	return roots
+}
+
+func inScope(project string, roots []string) bool {
 	clean := filepath.Clean(project)
-	for _, root := range scopeRoots(home) {
+	for _, root := range roots {
 		if clean == root || strings.HasPrefix(clean, root+string(filepath.Separator)) {
 			return true
 		}
@@ -344,7 +362,7 @@ func loadGroups(
 	}
 	defer func() { _ = rows.Close() }()
 	var groups []group
-	hidden := map[string]bool{}
+	hidden, roots := map[string]bool{}, scopeRoots(home)
 	for rows.Next() {
 		var g group
 		if err := rows.Scan(
@@ -356,7 +374,7 @@ func loadGroups(
 		if !opts.NoRollup {
 			g.project = rollup(g.project, home)
 		}
-		if !opts.All && !inScope(g.project, home) {
+		if !opts.All && !inScope(g.project, roots) {
 			hidden[g.project] = true
 			continue
 		}

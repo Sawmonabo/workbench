@@ -74,6 +74,7 @@ func FocusOn(
 	}
 	defer func() { _ = rows.Close() }()
 	var groups []focusGroup
+	roots := scopeRoots(paths.Home)
 	for rows.Next() {
 		var g focusGroup
 		if err := rows.Scan(
@@ -85,7 +86,7 @@ func FocusOn(
 		if !opts.NoRollup {
 			g.project = rollup(g.project, paths.Home)
 		}
-		if (!opts.All && !inScope(g.project, paths.Home)) ||
+		if (!opts.All && !inScope(g.project, roots)) ||
 			(kind == "project" && g.project != name) {
 			continue
 		}

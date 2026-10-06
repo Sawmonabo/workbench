@@ -66,7 +66,12 @@ func costsCommand(o *options) *cobra.Command {
 		"",
 		"Last day to include, YYYY-MM-DD in this machine's time zone",
 	)
-	flags.BoolVar(&f.all, "all", false, "Include projects outside ~/dev and ~/repos")
+	flags.BoolVar(
+		&f.all,
+		"all",
+		false,
+		"Include projects outside your project folders, ~/dev and ~/repos where present",
+	)
 	flags.IntVar(&f.top, "top", 0, "Show the first N rows; totals still cover all")
 	flags.StringVar(&f.sort, "sort", "cost", "Row order: cost, name or calls")
 	flags.BoolVar(&f.detail, "detail", false, "With --by project, a model table per project")
@@ -678,6 +683,16 @@ func rowName(tool costs.Tool, name string) string {
 	return shortPath(name)
 }
 
+// scopeNames names the folders a report's default view covers, "~/dev" or
+// "~/dev and ~/repos".
+func scopeNames(roots []string) string {
+	names := make([]string, len(roots))
+	for i, root := range roots {
+		names[i] = shortPath(root)
+	}
+	return strings.Join(names, " and ")
+}
+
 // shortPath writes a path under the home directory as ~/...
 func shortPath(path string) string {
 	home, err := os.UserHomeDir()
@@ -746,7 +761,8 @@ func costsReport(tool costs.Tool, report costs.Statement, width int) string {
 func emptyReport(report costs.Statement) string {
 	if report.Hidden > 0 {
 		return fmt.Sprintf(
-			"no responses matched in ~/dev and ~/repos; %d projects elsewhere (--all shows them)",
+			"no responses matched in %s; %d projects elsewhere (--all shows them)",
+			scopeNames(report.Scope),
 			report.Hidden,
 		)
 	}
@@ -1208,9 +1224,10 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 	}
 	if report.Hidden > 0 {
 		notes = append(notes, fmt.Sprintf(
-			"%d project%s outside ~/dev and ~/repos hidden (--all shows them)",
+			"%d project%s outside %s hidden (--all shows them)",
 			report.Hidden,
 			plural(report.Hidden),
+			scopeNames(report.Scope),
 		))
 	}
 	notes = append(notes, unrecordedNotes(tool, report)...)
