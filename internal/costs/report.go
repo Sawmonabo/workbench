@@ -75,6 +75,22 @@ func subscriptionLabel(id, label string) string {
 	return id
 }
 
+// planName is how the report names a subscription whose label is label (as
+// subscriptionLabel gives it): the label, or, when no sign-in on disk named the
+// plan and the label is only the id, "plan unknown (org 1234abcd)" with the
+// first part of a Claude organization id, else "plan unknown (<id>)". The
+// stored label, the CSV and the JSON keep the id.
+func planName(id, label string) string {
+	if id == "" || label != id {
+		return label
+	}
+	if org, ok := strings.CutPrefix(id, "claude:"); ok {
+		short, _, _ := strings.Cut(org, "-")
+		return "plan unknown (org " + short + ")"
+	}
+	return "plan unknown (" + id + ")"
+}
+
 // AccountName writes an account as the report shows it, "you@example.com · Max":
 // the email, a middle dot, the subscription's label. When neither the account
 // nor the subscription is known it is just "unknown".
@@ -96,7 +112,7 @@ func (r Row) Display() string {
 	if r.Subscription == "" {
 		return r.Name
 	}
-	account, label := r.Name, r.SubscriptionLabel
+	account, label := r.Name, planName(r.Subscription, r.SubscriptionLabel)
 	noAccount := account == "" || account == "unknown"
 	noPlan := label == unknownSubscription
 	switch {
@@ -598,7 +614,9 @@ type SignInStatus struct {
 }
 
 // Display writes the sign-in as the report names an account, "you@example.com · Max".
-func (s SignInStatus) Display() string { return AccountName(s.Account, s.Label) }
+func (s SignInStatus) Display() string {
+	return AccountName(s.Account, planName(s.Subscription, s.Label))
+}
 
 // ToolStatus is one tool's coverage, sign-in and hooks.
 type ToolStatus struct {

@@ -608,7 +608,9 @@ sign-in that names the id, so a renamed organization relabels its history.
   under other groupings does too. JSON rows gain `subscription` and
   `subscription_label`. A row names what its tool did not record:
   `you@example.com · plan not recorded`, `account not recorded · Pro`, or
-  `not recorded`. Under the table a note says since when the tool records
+  `not recorded`. A subscription no sign-in on disk labelled shows as
+  `plan unknown (org 1234abcd)`, the start of its organization id (the CSV
+  and JSON keep the id). Under the table a note says since when the tool records
   each missing part (the first row whose transcript named it), or, when it
   did so from the first row, how many responses come from conversations that
   never named it. The JSON `coverage` has `account_named_since` and
