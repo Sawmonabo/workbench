@@ -3,6 +3,20 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.14](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.14) - 2026-10-06
+
+### Fixes
+
+- Name the folder when one of Workbench's own folders is a link or a file
+- Say why nothing was installed into ~/.local/bin
+- An apply stopped mid-run or by a crash can be reverted, and ctrl+c says it was interrupted
+
+### Documentation
+
+- Say a file chezmoi creates takes its temporary folder's group
+- Record interrupted and crashed applies and the ~/.local/bin reasons
+- Revert checks the files an interrupted apply left unrecorded
+
 ## [v0.1.13](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.13) - 2026-10-05
 
 ### Fixes
