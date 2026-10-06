@@ -25,11 +25,12 @@ stops the others (see [usage](usage.md)): a failed package, runtime or tool
 install, or one missing because an earlier step could not install it, is named on
 its own step, the other steps still run, the apply ends with exit 3 and the next
 apply tries again.
-Programs go into `~/.local/bin` only when it, and `~/.local`, are real folders:
-when either is a link (into a dotfiles repository, say) or a file, the System
-packages and Runtime managers steps install nothing and say so in the plan and
-on their result lines (`~/.local/bin is a link to another folder, and Workbench
-installs nothing through a link; make it a real folder`). A command already in
+Workbench keeps its own command in `~/.local/bin`, so when that folder or
+`~/.local` is a link (into a dotfiles repository, say) or a file, it stops before
+planning and names it (`/home/you/.local/bin is a link; Workbench keeps its own
+files only in real folders, so make it one`). The System packages and Runtime
+managers steps check the same before they install programs there, and name it in
+the plan and on their result lines. A command already in
 `~/.local/bin` that Workbench did not put there is left alone, and the part that
 would install it says so (`gh was not installed: ~/.local/bin/gh already exists
 and Workbench did not make it, so it was left alone`).

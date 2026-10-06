@@ -289,11 +289,15 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"path",
-					"Workbench private paths must not traverse symlinks",
+					current+" is a link; Workbench keeps its own files only in real folders, so make it one",
 				)
 			}
 			if current != path && !info.IsDir() {
-				return Fail(ExitInvalid, "path", "Workbench path parent is not a directory")
+				return Fail(
+					ExitInvalid,
+					"path",
+					current+" is a file, not a folder, so Workbench cannot keep its files under it",
+				)
 			}
 			stat, ok := info.Sys().(*syscall.Stat_t)
 			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
