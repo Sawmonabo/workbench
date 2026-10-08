@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.19](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.19) - 2026-10-08
+
+### Fixes
+
+- Match Claude Code's read deny rules to the credential files they guard
+
 ## [v0.1.18](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.18) - 2026-10-06
 
 ### Fixes
