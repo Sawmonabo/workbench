@@ -68,6 +68,22 @@ if command -v uv &> /dev/null; then
     eval "$(uv generate-shell-completion zsh)"
 fi
 
+# Workbench: Tab completion for its commands and flags. The script is saved
+# once per installed workbench and sourced after compinit, so a new shell
+# runs workbench only after an update or the first time.
+if (( ${+commands[workbench]} )); then
+    _workbench_bin=${commands[workbench]:A}
+    _workbench_completion=${XDG_CACHE_HOME:-$HOME/.cache}/workbench-completion.zsh
+    _workbench_saved=
+    [[ -r $_workbench_completion ]] && read -r _workbench_saved < "$_workbench_completion"
+    if [[ $_workbench_saved != "# $_workbench_bin" ]]; then
+        mkdir -p "${_workbench_completion:h}" &&
+            { print -r -- "# $_workbench_bin"; workbench completion zsh; } >| "$_workbench_completion"
+    fi
+    source "$_workbench_completion"
+    unset _workbench_bin _workbench_completion _workbench_saved
+fi
+
 # --- Aliases ---
 alias ls='ls -lhaG'
 alias ll='ls -alF'

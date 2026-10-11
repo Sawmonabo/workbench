@@ -57,6 +57,17 @@ logged-in `gh`. Never run it as root.
 | `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until DATE` (a day in this machine's time zone), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code and Codex run on session start and end: silent, exits 0, starts a detached worker. `--worker` ingests in the foreground. |
+| `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
+
+Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
+`--language` offer their choices, `init --ask` the saved answers it can ask
+again, `revert --checkpoint` the saved checkpoints with when each was saved,
+and a project `PATH` folders only; a flag that takes no file offers no files.
+The shell startup file saves the script once per installed `workbench` under
+`~/.cache` (`XDG_CACHE_HOME`) and loads that copy, so a new shell does not run
+`workbench` again until an update changes it. Bash needs the bash-completion
+package, which Ubuntu installs; without it the shell starts as before, with no
+Workbench completion.
 
 `update` and `version --list` read the releases from GitHub. They need no
 login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which

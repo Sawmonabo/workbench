@@ -112,13 +112,19 @@ func invalidCostsFlag(format string, args ...any) error {
 	return operation.Fail(operation.ExitInvalid, "invocation", fmt.Sprintf(format, args...))
 }
 
+// The values --by and --sort take.
+var (
+	costsGroupings = []string{"project", "model", "account", "month"}
+	costsOrders    = []string{"cost", "name", "calls"}
+)
+
 // validate checks the flags and returns the tool they name.
 func (f *costsFlags) validate() (costs.Tool, error) {
 	var none costs.Tool
-	if !slices.Contains([]string{"project", "model", "account", "month"}, f.by) {
+	if !slices.Contains(costsGroupings, f.by) {
 		return none, invalidCostsFlag("--by must be project, model, account or month")
 	}
-	if !slices.Contains([]string{"cost", "name", "calls"}, f.sort) {
+	if !slices.Contains(costsOrders, f.sort) {
 		return none, invalidCostsFlag("--sort must be cost, name or calls")
 	}
 	for flag, day := range map[string]string{"--since": f.since, "--until": f.until} {

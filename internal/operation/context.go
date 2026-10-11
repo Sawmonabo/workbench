@@ -57,6 +57,9 @@ type Options struct {
 	ReadOnly                  bool
 }
 
+// Languages are the values --language takes.
+var Languages = []string{"python", "javascript", "typescript", "rust", "go"}
+
 // Resolve reads paths only: it never creates runtime directories or answers.
 func Resolve(options Options) (Context, error) {
 	c := Context{ReadOnly: options.ReadOnly}
@@ -89,9 +92,7 @@ func Resolve(options Options) (Context, error) {
 		}
 	}
 	for _, language := range options.Languages {
-		switch language {
-		case "python", "javascript", "typescript", "rust", "go":
-		default:
+		if !slices.Contains(Languages, language) {
 			return c, Fail(
 				ExitInvalid,
 				"language",

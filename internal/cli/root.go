@@ -110,6 +110,7 @@ func newRoot(o *options) *cobra.Command {
 		askpassCommand(o),
 		costsCommand(o),
 	)
+	registerCompletions(root)
 	return root
 }
 

@@ -74,26 +74,10 @@ func CheckAsk(c operation.Context, ask []string) error {
 	if len(ask) == 0 {
 		return nil
 	}
-	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
-	if err != nil {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"ask",
-			"--ask changes saved answers, and this machine has none; "+
-				c.WorkbenchCommand()+" apply asks every question",
-		)
-	}
-	answers, err := readAnswers(raw)
+	askable, err := Askable(c)
 	if err != nil {
 		return err
 	}
-	var askable []string
-	for key := range answers {
-		if !slices.Contains(derivedAnswers, key) {
-			askable = append(askable, key)
-		}
-	}
-	slices.Sort(askable)
 	for _, key := range ask {
 		if !slices.Contains(askable, key) {
 			return operation.Fail(
@@ -108,6 +92,32 @@ func CheckAsk(c operation.Context, ask []string) error {
 		}
 	}
 	return nil
+}
+
+// Askable lists, sorted, the saved answers --ask can ask again: every saved
+// answer except the derived ones.
+func Askable(c operation.Context) ([]string, error) {
+	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	if err != nil {
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"ask",
+			"--ask changes saved answers, and this machine has none; "+
+				c.WorkbenchCommand()+" apply asks every question",
+		)
+	}
+	answers, err := readAnswers(raw)
+	if err != nil {
+		return nil, err
+	}
+	var askable []string
+	for key := range answers {
+		if !slices.Contains(derivedAnswers, key) {
+			askable = append(askable, key)
+		}
+	}
+	slices.Sort(askable)
+	return askable, nil
 }
 
 // validateAnswers is also the post-init gate. It never silently defaults missing
