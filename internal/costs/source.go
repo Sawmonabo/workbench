@@ -79,18 +79,23 @@ const (
 	EvidenceTranscript = "transcript"
 	EvidenceSession    = "session"  // the sign-in a hook bound to the row's root session
 	EvidenceObserved   = "observed" // the sign-in observed on both sides of the row's time
-	EvidenceUnknown    = "unknown"  // no evidence (a row keeps an email an earlier build stored, which no report shows)
+	// the account the tool's records put in the row's login stretch, which no
+	// record of the row itself names (accountBasis.inferred)
+	EvidenceInferred = "inferred"
+	EvidenceUnknown  = "unknown" // no evidence (a row keeps an email an earlier build stored, which no report shows)
 )
 
-// EvidenceRank orders the evidence levels: 3 transcript, 2 session, 1 observed,
-// 0 unknown or anything else.
+// EvidenceRank orders the evidence levels: 4 transcript, 3 session, 2
+// observed, 1 inferred, 0 unknown or anything else.
 func EvidenceRank(evidence string) int {
 	switch evidence {
 	case EvidenceTranscript:
-		return 3
+		return 4
 	case EvidenceSession:
-		return 2
+		return 3
 	case EvidenceObserved:
+		return 2
+	case EvidenceInferred:
 		return 1
 	default:
 		return 0
@@ -178,8 +183,42 @@ type FileState struct {
 	Tiers []TierChange
 	// Parents are the spawning links read this run; ingest stores them.
 	Parents []ThreadParent
+	// Marks are the account marks read this run; ingest stores them.
+	Marks []AccountMark
 
 	cache any // the source's decoded Saved during one read
+}
+
+// The kinds of AccountMark.
+const (
+	MarkLogin   = "login"   // a sign-in happened at Time
+	MarkAccount = "account" // the tool's own id of the signed-in account was Account at Time
+	MarkOrg     = "org"     // the signed-in organization was Org at Time
+	MarkPair    = "pair"    // a sign-in on disk holds account id Account in organization Org
+)
+
+// AccountMark is a record of who was signed in, for rows whose own records
+// name no account: a sign-in that starts a login stretch, an account id or an
+// organization seen during one, or a sign-in that pairs an account id with
+// its organization. ResolveAccounts infers a stretch's account from its marks
+// (accountBasis.inferred). Time is zero for a MarkPair.
+type AccountMark struct {
+	Kind         string
+	Time         time.Time
+	Account, Org string
+}
+
+// markSource is a source that keeps account marks outside its transcripts
+// (Claude Code's prompt history and saved sign-ins); ingest stores them each
+// run.
+type markSource interface {
+	Marks(home string) []AccountMark
+}
+
+// finisher is a source that saves its state once a read of a file ends,
+// instead of after each line that changes it.
+type finisher interface {
+	Finish(file *FileState)
 }
 
 // ThreadParent is a thread the file names as spawned by another: its

@@ -1,6 +1,7 @@
 package costs
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -77,6 +78,7 @@ func (claude) Transcripts(home string) ([]string, error) {
 // claudeOAuth is the oauthAccount a .claude.json keeps: who is signed in and
 // the organization that pays for it.
 type claudeOAuth struct {
+	AccountUUID      string `json:"accountUuid"`
 	EmailAddress     string `json:"emailAddress"`
 	OrganizationUUID string `json:"organizationUuid"`
 	OrganizationName string `json:"organizationName"`
@@ -174,6 +176,52 @@ func (claude) SignIns(home string) []SignIn {
 	return out
 }
 
+// Marks are the account marks Claude Code keeps outside its transcripts: a
+// /login typed at its prompt (history.jsonl), each one a sign-in that may
+// have succeeded, and the account id and organization of each sign-in on disk
+// (claudeSignIns), which pair the two. A /login that failed only splits a
+// login stretch in two, which names fewer rows, never another account.
+func (claude) Marks(home string) []AccountMark {
+	var marks []AccountMark
+	for _, acct := range claudeSignIns(home) {
+		if acct.AccountUUID != "" {
+			marks = append(marks, AccountMark{
+				Kind: MarkPair, Account: acct.AccountUUID, Org: acct.OrganizationUUID,
+			})
+		}
+	}
+	file, err := os.Open(filepath.Join(claudeDir(home), "history.jsonl"))
+	if err != nil {
+		return marks
+	}
+	defer func() { _ = file.Close() }()
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 0, 1<<20), 64<<20)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if !bytes.Contains(line, []byte(`"display":"/login`)) {
+			continue
+		}
+		var entry struct {
+			Display   string `json:"display"`
+			Timestamp int64  `json:"timestamp"` // milliseconds
+		}
+		if !decode(line, &entry) || entry.Timestamp <= 0 {
+			continue
+		}
+		if command, _, _ := strings.Cut(
+			strings.TrimSpace(entry.Display),
+			" ",
+		); command == "/login" {
+			marks = append(
+				marks,
+				AccountMark{Kind: MarkLogin, Time: time.UnixMilli(entry.Timestamp)},
+			)
+		}
+	}
+	return marks
+}
+
 // Labels maps the subscription id of each organization a sign-in on disk
 // belongs to (claudeSignIns) to its report label, the latest sign-in's.
 func (claude) Labels(home string) map[string]string {
@@ -249,6 +297,7 @@ func (t tokens) fill(u *Usage) {
 
 type record struct {
 	Type       string          `json:"type"`
+	Account    string          `json:"accountUuid"`
 	Attachment json.RawMessage `json:"attachment"`
 	Cwd        string          `json:"cwd"`
 	SessionID  string          `json:"sessionId"`
@@ -286,6 +335,12 @@ type claudeState struct {
 	// that line on. Claude Code writes one when a session starts or resumes,
 	// at intervals, and after a /login switches organization.
 	Org string `json:"org,omitempty"`
+	// Last is the latest timestamp read in this file, the time of a record
+	// that has none of its own.
+	Last string `json:"last,omitempty"`
+
+	last  []byte // Last while a read is under way, reused from line to line
+	dirty bool   // the state changed since it was last saved
 }
 
 func claudeStateOf(file *FileState) *claudeState {
@@ -296,14 +351,86 @@ func claudeStateOf(file *FileState) *claudeState {
 	if len(file.Saved) > 0 {
 		_ = json.Unmarshal(file.Saved, state) // damaged state reads as empty
 	}
+	state.last = append(state.last, state.Last...)
 	file.cache = state
 	return state
 }
 
+// Finish saves the state a read of the file ended with.
+func (claude) Finish(file *FileState) {
+	state, ok := file.cache.(*claudeState)
+	if !ok || !state.dirty && string(state.last) == state.Last {
+		return
+	}
+	state.Last, state.dirty = string(state.last), false
+	file.Saved, _ = json.Marshal(state)
+}
+
 // ParseRevision changes when Parse learns to read something from lines it
 // has already read: ingest then reads every Claude Code transcript again from
-// the start, once. "2" reads credential_org attachments; "3" reads usage.speed.
-func (claude) ParseRevision() string { return "3" }
+// the start, once. "2" reads credential_org attachments; "3" reads usage.speed;
+// "4" reads the account marks.
+func (claude) ParseRevision() string { return "4" }
+
+// Markers of the lines that hold an account mark.
+var (
+	timestampKey = []byte(`"timestamp":"`)
+	loginOutput  = []byte(`Login successful</local-command-stdout>`)
+	accountKey   = []byte(`"accountUuid"`)
+)
+
+// The records that name who was signed in. A /login that succeeds writes
+// loginStdout as its own user record, a plain string; a tool result that only
+// quotes it is not one. accountLedger is a record the claude.ai artifact
+// tools keep in the session, naming the account (accountUuid) of the
+// credential the session holds at that point; it has no time of its own.
+const (
+	loginStdout   = "<local-command-stdout>Login successful</local-command-stdout>"
+	accountLedger = "artifact-autoreact-ledger"
+)
+
+// noteTime keeps the line's first timestamp as the file's latest, without
+// decoding the line. A timestamp quoted inside a message is escaped and never
+// matches; any other is the record's own or one of its parts', which is as
+// close to the time of the next line.
+func noteTime(line []byte, state *claudeState) {
+	_, rest, found := bytes.Cut(line, timestampKey)
+	if !found {
+		return
+	}
+	end := bytes.IndexByte(rest, '"')
+	if end < len("2006-01-02T15:04:05Z") || rest[0] < '0' || rest[0] > '9' {
+		return
+	}
+	state.last = append(state.last[:0], rest[:end]...)
+}
+
+// mark adds an account mark at time when, ignoring one with no valid time.
+func mark(file *FileState, kind, when, account, org string) {
+	at, err := time.Parse(time.RFC3339Nano, when)
+	if err != nil {
+		return
+	}
+	file.Marks = append(file.Marks, AccountMark{Kind: kind, Time: at, Account: account, Org: org})
+}
+
+// readMarks adds the account marks of a decoded record: a successful /login,
+// an organization, or an account id at the time of the line before it.
+func readMarks(line []byte, rec record, file *FileState, state *claudeState) {
+	switch {
+	case rec.Type == "user" && bytes.Contains(line, loginOutput):
+		var msg struct {
+			Content json.RawMessage `json:"content"`
+		}
+		var content string
+		if decode(rec.Message, &msg) && json.Unmarshal(msg.Content, &content) == nil &&
+			strings.TrimSpace(content) == loginStdout {
+			mark(file, MarkLogin, rec.Timestamp, "", "")
+		}
+	case rec.Type == accountLedger && rec.Account != "":
+		mark(file, MarkAccount, string(state.last), rec.Account, "")
+	}
+}
 
 // decode fills v from raw, tolerating fields of the wrong type (they stay
 // zero) but not a syntax error.
@@ -324,8 +451,11 @@ func decode(raw []byte, v any) bool {
 // one is: the price page bills it at other rates. An advisor row keeps the
 // advisor's own model, billed per its iteration, which carries no speed.
 func (claude) Parse(line []byte, file *FileState) []Usage {
+	state := claudeStateOf(file)
+	// A mark on this line takes the time of the line before it.
+	defer noteTime(line, state)
 	if !bytes.Contains(line, []byte(`"usage"`)) && !bytes.Contains(line, []byte(`"cwd"`)) &&
-		!bytes.Contains(line, []byte(`"credential_org"`)) {
+		!bytes.Contains(line, []byte(`"credential_org"`)) && !bytes.Contains(line, accountKey) {
 		return nil
 	}
 	var rec record
@@ -335,6 +465,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 	if rec.Cwd != "" {
 		file.LastCwd = rec.Cwd
 	}
+	readMarks(line, rec, file, state)
 	if rec.Type == "attachment" {
 		var attachment struct {
 			Type string `json:"type"`
@@ -342,9 +473,9 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		}
 		if decode(rec.Attachment, &attachment) && attachment.Type == "credential_org" &&
 			attachment.Org != "" {
-			if state := claudeStateOf(file); state.Org != attachment.Org {
-				state.Org = attachment.Org
-				file.Saved, _ = json.Marshal(state)
+			mark(file, MarkOrg, rec.Timestamp, "", attachment.Org)
+			if state.Org != attachment.Org {
+				state.Org, state.dirty = attachment.Org, true
 			}
 		}
 		return nil
@@ -381,7 +512,7 @@ func (claude) Parse(line []byte, file *FileState) []Usage {
 		RequestID: id,
 		Model:     model,
 	}
-	if org := claudeStateOf(file).Org; org != "" {
+	if org := state.Org; org != "" {
 		base.Subscription, base.SubscriptionEvidence = "claude:"+org, EvidenceTranscript
 		base.AccountKey = org
 	}

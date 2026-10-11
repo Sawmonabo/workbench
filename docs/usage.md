@@ -137,7 +137,11 @@ note saying since when each tool records it. A Claude Code row belongs to the
 organization its transcript names, whoever was signed in when Workbench read
 it: an organization Workbench has not seen signed in shows `unknown account
 (org 1234abcd)` until you sign in to that account once, which names all of its
-rows. See the
+rows. Claude Code usage from before it recorded the account is named when the
+records between two sign-ins show which account was signed in; such a row is
+its own line, marked `(inferred)`, and a later record that contradicts it
+takes it back. Those records go when Claude Code deletes the transcript that
+holds them, so the ledger keeps them as it reads them. See the
 [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md) and
 [subscriptions](superpowers/specs/2026-10-01-codex-costs-design.md).
 

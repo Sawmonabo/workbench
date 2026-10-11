@@ -49,12 +49,13 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	if version, err = ledger.Meta("schema_version"); err != nil {
 		t.Fatal(err)
 	}
-	if rows != 2 || tools != 2 || version != "4" {
+	if rows != 2 || tools != 2 || version != schemaVersion {
 		t.Fatalf(
-			"upgrade kept %d rows (%d tagged claude) at version %q, want 2, 2, \"3\"",
+			"upgrade kept %d rows (%d tagged claude) at version %q, want 2, 2, %q",
 			rows,
 			tools,
 			version,
+			schemaVersion,
 		)
 	}
 	// One run's record of committed rows lets ingest skip a later copy that
@@ -144,9 +145,10 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if rows != 1 || !found || file.Offset != 4096 || file.Head != "" || version != "4" {
+	if rows != 1 || !found || file.Offset != 4096 || file.Head != "" || version != schemaVersion {
 		t.Fatalf(
-			"upgrade kept %d rows, file %v (found %v), version %q; want 1 row, offset 4096, version 4",
+			"upgrade kept %d rows, file %v (found %v), version %q; want 1 row, offset 4096, version "+
+				schemaVersion,
 			rows,
 			file,
 			found,
@@ -318,6 +320,101 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 		!strings.Contains(note, rootKey("claude", "s1")) {
 		t.Errorf("rows of s1 are not marked for attribution: %q, %v", note, err)
 	}
+}
+
+// Rows no record of their own names take the account their login stretch's
+// marks infer. An inferred account that outranked real evidence, that a
+// contradicting mark could not take back, or that named a stretch whose marks
+// disagree would move spend to the wrong account with no error, after the
+// transcripts that could show it have been deleted.
+func TestInferredAccountYieldsToEvidence(t *testing.T) {
+	ctx := context.Background()
+	ledger, err := OpenLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = ledger.Close() }()
+	at := func(hour int) time.Time { return time.Date(2026, 9, 1, hour, 0, 0, 0, time.UTC) }
+	run := NewRun()
+	write := func(fn func(*Tx) error) {
+		t.Helper()
+		if err := ledger.Transaction(ctx, run, fn); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addMarks := func(marks ...AccountMark) {
+		t.Helper()
+		write(func(tx *Tx) error {
+			for _, m := range marks {
+				if err := tx.AddMark("claude", m); err != nil {
+					return err
+				}
+			}
+			return nil
+		})
+	}
+	row := func(id string, hour int, subscription string) Usage {
+		u := Usage{
+			Tool: "claude", RequestID: id, Model: "claude-opus-5", Root: "s-" + id,
+			Time: at(hour), Input: 1, Account: "unknown",
+		}
+		if subscription != "" {
+			u.Subscription, u.SubscriptionEvidence = subscription, EvidenceTranscript
+		}
+		return u
+	}
+	write(func(tx *Tx) error {
+		for _, u := range []Usage{
+			row("inferred", 2, ""),
+			row("named", 3, "claude:unseen"),
+			row("contradicted", 22, ""),
+		} {
+			if err := tx.Upsert(u); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	addMarks(
+		AccountMark{Kind: MarkPair, Account: "id-d", Org: "disk"},
+		AccountMark{Kind: MarkLogin, Time: at(0)},
+		AccountMark{Kind: MarkAccount, Time: at(1), Account: "id-d"},
+		AccountMark{Kind: MarkLogin, Time: at(20)},
+		AccountMark{Kind: MarkAccount, Time: at(21), Account: "id-d"},
+		AccountMark{Kind: MarkOrg, Time: at(23), Org: "disk"},
+		AccountMark{Kind: MarkOrg, Time: at(24), Org: "unseen"},
+	)
+	onDisk := map[string][]SignIn{
+		"claude": {{Account: "d@example.test", Subscription: "claude:disk"}},
+	}
+	check := func(want map[string][4]string) {
+		t.Helper()
+		if err := ledger.ResolveAccounts(ctx, run, onDisk); err != nil {
+			t.Fatal(err)
+		}
+		for id, want := range want {
+			var got [4]string
+			if err := ledger.db.QueryRow(
+				`SELECT account, account_source, subscription, subscription_source
+				   FROM responses WHERE request_id = ?`, id,
+			).Scan(&got[0], &got[1], &got[2], &got[3]); err != nil {
+				t.Fatal(err)
+			}
+			if got != want {
+				t.Errorf("%s is attributed to %v, want %v", id, got, want)
+			}
+		}
+	}
+	unknown := [4]string{"unknown", EvidenceUnknown, "unknown", EvidenceUnknown}
+	check(map[string][4]string{
+		"inferred": {"d@example.test", EvidenceInferred, "claude:disk", EvidenceInferred},
+		"named":    {"unknown", EvidenceUnknown, "claude:unseen", EvidenceTranscript},
+		// its stretch's organization marks name two organizations
+		"contradicted": unknown,
+	})
+	// A mark found later pairs id-d with another organization too.
+	addMarks(AccountMark{Kind: MarkOrg, Time: at(4), Org: "unseen"})
+	check(map[string][4]string{"inferred": unknown})
 }
 
 // oldLedger writes a ledger of an earlier schema with statements and returns

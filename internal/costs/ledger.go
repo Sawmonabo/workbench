@@ -74,7 +74,7 @@ func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
 
 const (
-	schemaVersion = "4"
+	schemaVersion = "5"
 
 	// firstTool is the tool of every row written before the tool column
 	// existed, and the column's default: its request IDs are stored as they
@@ -126,7 +126,7 @@ CREATE TABLE tier_pending (
   root       TEXT NOT NULL
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-` + subscriptionSchema
+` + subscriptionSchema + markSchema
 
 // subscriptionSchema is the part of the schema that attributes rows to a
 // subscription, also created by the upgrade of an older ledger. Every time is
@@ -172,6 +172,21 @@ CREATE TABLE thread_parents (
 );
 `
 
+// markSchema keeps the account marks (AccountMark) ingest reads, which outlive
+// the transcripts that hold them: at is in timeLayout, "" for a pair, and an
+// unused account or org is "". ResolveAccounts infers from them the account
+// of rows nothing else names (accountBasis.inferred).
+const markSchema = `
+CREATE TABLE account_marks (
+  tool    TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  at      TEXT NOT NULL,
+  account TEXT NOT NULL,
+  org     TEXT NOT NULL,
+  PRIMARY KEY (tool, kind, at, account, org)
+);
+`
+
 // Ledger is the SQLite record of every response.
 type Ledger struct {
 	Path string
@@ -179,7 +194,7 @@ type Ledger struct {
 }
 
 // OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
-// an existing file: a version 1 or 2 ledger is upgraded in one transaction
+// an existing file: a version 1, 2 or 4 ledger is upgraded in one transaction
 // that keeps every row, any other version fails with the path and version and
 // writes nothing. A zero-byte file (a crash between creating the file and
 // writing the schema) holds nothing and is treated as absent. create makes a
@@ -274,7 +289,7 @@ func (l *Ledger) prepare(exists bool) error {
 		}
 		switch version {
 		case schemaVersion:
-		case "1", "2":
+		case "1", "2", "4":
 			if err := l.upgrade(ctx); err != nil {
 				return fmt.Errorf("%s: %w", l.Path, err)
 			}
@@ -364,8 +379,9 @@ func (l *Ledger) create(ctx context.Context) error {
 
 // upgrade is the only write to existing data, in one transaction that keeps
 // every row: version 1 gains the tool column, versions 1 and 2 gain the saved
-// file state, the tier tables and the subscription columns and tables. An
-// upgraded row keeps its email, its subscription is unknown and its evidence
+// file state, the tier tables and the subscription columns and tables, and
+// versions 1, 2 and 4 gain the account marks table. A row upgraded from
+// version 1 or 2 keeps its email, its subscription is unknown and its evidence
 // is unknown, as the earlier "session" and "sweep" sources are gone; a
 // Claude Code row's root is its session.
 func (l *Ledger) upgrade(ctx context.Context) error {
@@ -398,11 +414,14 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 				"CREATE INDEX IF NOT EXISTS responses_root ON responses (tool, root)",
 				"UPDATE responses SET account_source = '"+EvidenceUnknown+"'",
 				"UPDATE responses SET root = session_id WHERE tool = '"+firstTool+"'",
+				subscriptionSchema,
 			)
+			fallthrough
+		case "4":
+			statements = append(statements, markSchema)
 		default:
 			return nil // another process upgraded it first
 		}
-		statements = append(statements, subscriptionSchema)
 		for _, statement := range statements {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
@@ -703,8 +722,9 @@ RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
 
 // evidenceRank is the SQL form of EvidenceRank for a column.
 func evidenceRank(column string) string {
-	return "(CASE " + column + " WHEN '" + EvidenceTranscript + "' THEN 3 WHEN '" +
-		EvidenceSession + "' THEN 2 WHEN '" + EvidenceObserved + "' THEN 1 ELSE 0 END)"
+	return "(CASE " + column + " WHEN '" + EvidenceTranscript + "' THEN 4 WHEN '" +
+		EvidenceSession + "' THEN 3 WHEN '" + EvidenceObserved + "' THEN 2 WHEN '" +
+		EvidenceInferred + "' THEN 1 ELSE 0 END)"
 }
 
 // strongerAccount and strongerSubscription are true when the incoming copy
@@ -1019,12 +1039,15 @@ func (t *Tx) AddTierChange(c TierChange) error {
 // no observation on its far side then, so a later one may decide it.
 // accountsOwned lists the subscriptions (a JSON array) whose email the last
 // resolution knew (accountBasis.owners): one missing from it is learned now,
-// and only its rows are read again for it.
+// and only its rows are read again for it. accountsMarked is the time of the
+// earliest account mark stored since the last resolution, "*" for a pair
+// (AddMark): the rows its stretch may infer are read again.
 const (
 	accountsOwned      = "accounts_owned"
 	accountsUnresolved = "accounts_unresolved"
 	accountsChecked    = "accounts_checked"
-	accountsRule       = "2" // 2: a row whose transcript names its organization takes that organization's email
+	accountsRule       = "3" // 3: a row nothing else names takes the account its login stretch's marks infer
+	accountsMarked     = "accounts_marked"
 	accountsThrough    = "accounts_through:"
 	dirtyRootsAll      = "*"
 	maxDirtyRoots      = 256
@@ -1226,6 +1249,11 @@ type accountBasis struct {
 	// known are the subscriptions owners named an email for at the last
 	// resolution (accountsOwned).
 	known map[string]bool
+	// stretches are each tool's login stretches with the organization the
+	// account marks infer for them (loadStretches), and marked is where the
+	// marks stored since the last resolution begin (accountsMarked).
+	stretches map[string]*loginStretches
+	marked    string
 }
 
 // owned are the subscriptions owners names an email for, sorted.
@@ -1326,6 +1354,12 @@ func loadAccountBasis(
 			return basis, err
 		}
 	}
+	if basis.stretches, err = loadStretches(ctx, tx, basis); err != nil {
+		return basis, err
+	}
+	if basis.marked, err = metaIn(ctx, tx, accountsMarked); err != nil {
+		return basis, err
+	}
 	note, err := metaIn(ctx, tx, accountsOwned)
 	if err != nil {
 		return basis, err
@@ -1350,7 +1384,13 @@ func loadAccountBasis(
 // organization without a new binding.
 func (b accountBasis) attribute(r accountRow) attribution {
 	if r.subscriptionSource != EvidenceTranscript || !b.orgTools[r.tool] {
-		return b.signedIn(r.tool, r.root, r.ts)
+		want := b.signedIn(r.tool, r.root, r.ts)
+		if want.source == EvidenceUnknown {
+			if inferred, ok := b.inferred(r.tool, r.ts); ok {
+				return inferred
+			}
+		}
+		return want
 	}
 	if email := b.owners[r.subscription]; email != "" {
 		return attribution{email, r.subscription, EvidenceTranscript, true}
@@ -1413,11 +1453,21 @@ type accountRow struct {
 // organization is final, and its email takes the organization's evidence
 // whatever the stored one rests on, which loses its standing when there is none
 // (the text stays, and no report shows it) because it may be another
-// organization's.
+// organization's. An inferred field is the other: when the marks no longer
+// infer anything for the row (a sign-in found later split its stretch, say),
+// it goes back to unknown.
 func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 	next = r
 	rank := EvidenceRank(want.source)
 	named := want.account != "" && want.account != "unknown"
+	if want.source == EvidenceUnknown && !want.byOrg {
+		if r.accountSource == EvidenceInferred {
+			next.account, next.accountSource = "unknown", EvidenceUnknown
+		}
+		if r.subscriptionSource == EvidenceInferred {
+			next.subscription, next.subscriptionSource = "unknown", EvidenceUnknown
+		}
+	}
 	switch {
 	case want.byOrg && want.source != "":
 		next.accountSource = EvidenceUnknown
@@ -1444,8 +1494,10 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 // dirty, each tool's rows after its watermark, and the rows of a subscription
 // whose email owners names for the first time (not in known) whose email no
 // transcript decided, so a sign-in seen for the first time names every row of
-// its organization. That last condition reads every row, so it is added only
-// when there is such a subscription.
+// its organization. That condition reads every row, so it is added only
+// when there is such a subscription. When account marks were stored since the
+// last resolution (basis.marked), the unknown and inferred rows from the
+// start of the stretch they changed are read too.
 func accountsQuery(scope *Run, dirty []string, basis accountBasis) (string, []any, error) {
 	query := `SELECT request_id, tool, ts, root, account, account_source,
 	  subscription, subscription_source FROM responses
@@ -1490,10 +1542,24 @@ func accountsQuery(scope *Run, dirty []string, basis accountBasis) (string, []an
 		}
 		conds = append(
 			conds,
-			`(subscription_source = '`+EvidenceTranscript+`' AND account_source <> '`+
-				EvidenceTranscript+`' AND subscription IN (SELECT value FROM json_each(?)))`,
+			`(subscription_source IN ('`+EvidenceTranscript+`', '`+EvidenceInferred+
+				`') AND account_source <> '`+EvidenceTranscript+
+				`' AND subscription IN (SELECT value FROM json_each(?)))`,
 		)
 		args = append(args, string(encoded))
+	}
+	if basis.marked != "" {
+		// Rows the new marks may infer anew: from the start of the stretch
+		// the earliest of them changed, of the tools that infer.
+		for _, tool := range slices.Sorted(maps.Keys(basis.stretches)) {
+			since := ""
+			if basis.marked != dirtyRootsAll {
+				since = basis.stretches[tool].start(basis.marked)
+			}
+			conds = append(conds, `(tool = ? AND ts >= ? AND account_source IN ('`+
+				EvidenceUnknown+`', '`+EvidenceInferred+`'))`)
+			args = append(args, tool, since)
+		}
 	}
 	return query + " AND (" + strings.Join(conds, " OR ") + ")", args, nil
 }
@@ -1817,8 +1883,8 @@ func finishAccounts(ctx context.Context, tx *sql.Tx, basis accountBasis) error {
 	}
 	if _, err := tx.ExecContext(
 		ctx,
-		"DELETE FROM meta WHERE key = ?",
-		accountsUnresolved,
+		"DELETE FROM meta WHERE key IN (?, ?)",
+		accountsUnresolved, accountsMarked,
 	); err != nil {
 		return err
 	}

@@ -230,7 +230,9 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   columns and tables in one transaction and keeps every row, as it did for
   version 1 to 2; its data-preservation test covers versions 1 and 2 to 4. A
   ledger at any other version, including a development build's version 3,
-  is refused with its path and version, and nothing is written.
+  is refused with its path and version, and nothing is written. Schema
+  version 5 adds `account_marks` (section 10, rule 4); a version 4 ledger
+  gains the table in the same kind of transaction.
   `FileState` gains an opaque `Saved []byte` that a source fills and ingest
   stores with the offset; Codex saves its fields as JSON and Claude saves
   nothing.
@@ -282,7 +284,8 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 - **Accounts.** `responses` also gains `subscription`, `root` (the root
   session a hook names) and two evidence columns: `account_source` for the
   email and `subscription_source` for the subscription, each `transcript`,
-  `session`, `observed` or `unknown` and decided on its own (section 10);
+  `session`, `observed`, `inferred` or `unknown` and decided on its own
+  (section 10);
   schema 4 adds the tables `session_accounts`, `sign_ins`, `subscriptions`
   and `thread_parents`. A version 1 or 2 ledger keeps every row's email, now
   at evidence `unknown`, with subscription and its evidence `unknown`. A row
@@ -543,8 +546,26 @@ is `unknown` is no evidence and never raises a field.
 3. `observed`: every ingest run records the current sign-in per tool in
    `sign_ins(tool, at, account, subscription)`. A row with no binding takes
    the sign-in observed at both ends of the gap around its time when the two
-   agree, else `unknown`.
-4. `unknown`: no evidence. The row shows email `unknown` and subscription
+   agree, else rule 4.
+4. `inferred` (Claude Code): a sign-in is shared by every session, so between
+   two sign-ins one account answered them all. Ingest keeps account marks in
+   `account_marks(tool, kind, at, account, org)`, which outlive the files
+   that hold them: each successful `/login` (its `Login successful` record)
+   and each `/login` typed at the prompt (`history.jsonl`, which only splits
+   a stretch if it failed); each `credential_org`; each
+   `artifact-autoreact-ledger` record, which names the `accountUuid` of the
+   session's credential and takes the time of the line before it; and the
+   `accountUuid` and organization of each sign-in on disk. An account id
+   names an organization when a sign-in on disk pairs them or a login stretch
+   holds that id and that organization alone, and nothing pairs it with
+   another. A stretch takes an organization when every account id seen during
+   it names that one and no `credential_org`, observation or binding during
+   it names another; the stretch before the first sign-in on record is never
+   inferred. A row nothing else names takes its stretch's organization and
+   that organization's email (rule 1), at evidence `inferred`, which a
+   stronger level replaces; when the marks stop inferring it (a mark found
+   later contradicts the stretch), the row goes back to `unknown`.
+5. `unknown`: no evidence. The row shows email `unknown` and subscription
    `unknown`, for both tools: a Codex row with no plan and a Claude Code row
    from before the first observation read alike, and the tool's current
    sign-in is never stamped on a row it did not name. A first ingest of
@@ -607,7 +628,9 @@ sign-in that names the id, so a renamed organization relabels its history.
 - Claude Code history written by a version that writes no `credential_org`
   (most of a history from before 2.1.282), or before its file's first
   `credential_org`, names no organization; ingested before the first
-  observation it keeps subscription `unknown`. So does every Codex row before
+  observation it keeps subscription `unknown` unless its login stretch is
+  inferred (rule 4), which needs that stretch's account records to be read
+  before Claude Code deletes their transcript. So does every Codex row before
   the first observation whose file names no creator account. Nothing on disk
   records either: the transcripts, `.claude.json` backups (a few days deep),
   Codex's state and log databases and its auth files were all searched.
@@ -640,7 +663,11 @@ sign-in that names the id, so a renamed organization relabels its history.
   `Claude Code  you@example.com · Max`, and, on separate lines, how many
   rows each evidence level gave their email and their subscription; the
   JSON `coverage` has `account_evidence` and `subscription_evidence`, each
-  counting `transcript`, `session`, `observed` and `unknown` rows.
+  counting `transcript`, `session`, `observed`, `inferred` and `unknown` rows.
+- An account row whose account is inferred (rule 4) is its own row, named with
+  ` (inferred)` after it, for example `you@example.com · Max (inferred)`, with
+  a note under the table; JSON rows carry `inferred: true` and the CSV an
+  `inferred` column.
 
 ### Hooks this depends on
 

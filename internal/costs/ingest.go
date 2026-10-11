@@ -312,8 +312,16 @@ func resolveRun(
 // observeSignIns records every tool's current sign-in at this moment, after the
 // run has read its transcripts, so every row it stored lies between this
 // observation and an earlier run's. A tool with no transcripts is observed too.
+// It also stores the account marks a tool keeps outside its transcripts
+// (markSource).
 func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 	now := time.Now()
+	marks := map[string][]AccountMark{}
+	for _, tool := range Tools {
+		if source, ok := tool.Source.(markSource); ok {
+			marks[tool.Name] = source.Marks(home)
+		}
+	}
 	return ledger.Transaction(ctx, nil, func(tx *Tx) error {
 		for _, tool := range Tools {
 			if tool.Source == nil {
@@ -321,6 +329,11 @@ func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 			}
 			if err := tx.ObserveSignIn(tool.Name, now, tool.Source.SignIn(home)); err != nil {
 				return err
+			}
+			for _, m := range marks[tool.Name] {
+				if err := tx.AddMark(tool.Name, m); err != nil {
+					return err
+				}
 			}
 		}
 		return nil
@@ -367,8 +380,17 @@ type fileRead struct {
 	usage    []Usage
 	tiers    []TierChange
 	parents  []ThreadParent
+	marks    []AccountMark
 	row      FileRow
 	err      error
+}
+
+// take keeps what a read that reached its last complete line found.
+func (r *fileRead) take(tool Tool, state *FileState) {
+	if f, ok := tool.Source.(finisher); ok {
+		f.Finish(state)
+	}
+	r.changed, r.tiers, r.parents, r.marks = true, state.Tiers, state.Parents, state.Marks
 }
 
 // headBytes bounds the first-line digest: a first line longer than this is
@@ -463,7 +485,7 @@ func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileR
 		read.usage = append(read.usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
 		long = long[:0]
 	}
-	read.changed, read.tiers, read.parents = true, state.Tiers, state.Parents
+	read.take(tool, state)
 	read.row = FileRow{
 		Offset:       offset,
 		Size:         size,
@@ -493,8 +515,8 @@ func firstLineDigest(file *os.File) (string, error) {
 }
 
 // commitFile stores one read in one transaction: its rows, its tier changes,
-// its thread links and where it stopped. A vanished file is forgotten. run is the run's record
-// of committed writes.
+// its thread links, its account marks and where it stopped. A vanished file is
+// forgotten. run is the run's record of committed writes.
 func commitFile(
 	ctx context.Context,
 	ledger *Ledger,
@@ -531,6 +553,11 @@ func commitFile(
 		}
 		for _, link := range read.parents {
 			if err := tx.AddThreadParent(tool.Name, link); err != nil {
+				return err
+			}
+		}
+		for _, m := range read.marks {
+			if err := tx.AddMark(tool.Name, m); err != nil {
 				return err
 			}
 		}
