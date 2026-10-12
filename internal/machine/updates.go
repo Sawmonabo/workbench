@@ -47,8 +47,8 @@ type brewExtra struct {
 // names what Homebrew's dry run says comes with it, the list Homebrew would
 // otherwise ask about, so the apply script tells Homebrew not to ask. Formulae
 // that provide the chezmoi, uv or Python Workbench runs stay at the version it
-// qualified, and so does any tool whose update would change them. A failed
-// check only warns.
+// qualified, and so does any tool whose update would change them; neither is
+// mentioned, as nothing is wrong. A failed check only warns.
 func (p *preparation) planUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -73,7 +73,7 @@ func (p *preparation) planUpdates(
 		)
 	}
 	running := workbenchFormulae(p.Plan.Dependencies)
-	var kept, carried, unread []string
+	var unread []string
 	for _, update := range updates {
 		effect := operation.Effect{
 			Name: updateEffectPrefix + update.name,
@@ -99,8 +99,7 @@ func (p *preparation) planUpdates(
 			p.Plan.Effects = append(p.Plan.Effects, effect)
 			continue
 		case slices.Contains(running, update.name):
-			kept = append(kept, update.name)
-			continue
+			continue // Workbench's own chezmoi, uv or Python: left as it is, silently
 		}
 		c.Step("checking what updating " + update.name + " brings along")
 		extras, err := upgradeExtras(ctx, c, update.name, pinned)
@@ -108,20 +107,20 @@ func (p *preparation) planUpdates(
 			unread = append(unread, update.name)
 			continue
 		}
-		var installs, changes, touched []string
+		var installs, changes []string
+		touches := false
 		for _, extra := range extras {
 			switch {
 			case slices.Contains(running, extra.name):
-				touched = append(touched, extra.name)
+				touches = true
 			case extra.install:
 				installs = append(installs, extra.name+" "+extra.versions)
 			default:
 				changes = append(changes, extra.name+" "+extra.versions)
 			}
 		}
-		if len(touched) > 0 {
-			carried = append(carried, update.name+" ("+strings.Join(touched, ", ")+")")
-			continue
+		if touches {
+			continue // it would change what Workbench runs: left as it is, silently
 		}
 		if len(installs) > 0 {
 			effect.Description += "; also installs " + strings.Join(installs, ", ")
@@ -134,20 +133,11 @@ func (p *preparation) planUpdates(
 		p.toolUpdates = append(p.toolUpdates, update.name)
 		p.Plan.Effects = append(p.Plan.Effects, effect)
 	}
-	for _, warning := range []struct {
-		text  string
-		names []string
-	}{
-		{"Kept at the version Workbench runs, not updated: ", kept},
-		{"Not updated, since Homebrew would also update what Workbench runs: ", carried},
-		{"Not updated, Homebrew's dry run could not be read: ", unread},
-	} {
-		if len(warning.names) > 0 {
-			p.Plan.Warnings = append(
-				p.Plan.Warnings,
-				warning.text+strings.Join(warning.names, ", "),
-			)
-		}
+	if len(unread) > 0 {
+		p.Plan.Warnings = append(
+			p.Plan.Warnings,
+			"Not updated, Homebrew's dry run could not be read: "+strings.Join(unread, ", "),
+		)
 	}
 }
 
