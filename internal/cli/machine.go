@@ -506,20 +506,17 @@ func appliedSummary(result operation.Result, plan operation.Plan) string {
 			return "[WorkBench] Nothing to apply; this machine already matches"
 		}
 	}
-	effects, skipped := 0, 0
+	// The steps that ran, counted as the plan header counts the steps that
+	// will run, so the two agree: an already-set step is in neither.
+	_, effects, _ := planCounts(plan)
+	skipped := 0
 	for _, effect := range plan.Effects {
-		switch {
-		case effect.Fixed:
-		case effect.Checked:
-			effects++
-		case plan.AlreadySet(effect):
-			// Nothing to change and nothing turned off: not a skipped step.
-		default:
+		if !effect.Fixed && !effect.Checked && !plan.AlreadySet(effect) {
 			skipped++
 		}
 	}
 	line := fmt.Sprintf(
-		"[WorkBench] Applied: %d file%s, %d effect%s",
+		"[WorkBench] Applied: %d file%s, %d step%s",
 		plan.Files(), plural(plan.Files()), effects, plural(effects),
 	)
 	if skipped > 0 {

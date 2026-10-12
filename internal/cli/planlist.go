@@ -68,10 +68,13 @@ const (
 	groupNone
 )
 
-// groupOf says which group an effect is drawn in, from the plan as passed in
-// and not from a box the owner has since toggled, so a row never jumps. The
-// compact view of an apply that does not ask lists only what runs.
-func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
+// groupOf says which group an effect is drawn in. While the owner is choosing,
+// it follows the plan as passed in and not a box since toggled, so a row never
+// jumps; once the choice is settled (the list is dismissed, or never asked),
+// it follows the boxes, so a step turned on reads under Will run and one
+// turned off under Off. The compact view of an apply that does not ask lists
+// only what runs.
+func groupOf(plan operation.Plan, effect operation.Effect, compact, settled bool) int {
 	switch {
 	case effect.Fixed:
 		return groupWill
@@ -82,6 +85,10 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 			return groupWill
 		}
 		return groupNone
+	case settled && effect.Checked:
+		return groupWill
+	case settled && !effect.Optional:
+		return groupOff
 	case effect.SavedSkip:
 		return groupOff
 	case effect.Optional:
@@ -91,7 +98,7 @@ func groupOf(plan operation.Plan, effect operation.Effect, compact bool) int {
 }
 
 // layoutPlan groups the effects, fixed ones first in each group.
-func layoutPlan(plan operation.Plan, compact bool) planLayout {
+func layoutPlan(plan operation.Plan, compact, settled bool) planLayout {
 	groups := []planGroup{
 		{Title: "Will run"},
 		{Title: "Off"},
@@ -103,7 +110,7 @@ func layoutPlan(plan operation.Plan, compact bool) planLayout {
 			if effect.Fixed != fixed {
 				continue
 			}
-			group := groupOf(plan, effect, compact)
+			group := groupOf(plan, effect, compact, settled)
 			switch {
 			case group != groupNone:
 				groups[group].Rows = append(groups[group].Rows, planRow{rowEffect, i})
@@ -132,10 +139,10 @@ func selectableRows(plan operation.Plan) []planRow {
 			rows = append(rows, planRow{rowFile, i})
 		}
 	}
-	for _, group := range layoutPlan(plan, false).Groups {
+	for _, group := range layoutPlan(plan, false, false).Groups {
 		rows = append(rows, group.Rows...)
 	}
-	for _, i := range layoutPlan(plan, false).Already {
+	for _, i := range layoutPlan(plan, false, false).Already {
 		rows = append(rows, planRow{rowEffect, i})
 	}
 	return rows
@@ -159,7 +166,7 @@ const (
 // notes the plan carries. width is the room the list has.
 func listLines(plan operation.Plan, width int, view planView) []listLine {
 	var out []listLine
-	lay := layoutPlan(plan, view.Applying)
+	lay := layoutPlan(plan, view.Applying, !view.Interactive || view.Done)
 	gap := func() {
 		if len(out) > 0 {
 			out = append(out, listLine{})

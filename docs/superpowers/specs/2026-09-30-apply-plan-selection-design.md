@@ -109,7 +109,7 @@ Rules:
 
 - Every screen `apply`, `update` and `doctor` print starts with `[WorkBench]`,
   including the result line, for example
-  `[WorkBench] Applied: 3 files, 4 effects; 1 skipped`.
+  `[WorkBench] Applied: 3 files, 4 steps; 1 skipped`.
 - Header: `[WorkBench] Plan for this PC · vX`, or `Applying your saved choices ·
   vX` when nothing is asked, then the counts: files, steps that will run, new
   to decide.
