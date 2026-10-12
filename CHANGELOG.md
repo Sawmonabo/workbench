@@ -3,6 +3,16 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.21](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.21) - 2026-10-12
+
+### Features
+
+- Say to reload the shell after apply changes its startup file
+
+### Fixes
+
+- Tell Claude Code and Codex to give rg a folder and cat a file
+
 ## [v0.1.20](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.20) - 2026-10-12
 
 ### Features
