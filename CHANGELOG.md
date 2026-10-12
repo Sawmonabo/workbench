@@ -3,6 +3,13 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.22](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.22) - 2026-10-12
+
+### Fixes
+
+- Let tools update when they only move Homebrew's Python
+- Stop warning about updates Workbench skips on purpose
+
 ## [v0.1.21](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.21) - 2026-10-12
 
 ### Features
