@@ -257,7 +257,7 @@ func writeCostsCSV(out io.Writer, report costs.Statement) error {
 		"priced",
 	}
 	if report.By == "account" {
-		head = append(head, "subscription", "subscription_label", "inferred")
+		head = append(head, "subscription", "subscription_label")
 	}
 	_ = w.Write(head)
 	for _, r := range report.Rows {
@@ -268,7 +268,7 @@ func writeCostsCSV(out io.Writer, report costs.Statement) error {
 			strconv.FormatInt(r.CacheRead, 10), strconv.FormatBool(r.Priced),
 		}
 		if report.By == "account" {
-			line = append(line, r.Subscription, r.SubscriptionLabel, strconv.FormatBool(r.Inferred))
+			line = append(line, r.Subscription, r.SubscriptionLabel)
 		}
 		_ = w.Write(line)
 	}
@@ -1277,14 +1277,13 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 
 // unrecordedNotes say, for an account table that shows "not recorded", since
 // when the tool's transcripts record the account and the plan: an earlier row
-// is named only when the account marks infer it, which its row says.
+// is named only when the account marks infer it.
 func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 	if report.By != "account" && len(report.Accounts) < 2 {
 		return nil
 	}
-	var account, plan, unsigned, inferred bool
+	var account, plan, unsigned bool
 	for _, row := range report.Accounts {
-		inferred = inferred || row.Inferred
 		switch {
 		case row.UnsignedOrg():
 			unsigned = true
@@ -1338,10 +1337,6 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 	if unsigned {
 		notes = append(notes, "unknown account (org …): Workbench has not seen that account "+
 			"signed in yet; sign in to it once and its rows show its email and plan")
-	}
-	if inferred {
-		notes = append(notes, "(inferred): "+tool.Title+" did not record the account; Workbench "+
-			"inferred it from the account its records name between the sign-ins around that usage")
 	}
 	return notes
 }

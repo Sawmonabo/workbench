@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strconv"
 	"strings"
 	"time"
 
@@ -56,9 +55,6 @@ type Row struct {
 	// Name is then the email, and one email has a row per subscription.
 	Subscription      string `json:"subscription,omitempty"`
 	SubscriptionLabel string `json:"subscription_label,omitempty"`
-	// Inferred marks an account row whose account the tool did not record:
-	// the account marks around it infer it (EvidenceInferred).
-	Inferred bool `json:"inferred,omitempty"`
 	Tokens
 }
 
@@ -125,15 +121,10 @@ func AccountName(account, label string) string {
 // saying which part its tool's transcripts did not record ("you@example.com ·
 // plan not recorded", "account not recorded · Pro", "not recorded"), or
 // "unknown account (org 1234abcd)" for an organization whose email no sign-in
-// named, with " (inferred)" after an inferred one; any other by its Name.
+// named; any other by its Name.
 func (r Row) Display() string {
 	if r.Subscription == "" {
 		return r.Name
-	}
-	if r.Inferred {
-		plain := r
-		plain.Inferred = false
-		return plain.Display() + " (inferred)"
 	}
 	account, label := r.Name, planName(r.Subscription, r.SubscriptionLabel)
 	noAccount := account == "" || account == "unknown"
@@ -258,7 +249,6 @@ func (r Statement) Empty() bool { return r.RowCount == 0 }
 
 type group struct {
 	project, model, account, subscription, label, month string
-	inferred                                            bool // the account rests on EvidenceInferred
 	// first and last are the earliest and latest dated response time (ledger
 	// layout) of the group, "" for none.
 	first, last string
@@ -411,26 +401,19 @@ func loadGroups(
 	if err != nil {
 		return nil, 0, tally, err
 	}
-	type key struct {
-		project, model, account, subscription, month string
-		inferred                                     bool
-	}
+	type key struct{ project, model, account, subscription, month string }
 	byKey := map[key]*group{}
 	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {
 		tally.add(r)
 		if !inPeriod(r.ts) {
 			return
 		}
-		k := key{
-			r.project, r.model, shownAccount(r), r.subscription, localMonth(r.ts),
-			r.accountSource == EvidenceInferred || r.subscriptionSource == EvidenceInferred,
-		}
+		k := key{r.project, r.model, shownAccount(r), r.subscription, localMonth(r.ts)}
 		g := byKey[k]
 		if g == nil {
 			g = &group{
 				project: k.project, model: k.model, account: k.account,
 				subscription: k.subscription, label: labels[k.subscription], month: k.month,
-				inferred: k.inferred,
 			}
 			byKey[k] = g
 		}
@@ -454,7 +437,7 @@ func loadGroups(
 		return cmp.Or(
 			cmp.Compare(a.project, b.project), cmp.Compare(a.model, b.model),
 			cmp.Compare(a.account, b.account), cmp.Compare(a.subscription, b.subscription),
-			cmp.Compare(a.month, b.month), compareBool(a.inferred, b.inferred),
+			cmp.Compare(a.month, b.month),
 		) < 0
 	})
 	var groups []group
@@ -479,17 +462,6 @@ func loadGroups(
 		groups = append(groups, *g)
 	}
 	return groups, len(hidden), tally, nil
-}
-
-// compareBool orders false before true.
-func compareBool(a, b bool) int {
-	switch {
-	case a == b:
-		return 0
-	case a:
-		return 1
-	}
-	return -1
 }
 
 // shownAccount is the email a report names a response under: the stored one
@@ -542,8 +514,7 @@ func (g group) key(by string) string {
 	case "model":
 		return g.model
 	case "account":
-		// one row per email and subscription, an inferred one apart
-		return g.account + "\x00" + g.subscription + "\x00" + strconv.FormatBool(g.inferred)
+		return g.account + "\x00" + g.subscription // one row per email and subscription
 	case "month":
 		return g.month
 	}
@@ -564,7 +535,6 @@ func aggregate(groups []group, by string) []Row {
 			if by == "account" {
 				row.Name = g.account
 				row.Subscription, row.SubscriptionLabel = g.subscription, g.label
-				row.Inferred = g.inferred
 			}
 			rows = append(rows, row)
 		}

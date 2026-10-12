@@ -664,10 +664,8 @@ sign-in that names the id, so a renamed organization relabels its history.
   rows each evidence level gave their email and their subscription; the
   JSON `coverage` has `account_evidence` and `subscription_evidence`, each
   counting `transcript`, `session`, `observed`, `inferred` and `unknown` rows.
-- An account row whose account is inferred (rule 4) is its own row, named with
-  ` (inferred)` after it, for example `you@example.com · Max (inferred)`, with
-  a note under the table; JSON rows carry `inferred: true` and the CSV an
-  `inferred` column.
+- A row whose account is inferred (rule 4) counts under that account and
+  subscription like any other; only `costs status` counts it apart.
 
 ### Hooks this depends on
 
