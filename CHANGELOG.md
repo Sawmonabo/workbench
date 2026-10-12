@@ -3,6 +3,17 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.20](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.20) - 2026-10-12
+
+### Features
+
+- Infer the account of usage Claude Code never recorded
+- Complete commands, flags and their values with Tab
+
+### Fixes
+
+- Count inferred usage under its account without a label
+
 ## [v0.1.19](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.19) - 2026-10-08
 
 ### Fixes
