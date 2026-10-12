@@ -46,9 +46,9 @@ type brewExtra struct {
 // proposes a downgrade; pinned packages are held. A tool update's effect also
 // names what Homebrew's dry run says comes with it, the list Homebrew would
 // otherwise ask about, so the apply script tells Homebrew not to ask. Formulae
-// that provide the chezmoi, uv or Python Workbench runs stay at the version it
-// qualified, and so does any tool whose update would change them; neither is
-// mentioned, as nothing is wrong. A failed check only warns.
+// that provide the chezmoi or uv Workbench runs (workbenchFormulae) stay at the
+// version it qualified, and so does any tool whose update would change them;
+// neither is mentioned, as nothing is wrong. A failed check only warns.
 func (p *preparation) planUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -99,7 +99,7 @@ func (p *preparation) planUpdates(
 			p.Plan.Effects = append(p.Plan.Effects, effect)
 			continue
 		case slices.Contains(running, update.name):
-			continue // Workbench's own chezmoi, uv or Python: left as it is, silently
+			continue // Workbench's own chezmoi or uv: left as it is, silently
 		}
 		c.Step("checking what updating " + update.name + " brings along")
 		extras, err := upgradeExtras(ctx, c, update.name, pinned)
@@ -217,14 +217,21 @@ func dryRunExtras(output, name string) ([]brewExtra, bool) {
 }
 
 // workbenchFormulae names the Homebrew formulae whose executables Workbench
-// selected as its own chezmoi, uv or Python.
+// selected as its own chezmoi, uv or Python, and that an update could take to
+// a version Workbench does not accept. A versioned Python formula (python@3.13)
+// is left out: Homebrew updates it within its minor version, which Workbench
+// still accepts, and nothing in the apply runs Python after the updates, so
+// the next run finds the new one.
 func workbenchFormulae(dependencies []operation.Dependency) []string {
 	var names []string
 	for _, dependency := range dependencies {
 		_, rest, found := strings.Cut(dependency.Path, "/Cellar/")
-		if name, _, _ := strings.Cut(rest, "/"); found && name != "" {
-			names = append(names, name)
+		name, _, _ := strings.Cut(rest, "/")
+		if !found || name == "" ||
+			dependency.Name == "python3" && strings.HasPrefix(name, "python@3.") {
+			continue
 		}
+		names = append(names, name)
 	}
 	return names
 }

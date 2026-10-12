@@ -48,13 +48,15 @@ Homebrew which listed apps are outdated, using Homebrew's own check without
 naming casks, so an app that updated itself is not reinstalled or downgraded.
 Each one appears as an `update-<app>` effect, and approving the plan updates
 them with `brew upgrade --cask`. Listed command-line tools (formulae) work the
-same way with `brew upgrade --formula`, except the chezmoi, uv and Python that
-Workbench itself runs, which stay at the versions it qualified. A tool's effect
+same way with `brew upgrade --formula`, except the chezmoi and uv that
+Workbench itself runs, which stay at the versions it qualified (a versioned
+Homebrew Python such as `python@3.13` updates within its minor version, which
+Workbench still accepts). A tool's effect
 also names what Homebrew's own dry run says the upgrade brings with it: new or
 outdated dependencies and outdated installed packages that depend on it. So the
 plan's approval is the only question and the updates run with
 `HOMEBREW_NO_ASK=1`. A tool whose upgrade would also change Workbench's own
-chezmoi, uv or Python is not updated, and the plan does not mention either.
+chezmoi or uv is not updated, and the plan does not mention either.
 `brew pin` holds a tool and `brew pin --cask <app>` an app; the plan names
 held packages in its warnings. No failed step stops the others (see [usage](usage.md)). A failed
 Homebrew install, app install, update or a VS Code extension that still fails
