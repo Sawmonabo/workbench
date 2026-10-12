@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.23](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.23) - 2026-10-12
+
+### Fixes
+
+- Print the approved plan by what runs, and count steps like the header
+
 ## [v0.1.22](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.22) - 2026-10-12
 
 ### Fixes
