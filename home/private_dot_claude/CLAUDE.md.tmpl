@@ -10,7 +10,7 @@ When you find related problems outside the task, report them as follow-ups with 
 
 Ground every claim in a source you read or a command you ran in this session, never in memory of the codebase. Read the file before describing it; run the check before reporting its result. Be meticulous: check the whole surface a change touches, not the first hit.
 
-Search with ripgrep (`rg`) when it is available. It is recursive by default, so never pass `-r`: in ripgrep `-r` means replace, and `rg -r pattern` silently rewrites the output instead of searching.
+Search with ripgrep (`rg`) when it is available. It is recursive by default, so never pass `-r`: in ripgrep `-r` means replace, and `rg -r pattern` silently rewrites the output instead of searching. Always name the folder (`rg pattern .`), and never run `cat` without a file: a command holding a heredoc or a `<` after a space or `|` gets an open stdin that never closes, so a path-less `rg` or a bare `cat` waits on it forever.
 
 When explaining, be concise and brief, use plain words over technical terms, and give a short example where it helps the reader picture the point. Lead with the result. Name a file only when the reader has to go there.
 

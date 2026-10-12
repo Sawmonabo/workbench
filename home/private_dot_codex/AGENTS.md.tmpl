@@ -18,6 +18,12 @@
   full, including directly referenced instructions and supporting documents,
   before drawing conclusions or making changes.
 
+## Shell
+
+- Always give `rg` a folder (`rg pattern .`) and never run `cat` without a
+  file; a command's stdin may be left open, and a path-less `rg` or bare `cat`
+  then waits forever.
+
 {{- if eq .machine_role "both" }}
 
 ## Path-scoped tool policy
