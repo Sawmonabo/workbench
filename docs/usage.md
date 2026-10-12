@@ -63,7 +63,9 @@ Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
 `--language` offer their choices, `init --ask` the saved answers it can ask
 again, `revert --checkpoint` the saved checkpoints with when each was saved,
 and a project `PATH` folders only; a flag that takes no file offers no files.
-The shell startup file saves the script once per installed `workbench` under
+A shell that was already open read its startup file before the apply changed
+it, so an apply that changes `~/.zshrc` or `~/.bashrc` ends by saying to open a
+new terminal or run `exec zsh` (`exec bash` on Linux). The shell startup file saves the script once per installed `workbench` under
 `~/.cache` (`XDG_CACHE_HOME`) and loads that copy, so a new shell does not run
 `workbench` again until an update changes it. Bash needs the bash-completion
 package, which Ubuntu installs; without it the shell starts as before, with no

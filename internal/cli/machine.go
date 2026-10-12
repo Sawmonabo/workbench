@@ -217,8 +217,13 @@ func applyCommand(o *options) *cobra.Command {
 					result.Summary = appliedSummary(result, plan)
 					// This shell started before the apply wrote the shell setup that
 					// finds workbench and the tools; only a new terminal reads it.
-					if c.RecordsHome() && !c.BinOnPath() {
+					switch shell := changedShell(c, plan); {
+					case c.RecordsHome() && !c.BinOnPath():
 						result.Summary += "; open a new terminal so your shell finds workbench and the other tools"
+					case shell != "":
+						// A running shell read its startup file when it started.
+						result.Summary += "; open a new terminal, or run exec " + shell +
+							", to use the updated shell setup"
 					}
 				}
 				return result, err
@@ -475,6 +480,22 @@ func refreshHomebrew(
 		)
 	}
 	return refreshed, nil
+}
+
+// changedShell is the shell whose startup file in the real home the plan
+// changed ("zsh", "bash"), "" when none.
+func changedShell(c operation.Context, plan operation.Plan) string {
+	if !c.RecordsHome() {
+		return ""
+	}
+	for _, edit := range plan.Edits {
+		for file, shell := range map[string]string{".zshrc": "zsh", ".bashrc": "bash"} {
+			if edit.Path == file || edit.Path == filepath.Join(c.Home, file) {
+				return shell
+			}
+		}
+	}
+	return ""
 }
 
 // appliedSummary is the branded result line. Apply's early return, with no
