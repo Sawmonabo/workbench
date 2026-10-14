@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.24](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.24) - 2026-10-14
+
+### Features
+
+- Switch to Better Todo Tree and remove retired extensions and settings
+
 ## [v0.1.23](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.23) - 2026-10-12
 
 ### Fixes
