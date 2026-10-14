@@ -39,13 +39,11 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     grep -qx "{{ . }}" <<< "$installed" || missing+=("{{ . }}")
 {{- end }}
     # The extensions are not compared here, so the run is never reported as
-    # "no change" while this script is selected. The retired ones are named, as
-    # the apply removes each that is installed.
-    extensions="missing VS Code extensions are added{{ with .packages.vscode_extensions_retired }} and retired ones removed if installed ({{ join ", " . }}){{ end }}"
+    # "no change" while this script is selected.
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "macos-apps-extensions: the apps are installed; $extensions"
+        echo "macos-apps-extensions: the apps are installed; missing VS Code extensions are added"
     else
-        printf -v joined '%s, ' "${missing[@]}"; echo "macos-apps-extensions: install ${joined%, } unless already installed outside Homebrew; $extensions"
+        printf -v joined '%s, ' "${missing[@]}"; echo "macos-apps-extensions: install ${joined%, } unless already installed outside Homebrew; missing VS Code extensions are added"
     fi
 {{- if .has_work }}
     # This script also installs the work editor extension, part of work-tools.

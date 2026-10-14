@@ -25,15 +25,15 @@ var macOSEffects = []operation.Effect{
 	},
 	{
 		Name:        "macos-apps-extensions",
-		Description: "Missing casks and VS Code extensions, installed retired extensions removed; apps installed outside Homebrew are left alone",
+		Description: "Missing casks and VS Code extensions; apps installed outside Homebrew are left alone",
 		Privilege:   "user; casks may require elevation",
 		Recovery:    "external; no package rollback",
 		Title:       "Mac apps and editor extensions",
 		Summary:     "the apps and VS Code extensions Workbench lists",
-		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing, and removes the extensions Workbench has retired if you have them. Apps you installed another way are left alone.",
+		What:        "Installs the apps Workbench lists that are missing and the VS Code extensions you are missing. Apps you installed another way are left alone.",
 		Touches:     "/Applications and your VS Code extensions",
 		RunsAs:      "you; downloads apps. Some, such as Docker Desktop, need administrator rights: your Mac password, which an apply at a terminal asks for once, or Touch ID each time where sudo uses it",
-		Undo:        "Not reverted automatically: remove an app or extension, or reinstall a retired one, by hand",
+		Undo:        "Not reverted automatically: remove an app or extension by hand",
 	},
 	{
 		Name:        "brew-maintenance",
@@ -187,15 +187,15 @@ var linuxPackagesEffect = operation.Effect{
 // so the effect could never do anything.
 var linuxEditorEffect = operation.Effect{
 	Name:        "linux-editor-extensions",
-	Description: "Canonical extensions installed, and installed retired ones removed, only in a verified local VS Code desktop default profile; unavailable or ambiguous editor hosts block this effect",
+	Description: "Canonical extensions installed only into a verified local VS Code desktop default profile; unavailable or ambiguous editor hosts block this effect",
 	Privilege:   "user; marketplace network and extension code",
 	Recovery:    "external; extensions are not reverted",
 	Title:       "VS Code extensions",
 	Summary:     "your extension set in the local editor",
-	What:        "Installs the VS Code extensions Workbench lists into the desktop VS Code on this computer, and removes the ones it has retired if you have them, only when it is a normal local install.",
+	What:        "Installs the VS Code extensions Workbench lists into the desktop VS Code on this computer, only when it is a normal local install.",
 	Touches:     "~/.vscode/extensions",
 	RunsAs:      "you; downloads from the marketplace and runs extension code",
-	Undo:        "Not reverted automatically: uninstall an extension, or reinstall a retired one, in VS Code",
+	Undo:        "Not reverted automatically: uninstall an extension in VS Code",
 }
 
 // workToolsEffect is the role-gated work tooling. It carries only what its
@@ -242,13 +242,13 @@ var windowsHostEffects = []operation.Effect{
 	{
 		Name:        "windows-files",
 		Optional:    true,
-		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, RestartWSL helpers, bin/rg.exe and Notepad++ themes; settings Workbench no longer uses removed from VS Code User settings and ~/.vscode-server/data/Machine/settings.json",
+		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, RestartWSL helpers, bin/rg.exe and Notepad++ themes",
 		Privilege:   "Windows user; not yet qualified on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and ripgrep on the Windows side",
-		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, ripgrep, Notepad++ themes and the RestartWSL helpers, and takes the settings Workbench no longer uses out of your VS Code settings. Your Windows Terminal settings, PowerShell profile and font registration are separate optional steps; each stays off until you turn it on.",
-		Touches:     "your Windows home and AppData folders, and ~/.vscode-server's machine settings",
+		What:        "Puts the Windows side of your setup in place: the oh-my-posh theme, JetBrains Mono fonts, ripgrep, Notepad++ themes and the RestartWSL helpers. Your Windows Terminal settings, PowerShell profile and font registration are separate optional steps; each stays off until you turn it on.",
+		Touches:     "your Windows home and AppData folders",
 		RunsAs:      "you, on Windows",
 		Undo:        "Not checkpointed: Windows files are outside Workbench's restore",
 	},

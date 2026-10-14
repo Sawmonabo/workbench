@@ -406,9 +406,7 @@ synthetic answers.
   step instead of stopping the apply, a failed Windows download (oh-my-posh,
   fonts, ripgrep, Notepad++ themes) or kernel tuning without sudo blocks only
   the steps that need it, an interrupted oh-my-posh or font copy is repeated
-  on the next run, and the settings `vscode.json` retires are removed from the
-  Windows user and WSL machine VS Code settings by an edit that keeps comments
-  and every other byte and refuses invalid JSON or duplicate keys. (target; not yet observed on a real WSL host)
+  on the next run. (target; not yet observed on a real WSL host)
 - Coding agents: under a pseudo-terminal in a scratch home, a bare `apply`,
   `apply --yes` and `apply --choose` with `CLAUDECODE=1`, or with `CODEX_CI`, `CODEX_THREAD_ID`,
   `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` set, exited 3 with "An

@@ -3,14 +3,10 @@ package machine
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"maps"
-	"os"
-	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
-	"syscall"
 	"unicode/utf8"
 
 	"github.com/Sawmonabo/workbench/internal/jsonc"
@@ -36,12 +32,6 @@ var byteOrderMark = []byte{0xEF, 0xBB, 0xBF}
 // whose name no managed entry has stay, in their order, and the managed
 // entries follow them.
 //
-// A managed null removes the setting, as in a JSON merge patch (RFC 7396), at
-// any depth of an object; inside an array null is a value. Removing what is
-// not there changes nothing, so a managed object that only removes leaves a
-// missing or non-object setting alone, and a file that is blank or missing
-// stays so. Workbench therefore never sets a setting to null.
-//
 // It returns existing itself when no value changes. A blank file counts as
 // {}, as VS Code reads it. Text that is not a JSON object with comments, that
 // repeats a key, or whose edit cannot be proven to give the old settings plus
@@ -62,11 +52,7 @@ func MergeVSCodeSettings(existing, managedJSON []byte) ([]byte, error) {
 		return nil, refuseVSCode("it is not valid UTF-8")
 	}
 	if len(bytes.Trim(body, " \t\r\n")) == 0 {
-		set, _ := settable(managed).(map[string]any)
-		if len(set) == 0 {
-			return existing, nil
-		}
-		fresh, err := newVSCodeSettings(set)
+		fresh, err := newVSCodeSettings(managed)
 		if err != nil {
 			return nil, err
 		}
@@ -137,28 +123,6 @@ func yieldsSettings(text []byte, want map[string]any) bool {
 	return json.Unmarshal(jsonc.Plain(doc), &got) == nil && reflect.DeepEqual(got, want)
 }
 
-// settable is value without the removals in it: the members of an object, at
-// any depth, whose managed value is null. An array is a value and stays whole.
-func settable(value any) any {
-	object, isObject := value.(map[string]any)
-	if !isObject {
-		return value
-	}
-	kept := make(map[string]any, len(object))
-	for key, member := range object {
-		if member != nil {
-			kept[key] = settable(member)
-		}
-	}
-	return kept
-}
-
-// removesOnly reports a managed object that has members and sets none of them.
-func removesOnly(want map[string]any) bool {
-	set, _ := settable(want).(map[string]any)
-	return len(want) > 0 && len(set) == 0
-}
-
 // mergeSettings is the settings that result from setting managed in have,
 // which it does not change.
 func mergeSettings(have, managed map[string]any) map[string]any {
@@ -168,13 +132,8 @@ func mergeSettings(have, managed map[string]any) map[string]any {
 	}
 	for key, want := range managed {
 		switch want := want.(type) {
-		case nil:
-			delete(merged, key)
 		case map[string]any:
-			current, isObject := have[key].(map[string]any)
-			if !isObject && removesOnly(want) {
-				continue
-			}
+			current, _ := have[key].(map[string]any)
 			merged[key] = mergeSettings(current, want)
 		case []any:
 			current, _ := have[key].([]any)
@@ -232,18 +191,9 @@ func mergeList(have, want []any) []any {
 func mergeObject(obj *hujson.Object, lay jsonc.Layout, have, managed map[string]any) error {
 	for _, key := range slices.Sorted(maps.Keys(managed)) {
 		want := managed[key]
-		if want == nil {
-			if err := jsonc.RemoveMember(obj, lay, key); err != nil {
-				return err
-			}
-			continue
-		}
 		index := jsonc.Index(obj, key)
 		if index < 0 {
-			if object, isObject := want.(map[string]any); isObject && removesOnly(object) {
-				continue
-			}
-			if err := jsonc.AppendMember(obj, lay, key, settable(want)); err != nil {
+			if err := jsonc.AppendMember(obj, lay, key, want); err != nil {
 				return err
 			}
 			continue
@@ -262,12 +212,11 @@ func mergeMember(member *hujson.ObjectMember, lay jsonc.Layout, current, want an
 	case map[string]any:
 		object, isObject := member.Value.Value.(*hujson.Object)
 		switch {
-		case isObject && len(want) == 0,
-			removesOnly(want) && (!isObject || jsonc.Empty(object)):
+		case isObject && len(want) == 0:
 			return nil
 		case !isObject || jsonc.Empty(object):
 			// Nothing of the owner's to keep inside, so it is written whole.
-			return jsonc.SetValue(member, lay, settable(want))
+			return jsonc.SetValue(member, lay, want)
 		}
 		held, _ := current.(map[string]any)
 		return mergeObject(object, jsonc.ObjectLayout(object, lay), held, want)
@@ -342,64 +291,4 @@ func arrayEntries(have, want []any) []jsonc.Entry {
 		}
 	}
 	return entries
-}
-
-// EditVSCodeSettingsFile merges managedJSON into the settings file at path in
-// place, for a settings file Workbench does not render as a target, such as the
-// Windows user's. check only reports whether that would change the file. A
-// file that is missing is created when managedJSON sets something, unless
-// check; one that only removes leaves it missing. The file must be an ordinary
-// file with a single link; the new text is written to a file beside it, synced
-// and renamed over it, with the file's mode. A file that cannot be read is
-// refused like an invalid one, so check never reports it as a change.
-func EditVSCodeSettingsFile(path string, managedJSON []byte, check bool) (changed bool, err error) {
-	info, err := os.Lstat(path)
-	if err != nil && !os.IsNotExist(err) {
-		return false, refuseVSCode("it cannot be read (" + oneLine(err.Error()) + ")")
-	}
-	var existing []byte
-	mode := os.FileMode(0o600)
-	if err == nil {
-		if linked, ok := info.Sys().(*syscall.Stat_t); !info.Mode().IsRegular() ||
-			ok && linked.Nlink != 1 {
-			return false, refuseVSCode("it must be an ordinary file with a single link")
-		}
-		mode = info.Mode().Perm()
-		if existing, err = os.ReadFile(path); err != nil {
-			return false, refuseVSCode("it cannot be read (" + oneLine(err.Error()) + ")")
-		}
-	}
-	merged, err := MergeVSCodeSettings(existing, managedJSON)
-	if err != nil {
-		return false, err
-	}
-	changed = !bytes.Equal(merged, existing)
-	if check || !changed {
-		return changed, nil
-	}
-	return true, replaceFile(path, merged, mode)
-}
-
-// replaceFile writes data to a file beside path, syncs it and renames it over
-// path, so a failure leaves the old file whole.
-func replaceFile(path string, data []byte, mode os.FileMode) error {
-	temporary, err := os.CreateTemp(filepath.Dir(path), ".workbench-settings-")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(temporary.Name()) }()
-	err = temporary.Chmod(mode)
-	if err == nil {
-		_, err = temporary.Write(data)
-	}
-	if err == nil {
-		err = temporary.Sync()
-	}
-	if closeErr := temporary.Close(); err == nil {
-		err = closeErr
-	}
-	if err != nil {
-		return fmt.Errorf("write %s: %w", path, err)
-	}
-	return os.Rename(temporary.Name(), path)
 }

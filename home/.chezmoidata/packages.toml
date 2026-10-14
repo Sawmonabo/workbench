@@ -1,7 +1,6 @@
 # Package data consumed by the platform bootstrap scripts (darwin) or kept
 # as a manual reference (apt, pending a scripted install).
-# vscode_extensions is the canonical set for every platform, and
-# vscode_extensions_retired the ones Workbench removes where it installs it.
+# vscode_extensions is the canonical set for every platform.
 #
 # Every list here is role-neutral, so role gating lives in the scripts, never in
 # this file: bitwarden-cli (00-packages) and the jasonn-porch.gitlab-mr
@@ -160,21 +159,13 @@ vscode_extensions = [
   "yoavbls.pretty-ts-errors",
 ]
 
-# Extensions Workbench once listed and now removes from the same editors, when
-# they are installed. Each one leaves vscode_extensions in the same change.
-# gruntfuggly.todo-tree looks for VS Code's own ripgrep where VS Code no longer
-# keeps it; fanaticpythoner.better-todo-tree, which replaces it, ships its own.
-vscode_extensions_retired = [
-  "gruntfuggly.todo-tree",
-]
-
 # Homebrew (macOS). brew = command-line formulae, installed strictly by
 # .chezmoiscripts/darwin/00-packages; cask = GUI apps, installed best-effort by
 # .chezmoiscripts/darwin/50-apps-and-extensions alongside vscode_extensions.
 # Names only; no versions. bat, fd, oh-my-posh, tmux, gh, and the Nerd Font are
 # listed here too so the bootstrap has one source of truth.
 # Must stay last in the file: a TOML sub-table header owns every key that
-# follows it, so apt and the vscode_extensions lists have to be declared above it.
+# follows it, so apt and vscode_extensions have to be declared above it.
 [packages.darwin]
 brew = [
   "age",

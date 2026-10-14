@@ -16,9 +16,7 @@ The managed shell is bash and preserves the unmanaged `.bash_aliases` hook.
 Oh My Posh uses Catppuccin Mocha. Font installation/cache refresh and plugin
 execution are external effects; selecting the font in a terminal is manual.
 
-The extension step consumes the same global VS Code extension list as macOS,
-and removes the retired extensions (`vscode_extensions_retired`) that are
-installed.
+The extension step consumes the same global VS Code extension list as macOS.
 It targets the available local default `code` profile, never opens a remote
 connection, and reports missing desktop CLI rather than claiming completion.
 An extension that still fails after a second try blocks its own step (VS Code

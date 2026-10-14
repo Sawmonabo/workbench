@@ -127,14 +127,10 @@ Invalid existing configuration must fail without fallback replacement. Global VS
 Code merging accepts JSONC and edits the file the way VS Code does: only values
 that differ are written and new members follow the file's own layout, so
 comments, key order, a byte order mark and line endings stay, and the file is
-untouched when no value changes. A `null` in `vscode.json` removes that setting
-(a JSON merge patch, RFC 7396), and `vscode_extensions_retired` in
-`packages.toml` lists the extensions the editor step removes, so retiring either
-is a data change (ADR 7). The shared `modify_settings.json.tmpl` and the
-Windows-side removal of those null settings both run the hidden
-`workbench vscode-settings` filter (`internal/machine/vscode.go`), which
-refuses, with the file untouched, invalid JSONC, a non-object, duplicate keys or
-an edit it cannot prove. Project
+untouched when no value changes. The shared `modify_settings.json.tmpl` runs
+the hidden `workbench vscode-settings` filter (`internal/machine/vscode.go`),
+which refuses, with the file untouched, invalid JSONC, a non-object, duplicate
+keys or an edit it cannot prove. Project
 JSONC editing preserves supported syntax. Keep unowned nested settings/custom
 color rules. ty and native Ruff are the editor default; basedpyright is CLI/CI
 only. Do not change deferred TypeScript/import-color policy incidentally.

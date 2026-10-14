@@ -47,10 +47,7 @@ Native qualification and final acceptance are tracked separately in
 Global VS Code merging accepts JSONC and preserves unrelated values/rules; it
 edits the file the way VS Code does, writing only the values that change in the
 file's own layout, so comments and key order stay, and leaves it untouched when
-no value changes. A managed `null` removes that setting, as a JSON merge patch
-does. The Windows-side edit that removes the null settings from the Windows user
-and WSL machine settings is the same editor; both refuse when they cannot prove
-the result. Project
+no value changes. It refuses when it cannot prove the result. Project
 TOML/JSONC/YAML editing has stricter round-trip preservation gates. Invalid
 machine Codex TOML no longer falls back to a replacement body.
 
@@ -297,7 +294,7 @@ These are product preferences, not claims that disabling deletion/sync confirmat
 
 Keep host mappings, temporary extension paths and credentials out of portable data. Inventory VS Code profile, local/remote host and Settings Sync ownership before applying. A desktop CLI, Windows shim and remote extension-host CLI are not interchangeable. Do not open remote sessions to perform discovery.
 
-TypeScript service selection and imported-name colors remain outside this specification's new editor policy. Todo Tree is replaced by Better Todo Tree, which ships its own ripgrep, and no ripgrep path is set ([ADR 7](../../adr/0007-better-todo-tree-and-retired-editor-items.md)). Preserve their existing values and current platform behavior; do not turn those deferred choices into global overrides. Preserve other unowned remote-networking and schema-detection preferences.
+TypeScript service selection and imported-name colors remain outside this specification's new editor policy. Better Todo Tree ships its own ripgrep, so no ripgrep path is set ([ADR 7](../../adr/0007-better-todo-tree.md)). Preserve their existing values and current platform behavior; do not turn those deferred choices into global overrides. Preserve other unowned remote-networking and schema-detection preferences.
 
 ### Checker responsibilities
 

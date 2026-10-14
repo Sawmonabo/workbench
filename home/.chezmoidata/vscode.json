@@ -12,8 +12,6 @@
       "explorer.confirmDragAndDrop": false,
       "git.confirmSync": false,
       "extensions.ignoreRecommendations": false,
-      "todo-tree.ripgrep.ripgrep": null,
-      "better-todo-tree.ripgrep.ripgrep": null,
       "[json]": {
         "editor.defaultFormatter": "esbenp.prettier-vscode"
       },

@@ -123,12 +123,6 @@ for relative in .codex/config.toml .claude/settings.json 'Library/Application Su
     cmp -s "$target" "$tmp/invalid-config" || { echo "PRESERVATION FAIL: invalid $relative was replaced"; fail=1; }
     cp "$tmp/valid-config" "$target"
 done
-printf '[invalid input\n' > "$tmp/windows-settings.json"
-cp "$tmp/windows-settings.json" "$tmp/invalid-config"
-if workbench vscode-settings --file "$tmp/windows-settings.json" '{"example":"value"}' >"$tmp/invalid-output" 2>&1; then
-    echo 'PRESERVATION FAIL: invalid Windows settings accepted'; fail=1
-fi
-cmp -s "$tmp/windows-settings.json" "$tmp/invalid-config" || { echo 'PRESERVATION FAIL: invalid Windows settings replaced'; fail=1; }
 
 # Data-loss safeguard: the Codex and Claude modify templates once silently
 # dropped user-authored config (a Codex key inside a managed table, an inline
