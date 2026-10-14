@@ -230,7 +230,7 @@ owner pushes a `v*` tag, not when files are implemented.
 3. Add the ty extension; retain Ruff and Python environment/debugger support. Remove Pylance/mypy from desired installation, without interpreting that as permission to mass-uninstall existing extensions.
 4. Add ty, Ruff and basedpyright to the canonical uv-tool table after validating release pins. Do not remove unrelated tools or introduce Copier. basedpyright remains CLI-only by default.
 5. Target the confirmed VS Code host/profile. Reuse the existing install owner for macOS and add only missing platform invocation using the same canonical data. Do not automatically connect to remote hosts.
-6. Preserve host-local settings and deferred TypeScript/import-color/Todo Tree choices. Coordinate settings ownership with active profiles and Settings Sync without silently changing either.
+6. Preserve host-local settings and deferred TypeScript/import-color choices. Coordinate settings ownership with active profiles and Settings Sync without silently changing either.
 
 ### Verification and gate
 

@@ -94,7 +94,7 @@ Off
         Windows and WSL share localhost (mirrored)
 Optional     off unless you turn them on
   [ ] Windows setup
-        theme, fonts and VS Code settings on the Windows side
+        theme, fonts and ripgrep on the Windows side
   [ ] Replace Windows Terminal settings
         replaces yours; a copy is kept
   [ ] Replace PowerShell profile

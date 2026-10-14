@@ -26,11 +26,15 @@ keeping a copy of the old file, and registers the font it uses.
 A Windows side that cannot be used at all (no interop, not x64) blocks every
 Windows step you ticked, and a failed Windows download (oh-my-posh, fonts,
 ripgrep, Notepad++ themes) blocks the steps that need it, never the files or the
-other steps; the apply goes on and ends blocked (exit 3). Pointing VS Code's
-todo-tree at ripgrep edits only that one setting, in the Windows user
-`settings.json` and the WSL machine `settings.json`. Comments and trailing
-commas are accepted and kept, a file that already has the value is left
-untouched, and an empty file counts as no settings. A file that is invalid JSON,
+other steps; the apply goes on and ends blocked (exit 3). Windows setup sets no
+VS Code setting: it only removes the ones Workbench no longer uses (those
+`vscode.json` sets to `null`, such as the ripgrep path an earlier version gave
+Todo Tree) from the Windows user `settings.json` and the WSL machine
+`settings.json`. Comments and trailing commas are accepted and kept, a file
+without them or a missing one is left untouched, and an empty file counts as no
+settings. Workbench does not install extensions into the Windows editor:
+install Better Todo Tree (`fanaticpythoner.better-todo-tree`) there and remove
+Todo Tree yourself. A file that is invalid JSON,
 has duplicate keys or cannot be edited without risk is left as it is, and Windows
 setup is reported blocked with the reason while the other steps still run.
 Windows-side script writes are not checkpointed. No real Windows host run is

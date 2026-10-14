@@ -180,21 +180,21 @@ Write-Host "You can now use 'Restart WSL.bat' without admin rights." -Foreground
 SETUPSCRIPT
 }
 
-# The todo-tree path in a VS Code settings.json, one owner for the probe's read
-# and the apply's write. Workbench edits the file the way VS Code does, so
-# comments and the rest of the file stay as they are (see MergeVSCodeSettings):
-#   json_setting check FILE VALUE   0 when the file already has VALUE, 1 when it
-#                                   would change, 3 when it cannot be read
-#   json_setting merge FILE VALUE   sets it and changes nothing else; 3 when the
-#                                   file is refused, with the reason on stderr
-json_setting() {
-    local mode=() value=$3
+# The settings vscode.json removes (its null values), as the one edit Workbench
+# makes to the VS Code settings files it does not otherwise manage, one owner
+# for the probe's read and the apply's write. Workbench edits the file the way
+# VS Code does, so comments and the rest of the file stay as they are, and a
+# file that is missing stays missing (see MergeVSCodeSettings):
+#   vscode_removals check FILE   0 when none of them is there, 1 when the file
+#                                would change, 3 when it cannot be read
+#   vscode_removals edit FILE    removes them and changes nothing else; 3 when
+#                                the file is refused, with the reason on stderr
+VSCODE_REMOVALS={{ $removals := dict }}{{ range $key, $value := .vscode.settings }}{{ if kindIs "invalid" $value }}{{ $_ := set $removals $key nil }}{{ end }}{{ end }}{{ if $removals }}{{ $removals | toJson | replace "'" "'\\''" | printf "'%s'" }}{{ else }}''{{ end }}
+vscode_removals() {
+    local mode=()
+    [ -n "$VSCODE_REMOVALS" ] || return 0
     [ "$1" != check ] || mode=(--check)
-    # A path may hold backslashes and quotes; nothing else needs escaping in JSON.
-    value=${value//\\/\\\\}
-    value=${value//\"/\\\"}
-    workbench vscode-settings --file "$2" ${mode[@]+"${mode[@]}"} \
-        '{"todo-tree.ripgrep.ripgrep":"'"$value"'"}'
+    workbench vscode-settings --file "$2" ${mode[@]+"${mode[@]}"} "$VSCODE_REMOVALS"
 }
 
 # Merge a key=value into a specific INI section, preserving all other content.
@@ -314,7 +314,6 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     RG_EXE="$WIN_HOME/bin/rg.exe"
     VSCODE_SETTINGS="$WIN_ROAMING/Code/User/settings.json"
     MACHINE_SETTINGS="$HOME/.vscode-server/data/Machine/settings.json"
-    LINUX_RG=$(command -v rg || true)
     changes=()
     RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME" 2>/dev/null) || RESTART_DIR=
     helpers_tmp=$(mktemp -d)
@@ -327,31 +326,33 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     rm -rf "$helpers_tmp"
     [ "$helpers_current" = 1 ] || changes+=("rewrite the RestartWSL helpers")
     [ -f "$RG_EXE" ] || changes+=("install ripgrep for Windows")
-    todo_tree_set=1 unreadable=()
+    stale=() unreadable=()
     # An unreadable settings file is not a change: the apply would not touch it.
-    todo_tree_check() {
+    removals_check() {
         local rc=0
-        json_setting check "$1" "$2" 2>/dev/null || rc=$?
-        case $rc in 0) ;; 3) unreadable+=("$3") ;; *) todo_tree_set=0 ;; esac
+        [ -f "$1" ] || return 0
+        vscode_removals check "$1" 2>/dev/null || rc=$?
+        case $rc in 0) ;; 3) unreadable+=("$2") ;; *) stale+=("$2") ;; esac
     }
-    if [ -f "$VSCODE_SETTINGS" ]; then
-        if [ ! -f "$RG_EXE" ]; then todo_tree_set=0; else todo_tree_check "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"; fi
+    removals_check "$VSCODE_SETTINGS" "your Windows VS Code settings.json"
+    removals_check "$MACHINE_SETTINGS" "the WSL VS Code machine settings.json"
+    if [ ${#stale[@]} -gt 0 ]; then
+        printf -v joined '%s and ' "${stale[@]}"
+        changes+=("remove settings Workbench no longer uses from ${joined% and }")
     fi
-    if [ -n "$LINUX_RG" ]; then todo_tree_check "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"; fi
-    [ "$todo_tree_set" = 1 ] || changes+=("point VS Code's todo-tree at ripgrep")
     if [ -d "$WIN_ROAMING/Notepad++" ] || [ -d "$WIN_PROGRAMFILES/Notepad++" ]; then
         for theme in Dracula Alucard; do
             [ -f "$WIN_ROAMING/Notepad++/themes/$theme.xml" ] || { changes+=("add the Notepad++ Dracula themes"); break; }
         done
     fi
     if [ ${#changes[@]} -eq 0 ]; then
-        echo "windows-files: = the RestartWSL helpers, ripgrep, the VS Code todo-tree path and the Notepad++ themes are in place"
+        echo "windows-files: = the RestartWSL helpers, ripgrep and the Notepad++ themes are in place, and VS Code has no settings Workbench no longer uses"
     else
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
     fi
     if [ ${#unreadable[@]} -gt 0 ]; then
         printf -v joined '%s, ' "${unreadable[@]}"
-        echo "windows-files: ? ${joined%, } is not valid JSON, so the todo-tree path can't be checked"
+        echo "windows-files: ? ${joined%, } is not valid JSON, so it can't be checked for settings Workbench no longer uses"
     fi
 
     # The calls to Windows were made above, together, under the probe's cap; a
@@ -487,11 +488,9 @@ if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
 fi
 
 # ---------- Windows-side ripgrep ----------
-# VS Code's Todo-Tree extension shells out to ripgrep. Its bundled copy lives under
-# a version-hash directory that changes on every VS Code update, so pointing the
-# extension at it guarantees breakage. Instead keep a stable rg.exe of our own and
-# point the setting there. (winget would also work, but its source cache needs an
-# elevated `winget source reset` to repair when it corrupts.)
+# A stable rg.exe of our own in %USERPROFILE%\bin, which the windows-path step
+# puts on the Windows PATH. (winget would also work, but its source cache needs
+# an elevated `winget source reset` to repair when it corrupts.)
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
 RG_DIR="$WIN_HOME/bin"
 RG_EXE="$RG_DIR/rg.exe"
@@ -509,7 +508,7 @@ if [[ ! -f "$RG_EXE" ]]; then
         place_file "$RG_FOUND" "$RG_EXE"; then
         echo "    Installed $RG_EXE"
     else
-        part_blocked windows-files "ripgrep $RG_VERSION for Windows could not be installed, so VS Code's todo-tree was not pointed at it"
+        part_blocked windows-files "ripgrep $RG_VERSION for Windows could not be installed"
     fi
     rm -rf "$RG_TMP"
 else
@@ -557,46 +556,30 @@ else
 fi
 fi
 
-# ---------- VS Code (Windows host) todo-tree ripgrep path ----------
-# Merge a single key rather than managing settings.json outright: VS Code and its
-# extensions rewrite this file constantly, so a chezmoi-owned copy would fight it
-# on every apply.
-#
-# The key is "todo-tree.ripgrep.ripgrep" - nested under the extension's "ripgrep"
-# settings category. Todo-Tree's own error message tells you to set
-# "todo-tree.ripgrep", which is NOT a declared setting; VS Code accepts unknown
-# keys silently, so getting this wrong looks like it worked and changes nothing.
-#
-# A Windows path is correct here because this settings.json is read by the Windows
-# extension host - including when a WSL folder is opened over \\wsl.localhost.
-# Opening a folder through Remote-WSL instead runs the extension inside WSL, where
-# this path is meaningless; that case needs a Linux path in the remote's machine
-# settings (~/.vscode-server/data/Machine/settings.json).
+# ---------- VS Code settings Workbench no longer uses ----------
+# Workbench manages nothing else in these two files: your Windows user
+# settings.json, which the Windows editor reads (also for a WSL folder opened
+# over \\wsl.localhost), and the WSL machine settings.json, read when a folder is
+# opened through Remote-WSL. It only takes out the settings vscode.json removes,
+# such as the ripgrep path an earlier version gave Todo Tree: Better Todo Tree
+# reads that path instead of its own ripgrep, and Settings Sync can carry it to
+# a computer where it does not exist. A file that cannot be edited without risk
+# (invalid JSON, duplicate keys) is left as it is and reported blocked; the
+# other steps go on.
 if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
-VSCODE_SETTINGS="$WIN_ROAMING/Code/User/settings.json"
-# A settings file that cannot be updated without risk (invalid JSON, duplicate
-# keys) is left as it is and reported blocked; the other steps go on.
-# Usage: merge_setting <file> <value> <what to call the file>
-merge_setting() {
+# Usage: remove_settings <file> <what to call the file>
+remove_settings() {
     local why rc=0
-    why=$(json_setting merge "$1" "$2" 2>&1) || rc=$?
+    [ -f "$1" ] || return 0
+    why=$(vscode_removals edit "$1" 2>&1) || rc=$?
     case $rc in
     0) ;;
-    3) part_blocked windows-files "$3 was left unchanged: $why" ;;
-    *) part_blocked windows-files "$3 could not be updated: $why" ;;
+    3) part_blocked windows-files "$2 was left unchanged: $why" ;;
+    *) part_blocked windows-files "$2 could not be updated: $why" ;;
     esac
 }
-if [[ -f "$VSCODE_SETTINGS" && -f "$RG_EXE" ]]; then
-    merge_setting "$VSCODE_SETTINGS" "$(wslpath -w "$RG_EXE")" "your Windows VS Code settings.json"
-fi
-
-# Remote machine settings are distinct from Windows user/profile settings.
-LINUX_RG=$(command -v rg || true)
-MACHINE_SETTINGS="$HOME/.vscode-server/data/Machine/settings.json"
-if [[ -n "$LINUX_RG" ]]; then
-    mkdir -p "$(dirname "$MACHINE_SETTINGS")"
-    merge_setting "$MACHINE_SETTINGS" "$LINUX_RG" "the WSL VS Code machine settings.json"
-fi
+remove_settings "$WIN_ROAMING/Code/User/settings.json" "your Windows VS Code settings.json"
+remove_settings "$HOME/.vscode-server/data/Machine/settings.json" "the WSL VS Code machine settings.json"
 fi
 
 # ---------- Notepad++ Dracula themes ----------

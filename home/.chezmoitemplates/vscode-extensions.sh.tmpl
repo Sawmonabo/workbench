@@ -1,7 +1,9 @@
 # The extensions to install, each part only when its own effect is ticked: the
 # canonical list with the platform's editor effect, the work editor extension
 # with work-tools. The variables are 1 when run without Workbench. With nothing
-# ticked no editor is looked up or launched.
+# ticked no editor is looked up or launched. The platform's editor effect also
+# removes the retired extensions (vscode_extensions_retired) that are installed,
+# before it installs, since a retired one may clash with what replaced it.
 #
 # An install that fails is tried once more after a short pause. What still fails,
 # or cannot be tried at all, is named blocked under the effect that owns it
@@ -10,6 +12,7 @@
 {{- $editor := "linux-editor-extensions" }}
 {{- if eq .chezmoi.os "darwin" }}{{ $editor = "macos-apps-extensions" }}{{ end }}
 editor_extensions=()
+retired_extensions=()
 work_extensions=()
 {{- if eq .chezmoi.os "darwin" }}
 if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
@@ -17,13 +20,14 @@ if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 if [ "${WORKBENCH_EFFECT_LINUX_EDITOR_EXTENSIONS:-1}" = 1 ]; then
 {{- end }}
     editor_extensions+=({{ range .packages.vscode_extensions }} '{{ . }}'{{ end }} )
+    retired_extensions+=({{ range .packages.vscode_extensions_retired }} '{{ . }}'{{ end }} )
 fi
 {{- if .has_work }}
 if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
     work_extensions+=(jasonn-porch.gitlab-mr)
 fi
 {{- end }}
-if [ $((${#editor_extensions[@]} + ${#work_extensions[@]})) -gt 0 ]; then
+if [ $((${#editor_extensions[@]} + ${#retired_extensions[@]} + ${#work_extensions[@]})) -gt 0 ]; then
 # Resolve the actual desktop installation without launching an editor/server.
 # Explicit directories below select its local default profile, never a remote.
 # Exit 3 means there is no local desktop to install into (none on PATH, or the
@@ -69,7 +73,7 @@ PY
 # blocked_extensions REASON: nothing could be installed, so every part that had
 # extensions to install says so.
 blocked_extensions() {
-    [ ${#editor_extensions[@]} -eq 0 ] || part_failed {{ $editor }} "$1" || status=1
+    [ $((${#editor_extensions[@]} + ${#retired_extensions[@]})) -eq 0 ] || part_failed {{ $editor }} "$1" || status=1
 {{- if .has_work }}
     [ ${#work_extensions[@]} -eq 0 ] || part_failed work-tools "$1" || status=1
 {{- end }}
@@ -96,6 +100,26 @@ install_extensions() {
         part_failed "$effect" "VS Code could not install ${names%, } even after a second try (the output above says why), so the next apply tries again" || status=1
     fi
 }
+# remove_extensions EFFECT EXTENSION...: uninstall the ones that are installed,
+# one failed uninstall not stopping the rest, and say under EFFECT what is
+# still installed.
+remove_extensions() {
+    local effect=$1 extension names
+    local -a failed=()
+    shift
+    for extension in "$@"; do
+        if ! printf '%s\n' "$installed" | grep -qxF "$(printf '%s' "$extension" | tr '[:upper:]' '[:lower:]')"; then
+            continue
+        fi
+        tried=1
+        echo "==> Removing $extension, which Workbench no longer installs..."
+        "${code_cli[@]}" --uninstall-extension "$extension" || failed+=("$extension")
+    done
+    if [ ${#failed[@]} -gt 0 ]; then
+        printf -v names '%s, ' "${failed[@]}"
+        part_failed "$effect" "VS Code could not remove ${names%, } (the output above says why), so the next apply tries again" || status=1
+    fi
+}
 if [ "$desktop_status" -eq 3 ]; then
     echo "==> VS Code extensions skipped: no local VS Code desktop to install into."
 elif [ "$desktop_status" -ne 0 ]; then
@@ -111,12 +135,13 @@ else
         blocked_extensions "VS Code did not list its installed extensions (the output above says why), so no extension was installed and the next apply tries again"
     else
         tried=0
+        remove_extensions {{ $editor }} ${retired_extensions[@]+"${retired_extensions[@]}"}
         install_extensions {{ $editor }} ${editor_extensions[@]+"${editor_extensions[@]}"}
 {{- if .has_work }}
         install_extensions work-tools ${work_extensions[@]+"${work_extensions[@]}"}
 {{- end }}
         if [ "$tried" = 0 ]; then
-            echo "==> VS Code extensions already installed."
+            echo "==> VS Code extensions already in place."
         fi
     fi
 fi

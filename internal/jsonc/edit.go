@@ -145,6 +145,34 @@ func AppendMember(obj *hujson.Object, lay Layout, name string, value any) error 
 	return nil
 }
 
+// RemoveMember removes the member named name from obj, which lay describes as
+// it was written, with the comments that belong to it. A member that becomes
+// first in a one-line object takes the spacing the removed one had after the
+// brace, and an object left with nothing in it but blanks closes as "{}".
+func RemoveMember(obj *hujson.Object, lay Layout, name string) error {
+	index := Index(obj, name)
+	if index < 0 {
+		return nil
+	}
+	opening := obj.Members[index].Name.BeforeExtra
+	remove := `{"op":"remove","path":` + quote(pointer(name)) + `}`
+	if err := patch(obj, remove); err != nil {
+		return err
+	}
+	keepLineEnding(lay, &obj.AfterExtra)
+	switch {
+	case index < len(obj.Members):
+		next := &obj.Members[index].Name.BeforeExtra
+		keepLineEnding(lay, next)
+		if !lay.Multiline && index == 0 && next.IsStandard() && opening.IsStandard() {
+			*next = opening
+		}
+	case len(obj.Members) == 0 && len(bytes.TrimSpace(obj.AfterExtra)) == 0:
+		obj.AfterExtra = nil
+	}
+	return nil
+}
+
 // openFirst lays out the first member or entry of a composite that was empty.
 // Its body held only comment, which stays above the new value: on its own line
 // in a multi-line composite, before the value in a one-line one. before is the
