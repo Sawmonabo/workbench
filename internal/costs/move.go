@@ -256,13 +256,15 @@ const (
 // Pending or Unfinished while anything is left that a run can move or remove,
 // or an old folder can't be read, Conflict when only conflicts are left. Ledger
 // is the ledger's own, which alone decides whether the import may open the new
-// ledger. Text names the paths, home-relative, and never holds "; ". Kept
-// names, home-relative, the files in the old claude-costs folders that
-// Workbench didn't write, once nothing else is left.
+// ledger. Data is State with the empty old folders left out: they hold
+// nothing, so only the migration waits for them. Text names the paths,
+// home-relative, and never holds "; ". Kept names, home-relative, the files in
+// the old claude-costs folders that Workbench didn't write, once nothing else
+// is left.
 type FolderCheck struct {
-	State, Ledger FolderState
-	Text          string
-	Kept          []string
+	State, Ledger, Data FolderState
+	Text                string
+	Kept                []string
 }
 
 // CheckFolders says what is left of the costs move. It looks at which paths
@@ -337,20 +339,36 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 		text = append(text, "can't read "+folder)
 	}
 	text = append(text, conflicts...)
-	switch {
-	case check.Ledger == FoldersUnfinished:
-		check.State = FoldersUnfinished
-	case len(moved) > 0 || len(deleted) > 0 || len(folders.empty) > 0 ||
-		len(folders.unreadable) > 0:
-		check.State = FoldersPending
-	case len(conflicts) > 0:
-		check.State = FoldersConflict
-	default:
-		check.State = FoldersDone
-		check.Kept = folders.kept
-	}
+	check.settle(
+		len(moved) > 0 || len(deleted) > 0 || len(folders.unreadable) > 0,
+		len(conflicts) > 0,
+		folders,
+	)
 	check.Text = strings.Join(text, " and ")
 	return check
+}
+
+// settle sets Data, State and Kept from the ledger's state, whether a run has
+// data to move or delete or a folder to read, whether conflicts are left, and
+// the old folders.
+func (c *FolderCheck) settle(work, conflicts bool, folders folderScan) {
+	switch {
+	case c.Ledger == FoldersUnfinished:
+		c.Data = FoldersUnfinished
+	case work:
+		c.Data = FoldersPending
+	case conflicts:
+		c.Data = FoldersConflict
+	default:
+		c.Data = FoldersDone
+	}
+	c.State = c.Data
+	if len(folders.empty) > 0 && (c.Data == FoldersDone || c.Data == FoldersConflict) {
+		c.State = FoldersPending
+	}
+	if c.State == FoldersDone {
+		c.Kept = folders.kept
+	}
 }
 
 // ledgerState is where the ledger alone stands, from old paths apart from the
@@ -458,7 +476,8 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	folders := old.scan(p)
 	after := CheckFolders(old, p)
 	switch {
-	case after.State == FoldersConflict:
+	case after.State == FoldersConflict, after.Ledger == FoldersConflict:
+		// The text names the ledger's conflict, so ledgerErr would repeat it.
 		return folders.kept, conflictError(after.Text)
 	case len(folders.unreadable) > 0:
 		return folders.kept, errors.Join(ledgerErr, operation.Fail(
@@ -1119,18 +1138,21 @@ func removeDatabase(path string) error {
 // left unread is lost once the session files it is in are deleted; it then
 // reads into the new ledger once the ledger itself has moved, even when another
 // costs file is left in conflict or didn't move. Every other caller is told to
-// run the migration while anything waits, and stops on a ledger conflict; a
-// conflict over another file alone doesn't stop it, and `workbench migrate`
-// names it.
+// run the migration while any data waits to move, and stops on a ledger
+// conflict; a conflict over another file alone doesn't stop it, and neither
+// does an empty old folder, which holds nothing. `workbench migrate` names
+// both.
 func gate(ctx context.Context, paths Paths, move bool) error {
 	old := OldLocations(paths.Home)
 	check := CheckFolders(old, paths)
 	switch {
 	case check.State == FoldersDone:
 		return nil
-	case !move && check.State == FoldersConflict && check.Ledger == FoldersDone:
+	case !move && check.Data == FoldersDone:
 		return nil
-	case !move && check.State == FoldersConflict:
+	case !move && check.Data == FoldersConflict && check.Ledger == FoldersDone:
+		return nil
+	case !move && check.Data == FoldersConflict:
 		return conflictError(check.Text)
 	case !move:
 		return operation.Fail(

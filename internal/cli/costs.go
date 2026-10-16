@@ -178,14 +178,7 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 		}
 		return nil
 	}
-	if err := ensureIngested(cmd, o); err != nil {
-		return err
-	}
-	paths, err := costs.Locations()
-	if err != nil {
-		return err
-	}
-	ledger, err := paths.Open(cmd.Context())
+	ledger, err := openIngested(cmd, o)
 	if err != nil {
 		return err
 	}
@@ -310,16 +303,17 @@ func runCostsView(
 	return printCosts(os.Stdout, costsReport(tool, reports[tool.Name], width))
 }
 
-// ensureIngested reads a tool's transcripts inline before its first report, so
-// the command works before the hooks are applied.
-func ensureIngested(cmd *cobra.Command, o *options) error {
+// openIngested opens the ledger for a report or the status, and reads a
+// tool's transcripts inline before its first report, so the command works
+// before the hooks are applied. The caller closes the ledger.
+func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, error) {
 	paths, err := costs.Locations()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	ledger, err := paths.Open(cmd.Context())
 	if err != nil {
-		return err
+		return nil, err
 	}
 	// A tool with transcripts but no rows has never been read: the ledger is
 	// new, or Workbench learned the tool after its hooks were installed.
@@ -331,7 +325,7 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 		empty, err := ledger.Empty(tool.Name)
 		if err != nil {
 			_ = ledger.Close()
-			return err
+			return nil, err
 		}
 		if !empty {
 			continue
@@ -340,9 +334,8 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 			missing = append(missing, tool.Title)
 		}
 	}
-	_ = ledger.Close()
 	if len(missing) == 0 {
-		return nil
+		return ledger, nil
 	}
 	_, _ = fmt.Fprintln(
 		cmd.ErrOrStderr(),
@@ -357,8 +350,14 @@ func ensureIngested(cmd *cobra.Command, o *options) error {
 	defer stop()
 	// A hook's worker may be reading them already: wait for it rather than
 	// report an empty ledger.
-	_, err = costs.Ingest(cmd.Context(), costs.IngestOptions{Progress: progress, Wait: true})
-	return err
+	if _, err = costs.Ingest(
+		cmd.Context(),
+		costs.IngestOptions{Progress: progress, Wait: true},
+	); err != nil {
+		_ = ledger.Close()
+		return nil, err
+	}
+	return ledger, nil
 }
 
 // ingestProgress is the one live status line at a terminal, and nothing
@@ -563,10 +562,12 @@ func costsStatusCommand(o *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(result *operation.Result) error {
-				if err := ensureIngested(cmd, o); err != nil {
+				ledger, err := openIngested(cmd, o)
+				if err != nil {
 					return err
 				}
-				info, err := costs.Status(cmd.Context())
+				defer func() { _ = ledger.Close() }()
+				info, err := costs.Status(cmd.Context(), ledger)
 				if err != nil {
 					return err
 				}

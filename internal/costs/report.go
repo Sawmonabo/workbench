@@ -671,18 +671,13 @@ type ToolStatus struct {
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
-// Status reads the ledger (creating an empty one when none exists) and the live
-// hook settings; it ingests and fetches nothing itself.
-func Status(ctx context.Context) (StatusInfo, error) {
+// Status reads the open ledger (see [Paths.Open]) and the live hook settings;
+// it ingests and fetches nothing itself.
+func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 	paths, err := Locations()
 	if err != nil {
 		return StatusInfo{}, err
 	}
-	ledger, err := paths.Open(ctx)
-	if err != nil {
-		return StatusInfo{}, err
-	}
-	defer func() { _ = ledger.Close() }()
 	info := StatusInfo{Ledger: paths.Ledger, Overrides: paths.Overrides}
 	if stat, err := os.Stat(paths.Ledger); err == nil {
 		info.LedgerBytes = stat.Size()
