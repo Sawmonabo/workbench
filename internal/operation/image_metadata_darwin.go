@@ -125,13 +125,10 @@ type aclEntry struct{ flags, rights uint32 }
 // kauth_filesec (sys/kauth.h): magic, owner and group GUIDs, then the entry
 // count (KAUTH_FILESEC_NOACL when there is no ACL), flags and 24-byte entries.
 //
-// x/sys/unix wraps setattrlist through libSystem but not getattrlist or
-// fgetattrlist, and cgo's acl(3) would break CGO_ENABLED=0 release builds, so
-// they are called as x/sys calls libSystem: through the runtime's
-// syscall.syscall6 and the trampolines in attrlist_darwin.s. An error or
-// unexpected layout fails closed; switch once x/sys adds the wrappers. Each
-// pointer becomes a uintptr inside the call's argument list, as the unsafe
-// rules require.
+// x/sys/unix wraps setattrlist but not getattrlist or fgetattrlist, so they
+// go through libcCall6 (libc_darwin.go). An error or unexpected layout fails
+// closed; switch once x/sys adds the wrappers. Each pointer becomes a uintptr
+// inside the call's argument list, as the unsafe rules require.
 func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	attributes := unix.Attrlist{
 		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
@@ -194,16 +191,3 @@ func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	}
 	return entries, true, nil
 }
-
-// getattrlist and fgetattrlist are the addresses of the trampolines to
-// libSystem's functions of those names.
-var getattrlist, fgetattrlist uintptr
-
-//go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
-//go:cgo_import_dynamic libc_fgetattrlist fgetattrlist "/usr/lib/libSystem.B.dylib"
-
-// libcCall6 is the runtime's syscall.syscall6, which calls a libSystem
-// function on the system stack and returns errno when it returns -1.
-//
-//go:linkname libcCall6 syscall.syscall6
-func libcCall6(fn, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err unix.Errno)

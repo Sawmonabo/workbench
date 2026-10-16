@@ -77,10 +77,10 @@ type Migration struct {
 var Registry = []Migration{costsFolders, completionCache, oldCostsCache}
 
 // OldLocationVariables are the variables the old locations were read from.
-// The apply passes each one that is set to its scripts as
-// WORKBENCH_OLD_<NAME>, and home/.chezmoitemplates/old-locations.sh hands it
-// back under its own name to the installed workbench only; keep both lists
-// the same.
+// The apply passes their names to its scripts as WORKBENCH_OLD_NAMES and each
+// one that is set as WORKBENCH_OLD_<NAME>; home/.chezmoitemplates/old-locations.sh
+// loops over the names and hands each value back under its own name to the
+// installed workbench only.
 var OldLocationVariables = []string{
 	"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
 	"CLAUDE_COSTS_LEDGER", "CLAUDE_COSTS_STATE", "CLAUDE_COSTS_RATES", "CLAUDE_COSTS_CACHE",

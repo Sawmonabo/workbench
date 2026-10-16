@@ -246,7 +246,7 @@ func scriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 	// it resolved and, to find the files earlier releases left, the owner's
 	// old-location variables.
 	// Those reach the scripts as WORKBENCH_OLD_<NAME>, so no installer sees
-	// them, named in WORKBENCH_OLD_NAMES; home/.chezmoitemplates/
+	// them, with their names in WORKBENCH_OLD_NAMES; home/.chezmoitemplates/
 	// old-locations.sh hands them back.
 	environment = append(
 		environment,
