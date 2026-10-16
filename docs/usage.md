@@ -322,7 +322,31 @@ installs jemalloc 5.4.0; also updates libevent 2.1.12_1 → 2.1.13`, so Homebrew
 does not ask again during apply. Hold one at its version with `brew pin`
 (`brew pin --cask <app>` for an app; `brew unpin` releases it). The chezmoi, uv
 and Python that Workbench runs stay at the versions it qualified, and so does
-any tool whose update would change them; the plan names them in its warnings.
+any tool whose update would change them; the plan does not mention them.
+
+On every platform the plan also covers Codex and Claude Code. It finds the copy
+your shell runs (bun's globals, nvm's default Node, `~/.local/bin`, then
+Homebrew's and the system's folders, the order the managed shell files put them
+on PATH) and reads how it was installed and its version from the installer's
+own files, without running it. When that version is older than the target, the
+`versions.toml` pin or, in latest mode, the newest release on that installer's
+channel (looked up while planning), the plan lists `update-codex` or
+`update-claude-code`, for example `Update Codex 0.162.0 → 0.163.0 through its
+standalone installer`, and approving it runs that installer at exactly that
+version: `npm install -g @openai/codex@VERSION` in the nvm Node it is in,
+OpenAI's standalone installer with `--release VERSION`, or `claude install
+VERSION`. A copy as new as the target or newer is left alone. On macOS a copy
+from a Homebrew cask (`codex`, `claude-code`, `claude-code@latest`) is one of the
+Homebrew updates above, at Homebrew's current version, the only one a cask
+installs. A copy installed any other way (apt, bun, Homebrew on Linux, a
+launcher of your own) is named in the plan's warnings and left alone, and a
+missing one is installed through npm by the command-line tools step. Installing
+a set Codex release turns off the standalone package's own background updates
+until the latest release is installed again; Claude Code's native install keeps
+updating itself unless its settings turn that off, so in pinned mode it can run
+ahead of the pin. In latest mode, a release published between `--dry-run` and
+`--approve-plan` changes the plan, so the approval is refused (exit 4). See
+[ADR 0009](adr/0009-agent-updates-through-their-own-installer.md).
 
 The update list is as fresh as Homebrew's package index, which planning reads as
 it is and never refreshes. An `apply` not given `--approve-plan` runs `brew update`

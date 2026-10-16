@@ -302,8 +302,10 @@ checked and its script runs normally. The plan never blocks on a probe.
   gates. A shared script with one effect unchecked still runs its other
   sections; its private copy gets a `# workbench: skipped <names>` line after
   the shebang, so chezmoi reruns it once the effect is checked again. A checked
-  `update-<name>` effect owns the `50-apps-and-extensions` script like a listed
-  effect, so an update is never dropped with the apps unticked. The Windows
+  `update-<name>` effect owns the script that runs it like a listed effect
+  (`50-apps-and-extensions` for a Homebrew update, `45-agent-updates` for a
+  Codex or Claude Code update), so an update is never dropped with the apps
+  unticked. The Windows
   parts are separate choices: ticking `windows-files` ticks none of
   `terminal-adoption`, `powershell-adoption` and `font-registry`, and each part
   installs what it needs itself. The Terminal part rewrites `settings.json`

@@ -10,7 +10,10 @@ The existing Linux scripts own apt base prerequisites, shell tools, fonts,
 tmux, runtime managers and global tools. They consume canonical version
 policy; the `packages.apt` inventory is a reference, not a promise that every
 listed package is installed. Missing apt/sudo/network or required tools blocks
-or fails requested work instead of counting as success.
+or fails requested work instead of counting as success. Codex and Claude Code
+are installed through npm only when missing; an installed copy, from npm in
+nvm's default Node or from its own installer, is updated through that
+installer (see [usage](usage.md)), on WSL too.
 
 The managed shell is bash and preserves the unmanaged `.bash_aliases` hook.
 Oh My Posh uses Catppuccin Mocha. Font installation/cache refresh and plugin
