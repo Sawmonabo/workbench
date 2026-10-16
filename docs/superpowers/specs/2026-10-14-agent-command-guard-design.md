@@ -318,7 +318,8 @@ yet exec'd, so it is checked again on the next tick. A child whose exec'd
 command line matches no note (MCP servers, hooks, git or search processes the
 harness runs, helpers such as `caffeinate`) is never tracked. A shape the
 guard does not recognise therefore leaves the command unguarded and logs it,
-and never tracks a harness process. The log line comes when the note goes
+and tracks a harness process only when it has exactly a note's shape (the
+Codex helper above). The log line comes when the note goes
 unmatched after a child of its agent that started later than the note, and
 is no tracked command, was seen alive at every tick for at least a second
 (in time, not ticks, which quicken to 100 ms under pressure). A child that
