@@ -349,9 +349,12 @@ func (p *preparation) stageNative(
 	if err = os.Symlink(self, filepath.Join(bin, "workbench")); err != nil {
 		return err
 	}
+	// Native stages its atomic writes, scripts and diffs in TMPDIR, so they
+	// stay in this private folder, whose group CheckStagedGroup checks.
 	p.environment = []string{
 		"HOME=" + c.Native.Destination,
 		"PATH=" + bin + ":/usr/bin:/bin",
+		"TMPDIR=" + p.scratch,
 		"LANG=C.UTF-8",
 		"PYTHONNOUSERSITE=1",
 		"PYTHONDONTWRITEBYTECODE=1",
@@ -742,7 +745,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		if err != nil {
 			return err
 		}
-		if err = checkPreservable(c, edit, before, after); err != nil {
+		if err = checkPreservable(c, edit, before, after, p.scratch); err != nil {
 			return err
 		}
 		var previous *operation.Image
@@ -859,11 +862,13 @@ func (e nativeEntry) image() (operation.Image, error) {
 }
 
 // checkPreservable refuses group-exclusive modes, replacements that would
-// change a target's group and files whose group native's staging cannot keep.
+// change a target's group and files whose group native's staging folder cannot
+// keep.
 func checkPreservable(
 	c operation.Context,
 	edit operation.Edit,
 	before, after operation.Image,
+	staging string,
 ) error {
 	// Native atomic writes can initially inherit the scratch directory's
 	// group. Until corrected under the checkpoint owner's exact-image gate,
@@ -876,7 +881,7 @@ func checkPreservable(
 		)
 	}
 	if after.Kind == operation.ImageFile {
-		if err := operation.CheckStagedGroup(c, edit.Path); err != nil {
+		if err := operation.CheckStagedGroup(c, edit.Path, staging); err != nil {
 			return err
 		}
 	}
@@ -946,7 +951,7 @@ func (p *preparation) Apply(
 		if err = p.selectScripts(); err != nil {
 			return err
 		}
-		environment = scriptEnvironment(c, p.Plan.Dependencies)
+		environment = scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
 		// A script that cannot do one effect says so here and goes on with the
 		// others, so one part's failure does not stop the rest.
 		report = filepath.Join(p.scratch, "effect-report")

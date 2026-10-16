@@ -211,9 +211,21 @@ func dependency(dependencies []operation.Dependency, name string) string {
 
 // scriptEnvironment keeps privately selected tools ahead of package-manager PATH
 // edits. Only the apply owner may add individually approved effect selectors.
-func scriptEnvironment(c operation.Context, dependencies []operation.Dependency) []string {
+// Native and the scripts keep their temporary files in scratch, the run's
+// private folder, which is also where native stages its atomic writes (see
+// operation.CheckStagedGroup).
+func scriptEnvironment(
+	c operation.Context,
+	dependencies []operation.Dependency,
+	scratch string,
+) []string {
 	directories := []string{}
-	environment := []string{"HOME=" + c.Home, "LANG=C.UTF-8", "PYTHONDONTWRITEBYTECODE=1"}
+	environment := []string{
+		"HOME=" + c.Home,
+		"LANG=C.UTF-8",
+		"PYTHONDONTWRITEBYTECODE=1",
+		"TMPDIR=" + scratch,
+	}
 	for _, selected := range dependencies {
 		directory := filepath.Dir(selected.Path)
 		if !slices.Contains(directories, directory) {

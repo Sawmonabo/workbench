@@ -9,17 +9,18 @@
 
 Before chezmoi writes anything, Workbench marks every file of the apply's
 checkpoint as unknown, and checks each one once chezmoi stops. On a Mac, a file
-chezmoi creates first gets the group of its temporary folder (`wheel` in a clean
-macOS VM, where the home folder's is `staff`); Workbench gives it the approved
-group back, and only then records it as written. That fix ran when the run
-finished or a step failed, which includes ctrl+c at the terminal, since that
-stops chezmoi. It did not run when Workbench itself was stopped: its terminal
-window closed (SIGHUP) or it got SIGTERM. A crash, `kill -9` or power loss runs
-nothing at all. Either way the files stayed unknown, and revert refused the whole
-checkpoint ("could not confirm every file this checkpoint wrote"), so the person
-had to restore the files by hand. ctrl+c at the terminal also ended the apply
-with exit 5 and "Setup did not finish (chezmoi failed (signal: interrupt)) … fix
-that, then run workbench apply again", though there was nothing to fix.
+chezmoi creates first gets the group of the temporary folder Workbench gives it
+(`wheel` when that folder is under `/tmp`, while a home folder's is `staff`);
+Workbench gives it the approved group back, and only then records it as written.
+That fix ran when the run finished or a step failed, which includes ctrl+c at
+the terminal, since that stops chezmoi. It did not run when Workbench itself was
+stopped: its terminal window closed (SIGHUP) or it got SIGTERM. A crash,
+`kill -9` or power loss runs nothing at all. Either way the files stayed
+unknown, and revert refused the whole checkpoint ("could not confirm every file
+this checkpoint wrote"), so the person had to restore the files by hand. ctrl+c
+at the terminal also ended the apply with exit 5 and "Setup did not finish
+(chezmoi failed (signal: interrupt)) … fix that, then run workbench apply
+again", though there was nothing to fix.
 
 ## How similar tools handle it
 

@@ -401,17 +401,18 @@ images block. A file whose outcome Workbench could not record, because it was
 stopped or crashed while chezmoi wrote, is checked when you revert: a file
 holding exactly what the apply wrote is restored, one holding exactly what was
 there before needs nothing, and the plan says the files were checked now. On a
-Mac, a file chezmoi created may still have the group of its temporary folder;
-revert gives it the group the apply approved, then restores it. A file holding
-anything else blocks like a later edit. A later edit is reported with the names of
-the changed files (`Changed since Workbench wrote them, so nothing was restored:
-~/.gitconfig. …`). Keep the reported checkpoint ID and resolve conflicts
-manually; do not delete state to bypass a failure. A folder the apply created
-that now holds files Workbench did not write, such as `~/.config/tmux` with the
-tmux plugins a later step installed, stays with those files in it, and so does
-each folder that holds it; revert restores everything else and names each one
-in its plan and result (`Stays, because it holds files Workbench did not write:
-~/.config/tmux (plugins)`). Revert never deletes a folder's contents.
+Mac, a file chezmoi created may still have the group of the temporary folder
+Workbench gave it; revert gives it the group the apply approved, then restores
+it. A file holding anything else blocks like a later edit. A later edit is
+reported with the names of the changed files (`Changed since Workbench wrote
+them, so nothing was restored: ~/.gitconfig. …`). Keep the reported checkpoint
+ID and resolve conflicts manually; do not delete state to bypass a failure. A
+folder the apply created that now holds files Workbench did not write, such as
+`~/.config/tmux` with the tmux plugins a later step installed, stays with those
+files in it, and so does each folder that holds it; revert restores everything
+else and names each one in its plan and result (`Stays, because it holds files
+Workbench did not write: ~/.config/tmux (plugins)`). Revert never deletes a
+folder's contents.
 
 An apply that stops after it starts writing files is recorded as unfinished.
 Rerun `workbench apply`: once a fresh approved plan finishes, the record is

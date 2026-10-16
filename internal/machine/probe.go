@@ -106,7 +106,7 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	if err = os.Mkdir(directory, 0o700); err != nil {
 		return ctx.Err()
 	}
-	environment := scriptEnvironment(c, p.Plan.Dependencies)
+	environment := scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
 	environment = append(
 		environment,
 		"WORKBENCH_PROBE=1",

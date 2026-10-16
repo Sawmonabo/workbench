@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/user"
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -395,12 +397,13 @@ func inheritedGroup(folder unix.Stat_t) uint32 {
 
 // CheckStagedGroup refuses a file target whose group, the one a new file at
 // path gets, native's atomic write cannot keep. Native chezmoi writes a file
-// through renameio, which stages it in the temporary folder (TMPDIR) whenever
-// a file renames from there to path, so the file arrives with that folder's
-// group and Workbench gives it the approved group afterwards. When the two
-// differ and the user cannot set the approved group, that correction would
-// fail after native wrote, so the plan stops first.
-func CheckStagedGroup(c Context, path string) error {
+// through renameio, which stages it in the temporary folder (TMPDIR) whenever a
+// file renames from there to path. Workbench gives native its private staging
+// folder as TMPDIR, so the file arrives with staging's group and Workbench
+// gives it the approved group afterwards. When the two differ and the user
+// cannot set the approved group, that correction would fail after native
+// wrote, so the plan stops first.
+func CheckStagedGroup(c Context, path, staging string) error {
 	parent, err := creationParent(c, path)
 	if err != nil {
 		return err
@@ -410,19 +413,32 @@ func CheckStagedGroup(c Context, path string) error {
 		return err
 	}
 	var temporary unix.Stat_t
-	if err = unix.Stat(os.TempDir(), &temporary); err != nil {
-		return err
+	if err = unix.Stat(staging, &temporary); err != nil {
+		return Fail(ExitBlocked, "metadata", "Cannot inspect Workbench's temporary folder")
 	}
-	if temporary.Dev != parent.Dev || inheritedGroup(temporary) == group {
+	staged := inheritedGroup(temporary)
+	if temporary.Dev != parent.Dev || staged == group {
 		return nil
 	}
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		"Native writes this file through the temporary folder (TMPDIR), whose group differs from "+
-			"the target folder's, and you are not a member of the target folder's group; give that "+
-			"folder one of your groups (chgrp)",
+		fmt.Sprintf(
+			"Native stages %s in Workbench's temporary folder, of group %s, and you are not a "+
+				"member of group %s, which its folder gives new files; give that folder one of "+
+				"your groups (chgrp), or set TMPDIR to a folder that gives new files group %s",
+			c.ShowPath(path), groupName(staged), groupName(group), groupName(group),
+		),
 	)
+}
+
+// groupName is the name of group, or its number when it has none.
+func groupName(group uint32) string {
+	id := strconv.FormatUint(uint64(group), 10)
+	if named, err := user.LookupGroupId(id); err == nil {
+		return named.Name
+	}
+	return id
 }
 
 func sameImageContent(a, b Image) bool {
