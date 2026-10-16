@@ -226,11 +226,6 @@ func layout(width, indent int, t tableSpec) (active, widths []int, stack bool) {
 }
 
 // writeTable writes fitRows' lines to b.
-//
-// The indent parameter is part of the shared table interface: every caller in
-// this package indents 4 today; other callers pick their own.
-//
-//nolint:unparam // See the comment above.
 func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
 	for _, line := range fitRows(width, indent, t) {
 		b.WriteString(line + "\n")
