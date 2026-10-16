@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -57,30 +58,53 @@ func processInfo(pid int) (proc, error) {
 	return fromKinfo(k), nil
 }
 
-// readArgs reads kern.procargs2: argc as a 32-bit integer, the executable
-// path, NUL padding, then argc NUL-terminated arguments.
 func readArgs(pid int) []string {
+	args, _ := procArgs(pid)
+	return args
+}
+
+// readCallID is CODEX_TOOL_CALL_ID among the environment strings that follow
+// the arguments in kern.procargs2, up to the empty string that ends them.
+func readCallID(pid int) string {
+	_, rest := procArgs(pid)
+	for len(rest) > 0 {
+		end := bytes.IndexByte(rest, 0)
+		if end <= 0 {
+			return ""
+		}
+		if id, ok := strings.CutPrefix(string(rest[:end]), callIDVariable+"="); ok {
+			return id
+		}
+		rest = rest[end+1:]
+	}
+	return ""
+}
+
+// procArgs reads kern.procargs2: argc as a 32-bit integer, the executable
+// path, NUL padding, then argc NUL-terminated arguments, and returns those
+// arguments and what follows them.
+func procArgs(pid int) ([]string, []byte) {
 	data, err := unix.SysctlRaw("kern.procargs2", pid)
 	if err != nil || len(data) < 4 {
-		return nil
+		return nil, nil
 	}
 	argc := int(binary.LittleEndian.Uint32(data[:4]))
 	rest := data[4:]
 	end := bytes.IndexByte(rest, 0)
 	if end < 0 {
-		return nil
+		return nil, nil
 	}
 	rest = bytes.TrimLeft(rest[end:], "\x00")
 	args := make([]string, 0, argc)
 	for len(args) < argc && len(rest) > 0 {
 		end = bytes.IndexByte(rest, 0)
 		if end < 0 {
-			return append(args, string(rest))
+			return append(args, string(rest)), nil
 		}
 		args = append(args, string(rest[:end]))
 		rest = rest[end+1:]
 	}
-	return args
+	return args, rest
 }
 
 // readMemory reads the kernel's pressure level, the RAM and vm.swapusage

@@ -17,8 +17,8 @@ import (
 // agent itself. The deciders are pure, so these fixed snapshots pin them. A
 // Codex command its shell replaced by exec is matched by argv only when it
 // leads its own group, so a harness git in the agent's group is never taken
-// for a noted git. The Codex shapes under codex-linux-sandbox and bwrap are
-// the spec's expectation until step 1 of the spec's section 10 observes them.
+// for a noted git. The Codex sandbox chain is the one Codex 0.162.0 and
+// 0.163.0 ran on Linux, and the call IDs are those 0.163.0 set.
 
 // start is a kernel start time, seconds after a fixed moment, in the
 // platform's units.
@@ -151,21 +151,41 @@ func TestMatchTracksOnlyTheAgentsCommandShell(t *testing.T) {
 
 func TestMatchCodexThroughItsSandbox(t *testing.T) {
 	agent := process(400, 1, 400, -3600, "codex", "exec")
+	sandbox := func(pid, ppid int, seconds float64, command string) proc {
+		return process(
+			pid,
+			ppid,
+			pid,
+			seconds,
+			"/home/u/.codex/tmp/arg0/codex-arg0x/codex-linux-sandbox",
+			"--sandbox-policy-cwd",
+			"/w",
+			"--",
+			"/bin/bash",
+			"-c",
+			"if . '/home/u/.codex/shell_snapshots/1.sh' >/dev/null 2>&1; then :; fi\n\nexec '/bin/bash' -c '"+command+"'",
+		)
+	}
+	bwrap := func(pid, ppid int, seconds float64) proc {
+		return process(
+			pid,
+			ppid,
+			pid,
+			seconds,
+			"bwrap",
+			"--as-pid-1",
+			"--new-session",
+			"--die-with-parent",
+		)
+	}
 	s := snapshotOf(
 		agent,
-		process(
-			401,
-			400,
-			401,
-			0.2,
-			"/usr/bin/codex-linux-sandbox",
-			"--",
-			"/bin/zsh",
-			"-c",
-			"cargo test",
-		),
-		process(402, 401, 401, 0.3, "bwrap", "--new-session", "--", "/bin/zsh", "-c", "cargo test"),
-		process(403, 402, 401, 0.4, "/bin/zsh", "-c", "cargo test"),
+		// The launcher runs bwrap, which runs the launcher again, which
+		// starts the command in its own group.
+		sandbox(401, 400, 0.2, "cargo test"),
+		bwrap(402, 401, 0.2),
+		sandbox(403, 402, 0.2, "cargo test"),
+		process(404, 403, 403, 0.3, "cargo", "test"),
 		process(410, 400, 410, 0.1, "node", "/opt/mcp/server.js"),
 		process(
 			411,
@@ -177,32 +197,16 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 			"'/home/u/.local/bin/workbench' guard pre || true",
 		),
 		process(412, 400, 412, 0.6, "/bin/zsh", "-c", "cargo test --release"),
-		// Every process from the launcher to the shell must start after the
-		// note: 440's shell started before it, 450's launcher did.
-		process(
-			440,
-			400,
-			440,
-			0.3,
-			"/usr/bin/codex-linux-sandbox",
-			"--",
-			"/bin/zsh",
-			"-c",
-			"cargo check",
-		),
-		process(441, 440, 440, -5, "/bin/zsh", "-c", "cargo check"),
-		process(
-			450,
-			400,
-			450,
-			-5,
-			"/usr/bin/codex-linux-sandbox",
-			"--",
-			"/bin/zsh",
-			"-c",
-			"cargo doc",
-		),
-		process(451, 450, 450, 0.3, "/bin/zsh", "-c", "cargo doc"),
+		// Every process from the launcher to the command must start after
+		// the note: 443's command started before it, 450's launcher did.
+		sandbox(440, 400, 0.3, "cargo check"),
+		bwrap(441, 440, 0.3),
+		sandbox(442, 441, 0.3, "cargo check"),
+		process(443, 442, 442, -5, "cargo", "check"),
+		sandbox(450, 400, -5, "cargo doc"),
+		bwrap(451, 450, 0.3),
+		sandbox(452, 451, 0.3, "cargo doc"),
+		process(453, 452, 452, 0.3, "cargo", "doc"),
 		// Codex's login shell.
 		process(460, 400, 460, 0.7, "/bin/bash", "-lc", "cargo build"),
 	)
@@ -226,6 +230,49 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 	}
 	got := roots(match(s, notes, nil))
 	want := map[string]int{"exec-1": 401, "exec-10": 460}
+	if !maps.Equal(got, want) {
+		t.Fatalf("matched %v, want %v", got, want)
+	}
+}
+
+// A Codex command carrying its own call ID belongs to that call alone: a
+// script the shell replaced (its argv no longer the note's words) is still
+// its call's command, and a command of another call is never taken for this
+// note's, even with the same words. An ID inherited from the agent, which
+// itself runs inside an outer Codex command, names no command of its own.
+func TestMatchCodexByCallID(t *testing.T) {
+	agent := process(400, 1, 400, -3600, "codex", "exec")
+	inner := process(500, 1, 500, -3600, "codex", "exec")
+	inner.CallID = "exec-outer"
+	s := snapshotOf(
+		agent,
+		inner,
+		// /opt/run/nap is a #! script that runs `exec sleep 3`.
+		process(420, 400, 420, 0.3, "sleep", "3"),
+		process(421, 400, 421, 0.2, "git", "status"),
+		process(510, 500, 510, 0.2, "cargo", "build"),
+	)
+	for pid, id := range map[int]string{420: "exec-1", 421: "exec-9", 510: "exec-outer"} {
+		p := s[pid]
+		p.CallID = id
+		s[pid] = p
+	}
+	notes := []note{
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-1",
+			Command: "/opt/run/nap", NotedStart: start(0),
+		},
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-2",
+			Command: "git status", NotedStart: start(0),
+		},
+		{
+			AgentPID: 500, AgentStart: inner.Start, Kind: codex, ToolUseID: "exec-3",
+			Command: "cargo build", NotedStart: start(0),
+		},
+	}
+	got := roots(match(s, notes, nil))
+	want := map[string]int{"exec-1": 420, "exec-3": 510}
 	if !maps.Equal(got, want) {
 		t.Fatalf("matched %v, want %v", got, want)
 	}

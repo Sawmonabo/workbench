@@ -26,15 +26,24 @@ const (
 	// childLinger is how long a child of an agent must be seen alive before it
 	// may stand for a waiting note's command: one tick at the normal pace.
 	childLinger = time.Second
+	// abandonAfter is how long a note that never matched must wait before a
+	// later call of its agent ending lets it go: Claude Code's longest
+	// foreground Bash timeout, so a call still waiting at a permission prompt
+	// beside a parallel call that finished keeps its note.
+	abandonAfter = 10 * time.Minute
 
 	refusalLimit = 3
 )
 
-// seenNote is a note the watcher has read: matched once it was tracked,
-// childSeen as markChildSeen sets it, and posted from the first tick it was
-// read marked posted. One that goes away unmatched with childSeen is logged.
+// seenNote is a note the watcher has read: its agent and NotedStart, read
+// when this watcher first read it, matched once it was tracked, childSeen as
+// markChildSeen sets it, and posted from the first tick it was read marked
+// posted. One that goes away unmatched with childSeen is logged.
 type seenNote struct {
 	command   string
+	agent     procKey
+	noted     uint64
+	read      time.Time
 	matched   bool
 	childSeen bool
 	posted    time.Time
@@ -56,9 +65,12 @@ type watcher struct {
 	// its command still ran.
 	refusals map[string]int
 	// ended are calls whose tracked command has ended. A call runs once, so
-	// its note, which stays until the post hook or the agent's exit (forever
-	// for a denied call), is never matched again.
-	ended     map[string]bool
+	// its note, which stays until the post hook, the agent's exit or its
+	// abandonment (see notes), is never matched again.
+	ended map[string]bool
+	// lastEnded is, for each agent, the latest NotedStart of its notes that
+	// went away while this watcher ran.
+	lastEnded map[procKey]uint64
 	idleSince time.Time
 	expired   time.Time
 	waiter    *waiter
@@ -111,6 +123,7 @@ func Watch(ctx context.Context) {
 		seen:      map[string]seenNote{},
 		passed:    map[string]bool{},
 		ended:     map[string]bool{},
+		lastEnded: map[procKey]uint64{},
 		refusals:  map[string]int{},
 		unsized:   map[procKey]bool{},
 		idleSince: time.Now(),
@@ -205,9 +218,13 @@ func (w *watcher) tick() time.Duration {
 	}
 	w.forget(s)
 	agents, protected := w.agents(s, notes)
+	codexAgents := map[int]bool{}
+	for _, n := range notes {
+		codexAgents[n.AgentPID] = codexAgents[n.AgentPID] || n.Kind == codex
+	}
 	for _, agent := range agents {
 		w.waiter.watch(agent)
-		loadArgs(s, agent)
+		loadArgs(s, agent, codexAgents[agent])
 	}
 	taken := map[int]bool{}
 	for _, c := range w.tracked {
@@ -275,7 +292,12 @@ func (w *watcher) demand(m memory, now time.Time) action {
 // post hook kept, is deleted once its command has ended or, when no command
 // matched it, childLinger after it was first read posted: its command started
 // before the post hook, so a later process is never its command. A note that
-// goes away without ever being matched is logged.
+// was never posted and whose command never matched or has ended is
+// abandoned, and deleted, once a note
+// its agent wrote later has gone and abandonAfter has passed since it was
+// first read: a call that was denied or cut off gets no post hook, and its
+// note would otherwise keep the watcher running for as long as its agent
+// does. A note that goes away without ever being matched is logged.
 func (w *watcher) notes(s snapshot) ([]note, error) {
 	ids, err := w.f.noteIDs()
 	if err != nil {
@@ -307,7 +329,12 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		}
 		seen, ok := w.seen[id]
 		if !ok {
-			seen = seenNote{command: n.Command}
+			seen = seenNote{
+				command: n.Command,
+				agent:   procKey{n.AgentPID, n.AgentStart},
+				noted:   n.NotedStart,
+				read:    now,
+			}
 		}
 		if n.Posted && seen.posted.IsZero() {
 			seen.posted = now
@@ -317,11 +344,23 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			_ = os.Remove(path)
 			continue
 		}
+		if !n.Posted && (!seen.matched || w.ended[id]) && n.NotedStart < w.lastEnded[seen.agent] &&
+			now.Sub(seen.read) >= abandonAfter {
+			w.f.logf(
+				"watch: note %s abandoned: a later call ended and this one got no post hook: %s",
+				id,
+				clip(n.Command),
+			)
+			_ = os.Remove(path)
+			delete(w.seen, id)
+			continue
+		}
 		present[id] = true
 		notes = append(notes, n)
 	}
 	for id, seen := range w.seen {
 		if !present[id] {
+			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
 			if !seen.matched && seen.childSeen {
 				w.f.logf("watch: note %s ended unmatched: %s", id, clip(seen.command))
 			}
@@ -332,6 +371,11 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 	for id := range w.unreadNotes {
 		if !present[id] {
 			delete(w.unreadNotes, id)
+		}
+	}
+	for key := range w.lastEnded {
+		if !s.alive(key.pid, key.start) {
+			delete(w.lastEnded, key)
 		}
 	}
 	return notes, nil
@@ -745,9 +789,11 @@ func (w *watcher) abandon(id string) {
 }
 
 // loadArgs reads the command lines matching looks at: the agent's, its direct
-// children's and, below a sandbox launcher, what the launcher started. Sizes
-// need no command lines, so the rest of the tree is not read.
-func loadArgs(s snapshot, agent int) {
+// children's and, below a sandbox launcher, what the launcher started. For a
+// Codex agent it also reads the CallID of the agent and its direct children;
+// no other part of any environment is kept. Sizes need neither, so the rest
+// of the tree is not read.
+func loadArgs(s snapshot, agent int, callIDs bool) {
 	seen := map[int]bool{}
 	var read func(pid int, expand bool)
 	read = func(pid int, expand bool) {
@@ -757,6 +803,9 @@ func loadArgs(s snapshot, agent int) {
 		}
 		seen[pid] = true
 		p.Args = readArgs(pid)
+		if callIDs && (pid == agent || p.PPID == agent) {
+			p.CallID = readCallID(pid)
+		}
 		s[pid] = p
 		if expand || len(p.Args) > 0 && launchers[filepath.Base(p.Args[0])] {
 			for _, child := range s.children(pid) {

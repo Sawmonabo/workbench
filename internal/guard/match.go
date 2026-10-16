@@ -95,12 +95,17 @@ func shellScript(args []string) (string, bool) {
 	return "", false
 }
 
+// callIDVariable is the environment variable Codex 0.163.0 and later set on
+// each command to its call's tool_use_id.
+const callIDVariable = "CODEX_TOOL_CALL_ID"
+
 // runs reports whether p is exactly what an agent of the note's kind runs for
 // the note's text. Claude Code: a shell script that evaluates the text as it
 // quotes it. Codex: a shell whose script is the text or, because zsh and bash
-// exec a single simple command in place, a process leading its own group
-// whose argv is the text's plain words.
-func runs(n note, p proc) bool {
+// exec a single simple command in place, a process whose argv is the text's
+// plain words and that leads its own group or, launched below a sandbox
+// launcher, its launcher's.
+func runs(n note, p proc, launched bool) bool {
 	script, shell := shellScript(p.Args)
 	switch n.Kind {
 	case claude:
@@ -117,7 +122,8 @@ func runs(n note, p proc) bool {
 			return true
 		}
 		words := simpleWords(n.Command)
-		return words != nil && p.PGID == p.PID && slices.Equal(p.Args, words)
+		return words != nil && slices.Equal(p.Args, words) &&
+			(p.PGID == p.PID || launched && p.PGID == p.PPID)
 	}
 	return false
 }
@@ -154,7 +160,8 @@ func evaluates(script, form string) bool {
 }
 
 // launchers start an agent's command inside a sandbox: Codex on Linux runs
-// codex-linux-sandbox, which runs bwrap, which runs the shell.
+// codex-linux-sandbox, which runs bwrap, which runs codex-linux-sandbox
+// again, which starts the command in its own group.
 var launchers = map[string]bool{"codex-linux-sandbox": true, "bwrap": true}
 
 // commandProcesses are the processes that may run a note's command for one
@@ -183,10 +190,8 @@ func (s snapshot) launched(child proc, seen map[int]bool) []proc {
 }
 
 // match pairs notes with the agent children that run them. A child is taken
-// only when it, and the process running the command (the child itself or
-// the first one below its sandbox launchers), started no earlier than one
-// second before the note's pre hook, and that process has exactly the shape
-// the note's agent uses for the note's text. Start times are compared in the
+// only when it started no earlier than one second before the note's pre hook
+// and claims the note. Start times are compared in the
 // kernel's own units, never against the wall clock. A child in taken, or
 // still carrying its agent's command line (forked, not yet exec'd), is
 // skipped; the next tick looks again. Notes go oldest first, each to its
@@ -216,9 +221,7 @@ func match(s snapshot, notes []note, taken map[int]bool) []command {
 			if used[child.PID] || child.Start < earliest || slices.Equal(child.Args, agent.Args) {
 				continue
 			}
-			if !slices.ContainsFunc(s.commandProcesses(child), func(p proc) bool {
-				return p.Start >= earliest && runs(n, p)
-			}) {
+			if !claims(s, n, agent, child, earliest) {
 				continue
 			}
 			used[child.PID] = true
@@ -227,6 +230,21 @@ func match(s snapshot, notes []note, taken map[int]bool) []command {
 		}
 	}
 	return out
+}
+
+// claims reports whether child runs n's command. A child of a Codex agent
+// with a CallID of its own, not the one it inherited with the agent's
+// environment, is that call's command and no other's. Otherwise the process
+// running the command (child, or the first below its sandbox launchers) must
+// have started no earlier than earliest and have exactly the shape n's agent
+// uses for n's text.
+func claims(s snapshot, n note, agent, child proc, earliest uint64) bool {
+	if n.Kind == codex && child.CallID != "" && child.CallID != agent.CallID {
+		return child.CallID == n.ToolUseID
+	}
+	return slices.ContainsFunc(s.commandProcesses(child), func(p proc) bool {
+		return p.Start >= earliest && runs(n, p, p.PID != child.PID)
+	})
 }
 
 // targets chooses what to signal to stop the tracked command whose root is

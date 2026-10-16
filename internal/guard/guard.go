@@ -40,12 +40,16 @@ type note struct {
 // proc is one process in a snapshot. Start is the kernel's start time in the
 // platform's own units (startSlack is one second of them) and, with the PID,
 // names the process: a later process reusing the PID has another Start. Args
-// stays nil until read.
+// stays nil until read. CallID is CODEX_TOOL_CALL_ID from the environment it
+// started with, read only for a Codex agent and its direct children: Codex
+// 0.163.0 and later set it on each command to the hook's tool_use_id, and it
+// survives the exec of a shell or a #! script.
 type proc struct {
 	PID, PPID, PGID int
 	Start           uint64
 	Name            string
 	Args            []string
+	CallID          string
 	Zombie          bool
 }
 

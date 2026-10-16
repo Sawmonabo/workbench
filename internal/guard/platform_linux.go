@@ -87,6 +87,21 @@ func readArgs(pid int) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
 }
 
+// readCallID is CODEX_TOOL_CALL_ID in /proc/<pid>/environ, the environment
+// the process started with.
+func readCallID(pid int) string {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
+	if err != nil {
+		return ""
+	}
+	for entry := range strings.SplitSeq(string(data), "\x00") {
+		if id, ok := strings.CutPrefix(entry, callIDVariable+"="); ok {
+			return id
+		}
+	}
+	return ""
+}
+
 // readMemory reads /proc/meminfo and, when the kernel has it,
 // /proc/pressure/memory. When this process's cgroup is confined to less
 // memory (see confined), it reads that cgroup instead if it calls for more,
