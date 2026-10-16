@@ -314,12 +314,20 @@ func Probe(l Locations, wanted []string) []string {
 }
 
 // Plan is what `workbench migrate --apply` asks approval for: one fixed effect
-// per migration with something to do, named by its ID and described by its
-// paths, so the digest changes when the paths do. A migration in conflict is
+// per migration with something to do, named by its ID and described by the
+// paths it moves or deletes, and Workbench's folders they move into as an
+// input, so the digest changes when either does. A migration in conflict is
 // a warning.
-func Plan(scope operation.Scope, findings []Finding) operation.Plan {
+func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan {
+	folders := strings.Join(
+		[]string{l.Runtime.Config, l.Runtime.Data, l.Runtime.State, l.Runtime.Cache},
+		"\n",
+	)
 	plan := operation.Plan{
-		Scope:         scope,
+		Scope: scope,
+		Inputs: []operation.Input{
+			{Name: "folders", Digest: operation.SHA256Hex([]byte(folders))},
+		},
 		Edits:         []operation.Edit{},
 		Prerequisites: []string{},
 		Effects:       []operation.Effect{},

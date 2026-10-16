@@ -123,9 +123,16 @@ func prepare(
 	if err != nil {
 		return prepared, err
 	}
+	// The runtime folders the scripts and migrations write into are bound
+	// too, as the diff does not show them.
+	folders := strings.Join(
+		[]string{c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache, c.Paths.Bin},
+		"\n",
+	)
 	plan.Inputs = append(
 		plan.Inputs,
 		operation.Input{Name: "native-diff", Digest: operation.SHA256Hex([]byte(diff))},
+		operation.Input{Name: "folders", Digest: operation.SHA256Hex([]byte(folders))},
 	)
 	effects := []operation.Effect{aiSecurityEffect}
 	effects = append(effects, provisioningEffects(c, answers)...)

@@ -179,7 +179,7 @@ func (o *options) migrateApply(
 		stop()
 		return result, err
 	}
-	plan := migrate.Plan(c.Scope, migrate.Check(locations))
+	plan := migrate.Plan(c.Scope, locations, migrate.Check(locations))
 	stop()
 	result.Warnings = append(result.Warnings, locations.Notes...)
 	result.Warnings = append(result.Warnings, plan.Warnings...)
@@ -215,7 +215,7 @@ func (o *options) migrateApply(
 				return operation.Plan{}, err
 			}
 			locations = current
-			return migrate.Plan(preview.Scope, migrate.Check(current)), nil
+			return migrate.Plan(preview.Scope, current, migrate.Check(current)), nil
 		},
 		func(*operation.Mutation) error {
 			return migrate.Run(cmd.Context(), locations, nil, say)
