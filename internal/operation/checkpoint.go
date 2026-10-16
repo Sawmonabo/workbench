@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -1088,10 +1087,7 @@ func loadCheckpoint(c Context, directory string) (*Checkpoint, error) {
 	for i := range 2 {
 		j, err := readJournal(directory, i, len(cp.changes))
 		if err != nil {
-			if problem, ok := errors.AsType[*Error](
-				err,
-			); ok &&
-				problem.Category == "checkpoint_format" {
+			if Category(err) == "checkpoint_format" {
 				torn = err
 				continue
 			}

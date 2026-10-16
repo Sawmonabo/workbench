@@ -55,7 +55,7 @@ var completionCache = Migration{
 			case err != nil:
 				return kept, err
 			case marked:
-				if err = removeIfThere(path); err != nil {
+				if err = operation.RemoveIfThere(path); err != nil {
 					return kept, err
 				}
 			default:

@@ -128,11 +128,11 @@ func refuseALedgerBackAtTheOldPath(t *testing.T) {
 	if check := CheckFolders(old, paths); check.State != FoldersConflict {
 		t.Fatalf("the check says %d, want a conflict", check.State)
 	}
-	if _, err := MoveFolders(ctx, old, paths); errorCategory(err) != "conflict" {
+	if _, err := MoveFolders(ctx, old, paths); operation.Category(err) != "conflict" {
 		t.Fatalf("got %v, want conflict", err)
 	}
 	err := moveLedger(ctx, paths.Home, old.Ledger, paths.Ledger, false)
-	if errorCategory(err) != "conflict" {
+	if operation.Category(err) != "conflict" {
 		t.Fatalf("moving the ledger directly gave %v, want conflict", err)
 	}
 	for i, after := range readAll(t, files) {
@@ -155,7 +155,7 @@ func refuseAnOpenLedger(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err = MoveFolders(ctx, old, paths)
-	if errorCategory(err) != "busy" {
+	if operation.Category(err) != "busy" {
 		t.Fatalf("got %v, want busy", err)
 	}
 	if _, err := os.Lstat(old.Ledger); err != nil {
@@ -174,7 +174,7 @@ func refuseTwoLedgers(t *testing.T) {
 	seedLedger(t, paths.Ledger, "req-9")
 	files := []string{old.Ledger, paths.Ledger}
 	before := readAll(t, files)
-	if _, err := MoveFolders(ctx, old, paths); errorCategory(err) != "conflict" {
+	if _, err := MoveFolders(ctx, old, paths); operation.Category(err) != "conflict" {
 		t.Fatalf("got %v, want conflict", err)
 	}
 	for i, after := range readAll(t, files) {
@@ -191,7 +191,7 @@ func moveTheLedgerPastAnOverridesConflict(t *testing.T) {
 	writeFile(t, old.Overrides, `{"old": {}}`, 0o644)
 	writeFile(t, paths.Overrides, `{"new": {}}`, 0o600)
 	left, err := MoveFolders(ctx, old, paths)
-	if errorCategory(err) != "conflict" {
+	if operation.Category(err) != "conflict" {
 		t.Fatalf("got %v, want conflict over the overrides", err)
 	}
 	if len(left) != 0 {
@@ -520,7 +520,7 @@ func refuseADifferentLedgerBesideTheOriginal(t *testing.T) {
 	files := []string{old.Ledger + ".moved", paths.Ledger + ".part", paths.Ledger}
 	before := readAll(t, files)
 	for range 2 {
-		if _, err := MoveFolders(ctx, old, paths); errorCategory(err) != "conflict" {
+		if _, err := MoveFolders(ctx, old, paths); operation.Category(err) != "conflict" {
 			t.Fatalf("got %v, want conflict", err)
 		}
 		for i, after := range readAll(t, files) {

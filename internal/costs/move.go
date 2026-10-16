@@ -45,31 +45,37 @@ type OldPaths struct {
 	Unresolved               string
 }
 
+// ShellDefault is ${name:-fallback} as the old startup files, script and
+// code resolved it. A relative value resolved against whatever folder the old
+// process started in and can't be found again: path is then "" and relative
+// says "NAME is relative (value)".
+func ShellDefault(home, name, fallback string) (path, relative string) {
+	switch value := os.Getenv(name); {
+	case value == "":
+		return fallback, ""
+	case filepath.IsAbs(value):
+		return filepath.Clean(value), ""
+	default:
+		return "", fmt.Sprintf("%s is relative (%s)", name, operation.ShowPath(home, value))
+	}
+}
+
 // OldLocations resolves [OldPaths] from the environment as the old code did.
 func OldLocations(home string) OldPaths {
 	var old OldPaths
 	var why string
-	absolute := func(name, value string) string {
-		if filepath.IsAbs(value) {
-			return filepath.Clean(value)
-		}
-		why = fmt.Sprintf("%s is relative (%s)", name, operation.ShowPath(home, value))
-		old.Notes = append(old.Notes, why+", so the costs files it named can't be found")
-		return ""
-	}
 	pick := func(override, xdg, fallback string, elem ...string) string {
-		why = ""
-		if value := os.Getenv(override); value != "" {
-			return absolute(override, value)
+		path, relative := ShellDefault(home, override, "")
+		if path == "" && relative == "" {
+			if path, relative = ShellDefault(home, xdg, filepath.Join(home, fallback)); path != "" {
+				path = filepath.Join(append([]string{path}, elem...)...)
+			}
 		}
-		base := os.Getenv(xdg)
-		switch {
-		case base == "":
-			base = filepath.Join(home, fallback)
-		case !filepath.IsAbs(base):
-			return absolute(xdg, base)
+		why = relative
+		if relative != "" {
+			old.Notes = append(old.Notes, relative+", so the costs files it named can't be found")
 		}
-		return filepath.Join(append([]string{base}, elem...)...)
+		return path
 	}
 	old.Ledger = pick(
 		"CLAUDE_COSTS_LEDGER",
@@ -389,14 +395,6 @@ func conflictError(text string) error {
 	)
 }
 
-// errorCategory is the category of an [operation.Error], "" for any other.
-func errorCategory(err error) string {
-	if problem, ok := errors.AsType[*operation.Error](err); ok {
-		return problem.Category
-	}
-	return ""
-}
-
 // MoveFolders moves the costs files from old into p's folders, and deletes the
 // old import log, its lock and unfinished price writes. The caller holds
 // [operation.Paths.MigrateLock]. While it works it holds both import locks, so
@@ -432,7 +430,7 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 		// A conflict or a ledger error leaves the ledger's files where they
 		// were, and the other files don't depend on them, so they still move.
 		ledgerErr = moveLedger(ctx, p.Home, old.Ledger, p.Ledger, false)
-		if category := errorCategory(ledgerErr); ledgerErr != nil &&
+		if category := operation.Category(ledgerErr); ledgerErr != nil &&
 			category != "conflict" && category != "ledger" {
 			return nil, ledgerErr
 		}
@@ -441,7 +439,7 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 		return nil, err
 	}
 	for _, name := range old.leftovers() {
-		if err = os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err = operation.RemoveIfThere(name); err != nil {
 			return nil, err
 		}
 	}
@@ -1069,7 +1067,7 @@ func settle(from, to string) error {
 // removeDatabase deletes a partial copy with any journal SQLite left beside it.
 func removeDatabase(path string) error {
 	for _, name := range []string{path + "-wal", path + "-shm", path + "-journal", path} {
-		if err := os.Remove(name); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := operation.RemoveIfThere(name); err != nil {
 			return err
 		}
 	}
@@ -1122,7 +1120,7 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 		}
 		_, conflict = MoveFolders(ctx, old, paths)
 		release()
-		if conflict != nil && errorCategory(conflict) != "conflict" {
+		if conflict != nil && operation.Category(conflict) != "conflict" {
 			return conflict
 		}
 	}

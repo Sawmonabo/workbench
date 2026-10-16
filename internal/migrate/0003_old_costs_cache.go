@@ -52,14 +52,14 @@ var oldCostsCache = Migration{
 			return nil, err
 		}
 		for _, name := range ours {
-			if err = removeIfThere(filepath.Join(l.OldScriptCache, name)); err != nil {
+			if err = operation.RemoveIfThere(filepath.Join(l.OldScriptCache, name)); err != nil {
 				return other, err
 			}
 		}
 		if len(other) > 0 {
 			return other, nil
 		}
-		return nil, removeIfThere(l.OldScriptCache)
+		return nil, operation.RemoveIfThere(l.OldScriptCache)
 	},
 }
 

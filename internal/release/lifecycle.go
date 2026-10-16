@@ -231,8 +231,7 @@ func StagePlan(c operation.Context, b Bundle) (operation.Plan, error) {
 // modifiedStage reports whether err says a staged release's files differ from
 // its verified bundle, as opposed to the directory being unreadable.
 func modifiedStage(err error) bool {
-	var failure *operation.Error
-	return errors.As(err, &failure) && failure.Category == "release_conflict"
+	return operation.Category(err) == "release_conflict"
 }
 
 // Stage extracts b into its release directory, or rechecks an existing one,

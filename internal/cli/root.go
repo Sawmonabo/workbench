@@ -151,6 +151,13 @@ func (o *options) destinationFlag(cmd *cobra.Command) {
 // subcommand through the group's Args, instead of printing help and exiting 0.
 func showHelp(cmd *cobra.Command, _ []string) error { return cmd.Help() }
 
+// stdinFile is the command's stdin as a file, nil when it is not one. The
+// hook commands read it with [operation.ReadHookInput].
+func stdinFile(cmd *cobra.Command) *os.File {
+	file, _ := cmd.InOrStdin().(*os.File)
+	return file
+}
+
 type handler func(*cobra.Command, operation.Context) (operation.Result, error)
 
 // actionKind is what a command operates on, which decides how action prepares

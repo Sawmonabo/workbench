@@ -3,7 +3,6 @@ package machine
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -310,8 +309,7 @@ func (p *preparation) runProbe(
 		}
 		// operation.Run reports expiry as its own Error in the "timeout"
 		// category, not as a wrapped context error.
-		var problem *operation.Error
-		if errors.As(err, &problem) && problem.Category == "timeout" {
+		if operation.Category(err) == "timeout" {
 			return nil, "timeout"
 		}
 		return nil, "failed"

@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"os"
-
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/guard"
@@ -52,9 +50,4 @@ func guardCommand() *cobra.Command {
 		},
 	)
 	return cmd
-}
-
-func stdinFile(cmd *cobra.Command) *os.File {
-	file, _ := cmd.InOrStdin().(*os.File)
-	return file
 }

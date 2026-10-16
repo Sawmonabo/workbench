@@ -48,6 +48,15 @@ func ExitCode(err error) Exit {
 	return ExitFailed
 }
 
+// Category is the category of the [Error] in err's chain, "" when there is
+// none.
+func Category(err error) string {
+	if problem, ok := errors.AsType[*Error](err); ok {
+		return problem.Category
+	}
+	return ""
+}
+
 // Status is the outcome of a command or one of its components.
 type Status string
 

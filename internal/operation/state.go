@@ -458,6 +458,15 @@ func syncDirectory(directory *os.File) error {
 	return err
 }
 
+// RemoveIfThere deletes the file or empty folder at path; a path already gone
+// is not an error.
+func RemoveIfThere(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 // RenameNoReplace renames from to to and never replaces a file already at to.
 // A file at to fails it with an error matching fs.ErrExist, or, when from and
 // to are on different filesystems, possibly syscall.EXDEV instead, whichever

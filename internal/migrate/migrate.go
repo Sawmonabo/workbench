@@ -113,22 +113,13 @@ func Locate() (Locations, error) {
 	return l, nil
 }
 
-// shellDefault is ${name:-fallback} as the old startup files and script
-// resolved it. A relative value can't be found again: it is noted instead.
+// shellDefault is [costs.ShellDefault], noting a relative value.
 func (l *Locations) shellDefault(name, fallback string) string {
-	switch value := os.Getenv(name); {
-	case value == "":
-		return fallback
-	case filepath.IsAbs(value):
-		return filepath.Clean(value)
-	default:
-		shown := operation.ShowPath(l.Home, value)
-		l.Notes = append(
-			l.Notes,
-			name+" is relative ("+shown+"), so the files it named can't be found",
-		)
-		return ""
+	path, relative := costs.ShellDefault(l.Home, name, fallback)
+	if relative != "" {
+		l.Notes = append(l.Notes, relative+", so the files it named can't be found")
 	}
+	return path
 }
 
 // Finding is one migration with what its Check found.
@@ -415,12 +406,4 @@ func markDone(l Locations, id string) error {
 		return err
 	}
 	return operation.ReplacePrivateFile(recordPath(l), append(data, '\n'))
-}
-
-// removeIfThere deletes path; a path already gone is not an error.
-func removeIfThere(path string) error {
-	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-	return nil
 }
