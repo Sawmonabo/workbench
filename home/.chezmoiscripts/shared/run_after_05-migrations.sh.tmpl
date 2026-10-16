@@ -7,7 +7,7 @@
 # their full source paths (darwin/, linux/, shared/, then wsl/), so this always
 # runs after the files and before shared/run_after_90-costs-ingest.
 set -euo pipefail
-workbench="${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"
+{{ template "installed-workbench.sh" }}
 {{ template "old-locations.sh" }}
 # knows_migrations: the installed workbench has the migrate command. An older
 # one answers `migrate --help` with its general help, which has no migrate

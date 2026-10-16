@@ -1,4 +1,4 @@
-{{- $workbench := printf "%s/.local/bin/workbench" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" -}}
+{{- $workbench := includeTemplate "workbench-command" (dict "root" . "tilde" false) -}}
 {{- $ingest := printf "%s costs ingest" $workbench -}}
 {
   "hooks": {

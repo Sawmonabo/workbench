@@ -282,6 +282,60 @@ for event, verb in (("PreToolUse", "pre"), ("PostToolUse", "post"), ("PostToolUs
 sys.exit(bad)
 PY
 
+# The hooks run the installed workbench in the apply's bin folder, which the
+# apply passes as the workbench_bin answer. Render with one whose path has a
+# space and a quote over the files just applied: every hook must run it
+# quoted, none may keep the default copy, and Codex must trust each hook by
+# the hash of its new command.
+echo "==> [$role/$mode] hooks follow a bin folder with a space"
+bin_config="$tmp/bin-chezmoi.toml"
+awk -v bin="$tmp/wb bin's/workbench" '{ print } /^\[data\]$/ { print "    workbench_bin = \"" bin "\"" }' "$config" > "$bin_config"
+grep -qF "wb bin's/workbench" "$bin_config" || { echo "BIN FAIL: could not set workbench_bin in $bin_config"; exit 1; }
+bin_chez=("${chez[@]}")
+bin_chez[2]=$bin_config
+for relative in .claude/settings.json .codex/hooks.json .codex/config.toml; do
+    "${bin_chez[@]}" cat "$dest/$relative" > "$tmp/bin-$(basename "$relative")" ||
+        { echo "BIN FAIL: $relative did not render"; fail=1; }
+done
+python3 - "$tmp" "$hooks_path" "'$tmp/wb bin'\"'\"'s/workbench' " <<'PY' || fail=1
+import hashlib, json, re, sys, tomllib
+tmp, path, prefix = sys.argv[1:]
+claude = json.load(open(tmp + "/bin-settings.json"))["hooks"]
+codex = json.load(open(tmp + "/bin-hooks.json"))["hooks"]
+state = tomllib.load(open(tmp + "/bin-config.toml", "rb"))["hooks"]["state"]
+events = {"SessionStart": "session_start", "SessionEnd": "session_end",
+          "PreToolUse": "pre_tool_use", "PostToolUse": "post_tool_use"}
+bad = 0
+for name, hooks in (("claude", claude), ("codex", codex)):
+    commands = [h["command"] for groups in hooks.values() for g in groups for h in g["hooks"]
+                if re.search(r"workbench'? (costs|guard)( |$)", h["command"])]
+    for command in commands:
+        if not command.startswith(prefix) or ".local/bin/workbench" in command:
+            print(f"BIN FAIL: {name} hook runs {command!r}")
+            bad = 1
+    if len(commands) != (5 if name == "claude" else 4):
+        print(f"BIN FAIL: {name} has {len(commands)} workbench hooks")
+        bad = 1
+# Codex's trust hash (discovery.rs hook_hash, as modify_private_config.toml.tmpl
+# writes it) for the hooks.json just rendered.
+for event, groups in codex.items():
+    if event not in events:
+        continue
+    for g, group in enumerate(groups):
+        for h, hook in enumerate(group["hooks"]):
+            timeout = min(max(hook["timeout"], 1), 3) if event == "SessionEnd" else max(hook["timeout"], 1)
+            identity = {"event_name": events[event], "hooks": [
+                {"type": "command", "command": hook["command"], "timeout": timeout, "async": False}]}
+            if "matcher" in group:
+                identity["matcher"] = group["matcher"]
+            text = json.dumps(identity, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
+            want = "sha256:" + hashlib.sha256(text.encode()).hexdigest()
+            if state.get(f"{path}:{events[event]}:{g}:{h}", {}).get("trusted_hash") != want:
+                print(f"BIN FAIL: codex {event} hook {g}:{h} is not trusted by its hash")
+                bad = 1
+sys.exit(bad)
+PY
+
 echo "==> [$role/$mode] claude code status line"
 python3 -m py_compile "$dest/.claude/scripts/statusline.py" || { echo "STATUSLINE FAIL: statusline.py does not compile"; fail=1; }
 grep -q 'python3 ~/.claude/scripts/statusline.py' "$dest/.claude/settings.json" || { echo "STATUSLINE FAIL: settings.json does not point at statusline.py"; fail=1; }

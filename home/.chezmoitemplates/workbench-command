@@ -1,0 +1,12 @@
+{{- /* The installed workbench the Claude Code and Codex hooks run: the
+       workbench_bin answer (the apply's bin folder, WORKBENCH_BIN_DIR), single-
+       quoted for the shell. Include it with (dict "root" . "tilde" BOOL); with
+       tilde true the default folder is written ~/.local/bin/workbench, the
+       form the Claude Code settings use, and Codex gets the absolute path. */ -}}
+{{- $default := joinPath .root.chezmoi.homeDir ".local/bin/workbench" -}}
+{{- $path := get .root "workbench_bin" | default $default -}}
+{{- if and .tilde (eq $path $default) -}}
+~/.local/bin/workbench
+{{- else -}}
+{{ $path | replace "'" "'\"'\"'" | printf "'%s'" }}
+{{- end -}}

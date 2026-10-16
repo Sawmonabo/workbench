@@ -3,8 +3,10 @@ package machine
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -302,6 +304,11 @@ func (p *preparation) stageNative(
 	if uv := dependency(p.Plan.Dependencies, "uv"); operation.Within(c.Paths.Data, uv) {
 		nativeAnswers["workbench_uv_dir"] = filepath.Dir(uv)
 	}
+	// The Claude Code and Codex hooks run the installed workbench in the bin
+	// folder this apply resolved, as the migrations and costs-ingest scripts
+	// do. Templates cannot read the caller's environment (the preview renders
+	// with a fixed one), so the path reaches them as an answer.
+	nativeAnswers["workbench_bin"] = filepath.Join(c.Paths.Bin, "workbench")
 	config, _ := json.Marshal(map[string]any{"data": nativeAnswers})
 	if err = os.WriteFile(native.Config, config, 0o600); err != nil {
 		return err
@@ -394,7 +401,7 @@ func writeRoleSources(source string, files map[string][]byte, answers Answers) e
 // context and binds its digest, or records that none exists yet.
 func (p *preparation) copyNativeState(c operation.Context) error {
 	_, err := os.Lstat(c.Native.PersistentState)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		p.Plan.Inputs = append(
 			p.Plan.Inputs,
 			operation.Input{Name: "native-state", Digest: "absent"},

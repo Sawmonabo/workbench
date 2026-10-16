@@ -4,7 +4,7 @@
 # It runs the same installed binary the hooks run, so the ledger is always in
 # the format that binary reads; a first read of a large history takes a while.
 set -euo pipefail
-workbench="${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"
+{{ template "installed-workbench.sh" }}
 {{ template "old-locations.sh" }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ -x "$workbench" ]; then
