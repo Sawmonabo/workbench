@@ -199,6 +199,12 @@ func TestSettleFailedNativeLeavesDifferingContentAlone(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// The files take the folder's group on macOS, and the system temporary
+	// folder's (wheel) is one the user cannot give back; the approved group
+	// here is the effective one.
+	if err = os.Chown(root, -1, os.Getegid()); err != nil {
+		t.Fatal(err)
+	}
 	c := Context{
 		Paths: Paths{
 			State:  filepath.Join(root, "state"),
@@ -417,6 +423,12 @@ func TestRevertKeepsFoldersHoldingOtherFiles(t *testing.T) {
 func TestRevertConfirmsFilesAnInterruptedApplyLeftUnknown(t *testing.T) {
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
+		t.Fatal(err)
+	}
+	// The files take the folder's group on macOS, and the system temporary
+	// folder's (wheel) is one the user cannot give back; the approved group
+	// here is the effective one.
+	if err = os.Chown(root, -1, os.Getegid()); err != nil {
 		t.Fatal(err)
 	}
 	c := Context{

@@ -858,8 +858,8 @@ func (e nativeEntry) image() (operation.Image, error) {
 	)
 }
 
-// checkPreservable refuses group-exclusive modes and replacements that would
-// change a target's group.
+// checkPreservable refuses group-exclusive modes, replacements that would
+// change a target's group and files whose group native's staging cannot keep.
 func checkPreservable(
 	c operation.Context,
 	edit operation.Edit,
@@ -874,6 +874,11 @@ func checkPreservable(
 			"metadata",
 			"Native group-exclusive permissions require separately qualified atomic ownership handling",
 		)
+	}
+	if after.Kind == operation.ImageFile {
+		if err := operation.CheckStagedGroup(c, edit.Path); err != nil {
+			return err
+		}
 	}
 	if before.Kind != operation.ImageFile && before.Kind != operation.ImageSymlink {
 		return nil

@@ -122,13 +122,9 @@ func validateImageGroup(c Context, path string, image Image) error {
 	if image.Group == nil {
 		return Fail(ExitInvalid, "image", "Missing target group")
 	}
-	groups, err := os.Getgroups()
+	permitted, err := canSetGroup(*image.Group)
 	if err != nil {
 		return err
-	}
-	permitted := groupID(os.Getegid()) == *image.Group
-	for _, group := range groups {
-		permitted = permitted || groupID(group) == *image.Group
 	}
 	if !permitted {
 		inherited, inheritErr := CreationGroup(c, path)
@@ -335,32 +331,98 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	return image, nil
 }
 
+// canSetGroup reports whether the current user may give a file group: chown(2)
+// allows only its effective group and its supplementary groups.
+func canSetGroup(group uint32) (bool, error) {
+	groups, err := os.Getgroups()
+	if err != nil {
+		return false, err
+	}
+	permitted := groupID(os.Getegid()) == group
+	for _, member := range groups {
+		permitted = permitted || groupID(member) == group
+	}
+	return permitted, nil
+}
+
 // CreationGroup is also the native planner's group-preservation preflight:
 // an atomic native replacement must not silently change an existing group.
 func CreationGroup(c Context, path string) (uint32, error) {
-	if err := c.validateImagePath(path); err != nil {
+	parent, err := creationParent(c, path)
+	if err != nil {
 		return 0, err
+	}
+	return inheritedGroup(parent), nil
+}
+
+// creationParent is the nearest existing folder above path, where a new file
+// at path would be created.
+func creationParent(c Context, path string) (unix.Stat_t, error) {
+	if err := c.validateImagePath(path); err != nil {
+		return unix.Stat_t{}, err
 	}
 	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
 		var stat unix.Stat_t
 		err := unix.Lstat(parent, &stat)
 		if err == nil {
 			if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
-				return 0, Fail(
+				return unix.Stat_t{}, Fail(
 					ExitBlocked,
 					"metadata",
 					"Cannot establish group inheritance through a non-directory",
 				)
 			}
-			if runtime.GOOS == "darwin" || stat.Mode&unix.S_ISGID != 0 {
-				return uint32(stat.Gid), nil
-			}
-			return groupID(os.Getegid()), nil
+			return stat, nil
 		}
 		if !errors.Is(err, unix.ENOENT) || parent == c.Scope.Root {
-			return 0, Fail(ExitBlocked, "metadata", "Cannot establish target group inheritance")
+			return unix.Stat_t{}, Fail(
+				ExitBlocked,
+				"metadata",
+				"Cannot establish target group inheritance",
+			)
 		}
 	}
+}
+
+// inheritedGroup is the group a new file in folder gets: the folder's on macOS
+// and below a set-group-ID folder, else the effective group.
+func inheritedGroup(folder unix.Stat_t) uint32 {
+	if runtime.GOOS == "darwin" || folder.Mode&unix.S_ISGID != 0 {
+		return uint32(folder.Gid)
+	}
+	return groupID(os.Getegid())
+}
+
+// CheckStagedGroup refuses a file target whose group, the one a new file at
+// path gets, native's atomic write cannot keep. Native chezmoi writes a file
+// through renameio, which stages it in the temporary folder (TMPDIR) whenever
+// a file renames from there to path, so the file arrives with that folder's
+// group and Workbench gives it the approved group afterwards. When the two
+// differ and the user cannot set the approved group, that correction would
+// fail after native wrote, so the plan stops first.
+func CheckStagedGroup(c Context, path string) error {
+	parent, err := creationParent(c, path)
+	if err != nil {
+		return err
+	}
+	group := inheritedGroup(parent)
+	if permitted, err := canSetGroup(group); err != nil || permitted {
+		return err
+	}
+	var temporary unix.Stat_t
+	if err = unix.Stat(os.TempDir(), &temporary); err != nil {
+		return err
+	}
+	if temporary.Dev != parent.Dev || inheritedGroup(temporary) == group {
+		return nil
+	}
+	return Fail(
+		ExitBlocked,
+		"metadata",
+		"Native writes this file through the temporary folder (TMPDIR), whose group differs from "+
+			"the target folder's, and you are not a member of the target folder's group; give that "+
+			"folder one of your groups (chgrp)",
+	)
 }
 
 func sameImageContent(a, b Image) bool {
