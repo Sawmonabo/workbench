@@ -548,9 +548,8 @@ synthetic answers.
   `migrate --apply` and `migrate run` exited 4. `apply --local-build
   --dry-run` showed `checking migrations` and `migrations: 3 to run` (or `1
   needs attention` for the conflict), and with nothing pending `migrations:
-  none to run` with the step under "Already set", on a home on ext4 and, with
-  a build that reads extended attribute names into a buffer, on the
-  container's overlay root. The apply's migrations script, the import
+  none to run` with the step under "Already set", on a home on ext4 and on
+  the container's overlay root. The apply's migrations script, the import
   worker's own move and macOS were not observed with this build.
 - An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
   in a disposable home with synthetic answers, `apply --local-build --dry-run
