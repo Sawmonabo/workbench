@@ -16,8 +16,8 @@
   {{- $granted := dig "permissions" $list (list) $live -}}
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
 {{- end -}}
-{{- /* The enforced hooks name the command without a folder; each runs the
-       installed workbench (the workbench-command template). A live group that
+{{- /* An enforced hook that runs `workbench ` names it without a folder;
+       each runs the installed workbench (the workbench-command template). A live group that
        runs `workbench costs`, by any path, is a copy of an enforced hook,
        possibly from an older release or another bin folder; drop it so a
        changed managed hook replaces its old copy instead of running beside it.
@@ -29,7 +29,9 @@
 {{- range $event, $groups := $enforced.hooks -}}
   {{- range $group := $groups -}}
     {{- range $hook := $group.hooks -}}
-      {{- $_ := set $hook "command" (printf "%s %s" $workbench (trimPrefix "workbench " $hook.command)) -}}
+      {{- if hasPrefix "workbench " $hook.command -}}
+        {{- $_ := set $hook "command" (printf "%s %s" $workbench (trimPrefix "workbench " $hook.command)) -}}
+      {{- end -}}
     {{- end -}}
   {{- end -}}
   {{- $kept := list -}}
