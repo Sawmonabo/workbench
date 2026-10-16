@@ -65,11 +65,10 @@ func (f folders) noteIDs() ([]string, error) {
 	return ids, nil
 }
 
-// listFolder lists a guard folder without temporary files. One from a write
-// in progress starts ".write-" (see [operation.ReplacePrivateFile]) and is
-// deleted once it is over a minute old: the process that wrote it was killed
-// before renaming it into place.
+// listFolder lists a guard folder without temporary files, which start
+// ".write-" (see [operation.ReplacePrivateFile]), after removeStaleWrites.
 func listFolder(folder string) ([]fs.DirEntry, error) {
+	removeStaleWrites(folder)
 	all, err := os.ReadDir(folder)
 	if err != nil {
 		return nil, err
@@ -78,13 +77,24 @@ func listFolder(folder string) ([]fs.DirEntry, error) {
 	for _, entry := range all {
 		if !strings.HasPrefix(entry.Name(), ".write-") {
 			entries = append(entries, entry)
+		}
+	}
+	return entries, nil
+}
+
+// removeStaleWrites deletes the temporary files in folder that are over a
+// minute old: the process that wrote one was killed before renaming it into
+// place.
+func removeStaleWrites(folder string) {
+	entries, _ := os.ReadDir(folder)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".write-") {
 			continue
 		}
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
 			_ = os.Remove(filepath.Join(folder, entry.Name()))
 		}
 	}
-	return entries, nil
 }
 
 // writeJSON replaces the private file at path with value, so a reader never

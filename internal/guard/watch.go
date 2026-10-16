@@ -457,7 +457,7 @@ func (w *watcher) untracked(notes []note) []note {
 }
 
 // expireKills deletes kill records over a day old, at most once a minute,
-// and temporary files as listFolder does.
+// and stale temporary files (see listFolder).
 func (w *watcher) expireKills() {
 	if time.Since(w.expired) < time.Minute {
 		return
