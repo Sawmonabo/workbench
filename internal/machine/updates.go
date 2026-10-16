@@ -39,11 +39,12 @@ type brewExtra struct {
 	install        bool
 }
 
-// planUpdates adds one effect per listed package Homebrew can update, so
-// approving the plan approves those updates, and records their names for the
-// apply script. Asking Homebrew without names keeps its own check, which
-// compares the installed app's version for self-updating casks and so never
-// proposes a downgrade; pinned packages are held. A tool update's effect also
+// planUpdates adds one effect per listed package Homebrew can update, and
+// per Codex or Claude Code cask the shell runs (agentCasks), so approving the
+// plan approves those updates, and records their names for the apply script.
+// Asking Homebrew without names keeps its own check, which compares the
+// installed app's version for self-updating casks and so never proposes a
+// downgrade; pinned packages are held. A tool update's effect also
 // names what Homebrew's dry run says comes with it, the list Homebrew would
 // otherwise ask about, so the apply script tells Homebrew not to ask. Formulae
 // that provide the chezmoi or uv Workbench runs (workbenchFormulae) stay at the
@@ -58,7 +59,7 @@ func (p *preparation) planUpdates(
 		return
 	}
 	c.Step("asking Homebrew for updates")
-	updates, held, pinned, err := outdatedPackages(ctx, c, files)
+	updates, held, pinned, err := outdatedPackages(ctx, c, files, p.agentCasks)
 	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
@@ -90,6 +91,11 @@ func (p *preparation) planUpdates(
 			Undo:      "Not reverted: Homebrew does not keep the previous version",
 		}
 		switch {
+		case update.cask && slices.Contains(p.agentCasks, update.name):
+			effect.What += " Homebrew installs only its current version, whatever versions.toml pins."
+			p.appUpdates = append(p.appUpdates, update.name)
+			p.Plan.Effects = append(p.Plan.Effects, effect)
+			continue
 		case update.cask:
 			effect.Description += "; a running app may be quit"
 			effect.Privilege += "; some apps prompt for sudo"
@@ -236,13 +242,14 @@ func workbenchFormulae(dependencies []operation.Dependency) []string {
 	return names
 }
 
-// outdatedPackages returns the formulae and casks in packages.toml that
-// Homebrew reports as outdated, those held by a pin, and every pinned outdated
-// formula. Without Homebrew there is nothing to update.
+// outdatedPackages returns the formulae and casks in packages.toml, and the
+// casks in extra, that Homebrew reports as outdated, those held by a pin, and
+// every pinned outdated formula. Without Homebrew there is nothing to update.
 func outdatedPackages(
 	ctx context.Context,
 	c operation.Context,
 	files map[string][]byte,
+	extra []string,
 ) (updates []brewUpdate, held, pinned []string, err error) {
 	var packages struct {
 		Packages struct {
@@ -256,6 +263,7 @@ func outdatedPackages(
 		return nil, nil, nil, err
 	}
 	listed := packages.Packages.Darwin
+	listed.Cask = append(listed.Cask, extra...)
 	brew := homebrew()
 	if brew == "" || len(listed.Brew)+len(listed.Cask) == 0 {
 		return nil, nil, nil, nil

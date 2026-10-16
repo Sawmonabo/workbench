@@ -38,11 +38,12 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     policy="upgraded to the latest"
 {{- end }}
     # Versions are not compared here, so even with every tool installed the run
-    # still sets them: this never reports "no change".
+    # still sets them: this never reports "no change". Codex and Claude Code
+    # are the exception: their update steps set an installed copy's version.
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions are $policy"
+        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions other than Codex's and Claude Code's are $policy"
     else
-        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions are $policy"
+        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions other than Codex's and Claude Code's are $policy"
     fi
     exit 0
 fi
@@ -57,12 +58,15 @@ status=0
 # --- npm globals + codex + claude (into the default Node) ---
 {{ template "nvm-load.sh" }}
     nvm use default || failed+=("the default Node could not be selected")
+    # Codex and Claude Code are installed here only when missing: an installed
+    # copy, from npm or its own installer, is updated by its own update step
+    # (45-agent-updates), so npm never adds a second copy beside it.
 {{- if eq $mode "pinned" }}
-    npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
-    npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
+    command -v codex >/dev/null 2>&1 || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
+    command -v claude >/dev/null 2>&1 || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
 {{- else }}
-    npm install -g @openai/codex@latest || failed+=("codex could not be installed")
-    npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
+    command -v codex >/dev/null 2>&1 || npm install -g @openai/codex@latest || failed+=("codex could not be installed")
+    command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
 {{- end }}
     # Node >= 25 no longer bundles corepack; install it into the default Node first.
     command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=("corepack could not be installed")

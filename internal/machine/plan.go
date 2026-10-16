@@ -44,8 +44,12 @@ type preparation struct {
 	// activeSources.
 	active map[string]bool
 	// appUpdates and toolUpdates name the casks and formulae the plan's
+	// Homebrew update effects cover, and agentCasks the Codex and Claude Code
+	// casks among the casks Homebrew is asked about.
+	appUpdates, toolUpdates, agentCasks []string
+	// agentUpdates are the Codex and Claude Code updates the plan's other
 	// update effects cover.
-	appUpdates, toolUpdates []string
+	agentUpdates []agentUpdate
 	// brewRefreshed is, for Apply, whether Homebrew's index was refreshed
 	// before planning; the apply scripts then leave it be.
 	brewRefreshed bool
@@ -146,6 +150,7 @@ func prepare(
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
 	}
+	prepared.planAgentUpdates(ctx, c, files, answers["versions_mode"] == "latest")
 	prepared.planUpdates(ctx, c, files)
 	if err = prepared.selectEffects(ctx, c, selection, probe); err != nil {
 		return prepared, err
@@ -973,6 +978,7 @@ func (p *preparation) Apply(
 			environment = append(environment, effectVariable(effect.Name)+"="+value)
 		}
 		environment = append(environment, p.updateEnvironment()...)
+		environment = append(environment, p.agentEnvironment()...)
 		for i, value := range environment {
 			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
 				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
@@ -1055,8 +1061,8 @@ func (p *preparation) runScriptsThroughStepRunner() error {
 			continue
 		}
 		sources := effectSources[effect.Name]
-		if strings.HasPrefix(effect.Name, updateEffectPrefix) {
-			sources = []string{updatesScript}
+		if script := p.updateScript(effect.Name); script != "" {
+			sources = []string{script}
 		}
 		for _, source := range sources {
 			if !strings.HasPrefix(source, ".") {
@@ -1129,7 +1135,9 @@ func readBlocked(path string, effects []operation.Effect) map[string]string {
 // unchecked effects, so its content, which chezmoi hashes to decide whether a
 // run-once or on-change script ran, differs from the fully checked one: the
 // effect's section runs when it is checked later. A checked update effect
-// owns the script that runs updates (see [updatesScript]) like a listed effect.
+// owns the script that runs it (see [preparation.updateScript]) like a listed
+// effect; the agent updates script, which has no other owner, is deleted
+// without one.
 // The plan's source identity and digest are computed from the unmodified source
 // before this runs.
 func (p *preparation) selectScripts() error {
@@ -1148,16 +1156,17 @@ func (p *preparation) selectScripts() error {
 		}
 		script := strings.TrimSuffix(base[strings.LastIndex(base, "_")+1:], ".sh.tmpl")
 		owners := scriptEffects(script)
-		if script == updatesScript {
-			// A checked update keeps the script that runs it, even with the
-			// apps and the work extension unchecked.
-			for _, effect := range p.Plan.Effects {
-				if strings.HasPrefix(effect.Name, updateEffectPrefix) {
-					owners = append(owners, effect.Name)
-				}
+		// A checked update keeps the script that runs it, even with the apps
+		// and the work extension unchecked.
+		for _, effect := range p.Plan.Effects {
+			if p.updateScript(effect.Name) == script {
+				owners = append(owners, effect.Name)
 			}
 		}
 		if len(owners) == 0 {
+			if script == agentUpdatesScript {
+				return os.Remove(path)
+			}
 			return nil
 		}
 		var skipped []string

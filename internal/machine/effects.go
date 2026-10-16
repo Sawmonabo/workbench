@@ -151,7 +151,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no tool rollback",
 		Title:       "Command-line tools",
 		Summary:     "Claude Code, Codex and the tools Workbench lists",
-		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, including Claude Code and Codex, and podman on Linux. Their install steps run.",
+		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and podman on Linux. Their install steps run.",
 		Touches:     "the global tool folders under your home folder",
 		RunsAs:      "you; downloads packages and runs their install steps; podman uses sudo",
 		Undo:        "Not reverted automatically: uninstall a tool with npm, uv, cargo or go",

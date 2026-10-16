@@ -71,14 +71,20 @@ while IFS= read -r -d '' script; do
         shellcheck -S warning "$out" || { echo "SHELLCHECK FAIL: $script"; fail=1; }
         # Probe mode must answer with effect lines only, exit 0, and never
         # reach a writer: every write or prompt sits below the probe block.
-        # Only provisioning scripts have a probe mode; the wsl render also
-        # lints win-browser, a user binary. The script runs under set -e, so
-        # every check here reports instead of aborting the run.
+        # The agent updates script answers with nothing: the planner plans
+        # its updates and does not probe it. Only provisioning scripts have a
+        # probe mode; the wsl render also lints win-browser, a user binary.
+        # The script runs under set -e, so every check here reports instead of
+        # aborting the run.
         case "$script" in
         */.chezmoiscripts/*)
             probe_out="$tmp/probe.out"
             if WORKBENCH_PROBE=1 HOME="$dest" bash "$out" >"$probe_out" 2>"$tmp/probe.err" </dev/null; then
-                if ! grep -qE '^[a-z0-9-]+: .+$' "$probe_out" || grep -vqE '^[a-z0-9-]+: .+$' "$probe_out"; then
+                if [[ "$script" == */run_after_45-agent-updates.sh.tmpl ]]; then
+                    if [ -s "$probe_out" ]; then
+                        echo "PROBE FAIL: $script printed something in probe mode:"; cat "$probe_out"; fail=1
+                    fi
+                elif ! grep -qE '^[a-z0-9-]+: .+$' "$probe_out" || grep -vqE '^[a-z0-9-]+: .+$' "$probe_out"; then
                     echo "PROBE FAIL: $script printed something other than effect lines:"; cat "$probe_out"; fail=1
                 fi
             else
