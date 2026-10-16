@@ -312,8 +312,8 @@ note.
   with exactly that note's words as its argv (`git rev-parse HEAD`, say),
   would be taken for it. Once an agent has had a child carrying a call ID of
   its own, it is known to set them, and its notes match only by call ID, so
-  the gap closes from Codex 0.163.0; under 0.162.0 and earlier, including the
-  pinned 0.153.0, it stays.
+  the gap closes from Codex 0.163.0 (the version `versions.toml` pins); under
+  0.162.0 and earlier it stays.
 - **Timing:** the child and that process must have started at or after the
   note's `noted_start`, less one second, comparing kernel start times
   (section 4).

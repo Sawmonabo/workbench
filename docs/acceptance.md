@@ -618,9 +618,8 @@ synthetic answers.
   Codex 0.163.0, which sets `CODEX_TOOL_CALL_ID`, had 8 of 8 calls tracked,
   and Codex 0.162.0, which does not, 6 of 8, both misses the script, logged
   `ended unmatched`. Without the sandbox chain in the match (section 2), none
-  of the sandboxed Codex 0.162.0 calls was tracked. Codex 0.153.0, which
-  `versions.toml` pins, sets no call ID, so a script that execs another
-  program is matched only from Codex 0.163.0.
+  of the sandboxed Codex 0.162.0 calls was tracked. `versions.toml` pins
+  Codex 0.163.0 and Claude Code 2.1.301, the versions observed here.
 - On 2026-10-16, a stop under real memory pressure was observed on Linux in
   a Docker 29.8.2 container (kernel 7.0.14-linuxkit, arm64,
   `python:3.12-slim`) limited to a 1 GiB cgroup v2 with no swap. A stand-in

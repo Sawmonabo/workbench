@@ -1,10 +1,9 @@
 # Tool/runtime version pins for install scripts.
-# Captured from the Ubuntu 22.04 machine inventory on 2026-08-17, then
-# re-captured on 2026-09-06 for node_default, codex and claude: the macOS
-# scripts now consume these pins, and the 2026-08-17 values would have
-# downgraded Claude Code below the >= 2.1.260 that the managed
-# outputStyle = "Concise" needs and made Node 22 the default over the
-# current LTS.
+# Captured from the Ubuntu 22.04 machine inventory on 2026-08-17; node_default
+# is the current LTS. codex and claude are the versions the agent command
+# guard was observed with (docs/acceptance.md): Codex 0.163.0 is the first to
+# set CODEX_TOOL_CALL_ID, which the guard matches commands by, and Claude Code
+# must be >= 2.1.260 for the managed outputStyle = "Concise".
 # versions_mode=pinned uses these exact versions; latest uses newest in each line.
 [versions]
 node = ["20.19.5", "22.21.1", "22.23.0", "24.19.0"]
@@ -16,8 +15,8 @@ rust = "1.93.0"
 bun = "1.3.8"
 nvm = "v0.40.2"
 uv = "0.11.21"
-codex = "0.153.0"
-claude = "2.1.263"
+codex = "0.163.0"
+claude = "2.1.301"
 
 # Management acquisition consumes versions.uv and versions.python_pinned[0].
 # These compatibility qualifications do not change user runtime version policy.
