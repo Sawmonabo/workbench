@@ -252,7 +252,7 @@ func (b Bundle) Extract(directory string) error {
 func (b Bundle) CheckDirectory(directory string) error {
 	for name, data := range b.Files {
 		full := filepath.Join(directory, name)
-		if err := PrivateTree(directory, filepath.Dir(full), false); err != nil {
+		if err := operation.PrivateTree(directory, filepath.Dir(full), false); err != nil {
 			return err
 		}
 		info, err := os.Lstat(full)

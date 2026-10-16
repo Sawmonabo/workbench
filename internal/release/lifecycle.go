@@ -243,7 +243,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	directory := b.Directory(c)
-	if err := PrivateTree(c.Paths.Data, filepath.Dir(directory), true); err != nil {
+	if err := operation.PrivateTree(c.Paths.Data, filepath.Dir(directory), true); err != nil {
 		return "", err
 	}
 	if _, err := os.Lstat(directory); err == nil {
@@ -267,7 +267,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	parent := filepath.Dir(directory)
-	if err := PrivateTree(c.Paths.Data, parent, true); err != nil {
+	if err := operation.PrivateTree(c.Paths.Data, parent, true); err != nil {
 		return "", err
 	}
 	id, err := operation.NewID()
@@ -282,7 +282,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 	if err = os.Rename(temporary, directory); err != nil {
 		return "", err
 	}
-	return directory, syncDirectory(parent)
+	return directory, operation.SyncDirectory(parent)
 }
 
 // Inspect rechecks a staged release directory against its manifest and
@@ -346,7 +346,7 @@ func (m Metadata) checkFiles(directory string) error {
 			)
 		}
 		file := filepath.Join(directory, name)
-		if err := PrivateTree(directory, filepath.Dir(file), false); err != nil {
+		if err := operation.PrivateTree(directory, filepath.Dir(file), false); err != nil {
 			return err
 		}
 		info, err := os.Lstat(file)
@@ -609,7 +609,7 @@ func switchRuntime(
 			"Entry-point activation failed and state restoration is incomplete; rerun workbench update",
 		)
 	}
-	if err = syncDirectory(c.Paths.Bin); err != nil {
+	if err = operation.SyncDirectory(c.Paths.Bin); err != nil {
 		return operation.Fail(
 			operation.ExitPartial,
 			"activation_incomplete",

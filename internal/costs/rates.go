@@ -353,10 +353,11 @@ func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	// The ledger's folder and the tool's below it, which `costs rates
 	// --refresh` can create first: private like the ledger. The cache holds
 	// public prices.
-	for _, name := range []string{"costs", filepath.Join("costs", tool.Name)} {
-		if _, err := operation.PrivateDirectory(paths.Runtime.Data, name); err != nil {
-			return err
-		}
+	if _, err := operation.PrivateDirectory(
+		paths.Runtime.Data,
+		filepath.Join("costs", tool.Name),
+	); err != nil {
+		return err
 	}
 	data, err := json.MarshalIndent(file, "", " ")
 	if err != nil {

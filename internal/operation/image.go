@@ -631,13 +631,13 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		if err = unix.Unlinkat(fd, name, flags); err != nil {
 			return err
 		}
-		return parent.Sync()
+		return syncDirectory(parent)
 	}
 	if desired.Kind == ImageDirectory {
 		if err = writeDirectoryImage(fd, name, path, current, desired); err != nil {
 			return err
 		}
-		return parent.Sync()
+		return syncDirectory(parent)
 	}
 	if current.Kind == ImageDirectory {
 		return Fail(ExitBlocked, "image", "Directory replacement is unsupported")
@@ -667,7 +667,7 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	if err = replaceImage(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {
 		return err
 	}
-	return parent.Sync()
+	return syncDirectory(parent)
 }
 
 // groupID converts a group ID from the os package, which uses int. Group IDs

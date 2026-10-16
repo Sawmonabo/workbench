@@ -498,9 +498,6 @@ func moveSmallFiles(old OldPaths, p Paths) error {
 		case exists(move.to):
 			continue
 		}
-		if _, err := operation.PrivateDirectory(move.root, "costs"); err != nil {
-			return err
-		}
 		if _, err := operation.PrivateDirectory(move.root, move.folder); err != nil {
 			return err
 		}
@@ -586,10 +583,10 @@ func moveFile(from, to string) error {
 	if err = os.Chmod(to, 0o600); err != nil {
 		return err
 	}
-	if err = syncFolder(filepath.Dir(from)); err != nil {
+	if err = operation.SyncDirectory(filepath.Dir(from)); err != nil {
 		return err
 	}
-	return syncFolder(filepath.Dir(to))
+	return operation.SyncDirectory(filepath.Dir(to))
 }
 
 func copyFile(from, to string) error {
@@ -616,15 +613,6 @@ func copyFile(from, to string) error {
 		_ = os.Remove(part)
 	}
 	return err
-}
-
-func syncFolder(folder string) error {
-	file, err := os.Open(folder)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = file.Close() }()
-	return file.Sync()
 }
 
 // moveLedger moves the ledger at from to to. It first finishes whatever a
@@ -700,7 +688,7 @@ func resumeCopy(ctx context.Context, home, from, to string) error {
 		if err := os.Remove(moved); err != nil {
 			return err
 		}
-		if err := syncFolder(filepath.Dir(from)); err != nil {
+		if err := operation.SyncDirectory(filepath.Dir(from)); err != nil {
 			return err
 		}
 	}
@@ -724,7 +712,7 @@ func resumeCopy(ctx context.Context, home, from, to string) error {
 		if err := operation.RenameNoReplace(moved, from); err != nil {
 			return err
 		}
-		return syncFolder(filepath.Dir(from))
+		return operation.SyncDirectory(filepath.Dir(from))
 	case exists(part):
 		return removeDatabase(part)
 	}
@@ -742,7 +730,7 @@ func placeCopy(ctx context.Context, home, from, to string) error {
 	if err := operation.RenameNoReplace(part, to); err != nil {
 		undo := operation.RenameNoReplace(moved, from)
 		if undo == nil {
-			undo = syncFolder(filepath.Dir(from))
+			undo = operation.SyncDirectory(filepath.Dir(from))
 		}
 		if undo == nil {
 			undo = removeDatabase(part)
@@ -755,7 +743,7 @@ func placeCopy(ctx context.Context, home, from, to string) error {
 		}
 		return err
 	}
-	if err := syncFolder(filepath.Dir(to)); err != nil {
+	if err := operation.SyncDirectory(filepath.Dir(to)); err != nil {
 		return err
 	}
 	return finishCopy(ctx, home, moved, to)
@@ -845,7 +833,7 @@ func copyLedger(ctx context.Context, home, from, to string) error {
 		if err = operation.RenameNoReplace(from, from+".moved"); err != nil {
 			return err
 		}
-		if err = syncFolder(filepath.Dir(from)); err != nil {
+		if err = operation.SyncDirectory(filepath.Dir(from)); err != nil {
 			return err
 		}
 		return placeCopy(ctx, home, from, to)
@@ -916,7 +904,7 @@ func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem st
 	if err != nil {
 		return fileStamp{}, "", err
 	}
-	return before, "", syncFolder(filepath.Dir(part))
+	return before, "", operation.SyncDirectory(filepath.Dir(part))
 }
 
 // differs is what checkCopy finds wrong with a copy that passes quick_check
@@ -1072,10 +1060,10 @@ func settle(from, to string) error {
 	if err := os.Chmod(to, 0o600); err != nil {
 		return err
 	}
-	if err := syncFolder(filepath.Dir(from)); err != nil {
+	if err := operation.SyncDirectory(filepath.Dir(from)); err != nil {
 		return err
 	}
-	return syncFolder(filepath.Dir(to))
+	return operation.SyncDirectory(filepath.Dir(to))
 }
 
 // removeDatabase deletes a partial copy with any journal SQLite left beside it.

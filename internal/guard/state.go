@@ -35,10 +35,7 @@ func openFolders() (folders, error) {
 	if err != nil {
 		return folders{}, err
 	}
-	var f folders
-	if f.root, err = operation.PrivateDirectory(c.Paths.State, "guard"); err != nil {
-		return folders{}, err
-	}
+	f := folders{root: filepath.Join(c.Paths.State, "guard")}
 	if f.notes, err = operation.PrivateDirectory(c.Paths.State, "guard/notes"); err != nil {
 		return folders{}, err
 	}

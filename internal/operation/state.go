@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -313,7 +314,7 @@ func ReplacePrivateFile(path string, data []byte) error {
 		return err
 	}
 	defer func() { _ = directory.Close() }()
-	return directory.Sync()
+	return syncDirectory(directory)
 }
 
 func ensurePrivateDirectory(path string) error {
@@ -355,11 +356,11 @@ func ensureRoot(root string) error {
 	return ensurePrivateDirectory(root)
 }
 
-// PrivateDirectory makes the folder name below root, and root itself, private
-// (0700, owned by the user, no unsafe parents) and returns its path. name may
-// hold a slash to make a nested folder; only its last folder is checked, so
-// make each level in turn. An empty name is root itself. It is for writers
-// that keep their own files in Workbench's folders outside a [Mutation].
+// PrivateDirectory makes root and each folder of name below it private (0700,
+// owned by the user, no unsafe parents) and returns the deepest one's path.
+// name may hold slashes for a nested folder; an empty name is root itself. It
+// is for writers that keep their own files in Workbench's folders outside a
+// [Mutation].
 func PrivateDirectory(root, name string) (string, error) {
 	if name != "" && !filepath.IsLocal(name) {
 		return "", Fail(ExitInvalid, "private_path", name+" is not a folder inside "+root)
@@ -367,8 +368,94 @@ func PrivateDirectory(root, name string) (string, error) {
 	if err := ensureRoot(root); err != nil {
 		return "", err
 	}
-	directory := filepath.Join(root, name)
-	return directory, ensurePrivateDirectory(directory)
+	directory := root
+	if name == "" {
+		return directory, nil
+	}
+	for part := range strings.SplitSeq(filepath.ToSlash(filepath.Clean(name)), "/") {
+		directory = filepath.Join(directory, part)
+		if err := ensurePrivateDirectory(directory); err != nil {
+			return "", err
+		}
+	}
+	return directory, nil
+}
+
+// PrivateTree rejects redirected, borrowed or permissive private trees: no
+// folder from target up may be a link or a file, and each one within root
+// must be this user's with mode 0700. With create it then makes the missing
+// folders; without, a missing one fails. It never repairs modes or follows
+// links while creating a selected descendant. Unlike [PrivateDirectory] it can
+// check without creating.
+func PrivateTree(root, target string, create bool) error {
+	if !filepath.IsAbs(root) || !Within(root, target) {
+		return Fail(
+			ExitInvalid,
+			"private_path",
+			"Private target escapes the selected runtime directory",
+		)
+	}
+	for current := target; ; current = filepath.Dir(current) {
+		info, err := os.Lstat(current)
+		if err == nil {
+			if !info.IsDir() {
+				return Fail(
+					ExitInvalid,
+					"private_path",
+					"Private directory ancestry contains a link or non-directory",
+				)
+			}
+			if Within(root, current) {
+				stat, ok := info.Sys().(*syscall.Stat_t)
+				if !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm() != 0o700 {
+					return Fail(
+						ExitInvalid,
+						"permissions",
+						"Private runtime directories must be owned by this user with mode 0700",
+					)
+				}
+			}
+		} else if !errors.Is(err, fs.ErrNotExist) {
+			return err
+		} else if !create {
+			return Fail(
+				ExitBlocked,
+				"private_path",
+				"Required private runtime directory is absent",
+			)
+		}
+		if current == filepath.Dir(current) {
+			break
+		}
+	}
+	if create {
+		if err := MakeParents(root); err != nil {
+			return err
+		}
+		return os.MkdirAll(target, 0o700)
+	}
+	return nil
+}
+
+// SyncDirectory makes the entries of the folder at path durable: a file
+// created, renamed or removed in it. A filesystem that cannot sync a folder
+// (EINVAL or EBADF, as some network and Windows mounts answer) counts as
+// synced, as PostgreSQL's fsync_fname does.
+func SyncDirectory(path string) error {
+	directory, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = directory.Close() }()
+	return syncDirectory(directory)
+}
+
+func syncDirectory(directory *os.File) error {
+	err := directory.Sync()
+	if errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.EBADF) {
+		return nil
+	}
+	return err
 }
 
 // RenameNoReplace renames from to to and never replaces a file already at to.
@@ -580,12 +667,7 @@ func removeDirectory(directory, trash, name string) error {
 	if err := os.Rename(directory, removed); err != nil {
 		return err
 	}
-	parent, err := os.Open(filepath.Dir(directory))
-	if err != nil {
-		return err
-	}
-	defer func() { _ = parent.Close() }()
-	if err = parent.Sync(); err != nil {
+	if err := SyncDirectory(filepath.Dir(directory)); err != nil {
 		return err
 	}
 	return os.RemoveAll(removed)

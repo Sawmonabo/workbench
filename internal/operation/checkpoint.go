@@ -321,12 +321,7 @@ func (cp *Checkpoint) publish() error {
 		return err
 	}
 	cp.directory = final
-	directory, err := os.Open(scope)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = directory.Close() }()
-	return directory.Sync()
+	return SyncDirectory(scope)
 }
 
 // checkApproved verifies that changes are exactly the approved plan's images
