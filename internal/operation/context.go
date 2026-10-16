@@ -1,7 +1,9 @@
 package operation
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -256,7 +258,7 @@ func runtimePaths(home string) (Paths, error) {
 					"Existing "+value+" must be a private directory (mode 0700); it was not changed",
 				)
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
@@ -322,7 +324,7 @@ func safeParents(path string) error {
 					)+" and retry",
 				)
 			}
-		} else if !os.IsNotExist(err) {
+		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Fail(ExitInvalid, "path", "Cannot inspect Workbench path parents")
 		}
 		if current == filepath.Dir(current) {
@@ -440,7 +442,7 @@ func (c Context) ValidateTarget(path string) error {
 						"scope",
 						"Machine configuration cannot write inside a project",
 					)
-				} else if !os.IsNotExist(err) {
+				} else if !errors.Is(err, fs.ErrNotExist) {
 					return Fail(ExitInvalid, "scope", "Cannot establish machine target ownership")
 				}
 			}
@@ -465,7 +467,7 @@ func (c Context) ValidateTarget(path string) error {
 			os.SameFile(entryInfo, targetInfo) {
 			return Fail(ExitInvalid, "scope", "Target aliases the protected Workbench entry point")
 		}
-	} else if !os.IsNotExist(entryErr) {
+	} else if !errors.Is(entryErr, fs.ErrNotExist) {
 		return Fail(ExitInvalid, "scope", "Cannot inspect protected Workbench entry point")
 	}
 	// Leaf symlinks are images for the checkpoint owner to qualify. Ancestor

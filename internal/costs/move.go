@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -254,12 +253,12 @@ const (
 )
 
 // FolderCheck is what [CheckFolders] found. State is the whole migration's:
-// Pending or Unfinished while anything is left that a run can move, Conflict
-// when only conflicts are left. Ledger is the ledger's own, which alone
-// decides whether the import may open the new ledger. Text names the paths,
-// home-relative, and never holds "; ". Kept names, home-relative, the files
-// in the old claude-costs folders that Workbench didn't write, once nothing
-// else is left.
+// Pending or Unfinished while anything is left that a run can move or remove,
+// or an old folder can't be read, Conflict when only conflicts are left. Ledger
+// is the ledger's own, which alone decides whether the import may open the new
+// ledger. Text names the paths, home-relative, and never holds "; ". Kept
+// names, home-relative, the files in the old claude-costs folders that
+// Workbench didn't write, once nothing else is left.
 type FolderCheck struct {
 	State, Ledger FolderState
 	Text          string
@@ -268,9 +267,9 @@ type FolderCheck struct {
 
 // CheckFolders says what is left of the costs move. It looks at which paths
 // exist (Lstat), reads an old and a new overrides file only when both are
-// there, to tell a finished copy from two different files, and, when nothing
-// is left, lists the old claude-costs folders to name the files it keeps
-// there. It never opens the ledger, locks or changes anything.
+// there, to tell a finished copy from two different files, and lists the old
+// claude-costs folders, to find one that is empty, one it can't read, and the
+// files it keeps there. It never opens the ledger, locks or changes anything.
 func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	old = old.apart(p)
 	var moved, deleted, conflicts []string
@@ -323,6 +322,7 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 			deleted = append(deleted, operation.ShowPath(p.Home, name))
 		}
 	}
+	folders := old.scan(p)
 	var text []string
 	if len(moved) > 0 {
 		text = append(text, "moves "+strings.Join(moved, ", ")+" into Workbench's folders")
@@ -330,17 +330,24 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	if len(deleted) > 0 {
 		text = append(text, "deletes "+strings.Join(deleted, ", "))
 	}
+	for _, folder := range folders.empty {
+		text = append(text, "removes the empty folder "+folder)
+	}
+	for _, folder := range folders.unreadable {
+		text = append(text, "can't read "+folder)
+	}
 	text = append(text, conflicts...)
 	switch {
 	case check.Ledger == FoldersUnfinished:
 		check.State = FoldersUnfinished
-	case len(moved) > 0 || len(deleted) > 0:
+	case len(moved) > 0 || len(deleted) > 0 || len(folders.empty) > 0 ||
+		len(folders.unreadable) > 0:
 		check.State = FoldersPending
 	case len(conflicts) > 0:
 		check.State = FoldersConflict
 	default:
 		check.State = FoldersDone
-		check.Kept = old.strangers(p)
+		check.Kept = folders.kept
 	}
 	check.Text = strings.Join(text, " and ")
 	return check
@@ -395,8 +402,9 @@ func conflictError(text string) error {
 	)
 }
 
-// MoveFolders moves the costs files from old into p's folders, and deletes the
-// old import log, its lock and unfinished price writes. The caller holds
+// MoveFolders moves the costs files from old into p's folders, deletes the
+// old import log, its lock and unfinished price writes, and removes each old
+// claude-costs folder left empty. The caller holds
 // [operation.Paths.MigrateLock]. While it works it holds both import locks, so
 // no worker of this or an older release writes the ledger mid-move, and it
 // moves the ledger only once nothing has it open (see moveLedger). It merges
@@ -404,7 +412,8 @@ func conflictError(text string) error {
 // different data stays where it is, every other file moves, and the error then
 // names what is left. Running it again finishes whatever a stopped run left.
 // left names, home-relative, the files it found in an old claude-costs folder
-// and doesn't know; they stay, with their folder.
+// and doesn't know; they stay, with their folder. An old folder it can't read
+// is an error once everything else is done.
 func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err error) {
 	old = old.apart(p)
 	check := CheckFolders(old, p)
@@ -443,13 +452,24 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 			return nil, err
 		}
 	}
-	left = removeOldFolders(old, p)
-	if after := CheckFolders(old, p); after.State == FoldersConflict {
-		return left, conflictError(after.Text)
+	if err = removeOldFolders(old); err != nil {
+		return nil, err
+	}
+	folders := old.scan(p)
+	after := CheckFolders(old, p)
+	switch {
+	case after.State == FoldersConflict:
+		return folders.kept, conflictError(after.Text)
+	case len(folders.unreadable) > 0:
+		return folders.kept, errors.Join(ledgerErr, operation.Fail(
+			operation.ExitFailed,
+			"migrate",
+			"The costs files can't all move: it "+after.Text,
+		))
 	}
 	// A ledger error, or a copy that differs from its set-aside original, never
 	// checks as a conflict, because the check never opens a ledger.
-	return left, ledgerErr
+	return folders.kept, ledgerErr
 }
 
 // lockImports takes the import lock of this release and, when the old state
@@ -530,44 +550,65 @@ func (o OldPaths) known(p Paths) []string {
 	return names
 }
 
-// strangers are the files, home-relative, in the old claude-costs folders that
-// the migration doesn't know: Workbench didn't write them, so they stay. A
-// file it knows that stays, such as one left in conflict, is not one of them.
-// An old folder that is a link is one itself, and is never read through.
-func (o OldPaths) strangers(p Paths) []string {
+// folderScan is what the old claude-costs folders hold, home-relative: empty
+// are real folders with nothing in them, unreadable those whose listing failed,
+// and kept the files the migration doesn't know. Workbench didn't write those,
+// so they stay; a file it knows that stays, such as one left in conflict, is
+// not one of them. An old folder that is a link, or anything else that isn't a
+// real folder, is one itself, and is never read through.
+type folderScan struct {
+	empty, unreadable, kept []string
+}
+
+func (o OldPaths) scan(p Paths) folderScan {
 	known := o.known(p)
-	var left []string
+	var scan folderScan
 	for _, folder := range o.folders() {
-		if linked(folder) {
-			left = append(left, operation.ShowPath(p.Home, folder))
+		shown := operation.ShowPath(p.Home, folder)
+		info, err := os.Lstat(folder)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			continue
+		case err == nil && !info.IsDir():
+			scan.kept = append(scan.kept, shown)
 			continue
 		}
-		entries, _ := os.ReadDir(folder)
+		entries, err := os.ReadDir(folder)
+		switch {
+		case err != nil:
+			scan.unreadable = append(scan.unreadable, shown)
+		case len(entries) == 0:
+			scan.empty = append(scan.empty, shown)
+		}
 		for _, entry := range entries {
 			if path := filepath.Join(folder, entry.Name()); !slices.Contains(known, path) {
-				left = append(left, operation.ShowPath(p.Home, path))
+				scan.kept = append(scan.kept, operation.ShowPath(p.Home, path))
 			}
 		}
 	}
-	return left
+	return scan
 }
 
-// removeOldFolders removes each old claude-costs folder once it is empty, and
-// returns the files it keeps because Workbench didn't write them. A link
-// stays.
-func removeOldFolders(old OldPaths, p Paths) []string {
+// removeOldFolders removes each old claude-costs folder that is empty. One
+// that holds anything, or isn't a real folder, such as a link, stays.
+func removeOldFolders(old OldPaths) error {
 	for _, folder := range old.folders() {
-		if !linked(folder) {
-			_ = os.Remove(folder) // only an empty folder goes
+		if info, err := os.Lstat(folder); err != nil || !info.IsDir() {
+			continue
+		}
+		err := os.Remove(folder)
+		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+			return err
 		}
 	}
-	return old.strangers(p)
+	return nil
 }
 
 // moveFile moves one small costs file and makes it 0600, never replacing a
 // file at to. Across filesystems it writes a temporary copy beside to, syncs
-// it, renames it into place, and only then deletes from; a stop between the
-// two leaves the same bytes in both, which the next run takes as moved.
+// it, renames it into place and syncs that folder, and only then deletes from;
+// a stop between the two leaves the same bytes in both, which the next run
+// takes as moved.
 func moveFile(from, to string) error {
 	err := operation.RenameNoReplace(from, to)
 	if errors.Is(err, syscall.EXDEV) {
@@ -581,10 +622,10 @@ func moveFile(from, to string) error {
 	if err = os.Chmod(to, 0o600); err != nil {
 		return err
 	}
-	if err = operation.SyncDirectory(filepath.Dir(from)); err != nil {
+	if err = operation.SyncDirectory(filepath.Dir(to)); err != nil {
 		return err
 	}
-	return operation.SyncDirectory(filepath.Dir(to))
+	return operation.SyncDirectory(filepath.Dir(from))
 }
 
 func copyFile(from, to string) error {
@@ -609,8 +650,9 @@ func copyFile(from, to string) error {
 	}
 	if err != nil {
 		_ = os.Remove(part)
+		return err
 	}
-	return err
+	return operation.SyncDirectory(filepath.Dir(to))
 }
 
 // moveLedger moves the ledger at from to to. It first finishes whatever a
@@ -749,7 +791,7 @@ func placeCopy(ctx context.Context, home, from, to string) error {
 
 // finishCopy deletes the set-aside original once the ledger at to holds
 // exactly what it holds (see checkCopy). A ledger there that differs is
-// another one, a conflict; one that fails quick_check is a ledger error.
+// another one, a conflict; one that fails integrity_check is a ledger error.
 func finishCopy(ctx context.Context, home, moved, to string) error {
 	problem, err := checkCopy(ctx, to, moved)
 	switch {
@@ -794,8 +836,8 @@ func quiesce(ctx context.Context, path string) error {
 	return nil
 }
 
-// copyLedger copies the ledger to another filesystem. A second connection
-// holds BEGIN IMMEDIATE while VACUUM INTO writes a compact copy at
+// copyLedger copies the ledger to another filesystem. A transaction holds the
+// write lock while VACUUM INTO writes a compact copy at
 // to+".part", the copy is checked against the original (see checkCopy) and
 // the original's size, time and inode are recorded, so nothing writes in
 // between. The original is then closed, and only if nothing has it open and it
@@ -843,7 +885,7 @@ func copyLedger(ctx context.Context, home, from, to string) error {
 // time and inode.
 type fileStamp struct {
 	size  int64
-	mod   time.Time
+	mod   int64 // nanoseconds since the epoch
 	inode uint64
 }
 
@@ -856,11 +898,11 @@ func fileStampOf(path string) (fileStamp, error) {
 	if sys, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = sys.Ino
 	}
-	return fileStamp{info.Size(), info.ModTime(), inode}, nil
+	return fileStamp{info.Size(), info.ModTime().UnixNano(), inode}, nil
 }
 
 // vacuumCopy writes the copy, checks it against the original and returns the
-// original's stamp, all while the second connection holds the write lock.
+// original's stamp, all while a transaction holds the write lock.
 // problem is what the check found wrong with the copy (see checkCopy).
 func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem string, err error) {
 	ledger, err := OpenLedger(from, false)
@@ -868,19 +910,14 @@ func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem st
 		return fileStamp{}, "", err
 	}
 	defer func() { _ = ledger.Close() }()
-	hold, err := ledger.db.Conn(ctx)
-	if err != nil {
-		return fileStamp{}, "", err
-	}
-	defer func() { _ = hold.Close() }()
-	_, err = hold.ExecContext(ctx, "BEGIN IMMEDIATE")
+	tx, err := ledger.db.BeginTx(ctx, nil)
 	switch {
 	case isBusy(err):
 		return fileStamp{}, "", busy("another process is writing the costs ledger")
 	case err != nil:
 		return fileStamp{}, "", err
 	}
-	defer func() { _, _ = hold.ExecContext(context.Background(), "ROLLBACK") }()
+	defer func() { _ = tx.Rollback() }()
 	if _, err = ledger.db.ExecContext(ctx, "VACUUM INTO ?", part); err != nil {
 		return fileStamp{}, "", err
 	}
@@ -905,15 +942,15 @@ func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem st
 	return before, "", operation.SyncDirectory(filepath.Dir(part))
 }
 
-// differs is what checkCopy finds wrong with a copy that passes quick_check
-// but doesn't hold what its original holds.
+// differs is what checkCopy finds wrong with a copy that passes
+// integrity_check but doesn't hold what its original holds.
 const differs = "doesn't hold what it holds"
 
 // checkCopy says what is wrong with the copy at path, "" when it passes PRAGMA
-// quick_check and holds exactly what the database at original holds. As many
-// rows is not enough: another ledger can have as many, and an original is
-// never deleted for it. It opens both without taking them over (see
-// unowned), so a ledger that turns out to be another one is left as it was.
+// integrity_check and holds exactly what the database at original holds. As
+// many rows is not enough: another ledger can have as many, and an original is
+// never deleted for it. It opens both without taking them over (see unowned),
+// so a ledger that turns out to be another one is left as it was.
 func checkCopy(ctx context.Context, path, original string) (string, error) {
 	db, err := sql.Open("sqlite", unowned(path))
 	if err != nil {
@@ -925,7 +962,7 @@ func checkCopy(ctx context.Context, path, original string) (string, error) {
 		return "", err
 	}
 	defer func() { _ = conn.Close() }()
-	if problem, err := quickCheck(ctx, conn); err != nil || problem != "" {
+	if problem, err := integrityCheck(ctx, conn); err != nil || problem != "" {
 		return problem, err
 	}
 	if _, err = conn.ExecContext(
@@ -943,11 +980,11 @@ func checkCopy(ctx context.Context, path, original string) (string, error) {
 	return differs, nil
 }
 
-// quickCheck runs PRAGMA quick_check and says, on one line, its first problem
-// and how many more it found; "" when it says ok. Its rows can hold several
-// problems a line each, under a line naming the database.
-func quickCheck(ctx context.Context, conn *sql.Conn) (string, error) {
-	rows, err := conn.QueryContext(ctx, "PRAGMA quick_check")
+// integrityCheck runs PRAGMA integrity_check and says, on one line, its first
+// problem and how many more it found; "" when it says ok. Its rows can hold
+// several problems a line each, under a line naming the database.
+func integrityCheck(ctx context.Context, conn *sql.Conn) (string, error) {
+	rows, err := conn.QueryContext(ctx, "PRAGMA integrity_check")
 	if err != nil {
 		return "", err
 	}
@@ -977,7 +1014,7 @@ func quickCheck(ctx context.Context, conn *sql.Conn) (string, error) {
 	if more := len(problems) - 1; more > 0 {
 		problem += fmt.Sprintf(", and %d more", more)
 	}
-	return "fails SQLite's quick_check (" + problem + ")", nil
+	return "fails SQLite's integrity_check (" + problem + ")", nil
 }
 
 // unowned is the address that opens the database at path without taking it
@@ -1074,24 +1111,17 @@ func removeDatabase(path string) error {
 	return nil
 }
 
-// Gate keeps the ledger closed at its new path while the costs ledger still
+// gate keeps the ledger closed at its new path while the costs ledger still
 // waits to move there, so nothing creates an empty ledger beside the old one.
-// It runs before every ledger open and before anything writes beside the
-// ledger. move is for the import worker: it moves the files itself, under the
-// same locks as `workbench migrate run`, because usage left unread is lost
-// once the session files it is in are deleted; it then reads into the new
-// ledger once the ledger itself has moved, even when another costs file is
-// left in conflict. Every other caller is told to run the migration while
-// anything waits, and stops on a ledger conflict; a conflict over another
-// file alone doesn't stop it, and `workbench migrate` names it.
-func Gate(ctx context.Context, move bool) error {
-	paths, err := Locations()
-	if err != nil {
-		return err
-	}
-	return gate(ctx, paths, move)
-}
-
+// [Paths.Open] runs it before every ledger open, and anything that writes
+// beside the ledger runs it first. move is for the import worker: it moves the
+// files itself, under the same locks as `workbench migrate run`, because usage
+// left unread is lost once the session files it is in are deleted; it then
+// reads into the new ledger once the ledger itself has moved, even when another
+// costs file is left in conflict or didn't move. Every other caller is told to
+// run the migration while anything waits, and stops on a ledger conflict; a
+// conflict over another file alone doesn't stop it, and `workbench migrate`
+// names it.
 func gate(ctx context.Context, paths Paths, move bool) error {
 	old := OldLocations(paths.Home)
 	check := CheckFolders(old, paths)
@@ -1109,7 +1139,7 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 			"The costs files are moving to Workbench's folders; run `workbench migrate --apply`",
 		)
 	}
-	var conflict error
+	var moveErr error
 	if check.State != FoldersConflict {
 		release, held, err := operation.TryLock(paths.Runtime.MigrateLock())
 		if err != nil {
@@ -1118,17 +1148,16 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 		if held {
 			return busy("another migration is running")
 		}
-		_, conflict = MoveFolders(ctx, old, paths)
+		_, moveErr = MoveFolders(ctx, old, paths)
 		release()
-		if conflict != nil && operation.Category(conflict) != "conflict" {
-			return conflict
-		}
 	}
+	// Once the ledger has moved, nothing else the move left stops the import.
 	if after := CheckFolders(old, paths); after.Ledger != FoldersDone {
-		// The move's own conflict names a copy that differs from its set-aside
-		// original, which the check can't tell from a stopped copy.
-		if conflict != nil {
-			return conflict
+		// The move's own error says why the ledger didn't move, or names a
+		// copy that differs from its set-aside original, which the check
+		// can't tell from a stopped copy.
+		if moveErr != nil {
+			return moveErr
 		}
 		return conflictError(after.Text)
 	}

@@ -36,7 +36,14 @@ var oldCostsCache = Migration{
 		}
 		var text []string
 		if len(ours) > 0 {
-			text = append(text, fmt.Sprintf("deletes %d cached file(s) from %s", len(ours), folder))
+			files := "files"
+			if len(ours) == 1 {
+				files = "file"
+			}
+			text = append(
+				text,
+				fmt.Sprintf("deletes %d cached %s from %s", len(ours), files, folder),
+			)
 		}
 		if len(other) > 0 {
 			text = append(text, keeps(other))

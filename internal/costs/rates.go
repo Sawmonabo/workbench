@@ -3,8 +3,10 @@ package costs
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"math"
 	"net/http"
@@ -257,7 +259,7 @@ func loadCard(paths Paths) (Card, error) {
 // value rejects the whole file; nothing is converted or silently ignored.
 func readOverrides(path string) (map[string]map[string]float64, error) {
 	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	invalid := func(format string, args ...any) error {
@@ -353,12 +355,11 @@ func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	// The ledger's folder and the tool's below it, which `costs rates
 	// --refresh` can create first: private like the ledger. The cache holds
 	// public prices.
-	if _, err := operation.PrivateDirectory(
-		paths.Runtime.Data,
-		filepath.Join("costs", tool.Name),
-	); err != nil {
+	folder, err := operation.PrivateDirectory(paths.Runtime.Data, filepath.Join("costs", tool.Name))
+	if err != nil {
 		return err
 	}
+	operation.RemoveStaleWrites(folder)
 	data, err := json.MarshalIndent(file, "", " ")
 	if err != nil {
 		return err

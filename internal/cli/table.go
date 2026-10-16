@@ -130,8 +130,9 @@ const minClip = 12
 // gap is the space between columns.
 const gap = 2
 
-// terminalWidth is the width output must fit: the terminal's, else COLUMNS,
-// else 100 when the output is not a terminal.
+// terminalWidth is the width of output that draws rules, bars or frames from
+// the width: the terminal's, else COLUMNS, else 100 when the output is not a
+// terminal.
 func terminalWidth(w io.Writer) int {
 	if width, ok := givenWidth(w); ok {
 		return width
@@ -139,9 +140,9 @@ func terminalWidth(w io.Writer) int {
 	return 100
 }
 
-// lineWidth is the width a result line wraps at: the terminal's, else
-// COLUMNS. Output with neither goes to a program or a log, where a line never
-// wraps, so a time or a path in it stays whole.
+// lineWidth is the width result lines, lists and tables wrap at: the
+// terminal's, else COLUMNS. Output with neither goes to a program or a log,
+// where a line never wraps, so a time or a path in it stays whole.
 func lineWidth(w io.Writer) int {
 	if width, ok := givenWidth(w); ok {
 		return width

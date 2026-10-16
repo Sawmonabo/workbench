@@ -1,6 +1,8 @@
 package operation
 
 import (
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"syscall"
@@ -23,7 +25,7 @@ func privateFilesystem(path string) error {
 		if err == nil {
 			break
 		}
-		if !os.IsNotExist(err) || path == filepath.Dir(path) {
+		if !errors.Is(err, fs.ErrNotExist) || path == filepath.Dir(path) {
 			return Fail(ExitBlocked, "filesystem", "Cannot verify private state filesystem")
 		}
 		path = filepath.Dir(path)

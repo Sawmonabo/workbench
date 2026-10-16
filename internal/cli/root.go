@@ -329,7 +329,8 @@ func (p painter) style(style lipgloss.Style, text string) string {
 }
 
 // mark is a colored symbol before a component line at a terminal: a check for
-// done, a dot for nothing to do, a cross for not done.
+// done, a dot for nothing to do or work that waits for a run, a cross for not
+// done.
 func (p painter) mark(status operation.Status) string {
 	if !p {
 		return ""
@@ -337,7 +338,8 @@ func (p painter) mark(status operation.Status) string {
 	switch status {
 	case operation.StatusComplete:
 		return green.Render(glyphs.Check) + " "
-	case operation.StatusUnchanged, operation.StatusAbsent, operation.StatusSkipped:
+	case operation.StatusUnchanged, operation.StatusAbsent, operation.StatusSkipped,
+		operation.StatusPending:
 		return faint.Render(glyphs.text.Replace("·")) + " "
 	default:
 		return red.Render(glyphs.Cross) + " "

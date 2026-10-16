@@ -22,7 +22,7 @@ import (
 // recovery limits. --json prints the complete plan instead.
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
-	width := terminalWidth(w)
+	width := lineWidth(w)
 	scope := showPath(plan.Scope.Root)
 	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + scope
 	if plan.Source.Release != "" {
@@ -403,7 +403,7 @@ func writeProposal(w io.Writer, proposal *project.Proposal) error {
 // they make, each with its language and manager or why it is unsupported.
 func writeInventory(w io.Writer, inventory *project.Inventory) error {
 	var b strings.Builder
-	width := terminalWidth(w)
+	width := lineWidth(w)
 	counts := []string{fmt.Sprintf("%d entries", inventory.Entries)}
 	if inventory.Excluded > 0 {
 		counts = append(counts, fmt.Sprintf("%d excluded", inventory.Excluded))

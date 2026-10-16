@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"net/url"
 	"os"
@@ -47,10 +48,20 @@ func Locations() (Paths, error) {
 func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
 
-// Open opens the ledger, making a missing one (see [OpenLedger]), after making
+// Open opens the ledger once the costs gate (see gate) lets it, so nothing
+// opens or creates a ledger while the costs files still wait to move.
+func (p Paths) Open(ctx context.Context) (*Ledger, error) {
+	if err := gate(ctx, p, false); err != nil {
+		return nil, err
+	}
+	return p.open()
+}
+
+// open opens the ledger, making a missing one (see [OpenLedger]), after making
 // its folder private (see [operation.PrivateDirectory]), which refuses one
-// that exists and isn't.
-func (p Paths) Open() (*Ledger, error) {
+// that exists and isn't. Only the import calls it without [Paths.Open], after
+// its own gate has moved the ledger.
+func (p Paths) open() (*Ledger, error) {
 	if _, err := operation.PrivateDirectory(p.Runtime.Data, "costs"); err != nil {
 		return nil, err
 	}
@@ -191,7 +202,7 @@ type Ledger struct {
 // never the content).
 func OpenLedger(path string, create bool) (*Ledger, error) {
 	info, err := os.Stat(path)
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	exists := err == nil && info.Size() > 0

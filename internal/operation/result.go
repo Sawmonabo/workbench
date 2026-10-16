@@ -65,6 +65,7 @@ const (
 	StatusComplete    Status = "complete"
 	StatusUnchanged   Status = "unchanged"
 	StatusSkipped     Status = "skipped"
+	StatusPending     Status = "pending" // waits for a run, such as a migration's
 	StatusAbsent      Status = "absent"
 	StatusFailed      Status = "failed"
 	StatusBlocked     Status = "blocked"

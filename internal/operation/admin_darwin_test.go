@@ -124,7 +124,7 @@ func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 	if strings.Contains(redact("sudo said "+right, m.redactions(nil)), right) {
 		t.Error("the password is not among the secrets the apply redacts")
 	}
-	if _, statErr := os.Stat(folder); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(folder); !errors.Is(statErr, fs.ErrNotExist) {
 		t.Errorf("the helper's folder is left after the apply: %v", statErr)
 	}
 	if reply, talkErr := askpassTalk(socket, "get\n"); talkErr == nil {

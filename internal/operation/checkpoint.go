@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -274,7 +275,7 @@ func discardPrepared(c Context, directory string) error {
 		return nil
 	}
 	if _, err := os.Lstat(directory); err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, fs.ErrNotExist) {
 			return nil
 		}
 		return err
@@ -370,7 +371,7 @@ func makeRoom(c Context, plan Plan) error {
 		return err
 	}
 	entries, err := os.ReadDir(checkpointScope(c))
-	if err != nil && !os.IsNotExist(err) {
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	// The held exclusive lock means no reservation is in progress, and a
@@ -940,7 +941,7 @@ func loadCheckpoints(c Context) ([]*Checkpoint, error) {
 		return nil, err
 	}
 	entries, err := os.ReadDir(directory)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err != nil {

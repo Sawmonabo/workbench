@@ -606,10 +606,7 @@ func (claude) Hooks(home string) map[string]string {
 		installed := false
 		for _, group := range settings.Hooks[event] {
 			for _, hook := range group.Hooks {
-				// "claude-costs ingest", the replaced script, also contains
-				// "costs ingest", so the Workbench command is matched whole.
-				installed = installed ||
-					(strings.Contains(hook.Command, "workbench costs ingest") && !hook.Async)
+				installed = installed || isIngestHook(hook.Command) && !hook.Async
 			}
 		}
 		out[event] = HookMissing

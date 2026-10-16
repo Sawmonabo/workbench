@@ -4,6 +4,7 @@
 package costs
 
 import (
+	"regexp"
 	"strings"
 	"time"
 )
@@ -109,6 +110,15 @@ const (
 	HookUntrusted = "untrusted" // installed, but the tool has not recorded it as trusted
 	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
 )
+
+// ingestCommand matches the ingest hook's command as Workbench installs it:
+// the workbench executable, by name, by path or as a single-quoted path, then
+// "costs ingest" and nothing after. "claude-costs ingest", the replaced
+// script, is not it.
+var ingestCommand = regexp.MustCompile(`(^|/)workbench'? costs ingest$`)
+
+// isIngestHook reports whether command is the ingest hook's command.
+func isIngestHook(command string) bool { return ingestCommand.MatchString(command) }
 
 // Usage is one billed response, whatever tool produced it.
 type Usage struct {

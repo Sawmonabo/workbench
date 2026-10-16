@@ -132,7 +132,7 @@ func writeReleases(w io.Writer, list releaseList) error {
 		})
 	}
 	var b strings.Builder
-	writeTable(&b, terminalWidth(w), 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
+	writeTable(&b, lineWidth(w), 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
 	_, err := lipgloss.Fprint(w, b.String())
 	return err
 }

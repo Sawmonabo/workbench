@@ -2,6 +2,8 @@ package operation
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -400,7 +402,7 @@ func TestRevertKeepsFoldersHoldingOtherFiles(t *testing.T) {
 		t.Fatal("revert removed a file Workbench did not write")
 	}
 	for _, gone := range []string{written, other} {
-		if _, statErr := os.Lstat(gone); !os.IsNotExist(statErr) {
+		if _, statErr := os.Lstat(gone); !errors.Is(statErr, fs.ErrNotExist) {
 			t.Fatalf("revert left %s that the apply created", gone)
 		}
 	}
@@ -530,7 +532,7 @@ func TestRevertConfirmsFilesAnInterruptedApplyLeftUnknown(t *testing.T) {
 			t.Fatalf("revert did not restore %s: %q %v", path, data, readErr)
 		}
 	}
-	if _, err = os.Lstat(created); !os.IsNotExist(err) {
+	if _, err = os.Lstat(created); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatal("revert left the file the interrupted apply created")
 	}
 }

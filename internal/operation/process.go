@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -97,7 +98,7 @@ func outsideProjects(directory string, excluded []string) error {
 					"Project-controlled management executable lookup is forbidden because "+
 						parent+" contains "+marker,
 				)
-			} else if !os.IsNotExist(err) {
+			} else if !errors.Is(err, fs.ErrNotExist) {
 				return Fail(
 					ExitBlocked,
 					"tool",

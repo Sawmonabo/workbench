@@ -8,7 +8,7 @@ import (
 
 // costsFolders moves the costs files out of the claude-costs folders. The
 // move belongs to internal/costs, which alone opens, checks and copies the
-// ledger; the import worker runs the same move by itself (costs.Gate), without
+// ledger; the import worker runs the same move by itself (costs.Ingest), without
 // asking, because usage left unread could be lost.
 var costsFolders = Migration{
 	ID:    "0001-costs-folders",

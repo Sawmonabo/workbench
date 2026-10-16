@@ -151,7 +151,7 @@ func releaseIdentity(record *ReleaseRecord) *SourceIdentity {
 // ReadState never creates files. Absence is distinct from invalid current state.
 func ReadState(paths Paths) (*State, error) {
 	path := filepath.Join(paths.State, "state.json")
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	if err := checkPrivateFile(path); err != nil {
@@ -235,7 +235,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 				"Operation lock files are reserved and cannot be replaced by metadata writes",
 			)
 		}
-		if err != nil && !os.IsNotExist(err) {
+		if err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return Fail(ExitInvalid, "scope", "Cannot inspect private metadata target ancestry")
 		}
 		if ancestor == filepath.Dir(ancestor) {
@@ -277,7 +277,7 @@ func ReplacePrivateFile(path string, data []byte) error {
 		if err := checkPrivateFile(path); err != nil {
 			return err
 		}
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Fail(ExitInvalid, "state", "Cannot inspect private metadata target")
 	}
 	root, err := os.OpenRoot(filepath.Dir(path))
@@ -315,6 +315,22 @@ func ReplacePrivateFile(path string, data []byte) error {
 	}
 	defer func() { _ = directory.Close() }()
 	return syncDirectory(directory)
+}
+
+// RemoveStaleWrites deletes the temporary files [ReplacePrivateFile] left in
+// folder when its process was killed before the rename: those starting
+// ".write-" and over a minute old, so a write still in progress keeps its
+// file. It is best effort; a folder it can't read has nothing it deletes.
+func RemoveStaleWrites(folder string) {
+	entries, _ := os.ReadDir(folder)
+	for _, entry := range entries {
+		if !strings.HasPrefix(entry.Name(), ".write-") {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
+			_ = os.Remove(filepath.Join(folder, entry.Name()))
+		}
+	}
 }
 
 func ensurePrivateDirectory(path string) error {
@@ -515,7 +531,7 @@ func unsupported(err error) bool {
 func MakeParents(root string) error {
 	parent := filepath.Dir(root)
 	if config := configHome(); config != "" && Within(config, parent) {
-		if _, err := os.Lstat(config); os.IsNotExist(err) {
+		if _, err := os.Lstat(config); errors.Is(err, fs.ErrNotExist) {
 			if err = os.MkdirAll(filepath.Dir(config), 0o755); err != nil {
 				return err
 			}

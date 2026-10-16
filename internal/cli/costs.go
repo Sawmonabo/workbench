@@ -185,7 +185,7 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	if err != nil {
 		return err
 	}
-	ledger, err := paths.Open()
+	ledger, err := paths.Open(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -313,16 +313,11 @@ func runCostsView(
 // ensureIngested reads a tool's transcripts inline before its first report, so
 // the command works before the hooks are applied.
 func ensureIngested(cmd *cobra.Command, o *options) error {
-	// Reports never open the old ledger, and never create an empty one
-	// beside it: they ask for the migration instead.
-	if err := costs.Gate(cmd.Context(), false); err != nil {
-		return err
-	}
 	paths, err := costs.Locations()
 	if err != nil {
 		return err
 	}
-	ledger, err := paths.Open()
+	ledger, err := paths.Open(cmd.Context())
 	if err != nil {
 		return err
 	}
@@ -474,7 +469,7 @@ func costsRatesCommand(o *options) *cobra.Command {
 					return nil
 				}
 				out := cmd.OutOrStdout()
-				return printCosts(out, costsRates(card, view, terminalWidth(out)))
+				return printCosts(out, costsRates(card, view, lineWidth(out)))
 			})
 		},
 	}
@@ -582,7 +577,7 @@ func costsStatusCommand(o *options) *cobra.Command {
 					return nil
 				}
 				out := cmd.OutOrStdout()
-				return printCosts(out, costsStatus(info, terminalWidth(out)))
+				return printCosts(out, costsStatus(info, lineWidth(out)))
 			})
 		},
 	}
@@ -618,12 +613,12 @@ func costsStatus(info costs.StatusInfo, width int) string {
 		add("email evidence"+suffix, attribution(c.AccountEvidence))
 		add("plan evidence"+suffix, attribution(c.SubscriptionEvidence))
 	}
-	add("last ingest", localTime(info.LastIngestAt)+"  "+faint.Render(info.LastIngestSummary))
-	lastError := info.LastError
-	if lastError == "" {
-		lastError = "none"
+	lastIngest := localTime(info.LastIngestAt)
+	if info.LastIngestSummary != "" {
+		lastIngest += "  " + faint.Render(info.LastIngestSummary)
 	}
-	add("last error", lastError)
+	add("last ingest", lastIngest)
+	add("last error", cmp.Or(info.LastError, "none"))
 	worker := "idle"
 	if info.WorkerRunning {
 		worker = "running (lock held)"

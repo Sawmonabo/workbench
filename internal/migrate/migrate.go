@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -34,6 +35,9 @@ const (
 )
 
 func (s Status) String() string {
+	if s < Done || s > Conflict {
+		return "Status(" + strconv.Itoa(int(s)) + ")"
+	}
 	return [...]string{"done", "pending", "unfinished", "conflict"}[s]
 }
 
@@ -375,7 +379,8 @@ func readRecord(l Locations) (record, error) {
 		return empty, operation.Fail(
 			operation.ExitInvalid,
 			"record",
-			recordPath(l)+" is not a schema 1 migration record; it was not changed",
+			operation.ShowPath(l.Home, recordPath(l))+
+				" is not a schema 1 migration record; it was not changed",
 		)
 	}
 	return r, nil

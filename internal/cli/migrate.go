@@ -148,9 +148,12 @@ func migrateList(cmd *cobra.Command, _ operation.Context) (operation.Result, err
 			}
 		case migrate.Conflict:
 			component.Status, component.Message = operation.StatusConflict, f.Detail
+		case migrate.Unfinished:
+			component.Status = operation.StatusPending
+			component.Message = "unfinished: " + f.Detail + "; workbench migrate --apply finishes it"
 		default:
-			component.Status = operation.StatusSkipped
-			component.Message = f.Status.String() + ": " + f.Detail + "; workbench migrate --apply runs it"
+			component.Status = operation.StatusPending
+			component.Message = f.Detail + "; workbench migrate --apply runs it"
 		}
 		result.Results = append(result.Results, component)
 	}

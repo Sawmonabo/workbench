@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/url"
@@ -262,7 +263,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		if err = m.RemovePrivateDirectory(directory); err != nil {
 			return "", err
 		}
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return "", err
 	}
 	parent := filepath.Dir(directory)
@@ -433,7 +434,7 @@ type activationJournal struct {
 
 func readActivation(c operation.Context) (*activationJournal, error) {
 	path := filepath.Join(c.Paths.State, "activation.json")
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
 	raw, err := operation.ReadPrivateInput(path, 1<<20)
@@ -660,7 +661,7 @@ func replacedRuntime(
 // known runtimes' executables; anything else is a command collision.
 func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
 	info, err := os.Lstat(entry)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return nil
 	}
 	if err != nil {

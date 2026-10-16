@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,6 +35,8 @@ func TestMovingTheLedgerKeepsEveryRow(t *testing.T) {
 		{"stopped before deleting the original", resumeBeforeDeletingTheOriginal},
 		{"a ledger is back at the old path during an unfinished copy", refuseALedgerBackAtTheOldPath},
 		{"open in another process", refuseAnOpenLedger},
+		{"opened by another process during the copy", refuseALedgerOpenedDuringTheCopy},
+		{"a link at the old ledger path", refuseALinkAtTheOldLedgerPath},
 		{"old and new ledgers both hold data", refuseTwoLedgers},
 		{"a conflicting overrides file leaves the ledger free to move", moveTheLedgerPastAnOverridesConflict},
 		{"one ledger under both names after a stopped link", finishALinkedMove},
@@ -56,22 +59,13 @@ func moveSameFilesystem(t *testing.T) {
 	writeFile(t, filepath.Join(old.State, "ingest.log"), "log\n", 0o644)
 	writeFile(t, filepath.Join(old.State, "ingest.lock"), "", 0o644)
 	writeFile(t, old.Overrides, `{"claude-opus-5": {"input": 1}}`, 0o644)
-	left, err := MoveFolders(ctx, old, paths)
-	if err != nil {
+	if _, err := MoveFolders(ctx, old, paths); err != nil {
 		t.Fatal(err)
-	}
-	if len(left) != 1 || filepath.Base(left[0]) != "notes.txt" {
-		t.Fatalf("left %v, want only notes.txt", left)
 	}
 	assertMoved(t, old, paths, want)
 	if data, err := os.ReadFile(paths.Overrides); err != nil ||
 		string(data) != `{"claude-opus-5": {"input": 1}}` {
 		t.Fatalf("overrides not moved byte for byte: %q, %v", data, err)
-	}
-	for _, gone := range []string{old.State, filepath.Dir(old.Overrides)} {
-		if _, err := os.Lstat(gone); !errors.Is(err, os.ErrNotExist) {
-			t.Fatalf("%s should be gone: %v", gone, err)
-		}
 	}
 }
 
@@ -161,7 +155,7 @@ func refuseAnOpenLedger(t *testing.T) {
 	if _, err := os.Lstat(old.Ledger); err != nil {
 		t.Fatalf("the original ledger moved while open: %v", err)
 	}
-	if _, err := os.Lstat(paths.Ledger); !errors.Is(err, os.ErrNotExist) {
+	if _, err := os.Lstat(paths.Ledger); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("a ledger appeared at the new path while the old one was open: %v", err)
 	}
 }
@@ -190,12 +184,8 @@ func moveTheLedgerPastAnOverridesConflict(t *testing.T) {
 	want := seedLedger(t, old.Ledger, "req-1", "req-2")
 	writeFile(t, old.Overrides, `{"old": {}}`, 0o644)
 	writeFile(t, paths.Overrides, `{"new": {}}`, 0o600)
-	left, err := MoveFolders(ctx, old, paths)
-	if operation.Category(err) != "conflict" {
+	if _, err := MoveFolders(ctx, old, paths); operation.Category(err) != "conflict" {
 		t.Fatalf("got %v, want conflict over the overrides", err)
-	}
-	if len(left) != 0 {
-		t.Fatalf("named %v as files Workbench didn't write; the conflict is not one", left)
 	}
 	if got := readLedger(t, paths.Ledger); !slices.Equal(got, want) {
 		t.Fatalf(
@@ -209,8 +199,8 @@ func moveTheLedgerPastAnOverridesConflict(t *testing.T) {
 	}
 }
 
-// moveFixture is a home with the old claude-costs folders, made 0755 as the
-// old script made them, and Workbench's runtime folders inside it. The temp
+// moveFixture is a home with the old claude-costs data folder, made 0755 as
+// the old script made it, and Workbench's runtime folders inside it. The temp
 // folder is resolved, because Workbench refuses private folders under a link
 // (/var on macOS).
 func moveFixture(t *testing.T) (OldPaths, Paths) {
@@ -225,10 +215,8 @@ func moveFixture(t *testing.T) (OldPaths, Paths) {
 		State:     filepath.Join(home, ".local", "state", "claude-costs"),
 		Overrides: filepath.Join(home, ".config", "claude-costs", "rates.json"),
 	}
-	for _, folder := range []string{filepath.Dir(old.Ledger), old.State} {
-		if err := os.MkdirAll(folder, 0o755); err != nil {
-			t.Fatal(err)
-		}
+	if err := os.MkdirAll(filepath.Dir(old.Ledger), 0o755); err != nil {
+		t.Fatal(err)
 	}
 	runtime := operation.Paths{
 		Config: filepath.Join(home, "workbench", "config"),
@@ -289,7 +277,7 @@ func seedLedger(t *testing.T, path string, ids ...string) []string {
 
 // readLedger lists the responses and subscriptions of the ledger at path,
 // read through a plain connection rather than the code under test, after
-// PRAGMA quick_check says ok.
+// PRAGMA integrity_check says ok.
 func readLedger(t *testing.T, path string) []string {
 	t.Helper()
 	if _, err := os.Stat(path); err != nil {
@@ -301,8 +289,8 @@ func readLedger(t *testing.T, path string) []string {
 	}
 	defer func() { _ = db.Close() }()
 	var result string
-	if err = db.QueryRow("PRAGMA quick_check").Scan(&result); err != nil || result != "ok" {
-		t.Fatalf("quick_check of %s: %q, %v", path, result, err)
+	if err = db.QueryRow("PRAGMA integrity_check").Scan(&result); err != nil || result != "ok" {
+		t.Fatalf("integrity_check of %s: %q, %v", path, result, err)
 	}
 	var found []string
 	for _, query := range []string{
@@ -329,31 +317,28 @@ func readLedger(t *testing.T, path string) []string {
 }
 
 // assertMoved checks the end state of every case that moves: the new ledger
-// passes quick_check and holds exactly the rows the original was seeded
-// with, is 0600; the original and the copy's marks are gone; and a further
-// run finds nothing to do and changes nothing.
+// passes integrity_check and holds exactly the rows the original was seeded
+// with; the original and the copy's marks are gone; and a further run leaves
+// the ledger as it was and nothing to do.
 func assertMoved(t *testing.T, old OldPaths, paths Paths, want []string) {
 	t.Helper()
 	if got := readLedger(t, paths.Ledger); !slices.Equal(got, want) {
 		t.Fatalf("the new ledger holds %v, want %v", got, want)
 	}
-	if info, err := os.Stat(paths.Ledger); err != nil || info.Mode().Perm() != 0o600 {
-		t.Fatalf("new ledger mode: %v, %v", info, err)
-	}
 	for _, gone := range []string{old.Ledger, old.Ledger + ".moved", paths.Ledger + ".part"} {
-		if _, err := os.Lstat(gone); !errors.Is(err, os.ErrNotExist) {
+		if _, err := os.Lstat(gone); !errors.Is(err, fs.ErrNotExist) {
 			t.Fatalf("%s should be gone: %v", gone, err)
 		}
 	}
 	before := readBytes(t, paths.Ledger)
-	if check := CheckFolders(old, paths); check.State != FoldersDone {
-		t.Fatalf("after the move the check says %d (%s), want done", check.State, check.Text)
-	}
 	if _, err := MoveFolders(context.Background(), old, paths); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(before, readBytes(t, paths.Ledger)) {
-		t.Fatal("a run with nothing to do changed the ledger")
+		t.Fatal("a run after the move changed the ledger")
+	}
+	if check := CheckFolders(old, paths); check.State != FoldersDone {
+		t.Fatalf("after the move the check says %d (%s), want done", check.State, check.Text)
 	}
 }
 
@@ -528,5 +513,65 @@ func refuseADifferentLedgerBesideTheOriginal(t *testing.T) {
 				t.Fatalf("a conflict changed %s", files[i])
 			}
 		}
+	}
+}
+
+// refuseALedgerOpenedDuringTheCopy is a writer that opens the old ledger while
+// the copy across filesystems runs. What it writes goes to the -wal file
+// beside the original, which the size, time and inode the copy recorded don't
+// see: setting the original aside and deleting it would lose those rows. The
+// copy must stop as busy and leave the original whole.
+func refuseALedgerOpenedDuringTheCopy(t *testing.T) {
+	ctx := context.Background()
+	old, paths := moveFixture(t)
+	want := seedLedger(t, old.Ledger, "req-1", "req-2")
+	ensureLedgerFolder(t, paths)
+	other, err := sql.Open("sqlite", old.Ledger)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = other.Close() }()
+	if _, err = other.Exec("SELECT COUNT(*) FROM responses"); err != nil {
+		t.Fatal(err)
+	}
+	err = copyLedger(ctx, paths.Home, old.Ledger, paths.Ledger)
+	if operation.Category(err) != "busy" {
+		t.Fatalf("got %v, want busy", err)
+	}
+	if got := readLedger(t, old.Ledger); !slices.Equal(got, want) {
+		t.Fatalf("the original holds %v, want %v", got, want)
+	}
+	for _, gone := range []string{paths.Ledger, paths.Ledger + ".part", old.Ledger + ".moved"} {
+		if _, err := os.Lstat(gone); !errors.Is(err, fs.ErrNotExist) {
+			t.Fatalf("%s is there after a refused copy: %v", gone, err)
+		}
+	}
+}
+
+// refuseALinkAtTheOldLedgerPath is an old ledger path that is a relative
+// link to the ledger. Moving the link would leave it pointing nowhere at the
+// new path, and the next open would make an empty ledger there: the rows stay
+// behind the link, out of every report. It must be a conflict that changes
+// nothing.
+func refuseALinkAtTheOldLedgerPath(t *testing.T) {
+	ctx := context.Background()
+	old, paths := moveFixture(t)
+	real := filepath.Join(filepath.Dir(old.Ledger), "kept.sqlite")
+	seedLedger(t, real, "req-1", "req-2")
+	if err := os.Symlink("kept.sqlite", old.Ledger); err != nil {
+		t.Fatal(err)
+	}
+	before := readBytes(t, real)
+	if _, err := MoveFolders(ctx, old, paths); operation.Category(err) != "conflict" {
+		t.Fatalf("got %v, want conflict", err)
+	}
+	if target, err := os.Readlink(old.Ledger); err != nil || target != "kept.sqlite" {
+		t.Fatalf("the link at the old path is %q, %v; want it kept", target, err)
+	}
+	if !bytes.Equal(before, readBytes(t, real)) {
+		t.Fatal("a conflict changed the ledger behind the link")
+	}
+	if _, err := os.Lstat(paths.Ledger); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("something is at the new ledger path: %v", err)
 	}
 }

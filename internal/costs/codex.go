@@ -1093,8 +1093,7 @@ func (codex) Hooks(home string) map[string]string {
 		best := HookMissing
 		for gi, group := range file.Hooks[event] {
 			for hi, hook := range group.Hooks {
-				if hook.Type != "command" || !strings.Contains(hook.Command, "workbench") ||
-					!strings.HasSuffix(hook.Command, " costs ingest") {
+				if hook.Type != "command" || !isIngestHook(hook.Command) {
 					continue
 				}
 				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", path, codexEvents[event], gi, hi)]

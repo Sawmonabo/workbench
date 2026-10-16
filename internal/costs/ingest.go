@@ -40,7 +40,7 @@ type IngestOptions struct {
 // Every failure is also written to the log and, once the ledger is open, to
 // its last_error note; committed files are not reprocessed next time.
 //
-// It first runs the costs gate ([Gate]), which moves the costs files into
+// It first runs the costs gate (see gate), which moves the costs files into
 // Workbench's folders when they still wait in the old ones.
 //
 // A worker started by a hook first binds the hook's session to the tool's
@@ -160,7 +160,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 	// Read the sign-in before the ledger can make this process wait.
 	signIn := tool.Source.SignIn(paths.Home)
 	at := time.Now()
-	ledger, err := paths.Open()
+	ledger, err := paths.open()
 	if err == nil {
 		err = ledger.BindSession(ctx, tool.Name, opts.SessionID, at, signIn)
 		_ = ledger.Close()
@@ -172,7 +172,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 
 func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string, error) {
 	started := time.Now()
-	ledger, err := paths.Open()
+	ledger, err := paths.open()
 	if err != nil {
 		return "", err
 	}

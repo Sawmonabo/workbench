@@ -2,6 +2,8 @@ package operation
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,7 +21,7 @@ func TestPreviewCannotExecuteMutation(t *testing.T) {
 	if ExitCode(err) != 3 {
 		t.Fatalf("expected blocked mutation, got %v", err)
 	}
-	if _, err := os.Stat(target); !os.IsNotExist(err) {
+	if _, err := os.Stat(target); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("preview executed mutation: %v", err)
 	}
 }
