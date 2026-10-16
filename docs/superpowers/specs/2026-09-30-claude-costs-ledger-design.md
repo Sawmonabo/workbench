@@ -74,7 +74,7 @@ one rate source inside `rates`, and there is no cache to clean.
 | Path on the machine | Role |
 | --- | --- |
 | `<data>/costs/ledger.sqlite` | The durable record. User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
-| `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. |
+| `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. Replaced whole through `operation.ReplacePrivateFile`, so an existing cache must be a private regular file with one link, or the refresh fails and leaves it. |
 | `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `<state>/costs/ingest.log` | Bounded worker log. |
 | `<state>/costs/ingest.lock` | Single-instance lock. |
@@ -196,7 +196,8 @@ when a headless `claude -p` session ends, so the ingest would race the exit.
 The worker:
 
 1. Takes a non-blocking exclusive lock on `ingest.lock`. If held, exits.
-2. Truncates the log to its most recent 200 KB.
+2. Keeps the log bounded: each write to a log over 400 KB first cuts it in
+   place to its newest ~200 KB (`operation.AppendLog`).
 3. Discovers every `*.jsonl` recursively under `<config dir>/projects`, where
    the config dir is `CLAUDE_CONFIG_DIR` if set, else `~/.claude`.
 4. Reads the account email from `<config dir>/.claude.json` at
@@ -488,8 +489,10 @@ Report flags are section 7's, plus `--tool NAME`. Every screen
 starts with the `[WorkBench]` brand like the other commands; `--json` emits the
 Workbench result envelope with the rows as details, and `--csv` stays. Cobra
 generates completions, so the bash completion file is removed with the script.
-Hooks in `home/.chezmoidata/claude.json` call `~/.local/bin/workbench costs
-ingest`, the release symlink Workbench installs.
+Hooks in `home/.chezmoidata/claude.json` name `workbench costs ingest`, and
+the settings merge fills in the installed `workbench`, the release symlink
+Workbench installs in the apply's bin folder: `~/.local/bin/workbench` for the
+default folder, else its absolute, single-quoted path.
 
 ### Tabs
 

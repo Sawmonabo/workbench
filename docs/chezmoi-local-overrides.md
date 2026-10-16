@@ -71,9 +71,11 @@ and does not authorize application.
   line) wins every apply. Permission lists keep entries granted in a session, and
   so do the hook lists of the enforced events (`SessionStart`, `SessionEnd`,
   `PreToolUse`, `PostToolUse`, `PostToolUseFailure`): a hook you add survives
-  next to the managed one. A hook group that runs `workbench costs` or
-  `workbench guard` counts as a copy of the managed hook and is replaced by it,
-  so editing the managed entry itself, for example its timeout, is undone. Keys
+  next to the managed one. The managed hooks run the installed `workbench` in
+  the apply's bin folder (`WORKBENCH_BIN_DIR`). A hook group that runs
+  `workbench costs` or `workbench guard`, by any path or quoting, counts as a
+  copy of the managed hook and is replaced by it, so editing the managed
+  entry itself, for example its timeout, is undone. Keys
   the repo doesn't know are left alone, and malformed JSON fails the apply.
   Apply only adds and overwrites: an entry or key you drop from `enforced`
   stays in the live `~/.claude/settings.json` until you delete it there.

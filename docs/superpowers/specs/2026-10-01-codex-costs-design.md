@@ -372,8 +372,10 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 ## 6. Hooks
 
 `home/private_dot_codex/private_hooks.json.tmpl` renders for every role: the
-`SessionStart` and `SessionEnd` entries run `~/.local/bin/workbench costs
-ingest` (`SessionEnd` with `"timeout": 3`, its maximum), and the existing
+`SessionStart` and `SessionEnd` entries run `workbench costs ingest` on the
+installed `workbench`'s absolute, single-quoted path in the apply's bin folder
+(the `workbench-command` template; `SessionEnd` with `"timeout": 3`, its
+maximum), and the existing
 `UserPromptSubmit` entry stays inside `{{ if .has_work }}`. `render-check.sh`
 drops its "hooks.json deployed on personal" leak check; its personal-role
 `promptctl` grep still catches the real leak. `.codex/hooks.json` is no longer
@@ -399,7 +401,9 @@ applies. The entries of a hook Workbench no longer installs are dropped, so
 they do not stay trusted. A second apply changes nothing.
 `Hooks(home)` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
-recorded hash matches): `ok` when `hooks.json` has the command and its entry
+recorded hash matches): `ok` when `hooks.json` has the command (one matching
+`(^|/)workbench'? costs ingest$`, the one matcher both tools' checks use, so
+any bin folder and its quoting count) and its entry
 records the hash computed the same way, `disabled` when the entry sets
 `enabled = false`, `untrusted` when it records no hash or another one (as
 after Codex changed its normalization), and `missing` without the command.

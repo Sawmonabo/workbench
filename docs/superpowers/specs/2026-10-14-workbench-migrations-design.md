@@ -33,7 +33,7 @@ Nothing else in the contract changes. A migration may read the old
 locations, including old environment variables, only to find what to move.
 No runtime code reads an old location.
 
-## 2. What Workbench writes today
+## 2. Where Workbench writes
 
 Every path below was traced to the code or template that writes it.
 
@@ -62,7 +62,9 @@ Every path below was traced to the code or template that writes it.
 
 ### 2.2 Outside them, and migrated
 
-| Writer | Path today | Code |
+As v0.1.25 wrote them; the code column cites that release.
+
+| Writer | Path in v0.1.25 | Code in v0.1.25 |
 |---|---|---|
 | Ledger, with SQLite's `-wal` and `-shm` | `$CLAUDE_COSTS_LEDGER`, else `${XDG_DATA_HOME:-~/.local/share}/claude-costs/ledger.sqlite` | `internal/costs/ledger.go:38-70, 208-327` |
 | Claude price cache | `rates-official.json` beside the ledger | `internal/costs/rates.go:334-342` |
@@ -253,7 +255,7 @@ at which paths exist (`Lstat`), with these small reads:
 | Status | Meaning |
 |---|---|
 | *Done* | Nothing the migration can do is left. Its text may still name a file it keeps because Workbench didn't write it. |
-| *Pending* | An old file waits to move or be deleted, or an old path can't be read. |
+| *Pending* | An old file waits to move or be deleted, an old path can't be read, or an old folder is empty and waits to be removed. An empty old `claude-costs` folder keeps `0001` pending, but the cost reports ignore it (5.4). |
 | *Unfinished* | A stopped copy of the ledger left its marks (`ledger.sqlite.part` at the new path, or `ledger.sqlite.moved` at the old one); see 6.1. |
 | *Conflict* | Only conflicts are left: a file whose old and new paths both hold different data, a link at an old file's path, or an old ledger a relative variable hides (6.1). |
 
@@ -311,14 +313,15 @@ script's environment, for its probe and its run:
   such as nvm or uv put things. The shared template
   `home/.chezmoitemplates/old-locations.sh` hands them back under their own
   names to the installed `workbench` only, in the migrations and
-  `costs-ingest` scripts. `migrate.OldLocationVariables` and the template
-  list the same names.
+  `costs-ingest` scripts. The apply passes the names themselves, from
+  `migrate.OldLocationVariables`, as `WORKBENCH_OLD_NAMES`, and the template
+  loops over them.
 - **`WORKBENCH_BIN_DIR`**, the resolved bin folder, where the scripts find
   the installed `workbench`.
 - **`WORKBENCH_MIGRATIONS`**, the registry's IDs.
 
-The `costs-ingest` script gets the same variables. That fixes the gap that
-today makes it read the default ledger path whatever the owner set.
+The `costs-ingest` script gets the same variables, so it reads the ledger
+where the owner's folders put it, never the default path regardless.
 
 ### 5.2 During apply
 
@@ -369,7 +372,7 @@ This holds for every step, including ones two scripts carry (`windows-files`,
 `work-tools`):
 - **The step's fields:** `Delta` holds the answered lines and `ProbeNote` the
   unanswered ones, and `--json` carries both.
-- **The plan row** shows the note, in yellow, as today (`planlist.go`).
+- **The plan row** shows the note, in yellow (`planlist.go`).
 - **The step's detail** shows `On this PC` with what was checked and a second
   line, `Not checked`, with the note (`plandetail.go`).
 - **After the apply**, a step whose plan carried a note reports its summary,
@@ -434,18 +437,20 @@ chezmoi runs scripts in the order of their full source paths
 always runs after the files and before `shared/run_after_90-costs-ingest`. On
 macOS and Linux that is after the platform's own `run_after_` scripts; on WSL
 it is before the `wsl/` ones.
-- The binary is `"${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"`; the
-  apply passes `WORKBENCH_BIN_DIR`, its resolved bin folder.
+- The binary is `"${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"`, a line
+  it shares with `costs-ingest` through the `installed-workbench.sh`
+  template; the apply passes `WORKBENCH_BIN_DIR`, its resolved bin folder.
 - With `WORKBENCH_PROBE=1` it runs `workbench migrate --probe`.
 - Otherwise, when `WORKBENCH_EFFECT_MIGRATIONS=1`, it runs
   `workbench migrate run`, which runs every *Pending* and *Unfinished*
   migration that binary knows.
 
 **It runs the installed `workbench`,** in Workbench's bin folder, as
-`costs-ingest` does. The Claude Code and Codex hooks run
-`~/.local/bin/workbench`, so with the default bin folder the binary that moves
-the costs files is the one that writes them afterwards, and an older installed
-binary never writes the old folders again. An apply from a newer `--local-build` whose
+`costs-ingest` does. The Claude Code and Codex hooks run the installed
+`workbench` in the same bin folder (the apply passes it as the
+`workbench_bin` answer), so the binary that moves the costs files is the one
+that writes them afterwards, and an older installed binary never writes the
+old folders again. An apply from a newer `--local-build` whose
 installed binary lacks an ID gets the "needs a newer installed workbench"
 note, and that migration waits for `workbench update`.
 
@@ -467,8 +472,11 @@ migration. It shows `Checking migrations` while it checks, then prints the
 same lines as the apply (on stderr with `--json`, which keeps stdout for the
 result). Its plan (`migrate.Plan`) has one fixed, checked effect per
 migration with something to do, named by its ID and described by the paths
-its check names, so the digest changes when the paths do. A migration in
-conflict is a plan warning; a relative old variable (2.2) is a warning of the
+its check names, and Workbench's config, data, state and cache folders as an
+input, so the digest changes when the paths or the folders the files move
+into do: an approval given under other folders (another `WORKBENCH_DATA_DIR`,
+say) exits 4 before anything moves. A migration in conflict is a plan
+warning; a relative old variable (2.2) is a warning of the
 result. Outside `--dry-run` it uses the same approval rule as `apply`, the
 shared `checkConsent` (`internal/cli/consent.go`), checked before anything
 happens:
@@ -486,10 +494,12 @@ happens:
   warnings name as they say"; it never says "Nothing to migrate" then.
 - **Exit codes of a run** (`migrate run`, `migrate --apply`): a conflict, found
   by the check or met during the run, exits 4 and says the migration "can't
-  finish until you deal with each file named above as it says"; anything else
-  that stops a migration (a held lock, a lock that can't be taken, an open
-  ledger, an error) exits 3, as does an ID the binary doesn't know (5.2), and
-  the next apply tries again. A runtime folder `operation.Resolve` refuses
+  finish until you deal with each file named above as it says". Unlike exit 4
+  elsewhere, it comes after the run has finished every move that doesn't
+  conflict, and the other migrations, and has named what it left. Anything
+  else that stops a migration (a lock another run holds, a lock that can't be
+  taken, an open ledger, an error) exits 3, as does an ID the binary doesn't
+  know (5.2), and the next apply tries again. A runtime folder `operation.Resolve` refuses
   exits 2, as it does for every command.
 
 ### 5.4 Automatically, for the costs files
@@ -506,7 +516,8 @@ While anything of `0001-costs-folders` is left, the gate acts by caller:
   - It moves only Workbench's own files, so it needs no further approval.
   - **Only a ledger conflict stops the import.** A conflict over the
     overrides file leaves that file for the owner; the ledger still moves and
-    the import goes on. A ledger conflict (old and new ledgers both present,
+    the import goes on. Once the ledger has moved, whatever else the move left
+    or failed on is only written to the import log. A ledger conflict (old and new ledgers both present,
     a set-aside original with a ledger back at the old path, or a link at the
     old ledger's path, 6.1) stops it, and the worker logs why and opens no
     ledger.
@@ -517,9 +528,10 @@ While anything of `0001-costs-folders` is left, the gate acts by caller:
     which variable to make absolute or unset.
 - **`workbench costs`, `costs status` and `costs rates`** stop with "the costs
   files are moving to Workbench's folders; run `workbench migrate --apply`"
-  while anything waits to move, and with the conflict's text on a ledger
-  conflict. A conflict over another file alone doesn't stop them;
-  `workbench migrate` names it. They never open the old ledger, and never
+  while any data waits to move, and with the conflict's text on a ledger
+  conflict. A conflict over another file alone doesn't stop them, nor does an
+  empty old `claude-costs` folder, which holds nothing; `workbench migrate`
+  names both. They never open the old ledger, and never
   create an empty ledger beside it.
 - **The hook itself is not gated.** It writes only the new import log, which
   no migration moves or compares, and then starts the worker, which runs the
@@ -540,8 +552,8 @@ fails, nothing is recorded, and it shows:
 **Only one migration run.** A run holds `<state>/locks/migrate.lock` through
 `operation.TryLock`. A second run that finds it held says another migration
 run is moving files, names any conflict, and fails (exit 3, or 4 with a
-conflict) without moving anything; the import worker finding it held fails as
-busy.
+conflict) without moving anything: exit 3 covers a lock another run holds.
+The import worker finding it held fails as busy.
 
 **Nothing writes to the ledger mid-move.** Before moving, the costs migration:
 1. Takes both import locks: `<old state>/claude-costs/ingest.lock` and
@@ -629,26 +641,27 @@ it is named as a file Workbench didn't write.
 3. **Different filesystems** (`EXDEV`, for example an `XDG_DATA_HOME` on
    another volume):
    1. Delete any stale `<new>.part`.
-   2. On a second connection, hold `BEGIN IMMEDIATE` so no other writer can
-      start. Under it, run `VACUUM INTO '<new>.part'` on the first
-      connection, check the copy against the original (step 3), and record
-      the original's size, modification time and inode. Then release the
-      transaction and close the ledger, and `fsync` the copy and its folder.
+   2. Open a transaction that takes the write lock at once (the ledger
+      opens with `_txlock=immediate`, so it begins as `BEGIN IMMEDIATE`), so
+      no other writer can start. Under it, run `VACUUM INTO '<new>.part'`,
+      check the copy against the original (step 3), record the original's
+      size, modification time and inode, and `fsync` the copy and its folder.
+      Then release the transaction and close the ledger.
    3. The check: open the copy and attach the original without taking
       either over (no schema upgrade, no journal-mode change, never a new
-      file) and run only queries: require `PRAGMA quick_check` to be `ok`,
+      file) and run only queries: require `PRAGMA integrity_check` to be `ok`,
       and require the same tables, each holding the same rows (`EXCEPT` both
       ways; every ledger table has a primary key). The same row count is not
       enough: another ledger can have as many rows, and an original is never
-      deleted for it. A copy that fails `quick_check` or differs is a ledger
+      deleted for it. A copy that fails `integrity_check` or differs is a ledger
       error, and the original stays: a copy just written is discarded; a
       `.part` a stopped run left, or a fresh copy that can't be deleted,
       stays, and the error says to delete it, after which the next run
       starts again from the original. Every other file still moves. At step
       6 a new ledger with different content is another ledger, a
-      *Conflict*; one that fails `quick_check` is a ledger error that says
+      *Conflict*; one that fails `integrity_check` is a ledger error that says
       to delete it, after which the next run puts the original back and
-      starts again. The error names only the first problem `quick_check`
+      starts again. The error names only the first problem `integrity_check`
       reports and how many more there are.
       Checking a ledger leaves its content as it was; a WAL ledger no other
       process has open may have its write-ahead log folded into the file
@@ -676,7 +689,7 @@ it is named as a file Workbench didn't write.
    |---|---|
    | `<new>.part` without `<old>.moved` | Deletes the `.part` and starts again. |
    | `<old>.moved` with `<new>.part` | Checks the `.part` against `.moved` (step 3), puts it in place as step 3.5 does, then finishes step 3.6. A `.part` that differs is a ledger error: both stay, and the error says to delete the `.part`. |
-   | `<old>.moved` with the new ledger | Deletes `.moved` only when the new ledger holds the same content (step 3). A ledger with different content, even one with as many rows, is a *Conflict*: nothing is touched, and both are named. One that fails `quick_check` is a ledger error that says to delete it; the next run then puts the original back and starts again. |
+   | `<old>.moved` with the new ledger | Deletes `.moved` only when the new ledger holds the same content (step 3). A ledger with different content, even one with as many rows, is a *Conflict*: nothing is touched, and both are named. One that fails `integrity_check` is a ledger error that says to delete it; the next run then puts the original back and starts again. |
    | `<old>.moved` alone | Renames it back to the old path without replacing, and starts again. |
    | `<old>.moved` with a ledger back at the old path | A *Conflict*: nothing is touched, and both are named. |
    | The old ledger and `<old>.moved` as one file | Removes the `.moved` name, and starts again. |
@@ -686,8 +699,8 @@ it is named as a file Workbench didn't write.
    ledger at the new path is never replaced: with the old one gone the move
    is done, and with it present it is a *Conflict*. The check never opens a
    ledger, so a set-aside original beside a different new ledger, or beside
-   one that fails `quick_check`, checks as *Unfinished*; the run reports the
-   *Conflict*, or, for the one that fails `quick_check`, the ledger error that
+   one that fails `integrity_check`, checks as *Unfinished*; the run reports the
+   *Conflict*, or, for the one that fails `integrity_check`, the ledger error that
    says to delete it.
 5. **Make it private:** the ledger ends at `0600` in a `0700` folder.
 
@@ -695,7 +708,10 @@ it is named as a file Workbench didn't write.
 `EXDEV`.
 
 **Removing the old folders:** each old `claude-costs/` folder is removed only
-when it is empty, and never when it is a link. A file the migration doesn't
+when it is empty, and never when it is a link. The check names an empty old
+folder ("removes the empty folder X") and an unreadable one ("can't read X"),
+each keeping `0001` *Pending*; a run fails when it can't remove an empty
+folder for any reason but its no longer being empty. A file the migration doesn't
 know stays and is named, and once nothing is
 left `0001`'s check is *Done* with the same list ("keeps X (Workbench didn't
 write it)", or "them" for several). Files the
@@ -716,12 +732,15 @@ other files still move.
 - **`officialPath`** becomes `<data>/costs/<tool>/rates-official.json`.
 - **One gate before every ledger open** (section 5.4), placed before anything
   else the command writes:
-  - the worker, in `Ingest`, before `bindSession` (`ingest.go:51, 150`;
-    `ledger.go:1082`) and before its import lock
-  - the reports and status (`internal/cli/costs.go` `ensureIngested`, which
-    `workbench costs` and `costs status` call first) and `costs.Status`
-    (`report.go:681`)
-  - `costs rates` (`costs.Rates`).
+  - `Paths.Open` runs it for every caller, so no caller opens a ledger past
+    it: the reports and `costs status` open the ledger once through
+    `openIngested` (`internal/cli/costs.go`), which hands it to
+    `costs.Status`
+  - the worker, in `Ingest`, runs its own gate, the one that moves the files,
+    before `bindSession` and before its import lock, then opens the ledger
+    without the gate
+  - `costs rates` (`costs.Rates`) gates itself, since it writes beside the
+    ledger without opening it.
 
   The hook (`ingest.go:758-762`) is not gated: it writes only the new import
   log (section 5.4).
@@ -743,7 +762,7 @@ it. One that can't be read keeps the migration *Pending* ("can't read …"), and
 the run says why.
 
 **The startup files** (`home/dot_zshrc.tmpl`, `home/private_dot_bashrc.tmpl`)
-keep today's behaviour but use Workbench's cache folder, picked by the same
+keep the cache's behaviour in v0.1.25 but use Workbench's cache folder, picked by the same
 rules as `operation/context.go`. The template fills in each operating system's
 default when it renders, so a new shell runs no extra program.
 
@@ -836,7 +855,7 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 | File | Change |
 |---|---|
 | `internal/migrate/*` | New: registry, loop, three migrations |
-| `internal/operation/state.go`, `context.go`, `filesystem_{darwin,linux}.go` | `ReplacePrivateFile`, taken out of `WritePrivate`; `RenameNoReplace`; `Paths.MigrateLock`. Every private folder is made with `PrivateDirectory(root, name)`, which the agent command guard plan adds; this design adds no other folder helper |
+| `internal/operation/state.go`, `context.go`, `filesystem_{darwin,linux}.go` | `ReplacePrivateFile`, taken out of `WritePrivate`; `RenameNoReplace`; `Paths.MigrateLock`. Every private folder is made with `PrivateDirectory(root, name)`, which checks each folder of a nested name; the operation layer also owns `PrivateTree` (checks a private tree, creating it or not), `SyncDirectory` (a folder fsync, counting `EINVAL` and `EBADF` as synced) and `RemoveIfThere` |
 | `internal/costs/move.go` | New: old and new locations, the check, the move, the ledger copy and its resume, the gate |
 | `internal/costs/ledger.go`, `rates.go`, `ingest.go`, `report.go` | New paths from `operation.Resolve`; the gate at every open; the hook's stderr line |
 | `internal/cli/costs.go` | Report and status go through the gate |
@@ -846,7 +865,9 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 | `internal/cli/plandetail.go`, `internal/machine/apply.go` | The step's detail adds a `Not checked` line; the after-apply message skips a partial text (5.2) |
 | `internal/machine/dependencies.go` (or the probe and apply environment) | Section 5.1 variables for the migration and costs-ingest scripts |
 | `home/.chezmoiscripts/shared/run_after_05-migrations.sh.tmpl` | New |
-| `home/.chezmoitemplates/old-locations.sh` | New: hands `WORKBENCH_OLD_<NAME>` back to the installed `workbench` (5.1) |
+| `home/.chezmoitemplates/old-locations.sh` | New: hands `WORKBENCH_OLD_<NAME>`, for each name in `WORKBENCH_OLD_NAMES`, back to the installed `workbench` (5.1) |
+| `home/.chezmoitemplates/installed-workbench.sh` | New: the installed `workbench` path both scripts run (5.2) |
+| `home/.chezmoitemplates/workbench-command` | New: the installed `workbench` the Claude Code and Codex hooks run, from the `workbench_bin` answer (5.2) |
 | `home/.chezmoiscripts/shared/run_after_90-costs-ingest.sh.tmpl` | Runs the worker with the old locations |
 | `home/dot_zshrc.tmpl`, `home/private_dot_bashrc.tmpl` | Completion cache path, modes, umask subshell |
 | `docs/usage.md` | Costs paths (126-133), `workbench migrate`, completion cache |
@@ -884,24 +905,30 @@ tools in a temporary home and runs `0001-costs-folders`:
     state folder and overrides.
 11. **An old folder linked to the new one:** the old `claude-costs` data
     folder a link to `<data>/costs`.
+12. **A link at the old ledger path,** relative, naming the ledger.
+13. **A writer that opens the old ledger during the copy,** on a second
+    connection, while the copy across filesystems runs.
 
 **What it asserts:**
-- **Cases 1–3:** the new ledger passes `quick_check` and holds exactly the
+- **Cases 1–3:** the new ledger passes `integrity_check` and holds exactly the
   original's rows, read through the test's own connection rather than the
   code under test. The old ledger is gone only after that, and a further run
-  reports *Done* and changes nothing.
+  changes nothing, after which the check reports *Done*.
 - **Cases 4 and 6:** *Conflict*, with every ledger file byte-identical to
   before.
 - **Case 5:** refused as busy, with nothing moved.
 - **Case 7:** a conflict over the overrides only: the ledger still moves with
-  every row, the ledger itself checks as *Done*, and the overrides file is not
-  named as a file Workbench didn't write.
+  every row, and the ledger itself checks as *Done*.
 - **Case 8:** *Unfinished*, never *Conflict*; the run finishes the move with
   every row.
 - **Case 9:** *Conflict* on every run, with every file byte-identical to
   before: the same row count never lets a run delete the original.
 - **Cases 10 and 11:** *Done*; a run succeeds and leaves every file
   byte-identical, with the ledger's rows, and in case 11 the link stays.
+- **Case 12:** a conflict; the link stays, the ledger behind it is
+  byte-identical, and nothing is at the new path.
+- **Case 13:** refused as busy, with the original holding every row and no
+  copy left.
 
 ## 10. Order of work
 
