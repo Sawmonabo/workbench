@@ -109,6 +109,7 @@ func newRoot(o *options) *cobra.Command {
 		vscodeSettingsCommand(o),
 		askpassCommand(o),
 		costsCommand(o),
+		migrateCommand(o),
 		guardCommand(),
 	)
 	registerCompletions(root)
@@ -260,7 +261,7 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 			line += " — " + component.Message
 		}
 		var wrapped strings.Builder
-		writeText(&wrapped, terminalWidth(out), 0, paint.mark(component.Status)+line)
+		writeText(&wrapped, lineWidth(out), 0, paint.mark(component.Status)+line)
 		if _, err := lipgloss.Fprint(out, wrapped.String()); err != nil {
 			return err
 		}

@@ -1,5 +1,7 @@
 # Workbench migrations implementation plan
 
+The code is authoritative: listings below predate review fixes made during implementation.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Numbered, idempotent migrations that move the files Workbench wrote outside its runtime folders into them: the costs files (automatically, from the import worker, as well as from apply), the shell completion cache and the old `claude-costs` script's cache. Apply shows a `checking migrations` step while planning and `==> migrations:` lines while applying.
@@ -97,8 +99,8 @@ Workbench and the `claude-costs` script before it wrote some files outside
 Workbench's runtime folders: the costs ledger, its price caches, the import
 log and lock and the owner's price overrides under `claude-costs/` folders,
 the shell completion cache in `~/.cache`, and the old script's parse cache.
-The ledger is the only lasting record of spend: Claude Code and Codex delete
-their session files after about 30 days. A release that only changed the
+The ledger is the only lasting record of spend: Claude Code deletes transcripts
+after 30 days by default (`cleanupPeriodDays`). A release that only changed the
 paths would start an empty ledger and leave the old one unread.
 
 ## Options considered
@@ -1655,8 +1657,8 @@ func removeDatabase(path string) error {
 // waits to move there, so nothing creates an empty ledger beside the old one.
 // It runs before every ledger open and before anything writes beside the
 // ledger. move is for the import worker: it moves the files itself, under the
-// same locks as `workbench migrate run`, because usage left unread could be
-// lost once Claude Code or Codex delete their session files; it then reads
+// same locks as `workbench migrate run`, because usage left unread is lost
+// once the session files it is in are deleted; it then reads
 // into the new ledger once the ledger itself has moved, even when another
 // costs file is left in conflict. Every other caller is told to run the
 // migration while anything waits, and stops on a ledger conflict; a conflict
@@ -3009,7 +3011,7 @@ index b052b41..77f90b4 100644
 -		Touches:     "~/.local/share/claude-costs/ledger.sqlite",
  		RunsAs:      "you; downloads the official price pages",
 -		Undo:        "Nothing to undo: the ledger is rebuilt from the session files",
-+		Undo:        "Nothing to undo: rows already recorded stay, even after Claude Code or Codex delete their session files",
++		Undo:        "Nothing to undo: rows already recorded stay, even after the session files they came from are deleted.",
  	},
  }
  
@@ -3679,7 +3681,7 @@ chezmoi --config $S/answers.toml --source "$PWD" execute-template < home/private
 
 Expected:
 - `_workbench: function`, then `drwx------` for the folder and `-rw-------` for `completion.zsh`.
-- With a `0755` folder made first: the folder stays `drwxr-xr-x`, the file is `-rw-------`, and `workbench version` fails with `Existing Workbench runtime directories must be private (0700)`, `EXIT:2`. Workbench reports it; the shell doesn't change it.
+- With a `0755` folder made first: the folder stays `drwxr-xr-x`, the file is `-rw-------`, and `workbench version` fails with `Existing …/Library/Caches/workbench must be a private directory (mode 0700); it was not changed`, `EXIT:2`. Workbench reports it; the shell doesn't change it.
 - `WORKBENCH_CACHE_DIR=rel` still gives `_workbench: function`, and `~/Library/Caches` stays empty.
 - `bash -n` exits 0.
 
@@ -3879,7 +3881,7 @@ run $H $H/.local/bin/workbench costs status; echo EXIT:$?
 
 Expected:
 - The older binary: the probe prints exactly `migrations: ? the installed workbench predates migrations, so run workbench update`, `EXIT:0`. The run prints `WORKBENCH_EFFECT migrations blocked: the installed workbench predates migrations, so run workbench update and apply again` on stderr, ends `EXIT:0`, and the report file holds that line.
-- The `0755` runtime folder: the probe prints `migrations: ? workbench migrate --probe failed, so the migrations are checked again when applied`. The hook prints `workbench costs: nothing recorded: Existing Workbench runtime directories must be private (0700)` on stderr and exits 0, and `costs status` fails with the same reason, `EXIT:2`.
+- The `0755` runtime folder: the probe prints `migrations: ? workbench migrate --probe failed, so the migrations are checked again when applied`. The hook prints `workbench costs: nothing recorded: Existing …/Library/Application Support/workbench/state must be a private directory (mode 0700); it was not changed` on stderr and exits 0, and `costs status` fails with the same reason, `EXIT:2`.
 
 - [ ] **Step 7: Conflicts, a finished copy, and a foreign file** (Review Focus 4)
 

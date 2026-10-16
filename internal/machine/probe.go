@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -26,32 +27,75 @@ const probeTimeout = 15 * time.Second
 // signal; nothing matches on the words of TEXT.
 var probeLine = regexp.MustCompile(`^([a-z0-9-]+): ([=?] )?(.+)$`)
 
-// probeResult is what the probe lines of one effect said: their text joined
-// with "; ", whether every line reported no change, and whether any line could
-// not check.
+// probeResult is what the probe lines of one effect said, kept apart by kind:
+// the text of the lines that answered and of those that could not check, each
+// joined with "; ", whether every line reported no change, and how many lines
+// were changes and how many could not check. Keeping them apart lets a step
+// show what was checked beside what was not, even when one script printed
+// both.
 type probeResult struct {
-	text       string
-	noChange   bool
-	unanswered bool
+	answered, unanswered string
+	noChange             bool
+	changes, checks      int
 }
 
 // merge adds another result for the same effect.
 func (r probeResult) merge(other probeResult) probeResult {
 	return probeResult{
-		r.text + "; " + other.text,
+		joinProbeText(r.answered, other.answered),
+		joinProbeText(r.unanswered, other.unanswered),
 		r.noChange && other.noChange,
-		r.unanswered || other.unanswered,
+		r.changes + other.changes,
+		r.checks + other.checks,
+	}
+}
+
+// joinProbeText joins two texts of one kind with "; ", skipping an empty one.
+func joinProbeText(a, b string) string {
+	if a == "" || b == "" {
+		return a + b
+	}
+	return a + "; " + b
+}
+
+// migrationsScript carries the migrations step. Its probe runs alone, before
+// the others, under its own planning steps, so an apply says that it checks
+// migrations and what it found.
+const migrationsScript = "05-migrations"
+
+// probeTally gathers the probe results of every script, from the parallel
+// probes as well as the migrations probe.
+type probeTally struct {
+	mu      sync.Mutex
+	results map[string][]probeResult
+	outcome map[string]probeOutcome
+}
+
+// record keeps one script's lines and how its probe ended, for each effect
+// the script carries. A failed or timed-out probe is never overwritten by
+// another script's answer for the same effect.
+func (t *probeTally) record(name string, lines map[string]probeResult, status string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for effect, result := range lines {
+		t.results[effect] = append(t.results[effect], result)
+	}
+	for _, effect := range scriptEffects(name) {
+		if previous := t.outcome[effect].status; previous != "failed" &&
+			previous != "timeout" {
+			t.outcome[effect] = probeOutcome{status, probeNote(name, status)}
+		}
 	}
 }
 
 // probeEffects fills each effect's Delta from the active scripts run with
-// WORKBENCH_PROBE=1, in parallel. A probe that fails, times out or prints
-// anything but effect lines leaves its effects with a ProbeNote saying, in
-// plain words, what could not be checked; the plan never blocks on a probe,
-// and an unprobed effect stays checked. Probes write
-// nothing: Go telemetry and Node's compile cache are switched off. It returns
-// the context's error when the run was interrupted, so the plan stops instead
-// of showing every effect unprobed.
+// WORKBENCH_PROBE=1: the migrations script's alone first, then the others in
+// parallel. A probe that fails, times out or prints anything but effect lines
+// leaves its effects with a ProbeNote saying, in plain words, what could not
+// be checked; the plan never blocks on a probe, and an unprobed effect stays
+// checked. Probes write nothing: Go telemetry and Node's compile cache are
+// switched off. It returns the context's error when the run was interrupted,
+// so the plan stops instead of showing every effect unprobed.
 func (p *preparation) probeEffects(ctx context.Context, c operation.Context) error {
 	// Nothing here touches the plan digest: a probe failure shows as a note
 	// on the effect, never as a warning the digest would cover.
@@ -63,7 +107,6 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	if err = os.Mkdir(directory, 0o700); err != nil {
 		return ctx.Err()
 	}
-	c.Step("checking what each step would do here")
 	environment := scriptEnvironment(c, p.Plan.Dependencies)
 	environment = append(
 		environment,
@@ -76,34 +119,23 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 			environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
 		}
 	}
-	var (
-		mu      sync.Mutex
-		wg      sync.WaitGroup
-		results = map[string][]probeResult{}
-		outcome = map[string]probeOutcome{}
-	)
+	tally := &probeTally{results: map[string][]probeResult{}, outcome: map[string]probeOutcome{}}
+	p.probeMigrations(ctx, c, directory, environment, scripts, tally)
+	c.Step("checking what each step would do here")
+	var wg sync.WaitGroup
 	for name, contents := range scripts {
-		if !p.active[name] {
+		if !p.active[name] || name == migrationsScript {
 			continue
 		}
 		wg.Add(1)
 		go func(name, contents string) {
 			defer wg.Done()
 			lines, status := p.runProbe(ctx, c, directory, environment, name, contents)
-			mu.Lock()
-			defer mu.Unlock()
-			for effect, result := range lines {
-				results[effect] = append(results[effect], result)
-			}
-			for _, effect := range scriptEffects(name) {
-				if previous := outcome[effect].status; previous != "failed" &&
-					previous != "timeout" {
-					outcome[effect] = probeOutcome{status, probeNote(name, status)}
-				}
-			}
+			tally.record(name, lines, status)
 		}(name, contents)
 	}
 	wg.Wait()
+	results, outcome := tally.results, tally.outcome
 	if err = ctx.Err(); err != nil {
 		return err
 	}
@@ -122,29 +154,78 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 			// would read as a change, or as nothing to change.
 			continue
 		}
-		texts, noChange, why := make([]string, 0, len(found)), len(found) > 0, []string{}
-		for _, result := range found {
-			if result.unanswered {
-				why = append(why, result.text)
-				continue
-			}
-			texts = append(texts, result.text)
-			noChange = noChange && result.noChange
-		}
-		if len(why) > 0 {
-			slices.Sort(why)
-			effect.Probe = "unanswered"
-			effect.ProbeNote = strings.Join(
-				slices.Compact(why),
-				"; ",
-			) + "; checked again when applied"
-			continue
-		}
-		slices.Sort(texts)
-		effect.Delta = strings.Join(texts, "; ")
-		effect.NoChange = noChange
+		fillProbed(effect, found)
 	}
 	return nil
+}
+
+// fillProbed sets an effect from what every script that carries it answered:
+// what the probes checked is its Delta and what they could not check its
+// ProbeNote, side by side, so a step whose scripts printed both shows both.
+func fillProbed(effect *operation.Effect, found []probeResult) {
+	texts, noChange, why := make([]string, 0, len(found)), len(found) > 0, []string{}
+	for _, result := range found {
+		if result.answered != "" {
+			texts = append(texts, result.answered)
+		}
+		if result.unanswered != "" {
+			why = append(why, result.unanswered)
+		}
+		noChange = noChange && result.noChange
+	}
+	slices.Sort(texts)
+	effect.Delta = strings.Join(texts, "; ")
+	if len(why) > 0 {
+		slices.Sort(why)
+		effect.Probe = "unanswered"
+		effect.ProbeNote = strings.Join(slices.Compact(why), "; ") + "; checked again when applied"
+		return
+	}
+	effect.NoChange = noChange
+}
+
+// probeMigrations runs the migrations script's probe alone under its own
+// planning steps: "checking migrations", then what it found.
+func (p *preparation) probeMigrations(
+	ctx context.Context,
+	c operation.Context,
+	directory string,
+	environment []string,
+	scripts map[string]string,
+	tally *probeTally,
+) {
+	contents, ok := scripts[migrationsScript]
+	if !ok || !p.active[migrationsScript] {
+		return
+	}
+	c.Step("checking migrations")
+	lines, status := p.runProbe(ctx, c, directory, environment, migrationsScript, contents)
+	tally.record(migrationsScript, lines, status)
+	result, found := lines["migrations"]
+	c.Step(migrationsOutcome(result, found, status))
+}
+
+// migrationsOutcome is the planning step that says what the migrations probe
+// found: how many migrations the apply would run and how many need the owner
+// (a conflict, or one the installed workbench doesn't know), none to run, or
+// that the probe itself failed or timed out.
+func migrationsOutcome(result probeResult, found bool, status string) string {
+	if status != "ok" || !found {
+		return "migrations: couldn't check"
+	}
+	var parts []string
+	if result.changes > 0 {
+		parts = append(parts, fmt.Sprintf("%d to run", result.changes))
+	}
+	if result.checks == 1 {
+		parts = append(parts, "1 needs attention")
+	} else if result.checks > 1 {
+		parts = append(parts, fmt.Sprintf("%d need attention", result.checks))
+	}
+	if len(parts) == 0 {
+		return "migrations: none to run"
+	}
+	return "migrations: " + strings.Join(parts, ", ")
 }
 
 // probeOutcome is how one effect's probe ended: the status for --json and the
@@ -235,24 +316,35 @@ func (p *preparation) runProbe(
 		}
 		return nil, "failed"
 	}
+	lines, ok := parseProbe(output.Stdout)
+	if !ok {
+		return nil, "failed"
+	}
+	return lines, "ok"
+}
+
+// parseProbe reads one script's probe output into a result per effect. It is
+// false for anything but at least one effect line and nothing else.
+func parseProbe(stdout string) (map[string]probeResult, bool) {
 	lines := map[string]probeResult{}
-	for line := range strings.SplitSeq(strings.TrimSpace(output.Stdout), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(stdout), "\n") {
 		match := probeLine.FindStringSubmatch(line)
 		if match == nil {
-			return nil, "failed"
+			return nil, false
 		}
-		next := probeResult{
-			text:       match[3],
-			noChange:   match[2] == "= ",
-			unanswered: match[2] == "? ",
+		var next probeResult
+		switch match[2] {
+		case "":
+			next.answered, next.changes = match[3], 1
+		case "= ":
+			next.answered, next.noChange = match[3], true
+		case "? ":
+			next.unanswered, next.checks = match[3], 1
 		}
 		if previous, ok := lines[match[1]]; ok {
 			next = previous.merge(next)
 		}
 		lines[match[1]] = next
 	}
-	if len(lines) == 0 {
-		return nil, "failed"
-	}
-	return lines, "ok"
+	return lines, len(lines) > 0
 }

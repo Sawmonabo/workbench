@@ -3,6 +3,9 @@ package operation
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
+	"unicode"
 )
 
 // BinOnPath reports whether the directory that holds the workbench command is
@@ -44,12 +47,25 @@ func (c Context) WorkbenchCommand() string {
 	return c.ShowPath(entry)
 }
 
-// ShowPath writes path for a person: from ~ when it is under home.
-func (c Context) ShowPath(path string) string {
-	if c.Home != "" && Within(c.Home, path) {
-		if relative, err := filepath.Rel(c.Home, path); err == nil && relative != "." {
-			return "~/" + filepath.ToSlash(relative)
+// ShowPath writes path for a person with [ShowPath] from c.Home.
+func (c Context) ShowPath(path string) string { return ShowPath(c.Home, path) }
+
+// ShowPath writes path for a person: home itself as ~, a path under home as
+// ~/..., any other path as it is. A path holding "; " or a control character
+// is shown quoted, with "; " as ";\x20", so it stays on one line and a plan's
+// join of a step's probe lines never splits it. An empty home, or /, shortens
+// nothing: every absolute path is under /.
+func ShowPath(home, path string) string {
+	if home != "" && filepath.Clean(home) != "/" && Within(home, path) {
+		if relative, err := filepath.Rel(home, path); err == nil {
+			path = "~"
+			if relative != "." {
+				path += "/" + filepath.ToSlash(relative)
+			}
 		}
+	}
+	if strings.Contains(path, "; ") || strings.ContainsFunc(path, unicode.IsControl) {
+		return strings.ReplaceAll(strconv.Quote(path), "; ", `;\x20`)
 	}
 	return path
 }

@@ -203,6 +203,19 @@ func (p Plan) Digest() string {
 	return SHA256Hex(data)
 }
 
+// CheckApproval refuses an approved digest that is not digest, the current
+// plan's; with nothing approved there is nothing to refuse.
+func CheckApproval(approved, digest string) error {
+	if approved != "" && approved != digest {
+		return Fail(
+			ExitConflict,
+			"plan",
+			"Approval digest does not match the current plan; review a new plan",
+		)
+	}
+	return nil
+}
+
 // Consent is how a mutation is approved: an exact digest, or terminal
 // confirmation of the displayed plan.
 type Consent struct {
@@ -310,15 +323,10 @@ func WithMutation(
 		return Fail(ExitConflict, "scope", "Plan does not match the selected scope")
 	}
 	digest := displayed.Digest()
-	if consent.ApprovedDigest != "" {
-		if consent.ApprovedDigest != digest {
-			return Fail(
-				ExitConflict,
-				"plan",
-				"Approval digest does not match the current plan; review a new plan",
-			)
-		}
-	} else {
+	if err := CheckApproval(consent.ApprovedDigest, digest); err != nil {
+		return err
+	}
+	if consent.ApprovedDigest == "" {
 		if consent.NonInteractive || consent.Confirm == nil {
 			return Fail(
 				ExitBlocked,

@@ -182,10 +182,10 @@ func applyCommand(o *options) *cobra.Command {
 			"choices are remembered, so a later apply with nothing new prints the plan and applies " +
 			"them without asking. --choose shows the checklist anyway; --reset forgets the " +
 			"remembered choices and asks again with the defaults; --yes never asks, taking the " +
-			"remembered choice or the default for what is new (it cannot be combined with --choose " +
-			"or --reset, and a coding agent is refused it); --dry-run only shows the plan. When a " +
-			"coding agent runs it (Claude Code, Codex), apply never applies unasked: pass " +
-			"--approve-plan DIGEST from a --dry-run --json plan. Without a terminal it applies " +
+			"remembered choice or the default for what is new (it cannot be combined with --choose, " +
+			"--reset or --approve-plan, and a coding agent is refused it); --dry-run only shows the " +
+			"plan. When a coding agent runs it (Claude Code, Codex), apply never applies unasked: " +
+			"pass --approve-plan DIGEST from a --dry-run --json plan. Without a terminal it applies " +
 			"only with --approve-plan DIGEST or --yes. On a Mac, an apply that is not given " +
 			"--approve-plan DIGEST first refreshes Homebrew's package list, so the updates it " +
 			"plans are current; --dry-run and --approve-plan leave the list as it is. When the " +
@@ -251,12 +251,9 @@ func applyCommand(o *options) *cobra.Command {
 // checkApply is apply's one consent gate. It runs before anything else
 // happens, so a run that is certain to be refused downloads no tools and
 // touches no machine.toml. Flags that contradict each other are an invalid
-// invocation (exit 2). A run nobody approved is refused (exit 3): it needs
-// --approve-plan from a plan someone read, --yes from a person who trusts the
-// saved selection, or a person at a terminal. A coding agent can type at a
-// pseudo-terminal and --yes would apply a plan it never read, so it gets only
-// --approve-plan. --reset forgets the saved choices, so --yes would turn every
-// step the owner skipped back on and apply it unasked.
+// invocation (exit 2), and [checkConsent] then refuses a run nobody approved.
+// --reset forgets the saved choices, so --yes would turn every step the owner
+// skipped back on and apply it unasked.
 func checkApply(o *options) error {
 	switch {
 	case o.reset && o.yes:
@@ -283,21 +280,10 @@ func checkApply(o *options) error {
 			"choose",
 			"--choose asks at a terminal; drop --json and --non-interactive",
 		)
-	case operation.AgentSession() && (o.yes || o.approvePlan == ""):
-		return operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
-	case o.yes || o.approvePlan != "":
-		return nil
-	case o.interactive() && hasTerminal():
-		return nil
-	case o.choose:
+	case o.choose && !operation.AgentSession() && !hasTerminal():
 		return operation.Fail(operation.ExitBlocked, "choose", "--choose needs a terminal")
 	}
-	return operation.Fail(
-		operation.ExitBlocked,
-		"consent",
-		"Nothing approved this plan; read it with workbench apply --dry-run --json, "+
-			"then pass --approve-plan DIGEST",
-	)
+	return checkConsent(o, "apply")
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply

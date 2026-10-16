@@ -189,6 +189,9 @@ func Rates(ctx context.Context, refresh bool) (Card, error) {
 	if err != nil {
 		return Card{}, err
 	}
+	if err = gate(ctx, paths, false); err != nil {
+		return Card{}, err
+	}
 	var notes []string
 	if refresh {
 		for _, tool := range Tools {
@@ -331,14 +334,10 @@ func (f officialFile) rates() RateCard {
 	return card
 }
 
-// officialPath is the cache of one tool's official card: rates-official.json
-// for the first tool, rates-official-<tool>.json for every other.
+// officialPath is the cache of one tool's official card,
+// <data>/costs/<tool>/rates-official.json.
 func officialPath(paths Paths, tool Tool) string {
-	name := "rates-official.json"
-	if tool.Name != firstTool {
-		name = "rates-official-" + tool.Name + ".json"
-	}
-	return filepath.Join(filepath.Dir(paths.Ledger), name)
+	return filepath.Join(filepath.Dir(paths.Ledger), tool.Name, "rates-official.json")
 }
 
 func readOfficial(paths Paths, tool Tool) officialFile {
@@ -351,17 +350,20 @@ func readOfficial(paths Paths, tool Tool) officialFile {
 
 func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	path := officialPath(paths, tool)
-	// The ledger's directory, which `costs rates --refresh` can create first:
-	// private like the ledger. The cache itself holds public prices.
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
+	// The ledger's folder and the tool's below it, which `costs rates
+	// --refresh` can create first: private like the ledger. The cache holds
+	// public prices.
+	for _, name := range []string{"costs", filepath.Join("costs", tool.Name)} {
+		if _, err := operation.PrivateDirectory(paths.Runtime.Data, name); err != nil {
+			return err
+		}
 	}
 	data, err := json.MarshalIndent(file, "", " ")
 	if err != nil {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+	if err := os.WriteFile(tmp, data, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -490,7 +492,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 				names = append(names, fmt.Sprintf("%s (%s)", u.Model, u.Reason))
 			}
 			msg += "; unpriced: " + strings.Join(names, ", ") + "; add rates to " +
-				tilde(paths.Overrides, paths.Home)
+				operation.ShowPath(paths.Home, paths.Overrides)
 		}
 		messages = append(messages, msg)
 	}
@@ -517,14 +519,6 @@ func (c Card) unpriced(tool Tool, model string) Unpriced {
 		reason = "no " + tier + " price on " + tool.PricePage
 	}
 	return Unpriced{Model: model, Reason: reason}
-}
-
-// tilde writes a path under home as ~/...
-func tilde(path, home string) string {
-	if rest, ok := strings.CutPrefix(path, home+string(filepath.Separator)); ok && home != "" {
-		return "~/" + rest
-	}
-	return path
 }
 
 // unpricedModels are the tool's ledger models no source prices.

@@ -126,7 +126,7 @@ func prepare(
 		operation.Input{Name: "native-diff", Digest: operation.SHA256Hex([]byte(diff))},
 	)
 	effects := []operation.Effect{aiSecurityEffect}
-	effects = append(effects, provisioningEffects(answers)...)
+	effects = append(effects, provisioningEffects(c, answers)...)
 	prepared.active, err = prepared.activeSources(ctx, c)
 	if err != nil {
 		return prepared, err

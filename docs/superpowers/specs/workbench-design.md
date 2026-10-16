@@ -12,7 +12,7 @@ Users install a published release without cloning the repository or separately i
 
 ### Greenfield development contract
 
-Workbench is greenfield. Update canonical code, callers, configuration and documentation in place. Remove superseded implementation paths; do not add backward-compatibility layers, migration machinery, deprecated command aliases, legacy schema readers, dual-write paths or compatibility flags. There is no obligation to support earlier development versions of Workbench.
+Workbench is greenfield. Update canonical code, callers, configuration and documentation in place. Remove superseded implementation paths; do not add backward-compatibility layers, migration machinery, deprecated command aliases, legacy schema readers, dual-write paths or compatibility flags. The two exceptions are in AGENTS.md: the costs ledger upgrades its own older schema versions in place, and numbered migrations in `internal/migrate/` move files Workbench itself wrote into its runtime folders ([ADR 8](../../adr/0008-migrations-move-workbench-files.md)). There is no obligation to support earlier development versions of Workbench.
 
 This does not authorize overwriting user-owned files or dropping platform support. Native tool interoperability, preservation of unrelated settings, and checkpoint-based recovery are current product requirements, not legacy compatibility work. Reject unsupported Workbench state without modifying it; do not silently convert or delete it.
 
@@ -39,6 +39,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
 | `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
+| `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders and delete their old caches; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
@@ -101,6 +102,7 @@ internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
 internal/project/                  Discovery and project configuration
 internal/costs/                    AI-tool cost ledger and reports
+internal/migrate/                  Migrations of Workbench's own files
 internal/guard/                    Agent command memory guard
 home/                             Existing canonical machine configuration
 project/python/                   Portable configuration policy, not app scaffolding
@@ -149,6 +151,7 @@ This table defines the command contract. Exact flags, install options and suppor
 | `workbench project configure [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
 | `workbench project revert [PATH]` | Undo a project configure's file changes from a saved checkpoint of that project, chosen at a terminal or by `--checkpoint ID`. |
 | `workbench costs` | Usage figures for Claude Code and Codex from the local ledger the session hooks keep (see the [ledger design](2026-09-30-claude-costs-ledger-design.md)); `costs rates`, `costs status` and the hook command `costs ingest` belong to it. |
+| `workbench migrate [--apply]` | List the numbered migrations that move files earlier releases wrote outside Workbench's runtime folders into them, and whether each has anything to do; `--apply` runs them under `apply`'s approval rules. Every `apply` runs them as its `migrations` step, and the costs import worker moves the costs files itself. |
 
 Examples:
 
@@ -185,7 +188,7 @@ Keep the working runtime and recoverable state intact until activation succeeds.
 
 ### Runtime context
 
-Resolve runtime locations from the user's supported platform conventions and applicable XDG overrides. Do not hardcode a username, checkout path or home directory. Maintain explicit locations for the entry point, immutable releases, privately owned tools, machine answers and private operation/checkpoint state.
+Resolve runtime locations from the user's supported platform conventions and applicable XDG overrides. Do not hardcode a username, checkout path or home directory. Maintain explicit locations for the entry point, immutable releases, privately owned tools, machine answers and private operation/checkpoint state. Every file Workbench keeps for itself, as opposed to the configuration it manages for other tools, lives under these runtime folders; numbered migrations move the files earlier releases kept elsewhere (see the [migrations design](2026-10-14-workbench-migrations-design.md)).
 
 One context resolver supplies the same source release, machine configuration, destination and native persistent state to every chezmoi call. Reuse an existing configuration only through explicit adoption that preserves answers/secrets: `workbench init --answers-from` copies only its `[data]` table, under plan consent (see [switching from dotfiles](../../switch-from-dotfiles.md)). Do not maintain two competing active source selectors.
 
@@ -427,7 +430,7 @@ These are behavioral acceptance requirements, not a mandate for an automated tes
 | Projects | Existing metadata/source/tests survive; supported mixed-language workspaces use one deduplicated plan; unsupported scopes fail safely; no application scaffolding appears. |
 | Privacy/resources | Bundles exclude host data, output is redacted, recovery storage is private/bounded, scans/processes are bounded, and no background service is required. |
 | Go quality | One module and focused internal packages; formatting, standard lint and builds pass; any automated test has an explicit catastrophic-risk justification. |
-| Greenfield | Canonical implementation and callers are updated in place; no backward-compatibility layers, migration machinery or parallel obsolete paths. |
+| Greenfield | Canonical implementation and callers are updated in place; no backward-compatibility layers, migration machinery beyond `internal/migrate/` ([ADR 8](../../adr/0008-migrations-move-workbench-files.md)) or parallel obsolete paths. |
 | Documentation | Product instructions describe only verified support; examples distinguish available commands from proposals; decisions and verification instructions are maintained in the repository. |
 
 Spot-check CLI startup, workspace inspection and resource use on representative workspaces. Record the environment and observations; do not create a benchmark framework or fabricate comparative performance numbers. Set budgets only if measurement establishes a need.

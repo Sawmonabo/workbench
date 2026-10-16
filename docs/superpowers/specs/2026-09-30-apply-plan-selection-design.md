@@ -277,7 +277,8 @@ checked and its script runs normally. The plan never blocks on a probe.
   except a saved `select`, which is shown as a plan warning and which `--reset`
   forgets.
 - `--yes` (`-y`): never prompt; undecided effects take their defaults (or their
-  saved choice) and become decided. Refused for a coding agent (exit 3).
+  saved choice) and become decided. Refused for a coding agent (exit 3), and
+  with `--approve-plan`, which approves on its own (exit 2).
 - `--dry-run` and `--approve-plan DIGEST` are unchanged: a dry run saves
   nothing; an approved digest applies exactly that plan without a prompt, and a
   changed machine, release or selection exits 4 (conflict) with

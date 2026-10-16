@@ -527,6 +527,12 @@ synthetic answers.
   row beats a family row except for a manual override, the ledger is created
   0600 in a 0700 folder, and the headline counts the rows the table shows
   (target; not yet observed on a real ledger).
+- `workbench migrate --apply` and the apply's **Move Workbench's files** step
+  move the costs files out of the `claude-costs` folders into Workbench's
+  runtime folders with every ledger row, the import worker moves them by
+  itself after an update, and the old completion and `claude-costs` script
+  caches are deleted (target; not yet observed in a disposable home on macOS
+  or Linux).
 
 ### Agent command guard
 

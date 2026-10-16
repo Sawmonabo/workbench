@@ -23,7 +23,8 @@ import (
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
 	width := terminalWidth(w)
-	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + homePath(plan.Scope.Root)
+	scope := showPath(plan.Scope.Root)
+	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + scope
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
 	}
@@ -48,7 +49,8 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 		writeText(&b, width, 2, group.key+":")
 		rows := make([][]string, 0, len(group.items))
 		for _, edit := range group.items {
-			rows = append(rows, []string{edit.Action, homePath(edit.Path), edit.Summary})
+			path := showPath(edit.Path)
+			rows = append(rows, []string{edit.Action, path, edit.Summary})
 		}
 		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
 	}
@@ -415,7 +417,7 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 		0,
 		fmt.Sprintf(
 			"Found in %s (%s):",
-			homePath(inventory.Directory),
+			showPath(inventory.Directory),
 			strings.Join(counts, ", "),
 		),
 	)
@@ -471,21 +473,6 @@ func groupBy[T any](items []T, key func(T) string) []group[T] {
 		groups[i].items = append(groups[i].items, item)
 	}
 	return groups
-}
-
-// homePath shows a path under the home folder as ~/…
-func homePath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if rest, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
-		return "~/" + rest
-	}
-	return path
 }
 
 func shortDigest(digest string) string {

@@ -334,10 +334,10 @@ func ensurePrivateDirectory(path string) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			"Existing private state directory must have mode 0700; it was not changed",
+			"Existing "+path+" must be a private directory (mode 0700); it was not changed",
 		)
 	}
-	return owned(info)
+	return owned(path, info)
 }
 
 // ensureRoot creates a missing runtime root 0700. [MakeParents] sets the modes

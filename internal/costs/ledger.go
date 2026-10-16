@@ -21,12 +21,10 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// Paths are where the ledger and its companions live. The environment
-// overrides CLAUDE_COSTS_LEDGER, CLAUDE_COSTS_STATE and CLAUDE_COSTS_RATES
-// replace them; otherwise XDG_DATA_HOME, XDG_STATE_HOME and XDG_CONFIG_HOME
-// are honored, then ~/.local/share, ~/.local/state and ~/.config. The ledger
-// stays at its pre-Workbench path because transcripts expire and the ledger
-// is the only lasting record.
+// Paths are where the ledger and its companions live, inside Workbench's
+// runtime folders (see [LocationsIn]): WORKBENCH_{DATA,STATE,CONFIG}_DIR or
+// XDG_{DATA,STATE,CONFIG}_HOME relocate them with everything else Workbench
+// keeps.
 type Paths struct {
 	Home      string
 	Runtime   operation.Paths // Workbench's runtime folders the paths below sit in
@@ -35,44 +33,29 @@ type Paths struct {
 	Overrides string          // manual per-model rates, highest priority
 }
 
-// Locations resolves [Paths] from the environment.
+// Locations resolves [Paths] from Workbench's runtime folders. It fails, with
+// the reason, when they can't be used, for example a runtime folder that is
+// not private.
 func Locations() (Paths, error) {
-	home, err := os.UserHomeDir()
+	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
 		return Paths{}, err
 	}
-	pick := func(override, xdg, fallback string, elem ...string) string {
-		if v := os.Getenv(override); v != "" {
-			return v
-		}
-		base := os.Getenv(xdg)
-		if base == "" {
-			base = filepath.Join(home, fallback)
-		}
-		return filepath.Join(append([]string{base}, elem...)...)
-	}
-	return Paths{
-		Home: home,
-		Ledger: pick(
-			"CLAUDE_COSTS_LEDGER",
-			"XDG_DATA_HOME",
-			".local/share",
-			"claude-costs",
-			"ledger.sqlite",
-		),
-		State: pick("CLAUDE_COSTS_STATE", "XDG_STATE_HOME", ".local/state", "claude-costs"),
-		Overrides: pick(
-			"CLAUDE_COSTS_RATES",
-			"XDG_CONFIG_HOME",
-			".config",
-			"claude-costs",
-			"rates.json",
-		),
-	}, nil
+	return LocationsIn(c.Home, c.Paths), nil
 }
 
 func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
+
+// Open opens the ledger, making a missing one (see [OpenLedger]), after making
+// its folder private (see [operation.PrivateDirectory]), which refuses one
+// that exists and isn't.
+func (p Paths) Open() (*Ledger, error) {
+	if _, err := operation.PrivateDirectory(p.Runtime.Data, "costs"); err != nil {
+		return nil, err
+	}
+	return OpenLedger(p.Ledger, true)
+}
 
 const (
 	schemaVersion = "5"
@@ -199,13 +182,13 @@ type Ledger struct {
 // that keeps every row, any other version fails with the path and version and
 // writes nothing. A zero-byte file (a crash between creating the file and
 // writing the schema) holds nothing and is treated as absent. create makes a
-// missing ledger instead of failing.
+// missing ledger, in a folder that must exist, instead of failing.
 //
 // The ledger copies emails, organization names and project paths out of the
-// tools' private files, so it is private too: a directory this call makes is
-// 0700, the file is made 0600, and a ledger an earlier build left readable by
-// others is tightened to 0600 once it is verified (the mode only, never the
-// content).
+// tools' private files, so it is private too: its folder is private (see
+// [Paths.Open]), the file is made 0600, and a ledger an earlier build left
+// readable by others is tightened to 0600 once it is verified (the mode only,
+// never the content).
 func OpenLedger(path string, create bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -218,9 +201,6 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 			"ledger",
 			"No ledger at "+path+"; run `workbench costs ingest --worker` first",
 		)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if !exists {
 		// SQLite gives the -wal and -shm files the database file's mode, so
@@ -322,6 +302,12 @@ func (l *Ledger) prepare(exists bool) error {
 // in its low byte.
 const sqliteBusy = 5
 
+// isBusy reports whether err is SQLite's BUSY.
+func isBusy(err error) bool {
+	problem, ok := errors.AsType[*sqlite.Error](err)
+	return ok && problem.Code()&0xff == sqliteBusy
+}
+
 // enableWAL switches the ledger to WAL. Doing so for a new ledger takes the
 // database exclusively, which two creators doing it at once cannot both be
 // granted: SQLite fails one of them with BUSY at once, without waiting out the
@@ -331,8 +317,7 @@ func (l *Ledger) enableWAL(ctx context.Context) error {
 	var err error
 	for attempt := range 50 {
 		_, err = l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
-		var busy *sqlite.Error
-		if !errors.As(err, &busy) || busy.Code()&0xff != sqliteBusy {
+		if !isBusy(err) {
 			return err
 		}
 		time.Sleep(time.Duration(attempt+1) * time.Millisecond)

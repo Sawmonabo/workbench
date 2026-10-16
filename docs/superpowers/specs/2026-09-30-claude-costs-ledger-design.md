@@ -73,17 +73,22 @@ one rate source inside `rates`, and there is no cache to clean.
 
 | Path on the machine | Role |
 | --- | --- |
-| `~/.local/share/claude-costs/ledger.sqlite` | The durable record. User data; the tool never deletes, renames or recreates it. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
-| `~/.local/share/claude-costs/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. |
-| `~/.config/claude-costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
-| `~/.local/state/claude-costs/ingest.log` | Bounded worker log. |
-| `~/.local/state/claude-costs/ingest.lock` | Single-instance lock. |
+| `<data>/costs/ledger.sqlite` | The durable record. User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
+| `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. |
+| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
+| `<state>/costs/ingest.log` | Bounded worker log. |
+| `<state>/costs/ingest.lock` | Single-instance lock. |
 
-`XDG_DATA_HOME`, `XDG_STATE_HOME` and `XDG_CONFIG_HOME` are honored when set.
-The environment overrides `CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_RATES` and
-`CLAUDE_COSTS_STATE` replace the current `CLAUDE_COSTS_PROJECTS` and
-`CLAUDE_COSTS_CACHE`. The old per-file cache under `~/.cache/claude-costs` is no
-longer read; the tool leaves it in place.
+`<data>`, `<state>` and `<config>` are Workbench's runtime folders
+(`WORKBENCH_{DATA,STATE,CONFIG}_DIR`, else `XDG_{DATA,STATE,CONFIG}_HOME/workbench`
+when absolute, else the platform default). Only the costs move's check and
+move (migration 0001 of the
+[migrations design](2026-10-14-workbench-migrations-design.md), and the gate
+that runs it before a ledger opens) read `CLAUDE_COSTS_LEDGER`,
+`CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES` and the `claude-costs` folders, to
+find the files to move there. Migration 0003
+deletes the old script's per-file cache under `~/.cache/claude-costs`
+(`CLAUDE_COSTS_CACHE`), which nothing reads.
 
 Hooks live under `enforced.hooks` in `home/.chezmoidata/claude.json`:
 
@@ -180,8 +185,9 @@ Row semantics:
 (`hook_event_name`, `transcript_path`; both optional, so a manual invocation
 with no stdin also works), spawns `claude-costs ingest --worker` with those two
 values as arguments in a new session with stdin, stdout and stderr redirected
-to the null device and the log, and exits zero. It prints nothing
-under any circumstance. Claude Code discards a SessionEnd hook's output and
+to the null device and the log, and exits zero. It prints nothing on stdout;
+when it can't start the worker it says why in one line on stderr and records
+nothing. Claude Code discards a SessionEnd hook's output and
 exit status; the detach makes the worker outlive the session and keeps the
 hook's own runtime to a process spawn on every Claude Code version. The hook
 is synchronous: Claude Code kills a background (`async`) hook still running
@@ -240,7 +246,7 @@ does not make a prefix longer, so Claude Code's dated calibration key ties the
 page's undated row for the same model. Rows equally specific go by this source
 order:
 
-1. `~/.config/claude-costs/rates.json`, the manual override file.
+1. `<config>/costs/rates.json`, the manual override file.
 2. `rates-official.json`, parsed from
    `https://platform.claude.com/docs/en/about-claude/pricing.md`.
 3. Calibration from `projects.*.lastModelUsage` in `.claude.json`, which pairs
@@ -474,7 +480,7 @@ source is one file plus one line.
 | Command | Replaces | Does |
 | --- | --- | --- |
 | `workbench costs` | `claude-costs [report]` | The section 7 report; at a terminal, one tab per tool. |
-| `workbench costs ingest` | `claude-costs ingest` | Hook entry: silent, exit 0, starts a detached worker. `--worker` runs it inline. |
+| `workbench costs ingest` | `claude-costs ingest` | Hook entry: nothing on stdout, exit 0, starts a detached worker; when it can't, one line on stderr says why. `--worker` runs it inline. |
 | `workbench costs rates` | `claude-costs rates` | Merged rate card; `--refresh` refetches. |
 | `workbench costs status` | `claude-costs status` | Ledger coverage, last ingest, hooks, rate card age. |
 
@@ -571,9 +577,8 @@ Rules:
   `cwd` for Claude) and the fallback project decoded from the path.
 - Each source owns its built-in prices, its official pricing-page parser and
   its calibration observations; fetching, caching (ETag, back-off) and solving
-  are generic. The Claude cache stays `rates-official.json`; another source
-  caches to `rates-official-<tool>.json`. Overrides stay one `rates.json` keyed
-  by model prefix.
+  are generic. Each source caches to `<data>/costs/<tool>/rates-official.json`.
+  Overrides stay one `rates.json` keyed by model prefix.
 - The hook passes `transcript_path`; ingest asks each source (`Session`) whether
   a file belongs to the session that transcript names, to tag that file's rows
   `session`.
@@ -582,9 +587,11 @@ Rules:
 
 ### Ledger compatibility
 
-The ledger stays at `~/.local/share/claude-costs/ledger.sqlite` with the same
-overrides (`CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES`),
-because transcripts expire and the ledger is the only lasting record. Schema
+The ledger lives in Workbench's data folder, moved there from
+`~/.local/share/claude-costs` (or `CLAUDE_COSTS_LEDGER`) by migration 0001
+without losing a row, because transcripts expire and the ledger is the only
+lasting record (see the
+[migrations design](2026-10-14-workbench-migrations-design.md)). Schema
 version 2 adds one column, `tool TEXT NOT NULL DEFAULT 'claude'`; opening a
 version 1 ledger adds it in one transaction and sets the version, keeping every
 row. Versions 1 and 2 are upgraded in place to version 4 in one transaction that

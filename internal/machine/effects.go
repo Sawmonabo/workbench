@@ -2,6 +2,7 @@ package machine
 
 import (
 	"os"
+	"path/filepath"
 	"runtime"
 	"slices"
 	"strings"
@@ -60,6 +61,7 @@ var effectSources = map[string][]string{
 	"global-tools":            {"30-global-tools"},
 	"tmux-plugins":            {"40-tmux-plugins"},
 	"costs-ingest":            {"90-costs-ingest"},
+	"migrations":              {"05-migrations"},
 	"macos-packages":          {"00-packages"},
 	"macos-apps-extensions":   {"50-apps-and-extensions"},
 	"brew-maintenance":        {"60-cleanup"},
@@ -106,6 +108,18 @@ var aiSecurityEffect = operation.Effect{
 
 // sharedEffects are the script owners every platform lists.
 var sharedEffects = []operation.Effect{
+	{
+		Name:        "migrations",
+		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders and deletes the old caches; never other tools' files",
+		Privilege:   "user",
+		Recovery:    "external; moves keep every ledger row and every other file's bytes, so moving a file back by hand restores the old layout",
+		Title:       "Move Workbench's files",
+		Summary:     "files earlier releases left outside Workbench's folders move into them",
+		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, and deletes the old caches they left. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist. Unticking it skips the cache clean-ups and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
+		Touches:     "the old claude-costs folders and completion cache, and Workbench's own folders",
+		RunsAs:      "you",
+		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, and the old import log, lock and copies identical to the moved ones",
+	},
 	{
 		Name:        "runtime-managers",
 		Description: "Native nvm/rustup and platform-owned uv/bun/Go; user runtime directories and default links",
@@ -162,9 +176,8 @@ var sharedEffects = []operation.Effect{
 		Title:       "Record AI usage",
 		Summary:     "new usage shows up in workbench costs",
 		What:        "Reads your latest Claude Code and Codex sessions into the costs ledger, the same thing the session hooks do.",
-		Touches:     "~/.local/share/claude-costs/ledger.sqlite",
 		RunsAs:      "you; downloads the official price pages",
-		Undo:        "Nothing to undo: the ledger is rebuilt from the session files",
+		Undo:        "Nothing to undo: rows already recorded stay, even after the session files they came from are deleted",
 	},
 }
 
@@ -268,8 +281,14 @@ var windowsHostEffects = []operation.Effect{
 
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
-func provisioningEffects(answers Answers) []operation.Effect {
+// costs-ingest touches the ledger in the data folder this apply resolved.
+func provisioningEffects(c operation.Context, answers Answers) []operation.Effect {
 	effects := slices.Clone(sharedEffects)
+	for i := range effects {
+		if effects[i].Name == "costs-ingest" {
+			effects[i].Touches = c.ShowPath(filepath.Join(c.Paths.Data, "costs", "ledger.sqlite"))
+		}
+	}
 	if runtime.GOOS == "darwin" {
 		effects = append(effects, macOSEffects...)
 	} else {

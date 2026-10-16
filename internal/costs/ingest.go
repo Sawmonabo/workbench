@@ -40,12 +40,24 @@ type IngestOptions struct {
 // Every failure is also written to the log and, once the ledger is open, to
 // its last_error note; committed files are not reprocessed next time.
 //
+// It first runs the costs gate ([Gate]), which moves the costs files into
+// Workbench's folders when they still wait in the old ones.
+//
 // A worker started by a hook first binds the hook's session to the tool's
 // current sign-in, before it contends for the lock, so a worker that skips
 // because another is running loses no binding.
 func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error) {
 	paths, err := Locations()
 	if err != nil {
+		return "", err
+	}
+	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
+		return "", err
+	}
+	// The worker moves the costs files itself when they still wait in the
+	// claude-costs folders; it must not open a new, empty ledger beside them.
+	if err = gate(ctx, paths, true); err != nil {
+		writeLog(paths, "not read: "+err.Error())
 		return "", err
 	}
 	bindSession(ctx, paths, opts)
@@ -59,7 +71,9 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 		release, held, err = operation.TryLock(paths.lock())
 	}
 	if err != nil {
-		return "", fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
+		err = fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
+		writeLog(paths, "error: "+err.Error())
+		return "", err
 	}
 	if held {
 		writeLog(paths, "skip: another worker holds the lock")
@@ -147,7 +161,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 	// Read the sign-in before the ledger can make this process wait.
 	signIn := tool.Source.SignIn(paths.Home)
 	at := time.Now()
-	ledger, err := OpenLedger(paths.Ledger, true)
+	ledger, err := paths.Open()
 	if err == nil {
 		err = ledger.BindSession(ctx, tool.Name, opts.SessionID, at, signIn)
 		_ = ledger.Close()
@@ -159,7 +173,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 
 func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string, error) {
 	started := time.Now()
-	ledger, err := OpenLedger(paths.Ledger, true)
+	ledger, err := paths.Open()
 	if err != nil {
 		return "", err
 	}
@@ -720,11 +734,9 @@ func clipRunes(s string, n int) string {
 	return s
 }
 
-// writeLog appends one timestamped line to the worker log.
+// writeLog appends one timestamped line to the worker log, in the folder
+// [Ingest] made.
 func writeLog(paths Paths, message string) {
-	if os.MkdirAll(paths.State, 0o700) != nil {
-		return
-	}
 	file, err := os.OpenFile(paths.log(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
@@ -748,28 +760,43 @@ func truncateLog(paths Paths) {
 // `workbench costs ingest --worker` detached with those three values and
 // returns. The hooks run synchronously (Claude Code stops a background hook
 // that is still running when a headless session ends), which costs a session
-// the few milliseconds of one process spawn. Hook prints nothing and never
-// fails: a terminal, a closed or empty stdin, or anything unreadable just
-// means no event, and the worker then sweeps everything. Reading stdin gives
-// up after half a second.
+// the few milliseconds of one process spawn. Hook writes only the new import
+// log, which no migration moves or compares, so it needs no gate: the worker
+// runs it. Hook prints nothing on stdout and never fails: a terminal, a closed
+// or empty stdin, or anything unreadable just means no event, and the worker
+// then sweeps everything. Reading stdin gives up after two seconds. When
+// it can't start the worker, for example because a runtime folder is not
+// private, it says why in one line on stderr, which the agent keeps, and
+// records nothing.
 func Hook(stdin *os.File) {
 	defer func() { _ = recover() }()
 	event, transcript, session := readHookInput(stdin)
+	if err := startWorker(event, transcript, session); err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "workbench costs: nothing recorded: "+err.Error())
+	}
+}
+
+// startWorker starts the detached worker with the hook's values, its output
+// appended to the import log in a private <state>/costs.
+func startWorker(event, transcript, session string) error {
 	paths, err := Locations()
-	if err != nil || os.MkdirAll(paths.State, 0o700) != nil {
-		return
+	if err != nil {
+		return err
+	}
+	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
+		return err
 	}
 	logFile, err := os.OpenFile(paths.log(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if err != nil {
-		return
+		return err
 	}
 	defer func() { _ = logFile.Close() }()
 	executable, err := os.Executable()
 	if err != nil {
-		return
+		return err
 	}
 	// "--" keeps a value that starts with a dash from being read as a flag.
-	_ = operation.StartDetached(
+	return operation.StartDetached(
 		executable,
 		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},
 		logFile,

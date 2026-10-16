@@ -136,7 +136,7 @@ func projectConfigureCommand(o *options) *cobra.Command {
 			result.OperationID = checkpoint
 			if err == nil {
 				shownAtPrompt(o, &result.Results[0])
-				result.Summary = "Configured the project at " + homePath(c.Scope.Root)
+				result.Summary = "Configured the project at " + c.ShowPath(c.Scope.Root)
 			}
 			status := operation.StatusOf(err)
 			result.Results = append(

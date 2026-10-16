@@ -99,9 +99,11 @@ acceptance checks.
 ## Development
 
 One Go module, thin `cmd/workbench`, focused
-`internal/{cli,operation,machine,release,project,costs,guard,jsonc}` packages, canonical machine
+`internal/{cli,operation,machine,release,project,costs,guard,migrate,jsonc}` packages, canonical machine
 sources in `home/`, portable policy in `project/`. Reuse native owners and shared
-operations; no competing installers, compatibility layers or migration machinery.
+operations; no competing installers or compatibility layers, and no migration
+machinery beyond the numbered migrations of Workbench's own files
+([ADR 8](docs/adr/0008-migrations-move-workbench-files.md)).
 
 ```sh
 python3 scripts/check-action-pins.py

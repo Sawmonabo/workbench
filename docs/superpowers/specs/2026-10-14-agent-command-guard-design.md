@@ -123,7 +123,7 @@ loop, the hook bodies and the platform readers are new.
 |---|---|---|
 | `workbench guard pre` | `PreToolUse` hook on `Bash` | Leaves a note for the call; makes sure the watcher is running. Prints nothing. |
 | `workbench guard watch` | At most one per user, started by `pre`, detached | Finds each noted command, watches machine memory, stops the largest agent command near out-of-memory, records why. |
-| `workbench guard post` | `PostToolUse` (and `PostToolUseFailure` on Claude Code) on `Bash` | Gives the agent the reason if the watcher stopped this call; otherwise prints nothing. Drops the call's note. |
+| `workbench guard post` | `PostToolUse` (and `PostToolUseFailure` on Claude Code) on `Bash` | Gives the agent the reason if the watcher stopped this call; otherwise prints nothing. Drops the call's note, or marks a background call's posted. |
 
 **Exit status.** `pre` and `post` always exit 0: they recover from panics and
 report errors only to the guard log. The hook commands also end in `|| true`,
@@ -154,7 +154,8 @@ macOS temp folder is pruned of files older than three days.
   watch.log                           capped at 1 MiB, then rotated once
   notes/<tool_use_id>.json            {agent pid, agent start, kind,
                                        session_id, tool_use_id, command,
-                                       noted_start, noted_at, dry_run}
+                                       noted_start, noted_at, dry_run,
+                                       posted}
   killed/<tool_use_id>.json           {reason, ...}  written by the watcher
 ```
 
@@ -183,8 +184,9 @@ never taken for it.
    environment.
 2. Find the agent (section 4) and write `notes/<tool_use_id>.json`.
 3. Try `watch.lock` without waiting. If it is free, release it and start
-   `workbench guard watch` with `operation.StartDetached`: a new session, with
-   stdin on the null device and output to the guard log. Nothing waits for it.
+   `workbench guard watch` with `operation.StartDetached`: a new session in
+   `/`, with stdin on the null device and output to the guard log. Nothing
+   waits for it.
    The watcher takes the lock itself, and a second watcher that loses the race
    exits at once.
 4. Exit 0 with no output, so the call proceeds unchanged.
@@ -245,11 +247,17 @@ running, or the status line when a loaded machine stretches its run past a
 second.
 
 **When a note is dropped:**
-- its post hook runs
+- its post hook runs, for a call in the foreground
+- for a call sent to the background (`run_in_background`), whose post hook
+  marks the note `posted` while the command goes on: once its tracked
+  command has ended, or, when no command matched it, one second after the
+  watcher first reads it posted (its command started before the post hook, so
+  no later process is its command)
 - its agent exits.
 
-Never on a timer, because a call may wait a long time for permission between
-its pre hook and its start. A denied call's note stays until its agent exits.
+Never on a timer before the post hook, because a call may wait a long time
+for permission between its pre hook and its start. A denied call's note stays
+until its agent exits.
 
 **A call runs once.** Once a call's tracked command has ended, the watcher
 remembers the call until its note is dropped and never matches that note
@@ -303,6 +311,15 @@ before release.
   session; ties go to the older command.
 - **Who's eligible:** only agent commands are candidates, never other
   programs.
+- **Memory floor, polite stops only:** at a polite stop, a largest command
+  holding less than a tenth of installed memory, at most 1 GiB
+  (`min(installed / 10, 1 GiB)`), is left running, and the watcher logs that
+  once until a tick reads memory as fine again. A command that small can't end
+  a shortage it didn't cause, so stopping it would only lead to the next
+  command being stopped after each cooldown. The 1 GiB cap keeps a large
+  machine able to stop a multi-gigabyte command. A forced stop has no floor.
+  A process whose size can't be read counts as 0 (section 9), so a command
+  made only of such processes is under the floor.
 - **Cooldown:** after a stop, nothing else is stopped until that command's
   processes are gone and the pressure figures have had 10 seconds to catch up,
   or until the stop gives up (section 6.4). A dry-run command is logged once,
@@ -386,8 +403,9 @@ parallelism or a smaller input.
 - **A call runs once:** once a call's command has ended, its note never
   matches again, even if the note stays (a denied call's stays until its agent
   exits). The watcher keeps this in memory only, so after a watcher restart a
-  note that is still present for a call that already ran (only a denied call
-  keeps one) may match one more command with the same text. This is known and
+  note that is still present for a call that already ran (a denied call's, or
+  for its first second under the new watcher a background call's) may match
+  one more command with the same text. This is known and
   bounded: the note is deleted when its agent exits, and the match needs a
   command of that exact shape started after the note.
 - **Idle exit:**
@@ -411,8 +429,9 @@ parallelism or a smaller input.
   - On start, a watcher deletes notes whose agent (PID plus start time) is
     gone.
 - **Bounded:**
-  - The watcher sets a Go memory limit of 32 MiB, has no terminal, and logs to
-    its capped file only.
+  - The watcher sets a Go memory limit of 32 MiB, has no terminal, works from
+    `/` so it never holds a session's folder, and logs to its capped file
+    only.
   - Its life is bounded by the agents it serves plus 10 minutes.
 - **Kill switch:** `WORKBENCH_GUARD=off` in the agent's environment disables
   `pre`, and `WORKBENCH_GUARD=dry-run` records it in the note.
@@ -420,15 +439,20 @@ parallelism or a smaller input.
 ## 7. Post hook
 
 1. Read the hook input; with an invalid `tool_use_id`, exit 0.
-2. Delete `notes/<tool_use_id>.json`.
+2. Delete `notes/<tool_use_id>.json`, unless the call was sent to the
+   background (`tool_input.run_in_background`): then rewrite the note with
+   `posted: true`, and the watcher drops it (section 6.1).
 3. If `killed/<tool_use_id>.json` exists, print `{"hookSpecificOutput":
    {"hookEventName": <event>, "additionalContext": <reason>}}`, delete the
    record, and exit 0. Otherwise exit 0 with no output.
 
 **Background commands:** a command the agent sent to the background
 (`run_in_background`) may reach its post hook before any stop (section 10
-observes when). It stays tracked after its note is dropped. If the watcher
-stops it later, the reason goes only to the guard log.
+observes when). Its note stays until its command ends, so the watcher matches
+it even when the post hook comes first. A stop writes its kill record as for
+any call: one that lands before the post hook reaches the agent; one that
+lands after reaches only the guard log, and its record is deleted after a
+day.
 
 ## 8. Wiring
 

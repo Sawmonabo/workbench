@@ -195,7 +195,7 @@ const pageChrome = 3
 func (m *checklistModel) pageLines(row planRow) (title string, lines []string) {
 	if row.Kind == rowFile {
 		edit := m.plan.Edits[row.Index]
-		return cmp.Or(edit.Title, homePath(edit.Path)), renderDiff(edit, m.width-2)
+		return cmp.Or(edit.Title, showPath(edit.Path)), renderDiff(edit, m.width-2)
 	}
 	effect := m.plan.Effects[row.Index]
 	return effectTitle(effect), renderDetail(m.plan, row, m.width-2, true)

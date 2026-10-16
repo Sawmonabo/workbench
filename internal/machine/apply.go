@@ -36,12 +36,8 @@ func Apply(
 	result.PlanDigest = displayed.Digest()
 	// An approved digest must match even when there is nothing to apply: a
 	// caller whose approved plan ran effects must not be told it is done.
-	if consent.ApprovedDigest != "" && consent.ApprovedDigest != result.PlanDigest {
-		return result, operation.Fail(
-			operation.ExitConflict,
-			"plan",
-			"Approval digest does not match the current plan; review a new plan",
-		)
+	if err = operation.CheckApproval(consent.ApprovedDigest, result.PlanDigest); err != nil {
+		return result, err
 	}
 	// A plan without file changes and without a checked effect writes nothing,
 	// unless it settles an earlier unfinished apply or changes the saved
@@ -418,6 +414,16 @@ func (a *applyRun) reportEffects(plan operation.Plan) error {
 	)
 }
 
+// effectDone is what a step that ran did, as its plan said: the probe's text,
+// unless part of it could not be checked when planning, when that text would
+// read as the whole of what ran.
+func effectDone(effect operation.Effect) string {
+	if effect.ProbeNote != "" {
+		return ""
+	}
+	return effect.Delta
+}
+
 func effectResults(effects []operation.Effect, blocked map[string]string) []operation.Component {
 	results := make([]operation.Component, 0, len(effects))
 	for _, effect := range effects {
@@ -425,7 +431,7 @@ func effectResults(effects []operation.Effect, blocked map[string]string) []oper
 			Name:     effect.Name,
 			Title:    cmp.Or(effect.Title, effect.Name),
 			Status:   operation.StatusComplete,
-			Message:  cmp.Or(effect.Delta, effect.Summary, effect.Description),
+			Message:  cmp.Or(effectDone(effect), effect.Summary, effect.Description),
 			Recovery: effect.Recovery,
 		}
 		if reason, ok := blocked[effect.Name]; ok {

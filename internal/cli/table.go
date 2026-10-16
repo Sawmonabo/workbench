@@ -2,6 +2,7 @@ package cli
 
 import (
 	"io"
+	"math"
 	"os"
 	"slices"
 	"strconv"
@@ -11,6 +12,8 @@ import (
 	"charm.land/lipgloss/v2/table"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // column describes one table column. When the terminal is too narrow the one
@@ -130,15 +133,39 @@ const gap = 2
 // terminalWidth is the width output must fit: the terminal's, else COLUMNS,
 // else 100 when the output is not a terminal.
 func terminalWidth(w io.Writer) int {
+	if width, ok := givenWidth(w); ok {
+		return width
+	}
+	return 100
+}
+
+// lineWidth is the width a result line wraps at: the terminal's, else
+// COLUMNS. Output with neither goes to a program or a log, where a line never
+// wraps, so a time or a path in it stays whole.
+func lineWidth(w io.Writer) int {
+	if width, ok := givenWidth(w); ok {
+		return width
+	}
+	return math.MaxInt
+}
+
+// givenWidth is the terminal's width, else COLUMNS; ok is false with neither.
+func givenWidth(w io.Writer) (int, bool) {
 	if file, ok := w.(*os.File); ok {
 		if width, _, err := term.GetSize(file.Fd()); err == nil && width > 0 {
-			return width
+			return width, true
 		}
 	}
 	if columns, err := strconv.Atoi(os.Getenv("COLUMNS")); err == nil && columns > 0 {
-		return columns
+		return columns, true
 	}
-	return 100
+	return 0, false
+}
+
+// showPath is path as output shows it (see operation.ShowPath).
+func showPath(path string) string {
+	home, _ := os.UserHomeDir()
+	return operation.ShowPath(home, path)
 }
 
 // fitRows lays t out so that no line, indent included, is wider than width.

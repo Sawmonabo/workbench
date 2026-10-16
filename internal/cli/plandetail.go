@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"strconv"
 	"strings"
 
@@ -9,8 +10,8 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// labelWidth is the column the detail panel's labels (On this PC, Changes, Runs
-// as, To undo) take, with a space after.
+// labelWidth is the column the detail panel's labels (On this PC, Not checked,
+// Changes, Runs as, To undo) take, with a space after.
 const labelWidth = 11
 
 // renderDetail is the detail panel for a row, width columns wide: for an
@@ -52,12 +53,15 @@ func effectDetail(plan operation.Plan, effect operation.Effect, width int) []str
 		lines = append(lines, wrapPlain(s, width)...)
 	}
 	paragraph(effect.What)
-	here := effect.Delta
+	// What the check found here, and beside it what it could not check:
+	// a step can have both when its script answered only part.
+	here, unchecked := effect.Delta, effect.ProbeNote
 	if here == "" {
-		here = effect.ProbeNote
+		here, unchecked = unchecked, ""
 	}
 	pairs := [][2]string{
 		{"On this PC", here},
+		{"Not checked", unchecked},
 		{"Changes", effect.Touches},
 		{"Runs as", effect.RunsAs},
 		{"To undo", effect.Undo},
@@ -113,10 +117,8 @@ func effectStatus(plan operation.Plan, effect operation.Effect) string {
 // page. The diff is file content, so it is shown only when diff is set, which
 // is when the output is a terminal.
 func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
-	title := edit.Title
-	if title == "" {
-		title = homePath(edit.Path)
-	}
+	path := showPath(edit.Path)
+	title := cmp.Or(edit.Title, path)
 	head := bold.Render(forTerm(title))
 	if edit.Semantic {
 		head += " " + yellow.Render(forTerm(settingsCount(edit)))
@@ -126,7 +128,7 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 	}
 	lines := []string{
 		fit(head, width, false),
-		faint.Render(fit(forTerm(homePath(edit.Path)+" · "+fileOwner(edit)), width, false)),
+		faint.Render(fit(forTerm(path+" · "+fileOwner(edit)), width, false)),
 	}
 	if edit.EditedOutside {
 		lines = append(lines, yellow.Render(fit(forTerm(editedNote), width, false)))

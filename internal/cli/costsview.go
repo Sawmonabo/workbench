@@ -98,7 +98,7 @@ func (m *costsView) open() {
 	pick := m.targets[m.selected]
 	focus, err := m.load(m.tools[m.active], pick.kind, pick.name)
 	if err != nil {
-		m.problem = "Could not open " + shortPath(pick.name) + ": " + err.Error()
+		m.problem = "Could not open " + showPath(pick.name) + ": " + err.Error()
 		m.render()
 		return
 	}

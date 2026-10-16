@@ -4,7 +4,8 @@
 # It runs the same installed binary the hooks run, so the ledger is always in
 # the format that binary reads; a first read of a large history takes a while.
 set -euo pipefail
-workbench="$HOME/.local/bin/workbench"
+workbench="${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"
+{{ template "old-locations.sh" }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ -x "$workbench" ]; then
         echo "costs-ingest: $("$workbench" --version) reads new usage into the ledger"
@@ -23,5 +24,5 @@ if [ ! -x "$workbench" ]; then
 fi
 echo "==> costs: reading new usage into the ledger"
 {{ template "effect-report.sh" }}
-"$workbench" costs ingest --worker ||
+old_locations "$workbench" costs ingest --worker ||
     part_failed costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1

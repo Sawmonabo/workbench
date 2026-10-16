@@ -14,8 +14,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
   in place, in one transaction that keeps every row, because transcripts expire
   and the ledger is the only lasting record of spend. A second exception:
   numbered migrations in `internal/migrate/` may move files Workbench itself
-  wrote into its runtime folders, without losing data, and delete caches and
-  logs Workbench itself wrote; they are idempotent, never touch other tools'
+  wrote into its runtime folders, without losing data, and delete caches,
+  logs, locks and empty files Workbench itself wrote, and an old copy whose new
+  copy holds the same bytes; they are idempotent, never touch other tools'
   files, never merge, and leave a file where it is when old and new data both
   exist. The costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008).
@@ -37,11 +38,12 @@ Distinguish implemented code, observed checks and unqualified release targets.
   choices without asking unless an effect is new (with something to do) or a
   Workbench-owned file (not a merged one) was edited outside it. A machine that
   has never decided asks once. `--choose` always asks, `--reset` forgets the
-  choices, `--yes` never asks (refused with `--choose` or `--reset`). Applying
-  without asking needs a controlling terminal and no coding agent: a caller
-  without a terminal needs `--approve-plan` or `--yes`, and a coding agent,
-  even in a pseudo-terminal (`CLAUDECODE=1`, or `CODEX_CI`, `CODEX_THREAD_ID`,
-  `CODEX_SANDBOX`, `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), always needs
+  choices, `--yes` never asks (refused with `--choose`, `--reset` or
+  `--approve-plan`). Applying without asking needs a controlling terminal and
+  no coding agent: a caller without a terminal needs `--approve-plan` or
+  `--yes`, and a coding agent, even in a pseudo-terminal (`CLAUDECODE=1`, or
+  `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX`,
+  `CODEX_SANDBOX_NETWORK_DISABLED` set by Codex), always needs
   `--approve-plan` and is refused `--yes` and `--choose`. A run nobody approved
   is refused (exit 3) before Workbench downloads or saves anything. The scripts
   apply runs never prompt: ticking the step is the approval (one-time helpers

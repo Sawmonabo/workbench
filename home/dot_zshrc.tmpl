@@ -69,19 +69,48 @@ if command -v uv &> /dev/null; then
 fi
 
 # Workbench: Tab completion for its commands and flags. The script is saved
-# once per installed workbench and sourced after compinit, so a new shell
-# runs workbench only after an update or the first time.
+# once per installed workbench in Workbench's cache folder, picked the way
+# Workbench picks it, and sourced after compinit, so a new shell runs
+# workbench only after an update or the first time. A relative
+# WORKBENCH_CACHE_DIR, which Workbench refuses, saves nothing: completion then
+# loads straight from workbench.
 if (( ${+commands[workbench]} )); then
     _workbench_bin=${commands[workbench]:A}
-    _workbench_completion=${XDG_CACHE_HOME:-$HOME/.cache}/workbench-completion.zsh
-    _workbench_saved=
-    [[ -r $_workbench_completion ]] && read -r _workbench_saved < "$_workbench_completion"
-    if [[ $_workbench_saved != "# $_workbench_bin" ]]; then
-        mkdir -p "${_workbench_completion:h}" &&
-            { print -r -- "# $_workbench_bin"; workbench completion zsh; } >| "$_workbench_completion"
+    if [[ $WORKBENCH_CACHE_DIR == /* ]]; then
+        _workbench_cache=$WORKBENCH_CACHE_DIR
+    elif [[ -n $WORKBENCH_CACHE_DIR ]]; then
+        _workbench_cache=
+    elif [[ $XDG_CACHE_HOME == /* ]]; then
+        _workbench_cache=$XDG_CACHE_HOME/workbench
+    else
+        _workbench_cache=$HOME/Library/Caches/workbench
     fi
-    source "$_workbench_completion"
-    unset _workbench_bin _workbench_completion _workbench_saved
+    if [[ -n $_workbench_cache ]]; then
+        _workbench_completion=$_workbench_cache/completion.zsh
+        _workbench_saved=
+        [[ -O $_workbench_completion && -r $_workbench_completion ]] &&
+            read -r _workbench_saved < "$_workbench_completion"
+        if [[ $_workbench_saved != "# $_workbench_bin" ]]; then
+            # The folders are made as Workbench makes them, in a subshell so
+            # this shell's umask stays as it is: missing parents writable by
+            # you alone, the folder itself private (an existing one keeps its
+            # mode), and the file 0600. It replaces the old file only when
+            # workbench completion succeeds.
+            (
+                umask go-w && mkdir -p "${_workbench_cache:h}" && mkdir -m 700 -p "$_workbench_cache" || exit
+                umask 077
+                if { print -r -- "# $_workbench_bin" && workbench completion zsh; } >| "$_workbench_completion.$$"; then
+                    mv -f "$_workbench_completion.$$" "$_workbench_completion"
+                else
+                    rm -f "$_workbench_completion.$$"
+                fi
+            )
+        fi
+        [[ -O $_workbench_completion && -r $_workbench_completion ]] && source "$_workbench_completion"
+    else
+        source <(workbench completion zsh)
+    fi
+    unset _workbench_bin _workbench_cache _workbench_completion _workbench_saved
 fi
 
 # --- Aliases ---

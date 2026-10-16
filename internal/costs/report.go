@@ -678,7 +678,10 @@ func Status(ctx context.Context) (StatusInfo, error) {
 	if err != nil {
 		return StatusInfo{}, err
 	}
-	ledger, err := OpenLedger(paths.Ledger, true)
+	if err = gate(ctx, paths, false); err != nil {
+		return StatusInfo{}, err
+	}
+	ledger, err := paths.Open()
 	if err != nil {
 		return StatusInfo{}, err
 	}

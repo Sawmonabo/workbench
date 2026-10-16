@@ -1,0 +1,45 @@
+#!/bin/bash
+# Move files earlier Workbench releases wrote outside Workbench's own folders
+# into them, and delete the old caches, through the installed workbench: the
+# binary the Claude Code and Codex hooks run, so the one that moves the costs
+# files is the one that writes them next. Checking is a few Lstat calls, and a
+# run with nothing to do takes no lock. chezmoi runs scripts in the order of
+# their full source paths (darwin/, linux/, shared/, then wsl/), so this always
+# runs after the files and before shared/run_after_90-costs-ingest.
+set -euo pipefail
+workbench="${WORKBENCH_BIN_DIR:-$HOME/.local/bin}/workbench"
+{{ template "old-locations.sh" }}
+# knows_migrations: the installed workbench has the migrate command. An older
+# one answers `migrate --help` with its general help, which has no migrate
+# usage line, and exits 0.
+knows_migrations() {
+    local usage
+    usage=$("$workbench" migrate --help 2>/dev/null || true)
+    [[ $usage == *"workbench migrate ["* ]]
+}
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ ! -x "$workbench" ]; then
+        echo "migrations: = Workbench is not installed here yet, so there is nothing to move"
+    elif ! knows_migrations; then
+        echo "migrations: ? the installed workbench predates migrations, so run workbench update"
+    else
+        # A failed check fails the probe, so the plan says it couldn't check.
+        old_locations "$workbench" migrate --probe 2>/dev/null || exit 1
+    fi
+    exit 0
+fi
+if [[ "${WORKBENCH_EFFECT_MIGRATIONS:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT migrations disabled (not selected)' >&2
+    exit 0
+fi
+{{ template "effect-report.sh" }}
+if [ ! -x "$workbench" ]; then
+    echo "==> migrations: no installed workbench at $workbench, so nothing was moved"
+    exit 0
+fi
+if ! knows_migrations; then
+    part_blocked migrations "the installed workbench predates migrations, so run workbench update and apply again"
+    exit 0
+fi
+old_locations "$workbench" migrate run ||
+    part_blocked migrations "a migration couldn't finish (the output above says why and what to do)"

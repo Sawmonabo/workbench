@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -240,6 +241,26 @@ func scriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 	// The scripts download packages and tools, so they need the user's proxy
 	// and CA settings; nothing else of the caller's environment reaches them.
 	environment = append(environment, operation.NetworkEnvironment()...)
+	// The migrations and costs-ingest scripts run the installed workbench in
+	// the bin folder this apply resolved, which must find the runtime folders
+	// it resolved and, to find the files earlier releases left, the owner's
+	// old-location variables.
+	// Those reach the scripts as WORKBENCH_OLD_<NAME>, so no installer sees
+	// them; home/.chezmoitemplates/old-locations.sh hands them back.
+	environment = append(
+		environment,
+		"WORKBENCH_BIN_DIR="+c.Paths.Bin,
+		"WORKBENCH_CONFIG_DIR="+c.Paths.Config,
+		"WORKBENCH_DATA_DIR="+c.Paths.Data,
+		"WORKBENCH_STATE_DIR="+c.Paths.State,
+		"WORKBENCH_CACHE_DIR="+c.Paths.Cache,
+		"WORKBENCH_MIGRATIONS="+strings.Join(migrate.IDs(), " "),
+	)
+	for _, name := range migrate.OldLocationVariables {
+		if value := os.Getenv(name); value != "" {
+			environment = append(environment, "WORKBENCH_OLD_"+name+"="+value)
+		}
+	}
 	return append(
 		environment,
 		"WORKBENCH_TOOL_PATH="+path,

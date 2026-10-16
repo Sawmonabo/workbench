@@ -26,7 +26,12 @@ paths would start an empty ledger and leave the old one unread.
 ## Decision
 
 - A migration may move files Workbench itself wrote into its runtime folders,
-  without losing data, and delete caches and logs Workbench itself wrote.
+  without losing data, and delete caches, logs, locks and empty files
+  Workbench itself wrote, and an old copy whose new copy holds the same bytes.
+- An old path that is the new file itself (a variable naming it, or an old
+  folder linked to the new one) is already moved: nothing is moved, deleted or
+  locked through it. A link at an old file's path is never moved or read
+  through, and an old folder that is a link is never removed.
 - Migrations are idempotent, never touch other tools' files, never merge, and
   leave a file where it is when old and new data both exist; every other file
   still moves. No rename ever replaces a file.

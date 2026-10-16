@@ -1021,9 +1021,13 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		}
 		if entry.IsDir() {
 			if info.Mode().Perm() != 0o700 {
-				return Fail(ExitInvalid, "permissions", "Checkpoint directories require mode 0700")
+				return Fail(
+					ExitInvalid,
+					"permissions",
+					"Existing "+path+" must be a private directory (mode 0700); it was not changed",
+				)
 			}
-			return owned(info)
+			return owned(path, info)
 		}
 		if entry.Name() == ".DS_Store" && info.Mode().IsRegular() {
 			return nil // Finder metadata; nothing reads it.

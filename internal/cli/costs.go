@@ -41,7 +41,7 @@ func costsCommand(o *options) *cobra.Command {
 			"--tool picks the tool to print. Figures are list-price equivalents, not subscription charges.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.costsRun(
+			return o.runPrinted(
 				cmd,
 				func(result *operation.Result) error { return f.report(cmd, o, result) },
 			)
@@ -89,9 +89,9 @@ func costsCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// costsRun runs a costs command that prints its own text: only errors and
-// --json go through the result envelope.
-func (o *options) costsRun(cmd *cobra.Command, run func(*operation.Result) error) error {
+// runPrinted runs a command that prints its own text: only errors and --json
+// go through the result envelope.
+func (o *options) runPrinted(cmd *cobra.Command, run func(*operation.Result) error) error {
 	result := operation.NewResult(cmd.CommandPath())
 	err := run(&result)
 	result.SetError(err)
@@ -185,7 +185,7 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	if err != nil {
 		return err
 	}
-	ledger, err := costs.OpenLedger(paths.Ledger, true)
+	ledger, err := paths.Open()
 	if err != nil {
 		return err
 	}
@@ -313,11 +313,16 @@ func runCostsView(
 // ensureIngested reads a tool's transcripts inline before its first report, so
 // the command works before the hooks are applied.
 func ensureIngested(cmd *cobra.Command, o *options) error {
+	// Reports never open the old ledger, and never create an empty one
+	// beside it: they ask for the migration instead.
+	if err := costs.Gate(cmd.Context(), false); err != nil {
+		return err
+	}
 	paths, err := costs.Locations()
 	if err != nil {
 		return err
 	}
-	ledger, err := costs.OpenLedger(paths.Ledger, true)
+	ledger, err := paths.Open()
 	if err != nil {
 		return err
 	}
@@ -380,25 +385,35 @@ func costsIngestCommand(o *options) *cobra.Command {
 		Short: "Hook entry: start a detached worker that copies new usage into the ledger",
 		Long: "Without --worker this is the hook command: it reads the hook's JSON from stdin " +
 			"(hook_event_name, transcript_path, session_id), starts " +
-			"`workbench costs ingest --worker` detached with them and returns at once, printing nothing whatever " +
-			"happens. --worker runs the ingest in the foreground.",
+			"`workbench costs ingest --worker` detached with them and returns at once, printing nothing on stdout " +
+			"whatever happens. When it can't start the worker, for example because a Workbench folder is not private, " +
+			"it says why on stderr and records nothing. " +
+			"--worker runs the ingest in the foreground.",
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !worker {
 				costs.Hook(stdinFile(cmd))
 				return nil
 			}
-			return o.costsRun(cmd, func(result *operation.Result) error {
-				opts := costs.IngestOptions{}
-				if len(args) > 0 {
-					opts.Event = args[0]
-				}
-				if len(args) > 1 {
-					opts.Transcript = args[1]
-				}
-				if len(args) > 2 {
-					opts.SessionID = args[2]
-				}
+			opts := costs.IngestOptions{}
+			if len(args) > 0 {
+				opts.Event = args[0]
+			}
+			if len(args) > 1 {
+				opts.Transcript = args[1]
+			}
+			if len(args) > 2 {
+				opts.SessionID = args[2]
+			}
+			if quiet && !o.json {
+				// Ingest writes its failures to the import log, which is the
+				// detached worker's stderr, once its folder is private; printing
+				// them again would double each line there.
+				o.rendered = true
+				_, err := costs.Ingest(cmd.Context(), opts)
+				return err
+			}
+			return o.runPrinted(cmd, func(result *operation.Result) error {
 				if !quiet {
 					var stop func()
 					opts.Progress, stop = ingestProgress(o, cmd.ErrOrStderr())
@@ -414,7 +429,8 @@ func costsIngestCommand(o *options) *cobra.Command {
 	}
 	cmd.Flags().
 		BoolVar(&worker, "worker", false, "Run the ingest here instead of starting a detached one")
-	cmd.Flags().BoolVarP(&quiet, "quiet", "q", false, "Show no progress and no result")
+	cmd.Flags().
+		BoolVarP(&quiet, "quiet", "q", false, "Show no progress, result or error (the import log records failures)")
 	return cmd
 }
 
@@ -442,7 +458,7 @@ func costsRatesCommand(o *options) *cobra.Command {
 		Short: "Show the merged rate card and where each rate comes from",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.costsRun(cmd, func(result *operation.Result) error {
+			return o.runPrinted(cmd, func(result *operation.Result) error {
 				card, err := costs.Rates(cmd.Context(), refresh)
 				for _, note := range card.Notes {
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+note))
@@ -540,7 +556,7 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	writeFaint(&b, width, 2, fmt.Sprintf(
 		"A row from the overrides file always wins; otherwise the longest matching prefix, then this source order: "+
 			"official, calibrated, built-in. Overrides: %s. Refresh: workbench costs rates --refresh",
-		shortPath(card.Overrides),
+		showPath(card.Overrides),
 	))
 	return b.String()
 }
@@ -551,7 +567,7 @@ func costsStatusCommand(o *options) *cobra.Command {
 		Short: "Show ledger coverage, the last ingest, hooks and the rate card age",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.costsRun(cmd, func(result *operation.Result) error {
+			return o.runPrinted(cmd, func(result *operation.Result) error {
 				if err := ensureIngested(cmd, o); err != nil {
 					return err
 				}
@@ -575,9 +591,11 @@ func costsStatusCommand(o *options) *cobra.Command {
 func costsStatus(info costs.StatusInfo, width int) string {
 	var b strings.Builder
 	writeBold(&b, width, 0, "[WorkBench] Costs status")
-	var rows [][2]string
+	rows := [][2]string{{
+		"ledger",
+		showPath(info.Ledger) + " (" + human(float64(info.LedgerBytes)) + "B)",
+	}}
 	add := func(label, value string) { rows = append(rows, [2]string{label, value}) }
-	add("ledger", fmt.Sprintf("%s (%sB)", shortPath(info.Ledger), human(float64(info.LedgerBytes))))
 	implemented := 0
 	for _, tool := range info.Tools {
 		if tool.Implemented {
@@ -703,7 +721,7 @@ func rowName(tool costs.Tool, name string) string {
 	if base, tier := tool.SplitModel(name); tier != "" {
 		return base + " (" + tier + ")"
 	}
-	return shortPath(name)
+	return showPath(name)
 }
 
 // scopeNames names the folders a report's default view covers, "~/dev" or
@@ -711,24 +729,9 @@ func rowName(tool costs.Tool, name string) string {
 func scopeNames(roots []string) string {
 	names := make([]string, len(roots))
 	for i, root := range roots {
-		names[i] = shortPath(root)
+		names[i] = showPath(root)
 	}
 	return strings.Join(names, " and ")
-}
-
-// shortPath writes a path under the home directory as ~/...
-func shortPath(path string) string {
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return path
-	}
-	if path == home {
-		return "~"
-	}
-	if rest, ok := strings.CutPrefix(path, home+string(os.PathSeparator)); ok {
-		return "~/" + rest
-	}
-	return path
 }
 
 // ---------------------------------------------------------------- the report
@@ -875,7 +878,7 @@ func costsPage(
 			if grand > 0 {
 				share = fmt.Sprintf("%.1f%%", block.Project.Cost/grand*100)
 			}
-			add(bold.Render(shortPath(block.Project.Name))+"  "+
+			add(bold.Render(showPath(block.Project.Name))+"  "+
 				costStyle.Render(money(block.Project.Cost))+"  "+
 				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
 				"model", "", block.Models, nil, "")
@@ -1266,7 +1269,8 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 			writeText(b, width, 2, rowName(tool, u.Model)+" — "+u.Reason)
 		}
 		writeText(b, width, 0, fmt.Sprintf(
-			"Add a rate for each to the rates overrides file (%s).", shortPath(report.Overrides),
+			"Add a rate for each to the rates overrides file (%s).",
+			showPath(report.Overrides),
 		))
 	}
 }

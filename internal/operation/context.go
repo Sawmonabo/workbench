@@ -243,24 +243,24 @@ func runtimePaths(home string) (Paths, error) {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"runtime_path",
-					"Workbench runtime path is not a directory",
+					value+" is not a directory, so Workbench can't keep its files there",
 				)
 			}
-			if err := owned(info); err != nil {
+			if err := owned(value, info); err != nil {
 				return Paths{}, err
 			}
 			if i < 4 && info.Mode().Perm()&0o077 != 0 {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"permissions",
-					"Existing Workbench runtime directories must be private (0700)",
+					"Existing "+value+" must be a private directory (mode 0700); it was not changed",
 				)
 			}
 		} else if !os.IsNotExist(err) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"Cannot inspect Workbench runtime directory",
+				"Cannot inspect the Workbench runtime directory "+value,
 			)
 		}
 		defaults[i] = value
@@ -331,13 +331,13 @@ func safeParents(path string) error {
 	}
 }
 
-func owned(info os.FileInfo) error {
+func owned(path string, info os.FileInfo) error {
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok || int(stat.Uid) != os.Geteuid() {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			"Private Workbench state must belong to the current user",
+			path+" must belong to the current user; it was not changed",
 		)
 	}
 	return nil
@@ -349,9 +349,9 @@ func checkPrivateFile(path string) error {
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
-		return Fail(ExitInvalid, "state", "Expected an existing regular private file")
+		return Fail(ExitInvalid, "state", path+" must be an existing regular private file")
 	}
-	if err := owned(info); err != nil {
+	if err := owned(path, info); err != nil {
 		return err
 	}
 	stat, ok := info.Sys().(*syscall.Stat_t)
