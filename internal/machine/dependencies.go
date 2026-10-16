@@ -246,7 +246,8 @@ func scriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 	// it resolved and, to find the files earlier releases left, the owner's
 	// old-location variables.
 	// Those reach the scripts as WORKBENCH_OLD_<NAME>, so no installer sees
-	// them; home/.chezmoitemplates/old-locations.sh hands them back.
+	// them, named in WORKBENCH_OLD_NAMES; home/.chezmoitemplates/
+	// old-locations.sh hands them back.
 	environment = append(
 		environment,
 		"WORKBENCH_BIN_DIR="+c.Paths.Bin,
@@ -255,6 +256,7 @@ func scriptEnvironment(c operation.Context, dependencies []operation.Dependency)
 		"WORKBENCH_STATE_DIR="+c.Paths.State,
 		"WORKBENCH_CACHE_DIR="+c.Paths.Cache,
 		"WORKBENCH_MIGRATIONS="+strings.Join(migrate.IDs(), " "),
+		"WORKBENCH_OLD_NAMES="+strings.Join(migrate.OldLocationVariables, " "),
 	)
 	for _, name := range migrate.OldLocationVariables {
 		if value := os.Getenv(name); value != "" {
