@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -51,9 +50,9 @@ func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".j
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
 
 // noteIDs are the IDs of the notes on disk. A temporary file from a write in
-// progress ends in ".tmp-<pid>" and is skipped, and deleted once it is over a
-// minute old: the pre hook was killed between writing it and renaming it into
-// place.
+// progress starts ".write-" (see [operation.ReplacePrivateFile]) and is
+// skipped, and deleted once it is over a minute old: the hook that wrote it
+// was killed before renaming it into place.
 func (f folders) noteIDs() []string {
 	entries, _ := os.ReadDir(f.notes)
 	var ids []string
@@ -63,7 +62,7 @@ func (f folders) noteIDs() []string {
 			ids = append(ids, id)
 			continue
 		}
-		if !strings.Contains(name, ".json.tmp-") {
+		if !strings.HasPrefix(name, ".write-") {
 			continue
 		}
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
@@ -73,21 +72,14 @@ func (f folders) noteIDs() []string {
 	return ids
 }
 
-// writeJSON writes value to path through a temporary name in the same folder,
-// so a reader never sees half a file.
+// writeJSON replaces the private file at path with value, so a reader never
+// sees half a file.
 func writeJSON(path string, value any) error {
 	data, err := json.Marshal(value)
 	if err != nil {
 		return err
 	}
-	temporary := path + ".tmp-" + strconv.Itoa(os.Getpid())
-	if err = os.WriteFile(temporary, data, 0o600); err != nil {
-		return err
-	}
-	if err = os.Rename(temporary, path); err != nil {
-		_ = os.Remove(temporary)
-	}
-	return err
+	return operation.ReplacePrivateFile(path, data)
 }
 
 func readJSON(path string, value any) error {

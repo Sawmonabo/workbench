@@ -363,11 +363,7 @@ func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return operation.ReplacePrivateFile(path, data)
 }
 
 func epoch(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
