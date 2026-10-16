@@ -160,18 +160,22 @@ Claude Code and Codex shell commands are guarded against running the machine
 out of memory. A `Bash` hook notes each command and starts one watcher per
 user. When memory is nearly gone, the watcher stops the largest command an
 agent started, with everything it started: `SIGTERM` first, `SIGKILL` after 5
-seconds or when memory is nearly exhausted. Nearly gone means the macOS
-memory-pressure warning; on Linux and WSL2, at most a tenth of usable memory
-left with at most a tenth of swap free (no swap counts as none free), or memory
-stalls half the time with at most a fifth left. At that line the largest
-command is stopped only when it holds at least a tenth of installed memory or
-1 GiB, whichever is less, since a smaller one can't end the shortage; at the
-forced line (macOS critical pressure; on Linux and WSL2 at most 5 % of usable
-memory left and 5 % of swap free) the largest is stopped whatever its size. The agent is
-told why in the tool result. Commands sent to the background are guarded
-too: the watcher keeps their note until the command ends, or drops it about a
-second after the tool result when no command matched it, and a stop after
-the tool result has returned is reported only in the log. It never
+seconds or when memory is nearly exhausted. Nearly gone means macOS's
+critical memory pressure (its warning level never stops anything); on Linux
+and WSL2, at most a tenth of usable memory left with at most a tenth of swap
+free (no swap counts as none free), or memory stalling half the time with at
+most a fifth left for 20 seconds. At that line the largest command is stopped
+only when the agent commands together hold at least a tenth of installed
+memory or 1 GiB, whichever is less, since smaller ones can't end the
+shortage; at the forced line (macOS critical pressure lasting 2 seconds or
+with at most a tenth of swap free; on Linux and WSL2 at most 5 % of usable
+memory left and 5 % of swap free) the largest is stopped whatever its size.
+On Linux and WSL2, inside a memory-limited container or unit (cgroup v2),
+the limit counts as the machine's memory. The agent is told why in the tool
+result. Commands sent to the background are guarded too: the watcher keeps
+their note until the command ends, or drops it about a second after the tool
+result when no command matched it, and a stop after the tool result has
+returned is reported only in the log. It never
 stops the agent, its MCP servers, hooks or anything else, never changes how a
 command runs, and a guard fault leaves a command unguarded and never blocks it.
 Programs a command detaches from itself (`nohup` with `setsid`) are not
