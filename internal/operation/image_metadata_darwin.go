@@ -127,20 +127,21 @@ type aclEntry struct{ flags, rights uint32 }
 //
 // x/sys/unix wraps setattrlist through libSystem but not getattrlist or
 // fgetattrlist, and cgo's acl(3) would break CGO_ENABLED=0 release builds, so
-// this uses the raw syscalls Go deprecates on darwin. An error or unexpected
-// layout fails closed; recheck on each major macOS release and switch once
-// x/sys adds the wrappers. Each pointer becomes a uintptr inside the Syscall6
-// argument list, as the unsafe rules require.
+// they are called as x/sys calls libSystem: through the runtime's
+// syscall.syscall6 and the trampolines in attrlist_darwin.s. An error or
+// unexpected layout fails closed; switch once x/sys adds the wrappers. Each
+// pointer becomes a uintptr inside the call's argument list, as the unsafe
+// rules require.
 func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
-	attributes := struct {
-		Count, Reserved                       uint16
-		Common, Volume, Directory, File, Fork uint32
-	}{Count: 5, Common: unix.ATTR_CMN_EXTENDED_SECURITY}
+	attributes := unix.Attrlist{
+		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
+		Commonattr:  unix.ATTR_CMN_EXTENDED_SECURITY,
+	}
 	var data [8192]byte
 	var errno unix.Errno
 	if path == nil {
-		_, _, errno = unix.Syscall6(
-			unix.SYS_FGETATTRLIST, //nolint:staticcheck // See the function comment.
+		_, _, errno = libcCall6(
+			fgetattrlist,
 			uintptr(fd),
 			uintptr(unsafe.Pointer(&attributes)),
 			uintptr(unsafe.Pointer(&data[0])),
@@ -149,8 +150,8 @@ func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 			0,
 		)
 	} else {
-		_, _, errno = unix.Syscall6(
-			unix.SYS_GETATTRLIST, //nolint:staticcheck // See the function comment.
+		_, _, errno = libcCall6(
+			getattrlist,
 			uintptr(unsafe.Pointer(path)),
 			uintptr(unsafe.Pointer(&attributes)),
 			uintptr(unsafe.Pointer(&data[0])),
@@ -193,3 +194,16 @@ func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	}
 	return entries, true, nil
 }
+
+// getattrlist and fgetattrlist are the addresses of the trampolines to
+// libSystem's functions of those names.
+var getattrlist, fgetattrlist uintptr
+
+//go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
+//go:cgo_import_dynamic libc_fgetattrlist fgetattrlist "/usr/lib/libSystem.B.dylib"
+
+// libcCall6 is the runtime's syscall.syscall6, which calls a libSystem
+// function on the system stack and returns errno when it returns -1.
+//
+//go:linkname libcCall6 syscall.syscall6
+func libcCall6(fn, a1, a2, a3, a4, a5, a6 uintptr) (r1, r2 uintptr, err unix.Errno)
