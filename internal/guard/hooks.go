@@ -12,8 +12,7 @@ import (
 )
 
 // hookInput is the part of a Claude Code or Codex hook's stdin the guard
-// reads. Codex's carries turn_id and its tool_use_id starts "exec-"; Claude
-// Code's starts "toolu_".
+// reads. Codex's carries turn_id; Claude Code's tool_use_id starts "toolu_".
 type hookInput struct {
 	Event     string  `json:"hook_event_name"`
 	Tool      string  `json:"tool_name"`
@@ -51,14 +50,15 @@ func agentKind(input hookInput) (kind, bool) {
 const maxShellAncestors = 8
 
 // findAgent is the hook's nearest ancestor that is not a shell, starting at
-// pid: the agent that ran the hook through `sh -c`.
+// pid: the agent that ran the hook through `sh -c`. Codex runs hooks through
+// $SHELL, which may be fish.
 func findAgent(pid int) (proc, error) {
 	for range maxShellAncestors {
 		p, err := processInfo(pid)
 		if err != nil {
 			return proc{}, err
 		}
-		if !shells[p.Name] {
+		if !shells[p.Name] && p.Name != "fish" {
 			return p, nil
 		}
 		if pid = p.PPID; pid <= 1 {

@@ -11,13 +11,14 @@ import (
 // server, a program the command itself started) or signalling the wrong one
 // (an agent that left a note, the watcher, a process sharing the command's
 // group, a PID reused since the snapshot, a zombie) would kill the user's
-// agent session or an unrelated program, or claim a stop that never
-// happened: the one catastrophic outcome this feature can have. Both deciders
-// are pure, so these fixed snapshots pin them. A Codex command its shell
-// replaced by exec is matched by argv only when it leads its own group, so a
-// harness git in the agent's group is never taken for a noted git. The Codex
-// shapes under codex-linux-sandbox and bwrap are the spec's expectation until
-// step 1 of the spec's section 10 observes them.
+// agent session or an unrelated program and lose its unsaved work: the one
+// catastrophic outcome this feature can have. Missing the agent's command
+// shape leaves the machine to the kernel's OOM killer, which may pick the
+// agent itself. The deciders are pure, so these fixed snapshots pin them. A
+// Codex command its shell replaced by exec is matched by argv only when it
+// leads its own group, so a harness git in the agent's group is never taken
+// for a noted git. The Codex shapes under codex-linux-sandbox and bwrap are
+// the spec's expectation until step 1 of the spec's section 10 observes them.
 
 // start is a kernel start time, seconds after a fixed moment, in the
 // platform's units.
@@ -34,12 +35,13 @@ func zombie(p proc) proc {
 	return p
 }
 
-// claudeShell is Claude Code 2.1.300's command shell on macOS.
+// claudeShell is Claude Code 2.1.300's command shell on macOS, which reads
+// the command from ` < /dev/null`.
 func claudeShell(eval string) []string {
 	return []string{
 		"/bin/zsh", "-c",
 		"source /Users/u/.claude/shell-snapshots/snapshot-zsh-1.sh 2>/dev/null || true && eval " +
-			eval + " && pwd -P >| /tmp/claude-1-cwd",
+			eval + " < /dev/null && pwd -P >| /tmp/claude-1-cwd",
 	}
 }
 
@@ -72,6 +74,31 @@ func TestMatchTracksOnlyTheAgentsCommandShell(t *testing.T) {
 		process(206, 100, 206, 0.7, claudeShell(`'echo '"'"'hi'"'"''`)...),
 		process(208, 100, 208, 0.8, claudeShell(`'echo'"'"'hi'"'"''`)...),
 		process(209, 100, 209, 0.9, claudeShell(`'git status'"'"' --short'"'"''`)...),
+		// One plain word goes unquoted; 210 runs a longer word.
+		process(210, 100, 210, 1.0, claudeShell("makefile")...),
+		process(211, 100, 211, 1.1, claudeShell("make")...),
+		// Without a shell snapshot Claude Code runs a login shell.
+		process(
+			212,
+			100,
+			212,
+			1.2,
+			"/bin/bash",
+			"-c",
+			"-l",
+			"eval 'npm test' < /dev/null && pwd -P >| /tmp/claude-2-cwd",
+		),
+		// A background call, observed with Claude Code 2.1.300.
+		process(
+			213,
+			100,
+			213,
+			1.3,
+			"/bin/zsh",
+			"-c",
+			"export CLAUDE_PLUGIN_ROOT=/Users/u/.claude/plugins/p && setopt NO_EXTENDED_GLOB 2>/dev/null || true && "+
+				"eval 'sleep 25' < /dev/null && pwd -P >| /tmp/claude-13a2-cwd",
+		),
 	)
 	notes := []note{
 		{
@@ -97,37 +124,28 @@ func TestMatchTracksOnlyTheAgentsCommandShell(t *testing.T) {
 			AgentPID: 100, AgentStart: agent.Start + 1, Kind: claude, ToolUseID: "toolu_old",
 			Command: "git status", NotedStart: start(-0.5),
 		},
+		{
+			AgentPID: 100, AgentStart: agent.Start, Kind: claude, ToolUseID: "toolu_make",
+			Command: "make", NotedStart: start(0.5),
+		},
+		{
+			AgentPID: 100, AgentStart: agent.Start, Kind: claude, ToolUseID: "toolu_npm",
+			Command: "npm test", NotedStart: start(0.5),
+		},
+		{
+			AgentPID: 100, AgentStart: agent.Start, Kind: claude, ToolUseID: "toolu_sleep",
+			Command: "sleep 25", NotedStart: start(0.5),
+		},
 	}
 	got := roots(match(s, notes, nil))
-	want := map[string]int{"toolu_a": 200, "toolu_b": 206}
+	want := map[string]int{
+		"toolu_a": 200, "toolu_b": 206, "toolu_make": 211, "toolu_npm": 212, "toolu_sleep": 213,
+	}
 	if !maps.Equal(got, want) {
 		t.Fatalf("matched %v, want %v", got, want)
 	}
 	if again := match(s, notes[:1], map[int]bool{200: true}); len(again) != 0 {
 		t.Fatalf("a tracked child was matched again: %v", roots(again))
-	}
-}
-
-func TestMatchGivesTheEarlierNoteTheEarlierChild(t *testing.T) {
-	agent := process(100, 1, 100, -3600, "claude")
-	s := snapshotOf(
-		agent,
-		process(301, 100, 301, 2.5, claudeShell(`'make'`)...),
-		process(300, 100, 300, 0.5, claudeShell(`'make'`)...),
-	)
-	notes := []note{
-		{
-			AgentPID: 100, AgentStart: agent.Start, Kind: claude, ToolUseID: "toolu_d",
-			Command: "make", NotedStart: start(2),
-		},
-		{
-			AgentPID: 100, AgentStart: agent.Start, Kind: claude, ToolUseID: "toolu_c",
-			Command: "make", NotedStart: start(0),
-		},
-	}
-	got := roots(match(s, notes, nil))
-	if got["toolu_c"] != 300 || got["toolu_d"] != 301 {
-		t.Fatalf("matched %v, want toolu_c→300 toolu_d→301", got)
 	}
 }
 
@@ -159,14 +177,57 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 			"'/home/u/.local/bin/workbench' guard pre || true",
 		),
 		process(412, 400, 412, 0.6, "/bin/zsh", "-c", "cargo test --release"),
+		// Every process from the launcher to the shell must start after the
+		// note: 440's shell started before it, 450's launcher did.
+		process(
+			440,
+			400,
+			440,
+			0.3,
+			"/usr/bin/codex-linux-sandbox",
+			"--",
+			"/bin/zsh",
+			"-c",
+			"cargo check",
+		),
+		process(441, 440, 440, -5, "/bin/zsh", "-c", "cargo check"),
+		process(
+			450,
+			400,
+			450,
+			-5,
+			"/usr/bin/codex-linux-sandbox",
+			"--",
+			"/bin/zsh",
+			"-c",
+			"cargo doc",
+		),
+		process(451, 450, 450, 0.3, "/bin/zsh", "-c", "cargo doc"),
+		// Codex's login shell.
+		process(460, 400, 460, 0.7, "/bin/bash", "-lc", "cargo build"),
 	)
-	notes := []note{{
-		AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-1",
-		Command: "cargo test", NotedStart: start(0),
-	}}
+	notes := []note{
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-1",
+			Command: "cargo test", NotedStart: start(0),
+		},
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-8",
+			Command: "cargo check", NotedStart: start(0),
+		},
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-9",
+			Command: "cargo doc", NotedStart: start(0),
+		},
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-10",
+			Command: "cargo build", NotedStart: start(0),
+		},
+	}
 	got := roots(match(s, notes, nil))
-	if len(got) != 1 || got["exec-1"] != 401 {
-		t.Fatalf("matched %v, want exec-1→401", got)
+	want := map[string]int{"exec-1": 401, "exec-10": 460}
+	if !maps.Equal(got, want) {
+		t.Fatalf("matched %v, want %v", got, want)
 	}
 }
 
@@ -235,7 +296,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		procs     []proc
 		root      int
 		start     uint64
-		protected map[int]bool
+		protected map[int]uint64
 		want      []target
 	}{
 		{
@@ -247,7 +308,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				process(503, 502, 502, 4, "cc"),
 				process(600, 1, 500, 5, "stray"),
 			},
-			root: 500, start: start(1), protected: map[int]bool{100: true},
+			root: 500, start: start(1), protected: map[int]uint64{100: start(-3600)},
 			want: []target{{500, start(1), false}, {501, start(2), false}, {502, start(3), true}},
 		},
 		{
@@ -259,8 +320,10 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				process(703, 700, 700, 4, "workbench", "guard", "watch"),
 				process(704, 700, 704, 5, "pytest"),
 			},
-			root: 700, start: start(1), protected: map[int]bool{100: true, 701: true, 703: true},
-			want: []target{{700, start(1), false}, {704, start(5), true}},
+			root:      700,
+			start:     start(1),
+			protected: map[int]uint64{100: start(-3600), 701: start(2), 703: start(4)},
+			want:      []target{{700, start(1), false}, {704, start(5), true}},
 		},
 		{
 			name: "a zombie leader whose child lives on in its group",
@@ -268,18 +331,18 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				zombie(process(900, 100, 900, 1, "zsh")),
 				process(901, 900, 900, 2, "python3"),
 			},
-			root: 900, start: start(1), protected: map[int]bool{100: true},
+			root: 900, start: start(1), protected: map[int]uint64{100: start(-3600)},
 			want: []target{{901, start(2), false}},
 		},
 		{
 			name:  "PID reused since it was tracked",
 			procs: []proc{process(800, 100, 800, 1, "zsh")},
-			root:  800, start: start(0), protected: map[int]bool{100: true},
+			root:  800, start: start(0), protected: map[int]uint64{100: start(-3600)},
 		},
 		{
 			name:  "init is never a target",
 			procs: []proc{process(1, 0, 1, 0, "launchd")},
-			root:  1, start: start(0), protected: map[int]bool{},
+			root:  1, start: start(0), protected: map[int]uint64{},
 		},
 	}
 	for _, c := range cases {
@@ -287,6 +350,76 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		got := targets(s, proc{PID: c.root, Start: c.start}, c.protected)
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: targets %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+// After SIGTERM the watcher sends SIGKILL to what is left of the stopped
+// command. Killing outside it would end the user's agent session or the
+// watcher and lose unsaved work.
+func TestEscalationStaysInsideTheStoppedCommand(t *testing.T) {
+	cases := []struct {
+		name      string
+		stopped   []proc
+		now       []proc
+		protected map[int]uint64
+		want      []int
+	}{
+		{
+			// The agent left its first note after the stop took its processes.
+			name: "nested agent that left a note mid-stop",
+			stopped: []proc{
+				process(700, 100, 700, 1, "zsh"),
+				process(701, 700, 701, 2, "claude"),
+				process(702, 701, 701, 3, "node", "mcp-server.js"),
+			},
+			now: []proc{
+				process(700, 100, 700, 1, "zsh"),
+				process(701, 700, 701, 2, "claude"),
+				process(702, 701, 701, 3, "node", "mcp-server.js"),
+			},
+			protected: map[int]uint64{100: start(-3600), 701: start(2)},
+			want:      []int{700},
+		},
+		{
+			name:    "PID reused since the stop",
+			stopped: []proc{process(800, 100, 800, 1, "zsh")},
+			now: []proc{
+				process(800, 1, 800, 9, "postgres"),
+				process(801, 800, 800, 10, "postgres"),
+			},
+			protected: map[int]uint64{100: start(-3600)},
+		},
+		{
+			name:    "watcher inside the tree",
+			stopped: []proc{process(900, 100, 900, 1, "zsh")},
+			now: []proc{
+				process(900, 100, 900, 1, "zsh"),
+				process(901, 900, 900, 2, "workbench", "guard", "watch"),
+				process(902, 900, 900, 3, "pytest"),
+			},
+			protected: map[int]uint64{100: start(-3600), 901: start(2)},
+			want:      []int{900, 902},
+		},
+		{
+			name:    "new child under a live stopped process",
+			stopped: []proc{process(1000, 100, 1000, 1, "zsh")},
+			now: []proc{
+				process(1000, 100, 1000, 1, "zsh"),
+				process(1001, 1000, 1000, 6, "cc"),
+			},
+			protected: map[int]uint64{100: start(-3600)},
+			want:      []int{1000, 1001},
+		},
+	}
+	for _, c := range cases {
+		kill, _ := escalation(snapshotOf(c.now...), c.stopped, c.protected)
+		var got []int
+		for _, p := range kill {
+			got = append(got, p.PID)
+		}
+		if !slices.Equal(got, c.want) {
+			t.Errorf("%s: kills %v, want %v", c.name, got, c.want)
 		}
 	}
 }

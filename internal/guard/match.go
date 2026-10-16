@@ -12,15 +12,22 @@ import (
 // shells are the shells an agent runs commands and hooks through.
 var shells = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true}
 
-// nulRedirect is a Windows-style redirect to nul, which Claude Code rewrites
-// to /dev/null before it runs a command.
-var nulRedirect = regexp.MustCompile(`((?:\d|&)?>{1,2})\s*nul\b`)
+// nulRedirect is Claude Code's rewrite of a Windows-style redirect to nul
+// (any case) into /dev/null, which it skips for a command holding <, $ or a
+// backquote. Its lookahead for the character after nul is the second group.
+var nulRedirect = regexp.MustCompile(`(\d?&?>+[ \t]*)[Nn][Uu][Ll](\s|$|[|&;)\n])`)
 
 // claudeForms are the texts Claude Code may run for a command: as written,
 // and with its nul rewrite applied.
 func claudeForms(command string) []string {
 	forms := []string{command}
-	if rewritten := nulRedirect.ReplaceAllString(command, "${1}/dev/null"); rewritten != command {
+	if strings.ContainsAny(command, "<$`") {
+		return forms
+	}
+	if rewritten := nulRedirect.ReplaceAllString(
+		command,
+		"${1}/dev/null${2}",
+	); rewritten != command {
 		forms = append(forms, rewritten)
 	}
 	return forms
@@ -72,48 +79,74 @@ func simpleWords(command string) []string {
 	return words
 }
 
+// shellScript is the script of a shell an agent runs a command with:
+// `<shell> -c <script>`, Codex's `-lc`, `-fc` and `-lfc`, and Claude Code's
+// `<shell> -c -l <script>` when it has no shell snapshot.
+func shellScript(args []string) (string, bool) {
+	if len(args) < 3 || !shells[filepath.Base(args[0])] {
+		return "", false
+	}
+	switch {
+	case len(args) == 3 && (args[1] == "-c" || args[1] == "-lc" || args[1] == "-fc" || args[1] == "-lfc"):
+		return args[2], true
+	case len(args) == 4 && args[1] == "-c" && args[2] == "-l":
+		return args[3], true
+	}
+	return "", false
+}
+
 // runs reports whether p is exactly what an agent of the note's kind runs for
-// the note's text. Claude Code: `<shell> -c <script>` whose script evaluates
-// the text single-quoted ('"'"' for each quote). Codex: `<shell> -c <text>`,
-// or, because zsh and bash exec a single simple command in place, a process
-// leading its own group whose argv is the text's plain words.
+// the note's text. Claude Code: a shell script that evaluates the text as it
+// quotes it. Codex: a shell whose script is the text or, because zsh and bash
+// exec a single simple command in place, a process leading its own group
+// whose argv is the text's plain words.
 func runs(n note, p proc) bool {
-	args := p.Args
-	shell := len(args) == 3 && args[1] == "-c" && shells[filepath.Base(args[0])]
+	script, shell := shellScript(p.Args)
 	switch n.Kind {
 	case claude:
 		if !shell {
 			return false
 		}
 		for _, form := range claudeForms(n.Command) {
-			if evaluates(args[2], form) {
+			if evaluates(script, form) {
 				return true
 			}
 		}
 	case codex:
-		if shell && args[2] == n.Command {
+		if shell && script == n.Command {
 			return true
 		}
 		words := simpleWords(n.Command)
-		return words != nil && p.PGID == p.PID && slices.Equal(args, words)
+		return words != nil && p.PGID == p.PID && slices.Equal(p.Args, words)
 	}
 	return false
 }
 
-// evaluates reports whether script holds `eval '<form>'` as a whole command.
-// Claude's quote escape '"'"' also starts with a quote, so a longer command
-// (`echo'hi'` for the text `echo`) holds the same text followed by that
-// escape; a finished command's closing quote is followed by ` && pwd ...` or
-// the end of the script, never by a double quote.
+// plainWord is the text Claude Code's shell quoting leaves bare.
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./:=@+,-]+$`)
+
+// claudeQuoted is form as Claude Code quotes it after `eval `: bare when it
+// is one plain word, else single-quoted with each ' as '"'"'.
+func claudeQuoted(form string) string {
+	if plainWord.MatchString(form) {
+		return form
+	}
+	return "'" + strings.ReplaceAll(form, "'", `'"'"'`) + "'"
+}
+
+// evaluates reports whether script holds `eval <form>` as a whole command:
+// Claude Code follows it with ` < /dev/null` or ` && pwd -P ...`, so a longer
+// command starting with the same text (`echo'hi'` for `echo`, `makefile` for
+// `make`) is followed by another character.
 func evaluates(script, form string) bool {
-	text := "eval '" + strings.ReplaceAll(form, "'", `'"'"'`) + "'"
+	text := "eval " + claudeQuoted(form)
 	for from := 0; ; {
 		i := strings.Index(script[from:], text)
 		if i < 0 {
 			return false
 		}
 		end := from + i + len(text)
-		if end == len(script) || script[end] != '"' {
+		if end == len(script) || script[end] == ' ' {
 			return true
 		}
 		from += i + 1
@@ -204,16 +237,13 @@ func match(s snapshot, notes []note, taken map[int]bool) []command {
 // process in the group are among those; any other process is signalled on
 // its own. A root that is gone, or whose PID now names another process,
 // gives nothing.
-func targets(s snapshot, root proc, protected map[int]bool) []target {
-	current, ok := s[root.PID]
-	if root.PID <= 1 || !ok || current.Start != root.Start || protected[root.PID] {
+func targets(s snapshot, root proc, protected map[int]uint64) []target {
+	if current, ok := s[root.PID]; !ok || current.Start != root.Start {
 		return nil
 	}
 	members := s.tree(root.PID, outside(protected))
-	in := make(map[int]bool, len(members))
 	inGroup := map[int]int{}
 	for _, p := range members {
-		in[p.PID] = true
 		inGroup[p.PGID]++
 	}
 	machineGroup := map[int]int{}
@@ -222,9 +252,12 @@ func targets(s snapshot, root proc, protected map[int]bool) []target {
 			machineGroup[p.PGID]++
 		}
 	}
+	// A leader still in its group is counted in machineGroup, so the counts
+	// agree only when it is among the members too. One that moved to another
+	// group would take the signal there through a Linux pidfd.
 	whole := func(group int) bool {
 		leader, ok := s[group]
-		return group > 1 && in[group] && ok && !leader.Zombie &&
+		return group > 1 && ok && !leader.Zombie && leader.PGID == group &&
 			inGroup[group] == machineGroup[group]
 	}
 	var out []target

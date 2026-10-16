@@ -3,6 +3,9 @@ package guard
 import (
 	"cmp"
 	"context"
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -65,9 +68,20 @@ type watcher struct {
 	// agentChildren are the agents' live children at the last tick, each with
 	// the first tick it was seen at since.
 	agentChildren map[procKey]time.Time
-	// underFloor is set once a pressure episode's largest command was logged
+	// underFloor is set once a pressure episode's agent commands were logged
 	// as too small to stop, and cleared when memory recovers.
 	underFloor bool
+	// softSince and criticalSince are when a soft condition and macOS's
+	// critical level began, zero while they do not hold (see demand).
+	softSince, criticalSince time.Time
+	// round counts ticks; missing holds the round each needed process (an
+	// agent of a note, a tracked command's root) was first absent in.
+	round   int
+	missing map[procKey]int
+	// unreadNotes and unreadPIDs are notes and processes that could not be
+	// read, so each is logged once, not every tick.
+	unreadNotes map[string]bool
+	unreadPIDs  map[int]bool
 }
 
 // procKey names one process: its PID and start time.
@@ -79,10 +93,11 @@ type procKey struct {
 // Watch is the watcher, at most one per user, started detached by the pre
 // hook. It finds each noted command, watches machine memory, and near
 // out-of-memory stops the largest agent command and records why. It returns
-// after ten minutes with no note and no tracked command, when its lock file
-// is no longer the one it locked, or when ctx ends. It has no terminal and
-// logs only to the guard log. It works from /, so it never holds the folder
-// of the session that started it.
+// after ten minutes with no note and no tracked command, when its lock file is
+// no longer the one it locked, or at its next tick after ctx ends; a stop
+// under way finishes first. It has no terminal and logs only to the guard log.
+// It works from /, so it never holds the folder of the session that started
+// it.
 func Watch(ctx context.Context) {
 	debug.SetMemoryLimit(32 << 20)
 	f, err := openFolders()
@@ -100,6 +115,10 @@ func Watch(ctx context.Context) {
 		unsized:   map[procKey]bool{},
 		idleSince: time.Now(),
 		waiter:    newWaiter(),
+
+		missing:     map[procKey]int{},
+		unreadNotes: map[string]bool{},
+		unreadPIDs:  map[int]bool{},
 	}
 	defer w.waiter.close()
 	if !w.lock() {
@@ -142,17 +161,19 @@ func (w *watcher) ownsLock() bool {
 }
 
 // carryOn releases the lock at idle exit, then reads the notes once more. A
-// live note written meanwhile, or a process list it cannot read, makes it take
-// the lock again and carry on, unless another watcher took it first; so a
-// note written as a watcher stops is never left without one. Only notes that
-// parse and whose agent runs count, so a broken note cannot keep the watcher
-// alive. It logs why it does not carry on.
+// live note written meanwhile, or a process list or notes folder it cannot
+// read, makes it take the lock again and carry on, unless another watcher took
+// it first; so a note written as a watcher stops is never left without one.
+// Only notes that parse and whose agent runs count, so a broken note cannot
+// keep the watcher alive. It logs why it does not carry on.
 func (w *watcher) carryOn() bool {
 	w.release()
 	w.release = func() {}
-	if s, err := snapshotNow(); err == nil && len(w.notes(s)) == 0 {
-		w.f.logf("watch: idle for %s; exiting", idleExit)
-		return false
+	if s, err := w.snapshot(); err == nil {
+		if notes, err := w.notes(s); err == nil && len(notes) == 0 {
+			w.f.logf("watch: idle for %s; exiting", idleExit)
+			return false
+		}
 	}
 	if !w.lock() {
 		w.f.logf("watch: idle, and the lock is held by another watcher or cannot be taken; exiting")
@@ -162,14 +183,26 @@ func (w *watcher) carryOn() bool {
 	return true
 }
 
-// tick runs one round and returns the time to the next.
+// tick runs one round and returns the time to the next. When the process
+// list or the notes folder cannot be read, it does nothing else this round.
 func (w *watcher) tick() time.Duration {
-	s, err := snapshotNow()
+	w.round++
+	// Entries from before the last round were acted on or are no longer checked.
+	for key, first := range w.missing {
+		if first < w.round-1 {
+			delete(w.missing, key)
+		}
+	}
+	s, err := w.snapshot()
 	if err != nil {
 		w.f.logf("watch: cannot list processes: %v", err)
 		return time.Second
 	}
-	notes := w.notes(s)
+	notes, err := w.notes(s)
+	if err != nil {
+		w.f.logf("watch: cannot read notes: %v", err)
+		return time.Second
+	}
 	w.forget(s)
 	agents, protected := w.agents(s, notes)
 	for _, agent := range agents {
@@ -199,7 +232,7 @@ func (w *watcher) tick() time.Duration {
 		w.f.logf("watch: cannot read memory: %v", err)
 		return time.Second
 	}
-	act := decide(m)
+	act := w.demand(m, time.Now())
 	if act == nothing {
 		w.underFloor = false
 	}
@@ -209,22 +242,66 @@ func (w *watcher) tick() time.Duration {
 	return delay(m)
 }
 
-// notes reads the notes on disk. A note that does not parse is deleted: the
-// pre hook renames a complete file into place, so a broken one never heals.
-// So is a note whose agent (PID and start time) is gone. A posted note, a
-// background call's that its post hook kept, is deleted once its command has
-// ended or, when no command matched it, childLinger after it was first read
-// posted: its command started before the post hook, so a later process is
-// never its command. A note that goes away without ever being matched is
-// logged.
-func (w *watcher) notes(s snapshot) []note {
+// demand is what memory calls for at now, after spec section 6.2's holds: a
+// soft condition calls for a polite stop only once it has lasted softHold,
+// and macOS's critical level calls for a forced stop once it has lasted
+// criticalHold.
+func (w *watcher) demand(m memory, now time.Time) action {
+	act, soft := decide(m)
+	if !soft {
+		w.softSince = time.Time{}
+	} else if w.softSince.IsZero() {
+		w.softSince = now
+	}
+	if soft && now.Sub(w.softSince) < softHold {
+		act = nothing
+	}
+	if m.Level < criticalLevel {
+		w.criticalSince = time.Time{}
+	} else if w.criticalSince.IsZero() {
+		w.criticalSince = now
+	}
+	if m.Level >= criticalLevel && now.Sub(w.criticalSince) >= criticalHold {
+		act = forced
+	}
+	return act
+}
+
+// notes reads the notes on disk. A note that cannot be read (for want of
+// memory or file descriptors, say) is left for a later tick, its state kept. A
+// note that does not parse is deleted: the pre hook renames a complete file
+// into place, so a broken one never heals. So is a note whose agent (PID and
+// start time) is gone (see gone). A posted note, a background call's that its
+// post hook kept, is deleted once its command has ended or, when no command
+// matched it, childLinger after it was first read posted: its command started
+// before the post hook, so a later process is never its command. A note that
+// goes away without ever being matched is logged.
+func (w *watcher) notes(s snapshot) ([]note, error) {
+	ids, err := w.f.noteIDs()
+	if err != nil {
+		return nil, err
+	}
 	present := map[string]bool{}
 	var notes []note
 	now := time.Now()
-	for _, id := range w.f.noteIDs() {
-		var n note
+	for _, id := range ids {
 		path := w.f.note(id)
-		if readJSON(path, &n) != nil || n.ToolUseID != id || !s.alive(n.AgentPID, n.AgentStart) {
+		data, err := os.ReadFile(path)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			present[id] = true
+			if !w.unreadNotes[id] {
+				w.unreadNotes[id] = true
+				w.f.logf("watch: cannot read note %s: %v", id, err)
+			}
+			continue
+		}
+		delete(w.unreadNotes, id)
+		var n note
+		if json.Unmarshal(data, &n) != nil || n.ToolUseID != id ||
+			w.gone(s, n.AgentPID, n.AgentStart) {
 			_ = os.Remove(path)
 			continue
 		}
@@ -252,7 +329,40 @@ func (w *watcher) notes(s snapshot) []note {
 			delete(w.ended, id)
 		}
 	}
-	return notes
+	for id := range w.unreadNotes {
+		if !present[id] {
+			delete(w.unreadNotes, id)
+		}
+	}
+	return notes, nil
+}
+
+// gone reports whether the process pid with this start time is absent from s
+// and was already absent in an earlier round. A Linux snapshot leaves out a
+// process whose /proc entry could not be read, so one absent reading never
+// deletes an agent's notes or forgets a tracked command.
+func (w *watcher) gone(s snapshot, pid int, start uint64) bool {
+	key := procKey{pid, start}
+	if s.alive(pid, start) {
+		delete(w.missing, key)
+		return false
+	}
+	first, ok := w.missing[key]
+	if !ok {
+		w.missing[key] = w.round
+	}
+	return ok && first < w.round
+}
+
+// snapshot is snapshotNow, logging once each process left out for a reason
+// other than its exit.
+func (w *watcher) snapshot() (snapshot, error) {
+	return snapshotNow(func(pid int, err error) {
+		if !w.unreadPIDs[pid] {
+			w.unreadPIDs[pid] = true
+			w.f.logf("watch: cannot read pid %d: %v", pid, err)
+		}
+	})
 }
 
 // markChildSeen sets childSeen on each waiting note whose agent has a child
@@ -284,9 +394,9 @@ func (w *watcher) markChildSeen(s snapshot, agents []int, notes []note, taken ma
 	}
 }
 
-// forget stops tracking commands that ended or whose agent is gone. A call
-// whose command ended is remembered until its note goes, so the note cannot
-// claim a later command with the same text.
+// forget stops tracking commands that ended or whose agent is gone (see
+// gone). A call whose command ended is remembered until its note goes, so the
+// note cannot claim a later command with the same text.
 func (w *watcher) forget(s snapshot) {
 	for key := range w.unsized {
 		if !s.alive(key.pid, key.start) {
@@ -294,15 +404,16 @@ func (w *watcher) forget(s snapshot) {
 		}
 	}
 	for id, c := range w.tracked {
-		agentAlive := s.alive(c.Note.AgentPID, c.Note.AgentStart)
-		if !s.alive(c.Root.PID, c.Root.Start) || !agentAlive {
+		rootGone := w.gone(s, c.Root.PID, c.Root.Start)
+		agentGone := w.gone(s, c.Note.AgentPID, c.Note.AgentStart)
+		if rootGone || agentGone {
 			delete(w.tracked, id)
 			delete(w.passed, id)
 			delete(w.refusals, id)
 			// Only a call whose note is still on disk is remembered: when the
 			// post hook already removed it, nothing can match it again and
 			// notes would never clear the entry.
-			if _, noted := w.seen[id]; noted && agentAlive {
+			if _, noted := w.seen[id]; noted && !agentGone {
 				w.ended[id] = true
 			}
 		}
@@ -310,13 +421,17 @@ func (w *watcher) forget(s snapshot) {
 }
 
 // agents are the live agents of the notes and tracked commands. protected is
-// them and the watcher: never signalled, nor anything under them.
-func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]bool) {
-	protected := map[int]bool{os.Getpid(): true}
+// them and the watcher, each PID with its start time: never signalled, nor
+// anything under them.
+func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
+	protected := map[int]uint64{}
+	if self, ok := s[os.Getpid()]; ok {
+		protected[self.PID] = self.Start
+	}
 	var agents []int
 	add := func(pid int, start uint64) {
-		if !protected[pid] && s.alive(pid, start) {
-			protected[pid] = true
+		if _, ok := protected[pid]; !ok && s.alive(pid, start) {
+			protected[pid] = start
 			agents = append(agents, pid)
 		}
 	}
@@ -341,13 +456,14 @@ func (w *watcher) untracked(notes []note) []note {
 	return out
 }
 
-// expireKills deletes kill records over a day old, at most once a minute.
+// expireKills deletes kill records over a day old, at most once a minute,
+// and temporary files as listFolder does.
 func (w *watcher) expireKills() {
 	if time.Since(w.expired) < time.Minute {
 		return
 	}
 	w.expired = time.Now()
-	entries, _ := os.ReadDir(w.f.killed)
+	entries, _ := listFolder(w.f.killed)
 	for _, entry := range entries {
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > killKeep {
 			_ = os.Remove(filepath.Join(w.f.killed, entry.Name()))
@@ -380,16 +496,17 @@ func (w *watcher) coolingDown(s snapshot) bool {
 // stopLargest stops the tracked command with the largest footprint over its
 // tree (without protected processes); a tie goes to the older command. A
 // passed call is left out: a dry-run one already logged, one a stop gave up
-// on, or one whose stops signalled nothing three times in a row. A polite stop
-// leaves a command under the memory floor running, and logs that once a
-// pressure episode.
-func (w *watcher) stopLargest(s snapshot, protected map[int]bool, act action, m memory) {
+// on, or one whose stops signalled nothing three times in a row. So is one
+// whose root is absent from this snapshot. A polite stop leaves the commands
+// running when together they hold less than the memory floor, and logs that
+// once a pressure episode.
+func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, m memory) {
 	skip := outside(protected)
 	var chosen command
-	var chosenSize uint64
+	var chosenSize, total uint64
 	var members []proc
 	for id, c := range w.tracked {
-		if w.passed[id] {
+		if w.passed[id] || !s.alive(c.Root.PID, c.Root.Start) {
 			continue
 		}
 		tree := s.tree(c.Root.PID, skip)
@@ -405,6 +522,7 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]bool, act action, m 
 			}
 			size += bytes
 		}
+		total += size
 		if members == nil || size > chosenSize ||
 			size == chosenSize && c.Root.Start < chosen.Root.Start {
 			chosen, chosenSize, members = c, size, tree
@@ -412,12 +530,11 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]bool, act action, m 
 	}
 	switch {
 	case len(members) == 0:
-	case act == polite && chosenSize < m.floor():
+	case act == polite && total < m.floor():
 		if !w.underFloor {
 			w.underFloor = true
-			w.f.logf("watch: memory is low, but the largest agent command, %s, holds %s, "+
-				"under the %s floor; not stopping it", chosen.Note.ToolUseID,
-				gigabytes(chosenSize), gigabytes(m.floor()))
+			w.f.logf("watch: memory is low, but the agent commands hold %s, under the %s floor; "+
+				"not stopping any", gigabytes(total), gigabytes(m.floor()))
 		}
 	default:
 		w.stop(chosen, chosenSize, len(members)-1)
@@ -436,15 +553,20 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		w.f.logf("watch: cannot read memory; not stopping %s: %v", c.Note.ToolUseID, err)
 		return
 	}
-	if decide(m) == nothing {
+	if act, _ := decide(m); act == nothing {
 		w.f.logf("watch: memory recovered before stopping %s", c.Note.ToolUseID)
 		return
 	}
-	s, err := snapshotNow()
+	s, err := w.snapshot()
 	if err != nil {
 		return
 	}
-	_, protected := w.agents(s, w.notes(s))
+	notes, err := w.notes(s)
+	if err != nil {
+		w.f.logf("watch: cannot read notes; not stopping %s: %v", c.Note.ToolUseID, err)
+		return
+	}
+	_, protected := w.agents(s, notes)
 	chosen := targets(s, c.Root, protected)
 	if len(chosen) == 0 {
 		// Nothing to signal: the root is gone or changed (the next tick stops
@@ -489,7 +611,7 @@ func (w *watcher) stop(c command, size uint64, children int) {
 // retried every tick.
 func (w *watcher) refused(c command) {
 	id := c.Note.ToolUseID
-	s, err := snapshotNow()
+	s, err := w.snapshot()
 	if err != nil || !s.alive(c.Root.PID, c.Root.Start) {
 		w.f.logf("watch: %s ended or could not be checked", id)
 		return
@@ -504,10 +626,10 @@ func (w *watcher) refused(c command) {
 	w.f.logf("watch: %s refused %d stops in a row; not chosen again", id, refusalLimit)
 }
 
-// signal sends SIGTERM, then SIGKILL once memory reaches the forced-stop line
-// or after five seconds, polling every 100 ms until the command's processes
-// are gone, and gives up after ten seconds. It reports whether any live
-// target was signalled.
+// signal sends SIGTERM, then SIGKILL once memory calls for a forced stop or
+// after five seconds, polling every 100 ms until the command's processes are
+// gone, and gives up after ten seconds. It reports whether any live target
+// was signalled.
 func (w *watcher) signal(chosen []target, id string) bool {
 	sent := false
 	for _, t := range chosen {
@@ -518,44 +640,64 @@ func (w *watcher) signal(chosen []target, id string) bool {
 	}
 	killed := false
 	for start := time.Now(); time.Since(start) < giveUp; time.Sleep(100 * time.Millisecond) {
-		if s, err := snapshotNow(); err == nil && !w.anyAlive(s) {
+		if s, err := w.snapshot(); err == nil && !w.anyAlive(s) {
 			return true
 		}
-		if !killed && escalateNow(start) {
-			w.escalate()
-			killed = true
+		if !killed && w.escalateNow(start) {
+			killed = w.escalate()
 		}
 	}
 	w.abandon(id)
 	return true
 }
 
-// escalateNow is true after five seconds or once memory reaches the
-// forced-stop line; memory is read only until then.
-func escalateNow(start time.Time) bool {
+// escalateNow is true after five seconds or once memory calls for a forced
+// stop; memory is read only until then.
+func (w *watcher) escalateNow(start time.Time) bool {
 	if time.Since(start) >= killAfter {
 		return true
 	}
 	m, err := readMemory()
-	return err == nil && decide(m) == forced
+	return err == nil && w.demand(m, time.Now()) == forced
 }
 
-// escalate sends SIGKILL, by PID, once to every stopped process still alive
-// and to anything started since under one still running, leaving out the
-// agents of the notes on disk now and everything under them. It does not
-// signal the group: a shell that died of SIGTERM was the group leader, and
-// once it is reaped the group is no longer known to be the command's, while a
-// child that ignored SIGTERM lives on under PID 1. A process started under one
-// that has since exited is out of reach (spec 12).
-func (w *watcher) escalate() {
-	s, err := snapshotNow()
+// escalate sends SIGKILL, by PID, once to each process escalation chooses. It
+// does not signal the group: a shell that died of SIGTERM was the group
+// leader, and once it is reaped the group is no longer known to be the
+// command's, while a child that ignored SIGTERM lives on under PID 1. It
+// reports false when the processes or notes could not be read, so the next
+// poll tries again.
+func (w *watcher) escalate() bool {
+	s, err := w.snapshot()
 	if err != nil {
-		return
+		return false
 	}
-	_, protected := w.agents(s, w.notes(s))
-	w.dropProtected(protected)
+	notes, err := w.notes(s)
+	if err != nil {
+		return false
+	}
+	_, protected := w.agents(s, notes)
+	kill, wait := escalation(s, w.stopped, protected)
+	w.stopped = wait
+	for _, p := range kill {
+		if !p.Zombie {
+			send(target{PID: p.PID, Start: p.Start}, unix.SIGKILL)
+		}
+	}
+	return true
+}
+
+// escalation chooses, from one snapshot, what escalate kills: every stopped
+// process still alive and anything started since under one, leaving out
+// protected processes (the agents of the notes on disk now, the watcher) with
+// everything under them, and each stopped process that is protected now or
+// sits under one that is (see dropProtected). wait is the stopped processes to
+// wait for: those kept, and the new ones. A process started under one that has
+// since exited is out of reach (spec 12).
+func escalation(s snapshot, stopped []proc, protected map[int]uint64) (kill, wait []proc) {
+	wait = dropProtected(slices.Clone(stopped), protected)
 	known := map[int]bool{}
-	for _, p := range w.stopped {
+	for _, p := range wait {
 		known[p.PID] = true
 	}
 	// The stopped processes' trees overlap, so a process already collected is
@@ -563,25 +705,22 @@ func (w *watcher) escalate() {
 	collected := map[int]bool{}
 	excluded := outside(protected)
 	skip := func(q proc) bool { return excluded(q) || collected[q.PID] }
-	var live []proc
-	for _, p := range w.stopped {
+	for _, p := range wait {
 		if !s.alive(p.PID, p.Start) {
 			continue
 		}
 		for _, q := range s.tree(p.PID, skip) {
 			collected[q.PID] = true
-			live = append(live, q)
+			kill = append(kill, q)
 		}
 	}
-	for _, p := range live {
-		if !p.Zombie {
-			send(target{PID: p.PID, Start: p.Start}, unix.SIGKILL)
-		}
+	for _, p := range kill {
 		if !known[p.PID] {
 			known[p.PID] = true
-			w.stopped = append(w.stopped, p)
+			wait = append(wait, p)
 		}
 	}
+	return kill, wait
 }
 
 // abandon gives up on a stopped command that is still running after ten
@@ -590,12 +729,13 @@ func (w *watcher) escalate() {
 // cannot be stopped never keeps the watcher from acting again.
 func (w *watcher) abandon(id string) {
 	var left []int
-	if s, err := snapshotNow(); err == nil {
-		_, protected := w.agents(s, w.notes(s))
-		w.dropProtected(protected)
-		for _, p := range w.stopped {
-			if s.alive(p.PID, p.Start) {
-				left = append(left, p.PID)
+	if s, err := w.snapshot(); err == nil {
+		if notes, err := w.notes(s); err == nil {
+			_, protected := w.agents(s, notes)
+			for _, p := range dropProtected(w.stopped, protected) {
+				if s.alive(p.PID, p.Start) {
+					left = append(left, p.PID)
+				}
 			}
 		}
 	}
@@ -635,10 +775,15 @@ func (s snapshot) alive(pid int, start uint64) bool {
 }
 
 // anyAlive reports whether a stopped process still runs, leaving out the
-// agents of the notes on disk now and everything under them.
+// agents of the notes on disk now and everything under them. Notes it cannot
+// read count as a process still running.
 func (w *watcher) anyAlive(s snapshot) bool {
-	_, protected := w.agents(s, w.notes(s))
-	w.dropProtected(protected)
+	notes, err := w.notes(s)
+	if err != nil {
+		return true
+	}
+	_, protected := w.agents(s, notes)
+	w.stopped = dropProtected(w.stopped, protected)
 	for _, p := range w.stopped {
 		if s.alive(p.PID, p.Start) {
 			return true
@@ -647,18 +792,19 @@ func (w *watcher) anyAlive(s snapshot) bool {
 	return false
 }
 
-// dropProtected removes from the stopped processes each one that is protected
-// now and each one whose parents within them lead to one that is: an agent
-// may leave its first note after its command's processes were taken. The
-// cooldown then no longer waits on that agent either.
-func (w *watcher) dropProtected(protected map[int]bool) {
-	byPID := make(map[int]proc, len(w.stopped))
-	for _, p := range w.stopped {
+// dropProtected removes, in place, from the stopped processes each one that
+// is protected now and each one whose parents within them lead to one that
+// is: an agent may leave its first note after its command's processes were
+// taken. The cooldown then no longer waits on that agent either.
+func dropProtected(stopped []proc, protected map[int]uint64) []proc {
+	excluded := outside(protected)
+	byPID := make(map[int]proc, len(stopped))
+	for _, p := range stopped {
 		byPID[p.PID] = p
 	}
 	underProtected := func(p proc) bool {
 		for seen := map[int]bool{}; !seen[p.PID]; {
-			if protected[p.PID] {
+			if excluded(p) {
 				return true
 			}
 			seen[p.PID] = true
@@ -670,5 +816,5 @@ func (w *watcher) dropProtected(protected map[int]bool) {
 		}
 		return false
 	}
-	w.stopped = slices.DeleteFunc(w.stopped, underProtected)
+	return slices.DeleteFunc(stopped, underProtected)
 }

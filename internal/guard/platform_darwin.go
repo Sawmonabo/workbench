@@ -5,6 +5,7 @@ package guard
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"time"
 	"unsafe"
 
@@ -32,7 +33,9 @@ func fromKinfo(k *unix.KinfoProc) proc {
 	}
 }
 
-func snapshotNow() (snapshot, error) {
+// snapshotNow lists every process. kern.proc.all reads them in one call, so
+// none is left out for want of a read.
+func snapshotNow(func(pid int, err error)) (snapshot, error) {
 	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, err
@@ -48,7 +51,7 @@ func snapshotNow() (snapshot, error) {
 func processInfo(pid int) (proc, error) {
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
-		return proc{}, err
+		return proc{}, fmt.Errorf("kern.proc.pid %d: %w", pid, err)
 	}
 	return fromKinfo(k), nil
 }
@@ -99,29 +102,31 @@ func readMemory() (memory, error) {
 }
 
 // footprint is the process's physical footprint, the figure Activity Monitor
-// shows, from the raw proc_info syscall: PROC_INFO_CALL_PIDRUSAGE (9),
-// flavor RUSAGE_INFO_V0 (0), whose ri_phys_footprint is the uint64 at offset
-// 72. x/sys has no wrapper and cgo's proc_pid_rusage would break
-// CGO_ENABLED=0 release builds, so this is the raw syscall, as
-// internal/operation/image_metadata_darwin.go does for ACLs; recheck the
-// layout on each major macOS release. The buffer is larger than the 96 bytes
-// rusage_info_v0 holds.
+// shows: libSystem's proc_pid_rusage with RUSAGE_INFO_V0 (0), whose
+// ri_phys_footprint is the uint64 at offset 72 of the 96-byte rusage_info_v0.
+// x/sys has no wrapper and cgo would break CGO_ENABLED=0 release builds, so
+// it is called as x/sys calls libSystem: through the runtime's
+// syscall.syscall and the trampoline in rusage_darwin.s.
 func footprint(pid int) (uint64, error) {
-	var info [256]byte
-	_, _, errno := unix.Syscall6(
-		unix.SYS_PROC_INFO, //nolint:staticcheck // See the function comment.
-		9,
-		uintptr(pid),
-		0,
-		0,
-		uintptr(unsafe.Pointer(&info[0])),
-		0,
-	)
+	var info [96]byte
+	_, _, errno := libcCall(procPidRusage, uintptr(pid), 0, uintptr(unsafe.Pointer(&info[0])))
 	if errno != 0 {
-		return 0, errno
+		return 0, fmt.Errorf("proc_pid_rusage %d: %w", pid, errno)
 	}
 	return binary.LittleEndian.Uint64(info[72:80]), nil
 }
+
+// procPidRusage is the address of the trampoline to libSystem's
+// proc_pid_rusage.
+var procPidRusage uintptr
+
+//go:cgo_import_dynamic libc_proc_pid_rusage proc_pid_rusage "/usr/lib/libSystem.B.dylib"
+
+// libcCall is the runtime's syscall.syscall, which calls a libSystem
+// function on the system stack and returns errno when it returns -1.
+//
+//go:linkname libcCall syscall.syscall
+func libcCall(fn, a1, a2, a3 uintptr) (r1, r2 uintptr, err unix.Errno)
 
 // send signals t once its start time still matches the snapshot it came
 // from; a process that exited, is a zombie or whose PID was reused is left

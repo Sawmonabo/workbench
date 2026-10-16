@@ -15,13 +15,29 @@ const (
 	forced         // SIGKILL
 )
 
+const (
+	// criticalLevel is macOS's critical pressure level, at which Jetsam starts
+	// killing processes. The warning level (2) only asks programs to trim
+	// caches and is common in ordinary use, so it calls for nothing.
+	criticalLevel = 4
+	// criticalHold is how long the critical level must last before it calls
+	// for a forced stop.
+	criticalHold = 2 * time.Second
+	// softHold is how long a soft condition must last before it calls for a
+	// polite stop, as systemd-oomd's DefaultMemoryPressureDurationSec does
+	// (Fedora ships 20 s).
+	softHold = 20 * time.Second
+)
+
 // memory is one reading of the machine's memory. On macOS Level is
-// kern.memorystatus_vm_pressure_level (1 normal, 2 warning, 4 critical) and
-// decides alone. On Linux Level is 0, Total is earlyoom's figure
-// (MemAvailable + AnonPages), so Available/Total is the share user memory can
-// still take, and FullAvg10 is /proc/pressure/memory's full avg10, -1 when
-// absent. Installed is the machine's RAM, which sets the floor below which a
-// command is too small to stop politely, and is named in the reason text.
+// kern.memorystatus_vm_pressure_level (1 normal, 2 warning, 4 critical),
+// which decides with the swap. On Linux Level is 0, Total is earlyoom's
+// figure (MemAvailable + AnonPages), so Available/Total is the share user
+// memory can still take, and FullAvg10 is the memory pressure file's full
+// avg10, -1 when absent. Installed is the machine's RAM, which sets the floor
+// below which the agent commands are too small to stop politely, and is named
+// in the reason text. In a cgroup with a lower memory limit, Linux reads that
+// cgroup instead and Installed is its limit (see confined).
 type memory struct {
 	Level               int
 	Available, Total    uint64
@@ -45,34 +61,39 @@ func (m memory) swapFreePercent() float64 {
 	return float64(m.SwapFree) * 100 / float64(m.SwapTotal)
 }
 
-// decide applies spec section 6.2. Pressure counts on Linux only with low
-// memory, because it stays high for seconds after memory is freed.
-func decide(m memory) action {
+// decide applies spec section 6.2 to one reading. soft marks a polite stop
+// called for by Linux's pressure condition alone, which counts only once it
+// has lasted softHold (see watcher.demand): pressure stays high for seconds
+// after memory is freed, so it counts only with low memory too. On macOS the
+// critical level calls for a polite stop, forced when at most a tenth of the
+// swap is free.
+func decide(m memory) (act action, soft bool) {
 	if m.Level > 0 {
 		switch {
-		case m.Level >= 4:
-			return forced
-		case m.Level >= 2:
-			return polite
+		case m.Level >= criticalLevel && m.swapFreePercent() <= 10:
+			return forced, false
+		case m.Level >= criticalLevel:
+			return polite, false
 		}
-		return nothing
+		return nothing, false
 	}
 	available, swap := m.availablePercent(), m.swapFreePercent()
 	switch {
 	case available <= 5 && swap <= 5:
-		return forced
+		return forced, false
 	case available <= 10 && swap <= 10:
-		return polite
+		return polite, false
 	case m.FullAvg10 >= 50 && available <= 20:
-		return polite
+		return polite, true
 	}
-	return nothing
+	return nothing, false
 }
 
-// floor is the least a command must hold to be stopped at a polite stop: a
-// tenth of the installed memory, at most 1 GiB. Stopping a smaller one frees
-// too little to end a shortage it did not cause, so the next command would be
-// stopped after the cooldown, and the next. A forced stop has no floor.
+// floor is the least the agent commands must hold together for the largest
+// to be stopped at a polite stop: a tenth of the installed memory, at most
+// 1 GiB. Stopping one of commands that hold less frees too little to end a
+// shortage they did not cause, so the next command would be stopped after the
+// cooldown, and the next. A forced stop has no floor.
 func (m memory) floor() uint64 {
 	return min(m.Installed/10, 1<<30)
 }
@@ -80,7 +101,7 @@ func (m memory) floor() uint64 {
 // delay is the time to the next tick. On Linux it follows earlyoom: the room
 // left above the polite-stop line over fill rates of 6000 MiB/s for memory
 // and 800 MiB/s for swap, clamped to 100 ms–1 s. On macOS it is 100 ms at
-// warning or above, else 1 s.
+// warning or above, so critical is seen at once, else 1 s.
 func delay(m memory) time.Duration {
 	if m.Level > 0 {
 		if m.Level >= 2 {
@@ -101,12 +122,8 @@ func reason(command string, children int, size uint64, m memory) string {
 	var state string
 	switch {
 	case m.Level > 0:
-		level := "warning"
-		if m.Level >= 4 {
-			level = "critical"
-		}
-		state = fmt.Sprintf("memory pressure %s, %s installed, %s of swap in use",
-			level, gigabytes(m.Installed), gigabytes(m.SwapTotal-m.SwapFree))
+		state = fmt.Sprintf("memory pressure critical, %s installed, %s of swap in use",
+			gigabytes(m.Installed), gigabytes(m.SwapTotal-m.SwapFree))
 	case m.SwapTotal == 0:
 		state = fmt.Sprintf("%s of %s available, no swap",
 			gigabytes(m.Available), gigabytes(m.Installed))

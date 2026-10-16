@@ -3,6 +3,7 @@ package guard
 import (
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -49,27 +50,41 @@ func (f folders) log() string             { return filepath.Join(f.root, "watch.
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
 
-// noteIDs are the IDs of the notes on disk. A temporary file from a write in
-// progress starts ".write-" (see [operation.ReplacePrivateFile]) and is
-// skipped, and deleted once it is over a minute old: the hook that wrote it
-// was killed before renaming it into place.
-func (f folders) noteIDs() []string {
-	entries, _ := os.ReadDir(f.notes)
+// noteIDs are the IDs of the notes on disk.
+func (f folders) noteIDs() ([]string, error) {
+	entries, err := listFolder(f.notes)
+	if err != nil {
+		return nil, err
+	}
 	var ids []string
 	for _, entry := range entries {
-		name := entry.Name()
-		if id, ok := strings.CutSuffix(name, ".json"); ok && idPattern.MatchString(id) {
+		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && idPattern.MatchString(id) {
 			ids = append(ids, id)
-			continue
 		}
-		if !strings.HasPrefix(name, ".write-") {
+	}
+	return ids, nil
+}
+
+// listFolder lists a guard folder without temporary files. One from a write
+// in progress starts ".write-" (see [operation.ReplacePrivateFile]) and is
+// deleted once it is over a minute old: the process that wrote it was killed
+// before renaming it into place.
+func listFolder(folder string) ([]fs.DirEntry, error) {
+	all, err := os.ReadDir(folder)
+	if err != nil {
+		return nil, err
+	}
+	var entries []fs.DirEntry
+	for _, entry := range all {
+		if !strings.HasPrefix(entry.Name(), ".write-") {
+			entries = append(entries, entry)
 			continue
 		}
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
-			_ = os.Remove(filepath.Join(f.notes, name))
+			_ = os.Remove(filepath.Join(folder, entry.Name()))
 		}
 	}
-	return ids
+	return entries, nil
 }
 
 // writeJSON replaces the private file at path with value, so a reader never

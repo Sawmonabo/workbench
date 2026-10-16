@@ -102,9 +102,13 @@ func (s snapshot) tree(root int, skip func(proc) bool) []proc {
 }
 
 // outside is the skip for a tree that may be signalled: protected processes
-// (agents that left a note, the watcher) and PID 0 and 1.
-func outside(protected map[int]bool) func(proc) bool {
-	return func(p proc) bool { return protected[p.PID] || p.PID <= 1 }
+// (agents that left a note, the watcher), each named by PID and start time so
+// a later process reusing a protected PID is not left out, and PID 0 and 1.
+func outside(protected map[int]uint64) func(proc) bool {
+	return func(p proc) bool {
+		start, ok := protected[p.PID]
+		return ok && start == p.Start || p.PID <= 1
+	}
 }
 
 // command is an agent command the watcher tracks: the agent's direct child
