@@ -124,16 +124,7 @@ func startWatcher(f folders) {
 		return
 	}
 	release()
-	log, err := os.OpenFile(f.log(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer func() { _ = log.Close() }()
-	executable, err := os.Executable()
-	if err == nil {
-		err = operation.StartDetached(executable, []string{"guard", "watch"}, log)
-	}
-	if err != nil {
+	if err = operation.StartDetached([]string{"guard", "watch"}, f.log()); err != nil {
 		f.logf("pre: cannot start the watcher: %v", err)
 	}
 }

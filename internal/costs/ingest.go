@@ -22,7 +22,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-const logKeep = 200 * 1024
+const logLimit = 400 * 1024
 
 // IngestOptions says what the worker was started for.
 type IngestOptions struct {
@@ -80,7 +80,6 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 		return "skipped: another worker holds the lock", nil
 	}
 	defer release()
-	truncateLog(paths)
 	summary, err = ingestLocked(ctx, paths, opts)
 	if err != nil {
 		writeLog(paths, "error: "+err.Error())
@@ -735,24 +734,9 @@ func clipRunes(s string, n int) string {
 }
 
 // writeLog appends one timestamped line to the worker log, in the folder
-// [Ingest] made.
+// [Ingest] made, cut once it is over 400 KB (see [operation.AppendLog]).
 func writeLog(paths Paths, message string) {
-	file, err := os.OpenFile(paths.log(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer func() { _ = file.Close() }()
-	_, _ = fmt.Fprintf(file, "%s %s\n", stamp(time.Now()), message)
-}
-
-// truncateLog keeps the most recent 200 KB of the log, from a line start.
-func truncateLog(paths Paths) {
-	data, err := os.ReadFile(paths.log())
-	if err != nil || len(data) <= logKeep {
-		return
-	}
-	tail := data[len(data)-logKeep:]
-	_ = os.WriteFile(paths.log(), tail[bytes.IndexByte(tail, '\n')+1:], 0o600)
+	operation.AppendLog(paths.log(), stamp(time.Now())+" "+message, logLimit)
 }
 
 // Hook is the hook entry. Claude Code and Codex pipe a JSON object
@@ -786,20 +770,10 @@ func startWorker(event, transcript, session string) error {
 	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
 		return err
 	}
-	logFile, err := os.OpenFile(paths.log(), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = logFile.Close() }()
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
 	// "--" keeps a value that starts with a dash from being read as a flag.
 	return operation.StartDetached(
-		executable,
 		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},
-		logFile,
+		paths.log(),
 	)
 }
 

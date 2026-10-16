@@ -13,7 +13,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-const logCap = 1 << 20
+const logLimit = 1 << 20
 
 // idPattern is a tool_use_id that may name a file; any other call is not
 // guarded.
@@ -98,22 +98,13 @@ func readJSON(path string, value any) error {
 	return json.Unmarshal(data, value)
 }
 
-// logf appends one line to the guard log, first copying a log over 1 MiB to
-// watch.log.1, which replaces the one before, and emptying it. The log is
-// emptied, not moved, because the watcher's stderr stays open on it.
+// logf appends one line to the guard log, cut once it is over 1 MiB
+// (see [operation.AppendLog]).
 func (f folders) logf(format string, args ...any) {
-	path := f.log()
-	if info, err := os.Stat(path); err == nil && info.Size() > logCap {
-		data, err := os.ReadFile(path)
-		if err == nil && os.WriteFile(path+".1", data, 0o600) == nil {
-			_ = os.Truncate(path, 0)
-		}
-	}
-	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer func() { _ = file.Close() }()
-	_, _ = fmt.Fprintf(file, "%s %d %s\n", time.Now().Format(time.RFC3339), os.Getpid(),
-		fmt.Sprintf(format, args...))
+	operation.AppendLog(
+		f.log(),
+		fmt.Sprintf("%s %d %s", time.Now().Format(time.RFC3339), os.Getpid(),
+			fmt.Sprintf(format, args...)),
+		logLimit,
+	)
 }

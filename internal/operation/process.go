@@ -264,14 +264,23 @@ func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), e
 	}, nil
 }
 
-// StartDetached starts executable with args in a new session and returns at
-// once: stdin is the null device, stdout and stderr go to log, the working
-// folder is /, so the child never holds the caller's folder in use, and the
-// child is released, so it outlives the caller and nobody waits for it. It is
-// only for Workbench re-executing itself (os.Executable), as the costs hook
-// does to start its ingest worker; it inherits the caller's environment and
-// never runs a third-party tool. Tools go through [Run].
-func StartDetached(executable string, args []string, log *os.File) error {
+// StartDetached starts this Workbench executable (os.Executable) with args
+// in a new session and returns at once: stdin is the null device, stdout and
+// stderr are appended to the log at logPath (made 0600), the working folder
+// is /, so the child never holds the caller's folder in use, and the child is
+// released, so it outlives the caller and nobody waits for it. The costs hook
+// starts its ingest worker with it, and the guard's pre hook its watcher; the
+// child inherits the caller's environment. Tools go through [Run].
+func StartDetached(args []string, logPath string) error {
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	log, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = log.Close() }()
 	null, err := os.Open(os.DevNull)
 	if err != nil {
 		return err
@@ -285,6 +294,26 @@ func StartDetached(executable string, args []string, log *os.File) error {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// AppendLog appends line and a newline to the log at path, made 0600. A log
+// over limit bytes is first cut to its newest half, from a line start. The cut
+// rewrites the same file rather than replacing it, because a child that
+// [StartDetached] started keeps its stdout and stderr open on it. A log that
+// can't be written loses the line: logging never fails its caller.
+func AppendLog(path, line string, limit int) {
+	if info, err := os.Stat(path); err == nil && info.Size() > int64(limit) {
+		if data, err := os.ReadFile(path); err == nil && len(data) > limit {
+			tail := data[len(data)-limit/2:]
+			_ = os.WriteFile(path, tail[bytes.IndexByte(tail, '\n')+1:], 0o600)
+		}
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = file.Close() }()
+	_, _ = file.WriteString(line + "\n")
 }
 
 // ReadHookInput reads the JSON a Claude Code or Codex hook gets on stdin: at
