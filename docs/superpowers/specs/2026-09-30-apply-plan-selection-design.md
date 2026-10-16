@@ -339,10 +339,9 @@ refused it); `--approve-plan` is for a caller that read the plan first.
   stops the plan at once with the interrupted exit (130); it is never shown
   as a failed probe.
 - A script that fails mid-apply does not stop the scripts after it
-  (`--keep-going`). The result lists the
-  checked effects, the failure's last lines and the checkpoint ID for the
-  files; which effects ran is what chezmoi's script state says, and rerunning
-  `apply` resumes from it.
+  (`--keep-going`). The result lists the checked effects, the failure's last
+  lines and the checkpoint ID for the files; which effects ran is what
+  chezmoi's script state says, and rerunning `apply` resumes from it.
 - `--local-build` outside a Workbench checkout: exit 2.
 - `update` with no newer release: `[WorkBench] v0.1.8 is already installed`,
   exit 0, no apply.

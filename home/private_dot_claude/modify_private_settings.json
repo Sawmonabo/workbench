@@ -17,14 +17,15 @@
   {{- $_ := set $enforced.permissions $list (concat $managed $granted | uniq) -}}
 {{- end -}}
 {{- /* An enforced hook that runs `workbench ` names it without a folder;
-       each runs the installed workbench (the workbench-command template). A live group that
-       runs `workbench costs`, by any path, is a copy of an enforced hook,
-       possibly from an older release or another bin folder; drop it so a
-       changed managed hook replaces its old copy instead of running beside it.
-       A group that runs `workbench guard` is likewise a copy of the managed
-       guard hook. A group that runs ~/.local/bin/claude-costs, the script this
-       replaced, goes too: the same apply removes that script (.chezmoiremove),
-       so its hook could only fail. */ -}}
+       each runs the installed workbench (the workbench-command template).
+       A live group that runs `workbench costs`, by any path, is a copy of an
+       enforced hook, possibly from an older release or another bin folder;
+       drop it so a changed managed hook replaces its old copy instead of
+       running beside it. A group that runs `workbench guard` is likewise a
+       copy of the managed guard hook. A group that runs
+       ~/.local/bin/claude-costs, the script this replaced, goes too: the same
+       apply removes that script (.chezmoiremove), so its hook could only
+       fail. */ -}}
 {{- $workbench := includeTemplate "workbench-command" (dict "root" . "tilde" true) -}}
 {{- range $event, $groups := $enforced.hooks -}}
   {{- range $group := $groups -}}

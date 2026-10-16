@@ -483,11 +483,11 @@ synthetic answers.
 ### Costs
 
 - On 2026-10-01, a WSL2 host's full Codex history (thousands of rollouts, tens
-  of gigabytes) was ingested into an empty scratch ledger, in memory and on
-  disk, in under a minute; its responses and tier tables were byte-identical
-  to those of a ledger built in two runs whose second finished half-written
-  rollouts. A second run with nothing new
-  took well under a second. Per-model response and token counts matched an
+  of gigabytes) was ingested into an empty scratch ledger held in memory in 18
+  seconds and into one on the host's disk in 24 to 26 seconds; its responses
+  and tier tables were byte-identical to those of a ledger built in two runs
+  whose second finished half-written rollouts. A second run with nothing new
+  took 0.3 seconds. Per-model response and token counts matched an
   independent Python count for one record-era month and one legacy month,
   apart from responses timestamped on the first of the next month in UTC whose
   rollouts sit in the previous month's dated folders: the script dated them by
@@ -499,28 +499,27 @@ synthetic answers.
   an existing approved `UserPromptSubmit` hook was reproduced exactly.
   Applying them to a real machine is not yet observed.
 - On 2026-10-01, the same host's Claude Code transcripts and Codex rollouts,
-  read through links, were ingested read-only into an empty scratch ledger,
-  and an ingest without the nested-subagent root walk ingested the same files
-  into another: both held the same rows, and no row's time, model, project, session, tool or
-  counts differed. The Codex rows took their plan from their rollouts. On that
-  first ingest every Claude Code row had email and subscription `unknown`, as
-  no sign-in had been observed yet, and each Codex row carried a plan, an
-  email, both or neither as its rollout named them. Rows of depth-2 subagents
-  of Codex 0.118 to 0.134, which that ingest stored under their parent
-  thread, were stored under their root thread; no row's root names a thread
-  that has a parent. Ingesting the rollouts that are not a
-  parent of another first and the parents second, or the parents first, gave
-  the same roots and attribution as one pass. A simulated `SessionStart` hook
-  for a synthetic Claude Code session stored one `session_accounts` binding,
-  and the session's rows took `session` evidence for both email and
-  subscription; a second session with no hook took `observed`. The hook
-  process returned in under a tenth of a second. A hook naming a Codex rollout
-  bound a Codex session, and one naming a path under neither tool logged that
-  the session was not bound. `costs status` reported Claude Code hooks as
-  `missing (workbench apply)` for a settings file with the old `async` hooks
-  and `ok` for the synchronous ones. The real Claude Code sign-in was not read
-  in this run (a synthetic `oauthAccount` stood in), and a running session's
-  behavior after a `/login` elsewhere is not observed.
+  read through links, were ingested read-only into an empty scratch ledger, and
+  an ingest without the nested-subagent root walk ingested the same files into
+  another: both held the same rows, and no row's time, model, project, session,
+  tool or counts differed. The Codex rows took their plan from their rollouts.
+  On that first ingest every Claude Code row had email and subscription
+  `unknown`, as no sign-in had been observed yet, and each Codex row carried a
+  plan, an email, both or neither as its rollout named them. Rows of depth-2
+  subagents of Codex 0.118 to 0.134, which that ingest stored under their parent
+  thread, were stored under their root thread; no row's root names a thread that
+  has a parent. Ingesting the rollouts that are not a parent of another first
+  and the parents second, or the parents first, gave the same roots and
+  attribution as one pass. A simulated `SessionStart` hook for a synthetic
+  Claude Code session stored one `session_accounts` binding, and the session's
+  rows took `session` evidence for both email and subscription; a second session
+  with no hook took `observed`. The hook process returned in under a tenth of a
+  second. A hook naming a Codex rollout bound a Codex session, and one naming a
+  path under neither tool logged that the session was not bound. `costs status`
+  reported Claude Code hooks as `missing (workbench apply)` for a settings file
+  with the old `async` hooks and `ok` for the synchronous ones. The real Claude
+  Code sign-in was not read in this run (a synthetic `oauthAccount` stood in),
+  and a running session's behavior after a `/login` elsewhere is not observed.
 
 - Fast-mode Claude Code responses are priced at `@fast` rates, a specific rate
   row beats a family row except for a manual override, the ledger is created
@@ -559,16 +558,15 @@ synthetic answers.
   plan; review a new plan`) before applying anything; `migrate --apply
   --approve-plan` under another data folder exited 4 the same way.
 - On 2026-10-16, on macOS, the Claude Code and Codex hooks rendered with
-  Workbench's bin folder: `render-check.sh` with the default bin folder
-  rendered byte-identical to hooks with the fixed `~/.local/bin` path, a bin
-  folder holding a space
-  planned Claude Code settings +5/−5 lines, Codex `config.toml` +4/−4 and
-  `hooks.json` +4/−4, with the quoted path on every hook and Codex trusting
-  each by its hash, and switching back rendered identical. Its stage "hooks
-  follow a bin folder with a space" passed, and failed against hooks with the
-  fixed path (9 `BIN FAIL` lines). `costs status` with a spaced,
-  quoted bin path reported both tools' hooks `ok`, and `missing` when the
-  Claude Code path was altered.
+  Workbench's bin folder: `render-check.sh` with the default bin folder rendered
+  byte-identical to hooks with the fixed `~/.local/bin` path, a bin folder
+  holding a space planned Claude Code settings +5/−5 lines, Codex `config.toml`
+  +4/−4 and `hooks.json` +4/−4, with the quoted path on every hook and Codex
+  trusting each by its hash, and switching back rendered identical. Its stage
+  "hooks follow a bin folder with a space" passed, and failed against hooks with
+  the fixed path (9 `BIN FAIL` lines). `costs status` with a spaced, quoted bin
+  path reported both tools' hooks `ok`, and `missing` when the Claude Code path
+  was altered.
 
 ### Agent command guard
 
