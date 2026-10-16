@@ -1161,5 +1161,8 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 		}
 		return conflictError(after.Text)
 	}
+	if moveErr != nil {
+		writeLog(paths, "the ledger moved, but not every costs file: "+moveErr.Error())
+	}
 	return nil
 }
