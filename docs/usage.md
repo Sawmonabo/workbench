@@ -146,6 +146,24 @@ holds them, so the ledger keeps them as it reads them. See the
 [ledger design](superpowers/specs/2026-09-30-claude-costs-ledger-design.md) and
 [subscriptions](superpowers/specs/2026-10-01-codex-costs-design.md).
 
+Claude Code and Codex shell commands are guarded against running the machine
+out of memory. A `Bash` hook notes each command and starts one watcher per
+user. When memory is nearly gone, the watcher stops the largest command an
+agent started, with everything it started: `SIGTERM` first, `SIGKILL` after 5
+seconds or when memory is nearly exhausted. Nearly gone means the macOS
+memory-pressure warning; on Linux and WSL2, at most a tenth of usable memory
+left with at most a tenth of swap free (no swap counts as none free), or memory
+stalls half the time with at most a fifth left. The agent is told why in the
+tool result (for a command sent to the background, only in the log). It never
+stops the agent, its MCP servers, hooks or anything else, never changes how a
+command runs, and a guard fault leaves a command unguarded and never blocks it.
+Programs a command detaches from itself (`nohup` with `setsid`) are not
+tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
+`WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes and the log
+(`watch.log`) are in Workbench's state folder under `guard/`. The hooks are
+hidden `workbench guard` commands. See the
+[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md).
+
 ## Approval and automation
 
 Each planned file carries a plain `title`, whether Workbench `merged` its settings into the file (your own keys are kept) or owns the whole file, its `added` and `removed` line counts, for a merged JSON or TOML file the number of `settings` that change, and a `summary`. A file Workbench owns that you edited since it last wrote it (by its last checkpoint, else chezmoi's own record of what it wrote) is marked `edited_outside`, and applying replaces your edit. The plan view also shows each file's diff (secrets masked); the diff text is for the screen only and is not in `--json` or the plan digest. For a merged JSON or TOML file whose old and new content both parse, the view lists the changed settings instead of lines (`~ hooks.SessionStart[0].hooks[0].timeout  10 → 5`, `+ … added`, `- … removed`; a list of plain values is compared as a set) and counts them as `N settings changed`, because the merge re-orders the whole file; any other file shows its line diff.

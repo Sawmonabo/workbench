@@ -15,6 +15,11 @@ import (
 // holds the workbench command.
 type Paths struct{ Config, Data, State, Cache, Bin string }
 
+// MigrateLock is the lock one run of Workbench's migrations holds while it
+// moves files, whether `workbench migrate` or the costs import worker runs it
+// (see internal/migrate).
+func (p Paths) MigrateLock() string { return filepath.Join(p.State, "locks", "migrate.lock") }
+
 // Scope is what an operation may change: the machine destination or one
 // canonical project root.
 type Scope struct {

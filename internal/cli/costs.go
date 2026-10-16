@@ -385,11 +385,7 @@ func costsIngestCommand(o *options) *cobra.Command {
 		Args: cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !worker {
-				if stdin, ok := cmd.InOrStdin().(*os.File); ok {
-					costs.Hook(stdin)
-				} else {
-					costs.Hook(nil)
-				}
+				costs.Hook(stdinFile(cmd))
 				return nil
 			}
 			return o.costsRun(cmd, func(result *operation.Result) error {

@@ -99,7 +99,7 @@ acceptance checks.
 ## Development
 
 One Go module, thin `cmd/workbench`, focused
-`internal/{cli,operation,machine,release,project,costs}` packages, canonical machine
+`internal/{cli,operation,machine,release,project,costs,guard,jsonc}` packages, canonical machine
 sources in `home/`, portable policy in `project/`. Reuse native owners and shared
 operations; no competing installers, compatibility layers or migration machinery.
 

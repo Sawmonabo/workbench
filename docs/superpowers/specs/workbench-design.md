@@ -39,6 +39,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
 | `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
+| `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
 | `home/.chezmoitemplates/` | Shared shell/native configuration fragments and merges. |
@@ -100,6 +101,7 @@ internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
 internal/project/                  Discovery and project configuration
 internal/costs/                    AI-tool cost ledger and reports
+internal/guard/                    Agent command memory guard
 home/                             Existing canonical machine configuration
 project/python/                   Portable configuration policy, not app scaffolding
 scripts/                          Existing validation plus release tooling

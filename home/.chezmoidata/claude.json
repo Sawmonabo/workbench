@@ -74,6 +74,30 @@
               { "type": "command", "command": "~/.local/bin/workbench costs ingest", "timeout": 5 }
             ]
           }
+        ],
+        "PreToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [
+              { "type": "command", "command": "~/.local/bin/workbench guard pre || true", "timeout": 5 }
+            ]
+          }
+        ],
+        "PostToolUse": [
+          {
+            "matcher": "Bash",
+            "hooks": [
+              { "type": "command", "command": "~/.local/bin/workbench guard post || true", "timeout": 5 }
+            ]
+          }
+        ],
+        "PostToolUseFailure": [
+          {
+            "matcher": "Bash",
+            "hooks": [
+              { "type": "command", "command": "~/.local/bin/workbench guard post || true", "timeout": 5 }
+            ]
+          }
         ]
       },
       "enabledPlugins": {

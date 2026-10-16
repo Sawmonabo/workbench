@@ -66,7 +66,7 @@ func staleDirectories(c operation.Context, keep []string) ([]operation.Edit, err
 	if err != nil {
 		return nil, err
 	}
-	if err = PrivateDirectory(c.Paths.Data, root, false); err != nil {
+	if err = PrivateTree(c.Paths.Data, root, false); err != nil {
 		return nil, err
 	}
 	var stale []operation.Edit

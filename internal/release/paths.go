@@ -8,9 +8,14 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// PrivateDirectory rejects redirected, borrowed or permissive private trees.
-// It never repairs modes or follows links while creating a selected descendant.
-func PrivateDirectory(root, target string, create bool) error {
+// PrivateTree rejects redirected, borrowed or permissive private trees: no
+// folder from target up may be a link or a file, and each one within root
+// must be this user's with mode 0700. With create it then makes the missing
+// folders; without, a missing one fails. It never repairs modes or follows
+// links while creating a selected descendant. Unlike
+// [operation.PrivateDirectory] it checks every level and can check without
+// creating.
+func PrivateTree(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !operation.Within(root, target) {
 		return operation.Fail(
 			operation.ExitInvalid,

@@ -340,7 +340,7 @@ func acquireTool(
 		return operation.Dependency{}, err
 	}
 	directory := filepath.Join(c.Paths.Data, "tools", name, version)
-	if err = release.PrivateDirectory(c.Paths.Data, directory, true); err != nil {
+	if err = release.PrivateTree(c.Paths.Data, directory, true); err != nil {
 		return operation.Dependency{}, err
 	}
 	executable := filepath.Join(directory, name)
@@ -365,10 +365,10 @@ func acquirePython(
 ) (operation.Dependency, error) {
 	install := filepath.Join(c.Paths.Data, "tools", "python", requirements.Python)
 	cache := filepath.Join(c.Paths.Cache, "uv")
-	if err := release.PrivateDirectory(c.Paths.Cache, cache, true); err != nil {
+	if err := release.PrivateTree(c.Paths.Cache, cache, true); err != nil {
 		return operation.Dependency{}, err
 	}
-	if err := release.PrivateDirectory(c.Paths.Data, install, true); err != nil {
+	if err := release.PrivateTree(c.Paths.Data, install, true); err != nil {
 		return operation.Dependency{}, err
 	}
 	_, err := operation.Run(ctx, c, m, operation.Process{
@@ -430,7 +430,7 @@ func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requi
 	}
 	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
 	lib := filepath.Join(directory, "lib")
-	if err = release.PrivateDirectory(c.Paths.Data, lib, true); err != nil {
+	if err = release.PrivateTree(c.Paths.Data, lib, true); err != nil {
 		return err
 	}
 	files, err := wheelFiles(wheel)
@@ -439,7 +439,7 @@ func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requi
 	}
 	for name, data := range files {
 		target := filepath.Join(lib, name)
-		if err = release.PrivateDirectory(c.Paths.Data, filepath.Dir(target), true); err != nil {
+		if err = release.PrivateTree(c.Paths.Data, filepath.Dir(target), true); err != nil {
 			return err
 		}
 		if err = writeNewOrIdentical(target, data, 0o600); err != nil {
@@ -584,7 +584,7 @@ func InstallHint(c operation.Context) string {
 // member before the caller gives that directory to isolated Python.
 func TomlkitPath(c operation.Context, requirements Requirements) (string, error) {
 	directory := filepath.Join(c.Paths.Data, "tools", "tomlkit", requirements.Tomlkit)
-	if err := release.PrivateDirectory(c.Paths.Data, directory, false); err != nil {
+	if err := release.PrivateTree(c.Paths.Data, directory, false); err != nil {
 		return "", err
 	}
 	info, err := os.Lstat(filepath.Join(directory, "distribution.whl"))
@@ -613,7 +613,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 			return walkErr
 		}
 		if entry.IsDir() {
-			return release.PrivateDirectory(c.Paths.Data, full, false)
+			return release.PrivateTree(c.Paths.Data, full, false)
 		}
 		name, relErr := filepath.Rel(library, full)
 		if relErr != nil {
@@ -692,12 +692,12 @@ func Setup(
 		"application-contexts",
 		identity.Release+"-"+identity.ContentDigest,
 	)
-	if err = release.PrivateDirectory(c.Paths.Data, contextDirectory, true); err != nil {
+	if err = release.PrivateTree(c.Paths.Data, contextDirectory, true); err != nil {
 		return c, err
 	}
 	for name, data := range files {
 		target := filepath.Join(contextDirectory, name)
-		if err = release.PrivateDirectory(c.Paths.Data, filepath.Dir(target), true); err != nil {
+		if err = release.PrivateTree(c.Paths.Data, filepath.Dir(target), true); err != nil {
 			return c, err
 		}
 		if err = writeNewOrIdentical(target, data, 0o600); err != nil {
@@ -829,7 +829,7 @@ func privateEntries(c operation.Context, directory string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err = release.PrivateDirectory(c.Paths.Data, directory, false); err != nil {
+	if err = release.PrivateTree(c.Paths.Data, directory, false); err != nil {
 		return nil, err
 	}
 	names := make([]string, 0, len(entries))

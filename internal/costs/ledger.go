@@ -29,9 +29,10 @@ import (
 // is the only lasting record.
 type Paths struct {
 	Home      string
-	Ledger    string // the durable record
-	State     string // ingest.log and ingest.lock
-	Overrides string // manual per-model rates, highest priority
+	Runtime   operation.Paths // Workbench's runtime folders the paths below sit in
+	Ledger    string          // the durable record
+	State     string          // ingest.log and ingest.lock
+	Overrides string          // manual per-model rates, highest priority
 }
 
 // Locations resolves [Paths] from the environment.

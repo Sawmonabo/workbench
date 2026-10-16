@@ -39,3 +39,8 @@ func privateFilesystem(path string) error {
 		)
 	}
 }
+
+// renameNoReplace is renameat2 with RENAME_NOREPLACE.
+func renameNoReplace(from, to string) error {
+	return unix.Renameat2(unix.AT_FDCWD, from, unix.AT_FDCWD, to, unix.RENAME_NOREPLACE)
+}

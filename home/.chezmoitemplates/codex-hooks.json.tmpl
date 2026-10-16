@@ -1,4 +1,5 @@
-{{- $ingest := printf "%s/.local/bin/workbench" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s' costs ingest" -}}
+{{- $workbench := printf "%s/.local/bin/workbench" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" -}}
+{{- $ingest := printf "%s costs ingest" $workbench -}}
 {
   "hooks": {
     "SessionStart": [
@@ -12,6 +13,22 @@
       {
         "hooks": [
           { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 3 }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": {{ printf "%s guard pre || true" $workbench | toJson }}, "timeout": 5 }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          { "type": "command", "command": {{ printf "%s guard post || true" $workbench | toJson }}, "timeout": 5 }
         ]
       }
     ]{{ if .has_work }},

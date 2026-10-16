@@ -69,9 +69,10 @@ and does not authorize application.
   are written only when missing, so what you pick in a session survives apply.
   Its `enforced` policy (env, permissions, hooks, plugins, marketplaces, status
   line) wins every apply. Permission lists keep entries granted in a session, and
-  so do the hook lists of the enforced events (`SessionStart`, `SessionEnd`): a
-  hook you add survives next to the managed one. A hook group that runs
-  `workbench costs` counts as a copy of the managed hook and is replaced by it,
+  so do the hook lists of the enforced events (`SessionStart`, `SessionEnd`,
+  `PreToolUse`, `PostToolUse`, `PostToolUseFailure`): a hook you add survives
+  next to the managed one. A hook group that runs `workbench costs` or
+  `workbench guard` counts as a copy of the managed hook and is replaced by it,
   so editing the managed entry itself, for example its timeout, is undone. Keys
   the repo doesn't know are left alone, and malformed JSON fails the apply.
   Apply only adds and overwrites: an entry or key you drop from `enforced`

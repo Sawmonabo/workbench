@@ -150,7 +150,8 @@ command = "echo user-pretool"
 LIVE
 # The second SessionStart group is an older release's copy of the managed hook
 # (different timeout); it must be replaced, not kept beside the current one.
-printf '%s\n' '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo user-start"}]},{"hooks":[{"type":"command","command":"~/.local/bin/workbench costs ingest","timeout":1}]}]}}' > "$dest/.claude/settings.json"
+# The same holds for an older guard PreToolUse group next to a user's own.
+printf '%s\n' '{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"echo user-start"}]},{"hooks":[{"type":"command","command":"~/.local/bin/workbench costs ingest","timeout":1}]}],"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"/old/workbench guard pre","timeout":9}]},{"matcher":"Edit","hooks":[{"type":"command","command":"echo user-edit-pretool"}]}]}}' > "$dest/.claude/settings.json"
 for relative in .codex/config.toml .claude/settings.json; do
     "${chez[@]}" cat "$dest/$relative" > "$tmp/merge-1" || { echo "MERGE FAIL: $relative did not render"; fail=1; continue; }
     cp "$tmp/merge-1" "$dest/$relative"
@@ -163,6 +164,11 @@ done
 grep -qF 'echo user-start' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the user SessionStart hook'; fail=1; }
 grep -qF 'costs ingest' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the managed hook'; fail=1; }
 [ "$(grep -cF 'costs ingest' "$dest/.claude/settings.json")" = 2 ] || { echo 'MERGE FAIL: claude settings kept a stale copy of the managed hook'; fail=1; }
+grep -qF 'echo user-edit-pretool' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the user PreToolUse hook'; fail=1; }
+guard_pre=$(grep -cF 'workbench guard pre' "$dest/.claude/settings.json" || true)
+[ "$guard_pre" = 0 ] && { echo 'MERGE FAIL: claude settings lost the guard hook'; fail=1; }
+[ "$guard_pre" -gt 1 ] && { echo 'MERGE FAIL: claude settings kept a stale copy of the guard hook'; fail=1; }
+grep -qF '/old/workbench guard' "$dest/.claude/settings.json" && { echo 'MERGE FAIL: claude settings kept the old guard hook'; fail=1; }
 cp "$tmp/codex-valid" "$dest/.codex/config.toml"
 cp "$tmp/claude-valid" "$dest/.claude/settings.json"
 
@@ -231,14 +237,15 @@ if grep -rIn -E '"[a-z0-9-]+@[0-9.]+"' "$repo/home/.chezmoidata/packages.toml"; 
     echo "LEAK: versioned package name in packages.toml"; fail=1
 fi
 
-echo "==> [$role/$mode] codex ingest hooks are installed and trusted"
+echo "==> [$role/$mode] codex and claude hooks are installed (codex's trusted)"
 # Each session event runs the ingest hook, and config.toml records a
 # trusted_hash under that hook's own key, which starts with the hooks.json
 # path Codex sees: the home directory chezmoi rendered with, not $dest.
 hooks_path="$("${chez[@]}" execute-template '{{ .chezmoi.homeDir }}')/.codex/hooks.json"
-python3 - "$dest/.codex" "$hooks_path" <<'PY' || fail=1
+python3 - "$dest" "$hooks_path" <<'PY' || fail=1
 import json, sys, tomllib
-codex, path = sys.argv[1], sys.argv[2]
+dest, path = sys.argv[1], sys.argv[2]
+codex = dest + "/.codex"
 hooks = json.load(open(codex + "/hooks.json"))["hooks"]
 state = tomllib.load(open(codex + "/config.toml", "rb")).get("hooks", {}).get("state", {})
 bad = 0
@@ -250,6 +257,27 @@ for event, label in (("SessionStart", "session_start"), ("SessionEnd", "session_
     ]
     if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
         print(f"HOOKS FAIL: codex {event} ingest hook or its trust missing")
+        bad = 1
+# The guard hooks run on Bash calls, end in `|| true` so a failing guard can
+# never block one, and are trusted in the Codex config like the ingest hooks.
+for event, label, verb in (("PreToolUse", "pre_tool_use", "pre"), ("PostToolUse", "post_tool_use", "post")):
+    found = [
+        (g, h) for g, group in enumerate(hooks.get(event, [])) if group.get("matcher") == "Bash"
+        for h, hook in enumerate(group.get("hooks", []))
+        if hook.get("type") == "command" and hook.get("command", "").endswith(f" guard {verb} || true")
+    ]
+    if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
+        print(f"HOOKS FAIL: codex {event} guard hook or its trust missing")
+        bad = 1
+claude = json.load(open(dest + "/.claude/settings.json"))["hooks"]
+for event, verb in (("PreToolUse", "pre"), ("PostToolUse", "post"), ("PostToolUseFailure", "post")):
+    if not any(
+        group.get("matcher") == "Bash" and any(
+            hook.get("type") == "command" and hook.get("command", "").endswith(f" guard {verb} || true")
+            for hook in group.get("hooks", []))
+        for group in claude.get(event, [])
+    ):
+        print(f"HOOKS FAIL: claude {event} guard hook missing")
         bad = 1
 sys.exit(bad)
 PY

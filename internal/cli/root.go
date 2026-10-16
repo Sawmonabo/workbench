@@ -109,6 +109,7 @@ func newRoot(o *options) *cobra.Command {
 		vscodeSettingsCommand(o),
 		askpassCommand(o),
 		costsCommand(o),
+		guardCommand(),
 	)
 	registerCompletions(root)
 	return root

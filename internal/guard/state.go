@@ -1,0 +1,122 @@
+package guard
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
+)
+
+const logCap = 1 << 20
+
+// idPattern is a tool_use_id that may name a file; any other call is not
+// guarded.
+var idPattern = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+
+// kill is the record the watcher leaves for the post hook, which reads only
+// Reason; ToolUseID and At are for a person reading the record.
+type kill struct {
+	ToolUseID string    `json:"tool_use_id"`
+	Reason    string    `json:"reason"`
+	At        time.Time `json:"at"`
+}
+
+// folders is <state>/guard and its notes and killed folders, each private.
+type folders struct{ root, notes, killed string }
+
+func openFolders() (folders, error) {
+	c, err := operation.Resolve(operation.Options{ReadOnly: true})
+	if err != nil {
+		return folders{}, err
+	}
+	var f folders
+	if f.root, err = operation.PrivateDirectory(c.Paths.State, "guard"); err != nil {
+		return folders{}, err
+	}
+	if f.notes, err = operation.PrivateDirectory(c.Paths.State, "guard/notes"); err != nil {
+		return folders{}, err
+	}
+	if f.killed, err = operation.PrivateDirectory(c.Paths.State, "guard/killed"); err != nil {
+		return folders{}, err
+	}
+	return f, nil
+}
+
+func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }
+func (f folders) log() string             { return filepath.Join(f.root, "watch.log") }
+func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
+func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
+
+// noteIDs are the IDs of the notes on disk. A temporary file from a write in
+// progress ends in ".tmp-<pid>" and is skipped, and deleted once it is over a
+// minute old: the pre hook was killed between writing it and renaming it into
+// place.
+func (f folders) noteIDs() []string {
+	entries, _ := os.ReadDir(f.notes)
+	var ids []string
+	for _, entry := range entries {
+		name := entry.Name()
+		if id, ok := strings.CutSuffix(name, ".json"); ok && idPattern.MatchString(id) {
+			ids = append(ids, id)
+			continue
+		}
+		if !strings.Contains(name, ".json.tmp-") {
+			continue
+		}
+		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
+			_ = os.Remove(filepath.Join(f.notes, name))
+		}
+	}
+	return ids
+}
+
+// writeJSON writes value to path through a temporary name in the same folder,
+// so a reader never sees half a file.
+func writeJSON(path string, value any) error {
+	data, err := json.Marshal(value)
+	if err != nil {
+		return err
+	}
+	temporary := path + ".tmp-" + strconv.Itoa(os.Getpid())
+	if err = os.WriteFile(temporary, data, 0o600); err != nil {
+		return err
+	}
+	if err = os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+	}
+	return err
+}
+
+func readJSON(path string, value any) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(data, value)
+}
+
+// logf appends one line to the guard log, first copying a log over 1 MiB to
+// watch.log.1, which replaces the one before, and emptying it. The log is
+// emptied, not moved, because the watcher's stderr stays open on it.
+func (f folders) logf(format string, args ...any) {
+	path := f.log()
+	if info, err := os.Stat(path); err == nil && info.Size() > logCap {
+		data, err := os.ReadFile(path)
+		if err == nil && os.WriteFile(path+".1", data, 0o600) == nil {
+			_ = os.Truncate(path, 0)
+		}
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = file.Close() }()
+	_, _ = fmt.Fprintf(file, "%s %d %s\n", time.Now().Format(time.RFC3339), os.Getpid(),
+		fmt.Sprintf(format, args...))
+}

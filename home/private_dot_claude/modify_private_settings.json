@@ -19,8 +19,10 @@
 {{- /* A live group that runs `workbench costs` is a copy of an enforced hook,
        possibly from an older release; drop it so a changed managed hook
        replaces its old copy instead of running beside it. A group that runs
-       ~/.local/bin/claude-costs, the script this replaced, goes too: the same
-       apply removes that script (.chezmoiremove), so its hook could only fail. */ -}}
+       `workbench guard` is likewise a copy of the managed guard hook. A group
+       that runs ~/.local/bin/claude-costs, the script this replaced, goes
+       too: the same apply removes that script (.chezmoiremove), so its hook
+       could only fail. */ -}}
 {{- range $event, $groups := $enforced.hooks -}}
   {{- $kept := list -}}
   {{- range $group := dig "hooks" $event (list) $live -}}
@@ -29,7 +31,7 @@
       {{- range $hook := get $group "hooks" | default list -}}
         {{- if kindIs "map" $hook -}}
           {{- $command := get $hook "command" | toString -}}
-          {{- if or (contains "workbench costs" $command) (contains ".local/bin/claude-costs" $command) -}}
+          {{- if or (contains "workbench costs" $command) (contains "workbench guard" $command) (contains ".local/bin/claude-costs" $command) -}}
             {{- $ours = true -}}
           {{- end -}}
         {{- end -}}

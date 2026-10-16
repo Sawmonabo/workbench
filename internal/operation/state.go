@@ -263,6 +263,15 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	if err := ensurePrivateDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
+	return ReplacePrivateFile(path, data)
+}
+
+// ReplacePrivateFile writes data to path, in an existing private folder,
+// through a same-folder temporary file: create 0600, write, fsync, rename,
+// fsync the folder. An existing path must already be a private file. It is
+// for Workbench's own small records written outside a [Mutation], such as the
+// migration record; [Mutation.WritePrivate] ends with it.
+func ReplacePrivateFile(path string, data []byte) error {
 	if _, err := os.Lstat(path); err == nil {
 		if err := checkPrivateFile(path); err != nil {
 			return err
@@ -344,6 +353,62 @@ func ensureRoot(root string) error {
 		return err
 	}
 	return ensurePrivateDirectory(root)
+}
+
+// PrivateDirectory makes the folder name below root, and root itself, private
+// (0700, owned by the user, no unsafe parents) and returns its path. name may
+// hold a slash to make a nested folder; only its last folder is checked, so
+// make each level in turn. An empty name is root itself. It is for writers
+// that keep their own files in Workbench's folders outside a [Mutation].
+func PrivateDirectory(root, name string) (string, error) {
+	if name != "" && !filepath.IsLocal(name) {
+		return "", Fail(ExitInvalid, "private_path", name+" is not a folder inside "+root)
+	}
+	if err := ensureRoot(root); err != nil {
+		return "", err
+	}
+	directory := filepath.Join(root, name)
+	return directory, ensurePrivateDirectory(directory)
+}
+
+// RenameNoReplace renames from to to and never replaces a file already at to.
+// A file at to fails it with an error matching fs.ErrExist, or, when from and
+// to are on different filesystems, possibly syscall.EXDEV instead, whichever
+// the system checks first. Neither moves anything; a caller that copies on
+// EXDEV puts its copy in place with RenameNoReplace too, which then fails with
+// fs.ErrExist. Where the filesystem lacks the no-replace flag, it links to and
+// unlinks from, which fails the same way; where links are unsupported too, it
+// checks to and renames, which is safe only under the caller's own lock, and
+// an error checking to stops it.
+func RenameNoReplace(from, to string) error {
+	err := renameNoReplace(from, to)
+	if err == nil {
+		return nil
+	}
+	if !unsupported(err) {
+		return &os.LinkError{Op: "rename", Old: from, New: to, Err: err}
+	}
+	if err = os.Link(from, to); err == nil {
+		return os.Remove(from)
+	}
+	if errors.Is(err, fs.ErrExist) || errors.Is(err, syscall.EXDEV) || !unsupported(err) &&
+		!errors.Is(err, syscall.EPERM) {
+		return err
+	}
+	if _, err = os.Lstat(to); !errors.Is(err, fs.ErrNotExist) {
+		if err == nil {
+			err = &fs.PathError{Op: "rename", Path: to, Err: fs.ErrExist}
+		}
+		return err
+	}
+	return os.Rename(from, to)
+}
+
+// unsupported reports an error a filesystem gives for a call or flag it
+// does not implement.
+func unsupported(err error) bool {
+	return errors.Is(err, syscall.EINVAL) || errors.Is(err, syscall.ENOTSUP) ||
+		errors.Is(err, syscall.EOPNOTSUPP) || errors.Is(err, syscall.ENOSYS)
 }
 
 // MakeParents creates the missing folders above a runtime root. They get 0755,

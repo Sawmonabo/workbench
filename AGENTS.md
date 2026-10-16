@@ -12,7 +12,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   compatibility readers/flags, obsolete aliases or dual paths. One exception:
   the costs ledger (`internal/costs/ledger.go`) upgrades older schema versions
   in place, in one transaction that keeps every row, because transcripts expire
-  and the ledger is the only lasting record of spend.
+  and the ledger is the only lasting record of spend. A second exception:
+  numbered migrations in `internal/migrate/` may move files Workbench itself
+  wrote into its runtime folders, without losing data, and delete caches and
+  logs Workbench itself wrote; they are idempotent, never touch other tools'
+  files, never merge, and leave a file where it is when old and new data both
+  exist. The costs import worker runs the costs move itself, without asking,
+  because usage left unread could be lost (ADR 0008).
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.
 - Reuse common functionality at its existing owner. One Go/Cobra CLI, one Go
@@ -95,7 +101,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/python/` |
-| AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/private_dot_codex/private_hooks.json.tmpl`) |
+| AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| Agent command memory guard | `internal/guard/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
 not home deployment targets. Keep chezmoi naming and platform selection in

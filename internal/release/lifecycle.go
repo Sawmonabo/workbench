@@ -243,7 +243,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	directory := b.Directory(c)
-	if err := PrivateDirectory(c.Paths.Data, filepath.Dir(directory), true); err != nil {
+	if err := PrivateTree(c.Paths.Data, filepath.Dir(directory), true); err != nil {
 		return "", err
 	}
 	if _, err := os.Lstat(directory); err == nil {
@@ -267,7 +267,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 		return "", err
 	}
 	parent := filepath.Dir(directory)
-	if err := PrivateDirectory(c.Paths.Data, parent, true); err != nil {
+	if err := PrivateTree(c.Paths.Data, parent, true); err != nil {
 		return "", err
 	}
 	id, err := operation.NewID()
@@ -346,7 +346,7 @@ func (m Metadata) checkFiles(directory string) error {
 			)
 		}
 		file := filepath.Join(directory, name)
-		if err := PrivateDirectory(directory, filepath.Dir(file), false); err != nil {
+		if err := PrivateTree(directory, filepath.Dir(file), false); err != nil {
 			return err
 		}
 		info, err := os.Lstat(file)

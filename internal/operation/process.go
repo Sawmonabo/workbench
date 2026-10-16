@@ -265,10 +265,11 @@ func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), e
 }
 
 // StartDetached starts executable with args in a new session and returns at
-// once: stdin is the null device, stdout and stderr go to log, and the child
-// is released, so it outlives the caller and nobody waits for it. It is only
-// for Workbench re-executing itself (os.Executable), as the costs hook does to
-// start its ingest worker; it takes no environment or working directory and
+// once: stdin is the null device, stdout and stderr go to log, the working
+// folder is /, so the child never holds the caller's folder in use, and the
+// child is released, so it outlives the caller and nobody waits for it. It is
+// only for Workbench re-executing itself (os.Executable), as the costs hook
+// does to start its ingest worker; it inherits the caller's environment and
 // never runs a third-party tool. Tools go through [Run].
 func StartDetached(executable string, args []string, log *os.File) error {
 	null, err := os.Open(os.DevNull)
@@ -278,11 +279,33 @@ func StartDetached(executable string, args []string, log *os.File) error {
 	defer func() { _ = null.Close() }()
 	cmd := exec.Command(executable, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, log, log
+	cmd.Dir = "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// ReadHookInput reads the JSON a Claude Code or Codex hook gets on stdin: at
+// most 1 MiB, giving up after two seconds so a writer that never closes
+// stdin cannot hold the hook, while a busy agent still has time to write it.
+// A nil stdin, a terminal or a timeout gives nil.
+func ReadHookInput(stdin *os.File) []byte {
+	if stdin == nil || IsTerminal(stdin) {
+		return nil
+	}
+	read := make(chan []byte, 1)
+	go func() {
+		data, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
+		read <- data
+	}()
+	select {
+	case data := <-read:
+		return data
+	case <-time.After(2 * time.Second):
+		return nil
+	}
 }
 
 // ProcessOutput is a captured run's redacted output.

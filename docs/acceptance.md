@@ -528,6 +528,43 @@ synthetic answers.
   0600 in a 0700 folder, and the headline counts the rows the table shows
   (target; not yet observed on a real ledger).
 
+### Agent command guard
+
+- Before the guard was built, the command-shape facts it matches on were
+  recorded on macOS with Claude Code 2.1.299 (`claude -p`) and Codex 0.162.0
+  (`codex exec`), using throwaway hooks: each shell command is its own process
+  group directly under the agent, a post hook's text reaches the model, and
+  `tool_use_id` is the same in a call's pre and post hooks (the
+  [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
+  section 2). Those probes did not run the guard.
+- On 2026-10-14, the unit tests of the two pure decisions (which processes are
+  an agent's command, and which processes a stop may signal) passed on macOS
+  and in a Linux container, and the Linux-only readers compiled and linted for
+  Linux without being run. A macOS smoke check in an isolated state folder,
+  with a fake agent standing in for Claude Code and Codex and
+  `WORKBENCH_GUARD=dry-run`, tracked one shell command and one single simple
+  command once each, never tracked a denied call's command again, left
+  `guard/` at 0700 and its files at 0600, and started a fresh watcher when the
+  previous one was killed. The hooks exited 0 with no output for malformed
+  input, unknown flags and a relative state override, and, under a release
+  that has no `guard` command, exited 0 with `unknown command "guard"` on
+  stderr (the `|| true` hides only the exit status). `render-check.sh` passed
+  for the personal, work and both roles in pinned and latest modes and for the
+  static WSL simulation: the rendered Claude Code settings carried the
+  `PreToolUse`, `PostToolUse` and `PostToolUseFailure` hooks, the rendered
+  Codex hooks carried `PreToolUse` and `PostToolUse` with trusted hashes, and
+  a stale managed guard hook in an existing settings file was replaced while a
+  user's own hook was kept.
+- Not yet observed: a stop under real memory pressure on any platform (the
+  macOS pressure levels and the Linux memory and pressure figures were never
+  driven to the thresholds, so the thresholds are initial values, not settled
+  ones); a real Claude Code or Codex session with the guard enabled, including
+  its interactive mode, its sandboxes and a background command; the command
+  shapes of either agent on Linux and WSL2, where a command whose shape
+  differs would go unguarded and be logged, not stopped wrongly; and the
+  agent receiving a stop reason in the tool result. Applying the hooks to a
+  real machine is not yet observed.
+
 ### Output
 
 - `workbench version` prints the `--version` line. At a terminal, each result
@@ -546,6 +583,7 @@ synthetic answers.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
+| Agent command guard | A stop under real memory pressure on macOS, Linux and WSL2 (settling the initial thresholds), Claude Code and Codex command shapes on Linux and WSL2 with their sandboxes, and a real session of each agent showing the stop reason. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and

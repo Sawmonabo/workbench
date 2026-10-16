@@ -777,26 +777,14 @@ func Hook(stdin *os.File) {
 }
 
 func readHookInput(stdin *os.File) (event, transcript, session string) {
-	if stdin == nil || operation.IsTerminal(stdin) {
+	var input struct {
+		Event      string `json:"hook_event_name"`
+		Transcript string `json:"transcript_path"`
+		Session    string `json:"session_id"`
+	}
+	data := operation.ReadHookInput(stdin)
+	if json.Unmarshal(data, &input) != nil {
 		return "", "", ""
 	}
-	read := make(chan []byte, 1)
-	go func() {
-		data, _ := io.ReadAll(io.LimitReader(stdin, 1<<20))
-		read <- data
-	}()
-	select {
-	case data := <-read:
-		var input struct {
-			Event      string `json:"hook_event_name"`
-			Transcript string `json:"transcript_path"`
-			Session    string `json:"session_id"`
-		}
-		if json.Unmarshal(data, &input) != nil {
-			return "", "", ""
-		}
-		return input.Event, input.Transcript, input.Session
-	case <-time.After(500 * time.Millisecond):
-		return "", "", ""
-	}
+	return input.Event, input.Transcript, input.Session
 }
