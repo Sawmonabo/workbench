@@ -28,7 +28,7 @@ MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
 # <group>:<handler>"] holds its trusted_hash, so every hook Workbench installs
 # gets that trusted_hash here as a managed value and Codex never asks. The
 # entry's enabled key is the user's: a hook turned off in Codex stays off
-# across applies. The entries of a hook Workbench no longer installs are
+# across applies. The entries of a hook Workbench does not install are
 # dropped, so they do not stay trusted.
 HOOKS = json.loads({{ includeTemplate "codex-hooks.json.tmpl" . | toJson }})
 HOOKS_PATH = {{ printf "%s/.codex/hooks.json" .chezmoi.homeDir | toJson }}

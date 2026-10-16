@@ -175,8 +175,8 @@ synthetic answers.
 - In the Ubuntu container, the Linux bootstrap put the current `gh` and its
   man pages in `~/.local/bin` over an apt-installed one, the tmux step cloned
   TPM and installed the plugins, and without network it failed only that step.
-  A VS Code extension that failed to install no longer stopped the rest, and
-  the step then exited nonzero (now it is reported blocked; see the macOS VM
+  A VS Code extension that failed to install did not stop the rest, and the
+  step exited nonzero; such a step is reported blocked (see the macOS VM
   record below).
 - The Claude, Codex and VS Code merges leave a file byte for byte when no value
   changes. They keep unowned keys and VS Code's 0644, and the VS Code merge keeps
@@ -268,9 +268,8 @@ synthetic answers.
   arm64 VM (Command Line Tools present) and an Ubuntu 24.04 arm64 VM:
   - On the Mac, ctrl+c at the terminal as the Runtime managers step began ended
     the apply with exit 130 and `Interrupted; what already ran is kept, and
-    running workbench apply again finishes the rest.` (the build before this fix
-    said `Setup did not finish (chezmoi failed (signal: interrupt)) … fix that`,
-    exit 5). SIGTERM to Workbench at the same point also ended it with exit 130.
+    running workbench apply again finishes the rest.`, not as a failed setup
+    step. SIGTERM to Workbench at the same point also ended it with exit 130.
     Both times the checkpoint recorded all 24 files as written, and revert
     restored them (exit 0).
   - `kill -9` of Workbench while VS Code extensions installed left the checkpoint
@@ -288,7 +287,7 @@ synthetic answers.
     Workbench did not make it, so it was left alone`, with the file untouched and
     everything else applied; once it was removed, the next apply installed gh
     (exit 0).
-- A failed step no longer stops the others, and revert keeps folders that hold
+- A failed step does not stop the others, and revert keeps folders that hold
   other files, from local bundles on a clean macOS 15.7.7 arm64 VM (no Homebrew,
   no Command Line Tools, sudo needing a password) and an Ubuntu 24.04 arm64 VM:
   - On the Mac, personal role, with `raw.githubusercontent.com` unreachable, an
@@ -299,8 +298,8 @@ synthetic answers.
     each showed `blocked` with that reason; the files and the usage step were
     applied, and the apply ended with exit 3 and `A step could not be done
     (marked blocked above); everything else was applied, and the next apply tries
-    it again`. The cargo tools had failed for want of the Command Line Tools, so
-    that step now checks for them first.
+    it again`. The cargo tools had failed for want of the Command Line Tools,
+    which that step checks for first.
   - With the host reachable, the next apply installed Homebrew, nvm, bun, Go, the
     runtimes, the tools, the tmux plugins and the apps (exit 0, about 15 minutes,
     one password prompt).
@@ -439,7 +438,7 @@ synthetic answers.
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded
   unfinished apply; one recorded for another destination blocks any apply, and
-  an incomplete checkpoint of the same destination no longer blocks a later
+  an incomplete checkpoint of the same destination does not block a later
   apply. (target; the fixed step, the fallback and the unblocked later apply
   are not yet observed on a real host)
 
@@ -457,7 +456,7 @@ synthetic answers.
   created `~/.config` 0700 (`~/.local` and `~/.local/share` 0755) and the plan
   listed no edit for it. A full apply without a terminal (`--approve-plan`)
   completed every step except podman, whose apt install found the package lock
-  held by unattended-upgrades; the Linux scripts now wait up to ten minutes for
+  held by unattended-upgrades; the Linux scripts wait up to ten minutes for
   that lock, and in the VM `apt-get -o DPkg::Lock::Timeout=600` waited out a
   held lock and installed podman (the full apply with the wait is not yet
   observed). With `~/.config` at 0755 the plan listed `mode 0755 → 0700` as a
@@ -485,15 +484,15 @@ synthetic answers.
 
 - On 2026-10-01, a WSL2 host's full Codex history (thousands of rollouts, tens
   of gigabytes) was ingested into an empty scratch ledger, in memory and on
-  disk, about ten times faster than the previous build; its responses and tier
-  tables were byte-identical, as were those of a ledger built in two runs
-  whose second finished half-written rollouts. A second run with nothing new
+  disk, in under a minute; its responses and tier tables were byte-identical
+  to those of a ledger built in two runs whose second finished half-written
+  rollouts. A second run with nothing new
   took well under a second. Per-model response and token counts matched an
   independent Python count for one record-era month and one legacy month,
   apart from responses timestamped on the first of the next month in UTC whose
   rollouts sit in the previous month's dated folders: the script dated them by
-  folder and that build by UTC time. The report now splits days and months in
-  the machine's time zone (target; the comparison has not been repeated). The
+  folder and that run's report by UTC time. The report splits days and months
+  in the machine's time zone (target; the comparison has not been repeated). The
   Codex hooks rendered from the `both` role were all `trusted` in Codex's own
   `hooks/list` (app server 0.159), with `currentHash` equal to the
   `trusted_hash` the config merge wrote, and the hash Codex had recorded for
@@ -501,15 +500,15 @@ synthetic answers.
   Applying them to a real machine is not yet observed.
 - On 2026-10-01, the same host's Claude Code transcripts and Codex rollouts,
   read through links, were ingested read-only into an empty scratch ledger,
-  and the build before this change ingested the same files into another: both
-  held the same rows, and no row's time, model, project, session, tool or
+  and an ingest without the nested-subagent root walk ingested the same files
+  into another: both held the same rows, and no row's time, model, project, session, tool or
   counts differed. The Codex rows took their plan from their rollouts. On that
   first ingest every Claude Code row had email and subscription `unknown`, as
   no sign-in had been observed yet, and each Codex row carried a plan, an
   email, both or neither as its rollout named them. Rows of depth-2 subagents
-  of Codex 0.118 to 0.134, stored under their parent thread by the earlier
-  build, were stored under their root thread by this one; no row's root still
-  names a thread that has a parent. Ingesting the rollouts that are not a
+  of Codex 0.118 to 0.134, which that ingest stored under their parent
+  thread, were stored under their root thread; no row's root names a thread
+  that has a parent. Ingesting the rollouts that are not a
   parent of another first and the parents second, or the parents first, gave
   the same roots and attribution as one pass. A simulated `SessionStart` hook
   for a synthetic Claude Code session stored one `session_accounts` binding,
@@ -550,7 +549,7 @@ synthetic answers.
   needs attention` for the conflict), and with nothing pending `migrations:
   none to run` with the step under "Already set", on a home on ext4 and on
   the container's overlay root. The apply's migrations script, the import
-  worker's own move and macOS were not observed with this build.
+  worker's own move and macOS were not observed.
 - An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
   in a disposable home with synthetic answers, `apply --local-build --dry-run
   --json` gave a different `plan_digest` for each of two `WORKBENCH_DATA_DIR`
@@ -561,12 +560,13 @@ synthetic answers.
   --approve-plan` under another data folder exited 4 the same way.
 - On 2026-10-16, on macOS, the Claude Code and Codex hooks rendered with
   Workbench's bin folder: `render-check.sh` with the default bin folder
-  rendered byte-identical to the build before, a bin folder holding a space
+  rendered byte-identical to hooks with the fixed `~/.local/bin` path, a bin
+  folder holding a space
   planned Claude Code settings +5/−5 lines, Codex `config.toml` +4/−4 and
   `hooks.json` +4/−4, with the quoted path on every hook and Codex trusting
   each by its hash, and switching back rendered identical. Its stage "hooks
-  follow a bin folder with a space" failed against the build before (9 `BIN
-  FAIL` lines) and passed with this one. `costs status` with a spaced,
+  follow a bin folder with a space" passed, and failed against hooks with the
+  fixed path (9 `BIN FAIL` lines). `costs status` with a spaced,
   quoted bin path reported both tools' hooks `ok`, and `missing` when the
   Claude Code path was altered.
 
@@ -597,12 +597,12 @@ synthetic answers.
   Codex hooks carried `PreToolUse` and `PostToolUse` with trusted hashes, and
   a stale managed guard hook in an existing settings file was replaced while a
   user's own hook was kept.
-- On 2026-10-16, on macOS 27.0 in ordinary use with 42 % of memory free and
-  swap in use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of
-  6 samples over about 9 seconds, and a dry-run watcher of the build before,
-  which called for a polite stop at warning, logged memory as low on its
-  first tick. The guard stops at critical (4) only. With Claude Code 2.1.300 on macOS a background `Bash`
-  call ran as `/bin/zsh -c '<export and setopt lines> && eval '…' < /dev/null
+- On 2026-10-16, on a Mac (macOS 27.0) with 42 % of memory free and swap in
+  use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of 6
+  samples over about 9 seconds, and a dry-run watcher that called for a
+  polite stop at warning logged memory as low on its first tick, so the
+  guard stops at critical (4) only. With Claude Code 2.1.300 on macOS a
+  background `Bash` call ran as `/bin/zsh -c '<export and setopt lines> && eval '…' < /dev/null
   && pwd -P >| /tmp/claude-…-cwd'`, a direct child of `claude` leading its
   own group, and the tool returned while it ran; a dry run of the hooks with
   that shape tracked the command, the background post hook marked the note
@@ -617,8 +617,8 @@ synthetic answers.
   and on (`-s workspace-write`, through `codex-linux-sandbox` and `bwrap`):
   Codex 0.163.0, which sets `CODEX_TOOL_CALL_ID`, had 8 of 8 calls tracked,
   and Codex 0.162.0, which does not, 6 of 8, both misses the script, logged
-  `ended unmatched`. A build that did not know the observed sandbox chain had
-  none of the sandboxed Codex 0.162.0 calls tracked. Codex 0.153.0, which
+  `ended unmatched`. Without the sandbox chain in the match (section 2), none
+  of the sandboxed Codex 0.162.0 calls was tracked. Codex 0.153.0, which
   `versions.toml` pins, sets no call ID, so a script that execs another
   program is matched only from Codex 0.163.0.
 - On 2026-10-16, a stop under real memory pressure was observed on Linux in
@@ -633,15 +633,16 @@ synthetic answers.
   returned the stop reason as `additionalContext`, and the cgroup's peak was
   989–1057 MB of 1074 MB. With `WORKBENCH_GUARD=dry-run` the watcher logged
   the stop it would make and the kernel then killed the command (`oom_kill
-  1`). The previous build, which read only machine-wide figures, logged no
-  stop and the kernel killed the command. A command allocating without pause
+  1`). Without the cgroup reading, on machine-wide figures only, the watcher
+  logged no stop and the kernel killed the command. A command allocating without pause
   filled the last 10% faster than the 100 ms minimum tick and was killed by
   the kernel. That is a limit of any polling guard, not of the threshold.
   The 10% available line is settled for a confined cgroup; the 5% forced
   line, the swap conditions, the pressure condition with its 20 s hold and
   the machine-wide Linux figures were not exercised. With the stand-in agent
-  as the container's PID 1, that build found no agent and the kernel killed
-  the command; a build that lets an agent be PID 1 stopped it as above.
+  as the container's PID 1, the guard stopped the command as above; a hook
+  that took no PID 1 for an agent found none, and the kernel killed the
+  command.
 - Not yet observed: a stop under real memory pressure on macOS or WSL2, or
   on Linux outside a memory-limited cgroup; either agent's interactive
   session, Claude Code's own sandbox and either agent on WSL2 with the guard

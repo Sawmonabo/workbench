@@ -8,7 +8,7 @@ was not observed.
 
 ## 1. Problem
 
-Three defects in how a machine is changed today, observed on a WSL machine
+Three defects in how a machine was changed, observed on a WSL machine
 switched from dotfiles on 2026-09-30:
 
 1. `update` installs a release and then runs `apply`. A user who wants only
@@ -57,7 +57,7 @@ every-run checklist are deleted, not aliased.
 | `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. Prints `[WorkBench] Installed vX; run workbench apply`. Never applies. With `--local-build`, installs only the tools the checkout's `versions.toml` pins. | `--dry-run`, `--bundle` (hidden), `--local-build` (hidden) |
 | `workbench apply` | Ask the missing machine questions on a first run, plan files and effects, apply the saved choices, and show the checklist only when something needs deciding or the owner asks (section 5). | `--dry-run`, `--yes`, `--choose`, `--reset`, `--approve-plan DIGEST`; hidden: `--local-build`, `--destination` |
 | `workbench init` | One-time adoption (`--answers-from`) and re-asking a saved answer (`--ask NAME`, moved from `apply`). | `--answers-from`, `--ask`, `--dry-run` |
-| `workbench doctor` | As today, plus the saved skips and the last apply's release and date. | |
+| `workbench doctor` | Its checks, plus the saved skips and the last apply's release and date. | |
 | `install.sh` | Installs through `update`, then prints the `apply` instruction. Extra arguments go to `update` only. | |
 
 `--local-build` replaces `--source PATH`: it takes no value and resolves the
@@ -314,7 +314,7 @@ checked and its script runs normally. The plan never blocks on a probe.
   `powershell-adoption`, `font-registry`, `default-distro`, `windows-path`,
   `sysctl`) are unchecked by default and saved the same way, and all are listed
   under `Optional`. Checking one is remembered as `[effects] select = ["sysctl"]`.
-  A selected `default-distro` with no `WSL_DISTRO_NAME` no longer refuses the
+  A selected `default-distro` with no `WSL_DISTRO_NAME` does not refuse the
   plan: its script reports the step blocked and the apply finishes the rest
   (exit 3).
 - `doctor` prints `effects: skipped windows-files (saved)` and
@@ -338,7 +338,8 @@ refused it); `--approve-plan` is for a caller that read the plan first.
 - A failing probe never blocks the plan (section 4). Ctrl-C during probing
   stops the plan at once with the interrupted exit (130); it is never shown
   as a failed probe.
-- A script that fails mid-apply stops the run, as today. The result lists the
+- A script that fails mid-apply does not stop the scripts after it
+  (`--keep-going`). The result lists the
   checked effects, the failure's last lines and the checkpoint ID for the
   files; which effects ran is what chezmoi's script state says, and rerunning
   `apply` resumes from it.
@@ -348,7 +349,7 @@ refused it); `--approve-plan` is for a caller that read the plan first.
 
 ## 8. Testing
 
-- CI render checks as today, plus one probe run per script per role/mode:
+- CI render checks, plus one probe run per script per role/mode:
   `WORKBENCH_PROBE=1` must exit 0 and print only lines of the form
   `<effect-name>: <text>` or `<effect-name>: = <text>`. The WSL probes run under the existing static
   simulation.

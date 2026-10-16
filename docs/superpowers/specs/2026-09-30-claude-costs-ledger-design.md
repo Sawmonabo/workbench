@@ -207,8 +207,8 @@ The worker:
    argument is `SessionEnd`, and `sweep` for every other row.
 5. For each file whose size or mtime differs from the `files` row, parses from
    the stored offset. If the size shrank or the mtime moved backwards, parses
-   from zero. Only lines containing `"usage"` or `"cwd"` are JSON-decoded, as
-   today. One transaction per file; the `files` row is updated in it.
+   from zero. Only lines containing `"usage"` or `"cwd"` are JSON-decoded.
+   One transaction per file; the `files` row is updated in it.
 6. Runs the rate refresh check in section 6.
 7. Writes `last_ingest_at`, a one-line summary to `last_ingest_summary` and
    the log, and clears `last_error`.
@@ -370,8 +370,8 @@ Rules:
 - `rates` uses the same column names: `input`, `output`, `cache 5m`,
   `cache 1h`, `cache read`.
 - Ingest statistics (session-tagged versus sweep rows, last ingest summary,
-  last error) stay in `claude-costs status`; the report header no longer
-  repeats them.
+  last error) stay in `claude-costs status`; the report header does not
+  repeat them.
 
 | Flag | Meaning |
 | --- | --- |
@@ -401,7 +401,7 @@ holds the lock, rate card age, and whether both hooks are present in the live
 - Unreadable, locked-beyond-timeout or wrong-version ledger: `report`, `status`
   and `rates` fail with the path and reason. Nothing is deleted or rebuilt.
 - Rates: any failure keeps the previous card; a model with no rate is counted
-  in tokens and shown with cost zero and an `(unpriced)` flag, as today.
+  in tokens and shown with cost zero and an `(unpriced)` flag.
 - Concurrency: the lock serializes workers; WAL lets a report read the last
   committed state during an ingest.
 

@@ -344,7 +344,7 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   writes at the input price, and a `-` cached-input price bills reads at the
   input price. Long-context columns are not read; section 1 shows no Codex
   request reaching 272K. A tier table is read the same way into
-  `<model>@<tier>` rows: today `@flex`, `@fast` and `@ultrafast`, and a
+  `<model>@<tier>` rows, such as `@flex`, `@fast` and `@ultrafast`, and a
   "Priority pricing data" table would give `@fast`. A tier in a model id is
   the word after its last `@` (a lowercase letter, then lowercase letters,
   digits, `_` or `-`), so a tier OpenAI adds later needs no code change, and
@@ -363,7 +363,7 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   subagents' rows.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
-  neither card (such as `gpt-5.3-codex-spark` today) is reported unpriced, as
+  neither card (such as `gpt-5.3-codex-spark` on 2026-10-01) is reported unpriced, as
   for Claude. The report's warning and the ingest summary name each unpriced
   model with why (not on the tool's price page, no price at its tier, or no
   model named in the transcript) and the rates overrides file a rate for it
@@ -378,8 +378,8 @@ installed `workbench`'s absolute, single-quoted path in the apply's bin folder
 maximum), and the existing
 `UserPromptSubmit` entry stays inside `{{ if .has_work }}`. `render-check.sh`
 drops its "hooks.json deployed on personal" leak check; its personal-role
-`promptctl` grep still catches the real leak. `.codex/hooks.json` is no longer
-listed in `home/.chezmoidata/role-targets.json`, so every role receives it.
+`promptctl` grep catches the real leak. `.codex/hooks.json` is not listed in
+`home/.chezmoidata/role-targets.json`, so every role receives it.
 
 **Trust is written by Workbench, so Codex never asks.** Codex keys trust as
 `[hooks.state."<hooks.json path>:<event>:<group>:<handler>"]` with
@@ -397,7 +397,7 @@ hooks.json, computes the hash of every handler in it and writes
 `trusted_hash` for each key as a managed value, so whatever hooks Workbench
 installs are trusted on the same apply. The entry's `enabled` key stays the
 user's: a hook turned off in Codex (`enabled = false`) stays off across
-applies. The entries of a hook Workbench no longer installs are dropped, so
+applies. The entries of a hook Workbench does not install are dropped, so
 they do not stay trusted. A second apply changes nothing.
 `Hooks(home)` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the

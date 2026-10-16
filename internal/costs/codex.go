@@ -1186,7 +1186,7 @@ func codexTable(heading string) (suffix string, ok bool) {
 
 // ParsePricing reads the short-context columns of every service tier's table:
 // Standard, and each other "<Tier> pricing data" table into "<model>@<tier>"
-// rows, as Flex, Fast and Ultrafast are today. A "-" cached-input or
+// rows, such as Flex, Fast and Ultrafast. A "-" cached-input or
 // cache-write price bills those tokens at the input price. The first row of a
 // model in a table wins.
 func (codex) ParsePricing(page string) RateCard {

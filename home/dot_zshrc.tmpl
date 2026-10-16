@@ -49,8 +49,8 @@ export PATH="/opt/homebrew/opt/postgresql/bin:$PATH"
 # Every fpath entry must be in place before compinit runs, or its completions
 # are never registered: brew shellenv (above) prepends Homebrew's
 # site-functions, and Docker Desktop writes the docker CLI completion to
-# ~/.docker/completions. compinit used to run at the top of this file, which
-# left docker, gh, brew and chezmoi without completion in a fresh terminal.
+# ~/.docker/completions. compinit run at the top of this file would leave
+# docker, gh, brew and chezmoi without completion in a fresh terminal.
 # The five lines below are byte-for-byte what Docker Desktop's "Configure shell
 # completions -> Automatically" appends to .zshrc. Keeping them identical here
 # means Docker Desktop recognises the setup and never appends a second copy,
