@@ -3,6 +3,8 @@ package machine
 import (
 	"bytes"
 	"context"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"time"
@@ -172,7 +174,7 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 // named in ask are left out to be asked again.
 func initSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
 	_, err := os.Lstat(config)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		if terminal == nil {
 			return nil, operation.Fail(
 				operation.ExitBlocked,
@@ -204,7 +206,7 @@ func initSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
 func generatedAnswers(c operation.Context, path string) (Answers, error) {
 	// Esc or ctrl+c at a question makes native init exit successfully
 	// without writing its configuration.
-	if _, err := os.Lstat(path); os.IsNotExist(err) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"answers",

@@ -126,12 +126,10 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 		if !p.active[name] || name == migrationsScript {
 			continue
 		}
-		wg.Add(1)
-		go func(name, contents string) {
-			defer wg.Done()
+		wg.Go(func() {
 			lines, status := p.runProbe(ctx, c, directory, environment, name, contents)
 			tally.record(name, lines, status)
-		}(name, contents)
+		})
 	}
 	wg.Wait()
 	results, outcome := tally.results, tally.outcome

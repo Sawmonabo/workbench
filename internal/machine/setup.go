@@ -238,7 +238,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 			)
 		}
 		return nil
-	} else if !os.IsNotExist(err) {
+	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
 	file, err := os.OpenFile(partial, os.O_CREATE|os.O_EXCL|os.O_WRONLY, mode)
@@ -715,7 +715,7 @@ func Setup(
 		); err != nil {
 			return c, err
 		}
-	} else if !os.IsNotExist(statErr) {
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return c, statErr
 	}
 	c, err = selectPrivateContext(c, contextDirectory)

@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"net/url"
@@ -315,7 +316,7 @@ func readSource(source string) (map[string][]byte, error) {
 func releaseIdentity(source string) (operation.SourceIdentity, error) {
 	path := filepath.Join(source, "release.json")
 	info, err := os.Lstat(path)
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return operation.SourceIdentity{}, nil
 	}
 	if err != nil {

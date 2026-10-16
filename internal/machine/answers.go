@@ -2,7 +2,9 @@ package machine
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -317,7 +319,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		if bytes.Equal(existing, encoded) {
 			action = ""
 		}
-	} else if !os.IsNotExist(statErr) {
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return plan, nil, statErr
 	}
 	plan.Inputs = []operation.Input{
