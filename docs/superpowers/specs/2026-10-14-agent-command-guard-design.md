@@ -225,8 +225,10 @@ macOS temp folder is pruned of files older than three days.
 (`sh`, `bash`, `zsh`, `dash`, or `fish`, since Codex runs hooks through
 `$SHELL`), identified by PID **and** start time, so a later process reusing
 the PID is never taken for it. An agent may be PID 1, as in a container
-started without an init; a PID 1 named `launchd`, `systemd` or `init` is never
-taken for an agent.
+started without an init; a PID 1 named `launchd`, `systemd` or `init`, or a
+container's minimal init (`docker-init`, which Docker's `--init` runs and is
+tini, `tini`, `dumb-init`, `catatonit`, or `podman-init`, the name Podman's
+`--init` runs catatonit under), is never taken for an agent.
 
 **Start times** are the kernel's own, never the wall clock read later:
 - **Linux:** clock ticks since boot (`/proc/<pid>/stat` field 22), which a
