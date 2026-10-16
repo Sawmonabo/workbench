@@ -531,8 +531,45 @@ synthetic answers.
   move the costs files out of the `claude-costs` folders into Workbench's
   runtime folders with every ledger row, the import worker moves them by
   itself after an update, and the old completion and `claude-costs` script
-  caches are deleted (target; not yet observed in a disposable home on macOS
-  or Linux).
+  caches are deleted (target). On 2026-10-16, in a Linux container (kernel
+  7.0.14-linuxkit, Docker 29.8.2, Ubuntu 24.04 arm64) with a disposable home
+  whose old files v0.1.25 wrote by ingesting a synthetic transcript,
+  `workbench migrate` listed three pending migrations, `migrate --probe`
+  printed one line for each, and `migrate --apply --dry-run --json` then
+  `--approve-plan DIGEST` moved the ledger, both price caches and the
+  overrides, deleted the old import log and lock, the completion cache and
+  the old script's cache, removed every `claude-costs` folder, and wrote
+  `migrations.json`. The new folders were 0700 and the files 0600, the
+  ledger's row count in every table matched the count before the move, and
+  `integrity_check` returned ok. With the data folder on a tmpfs, the ledger
+  took the copy path across filesystems, with the same row counts and
+  `integrity_check` ok. With old and new ledgers both present, both stayed
+  unchanged, the output named them, the other migrations still ran, and
+  `migrate --apply` and `migrate run` exited 4. `apply --local-build
+  --dry-run` showed `checking migrations` and `migrations: 3 to run` (or `1
+  needs attention` for the conflict), and with nothing pending `migrations:
+  none to run` with the step under "Already set", on a home on ext4 and, with
+  a build that reads extended attribute names into a buffer, on the
+  container's overlay root. The apply's migrations script, the import
+  worker's own move and macOS were not observed with this build.
+- An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
+  in a disposable home with synthetic answers, `apply --local-build --dry-run
+  --json` gave a different `plan_digest` for each of two `WORKBENCH_DATA_DIR`
+  values and the same digest for the same folder twice, and `apply
+  --local-build --approve-plan DIGEST` with the digest from one folder, run
+  under the other, exited 4 (`Approval digest does not match the current
+  plan; review a new plan`) before applying anything; `migrate --apply
+  --approve-plan` under another data folder exited 4 the same way.
+- On 2026-10-16, on macOS, the Claude Code and Codex hooks rendered with
+  Workbench's bin folder: `render-check.sh` with the default bin folder
+  rendered byte-identical to the build before, a bin folder holding a space
+  planned Claude Code settings +5/−5 lines, Codex `config.toml` +4/−4 and
+  `hooks.json` +4/−4, with the quoted path on every hook and Codex trusting
+  each by its hash, and switching back rendered identical. Its stage "hooks
+  follow a bin folder with a space" failed against the build before (9 `BIN
+  FAIL` lines) and passed with this one. `costs status` with a spaced,
+  quoted bin path reported both tools' hooks `ok`, and `missing` when the
+  Claude Code path was altered.
 
 ### Agent command guard
 
@@ -561,15 +598,57 @@ synthetic answers.
   Codex hooks carried `PreToolUse` and `PostToolUse` with trusted hashes, and
   a stale managed guard hook in an existing settings file was replaced while a
   user's own hook was kept.
-- Not yet observed: a stop under real memory pressure on any platform (the
-  macOS pressure levels and the Linux memory and pressure figures were never
-  driven to the thresholds, so the thresholds are initial values, not settled
-  ones); a real Claude Code or Codex session with the guard enabled, including
-  its interactive mode, its sandboxes and a background command; the command
-  shapes of either agent on Linux and WSL2, where a command whose shape
-  differs would go unguarded and be logged, not stopped wrongly; and the
-  agent receiving a stop reason in the tool result. Applying the hooks to a
-  real machine is not yet observed.
+- On 2026-10-16, on macOS 27.0 in ordinary use with 42 % of memory free and
+  swap in use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of
+  6 samples over about 9 seconds, and a dry-run watcher of the build before,
+  which called for a polite stop at warning, logged memory as low on its
+  first tick. The guard stops at critical (4) only. With Claude Code 2.1.300 on macOS a background `Bash`
+  call ran as `/bin/zsh -c '<export and setopt lines> && eval '…' < /dev/null
+  && pwd -P >| /tmp/claude-…-cwd'`, a direct child of `claude` leading its
+  own group, and the tool returned while it ran; a dry run of the hooks with
+  that shape tracked the command, the background post hook marked the note
+  posted, and the watcher dropped it when the command ended.
+- On 2026-10-16, in a Debian container with the agents signed in through
+  short-lived access tokens only and `WORKBENCH_GUARD=dry-run`, each agent
+  ran four shell calls: `sleep 2`, `sleep 5` in the background (Claude Code
+  `run_in_background`; Codex polling it with `write_stdin`), `bash -c 'sleep
+  3; true'`, and an executable `#!/bin/sh` script that `exec`s `sleep 3`.
+  Claude Code 2.1.301 (`claude -p`) had all four tracked and left no notes.
+  Codex ran with its sandbox off (`--dangerously-bypass-approvals-and-sandbox`)
+  and on (`-s workspace-write`, through `codex-linux-sandbox` and `bwrap`):
+  Codex 0.163.0, which sets `CODEX_TOOL_CALL_ID`, had 8 of 8 calls tracked,
+  and Codex 0.162.0, which does not, 6 of 8, both misses the script, logged
+  `ended unmatched`. A build that did not know the observed sandbox chain had
+  none of the sandboxed Codex 0.162.0 calls tracked. Codex 0.153.0, which
+  `versions.toml` pins, sets no call ID, so a script that execs another
+  program is matched only from Codex 0.163.0.
+- On 2026-10-16, a stop under real memory pressure was observed on Linux in
+  a Docker 29.8.2 container (kernel 7.0.14-linuxkit, arm64,
+  `python:3.12-slim`) limited to a 1 GiB cgroup v2 with no swap. A stand-in
+  agent ran the real pre and post hooks in Claude Code's spawn shape, with a
+  64 MiB unmatched child, a 96 MiB background command and a command growing
+  by 32 MiB every 0.2, 0.1, 0.05 or 0.01 s. The guard read the cgroup's
+  figures and stopped the growing command with SIGTERM alone at "0.1 GB of
+  1.0 GB available, no swap" in every run (four at 0.05 s). The kernel killed
+  nothing (`oom_kill 0`), the other two processes stayed alive, the post hook
+  returned the stop reason as `additionalContext`, and the cgroup's peak was
+  989–1057 MB of 1074 MB. With `WORKBENCH_GUARD=dry-run` the watcher logged
+  the stop it would make and the kernel then killed the command (`oom_kill
+  1`). The previous build, which read only machine-wide figures, logged no
+  stop and the kernel killed the command. A command allocating without pause
+  filled the last 10% faster than the 100 ms minimum tick and was killed by
+  the kernel. That is a limit of any polling guard, not of the threshold.
+  The 10% available line is settled for a confined cgroup; the 5% forced
+  line, the swap conditions, the pressure condition with its 20 s hold and
+  the machine-wide Linux figures were not exercised. With the stand-in agent
+  as the container's PID 1, that build found no agent and the kernel killed
+  the command; a build that lets an agent be PID 1 stopped it as above.
+- Not yet observed: a stop under real memory pressure on macOS or WSL2, or
+  on Linux outside a memory-limited cgroup; either agent's interactive
+  session, Claude Code's own sandbox and either agent on WSL2 with the guard
+  enabled, where a command whose shape differs would go unguarded and be
+  logged, not stopped wrongly; and a real agent receiving the stop reason.
+  Applying the hooks to a real machine is not yet observed.
 
 ### Output
 
@@ -589,7 +668,7 @@ synthetic answers.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
-| Agent command guard | A stop under real memory pressure on macOS, Linux and WSL2 (settling the initial thresholds), Claude Code and Codex command shapes on Linux and WSL2 with their sandboxes, and a real session of each agent showing the stop reason. |
+| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, and a real session of each agent showing the stop reason. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and
