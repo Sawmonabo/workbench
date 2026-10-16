@@ -293,8 +293,9 @@ note.
   command inherits one) is that call's command and no other's: it matches
   the note with that `tool_use_id` alone, whatever its command line, as
   Codex 0.163.0 and later set it. Without one (0.162.0 and earlier) the
-  shapes below decide, so a script that execs another program no longer
-  shows the note's text and ends unmatched: logged, never stopped wrongly.
+  shapes below decide, and a script that execs another program, whose
+  command line then does not show the note's text, ends unmatched: logged,
+  never stopped wrongly.
 - **Codex:** a shell run with `-c`, `-lc`, `-fc` or `-lfc` whose script
   equals the note. On Linux it may sit under the sandbox chain (section 2).
 - **Codex, single command:** when the note is one simple command of plain
@@ -304,9 +305,13 @@ note.
   launcher, is in its launcher's group. Any other note matches only the shell
   form, so a command using expansion, redirection or several commands is
   matched while its shell runs it and is otherwise unguarded. Codex starts
-  its own helpers in groups of their own too (section 2), so a helper started
-  after a waiting note, with exactly that note's words as its argv, would be
-  taken for it.
+  its own helpers in groups of their own too (section 2), and a helper
+  carries no call ID of its own, so a helper started after a waiting note,
+  with exactly that note's words as its argv (`git rev-parse HEAD`, say),
+  would be taken for it. Once an agent has had a child carrying a call ID of
+  its own, it is known to set them, and its notes match only by call ID, so
+  the gap closes from Codex 0.163.0; under 0.162.0 and earlier, including the
+  pinned 0.153.0, it stays.
 - **Timing:** the child and that process must have started at or after the
   note's `noted_start`, less one second, comparing kernel start times
   (section 4).
@@ -334,8 +339,9 @@ second.
 - for a call sent to the background (`run_in_background`), whose post hook
   marks the note `posted` while the command goes on: once its tracked
   command has ended, or, when no command matched it, one second after the
-  watcher first reads it posted (its command started before the post hook, so
-  no later process is its command)
+  watcher first reads it posted and once it has been looked for in two
+  rounds (its command started before the post hook, so no later process is
+  its command)
 - it is abandoned: a call that was denied or cut off gets no post hook, so a
   note that never got one is dropped, with a `note … abandoned` log line,
   once a note its agent wrote later has gone and 10 minutes (Claude Code's
@@ -384,8 +390,10 @@ polite stop (`SIGTERM`) and a forced stop (`SIGKILL`):
   `inactive_file`, measured against that plus `anon`; pressure is the
   cgroup's `memory.pressure`; swap is `memory.swap.max` and
   `memory.swap.current` when that limit is below the machine's swap. It acts
-  on whichever reading, the cgroup's or the machine's, calls for more, or for
-  as much with less available, and installed memory then means the limit.
+  on whichever reading, the cgroup's or the machine's, calls for more; for as
+  much, on the one that acts at once over one that must hold 20 seconds (as
+  systemd-oomd holds only its pressure rule), then on the one with less
+  available. Installed memory then means the limit.
   cgroup v1 is not read.
 
 **macOS:**
@@ -405,7 +413,9 @@ initial values until section 10 step 4 drives them.
 - **Linux:** follows earlyoom's adaptive sleep. The room left above the
   polite-stop line is divided by fill rates of 6000 MiB/s for memory and
   800 MiB/s for swap, and the result is clamped to between 100 ms and 1 s.
-- **macOS:** ticks every 100 ms at warning or above, otherwise every 1 s.
+- **macOS:** ticks every 100 ms at critical, where a stop may come, and
+  otherwise every 1 s. Warning never leads to a stop, so it keeps the 1 s
+  tick for the whole session; critical is seen within a second.
 
 ### 6.3 Which command
 
@@ -547,7 +557,7 @@ parallelism or a smaller input.
     a new watcher.
   - Nothing survives a reboot.
   - On start, a watcher deletes notes whose agent (PID plus start time) is
-    gone.
+    gone, once absent from two rounds.
 - **Bounded:**
   - The watcher sets a Go memory limit of 32 MiB, has no terminal, works from
     `/` so it never holds a session's folder, and logs to its capped file

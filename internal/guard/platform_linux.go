@@ -105,7 +105,8 @@ func readCallID(pid int) string {
 // readMemory reads /proc/meminfo and, when the kernel has it,
 // /proc/pressure/memory. When this process's cgroup is confined to less
 // memory (see confined), it reads that cgroup instead if it calls for more,
-// or for as much with less available.
+// or for as much on a reading that acts at once where the machine's must
+// hold (soft), or for as much as firmly with less available.
 func readMemory() (memory, error) {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
@@ -134,10 +135,10 @@ func readMemory() (memory, error) {
 		FullAvg10: fullAvg10("/proc/pressure/memory"),
 	}
 	if group, ok := confined(m); ok {
-		groupAct, _ := decide(group)
-		machineAct, _ := decide(m)
-		if groupAct > machineAct ||
-			groupAct == machineAct && group.availablePercent() <= m.availablePercent() {
+		groupAct, groupSoft := decide(group)
+		machineAct, machineSoft := decide(m)
+		if groupAct > machineAct || groupAct == machineAct && (machineSoft && !groupSoft ||
+			machineSoft == groupSoft && group.availablePercent() <= m.availablePercent()) {
 			return group, nil
 		}
 	}

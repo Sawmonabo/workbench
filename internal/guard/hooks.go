@@ -49,13 +49,18 @@ func agentKind(input hookInput) (kind, bool) {
 // maxShellAncestors bounds the walk past nested `sh -c`.
 const maxShellAncestors = 8
 
-// initNames are the init processes a shell whose agent exited is handed to.
-var initNames = map[string]bool{"launchd": true, "systemd": true, "init": true}
+// initNames are the init processes a shell whose agent exited is handed to:
+// the machine's, and a container's minimal init (Docker's --init runs
+// docker-init, which is tini; Podman's runs catatonit as podman-init).
+var initNames = map[string]bool{
+	"launchd": true, "systemd": true, "init": true,
+	"docker-init": true, "tini": true, "dumb-init": true, "catatonit": true, "podman-init": true,
+}
 
 // findAgent is the hook's nearest ancestor that is not a shell, starting at
 // pid: the agent that ran the hook through `sh -c`. Codex runs hooks through
 // $SHELL, which may be fish. An agent may be PID 1, as in a container started
-// without an init; the machine's own init never is.
+// without an init; an init (initNames) never is.
 func findAgent(pid int) (proc, error) {
 	for range maxShellAncestors {
 		p, err := processInfo(pid)

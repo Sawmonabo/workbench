@@ -37,16 +37,18 @@ const (
 
 // seenNote is a note the watcher has read: its agent and NotedStart, read
 // when this watcher first read it, matched once it was tracked, childSeen as
-// markChildSeen sets it, and posted from the first tick it was read marked
-// posted. One that goes away unmatched with childSeen is logged.
+// markChildSeen sets it, and posted and postedRound from the first tick it
+// was read marked posted. One that goes away unmatched with childSeen is
+// logged.
 type seenNote struct {
-	command   string
-	agent     procKey
-	noted     uint64
-	read      time.Time
-	matched   bool
-	childSeen bool
-	posted    time.Time
+	command     string
+	agent       procKey
+	noted       uint64
+	read        time.Time
+	matched     bool
+	childSeen   bool
+	posted      time.Time
+	postedRound int
 }
 
 type watcher struct {
@@ -71,9 +73,12 @@ type watcher struct {
 	// lastEnded is, for each agent, the latest NotedStart of its notes that
 	// went away while this watcher ran.
 	lastEnded map[procKey]uint64
-	idleSince time.Time
-	expired   time.Time
-	waiter    *waiter
+	// setsCallIDs are the Codex agents seen with a child carrying a call ID
+	// of its own (Codex 0.163.0 and later), while they run.
+	setsCallIDs map[procKey]bool
+	idleSince   time.Time
+	expired     time.Time
+	waiter      *waiter
 	// unsized are processes whose footprint could not be read, so each is
 	// logged once, not every tick.
 	unsized map[procKey]bool
@@ -125,9 +130,11 @@ func Watch(ctx context.Context) {
 		ended:     map[string]bool{},
 		lastEnded: map[procKey]uint64{},
 		refusals:  map[string]int{},
-		unsized:   map[procKey]bool{},
-		idleSince: time.Now(),
-		waiter:    newWaiter(),
+
+		setsCallIDs: map[procKey]bool{},
+		unsized:     map[procKey]bool{},
+		idleSince:   time.Now(),
+		waiter:      newWaiter(),
 
 		missing:     map[procKey]int{},
 		unreadNotes: map[string]bool{},
@@ -222,15 +229,28 @@ func (w *watcher) tick() time.Duration {
 	for _, n := range notes {
 		codexAgents[n.AgentPID] = codexAgents[n.AgentPID] || n.Kind == codex
 	}
+	for key := range w.setsCallIDs {
+		if !s.alive(key.pid, key.start) {
+			delete(w.setsCallIDs, key)
+		}
+	}
 	for _, agent := range agents {
 		w.waiter.watch(agent)
 		loadArgs(s, agent, codexAgents[agent])
+		if !codexAgents[agent] {
+			continue
+		}
+		for _, child := range s.children(agent) {
+			if child.CallID != "" && child.CallID != s[agent].CallID {
+				w.setsCallIDs[procKey{agent, s[agent].Start}] = true
+			}
+		}
 	}
 	taken := map[int]bool{}
 	for _, c := range w.tracked {
 		taken[c.Root.PID] = true
 	}
-	for _, c := range match(s, w.untracked(notes), taken) {
+	for _, c := range match(s, w.untracked(notes), taken, w.setsCallIDs) {
 		taken[c.Root.PID] = true
 		w.tracked[c.Note.ToolUseID] = c
 		seen := w.seen[c.Note.ToolUseID]
@@ -290,8 +310,9 @@ func (w *watcher) demand(m memory, now time.Time) action {
 // into place, so a broken one never heals. So is a note whose agent (PID and
 // start time) is gone (see gone). A posted note, a background call's that its
 // post hook kept, is deleted once its command has ended or, when no command
-// matched it, childLinger after it was first read posted: its command started
-// before the post hook, so a later process is never its command. A note that
+// matched it, childLinger after it was first read posted and once match has
+// looked for it in two rounds: its command started before the post hook, so a
+// later process is never its command. A note that
 // was never posted and whose command never matched or has ended is
 // abandoned, and deleted, once a note
 // its agent wrote later has gone and abandonAfter has passed since it was
@@ -337,10 +358,11 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			}
 		}
 		if n.Posted && seen.posted.IsZero() {
-			seen.posted = now
+			seen.posted, seen.postedRound = now, w.round
 		}
 		w.seen[id] = seen
-		if n.Posted && (w.ended[id] || !seen.matched && now.Sub(seen.posted) >= childLinger) {
+		if n.Posted && (w.ended[id] || !seen.matched && now.Sub(seen.posted) >= childLinger &&
+			w.round > seen.postedRound+1) {
 			_ = os.Remove(path)
 			continue
 		}
@@ -353,6 +375,7 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			)
 			_ = os.Remove(path)
 			delete(w.seen, id)
+			delete(w.ended, id)
 			continue
 		}
 		present[id] = true

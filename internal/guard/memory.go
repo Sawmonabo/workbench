@@ -101,10 +101,11 @@ func (m memory) floor() uint64 {
 // delay is the time to the next tick. On Linux it follows earlyoom: the room
 // left above the polite-stop line over fill rates of 6000 MiB/s for memory
 // and 800 MiB/s for swap, clamped to 100 ms–1 s. On macOS it is 100 ms at
-// warning or above, so critical is seen at once, else 1 s.
+// critical, where a stop may come, and 1 s below it: warning, macOS's usual
+// state, never leads to a stop.
 func delay(m memory) time.Duration {
 	if m.Level > 0 {
-		if m.Level >= 2 {
+		if m.Level >= criticalLevel {
 			return 100 * time.Millisecond
 		}
 		return time.Second

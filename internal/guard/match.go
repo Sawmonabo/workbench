@@ -197,8 +197,9 @@ func (s snapshot) launched(child proc, seen map[int]bool) []proc {
 // skipped; the next tick looks again. Notes go oldest first, each to its
 // oldest matching child, so of two notes with the same text the earlier gets
 // the earlier child. A child whose command line matches no note is never
-// tracked.
-func match(s snapshot, notes []note, taken map[int]bool) []command {
+// tracked. setsCallIDs are the Codex agents seen to give a command its own
+// call ID (see claims).
+func match(s snapshot, notes []note, taken map[int]bool, setsCallIDs map[procKey]bool) []command {
 	notes = slices.Clone(notes)
 	slices.SortFunc(notes, func(a, b note) int {
 		return cmp.Or(
@@ -221,7 +222,7 @@ func match(s snapshot, notes []note, taken map[int]bool) []command {
 			if used[child.PID] || child.Start < earliest || slices.Equal(child.Args, agent.Args) {
 				continue
 			}
-			if !claims(s, n, agent, child, earliest) {
+			if !claims(s, n, agent, child, earliest, setsCallIDs[procKey{agent.PID, agent.Start}]) {
 				continue
 			}
 			used[child.PID] = true
@@ -234,13 +235,17 @@ func match(s snapshot, notes []note, taken map[int]bool) []command {
 
 // claims reports whether child runs n's command. A child of a Codex agent
 // with a CallID of its own, not the one it inherited with the agent's
-// environment, is that call's command and no other's. Otherwise the process
-// running the command (child, or the first below its sandbox launchers) must
-// have started no earlier than earliest and have exactly the shape n's agent
-// uses for n's text.
-func claims(s snapshot, n note, agent, child proc, earliest uint64) bool {
-	if n.Kind == codex && child.CallID != "" && child.CallID != agent.CallID {
-		return child.CallID == n.ToolUseID
+// environment, is that call's command and no other's. A Codex agent that sets
+// call IDs (setsCallIDs) gives one to every command, so under it only a child
+// carrying n's own ID claims n: its git helpers lead their own groups too and
+// may run a note's exact words. Otherwise the process running the command
+// (child, or the first below its sandbox launchers) must have started no
+// earlier than earliest and have exactly the shape n's agent uses for n's
+// text.
+func claims(s snapshot, n note, agent, child proc, earliest uint64, setsCallIDs bool) bool {
+	ownID := child.CallID != "" && child.CallID != agent.CallID
+	if n.Kind == codex && (ownID || setsCallIDs) {
+		return ownID && child.CallID == n.ToolUseID
 	}
 	return slices.ContainsFunc(s.commandProcesses(child), func(p proc) bool {
 		return p.Start >= earliest && runs(n, p, p.PID != child.PID)

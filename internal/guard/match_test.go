@@ -137,14 +137,14 @@ func TestMatchTracksOnlyTheAgentsCommandShell(t *testing.T) {
 			Command: "sleep 25", NotedStart: start(0.5),
 		},
 	}
-	got := roots(match(s, notes, nil))
+	got := roots(match(s, notes, nil, nil))
 	want := map[string]int{
 		"toolu_a": 200, "toolu_b": 206, "toolu_make": 211, "toolu_npm": 212, "toolu_sleep": 213,
 	}
 	if !maps.Equal(got, want) {
 		t.Fatalf("matched %v, want %v", got, want)
 	}
-	if again := match(s, notes[:1], map[int]bool{200: true}); len(again) != 0 {
+	if again := match(s, notes[:1], map[int]bool{200: true}, nil); len(again) != 0 {
 		t.Fatalf("a tracked child was matched again: %v", roots(again))
 	}
 }
@@ -228,7 +228,7 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 			Command: "cargo build", NotedStart: start(0),
 		},
 	}
-	got := roots(match(s, notes, nil))
+	got := roots(match(s, notes, nil, nil))
 	want := map[string]int{"exec-1": 401, "exec-10": 460}
 	if !maps.Equal(got, want) {
 		t.Fatalf("matched %v, want %v", got, want)
@@ -240,6 +240,11 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 // its call's command, and a command of another call is never taken for this
 // note's, even with the same words. An ID inherited from the agent, which
 // itself runs inside an outer Codex command, names no command of its own.
+// Under an agent seen to set call IDs, a child without one of its own is
+// never a command: Codex's git helpers lead their own groups and may run a
+// note's exact words, and taking one would end the note when the helper
+// exits, or SIGKILL the helper at a forced stop and tell the model its call
+// was stopped.
 func TestMatchCodexByCallID(t *testing.T) {
 	agent := process(400, 1, 400, -3600, "codex", "exec")
 	inner := process(500, 1, 500, -3600, "codex", "exec")
@@ -250,6 +255,7 @@ func TestMatchCodexByCallID(t *testing.T) {
 		// /opt/run/nap is a #! script that runs `exec sleep 3`.
 		process(420, 400, 420, 0.3, "sleep", "3"),
 		process(421, 400, 421, 0.2, "git", "status"),
+		process(422, 400, 422, 0.4, "git", "rev-parse", "HEAD"),
 		process(510, 500, 510, 0.2, "cargo", "build"),
 	)
 	for pid, id := range map[int]string{420: "exec-1", 421: "exec-9", 510: "exec-outer"} {
@@ -270,8 +276,13 @@ func TestMatchCodexByCallID(t *testing.T) {
 			AgentPID: 500, AgentStart: inner.Start, Kind: codex, ToolUseID: "exec-3",
 			Command: "cargo build", NotedStart: start(0),
 		},
+		{
+			AgentPID: 400, AgentStart: agent.Start, Kind: codex, ToolUseID: "exec-4",
+			Command: "git rev-parse HEAD", NotedStart: start(0),
+		},
 	}
-	got := roots(match(s, notes, nil))
+	setsCallIDs := map[procKey]bool{{agent.PID, agent.Start}: true}
+	got := roots(match(s, notes, nil, setsCallIDs))
 	want := map[string]int{"exec-1": 420, "exec-3": 510}
 	if !maps.Equal(got, want) {
 		t.Fatalf("matched %v, want %v", got, want)
@@ -306,7 +317,7 @@ func TestMatchCodexCommandItsShellReplaced(t *testing.T) {
 			Command: "codex exec", NotedStart: start(0),
 		},
 	}
-	got := roots(match(s, notes, nil))
+	got := roots(match(s, notes, nil, nil))
 	if len(got) != 1 || got["exec-2"] != 420 {
 		t.Fatalf("matched %v, want only exec-2→420", got)
 	}
@@ -331,7 +342,7 @@ func TestMatchOnlyTheAgentsOwnChild(t *testing.T) {
 			Command: "npm test", NotedStart: start(1),
 		},
 	}
-	got := roots(match(s, notes, nil))
+	got := roots(match(s, notes, nil, nil))
 	if len(got) != 1 || got["exec-6"] != 430 {
 		t.Fatalf("matched %v, want only exec-6→430", got)
 	}
