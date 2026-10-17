@@ -258,7 +258,7 @@ each platform builds only its own; everything else is shared.
 
 | Need | macOS | Linux and WSL | Where |
 | --- | --- | --- | --- |
-| A process's memory each tick | `operation.PhysicalFootprint` (`proc_pid_rusage`), already used | `/proc/PID/statm` resident pages × page size, new | `footprint` beside the existing one in `internal/guard/platform_darwin.go` / `platform_linux.go` |
+| A process's memory each tick | `operation.PhysicalFootprint` (`proc_pid_rusage`), already used | `/proc/PID/statm` resident pages × page size, new | a new `resident(pid)` in `internal/guard/platform_darwin.go` (returns `footprint`) and `platform_linux.go`; `footprint` stays the stop decision's figure |
 | A process's working folder | `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`, a new call through the existing libc trampolines in `internal/operation/libc_darwin.go` | `os.Readlink("/proc/PID/cwd")` | same platform files |
 | The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` (`unix.GetsockoptInt`) | `SO_PEERCRED` (`unix.GetsockoptUcred`) | one `operation.Peer(conn) (uid, pid, error)` per platform; the password helper's `peerDescendsFrom` (`internal/operation/askpass_darwin.go`) is rewritten on top of it |
 | Is the peer under an agent | the guard's own process snapshot (`snapshot` in `internal/guard/guard.go`), which already walks parents and knows the noted agents | same | `internal/guard` |
