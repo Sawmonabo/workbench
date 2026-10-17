@@ -44,7 +44,7 @@ logged-in `gh`. Never run it as root.
 | `apply --yes` | Never ask: apply your saved choices, and give anything new its default. Refused for a coding agent, which applies with `--approve-plan`. |
 | `apply --reset` | Forget your saved choices and ask again with the defaults; what you pick is saved. |
 | `apply --dry-run` | Print the plan and exit; installs, asks and changes nothing. |
-| `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. |
+| `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. A local build is replaced by the latest published release, whatever its version. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work; an empty or malformed VERSION exits 2. |
 | `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
 | `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
@@ -86,6 +86,12 @@ exits 2. `update` ends with
 When that release is already installed it installs no release, still completes
 any missing tool, and says `[WorkBench] vX is already installed; nothing was
 applied: run workbench apply`, so rerunning it finishes a setup that was stopped.
+Without a VERSION, a published release only moves forward: one newer than
+GitHub's latest is kept. A local build, one not built by the release workflow,
+is not on the release channel, so `update` replaces it with the latest published
+release whatever their versions, and says so: `Replacing local build
+v0.2.1-dev.1 with v0.2.0, the latest published release` (also in `--dry-run`
+and `--json`). Name a VERSION to install another published release.
 The installed release runs the update, so one older than v0.1.8 first prints its
 own `Installed Workbench vX; continuing with setup and apply`; the new release
 then installs only its tools, as above. A staged copy of a release that
@@ -660,7 +666,8 @@ reinstall.
 
 Pushing a `v*` tag runs `.github/workflows/release.yml`. It first runs the CI
 checks and publishes only if they pass, then builds the four
-bundles with `scripts/package-release.py`, stamps the tag into a copy of
+bundles with `scripts/package-release.py --published`, which marks their
+executables as published releases, stamps the tag into a copy of
 `install.sh`, and publishes all five files as a GitHub release. Its release
 notes are that tag's section of the changelog, which git-cliff (a pinned release,
 checked against its SHA-256 by `scripts/git-cliff.sh`) builds from the
@@ -673,8 +680,13 @@ tag leaves it to the newer tag's run, and changelog commits run one at a time.
 Build one bundle locally with the pinned Go toolchain and Python 3.11+:
 
 ```sh
-python3 scripts/package-release.py --version v0.2.0 --target darwin-arm64 --output dist
+python3 scripts/package-release.py --version v0.2.1-dev.1 --target darwin-arm64 --output dist
 ```
+
+A bundle built without `--published` is a local build. Name it after the next
+release with a `-dev.N` suffix, such as `v0.2.1-dev.1` after `v0.2.0`, so it
+sorts below that release; `update` without a VERSION replaces it with the
+latest published release.
 
 Targets are `darwin-arm64`, `darwin-amd64`, `linux-arm64` and `linux-amd64`.
 Existing bundle names are not overwritten. The payload holds machine sources,

@@ -59,9 +59,12 @@ synthetic answers.
   release is already active it says `[WorkBench] vX is already installed; run
   workbench apply`. `install.sh` installs through `update` and applies nothing,
   and `update --dry-run` stops before installing. Observed on a WSL2 Ubuntu
-  26.04 host from a local bundle: install, the already-installed line, and
-  `update` without a version keeping a local build newer than the latest
-  published release; `install.sh` was not run there.
+  26.04 host from a local bundle: install and the already-installed line;
+  `install.sh` was not run there. Without a version, `update` replaces a local
+  build with the latest published release whatever their versions and says
+  `Replacing local build vX with vY, the latest published release`, and a
+  published build newer than the latest is kept. (observed on macOS in
+  disposable homes from local bundles, against GitHub's latest)
 - Installing Workbench and its pinned tools needs no separate approval: from a
   fresh home with no chezmoi or uv on `PATH`, `update` downloads chezmoi, uv,
   Python 3.12.12 and TOML Kit with a progress line and without a prompt, and
