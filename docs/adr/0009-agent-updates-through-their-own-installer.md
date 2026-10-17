@@ -50,17 +50,27 @@ must not fight those updaters.
     `codex-package.json`, or else the release name;
   - Claude Code's native installer: `.local/share/claude/versions/VERSION`;
   - a Homebrew cask (`codex`, `claude-code`, `claude-code@latest`).
+
+  A vendor installer updates only the launcher it makes, `~/.local/bin/claude`
+  or `~/.local/bin/codex`; Anthropic's setup page says a launcher replaced by
+  your own script or symlink is left in place. A release of either reached
+  through any other launcher, such as a `~/bin/claude` symlink into
+  `versions/`, is therefore named in a warning and left alone, rather than
+  updated behind a launcher that keeps running the old one, which every plan
+  would then propose again.
 - The target is the `versions.toml` pin in pinned mode. In latest mode it is
   the newest release on the channel the tool's own updater follows: Codex's
   `releases.openai.com/codex/channels/latest` or the npm `latest` tag, and for
   Claude Code the channel `autoUpdatesChannel` names (`stable` or `latest`,
-  unset meaning latest), read from `~/.claude/settings.json` and the managed
+  unset meaning latest), read from the user settings (`settings.json` in
+  `CLAUDE_CONFIG_DIR` when that is set, else in `~/.claude`) and the managed
   settings files (`managed-settings.json` and `managed-settings.d/*.json` in
   `/Library/Application Support/ClaudeCode` or `/etc/claude-code`), which
   override it: `downloads.claude.ai/claude-code-releases/stable` or `/latest`,
   or the npm `stable` or `latest` tag. A channel set only through an MDM
   profile or the claude.ai console cannot be read from a file and counts as
-  latest. Planning looks both versions up side by side, each within 3 seconds,
+  latest; project and local settings depend on the folder Claude Code starts
+  in and are not read. Planning looks both versions up side by side, each within 3 seconds,
   the limit the runtimes probe gives its Node lookup; the lookups answer in
   well under a second, a failed one only warns, and the next plan looks again.
 - A copy as new as the target, or newer, is left alone, so nothing is
@@ -82,13 +92,24 @@ must not fight those updaters.
     `--release latest`, as `codex update` does, so the standalone package's
     `auto-update-version` marker, which its background updater follows, is
     written again; the script first checks that the latest channel still
-    offers the planned version and afterwards that `current/codex-package.json`
-    names it, since the installer can end without installing (for example
-    while Codex's own updater runs), and reports the step blocked otherwise;
+    offers the planned version. In both modes the standalone `current` link,
+    which the installer points at the release it selects, must then name
+    `VERSION-TARGET`, which holds for both of the installer's layouts
+    (`package` and the older `legacy-platform-npm`, which has no
+    `codex-package.json`), since the installer can end without installing
+    (for example while Codex's own updater runs); otherwise the step is
+    blocked. A release published between the channel check and the install
+    is installed instead and may remain installed, with the step blocked;
   - Claude Code native: `claude install VERSION`, the native installer's own
-    command, which its `install.sh` runs after downloading. Installing a
-    version leaves `autoUpdatesChannel` as it is; only `claude install stable`
-    or `claude install latest` saves a channel.
+    command, run from VERSION's own binary (below). Installing a version
+    leaves `autoUpdatesChannel` as it is; only `claude install stable` or
+    `claude install latest` saves a channel.
+
+  Small downloads use Codex's installer's limits (10 seconds to connect, 30
+  for metadata). Claude Code's `install.sh` sets none; its binary of about
+  250 MB gets the 10-second connect limit and is abandoned only when it
+  stalls below 1 KB/s for 60 seconds, as a total limit would turn a slow
+  connection into a failure.
   A failed update is blocked on its own effect; the others still run.
 - Before a native Claude Code update, the apply checks Anthropic's release
   manifest for that version the way Anthropic's setup page documents: it
@@ -98,20 +119,45 @@ must not fight those updaters.
   the detached signature `manifest.json.sig` over `manifest.json` with the
   maintained ProtonMail OpenPGP library (`golang.org/x/crypto/openpgp` is
   deprecated and unmaintained, and names that fork as its replacement), and
-  passes the manifest's SHA-256 values to the script. A manifest that cannot
-  be fetched or verified leaves Claude Code as it is and blocks the step.
-  After `claude install VERSION`, the installed binary in
-  `~/.local/share/claude/versions` must match one of them; one that does not
-  is removed without being run, the launcher symlink points at the previous
-  version again, and the step is blocked. `claude install` downloads the
-  binary itself, so the check follows the install, as the documentation's own
-  check of an installed binary does. Signatures exist from 2.1.89, below any
-  target Workbench plans.
-- In pinned mode the Claude Code settings merge raises `minimumVersion` to the
-  pin (a higher floor already set stays). It is the floor Claude Code documents
-  for this case: its background updates and `claude update` refuse anything
-  below it, so a `stable` channel older than the pin cannot take back
-  Workbench's update and the next plan does not put it forward again.
+  passes the manifest's `platforms.<platform>.checksum` values to the script.
+  A manifest that cannot be fetched or verified leaves Claude Code as it is
+  and blocks the step. The key is fetched and pinned by its full fingerprint
+  rather than kept in Workbench: that is the procedure Anthropic documents for
+  the manifest and for its apt repository, a full fingerprint pin rejects any
+  other key, and a rotated key fails the pin either way.
+- The script then does what Anthropic's `install.sh` does, verifying before
+  anything runs: it names the host platform as `install.sh` does (`darwin` or
+  `linux`, `x64` or `arm64`, `arm64` for an x64 shell under Rosetta, `-musl`
+  where musl's loader is present or `ldd` names it), accepts only that
+  platform's checksum, downloads `VERSION/PLATFORM/claude` into the apply's
+  private temporary folder and runs its `install VERSION` only when the file
+  matches; a mismatch is removed without being run, and nothing is linked.
+  `install.sh` instead runs the newest binary's `install VERSION`, which then
+  downloads VERSION; running VERSION's own binary means only the version the
+  plan names runs. `claude install VERSION` downloads VERSION again itself
+  even when it runs from VERSION's binary (an install without network fails
+  with `getaddrinfo EAI_AGAIN downloads.claude.ai`), and Claude Code offers
+  no way to install a local file, so the script also checks the binary it
+  installed in `~/.local/share/claude/versions`, whatever `claude install`
+  exited with: one that does not match, or the empty file a failed download
+  leaves, is removed, a launcher left pointing at nothing points at the
+  previous version again, and the step is blocked. Between `claude install`
+  linking the launcher and that check, a `claude` that starts runs the
+  unchecked binary. Signatures exist from 2.1.89, below any target Workbench
+  plans.
+- In pinned mode the Claude Code settings merge raises `minimumVersion`, the
+  floor Claude Code documents for this case (its background updates and
+  `claude update` refuse anything below it, so a `stable` channel older than
+  the pin cannot take back Workbench's update and the next plan does not put
+  it forward again), to the pin, or to the version the shell's Claude Code is
+  at while that is older. The plan passes it to the settings template as the
+  `workbench_claude_floor` answer, from the installs it read before
+  rendering, so the preview and the apply render the same floor and the plan
+  digest binds it. The floor reaches the pin at the first apply after the
+  update has run, and never stops Claude Code's own updates while the update
+  is unticked or blocked. A higher floor already set stays; without a copy
+  whose version can be read (none, Homebrew, another installer) or in latest
+  mode no floor is set.
 - On macOS a Homebrew copy joins the Homebrew updates and is upgraded with
   `brew upgrade --cask`, at Homebrew's current version, since a cask installs
   no other. Homebrew is not run on Linux, so a Homebrew copy there is named
@@ -132,7 +178,14 @@ must not fight those updaters.
   stay on.
 - Claude Code keeps updating itself in the background on its own channel
   unless its settings turn that off; in pinned mode it can run ahead of the
-  pin, which the plan then leaves alone, but not below it.
+  pin, which the plan then leaves alone, but not below it once the update has
+  run.
+- A floor set in pinned mode stays after a switch to latest mode. The merge
+  cannot tell Workbench's floor from one the user or Claude Code wrote (Claude
+  Code writes the same key when `/config` switches to stable and keeps the
+  current version, and clears it when it switches back to latest), so
+  removing it could remove the user's own. It is at most a version that was
+  installed, so it holds back no update on the latest channel.
 - Both installers check a downloaded binary's SHA-256 against a manifest
   fetched over HTTPS from the same host: Codex's against
   `codex-package_SHA256SUMS` and its release metadata, Claude Code's against
@@ -142,7 +195,7 @@ must not fight those updaters.
   procedure or signing identity for them, so Workbench relies on the
   installer's SHA-256 check there. Codex's `install.sh` itself
   is fetched at apply time over HTTPS and is not bound to the plan digest; the
-  plan binds the version, which the script checks afterwards in latest mode.
+  plan binds the version, which the script checks afterwards.
 - In latest mode, every plan looks the versions up again: a release published
   between `apply --dry-run` and `apply --approve-plan`, or between the plan an
   interactive apply shows and its recheck after approval, or a lookup that
@@ -154,7 +207,9 @@ must not fight those updaters.
 - [Claude Code setup: install, auto-updates, release channels, `minimumVersion`, npm, Homebrew, binary integrity](https://code.claude.com/docs/en/setup)
 - [Claude Code settings reference: `autoUpdatesChannel`, `minimumVersion`](https://code.claude.com/docs/en/settings-reference)
 - [Claude Code managed settings: file locations and `managed-settings.d`](https://code.claude.com/docs/en/managed-settings)
-- [Claude Code native installer script](https://claude.ai/install.sh)
+- [Claude Code native installer script: platform names, musl and Rosetta detection, verify before run](https://claude.ai/install.sh)
+- [Claude Code environment variables: `CLAUDE_CONFIG_DIR`](https://code.claude.com/docs/en/env-vars)
+- [curl: `--connect-timeout`, `--max-time`, `--speed-limit`, `--speed-time`](https://curl.se/docs/manpage.html)
 - [Codex README: installation](https://github.com/openai/codex/blob/main/README.md)
 - [Codex standalone installer: `--release`, `CODEX_NON_INTERACTIVE`, `auto-update-version`, SHA-256 check](https://github.com/openai/codex/blob/main/scripts/install/install.sh)
 - [Codex update commands per install method (`codex update`, update prompt)](https://github.com/openai/codex/blob/main/codex-rs/tui/src/update_action.rs)

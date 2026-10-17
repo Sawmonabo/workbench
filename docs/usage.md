@@ -334,31 +334,52 @@ running it. When that version is older than the target, the plan lists
 0.163.0 through its standalone installer`. The target is the `versions.toml`
 pin, or in latest mode the newest release on the channel the tool's own
 updater follows, looked up while planning: Codex's latest channel, and for
-Claude Code the `autoUpdatesChannel` in its settings (`stable` or `latest`;
-managed settings files override yours). Approving it runs that installer:
+Claude Code the `autoUpdatesChannel` in its user settings (in
+`CLAUDE_CONFIG_DIR` when that is set; `stable` or `latest`) or its managed
+settings files, which override yours. Project settings are not read, as they
+depend on the folder Claude Code starts in. Approving it runs that installer:
 `npm install -g @openai/codex@VERSION` in the nvm Node it is in, OpenAI's
 standalone installer, or `claude install VERSION`, which leaves Claude Code's
 channel as it is. A copy as new as the target or newer is left alone; a
 prerelease counts as older than its release. On macOS a copy from a Homebrew
 cask (`codex`, `claude-code`, `claude-code@latest`) is one of the Homebrew
 updates above, at Homebrew's current version, the only one a cask installs. A
-copy installed any other way (apt, bun, Homebrew on Linux, a launcher of your
-own) is named in the plan's warnings and left alone, and a missing one is
-installed through npm by the command-line tools step.
+copy installed any other way (apt, bun, Homebrew on Linux) is named in the
+plan's warnings and left alone, and so is a vendor installer's release run
+through a launcher of your own, such as a `~/bin/claude` symlink: each
+installer updates only the launcher it makes, `~/.local/bin/claude` or
+`~/.local/bin/codex`. A missing copy is installed through npm by the
+command-line tools step.
 
 Both tools keep their own background updates where the mode allows. In latest
 mode the standalone installer runs with `--release latest`, as `codex update`
 does, which keeps Codex updating itself; the apply checks before that the
-channel still offers the planned release and afterwards that it is installed,
-or the step is blocked. In pinned mode it runs with `--release VERSION`, which
-turns Codex's background updates off so it stays at the pin; `codex update`
-turns them back on. Claude Code keeps updating itself on its channel; in
-pinned mode Workbench sets `minimumVersion` in its settings to the pin, so
-those updates never go below it, and it can run ahead of the pin, which the
-plan then leaves alone. Before a native Claude Code update the apply checks
-the GPG signature on Anthropic's release manifest for that version, and
-afterwards that the installed binary matches it; otherwise the previous
-version is put back and the step is blocked.
+channel still offers the planned release. In pinned mode it runs with
+`--release VERSION`, which turns Codex's background updates off so it stays at
+the pin; `codex update` turns them back on. In both modes the release the
+installer leaves selected must then be the planned one, or the step is
+blocked; in latest mode a newer release published in between may remain
+installed.
+
+Claude Code keeps updating itself on its channel. In pinned mode Workbench
+sets `minimumVersion` in its settings, the floor below which those updates
+install nothing: the pin, or the installed version while that is older, so
+the floor reaches the pin at the first apply after the update has run and
+never holds back an update that has not. A higher floor already set stays.
+Claude Code can run ahead of the pin, which the plan then leaves alone. A
+floor stays when you switch to latest mode, where it is at most a version
+you already had; Claude Code clears it itself when you switch its channel back
+to latest in `/config`.
+
+Before a native Claude Code update the apply checks the GPG signature on
+Anthropic's release manifest for that version, downloads that version's
+binary for your platform (named as Anthropic's `install.sh` names it) and runs
+its `claude install VERSION` only if it matches the manifest. `claude install`
+downloads the version again itself, so the binary it installs is checked as
+well, even when the install fails: one that does not match is removed, the
+launcher points at the previous version again, and the step is blocked. A
+`claude` started between the install and that check runs the unchecked
+binary.
 
 In latest mode every plan looks the versions up again, including the recheck
 an interactive apply runs after you approve: a release published since the
