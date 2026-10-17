@@ -36,17 +36,26 @@ jobs:
           done
           sed "s/^default_version=.*/default_version=$VERSION/" install.sh > dist/install.sh
           grep -q "^default_version=$VERSION\$" dist/install.sh
-      # A full release's notes are its section of CHANGELOG.md (cliff.toml). A
-      # pre-release (a tag with a hyphen, vX.Y.Z-rc.N) has no section there, so
-      # its notes count every v* tag: the commits since the tag before it.
+      # The notes cover this tag's commits since the tag before it, named
+      # explicitly so a later tag never changes them. A full release's notes
+      # are its section of CHANGELOG.md (cliff.toml) and start after the
+      # previous full release. A pre-release (a tag with a hyphen,
+      # vX.Y.Z-rc.N) has no section there: its notes start after any earlier
+      # v* tag, with the tag pattern widened to count it. Without an earlier
+      # tag the notes cover the whole history the checked-out tag ends.
       - name: Write release notes
         env:
           VERSION: ${{ github.ref_name }}
         run: |
+          set -- --config cliff.toml --strip header -o "$RUNNER_TEMP/release-notes.md"
           case $VERSION in
-          *-*) scripts/git-cliff.sh --config cliff.toml --latest --tag-pattern 'v[0-9]*' --strip header -o "$RUNNER_TEMP/release-notes.md" ;;
-          *) scripts/git-cliff.sh --config cliff.toml --latest --strip header -o "$RUNNER_TEMP/release-notes.md" ;;
+          *-*)
+            previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' "$VERSION^" 2>/dev/null || true)
+            set -- "$@" --tag-pattern '^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$'
+            ;;
+          *) previous=$(git describe --tags --abbrev=0 --match 'v[0-9]*' --exclude '*-*' "$VERSION^" 2>/dev/null || true) ;;
           esac
+          scripts/git-cliff.sh "$@" ${previous:+"$previous..$VERSION"}
       # A pre-release is published as one, so GitHub's latest release, which
       # update and install.sh follow, stays the newest full release.
       - name: Publish release
