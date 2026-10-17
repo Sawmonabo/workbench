@@ -110,7 +110,7 @@ func newRoot(o *options) *cobra.Command {
 		askpassCommand(o),
 		costsCommand(o),
 		migrateCommand(o),
-		guardCommand(),
+		guardCommand(o),
 	)
 	registerCompletions(root)
 	return root

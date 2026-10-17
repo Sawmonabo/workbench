@@ -181,9 +181,39 @@ command runs, and a guard fault leaves a command unguarded and never blocks it.
 Programs a command detaches from itself (`nohup` with `setsid`) are not
 tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes and the log
-(`watch.log`) are in Workbench's state folder under `guard/`. The hooks are
-hidden `workbench guard` commands. See the
-[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md).
+(`watch.log`) are in Workbench's state folder under `guard/`. The hooks and
+the watcher are hidden `workbench guard` commands.
+
+`workbench guard logs` shows what the guard did, oldest first, in the
+machine's time zone: each stop with its command and size and, below it, the
+reason the agent was told; low memory that stopped nothing; calls dropped
+without their post hook; the watcher starting and exiting; and errors. At a
+terminal stops and errors are red, memory warnings yellow and routine lines
+faint; piped output, `TERM=dumb` and `NO_COLOR` get plain text. With nothing
+to show it says so on stderr and exits 0.
+
+```bash
+workbench guard logs                        # what matters
+workbench guard logs --verbose              # also every command tracked and ended
+workbench guard logs --since 2h             # a Go duration before now
+workbench guard logs --since "2026-10-16 21:00"
+workbench guard logs -f                     # keep printing new events
+workbench guard logs --json --since today   # the log's own JSON Lines records
+```
+
+`--since` takes a duration (`10m`, `2h`), `today`, `yesterday`, a date, date
+and time or time of today in the machine's time zone (`2026-10-16`,
+`2026-10-16 21:00`, `21:00`), or an RFC 3339 time. `--follow` (`-f`) waits
+for a log that does not exist yet and reads on when the log is cut to its
+newest half. The log is JSON Lines: each record has `time`, `level`, `msg`,
+`event` (`started`, `idle`, `exited`, `tracking`, `ended`, `unmatched`,
+`abandoned`, `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`),
+`part` and `pid`, and, by event, `call`, `agent`, `command`, `root_pid`,
+`size`, `children`, `reason`, `memory`, `floor`, `dry_run`, `still_running`,
+`process` and `error`; `--json` prints the
+matching records unchanged, one per line. See the
+[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
+section 4.1.
 
 ## Approval and automation
 

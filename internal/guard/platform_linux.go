@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -72,7 +71,7 @@ func snapshotNow(unreadable func(pid int, err error)) (snapshot, error) {
 		switch {
 		case err == nil:
 			s[pid] = p
-		case !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, unix.ESRCH):
+		case !exited(err):
 			unreadable(pid, err)
 		}
 	}

@@ -3,7 +3,9 @@ package guard
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"strings"
 	"time"
@@ -89,7 +91,7 @@ func Pre(stdin *os.File) {
 	var f folders
 	defer func() {
 		if p := recover(); p != nil && f.root != "" {
-			f.logf("pre: panic: %v", p)
+			f.event(slog.LevelError, EventError, "panic", "error", fmt.Sprint(p))
 		}
 	}()
 	mode := os.Getenv("WORKBENCH_GUARD")
@@ -103,17 +105,26 @@ func Pre(stdin *os.File) {
 		return
 	}
 	var err error
-	if f, err = openFolders(); err != nil {
+	if f, err = openFolders("pre"); err != nil {
 		return
 	}
 	agent, err := findAgent(os.Getppid())
 	if err != nil {
-		f.logf("pre %s: %v", input.ToolUseID, err)
+		f.event(slog.LevelError, EventError, "cannot find the agent; the call is not guarded",
+			"call", input.ToolUseID, "error", err)
 		return
 	}
 	self, err := processInfo(os.Getpid())
 	if err != nil {
-		f.logf("pre %s: %v", input.ToolUseID, err)
+		f.event(
+			slog.LevelError,
+			EventError,
+			"cannot read the hook's process; the call is not guarded",
+			"call",
+			input.ToolUseID,
+			"error",
+			err,
+		)
 		return
 	}
 	n := note{
@@ -122,7 +133,8 @@ func Pre(stdin *os.File) {
 		NotedStart: self.Start, NotedAt: time.Now(), DryRun: mode == "dry-run",
 	}
 	if err = writeJSON(f.note(n.ToolUseID), n); err != nil {
-		f.logf("pre %s: %v", n.ToolUseID, err)
+		f.event(slog.LevelError, EventError, "cannot write the note; the call is not guarded",
+			"call", n.ToolUseID, "error", err)
 		return
 	}
 	startWatcher(f)
@@ -137,7 +149,7 @@ func startWatcher(f folders) {
 	}
 	release()
 	if err = operation.StartDetached([]string{"guard", "watch"}, f.log()); err != nil {
-		f.logf("pre: cannot start the watcher: %v", err)
+		f.event(slog.LevelError, EventError, "cannot start the watcher", "error", err)
 	}
 }
 
@@ -152,7 +164,7 @@ func Post(stdin *os.File, stdout io.Writer) {
 	var f folders
 	defer func() {
 		if p := recover(); p != nil && f.root != "" {
-			f.logf("post: panic: %v", p)
+			f.event(slog.LevelError, EventError, "panic", "error", fmt.Sprint(p))
 		}
 	}()
 	input, ok := readInput(stdin)
@@ -160,7 +172,7 @@ func Post(stdin *os.File, stdout io.Writer) {
 		return
 	}
 	var err error
-	if f, err = openFolders(); err != nil {
+	if f, err = openFolders("post"); err != nil {
 		return
 	}
 	path := f.note(input.ToolUseID)
@@ -171,7 +183,8 @@ func Post(stdin *os.File, stdout io.Writer) {
 	case readJSON(path, &n) == nil:
 		n.Posted = true
 		if err = writeJSON(path, n); err != nil {
-			f.logf("post %s: %v", input.ToolUseID, err)
+			f.event(slog.LevelError, EventError, "cannot mark the note posted",
+				"call", input.ToolUseID, "error", err)
 		}
 	}
 	var record kill

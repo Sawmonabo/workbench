@@ -1,9 +1,11 @@
 package guard
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
-	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -27,26 +29,31 @@ type kill struct {
 	At        time.Time `json:"at"`
 }
 
-// folders is <state>/guard and its notes and killed folders, each private.
-type folders struct{ root, notes, killed string }
+// folders is <state>/guard and its notes and killed folders, each private,
+// with the part (pre, post or watch) that opened them and its logger.
+type folders struct {
+	root, notes, killed, part string
+	logger                    *slog.Logger
+}
 
-func openFolders() (folders, error) {
+func openFolders(part string) (folders, error) {
 	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
 		return folders{}, err
 	}
-	f := folders{root: filepath.Join(c.Paths.State, "guard")}
+	f := folders{root: filepath.Join(c.Paths.State, "guard"), part: part}
 	if f.notes, err = operation.PrivateDirectory(c.Paths.State, "guard/notes"); err != nil {
 		return folders{}, err
 	}
 	if f.killed, err = operation.PrivateDirectory(c.Paths.State, "guard/killed"); err != nil {
 		return folders{}, err
 	}
+	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
 	return f, nil
 }
 
 func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }
-func (f folders) log() string             { return filepath.Join(f.root, "watch.log") }
+func (f folders) log() string             { return logFile(f.root) }
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
 
@@ -101,13 +108,20 @@ func readJSON(path string, value any) error {
 	return json.Unmarshal(data, value)
 }
 
-// logf appends one line to the guard log, cut once it is over 1 MiB
-// (see [operation.AppendLog]).
-func (f folders) logf(format string, args ...any) {
-	operation.AppendLog(
-		f.log(),
-		fmt.Sprintf("%s %d %s", time.Now().Format(time.RFC3339), os.Getpid(),
-			fmt.Sprintf(format, args...)),
-		logLimit,
-	)
+// logWriter appends what it is given to the guard log at its path as one
+// line, cut once the log is over 1 MiB (see [operation.AppendLog]). A
+// [slog.JSONHandler] makes one Write per record, so each record is one line.
+type logWriter string
+
+func (path logWriter) Write(p []byte) (int, error) {
+	operation.AppendLog(string(path), string(bytes.TrimSuffix(p, []byte("\n"))), logLimit)
+	return len(p), nil
+}
+
+// event appends one record to the guard log: event names it (see
+// [EventStarted]), part and pid name the process writing it, and args are the
+// record's other attributes, as for [slog.Logger.Log].
+func (f folders) event(level slog.Level, event, msg string, args ...any) {
+	f.logger.Log(context.Background(), level, msg,
+		append([]any{"event", event, "part", f.part, "pid", os.Getpid()}, args...)...)
 }
