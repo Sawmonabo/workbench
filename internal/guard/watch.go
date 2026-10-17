@@ -323,8 +323,8 @@ func (w *watcher) tick() time.Duration {
 	return delay(m)
 }
 
-// demand is what memory calls for at now, after spec section 6.2's holds: a
-// soft condition calls for a polite stop only once it has lasted softHold,
+// demand is what memory calls for at now, after the holds that keep a brief
+// dip from stopping anything: a soft condition calls for a polite stop only once it has lasted softHold,
 // and macOS's critical level calls for a forced stop once it has lasted
 // criticalHold.
 func (w *watcher) demand(m memory, now time.Time) action {
@@ -842,7 +842,7 @@ func (w *watcher) escalate() bool {
 // everything under them, and each stopped process that is protected now or
 // sits under one that is (see dropProtected). wait is the stopped processes to
 // wait for: those kept, and the new ones. A process started under one that has
-// since exited is out of reach (spec 12).
+// since exited is out of reach: nothing links it to the command any more.
 func escalation(s snapshot, stopped []proc, protected map[int]uint64) (kill, wait []proc) {
 	wait = dropProtected(slices.Clone(stopped), protected)
 	known := map[int]bool{}

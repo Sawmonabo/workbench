@@ -2,7 +2,7 @@
 // files Workbench itself wrote outside its runtime folders into them, and
 // deletes of the caches, logs (or a log's lines in an old format), locks and
 // empty files it wrote and of an old copy whose new copy holds the same bytes
-// (ADR 0008). A move of another
+// A move of another
 // package's files is done by that package; this package holds the list, the
 // check and run loop, and the run record.
 package migrate

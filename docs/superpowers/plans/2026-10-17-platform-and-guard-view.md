@@ -27,6 +27,7 @@
 - Smokes run in disposable homes with `WORKBENCH_GUARD=dry-run` first and kill only processes the smoke started; never `workbench apply` on the Mac. A smoke home that holds a socket is `mktemp -d /tmp/wb.XXXX`, not a folder under the session scratchpad: a Unix socket path is limited to 104 bytes on macOS (`unix.RawSockaddrUnix.Path`), and the scratchpad path alone is longer. The smoke removes the folder when done.
 - Commit subjects are conventional (`refactor(platform): …`, `feat(guard): …`, `docs(guard): …`); each commit ends with `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`. Never edit `CHANGELOG.md`.
 - Tracked docs name no person's machine, project, worktree or call ID; examples use neutral names and made-up IDs. Times are 12-hour, America/New_York.
+- Production code, lint configuration and user-facing text never name a plan, task, ADR or spec section: a comment explains the rule itself ("the holds that keep a brief dip from stopping anything"), never "spec section 6.2". The design documents point at the code, not the reverse.
 
 ## Review Focus
 
@@ -186,7 +187,7 @@ In `.golangci.yml`, add `forbidigo` under `linters.enable` and:
     forbidigo:
       forbid:
         - pattern: '^runtime\.GOOS$'
-          msg: platform tests belong in internal/platform (ADR 0012)
+          msg: platform tests belong in internal/platform
 ```
 (The pattern matches the expression as written in the source; the repository imports `runtime` under its own name everywhere.) Under `linters.exclusions.rules` add `- linters: [forbidigo]` with `path: internal/platform/` and another with `path: internal/release/archive\.go`.
 

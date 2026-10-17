@@ -80,7 +80,7 @@ func (m memory) swapFreePercent() float64 {
 	return float64(m.SwapFree) * 100 / float64(m.SwapTotal)
 }
 
-// decide applies spec section 6.2 to one reading. soft marks a polite stop
+// decide is what one reading calls for, before the holds demand applies. soft marks a polite stop
 // called for by Linux's pressure condition alone, which counts only once it
 // has lasted softHold (see watcher.demand): pressure stays high for seconds
 // after memory is freed, so it counts only with low memory too. On macOS the

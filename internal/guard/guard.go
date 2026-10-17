@@ -1,7 +1,7 @@
 // Package guard stops the largest shell command an AI coding agent started
 // when the machine is about to run out of memory, and tells the agent why. It
 // never stops the agent, its harness, MCP servers, hooks or any other
-// program. See docs/superpowers/specs/2026-10-14-agent-command-guard-design.md.
+// program.
 package guard
 
 import (
