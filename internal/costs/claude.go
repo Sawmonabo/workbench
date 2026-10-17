@@ -22,8 +22,9 @@ type claude struct{}
 
 func (claude) Name() string { return "claude" }
 
-// claudeDir is where Claude Code keeps its state.
-func claudeDir(home string) string {
+// ClaudeDir is where Claude Code keeps its state and its user settings:
+// CLAUDE_CONFIG_DIR, else ~/.claude.
+func ClaudeDir(home string) string {
 	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
 		return dir
 	}
@@ -40,7 +41,7 @@ func claudeJSON(home string) string {
 }
 
 // claudeProjects is the directory Claude Code writes its transcripts under.
-func claudeProjects(home string) string { return filepath.Join(claudeDir(home), "projects") }
+func claudeProjects(home string) string { return filepath.Join(ClaudeDir(home), "projects") }
 
 // TranscriptRoots is where this tool's transcripts live.
 func (claude) TranscriptRoots(home string) []string { return []string{claudeProjects(home)} }
@@ -124,7 +125,7 @@ func (claude) SignIn(home string) SignIn {
 // backup keeps the organization of an earlier sign-in, which transcripts
 // still name.
 func claudeSignIns(home string) []claudeOAuth {
-	backups, _ := filepath.Glob(filepath.Join(claudeDir(home), "backups", ".claude.json.backup.*"))
+	backups, _ := filepath.Glob(filepath.Join(ClaudeDir(home), "backups", ".claude.json.backup.*"))
 	stamp := func(path string) int64 {
 		n, _ := strconv.ParseInt(strings.TrimPrefix(filepath.Ext(path), "."), 10, 64)
 		return n
@@ -190,7 +191,7 @@ func (claude) Marks(home string) []AccountMark {
 			})
 		}
 	}
-	file, err := os.Open(filepath.Join(claudeDir(home), "history.jsonl"))
+	file, err := os.Open(filepath.Join(ClaudeDir(home), "history.jsonl"))
 	if err != nil {
 		return marks
 	}
@@ -259,7 +260,7 @@ func claudePlanLabel(orgType, orgName string) string {
 func projectFromPath(path string) string {
 	home, _ := os.UserHomeDir()
 	name := filepath.Base(filepath.Dir(path))
-	if rel, err := filepath.Rel(filepath.Join(claudeDir(home), "projects"), path); err == nil &&
+	if rel, err := filepath.Rel(filepath.Join(ClaudeDir(home), "projects"), path); err == nil &&
 		!strings.HasPrefix(rel, "..") {
 		name = strings.Split(rel, string(filepath.Separator))[0]
 	}
@@ -598,7 +599,7 @@ func (claude) Hooks(home string) map[string]string {
 			} `json:"hooks"`
 		} `json:"hooks"`
 	}
-	if raw, err := os.ReadFile(filepath.Join(claudeDir(home), "settings.json")); err == nil {
+	if raw, err := os.ReadFile(filepath.Join(ClaudeDir(home), "settings.json")); err == nil {
 		decode(raw, &settings)
 	}
 	out := map[string]string{}

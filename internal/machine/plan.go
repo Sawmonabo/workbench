@@ -47,9 +47,11 @@ type preparation struct {
 	// Homebrew update effects cover, and agentCasks the Codex and Claude Code
 	// casks among the casks Homebrew is asked about.
 	appUpdates, toolUpdates, agentCasks []string
-	// agentUpdates are the Codex and Claude Code updates the plan's other
-	// update effects cover.
-	agentUpdates []agentUpdate
+	// agentInstalls are the copies of Codex and Claude Code the shell runs,
+	// in agents order (see findAgents), and agentUpdates the updates the
+	// plan's other update effects cover.
+	agentInstalls []agentInstall
+	agentUpdates  []agentUpdate
 	// brewRefreshed is, for Apply, whether Homebrew's index was refreshed
 	// before planning; the apply scripts then leave it be.
 	brewRefreshed bool
@@ -325,6 +327,15 @@ func (p *preparation) stageNative(
 	// do. Templates cannot read the caller's environment (the preview renders
 	// with a fixed one), so the path reaches them as an answer.
 	nativeAnswers["workbench_bin"] = filepath.Join(c.Paths.Bin, "workbench")
+	// The Claude Code settings get the floor of the copy installed now, so the
+	// preview and the apply render the same one. An isolated destination
+	// provisions nothing, so it has no agents to update or set a floor for.
+	if c.Native.Destination == c.Home {
+		p.findAgents(c.Home)
+	}
+	if floor := p.claudeFloor(files, answers); floor != "" {
+		nativeAnswers["workbench_claude_floor"] = floor
+	}
 	config, _ := json.Marshal(map[string]any{"data": nativeAnswers})
 	if err = os.WriteFile(native.Config, config, 0o600); err != nil {
 		return err
@@ -1014,7 +1025,7 @@ func (p *preparation) scriptsEnvironment(
 		environment = append(environment, effectVariable(effect.Name)+"="+value)
 	}
 	environment = append(environment, p.updateEnvironment()...)
-	agents, err := p.agentEnvironment(ctx, report)
+	agents, err := p.agentEnvironment(ctx, c, report)
 	if err != nil {
 		return nil, "", err
 	}

@@ -6,8 +6,9 @@
 # "codex:standalone-latest:0.163.0:0.162.0 claude-code:npm:2.1.301:2.1.300:v24.19.0";
 # without it nothing runs. standalone installs that Codex release and
 # standalone-latest Codex's latest release, which must be VERSION.
-# WORKBENCH_CLAUDE_CODE_SHA256 lists the SHA-256 values of Anthropic's signed
-# release manifest for a native Claude Code update. The plan chose them
+# WORKBENCH_CLAUDE_CODE_SHA256 lists, as PLATFORM=SHA256, the values of
+# Anthropic's signed release manifest for a native Claude Code update. The plan
+# chose them
 # (internal/machine/agents.go) and never names a downgrade or another way to
 # install.
 # Runs on every apply (run_after_): an update that fails is blocked on its own
@@ -28,21 +29,36 @@ trap 'rm -rf "$download_dir"' EXIT
 # rather than piped into sh, a download cut short runs nothing.
 codex_install() {
     local installer="$download_dir/codex-install.sh"
-    if ! curl -fsSL https://chatgpt.com/codex/install.sh -o "$installer" || [ ! -s "$installer" ]; then
+    if ! curl -fsSL --connect-timeout 10 --max-time 30 https://chatgpt.com/codex/install.sh -o "$installer" ||
+        [ ! -s "$installer" ]; then
         why="Codex's installer could not be downloaded"
         return 1
     fi
     CODEX_NON_INTERACTIVE=1 sh "$installer" --release "$1"
 }
 
+# codex_installed checks that the standalone package's current link, which
+# the installer points at the release it installs, names VERSION, in both of
+# the installer's layouts: releases are named VERSION-TARGET, and TARGET starts
+# with the architecture.
+codex_installed() {
+    local installed
+    installed=$(basename "$(readlink "$HOME/.codex/packages/standalone/current")")
+    case "$installed" in
+        "$version"-aarch64-* | "$version"-x86_64-*) return 0 ;;
+    esac
+    why="Codex's installer left ${installed:-no release} installed rather than $version"
+    return 1
+}
+
 # codex_latest installs Codex's latest release, which keeps the standalone
 # package's own background updates on, when that release is still the planned
-# VERSION, and then checks that VERSION is the release installed: the
-# installer can end without installing, for example while Codex's own updater
-# runs.
+# VERSION. The installer can still end without installing, for example while
+# Codex's own updater runs, or take a release published since, which then
+# stays installed; either blocks the update.
 codex_latest() {
-    local channel installed
-    channel=$(curl -fsSL --max-time 30 https://releases.openai.com/codex/channels/latest |
+    local channel
+    channel=$(curl -fsSL --connect-timeout 10 --max-time 30 https://releases.openai.com/codex/channels/latest |
         sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
     channel=${channel#rust-v}
     channel=${channel#v}
@@ -50,37 +66,92 @@ codex_latest() {
         why="Codex's latest release is ${channel:-unknown} rather than the planned $version"
         return 1
     fi
-    codex_install latest || return 1
-    installed=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
-        "$HOME/.codex/packages/standalone/current/codex-package.json" 2>/dev/null | head -n 1)
-    if [ "$installed" != "$version" ]; then
-        why="Codex's installer left ${installed:-no release} installed rather than $version"
-        return 1
+    codex_install latest && codex_installed
+}
+
+# claude_sha256 FILE prints FILE's SHA-256, as Claude Code's install.sh
+# computes it.
+claude_sha256() {
+    if [ "$(uname -s)" = Darwin ]; then
+        shasum -a 256 "$1" | cut -d' ' -f1
+    else
+        sha256sum "$1" | cut -d' ' -f1
     fi
 }
 
-# claude_native runs the native installer's own claude install VERSION, then
-# checks the installed binary against WORKBENCH_CLAUDE_CODE_SHA256. One that
-# does not match is removed, never run, and the launcher, the installer's
-# symlink into its versions folder, points at FROM again, which the installer
-# keeps.
+# claude_native runs claude install VERSION, the native installer's own
+# command, from VERSION's binary, as Claude Code's install.sh runs it from the
+# binary it downloads. The binary is downloaded for this machine's platform,
+# named as install.sh names it (musl Linux and an x64 shell under Rosetta
+# included), into the private download folder, and runs only when it matches
+# that platform's value in WORKBENCH_CLAUDE_CODE_SHA256. claude install then
+# downloads VERSION again itself and links the launcher, ~/.local/bin/claude,
+# to it, so whatever it leaves in the versions folder, also after a failure,
+# is checked too: one that does not match, or an empty one, is removed, and a
+# launcher left pointing at nothing points at FROM again, which the installer
+# keeps. A claude started between that link and this check runs the unchecked
+# binary.
 claude_native() {
-    local versions="$HOME/.local/share/claude/versions" actual
-    "$HOME/.local/bin/claude" install "$version" || return 1
-    if command -v sha256sum >/dev/null; then
-        actual=$(sha256sum "$versions/$version" | cut -d' ' -f1)
-    else
-        actual=$(shasum -a 256 "$versions/$version" | cut -d' ' -f1)
-    fi
-    case " $WORKBENCH_CLAUDE_CODE_SHA256 " in
-        *" $actual "*) return 0 ;;
+    local versions="$HOME/.local/share/claude/versions" launcher="$HOME/.local/bin/claude"
+    local os arch platform expected entry binary="$download_dir/claude" status
+    case "$(uname -s)" in
+        Darwin) os=darwin ;;
+        *) os=linux ;;
     esac
-    why="the installed Claude Code $version did not match Anthropic's signed release manifest"
-    if [ -x "$versions/$from" ] && ln -sfn "$versions/$from" "$HOME/.local/bin/claude"; then
-        rm -f "$versions/$version"
-        why="$why, so it was removed and $from put back"
+    case "$(uname -m)" in
+        x86_64 | amd64) arch=x64 ;;
+        arm64 | aarch64) arch=arm64 ;;
+        *) why="$(uname -m) is not an architecture Claude Code ships for"; return 1 ;;
+    esac
+    if [ "$os" = darwin ] && [ "$arch" = x64 ] && [ "$(sysctl -n sysctl.proc_translated 2>/dev/null)" = 1 ]; then
+        arch=arm64
+    fi
+    platform="$os-$arch"
+    if [ "$os" = linux ]; then
+        if [ -f /lib/libc.musl-x86_64.so.1 ] || [ -f /lib/libc.musl-aarch64.so.1 ]; then
+            platform="$platform-musl"
+        else
+            case "$(ldd /bin/ls 2>&1)" in
+                *musl*) platform="$platform-musl" ;;
+            esac
+        fi
+    fi
+    for entry in $WORKBENCH_CLAUDE_CODE_SHA256; do
+        [ "${entry%%=*}" = "$platform" ] && expected=${entry#*=}
+    done
+    if [ -z "${expected:-}" ]; then
+        why="Anthropic's signed release manifest lists no $platform binary"
+        return 1
+    fi
+    if ! curl -fsSL --connect-timeout 10 --speed-limit 1024 --speed-time 60 -o "$binary" \
+        "https://downloads.claude.ai/claude-code-releases/$version/$platform/claude"; then
+        why="its $platform binary could not be downloaded"
+        return 1
+    fi
+    if [ "$(claude_sha256 "$binary")" != "$expected" ]; then
+        rm -f "$binary"
+        why="the downloaded $platform binary did not match Anthropic's signed release manifest, so it was removed without being run"
+        return 1
+    fi
+    chmod +x "$binary"
+    "$binary" install "$version"
+    status=$?
+    rm -f "$binary"
+    if [ -s "$versions/$version" ]; then
+        if [ "$(claude_sha256 "$versions/$version")" = "$expected" ]; then
+            return "$status"
+        fi
+        why="the $version claude install put in $versions did not match Anthropic's signed release manifest and was removed"
     else
-        why="$why, and $from could not be put back"
+        why="claude install left no $version in $versions"
+    fi
+    rm -f "$versions/$version"
+    if [ ! -x "$launcher" ]; then
+        if [ -x "$versions/$from" ] && ln -sfn "$versions/$from" "$launcher"; then
+            why="$why; $from was put back"
+        else
+            why="$why; $from could not be put back"
+        fi
     fi
     return 1
 }
@@ -91,7 +162,7 @@ for update in $WORKBENCH_AGENT_UPDATES; do
     why=
     case "$tool:$method" in
         codex:standalone)
-            codex_install "$version" ;;
+            codex_install "$version" && codex_installed ;;
         codex:standalone-latest)
             codex_latest ;;
         claude-code:native)

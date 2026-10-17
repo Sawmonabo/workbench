@@ -21,6 +21,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -62,9 +63,11 @@ type agentUpdate struct {
 
 // agentInstall is the copy of an agent the shell runs: how it was installed,
 // its version and, for npm, the nvm Node version it is in. A Homebrew copy
-// has its cask instead of a method.
+// has its cask instead of a method. A copy of a vendor installer's release
+// run through a launcher the installer did not make has no method, and
+// launcher names the one the installer makes.
 type agentInstall struct {
-	path, method, version, node, cask string
+	path, method, version, node, cask, launcher string
 }
 
 // latestTimeout bounds each lookup of an agent's newest version while
@@ -77,16 +80,61 @@ const (
 	manifestTimeout = 30 * time.Second
 )
 
-// planAgentUpdates adds one effect per agent whose installed copy is older
-// than its target, so approving the plan approves the update: the pin in
-// pinned mode, the newest release of its installer's channel in latest mode
-// (for Claude Code, the channel its settings name; see claudeChannel). An
+// findAgents records the copy of each agent the shell runs (findAgent), which
+// the Claude Code settings floor (claudeFloor) and the updates
+// (planAgentUpdates) both go by. Nothing is run: installs and versions are
+// read from the installers' own layout.
+func (p *preparation) findAgents(home string) {
+	nvm := nvmDefaultBin(home)
+	p.agentInstalls = make([]agentInstall, len(agents))
+	for i, agent := range agents {
+		p.agentInstalls[i], _ = findAgent(home, nvm, agent)
+	}
+}
+
+// agentPins reads the [versions] table of versions.toml.
+func agentPins(files map[string][]byte) (map[string]any, error) {
+	var data struct {
+		Versions map[string]any `toml:"versions"`
+	}
+	err := toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &data)
+	return data.Versions, err
+}
+
+// claudeFloor returns the minimumVersion Workbench sets in Claude Code's
+// settings in pinned mode, the floor below which Claude Code's own updates
+// install nothing: the pin, or the version the shell's Claude Code is at while
+// that is older. So the floor rises to the pin only once the update to it has
+// run, and never stops Claude Code's own updates while it has not. Without a
+// copy whose version can be read (none, a Homebrew one or an unknown one), or
+// in latest mode, it returns "" and the settings get no floor from Workbench.
+func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) string {
+	i := slices.IndexFunc(agents, func(agent agent) bool { return agent.tool == "claude-code" })
+	if answers["versions_mode"] != "pinned" || p.agentInstalls == nil ||
+		p.agentInstalls[i].method == "" {
+		return ""
+	}
+	pins, err := agentPins(files)
+	pin, _ := pins[agents[i].pin].(string)
+	installed := p.agentInstalls[i].version
+	if err != nil || !plainVersion.MatchString(pin) || !plainVersion.MatchString(installed) {
+		return ""
+	}
+	if newerVersion(pin, installed) {
+		return installed
+	}
+	return pin
+}
+
+// planAgentUpdates adds one effect per agent whose installed copy (findAgents)
+// is older than its target, so approving the plan approves the update: the
+// pin in pinned mode, the newest release of its installer's channel in latest
+// mode (for Claude Code, the channel its settings name; see claudeChannel). An
 // installed copy that is already as new is left as it is, so nothing is ever
 // downgraded, and a missing agent is the global-tools step's to install. A
 // copy Homebrew installed is handed to the Homebrew updates (agentCasks); a
-// copy from anywhere else is named in a warning and left alone. Nothing is
-// run: installs and versions are read from the installers' own layout, and
-// the latest-mode lookups run side by side.
+// copy from anywhere else is named in a warning and left alone. The
+// latest-mode lookups run side by side.
 func (p *preparation) planAgentUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -94,26 +142,23 @@ func (p *preparation) planAgentUpdates(
 	latest bool,
 ) {
 	c.Step("checking Codex and Claude Code")
-	var data struct {
-		Versions map[string]any `toml:"versions"`
-	}
-	if toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &data) != nil {
+	pins, err := agentPins(files)
+	if err != nil {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			"Codex and Claude Code updates were not checked; versions.toml could not be read",
 		)
 		return
 	}
-	nvm := nvmDefaultBin(c.Home)
 	installs := make([]agentInstall, len(agents))
 	targets := make([]string, len(agents))
 	channels := make([]string, len(agents))
 	failed := make([]bool, len(agents))
 	var wg sync.WaitGroup
 	for i, agent := range agents {
-		install, found := findAgent(c.Home, nvm, agent)
+		install := p.agentInstalls[i]
 		switch {
-		case !found:
+		case install.path == "":
 			continue
 		case install.cask != "":
 			if runtime.GOOS == "darwin" {
@@ -123,7 +168,7 @@ func (p *preparation) planAgentUpdates(
 		case install.method != "":
 			installs[i] = install
 			if !latest {
-				targets[i], _ = data.Versions[agent.pin].(string)
+				targets[i], _ = pins[agent.pin].(string)
 				continue
 			}
 			channels[i] = "latest"
@@ -137,10 +182,11 @@ func (p *preparation) planAgentUpdates(
 			})
 			continue
 		}
-		p.Plan.Warnings = append(
-			p.Plan.Warnings,
-			agent.name+" at "+install.path+" did not come from npm in nvm's default Node or from its own installer; Workbench leaves its updates to you",
-		)
+		warning := agent.name + " at " + install.path + " did not come from npm in nvm's default Node or from its own installer; Workbench leaves its updates to you"
+		if install.launcher != "" {
+			warning = agent.name + " at " + install.path + " runs its installer's release through a launcher of your own, which the installer leaves alone (its own is " + install.launcher + "); Workbench leaves its updates to you"
+		}
+		p.Plan.Warnings = append(p.Plan.Warnings, warning)
 	}
 	wg.Wait()
 	for i, agent := range agents {
@@ -210,11 +256,11 @@ func (p *preparation) planAgentUpdate(
 		if channel != "" {
 			effect.What = "Updates Codex from " + install.version + " to " + target +
 				" with OpenAI's standalone installer (chatgpt.com/codex/install.sh --release latest), as codex update does, so Codex keeps updating itself in the background. The apply first checks that Codex's latest channel still offers " +
-				target + ", and afterwards that " + target + " is the release installed; otherwise the update is blocked."
+				target + ", and afterwards that " + target + " is the release installed; otherwise the update is blocked, and a newer release the installer took instead may remain installed."
 		} else {
 			effect.What = "Updates Codex from " + install.version + " to " + target +
 				" with OpenAI's standalone installer (chatgpt.com/codex/install.sh --release " + target +
-				"). Installing a set release removes the standalone package's auto-update-version marker, so Codex stops updating itself in the background and stays at the pin. codex update turns background updates back on; it installs the newest release and writes the marker again."
+				"); afterwards " + target + " must be the release installed, or the update is blocked. Installing a set release removes the standalone package's auto-update-version marker, so Codex stops updating itself in the background and stays at the pin. codex update turns background updates back on; it installs the newest release and writes the marker again."
 		}
 		effect.Touches = "~/.codex/packages/standalone and ~/.local/bin/codex"
 		effect.Undo = "Not reverted automatically: the previous release stays in ~/.codex/packages/standalone/releases, and the installer's --release " +
@@ -223,11 +269,12 @@ func (p *preparation) planAgentUpdate(
 		effect.Description = "Update Claude Code " + versions + " through its native installer" + source
 		effect.Recovery = "external; the installer keeps the newest earlier versions"
 		effect.What = "Updates Claude Code from " + install.version + " to " + target +
-			" with claude install " + target + ", the native installer's own command, which leaves its release channel (autoUpdatesChannel) as it is. Before it runs, Workbench checks the GPG signature on Anthropic's release manifest for " +
-			target + "; afterwards the installed binary must match that manifest's SHA-256, or " +
+			" with claude install " + target + ", the native installer's own command, which leaves its release channel (autoUpdatesChannel) as it is. The apply first checks the GPG signature on Anthropic's release manifest for " +
+			target + ", then downloads " + target + "'s binary for this machine to a private folder and runs it only if it matches that manifest's SHA-256. claude install downloads " +
+			target + " again itself; the binary it installs must match as well, or it is removed, " +
 			install.version + " is put back and the update is blocked. Claude Code keeps updating itself in the background on its channel"
 		if channel == "" {
-			effect.What += ", never below the pin (the minimumVersion Workbench sets in its settings)."
+			effect.What += ", never below the minimumVersion Workbench sets in its settings: the version installed while that is older than the pin, the pin once this update has run."
 		} else {
 			effect.What += "."
 		}
@@ -269,7 +316,9 @@ func agentNewer(a, b string) (newer, comparable bool) {
 // order the managed shell startup files put their folders on PATH (on Linux
 // ~/bin, then bun's globals, nvm's default Node, Cargo's and Go's bin
 // folders, ~/.local/bin, then Homebrew's and the system's folders), and how it
-// was installed, read from where its executable leads.
+// was installed, read from where its executable leads. A vendor installer
+// updates only the launcher it makes, ~/.local/bin/COMMAND, so a release of
+// its reached through any other launcher keeps no method.
 func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 	var folders []string
 	if runtime.GOOS != "darwin" {
@@ -306,6 +355,10 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 				resolved,
 				agent,
 			)
+		}
+		launcher := filepath.Join(home, ".local", "bin", agent.command)
+		if (install.method == "native" || install.method == "standalone") && path != launcher {
+			install = agentInstall{path: path, launcher: launcher}
 		}
 		return install, true
 	}
@@ -419,10 +472,12 @@ func nvmDefaultBin(home string) string {
 var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // claudeChannel returns the release channel Claude Code's own updates follow,
-// "stable" or "latest": autoUpdatesChannel in the user's settings, overridden
-// by the machine's managed settings files (managed-settings.json, then each
-// managed-settings.d/*.json in name order), the way Claude Code merges them.
-// Unset or anything else means latest, Claude Code's default.
+// "stable" or "latest": autoUpdatesChannel in the user's settings (in
+// CLAUDE_CONFIG_DIR when that is set), overridden by the machine's managed
+// settings files (managed-settings.json, then each managed-settings.d/*.json
+// in name order), the way Claude Code merges them. Project and local settings
+// depend on the folder Claude Code starts in and are not read. Unset or
+// anything else means latest, Claude Code's default.
 func claudeChannel(home string) string {
 	channel := ""
 	read := func(path string) {
@@ -434,7 +489,7 @@ func claudeChannel(home string) string {
 			channel = *settings.Channel
 		}
 	}
-	read(filepath.Join(home, ".claude", "settings.json"))
+	read(filepath.Join(costs.ClaudeDir(home), "settings.json"))
 	managed := "/etc/claude-code"
 	if runtime.GOOS == "darwin" {
 		managed = "/Library/Application Support/ClaudeCode"
@@ -516,12 +571,14 @@ func fetch(ctx context.Context, location string, timeout time.Duration) ([]byte,
 // release manifests, as Anthropic's setup documentation lists it.
 const claudeSigningKey = "31ddde24ddfab679f42d7bd2baa929ff1a7ecace"
 
-// claudeChecksums returns the SHA-256 of every platform's Claude Code binary
-// in the release manifest of version, once the manifest's detached GPG
-// signature checks out against the release signing key: the key is fetched
-// from its published address and used only when its fingerprint is
-// claudeSigningKey. These are the steps Anthropic documents for checking a
-// native install (code.claude.com/docs/en/setup, binary integrity).
+// claudeChecksums returns, as PLATFORM=SHA256 pairs, the SHA-256 of each
+// platform's Claude Code binary in the release manifest of version, once the
+// manifest's detached GPG signature checks out against the release signing
+// key: the key is fetched from its published address and used only when its
+// fingerprint is claudeSigningKey. These are the steps Anthropic documents for
+// checking a native install (code.claude.com/docs/en/setup, binary
+// integrity). The apply script names the host's platform the way Claude
+// Code's install.sh does and accepts that platform's value only.
 func claudeChecksums(ctx context.Context, version string) ([]string, error) {
 	base := "https://downloads.claude.ai/claude-code-releases/" + version + "/manifest.json"
 	documents := map[string][]byte{}
@@ -572,9 +629,9 @@ func claudeChecksums(ctx context.Context, version string) ([]string, error) {
 		return nil, fmt.Errorf("the signed manifest is for %q", manifest.Version)
 	}
 	var checksums []string
-	for _, platform := range manifest.Platforms {
-		if sha256Hex.MatchString(platform.Checksum) {
-			checksums = append(checksums, platform.Checksum)
+	for name, platform := range manifest.Platforms {
+		if platformName.MatchString(name) && sha256Hex.MatchString(platform.Checksum) {
+			checksums = append(checksums, name+"="+platform.Checksum)
 		}
 	}
 	if len(checksums) == 0 {
@@ -584,17 +641,25 @@ func claudeChecksums(ctx context.Context, version string) ([]string, error) {
 	return checksums, nil
 }
 
-// sha256Hex is a SHA-256 written as lowercase hex.
-var sha256Hex = regexp.MustCompile(`^[0-9a-f]{64}$`)
+// sha256Hex is a SHA-256 written as lowercase hex, and platformName a
+// manifest platform such as linux-x64-musl.
+var (
+	sha256Hex    = regexp.MustCompile(`^[0-9a-f]{64}$`)
+	platformName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)+$`)
+)
 
 // agentEnvironment tells the agent updates script which updates the plan
 // checks, each as TOOL:METHOD:VERSION:FROM, with :NODE after an npm one; a
 // Codex update of the latest release has the method standalone-latest. For a
 // checked native Claude Code update it first reads the signed release
-// manifest (claudeChecksums) and passes its SHA-256 list as
+// manifest (claudeChecksums) and passes its PLATFORM=SHA256 pairs as
 // WORKBENCH_CLAUDE_CODE_SHA256; when that fails, the update is left out and
 // reported blocked in report, the file the scripts report to.
-func (p *preparation) agentEnvironment(ctx context.Context, report string) ([]string, error) {
+func (p *preparation) agentEnvironment(
+	ctx context.Context,
+	c operation.Context,
+	report string,
+) ([]string, error) {
 	var updates, environment []string
 	for _, update := range p.agentUpdates {
 		name := updateEffectPrefix + update.tool
@@ -608,7 +673,11 @@ func (p *preparation) agentEnvironment(ctx context.Context, report string) ([]st
 		case method == "standalone" && update.latest:
 			method = "standalone-latest"
 		case method == "native":
+			stop := c.ShowProgress(
+				"Checking Claude Code " + update.version + "'s signed release manifest",
+			)
 			checksums, err := claudeChecksums(ctx, update.version)
+			stop()
 			if err != nil {
 				if err = reportBlocked(report, name, fmt.Sprintf(
 					"Claude Code was not updated to %s: its signed release manifest could not be checked (%s), so the next apply tries again",
