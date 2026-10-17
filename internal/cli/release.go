@@ -20,6 +20,11 @@ import (
 
 var buildReleaseVersion = "dev"
 
+// buildPublished is "true" in a build the release workflow publishes
+// (scripts/package-release.py --published). Every other build is local: not on
+// the release channel, so update without a VERSION replaces it.
+var buildPublished = ""
+
 // updateCommand installs the latest release, or VERSION, and the tools it
 // pins, then stops. Applying the machine is apply's job. The hidden
 // --local-build installs the tools a checkout pins instead, with no release.
@@ -234,7 +239,7 @@ func updateRelease(
 			)
 		}
 	}
-	bundle, err := readRelease(cmd, c, tag)
+	bundle, replacing, err := readRelease(cmd, c, tag)
 	if err != nil {
 		return result, err
 	}
@@ -251,7 +256,12 @@ func updateRelease(
 	result.PlanDigest = plan.Digest()
 	result.Results = append(
 		result.Results,
-		operation.Component{Name: "release-plan", Status: operation.StatusComplete, Details: plan},
+		operation.Component{
+			Name:    "release-plan",
+			Status:  operation.StatusComplete,
+			Message: replacing,
+			Details: plan,
+		},
 	)
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
@@ -288,11 +298,8 @@ func updateRelease(
 	if err != nil {
 		return result, err
 	}
-	_, _ = fmt.Fprintf(
-		cmd.ErrOrStderr(),
-		"[WorkBench] Installed %s; continuing with its tools\n",
-		bundle.Metadata.Release,
-	)
+	installed := cmp.Or(replacing, "Installed "+bundle.Metadata.Release)
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "[WorkBench] %s; continuing with its tools\n", installed)
 	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(o, "installed"))
 }
 
@@ -384,39 +391,56 @@ func continueInstalled(
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
-// when empty) for this machine. It returns nil when that release is already
-// the active one, unless an interrupted activation still needs finishing, and
-// when tag is empty and the active release is newer than the latest.
-func readRelease(cmd *cobra.Command, c operation.Context, tag string) (*release.Bundle, error) {
+// when empty) for this machine. It returns no bundle when that release is
+// already the active one, unless an interrupted activation still needs
+// finishing, and when tag is empty, this build is published and the active
+// release is newer than the latest. When tag is empty and this build is local,
+// replacing names the local build the latest published release replaces.
+func readRelease(
+	cmd *cobra.Command,
+	c operation.Context,
+	tag string,
+) (bundle *release.Bundle, replacing string, err error) {
 	installed, err := installedRelease(c)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	current := func(found string) bool {
 		return found == installed && release.ValidateSelection(c) == nil
 	}
 	if location, _ := cmd.Flags().GetString("bundle"); location != "" {
-		bundle, err := release.ReadBundle(cmd.Context(), location, tag)
-		if err != nil || current(bundle.Metadata.Release) {
-			return nil, err
+		read, err := release.ReadBundle(cmd.Context(), location, tag)
+		if err != nil || current(read.Metadata.Release) {
+			return nil, "", err
 		}
-		return &bundle, nil
+		return &read, "", nil
 	}
 	stop := c.ShowProgress("Getting Workbench " + cmp.Or(tag, "latest"))
 	defer stop()
 	c.Step("asking GitHub for the release")
 	remote, err := release.Find(cmd.Context(), c, tag)
-	// Without a VERSION, update only moves forward: an installed release newer
-	// than the latest published one (a local build) is kept.
-	if err != nil || current(remote.Tag) || (tag == "" && release.Newer(installed, remote.Tag)) {
-		return nil, err
+	if err != nil || current(remote.Tag) {
+		return nil, "", err
+	}
+	// Without a VERSION, a published build only moves forward, so a lagging
+	// latest never takes it back. A local build is not on the release channel:
+	// the latest published release replaces it, whatever their versions.
+	if tag == "" && installed != "" {
+		if buildPublished == "true" {
+			if release.Newer(installed, remote.Tag) {
+				return nil, "", nil
+			}
+		} else {
+			replacing = "Replacing local build " + installed + " with " + remote.Tag +
+				", the latest published release"
+		}
 	}
 	c.Step("downloading " + remote.Tag)
-	bundle, err := remote.Bundle(cmd.Context())
+	downloaded, err := remote.Bundle(cmd.Context())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &bundle, nil
+	return &downloaded, replacing, nil
 }
 
 // stageRelease stages and activates bundle, then removes what the approved

@@ -23,7 +23,8 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      # CGO_ENABLED=0 cross-compiles every target from one runner. Each release
+      # CGO_ENABLED=0 cross-compiles every target from one runner. --published
+      # marks these executables as on the release channel. Each release
       # carries its own install.sh stamped with its tag, so releases/latest
       # installs exactly that release and an old install.sh installs its own.
       - name: Build bundles and installer
@@ -31,7 +32,7 @@ jobs:
           VERSION: ${{ github.ref_name }}
         run: |
           for target in darwin-arm64 darwin-amd64 linux-arm64 linux-amd64; do
-            python3 scripts/package-release.py --version "$VERSION" --target "$target" --output dist
+            python3 scripts/package-release.py --version "$VERSION" --target "$target" --output dist --published
           done
           sed "s/^default_version=.*/default_version=$VERSION/" install.sh > dist/install.sh
           grep -q "^default_version=$VERSION\$" dist/install.sh

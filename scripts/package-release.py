@@ -16,6 +16,9 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--version", required=True)
 parser.add_argument("--target", required=True, choices=["darwin-arm64", "darwin-amd64", "linux-arm64", "linux-amd64"])
 parser.add_argument("--output", required=True, type=Path)
+# Only the release workflow passes --published. Every other build is local, and
+# update without a VERSION replaces it with the latest published release.
+parser.add_argument("--published", action="store_true")
 args = parser.parse_args()
 if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", args.version):
     parser.error("version must be a release identifier")
@@ -74,7 +77,10 @@ with tempfile.TemporaryDirectory(prefix="workbench-package-") as temporary:
     executable = Path(temporary) / "workbench"
     goos, goarch = args.target.split("-")
     environment = dict(os.environ, GOOS=goos, GOARCH=goarch, CGO_ENABLED="0")
-    subprocess.run(["go", "build", "-trimpath", "-ldflags", f"-X github.com/Sawmonabo/workbench/internal/cli.buildReleaseVersion={args.version} -X github.com/Sawmonabo/workbench/internal/machine.releaseSource={source_digest}", "-o", str(executable), "./cmd/workbench"], cwd=root, env=environment, check=True)
+    ldflags = f"-X github.com/Sawmonabo/workbench/internal/cli.buildReleaseVersion={args.version} -X github.com/Sawmonabo/workbench/internal/machine.releaseSource={source_digest}"
+    if args.published:
+        ldflags += " -X github.com/Sawmonabo/workbench/internal/cli.buildPublished=true"
+    subprocess.run(["go", "build", "-trimpath", "-ldflags", ldflags, "-o", str(executable), "./cmd/workbench"], cwd=root, env=environment, check=True)
     payload["bin/workbench"] = executable.read_bytes()
 metadata = {
     "schema_version": 1, "state_version": 1, "release": args.version,
