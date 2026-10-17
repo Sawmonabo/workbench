@@ -145,6 +145,10 @@ must not fight those updaters.
   linking the launcher and that check, a `claude` that starts runs the
   unchecked binary. Signatures exist from 2.1.89, below any target Workbench
   plans.
+- Under a `minimumVersion` above the target, in the user or managed settings,
+  `claude install VERSION` reports success and installs nothing, so such an
+  update would be proposed and blocked on every apply. The plan names the
+  floor in a warning and plans no native Claude Code update instead.
 - In pinned mode the Claude Code settings merge raises `minimumVersion`, the
   floor Claude Code documents for this case (its background updates and
   `claude update` refuse anything below it, so a `stable` channel older than

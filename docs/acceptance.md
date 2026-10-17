@@ -207,7 +207,9 @@ synthetic answers.
     `--destination` planned no updates; a `~/go/bin/claude` symlink into
     `versions/` was named in a warning and left alone; an
     `autoUpdatesChannel` of `stable` in `CLAUDE_CONFIG_DIR`'s `settings.json`
-    planned the stable release. A native update on macOS, with its checks and
+    planned the stable release; a `minimumVersion` of 2.1.400 in its
+    settings planned no update to 2.1.301 and named the floor in a warning,
+    while one of 2.1.200 planned it. A native update on macOS, with its checks and
     roll-back, and Homebrew cask copies are not yet observed.
 - On macOS, an apply not given `--approve-plan` runs `brew update` after tool
   setup and before it plans, so the update effects are current; `--dry-run`,

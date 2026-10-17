@@ -129,7 +129,7 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 // planAgentUpdates adds one effect per agent whose installed copy (findAgents)
 // is older than its target, so approving the plan approves the update: the
 // pin in pinned mode, the newest release of its installer's channel in latest
-// mode (for Claude Code, the channel its settings name; see claudeChannel). An
+// mode (for Claude Code, the channel its settings name; see claudeUpdates). An
 // installed copy that is already as new is left as it is, so nothing is ever
 // downgraded, and a missing agent is the global-tools step's to install. A
 // copy Homebrew installed is handed to the Homebrew updates (agentCasks); a
@@ -173,7 +173,7 @@ func (p *preparation) planAgentUpdates(
 			}
 			channels[i] = "latest"
 			if agent.tool == "claude-code" {
-				channels[i] = claudeChannel(c.Home)
+				channels[i], _ = claudeUpdates(c.Home)
 			}
 			wg.Go(func() {
 				var err error
@@ -202,10 +202,28 @@ func (p *preparation) planAgentUpdates(
 				p.Plan.Warnings,
 				agent.name+" updates were not checked; versions.toml does not pin "+agent.pin+" to a version",
 			)
+		case installs[i].method == "native" && p.claudeFloorAbove(c.Home, targets[i]):
 		default:
 			p.planAgentUpdate(agent, installs[i], targets[i], channels[i])
 		}
 	}
+}
+
+// claudeFloorAbove reports, with a warning, a native Claude Code update to
+// target that claude install would skip: one below the minimumVersion its
+// settings set, for which the installer reports success and installs nothing.
+func (p *preparation) claudeFloorAbove(home, target string) bool {
+	_, minimum := claudeUpdates(home)
+	if !plainVersion.MatchString(minimum) || !plainVersion.MatchString(target) ||
+		!newerVersion(minimum, target) {
+		return false
+	}
+	p.Plan.Warnings = append(
+		p.Plan.Warnings,
+		"Claude Code is not updated to "+target+": its settings set minimumVersion "+minimum+
+			", below which claude install installs nothing",
+	)
+	return true
 }
 
 // planAgentUpdate adds the update effect for one installed agent when target
@@ -471,22 +489,29 @@ func nvmDefaultBin(home string) string {
 // numbers.
 var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
-// claudeChannel returns the release channel Claude Code's own updates follow,
-// "stable" or "latest": autoUpdatesChannel in the user's settings (in
+// claudeUpdates returns the release channel Claude Code's own updates follow,
+// "stable" or "latest", and the minimumVersion below which its updates and
+// claude install install nothing, or "": each from the user's settings (in
 // CLAUDE_CONFIG_DIR when that is set), overridden by the machine's managed
 // settings files (managed-settings.json, then each managed-settings.d/*.json
 // in name order), the way Claude Code merges them. Project and local settings
-// depend on the folder Claude Code starts in and are not read. Unset or
-// anything else means latest, Claude Code's default.
-func claudeChannel(home string) string {
-	channel := ""
+// depend on the folder Claude Code starts in and are not read. A channel
+// unset or anything else means latest, Claude Code's default.
+func claudeUpdates(home string) (channel, minimum string) {
 	read := func(path string) {
 		var settings struct {
 			Channel *string `json:"autoUpdatesChannel"`
+			Minimum *string `json:"minimumVersion"`
 		}
 		data, err := os.ReadFile(path)
-		if err == nil && json.Unmarshal(data, &settings) == nil && settings.Channel != nil {
+		if err != nil || json.Unmarshal(data, &settings) != nil {
+			return
+		}
+		if settings.Channel != nil {
 			channel = *settings.Channel
+		}
+		if settings.Minimum != nil {
+			minimum = *settings.Minimum
 		}
 	}
 	read(filepath.Join(costs.ClaudeDir(home), "settings.json"))
@@ -501,10 +526,10 @@ func claudeChannel(home string) string {
 			read(drop)
 		}
 	}
-	if channel == "stable" {
-		return channel
+	if channel != "stable" {
+		channel = "latest"
 	}
-	return "latest"
+	return channel, minimum
 }
 
 // latestAgentVersion asks the channel the agent's installer installs from for
