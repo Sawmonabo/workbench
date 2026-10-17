@@ -57,20 +57,21 @@ Run: `go build -buildvcs=false -o "$WS/baseline/workbench-darwin" ./cmd/workbenc
 
 - [ ] **Step 3: Capture macOS**
 
-The home is the fixed path `$WS/home`, removed and recreated before each capture, so paths inside the plan are identical between runs (a plan carries absolute paths, so a fresh `mktemp` home would change the digest for the wrong reason):
+The home is the fixed path `/tmp/wb-baseline-home`, removed and recreated before each capture series, so paths inside the plan are identical between runs (a plan carries absolute paths, so a fresh `mktemp` home would change the digest for the wrong reason). It lies outside the worktree because `apply` refuses a destination inside its source. `update --local-build` installs the checkout's pinned tools into that home first; `apply` refuses to plan without them:
 ```bash
-rm -rf "$WS/home" && mkdir "$WS/home"
-env -i HOME="$WS/home" PATH=/usr/bin:/bin TERM=dumb "$WS/baseline/workbench-darwin" doctor > "$WS/baseline/darwin-doctor.txt" 2>&1; echo "EXIT:$?"
-env -i HOME="$WS/home" PATH=/usr/bin:/bin "$WS/baseline/workbench-darwin" init --answers-from "$WS/baseline/answers.toml" --dry-run --json > "$WS/baseline/darwin-plan.json"; echo "EXIT:$?"
-env -i HOME="$WS/home" PATH=/usr/bin:/bin "$WS/baseline/workbench-darwin" init --answers-from "$WS/baseline/answers.toml" --approve-plan "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plan_digest"])' "$WS/baseline/darwin-plan.json")"; echo "EXIT:$?"
-env -i HOME="$WS/home" PATH=/usr/bin:/bin TERM=dumb "$WS/baseline/workbench-darwin" apply --dry-run --json --local-build > "$WS/baseline/darwin-apply.json"; echo "EXIT:$?"
+rm -rf /tmp/wb-baseline-home && mkdir /tmp/wb-baseline-home
+env -i HOME=/tmp/wb-baseline-home PATH=/usr/bin:/bin TERM=dumb "$WS/baseline/workbench-darwin" doctor > "$WS/baseline/darwin-doctor.txt" 2>&1; echo "EXIT:$?"
+env -i HOME=/tmp/wb-baseline-home PATH=/usr/bin:/bin "$WS/baseline/workbench-darwin" init --answers-from "$WS/baseline/answers.toml" --dry-run --json > "$WS/baseline/darwin-plan.json"; echo "EXIT:$?"
+env -i HOME=/tmp/wb-baseline-home PATH=/usr/bin:/bin "$WS/baseline/workbench-darwin" init --answers-from "$WS/baseline/answers.toml" --approve-plan "$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plan_digest"])' "$WS/baseline/darwin-plan.json")"; echo "EXIT:$?"
+env -i HOME=/tmp/wb-baseline-home PATH=/usr/bin:/bin TERM=dumb "$WS/baseline/workbench-darwin" update --local-build > "$WS/baseline/darwin-update.txt" 2>&1; echo "EXIT:$?"
+env -i HOME=/tmp/wb-baseline-home PATH=/usr/bin:/bin TERM=dumb "$WS/baseline/workbench-darwin" apply --dry-run --json --local-build > "$WS/baseline/darwin-apply.json"; echo "EXIT:$?"
 ```
 Expected: doctor exits 3 (no release is active in an empty home), init and apply exit 0; record the codes in `baseline/exits.txt`. The answers file is mode 0600, which `init` requires.
 
 - [ ] **Step 4: Capture Linux**
 
 Run from the worktree root (`--local-build` exists on `doctor`, `apply` and `update`, not on `init`; it needs the checkout, mounted read-only; the home is `/tmp/h`, the container's own). `exec` makes the container's exit code the command's own, so the capture holds only Workbench output:
-`docker run --rm --memory 2g -v "$WS/baseline:/b:ro" -v "$PWD:/src:ro" -e HOME=/tmp/h -w /src ubuntu:24.04 sh -c 'mkdir -p /tmp/h && exec /b/workbench-linux doctor' > "$WS/baseline/linux-doctor.txt" 2>&1; echo "EXIT:$?"`, the same with `init --answers-from /b/answers.toml --dry-run --json` into `linux-plan.json`, and one container that approves the init plan and plans the apply: `sh -c 'mkdir -p /tmp/h && /b/workbench-linux init --answers-from /b/answers.toml --approve-plan DIGEST && exec /b/workbench-linux apply --dry-run --json --local-build'` into `linux-apply.json`, where `DIGEST` is `plan_digest` from `linux-plan.json`.
+`docker run --rm --memory 2g -v "$WS/baseline:/b:ro" -v "$PWD:/src:ro" -e HOME=/tmp/h -w /src ubuntu:24.04 sh -c 'mkdir -p /tmp/h && exec /b/workbench-linux doctor' > "$WS/baseline/linux-doctor.txt" 2>&1; echo "EXIT:$?"`, the same with `init --answers-from /b/answers.toml --dry-run --json` into `linux-plan.json`, and one container that approves the init plan and plans the apply: `sh -c 'mkdir -p /tmp/h && /b/workbench-linux init --answers-from /b/answers.toml --approve-plan DIGEST && /b/workbench-linux update --local-build && exec /b/workbench-linux apply --dry-run --json --local-build'` into `linux-apply.json`, where `DIGEST` is `plan_digest` from `linux-plan.json`.
 
 - [ ] **Step 5: Capture the WSL simulation and the commit**
 
@@ -199,7 +200,7 @@ Insert `var _ = runtime.GOOS` in `internal/costs/claude.go`, run `golangci-lint 
 
 - [ ] **Step 5: Gates and the no-change comparison**
 
-Run the gate list. Repeat Task 1's Steps 1, 3, 4 and 5 into `$WS/after/` (same fixed home path), then `diff -r "$WS/baseline" "$WS/after"` excluding the `workbench-*` binaries and `commit`. Expected: identical doctor lines, init and apply plans (`plan_digest` and every effect) and render-check output. Any difference is a finding to fix before this task is complete.
+Run the gate list. Repeat Task 1's Steps 1, 3, 4 and 5 into `$WS/after/` (same fixed home paths), then `diff -r "$WS/baseline" "$WS/after"` excluding the `workbench-*` binaries and `commit`. Expected: identical doctor lines, init and apply plans (`plan_digest` and every effect) and render-check output. Any difference is a finding to fix before this task is complete.
 
 - [ ] **Step 6: Docs**
 
