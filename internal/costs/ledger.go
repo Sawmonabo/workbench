@@ -30,7 +30,7 @@ type Paths struct {
 	Home      string
 	Runtime   operation.Paths // Workbench's runtime folders the paths below sit in
 	Ledger    string          // the durable record
-	State     string          // ingest.log and ingest.lock
+	State     string          // ingest.log, ingest.err (the worker's output) and ingest.lock
 	Overrides string          // manual per-model rates, highest priority
 }
 
@@ -47,6 +47,10 @@ func Locations() (Paths, error) {
 
 func (p Paths) log() string  { return filepath.Join(p.State, "ingest.log") }
 func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
+
+// output is the detached worker's stdout and stderr (see
+// [operation.StartDetached]).
+func (p Paths) output() string { return filepath.Join(p.State, "ingest.err") }
 
 // Open opens the ledger once the costs gate (see gate) lets it, so nothing
 // opens or creates a ledger while the costs files still wait to move.

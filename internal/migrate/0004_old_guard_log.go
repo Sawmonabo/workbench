@@ -101,22 +101,32 @@ func guardLogPaths(l Locations) []string {
 	return []string{log, log + ".1"}
 }
 
-// withoutOldLines is the log body without its old free-text lines.
-func withoutOldLines(body []byte) []byte {
-	var rest bytes.Buffer
+// withoutOldLines are the ranges of the log body that are not old free-text
+// lines.
+func withoutOldLines(body []byte) [][2]int {
+	var keep [][2]int
+	at := 0
 	for line := range bytes.Lines(body) {
-		if !oldGuardLine.Match(line) {
-			rest.Write(line)
+		end := at + len(line)
+		switch {
+		case oldGuardLine.Match(line):
+		case len(keep) > 0 && keep[len(keep)-1][1] == at:
+			keep[len(keep)-1][1] = end
+		default:
+			keep = append(keep, [2]int{at, end})
 		}
+		at = end
 	}
-	return rest.Bytes()
+	return keep
 }
 
 // oldGuardLines counts the old free-text lines in the log at path, read as
 // [operation.LogReader] reads it: never through a link, and none when it is
 // missing.
 func oldGuardLines(path string) (int, error) {
-	data, err := operation.NewLogReader(path).Read()
+	reader := operation.NewLogReader(path)
+	defer reader.Close()
+	data, err := reader.Read()
 	if err != nil {
 		return 0, err
 	}

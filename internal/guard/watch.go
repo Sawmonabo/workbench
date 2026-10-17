@@ -148,6 +148,22 @@ func Watch(ctx context.Context) {
 		return
 	}
 	defer func() { w.release() }()
+	detached, err := operation.RotateOutput(f.output(), logLimit)
+	if err != nil {
+		f.event(
+			slog.LevelError,
+			EventError,
+			"cannot rotate the watcher's output file",
+			"error",
+			err,
+		)
+	}
+	if detached {
+		// The output record times the lines the output file gets after it
+		// (see [ReadLog]).
+		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("watcher output",
+			"event", EventOutput, "part", "watch", "pid", os.Getpid())
+	}
 	f.event(slog.LevelInfo, EventStarted, "watcher started")
 	for ctx.Err() == nil {
 		if !w.ownsLock() {

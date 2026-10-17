@@ -77,6 +77,7 @@ one rate source inside `rates`, and there is no cache to clean.
 | `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. Replaced whole through `operation.ReplacePrivateFile`, so an existing cache must be a private regular file with one link, or the refresh fails and leaves it. |
 | `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `<state>/costs/ingest.log` | Bounded worker log. |
+| `<state>/costs/ingest.err`, `ingest.err.1` | The detached worker's stdout and stderr, never cut (`operation.RotateOutput`). |
 | `<state>/costs/ingest.lock` | Single-instance lock. |
 
 `<data>`, `<state>` and `<config>` are Workbench's runtime folders
@@ -185,7 +186,9 @@ Row semantics:
 (`hook_event_name`, `transcript_path`; both optional, so a manual invocation
 with no stdin also works), spawns `claude-costs ingest --worker` with those two
 values as arguments in a new session with stdin, stdout and stderr redirected
-to the null device and the log, and exits zero. It prints nothing on stdout;
+to the null device and `ingest.err` (the worker's own output, kept apart from
+the log, which is cut, and renamed to `ingest.err.1` by a worker that starts
+while it is past 400 KB), and exits zero. It prints nothing on stdout;
 when it can't start the worker it says why in one line on stderr and records
 nothing. Claude Code discards a SessionEnd hook's output and
 exit status; the detach makes the worker outlive the session and keeps the

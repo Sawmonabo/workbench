@@ -54,6 +54,7 @@ func openFolders(part string) (folders, error) {
 
 func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }
 func (f folders) log() string             { return logFile(f.root) }
+func (f folders) output() string          { return outputFile(f.log()) }
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
 

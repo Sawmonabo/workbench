@@ -267,39 +267,70 @@ func lendTerminal(attributes *syscall.SysProcAttr, terminal *os.File) (func(), e
 
 // StartDetached starts this Workbench executable (os.Executable) with args
 // in a new session and returns at once: stdin is the null device, stdout and
-// stderr are appended to the log at logPath (made 0600, never through a
-// link; see [AppendLog]), the working folder
-// is /, so the child never holds the caller's folder in use, and the child is
-// released, so it outlives the caller and nobody waits for it. The costs hook
-// starts its ingest worker with it, and the guard's pre hook its watcher; the
-// child inherits the caller's environment. Tools go through [Run].
-func StartDetached(args []string, logPath string) error {
+// stderr are appended to the file at outputPath (made 0600, never through a
+// link), the working folder is /, so the child never holds the caller's
+// folder in use, and the child is released, so it outlives the caller and
+// nobody waits for it. The output file is the child's alone, apart from its
+// log, because a write to it takes no lock and a cut of the log (see
+// [RewriteLog]) could lose it; it is only ever renamed (see [RotateOutput]),
+// as a supervisor keeps a service's own output apart from its structured log.
+// The costs hook starts its ingest worker with it, and the guard's pre hook
+// its watcher; the child inherits the caller's environment. Tools go through
+// [Run].
+func StartDetached(args []string, outputPath string) error {
 	executable, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	log, err := os.OpenFile(
-		logPath,
-		os.O_APPEND|os.O_CREATE|os.O_WRONLY|syscall.O_NOFOLLOW,
-		0o600,
-	)
+	output, err := openLogFile(outputPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = log.Close() }()
+	defer func() { _ = output.Close() }()
 	null, err := os.Open(os.DevNull)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = null.Close() }()
 	cmd := exec.Command(executable, args...)
-	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, log, log
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = null, output, output
 	cmd.Dir = "/"
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 	return cmd.Process.Release()
+}
+
+// RotateOutput bounds a detached child's output file (see [StartDetached]),
+// and reports whether this process's stdout is the file at path. Called by
+// the child once it holds the lock that makes it the only one of its kind, it
+// renames that file to path.1, replacing the one before, when it is over limit
+// bytes, and points stdout and stderr at a new file at path. A rename moves no
+// byte, so a process still writing to the old file writes on into path.1.
+func RotateOutput(path string, limit int64) (bool, error) {
+	info, err := os.Lstat(path)
+	stdout, stdoutErr := os.Stdout.Stat()
+	if err != nil || stdoutErr != nil || !os.SameFile(info, stdout) {
+		return false, nil
+	}
+	if info.Size() <= limit {
+		return true, nil
+	}
+	if err = os.Rename(path, path+".1"); err != nil {
+		return true, err
+	}
+	output, err := openLogFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY)
+	if err != nil {
+		return true, err
+	}
+	defer func() { _ = output.Close() }()
+	for _, fd := range []int{1, 2} {
+		if err = unix.Dup2(int(output.Fd()), fd); err != nil {
+			return true, err
+		}
+	}
+	return true, nil
 }
 
 // ReadHookInput reads the JSON a Claude Code or Codex hook gets on stdin: at

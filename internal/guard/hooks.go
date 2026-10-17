@@ -148,7 +148,7 @@ func startWatcher(f folders) {
 		return
 	}
 	release()
-	if err = operation.StartDetached([]string{"guard", "watch"}, f.log()); err != nil {
+	if err = operation.StartDetached([]string{"guard", "watch"}, f.output()); err != nil {
 		f.event(slog.LevelError, EventError, "cannot start the watcher", "error", err)
 	}
 }

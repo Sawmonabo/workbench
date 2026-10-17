@@ -77,9 +77,11 @@ func guardLogsCommand(o *options) *cobra.Command {
 			"command, its size and the reason the agent was told, low memory that stopped nothing, " +
 			"calls dropped without their post hook, notes no command shape matched, the watcher " +
 			"starting and exiting, errors, and any line of the watcher's own output, such as a " +
-			"crash's trace, as it is. --verbose adds every command the watcher tracked and ended. " +
-			"--json prints the log's own records (JSON Lines) unchanged, and any other line as a " +
-			"raw record. The log is watch.log in the guard folder of Workbench's state folder.",
+			"crash's trace, as it is, placed at the start of the watcher that wrote it. --verbose " +
+			"adds every command the watcher tracked and ended. --json prints the log's own records " +
+			"(JSON Lines) unchanged, and any other line as a raw record. The log is watch.log in " +
+			"the guard folder of Workbench's state folder, and the watcher's own output watch.err " +
+			"beside it.",
 		Example: "  workbench guard logs\n" +
 			"  workbench guard logs --since 2h\n" +
 			"  workbench guard logs --since \"2026-10-16 21:00\" --verbose\n" +
@@ -139,9 +141,11 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 		_, err := io.WriteString(out, guardEventText(paint, width, e))
 		return err
 	}
-	// A raw line has no time. It was written after the record before it, so
-	// --since keeps it when it keeps that record; lines before the first
-	// record wait for it and are kept when it is.
+	// A raw line has no time. One of the watcher's output file was written
+	// while its watcher ran, so --since keeps it unless the next watcher
+	// started before then. One of the log was written after the record
+	// before it, so --since keeps it when it keeps that record; lines before
+	// the first record wait for it and are kept when it is.
 	type line struct {
 		raw []byte
 		e   guard.Event
@@ -150,6 +154,10 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 	keep, seenRecord := since.IsZero(), false
 	err = guard.ReadLog(cmd.Context(), path, follow, func(raw []byte, e guard.Event) error {
 		switch {
+		case e.Output && (e.Until.IsZero() || !e.Until.Before(since)):
+			return show(raw, e)
+		case e.Output:
+			return nil
 		case e.Event == guard.EventRaw && keep:
 			return show(raw, e)
 		case e.Event == guard.EventRaw && !seenRecord:

@@ -180,8 +180,9 @@ stops the agent, its MCP servers, hooks or anything else, never changes how a
 command runs, and a guard fault leaves a command unguarded and never blocks it.
 Programs a command detaches from itself (`nohup` with `setsid`) are not
 tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
-`WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes and the log
-(`watch.log`) are in Workbench's state folder under `guard/`. The hooks and
+`WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
+(`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
+once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks and
 the watcher are hidden `workbench guard` commands.
 
 `workbench guard logs` shows what the guard did, oldest first, in the
@@ -189,7 +190,8 @@ machine's time zone: each stop with its command and size and, below it, the
 reason the agent was told; low memory that stopped nothing; calls dropped
 without their post hook; notes whose command no known shape matched; the
 watcher starting and exiting; errors; and, after `watcher output: `, any line
-of the file that is not a record, such as a crash's trace, as it is. At a
+of the watcher's own output, such as a crash's trace, as it is, placed at the
+start of the watcher that wrote it. At a
 terminal stops, errors and raw lines are red, warnings yellow and routine
 lines faint; piped output, `TERM=dumb` and `NO_COLOR` get plain text. With nothing
 to show it says so on stderr and exits 0.
@@ -205,20 +207,22 @@ workbench guard logs --json --since today   # the log's own JSON Lines records
 
 `--since` takes a duration (`10m`, `2h`), `today`, `yesterday`, a date, date
 and time or time of today in the machine's time zone (`2026-10-16`,
-`2026-10-16 21:00`, `21:00`), or an RFC 3339 time; a raw line, which has no
-time, is kept when the record before it is (or, before the first record, the
-record after it). `--follow` (`-f`) waits for a log that does not exist yet
-and, when the log is cut to its newest half, reads on from the same byte: it
-keeps its place by position, so repeated lines are never skipped or shown
-twice. The log is JSON Lines: each record has `time`, `level`, `msg`, `event`
-(`started`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
-`memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
-`pid` (a log that was cut starts with a `cut` record, which the viewer never
-shows), and, by event, `call`, `agent`, `command`, `root_pid`, `size`,
-`children`, `reason`, `memory`, `floor`, `dry_run`, `still_running`, `process`
-and `error`; `--json` prints the matching records unchanged, one per line, and
-a raw line as `{"level":"ERROR","msg":"<the line>","event":"raw"}`. See the
-[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
+`2026-10-16 21:00`, `21:00`), or an RFC 3339 time; a line of the watcher's
+output, which has no time, is kept unless the next watcher started before
+then. `--follow` (`-f`) waits for files that do not exist yet and keeps its
+place by byte offset, so a cut of the log (to its newest half, or a
+migration's that drops lines from the middle) and a rotation of the output
+neither skip nor repeat a line, even lines that read the same. The log is
+JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
+`idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`, `memory`,
+`stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and `pid` (a log
+that was cut starts with a `cut` record, which the viewer never shows), and,
+by event, `call`, `agent`, `command`, `root_pid`, `size`, `children`,
+`reason`, `memory`, `floor`, `dry_run`, `still_running`, `process` and
+`error`; `--json` prints the matching records unchanged, one per line, and a
+line of the watcher's output as
+`{"level":"ERROR","msg":"<the line>","event":"raw","started":"<its watcher's start>"}`.
+See the [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
 section 4.1.
 
 Workbench installs Claude Code's settings, instructions and hooks in

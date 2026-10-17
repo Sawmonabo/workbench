@@ -851,13 +851,14 @@ output, is never touched, whatever its first line is.
 1. Deletes `watch.log.1` when it holds an old line.
 2. Removes the old lines from `watch.log` and keeps every other line, in
    order, with the log's own cut (`operation.RewriteLog`), not deleted or
-   replaced: a running watcher keeps its stdout and stderr open on it, so a
-   replaced file would send its crash output to a file nobody can read, and
-   its records may follow the old lines. The cut opens the file once, never
-   through a link, under the exclusive lock every append waits for, writes
-   a `cut` record and the kept lines from its start, copies anything the
-   watcher appended meanwhile after them, and truncates it there (same
-   inode, mode and owner).
+   replaced: a watcher of an earlier build keeps its stdout and stderr open
+   on it, so a replaced file would send its crash output to a file nobody
+   can read, and its records may follow the old lines. The cut opens the
+   file once, never through a link, under the exclusive lock every append
+   waits for, writes a `cut` record mapping each kept run to its old offset
+   (so `guard logs --follow` keeps its place) and the kept lines from its
+   start, copies anything appended meanwhile after them, and truncates it
+   there (same inode, mode and owner).
 
 A path that isn't a regular file (a link) is never read through, stays and is
 reported, and leaves the migration *Done* when nothing else is to do. One

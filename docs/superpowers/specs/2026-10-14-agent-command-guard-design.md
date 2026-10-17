@@ -166,11 +166,11 @@ The three parts are hidden subcommands of the one `workbench` CLI, in the
 guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
 the owners the costs hook already uses: `operation.TryLock` for the
 one-watcher lock, `operation.StartDetached` to start the watcher (it finds
-Workbench's own executable and opens the log itself), `operation.AppendLog`
-for the capped log (and `operation.LogReader` to follow it),
-`operation.ReplacePrivateFile` for notes and kill records, and the operation
-layer's private-directory checks for its folder. Only the watch loop, the hook
-bodies and the platform readers are new.
+Workbench's own executable and opens its output file itself),
+`operation.AppendLog` for the capped log (and `operation.LogReader` to follow
+it), `operation.ReplacePrivateFile` for notes and kill records, and the
+operation layer's private-directory checks for its folder. Only the watch
+loop, the hook bodies and the platform readers are new.
 
 The watcher is started on demand by the pre hook; there is no login item or
 service, and it exits after 10 idle minutes (section 6.5).
@@ -210,6 +210,10 @@ macOS temp folder is pruned of files older than three days.
   watch.lock                          held by the running watcher
   watch.log                           JSON Lines (section 4.1), cut in place
                                       to its newest half past 1 MiB
+  watch.err, watch.err.1              the watcher's stdout and stderr, never
+                                      cut; a watcher that starts while
+                                      watch.err is past 1 MiB renames it to
+                                      watch.err.1
   notes/<tool_use_id>.json            {agent pid, agent start, kind,
                                        session_id, tool_use_id, command,
                                        noted_start, noted_at, dry_run,
@@ -277,15 +281,28 @@ PID) when one process could not be read.
 | `gave-up` | A stopped command still runs 10 seconds on (section 6.4). |
 | `refused` | A stop signalled nothing. |
 | `error` | Something could not be read or written, or a hook panicked. |
-| `cut` | The log's first line after a cut in place: `dropped` counts the bytes every cut has removed from its start. `workbench guard logs` never shows it. |
-| `raw` | Only from `workbench guard logs`: a line of the file that is not a record. |
+| `cut` | The log's first line after a cut in place: `kept` lists the runs of bytes the cuts kept, each `[offset, length]` in bytes ever written to the log, and `next` is the offset of the byte after them. `workbench guard logs` never shows it. |
+| `output` | Only in `watch.err`: a watcher starts writing its output there. `workbench guard logs` never shows it. |
+| `raw` | Only from `workbench guard logs`: a line that is not a record. |
 
-The watcher's own stdout and stderr go to the same file, so a line that is
-not a record (a crash's trace) can sit among them. `workbench guard logs`
-shows each such line as it is, after `watcher output: `, in red; for
-`--json` it becomes a record with `level` `ERROR`, `event` `raw` and the line
-as `msg`, encoded by the same handler, which leaves out `time` because the
-line's time is unknown. It prints the events in the machine's time zone
+The watcher's own stdout and stderr (a crash's trace) go to `watch.err`,
+not to the log: a write there takes no lock, so a cut of the log could lose
+it, and a supervisor keeps a service's own output apart from its structured
+log the same way (launchd's `StandardErrorPath`, systemd's `StandardError=`).
+Nothing cuts `watch.err`: a watcher that holds the lock and finds it past
+1 MiB renames it to `watch.err.1`, replacing the older one, and points its
+stdout and stderr at a new `watch.err` (`operation.RotateOutput`); a rename
+moves no byte, so a process still writing to the old file writes on into
+`watch.err.1`. Each watcher then writes an `output` record there, the time
+it started. `workbench guard logs` reads `watch.err.1`, then `watch.err`,
+and shows each line that is not a record as it is, after `watcher output: `,
+in red, placed among the log's records at its watcher's start (lines from
+before any `output` record come first); a line of the log that is not a
+record, which earlier builds wrote, is placed after the record before it.
+For `--json` such a line becomes a record with `level` `ERROR`, `event`
+`raw`, the line as `msg` and, from `watch.err`, `started`, its watcher's
+start, encoded by the same handler, which leaves out `time` because the
+line's own time is unknown. It prints the events in the machine's time zone
 (`Oct 16 9:24 PM`), a stop with its reason on the lines below, colored at a
 terminal: stops, `SIGKILL`, give-ups, errors and raw lines red, low memory,
 abandoned and unmatched notes, refusals and a lost lock yellow, the
@@ -293,19 +310,22 @@ watcher's routine faint. By default it leaves out `tracking` and `ended`,
 which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
 `2h`), as `docker logs --since` does, `today` and `yesterday` as
 `journalctl --since` does, a local date, date and time or time of today
-(`2026-10-16`, `2026-10-16 21:00`, `21:00`), or RFC 3339. A raw line was
-written after the record before it, so `--since` keeps it when it keeps that
-record; raw lines before the log's first record are kept when that record
-is. `--follow` keeps printing new events: it waits for a log that does not
-exist yet and keeps its place by position, never by a line's content. It
-counts the bytes it has read, cut ones included, and the `cut` record says
-how many a cut removed, so after a cut it reads on from the same byte, as a
-journald cursor keeps a reader's place; `tail -F` instead rereads a file
-that shrank from its start and repeats lines. A cut that removed bytes the
-viewer had not read yet (it fell more than half the log behind) goes on from
-the log's oldest line; a log that is replaced, or shrinks with no `cut`
-record, is read from its start. `--json` prints
-the matching records unchanged, one per line.
+(`2026-10-16`, `2026-10-16 21:00`, `21:00`), or RFC 3339. A line of
+`watch.err` was written while its watcher ran, so `--since` keeps it unless
+the next watcher started before then. A raw line of the log was written
+after the record before it, so `--since` keeps it when it keeps that record;
+raw lines before the log's first record are kept when that record is.
+`--follow` keeps printing new events: it waits for files that do not exist
+yet and keeps its place in each by byte offset, never by a line's content:
+the offset counts every byte ever written to the file, and the `cut` record
+maps the bytes a cut kept to their offsets, so after a cut, one that keeps
+the newest half or a migration's that drops lines from the middle, it reads
+on from the first kept byte at or after its place, as a journald cursor
+keeps a reader's place; `tail -F` instead rereads a file that shrank from
+its start and repeats lines. It keeps each file open, so after a rotation it
+reads the rest of the old `watch.err` before the new one. A file that is
+replaced, or shrinks with no `cut` record, is read from its start. `--json`
+prints the matching records unchanged, one per line.
 
 Migration `0004-old-guard-log` removes the free-text lines earlier builds
 wrote from the log (migrations design, section 6.4).
@@ -320,8 +340,8 @@ wrote from the log (migrations design, section 6.4).
 2. Find the agent (section 4) and write `notes/<tool_use_id>.json`.
 3. Try `watch.lock` without waiting. If it is free, release it and start
    `workbench guard watch` with `operation.StartDetached`: a new session in
-   `/`, with stdin on the null device and output appended to the guard log. Nothing
-   waits for it.
+   `/`, with stdin on the null device and output appended to `watch.err`.
+   Nothing waits for it.
    The watcher takes the lock itself, and a second watcher that loses the race
    exits at once.
 4. Exit 0 with no output, so the call proceeds unchanged.

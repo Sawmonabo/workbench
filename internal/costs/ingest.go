@@ -80,6 +80,9 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 		return "skipped: another worker holds the lock", nil
 	}
 	defer release()
+	if _, err := operation.RotateOutput(paths.output(), logLimit); err != nil {
+		writeLog(paths, "error: cannot rotate the worker's output file: "+err.Error())
+	}
 	summary, err = ingestLocked(ctx, paths, opts)
 	if err != nil {
 		writeLog(paths, "error: "+err.Error())
@@ -785,7 +788,7 @@ func startWorker(event, transcript, session string) error {
 	// "--" keeps a value that starts with a dash from being read as a flag.
 	return operation.StartDetached(
 		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},
-		paths.log(),
+		paths.output(),
 	)
 }
 
