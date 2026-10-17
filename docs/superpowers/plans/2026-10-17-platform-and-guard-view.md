@@ -94,7 +94,7 @@ Run: `scripts/render-check.sh personal pinned wsl > "$WS/baseline/render-check-w
 
 - [ ] **Step 1: Write the platform files**
 
-Move the bodies named above out of `internal/guard/platform_*.go` and `internal/operation/libc_darwin.*`, renaming as listed; keep every existing comment, adjusted to the new names. `Processes` returns `[]Process`; the map stays guard's.
+Move the bodies named above out of `internal/guard/platform_*.go` and `internal/operation/libc_darwin.*`, renaming as listed; keep every existing comment, adjusted to the new names. The `GLOBL ·getattrlist`/`·fgetattrlist` lines in `libc_darwin.s` take the exported names while the variables are exported, and go back with them in Task 3. `Processes` returns `[]Process`; the map stays guard's.
 
 - [ ] **Step 2: Make the guard and operation use them**
 
@@ -240,10 +240,10 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 	agent := process(100, 1, 100, -3600, "claude")
 	login := "/w/.worktrees/feature-login"
 	api := "/w/.worktrees/api-server"
-	make := claudeShell(`'make test'`)
+	makeTest := claudeShell(`'make test'`)
 	// The api-server note is older, its shell is younger: today's rule pairs them crosswise.
-	inLogin := inFolder(process(200, 100, 200, 0.4, make...), login)
-	inAPI := inFolder(process(201, 100, 201, 0.5, make...), api)
+	inLogin := inFolder(process(200, 100, 200, 0.4, makeTest...), login)
+	inAPI := inFolder(process(201, 100, 201, 0.5, makeTest...), api)
 	noteAPI := note{AgentPID: 100, AgentStart: start(-3600), Kind: claude, ToolUseID: "toolu_api",
 		Command: "make test", NotedStart: start(0.3), Cwd: api}
 	noteLogin := noteAPI
@@ -270,7 +270,7 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 			map[string]int{"toolu_plain": 200}},
 		// A rival whose folder could not be read is not preferred over one that matches.
 		{"unreadableRivalLoses", []note{noteAPI},
-			[]proc{agent, process(200, 100, 200, 0.4, make...), inAPI},
+			[]proc{agent, process(200, 100, 200, 0.4, makeTest...), inAPI},
 			map[string]int{"toolu_api": 201}},
 		// No candidate matches: the oldest wins, as today, and nothing is rejected.
 		{"noMatchFallsBack", []note{noteAPI}, []proc{agent, inLogin},
