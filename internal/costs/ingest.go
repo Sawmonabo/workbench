@@ -785,11 +785,26 @@ func startWorker(event, transcript, session string) error {
 			_ = os.Setenv("CLAUDE_CONFIG_DIR", filepath.Dir(projects))
 		}
 	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
 	// "--" keeps a value that starts with a dash from being read as a flag.
-	return operation.StartDetached(
-		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},
-		paths.output(),
-	)
+	_, err = operation.StartDetached(operation.Detached{
+		Entry: self,
+		Args: []string{
+			"costs",
+			"ingest",
+			"--worker",
+			"--quiet",
+			"--",
+			event,
+			transcript,
+			session,
+		},
+		Output: paths.output(),
+	})
+	return err
 }
 
 func readHookInput(stdin *os.File) (event, transcript, session string) {

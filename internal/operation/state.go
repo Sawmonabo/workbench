@@ -630,10 +630,20 @@ func flockNonBlocking(f *os.File) (held bool, err error) {
 // and the file is never removed: the lock ends when release is called or the
 // process dies. held is true, with no error, when another process has it.
 func TryLock(path string) (release func(), held bool, err error) {
+	f, held, err := TryLockFile(path)
+	if held || err != nil {
+		return nil, held, err
+	}
+	return func() { _ = f.Close() }, false, nil
+}
+
+// TryLockFile is [TryLock] giving the locked file, whose Close releases the
+// lock, for a holder that hands it to a child it starts (see [InheritLock]).
+func TryLockFile(path string) (f *os.File, held bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, false, err
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
+	f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, false, err
 	}
@@ -642,7 +652,31 @@ func TryLock(path string) (release func(), held bool, err error) {
 		_ = f.Close()
 		return nil, held, err
 	}
-	return func() { _ = f.Close() }, false, nil
+	return f, false, nil
+}
+
+// InheritLock takes on the lock on the file at path that a parent holding it
+// passed down as f (see [TryLockFile] and [Detached].Files). An flock lock
+// belongs to the open file description, which a passed descriptor shares, and
+// is held until the last descriptor on it closes, so the lock is never free
+// while it passes from parent to child. f must be the file at path, and its
+// description must hold the lock or get it without waiting: held is true when
+// another description holds it, so a descriptor opened anew, or for another
+// file, never stands for the lock. Closing f releases it once the parent has
+// closed its own; nothing here unlocks, which would release the parent's too.
+func InheritLock(f *os.File, path string) (held bool, err error) {
+	info, err := f.Stat()
+	if err != nil {
+		return false, err
+	}
+	current, err := os.Lstat(path)
+	if err != nil {
+		return false, err
+	}
+	if !os.SameFile(info, current) {
+		return false, fmt.Errorf("the passed lock is not %s", path)
+	}
+	return flockNonBlocking(f)
 }
 
 func (l *locks) close() {
