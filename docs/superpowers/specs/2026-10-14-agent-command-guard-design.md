@@ -161,8 +161,9 @@ Not yet observed (section 10 step 1):
 
 ## 3. Parts
 
-All three parts are hidden subcommands of the one `workbench` CLI, in a new
-`internal/guard/` package; `internal/cli/` owns their flags. The guard reuses
+The three parts are hidden subcommands of the one `workbench` CLI, in the
+`internal/guard/` package, beside `workbench guard logs`, which shows the
+guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
 the owners the costs hook already uses: `operation.TryLock` for the
 one-watcher lock, `operation.StartDetached` to start the watcher (it finds
 Workbench's own executable and opens the log itself), `operation.AppendLog`
@@ -178,6 +179,7 @@ service, and it exits after 10 idle minutes (section 6.5).
 | `workbench guard pre` | `PreToolUse` hook on `Bash` | Leaves a note for the call; makes sure the watcher is running. Prints nothing. |
 | `workbench guard watch` | At most one per user, started by `pre`, detached | Finds each noted command, watches machine memory, stops the largest agent command near out-of-memory, records why. |
 | `workbench guard post` | `PostToolUse` (and `PostToolUseFailure` on Claude Code) on `Bash` | Gives the agent the reason if the watcher stopped this call; otherwise prints nothing. Drops the call's note, or marks a background call's posted. |
+| `workbench guard logs` | A person, by hand | Shows the guard log (section 4.1). |
 
 **Exit status.** `pre` and `post` always exit 0: they recover from panics and
 report errors only to the guard log. The hook commands also end in `|| true`,
@@ -205,7 +207,8 @@ macOS temp folder is pruned of files older than three days.
 ```
 <state>/guard/
   watch.lock                          held by the running watcher
-  watch.log                           cut in place to its newest half past 1 MiB
+  watch.log                           JSON Lines (section 4.1), cut in place
+                                      to its newest half past 1 MiB
   notes/<tool_use_id>.json            {agent pid, agent start, kind,
                                        session_id, tool_use_id, command,
                                        noted_start, noted_at, dry_run,
@@ -238,7 +241,66 @@ tini, `tini`, `dumb-init`, `catatonit`, or `podman-init`, the name Podman's
   the pre hook and the command's start can shift one against the other.
 
 `noted_start` is the pre hook process's own start time, in these units.
-`noted_at` (wall clock) is only for the log.
+`noted_at` (wall clock) is only for a person reading the note.
+
+### 4.1 Log
+
+`watch.log` is JSON Lines written by Go's `log/slog` `JSONHandler`, one
+record per event, appended through `operation.AppendLog`: the handler makes
+one `Write` per record, and each becomes one appended line under the log's
+1 MiB cap. Each record has `time` (RFC 3339 with the machine's offset),
+`level` (`INFO`, `WARN`, `ERROR`), `msg` (a sentence for a person), `event`,
+`part` (`pre`, `post` or `watch`) and `pid` (the process that wrote it).
+Records about a call add `call` (its `tool_use_id`), `agent` (`claude` or
+`codex`), `command` (clipped as in the reason, section 6.4), `root_pid` and
+`size` in bytes; a stop adds `children`, `reason` (the text the agent is told)
+and `memory` (the reading: macOS's `level`, or Linux's `available`, `total`
+and `full_avg10`, each with `installed`, `swap_free` and `swap_total`, in
+bytes), and `dry_run` for a dry run; low memory under the floor adds `size`
+(what the agent commands hold), `floor` and `memory`; a give-up adds
+`still_running` (the PIDs left); a failure adds `error`, and `process` (a
+PID) when one process could not be read.
+
+| `event` | When |
+|---|---|
+| `started` | A watcher starts. |
+| `idle` | A watcher exits after 10 idle minutes. |
+| `exited` | A watcher exits because its lock file changed. |
+| `tracking` | A noted command is found (section 6.1). |
+| `ended` | A tracked command or its agent ends. |
+| `unmatched` | A note goes away unmatched after its agent ran a child (section 6.1). |
+| `abandoned` | A note that never got its post hook is dropped (section 6.1). |
+| `memory` | Memory is low but the agent commands are under the floor (section 6.3), or recovered before a stop. |
+| `stopping` | A command is stopped, with its reason; with `dry_run`, it would be. |
+| `forced` | A stopped command is sent `SIGKILL`. |
+| `gave-up` | A stopped command still runs 10 seconds on (section 6.4). |
+| `refused` | A stop signalled nothing. |
+| `error` | Something could not be read or written, or a hook panicked. |
+| `raw` | Only from `workbench guard logs`: a line of the file that is not a record. |
+
+The watcher's own stdout and stderr go to the same file, so a line that is
+not a record (a crash's trace) can sit among them. `workbench guard logs`
+shows each such line as it is, after `watcher output: `, in red; for
+`--json` it becomes a record with `level` `ERROR`, `event` `raw` and the line
+as `msg`, encoded by the same handler, which leaves out `time` because the
+line's time is unknown. It prints the events in the machine's time zone
+(`Oct 16 9:24 PM`), a stop with its reason on the lines below, colored at a
+terminal: stops, `SIGKILL`, give-ups, errors and raw lines red, low memory,
+abandoned and unmatched notes, refusals and a lost lock yellow, the
+watcher's routine faint. By default it leaves out `tracking` and `ended`,
+which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
+`2h`), as `docker logs --since` does, `today` and `yesterday` as
+`journalctl --since` does, a local date, date and time or time of today
+(`2026-10-16`, `2026-10-16 21:00`, `21:00`), or RFC 3339. A raw line was
+written after the record before it, so `--since` keeps it when it keeps that
+record; raw lines before the log's first record are kept when that record
+is. `--follow` keeps printing new events: it waits for a log that does not
+exist yet, and after a cut in place reads on from the line after the last
+one it read, or from the start when the cut took that line. `--json` prints
+the matching records unchanged, one per line.
+
+Migration `0004-old-guard-log` removes the free-text lines earlier builds
+wrote from the log (migrations design, section 6.4).
 
 ## 5. Pre hook
 
@@ -345,7 +407,7 @@ second.
   rounds (its command started before the post hook, so no later process is
   its command)
 - it is abandoned: a call that was denied or cut off gets no post hook, so a
-  note that never got one is dropped, with a `note … abandoned` log line,
+  note that never got one is dropped, with an `abandoned` log record,
   once a note its agent wrote later has gone and 10 minutes (Claude Code's
   longest foreground `Bash` timeout) have passed since the watcher first read
   it, if it never matched or its command has ended
@@ -493,8 +555,8 @@ initial values until section 10 step 4 drives them.
      does, without `process_mrelease`. A group is signalled through its
      leader's pidfd with `PIDFD_SIGNAL_PROCESS_GROUP` (Linux 6.9), else with
      `kill(-pgid)`; a group whose leader no longer leads it is not signalled.
-6. **Record:** write `killed/<tool_use_id>.json` with the reason and a log
-   line. It is written before step 5's first signal, because the agent's post
+6. **Record:** write `killed/<tool_use_id>.json` with the reason, and log a
+   `stopping` record. It is written before step 5's first signal, because the agent's post
    hook may run the moment the command dies, and deleted if nothing was
    signalled. If the record can't be written, the stop goes ahead anyway,
    because the machine comes first, and the agent then gets no reason. A stop
@@ -621,7 +683,8 @@ The macOS footprint comes from `operation.PhysicalFootprint`
 (`internal/operation/libc_darwin.go`), which calls libSystem through one
 trampoline file, `libc_darwin.s`, with the ACL checks' `getattrlist` and
 `fgetattrlist` (section 2):
-- an error fails closed: the process counts as size 0 and is logged once
+- an error fails closed: the process counts as size 0 and is logged once,
+  unless it only means the process exited, which counts as 0 unlogged
 - the `rusage_info_v0` layout is rechecked on each major macOS release.
 
 ## 10. Order of work

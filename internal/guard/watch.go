@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime/debug"
@@ -35,14 +37,15 @@ const (
 	refusalLimit = 3
 )
 
-// seenNote is a note the watcher has read: its agent and NotedStart, read
-// when this watcher first read it, matched once it was tracked, childSeen as
-// markChildSeen sets it, and posted and postedRound from the first tick it
-// was read marked posted. One that goes away unmatched with childSeen is
-// logged.
+// seenNote is a note the watcher has read: its command, agent with its kind
+// and NotedStart, read when this watcher first read it, matched once it was
+// tracked, childSeen as markChildSeen sets it, and posted and postedRound
+// from the first tick it was read marked posted. One that goes away unmatched
+// with childSeen is logged.
 type seenNote struct {
 	command     string
 	agent       procKey
+	kind        kind
 	noted       uint64
 	read        time.Time
 	matched     bool
@@ -117,7 +120,7 @@ type procKey struct {
 // it.
 func Watch(ctx context.Context) {
 	debug.SetMemoryLimit(32 << 20)
-	f, err := openFolders()
+	f, err := openFolders("watch")
 	if err != nil {
 		return
 	}
@@ -145,10 +148,10 @@ func Watch(ctx context.Context) {
 		return
 	}
 	defer func() { w.release() }()
-	f.logf("watch: started")
+	f.event(slog.LevelInfo, EventStarted, "watcher started")
 	for ctx.Err() == nil {
 		if !w.ownsLock() {
-			f.logf("watch: the lock file changed; exiting")
+			f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
 			return
 		}
 		next := w.tick()
@@ -191,12 +194,14 @@ func (w *watcher) carryOn() bool {
 	w.release = func() {}
 	if s, err := w.snapshot(); err == nil {
 		if notes, err := w.notes(s); err == nil && len(notes) == 0 {
-			w.f.logf("watch: idle for %s; exiting", idleExit)
+			text := fmt.Sprintf("idle for %.0f minutes; watcher exiting", idleExit.Minutes())
+			w.f.event(slog.LevelInfo, EventIdle, text)
 			return false
 		}
 	}
 	if !w.lock() {
-		w.f.logf("watch: idle, and the lock is held by another watcher or cannot be taken; exiting")
+		w.f.event(slog.LevelInfo, EventIdle,
+			"idle, and the lock is held by another watcher or cannot be taken; watcher exiting")
 		return false
 	}
 	w.idleSince = time.Now()
@@ -215,12 +220,12 @@ func (w *watcher) tick() time.Duration {
 	}
 	s, err := w.snapshot()
 	if err != nil {
-		w.f.logf("watch: cannot list processes: %v", err)
+		w.f.event(slog.LevelError, EventError, "cannot list processes", "error", err)
 		return time.Second
 	}
 	notes, err := w.notes(s)
 	if err != nil {
-		w.f.logf("watch: cannot read notes: %v", err)
+		w.f.event(slog.LevelError, EventError, "cannot read the notes", "error", err)
 		return time.Second
 	}
 	w.forget(s)
@@ -256,8 +261,7 @@ func (w *watcher) tick() time.Duration {
 		seen := w.seen[c.Note.ToolUseID]
 		seen.matched = true
 		w.seen[c.Note.ToolUseID] = seen
-		w.f.logf("watch: tracking %s (pid %d): %s",
-			c.Note.ToolUseID, c.Root.PID, clip(c.Note.Command))
+		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
 	}
 	w.markChildSeen(s, agents, notes, taken)
 	if len(notes) > 0 || len(w.tracked) > 0 {
@@ -266,7 +270,7 @@ func (w *watcher) tick() time.Duration {
 	w.expireKills()
 	m, err := readMemory()
 	if err != nil {
-		w.f.logf("watch: cannot read memory: %v", err)
+		w.f.event(slog.LevelError, EventError, "cannot read memory", "error", err)
 		return time.Second
 	}
 	act := w.demand(m, time.Now())
@@ -337,7 +341,8 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			present[id] = true
 			if !w.unreadNotes[id] {
 				w.unreadNotes[id] = true
-				w.f.logf("watch: cannot read note %s: %v", id, err)
+				w.f.event(slog.LevelError, EventError, "cannot read a note",
+					"call", id, "error", err)
 			}
 			continue
 		}
@@ -353,6 +358,7 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			seen = seenNote{
 				command: n.Command,
 				agent:   procKey{n.AgentPID, n.AgentStart},
+				kind:    n.Kind,
 				noted:   n.NotedStart,
 				read:    now,
 			}
@@ -368,11 +374,9 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		}
 		if !n.Posted && (!seen.matched || w.ended[id]) && n.NotedStart < w.lastEnded[seen.agent] &&
 			now.Sub(seen.read) >= abandonAfter {
-			w.f.logf(
-				"watch: note %s abandoned: a later call ended and this one got no post hook: %s",
-				id,
-				clip(n.Command),
-			)
+			w.f.event(slog.LevelWarn, EventAbandoned,
+				"abandoned without a post hook after a later call of its agent ended",
+				"call", id, "agent", n.Kind, "command", clip(n.Command))
 			_ = os.Remove(path)
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -385,7 +389,8 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		if !present[id] {
 			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
 			if !seen.matched && seen.childSeen {
-				w.f.logf("watch: note %s ended unmatched: %s", id, clip(seen.command))
+				w.f.event(slog.LevelInfo, EventUnmatched, "ended without matching a command",
+					"call", id, "agent", seen.kind, "command", clip(seen.command))
 			}
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -427,9 +432,24 @@ func (w *watcher) snapshot() (snapshot, error) {
 	return snapshotNow(func(pid int, err error) {
 		if !w.unreadPIDs[pid] {
 			w.unreadPIDs[pid] = true
-			w.f.logf("watch: cannot read pid %d: %v", pid, err)
+			w.f.event(slog.LevelError, EventError, "cannot read a process",
+				"process", pid, "error", err)
 		}
 	})
+}
+
+// exited reports whether err from reading a process means only that it
+// exited, which is no error.
+func exited(err error) bool {
+	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ESRCH)
+}
+
+// callAttrs are the log attributes of a tracked call.
+func callAttrs(c command) []any {
+	return []any{
+		"call", c.Note.ToolUseID, "agent", c.Note.Kind, "root_pid", c.Root.PID,
+		"command", clip(c.Note.Command),
+	}
 }
 
 // markChildSeen sets childSeen on each waiting note whose agent has a child
@@ -483,6 +503,7 @@ func (w *watcher) forget(s snapshot) {
 			if _, noted := w.seen[id]; noted && !agentGone {
 				w.ended[id] = true
 			}
+			w.f.event(slog.LevelInfo, EventEnded, "ended", callAttrs(c)...)
 		}
 	}
 }
@@ -583,9 +604,17 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 				continue
 			}
 			bytes, err := footprint(p.PID)
-			if key := (procKey{p.PID, p.Start}); err != nil && !w.unsized[key] {
+			if key := (procKey{p.PID, p.Start}); err != nil && !exited(err) && !w.unsized[key] {
 				w.unsized[key] = true
-				w.f.logf("watch: size of pid %d: %v; counted as 0", p.PID, err)
+				w.f.event(
+					slog.LevelError,
+					EventError,
+					"cannot read a process's size (counted as 0)",
+					"process",
+					p.PID,
+					"error",
+					err,
+				)
 			}
 			size += bytes
 		}
@@ -600,8 +629,9 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 	case act == polite && total < m.floor():
 		if !w.underFloor {
 			w.underFloor = true
-			w.f.logf("watch: memory is low, but the agent commands hold %s, under the %s floor; "+
-				"not stopping any", gigabytes(total), gigabytes(m.floor()))
+			w.f.event(slog.LevelWarn, EventMemory,
+				"memory is low, but the agent commands are too small to stop",
+				"size", total, "floor", m.floor(), "memory", m)
 		}
 	default:
 		w.stop(chosen, chosenSize, len(members)-1)
@@ -617,11 +647,13 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 func (w *watcher) stop(c command, size uint64, children int) {
 	m, err := readMemory()
 	if err != nil {
-		w.f.logf("watch: cannot read memory; not stopping %s: %v", c.Note.ToolUseID, err)
+		w.f.event(slog.LevelError, EventError, "cannot read memory; not stopping",
+			append(callAttrs(c), "error", err)...)
 		return
 	}
 	if act, _ := decide(m); act == nothing {
-		w.f.logf("watch: memory recovered before stopping %s", c.Note.ToolUseID)
+		w.f.event(slog.LevelInfo, EventMemory, "memory recovered before the stop",
+			append(callAttrs(c), "memory", m)...)
 		return
 	}
 	s, err := w.snapshot()
@@ -630,7 +662,8 @@ func (w *watcher) stop(c command, size uint64, children int) {
 	}
 	notes, err := w.notes(s)
 	if err != nil {
-		w.f.logf("watch: cannot read notes; not stopping %s: %v", c.Note.ToolUseID, err)
+		w.f.event(slog.LevelError, EventError, "cannot read the notes; not stopping",
+			append(callAttrs(c), "error", err)...)
 		return
 	}
 	_, protected := w.agents(s, notes)
@@ -643,9 +676,12 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		return
 	}
 	text := reason(c.Note.Command, children, size, m)
+	stopping := append(callAttrs(c),
+		"size", size, "children", children, "reason", text, "memory", m)
 	if c.Note.DryRun {
 		w.passed[c.Note.ToolUseID] = true
-		w.f.logf("watch: dry run, would stop %s: %s", c.Note.ToolUseID, text)
+		w.f.event(slog.LevelWarn, EventStopping, "would stop (dry run)",
+			append(stopping, "dry_run", true)...)
 		return
 	}
 	w.stopped = s.tree(c.Root.PID, outside(protected))
@@ -656,11 +692,12 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		kill{ToolUseID: c.Note.ToolUseID, Reason: text, At: time.Now()},
 	); err != nil {
 		// The machine comes first: the stop goes ahead and the agent gets no reason.
-		w.f.logf("watch: cannot record the stop of %s: %v; stopping anyway, "+
-			"the agent will be told nothing", c.Note.ToolUseID, err)
+		w.f.event(slog.LevelError, EventError,
+			"cannot record the stop; stopping anyway, the agent will be told nothing",
+			append(callAttrs(c), "error", err)...)
 	}
-	w.f.logf("watch: stopping %s: %s", c.Note.ToolUseID, text)
-	if w.signal(chosen, c.Note.ToolUseID) {
+	w.f.event(slog.LevelWarn, EventStopping, "stopping", stopping...)
+	if w.signal(chosen, c) {
 		delete(w.refusals, c.Note.ToolUseID)
 		return
 	}
@@ -680,24 +717,27 @@ func (w *watcher) refused(c command) {
 	id := c.Note.ToolUseID
 	s, err := w.snapshot()
 	if err != nil || !s.alive(c.Root.PID, c.Root.Start) {
-		w.f.logf("watch: %s ended or could not be checked", id)
+		w.f.event(slog.LevelInfo, EventRefused,
+			"nothing signalled: the command ended or could not be checked", callAttrs(c)...)
 		return
 	}
 	w.refusals[id]++
 	if w.refusals[id] < refusalLimit {
-		w.f.logf("watch: %s is running but nothing could be signalled (%d of %d)",
-			id, w.refusals[id], refusalLimit)
+		text := fmt.Sprintf("running, but nothing could be signalled (%d of %d)",
+			w.refusals[id], refusalLimit)
+		w.f.event(slog.LevelWarn, EventRefused, text, callAttrs(c)...)
 		return
 	}
 	w.passed[id] = true
-	w.f.logf("watch: %s refused %d stops in a row; not chosen again", id, refusalLimit)
+	w.f.event(slog.LevelWarn, EventRefused,
+		fmt.Sprintf("refused %d stops in a row; not chosen again", refusalLimit), callAttrs(c)...)
 }
 
 // signal sends SIGTERM, then SIGKILL once memory calls for a forced stop or
 // after five seconds, polling every 100 ms until the command's processes are
 // gone, and gives up after ten seconds. It reports whether any live target
 // was signalled.
-func (w *watcher) signal(chosen []target, id string) bool {
+func (w *watcher) signal(chosen []target, c command) bool {
 	sent := false
 	for _, t := range chosen {
 		sent = send(t, unix.SIGTERM) || sent
@@ -711,10 +751,12 @@ func (w *watcher) signal(chosen []target, id string) bool {
 			return true
 		}
 		if !killed && w.escalateNow(start) {
-			killed = w.escalate()
+			if killed = w.escalate(); killed {
+				w.f.event(slog.LevelWarn, EventForced, "sent SIGKILL", callAttrs(c)...)
+			}
 		}
 	}
-	w.abandon(id)
+	w.abandon(c)
 	return true
 }
 
@@ -794,7 +836,7 @@ func escalation(s snapshot, stopped []proc, protected map[int]uint64) (kill, wai
 // seconds, such as one in uninterruptible I/O: it logs what survived, ends
 // the cooldown and passes the call over from now on, so one process that
 // cannot be stopped never keeps the watcher from acting again.
-func (w *watcher) abandon(id string) {
+func (w *watcher) abandon(c command) {
 	var left []int
 	if s, err := w.snapshot(); err == nil {
 		if notes, err := w.notes(s); err == nil {
@@ -806,9 +848,11 @@ func (w *watcher) abandon(id string) {
 			}
 		}
 	}
-	w.f.logf("watch: gave up on %s after %s; still running: %v; not chosen again", id, giveUp, left)
+	text := fmt.Sprintf("still running %.0f seconds after the stop; not chosen again",
+		giveUp.Seconds())
+	w.f.event(slog.LevelWarn, EventGaveUp, text, append(callAttrs(c), "still_running", left)...)
 	w.stopped = nil
-	w.passed[id] = true
+	w.passed[c.Note.ToolUseID] = true
 }
 
 // loadArgs reads the command lines matching looks at: the agent's, its direct

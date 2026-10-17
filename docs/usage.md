@@ -57,7 +57,7 @@ logged-in `gh`. Never run it as root.
 | `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until DATE` (a day in this machine's time zone), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts a detached worker. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. `--worker` ingests in the foreground. |
-| `migrate` | List the migrations that move files earlier Workbench releases left outside Workbench's folders, and whether each has anything to do. `migrate --apply` runs them, asking the way `apply` does (`--dry-run --json`, `--approve-plan`, `--yes`); when only conflicts are left it exits 4 and names each file and what to do with it. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
+| `migrate` | List the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), and whether each has anything to do. `migrate --apply` runs them, asking the way `apply` does (`--dry-run --json`, `--approve-plan`, `--yes`); when only conflicts are left it exits 4 and names each file and what to do with it. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
 | `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
 
 Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
@@ -181,9 +181,44 @@ command runs, and a guard fault leaves a command unguarded and never blocks it.
 Programs a command detaches from itself (`nohup` with `setsid`) are not
 tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes and the log
-(`watch.log`) are in Workbench's state folder under `guard/`. The hooks are
-hidden `workbench guard` commands. See the
-[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md).
+(`watch.log`) are in Workbench's state folder under `guard/`. The hooks and
+the watcher are hidden `workbench guard` commands.
+
+`workbench guard logs` shows what the guard did, oldest first, in the
+machine's time zone: each stop with its command and size and, below it, the
+reason the agent was told; low memory that stopped nothing; calls dropped
+without their post hook; notes whose command no known shape matched; the
+watcher starting and exiting; errors; and, after `watcher output: `, any line
+of the file that is not a record, such as a crash's trace, as it is. At a
+terminal stops, errors and raw lines are red, warnings yellow and routine
+lines faint; piped output, `TERM=dumb` and `NO_COLOR` get plain text. With nothing
+to show it says so on stderr and exits 0.
+
+```bash
+workbench guard logs                        # what matters
+workbench guard logs --verbose              # also every command tracked and ended
+workbench guard logs --since 2h             # a Go duration before now
+workbench guard logs --since "2026-10-16 21:00"
+workbench guard logs -f                     # keep printing new events
+workbench guard logs --json --since today   # the log's own JSON Lines records
+```
+
+`--since` takes a duration (`10m`, `2h`), `today`, `yesterday`, a date, date
+and time or time of today in the machine's time zone (`2026-10-16`,
+`2026-10-16 21:00`, `21:00`), or an RFC 3339 time; a raw line, which has no
+time, is kept when the record before it is (or, before the first record, the
+record after it). `--follow` (`-f`) waits
+for a log that does not exist yet and reads on when the log is cut to its
+newest half. The log is JSON Lines: each record has `time`, `level`, `msg`,
+`event` (`started`, `idle`, `exited`, `tracking`, `ended`, `unmatched`,
+`abandoned`, `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`),
+`part` and `pid`, and, by event, `call`, `agent`, `command`, `root_pid`,
+`size`, `children`, `reason`, `memory`, `floor`, `dry_run`, `still_running`,
+`process` and `error`; `--json` prints the
+matching records unchanged, one per line, and a raw line as
+`{"level":"ERROR","msg":"<the line>","event":"raw"}`. See the
+[guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
+section 4.1.
 
 Workbench installs Claude Code's settings, instructions and hooks in
 `~/.claude` and Codex's in `~/.codex`, and never sets `CLAUDE_CONFIG_DIR` or

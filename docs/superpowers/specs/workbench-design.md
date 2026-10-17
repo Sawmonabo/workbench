@@ -39,7 +39,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
 | `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
-| `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders and delete their old caches; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
+| `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches and remove the guard log's old free-text lines; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
@@ -151,7 +151,7 @@ This table defines the command contract. Exact flags, install options and suppor
 | `workbench project configure [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
 | `workbench project revert [PATH]` | Undo a project configure's file changes from a saved checkpoint of that project, chosen at a terminal or by `--checkpoint ID`. |
 | `workbench costs` | Usage figures for Claude Code and Codex from the local ledger the session hooks keep (see the [ledger design](2026-09-30-claude-costs-ledger-design.md)); `costs rates`, `costs status` and the hook command `costs ingest` belong to it. |
-| `workbench migrate [--apply]` | List the numbered migrations that move files earlier releases wrote outside Workbench's runtime folders into them, and whether each has anything to do; `--apply` runs them under `apply`'s approval rules. Every `apply` runs them as its `migrations` step, and the costs import worker moves the costs files itself. |
+| `workbench migrate [--apply]` | List the numbered migrations that move files earlier releases wrote outside Workbench's runtime folders into them or remove what they left that nothing reads, and whether each has anything to do; `--apply` runs them under `apply`'s approval rules. Every `apply` runs them as its `migrations` step, and the costs import worker moves the costs files itself. |
 
 Examples:
 

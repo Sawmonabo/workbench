@@ -110,15 +110,15 @@ var aiSecurityEffect = operation.Effect{
 var sharedEffects = []operation.Effect{
 	{
 		Name:        "migrations",
-		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders and deletes the old caches; never other tools' files",
+		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders, deletes the old caches and removes the guard log's old-format lines; never other tools' files",
 		Privilege:   "user",
 		Recovery:    "external; moves keep every ledger row and every other file's bytes, so moving a file back by hand restores the old layout",
 		Title:       "Move Workbench's files",
 		Summary:     "files earlier releases left outside Workbench's folders move into them",
-		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, and deletes the old caches they left. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist. Unticking it skips the cache clean-ups and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
-		Touches:     "the old claude-costs folders and completion cache, and Workbench's own folders",
+		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, deletes the old caches they left, and removes the free-text lines earlier builds of the agent command guard wrote to its log. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist. Unticking it skips the cache clean-ups and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
+		Touches:     "the old claude-costs folders and completion cache, the agent command guard's log, and Workbench's own folders",
 		RunsAs:      "you",
-		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, and the old import log, lock and copies identical to the moved ones",
+		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, the old import log, lock and copies identical to the moved ones, and the guard log's old-format lines",
 	},
 	{
 		Name:        "runtime-managers",

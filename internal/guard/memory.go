@@ -2,6 +2,7 @@ package guard
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 )
@@ -44,6 +45,24 @@ type memory struct {
 	Installed           uint64
 	SwapFree, SwapTotal uint64
 	FullAvg10           float64
+}
+
+// LogValue is the reading in the guard log, in bytes: macOS's level with the
+// installed memory and swap, or Linux's available share, swap and pressure.
+func (m memory) LogValue() slog.Value {
+	swap := []slog.Attr{
+		slog.Uint64("installed", m.Installed),
+		slog.Uint64("swap_free", m.SwapFree),
+		slog.Uint64("swap_total", m.SwapTotal),
+	}
+	if m.Level > 0 {
+		return slog.GroupValue(append([]slog.Attr{slog.Int("level", m.Level)}, swap...)...)
+	}
+	return slog.GroupValue(append([]slog.Attr{
+		slog.Uint64("available", m.Available),
+		slog.Uint64("total", m.Total),
+		slog.Float64("full_avg10", m.FullAvg10),
+	}, swap...)...)
 }
 
 func (m memory) availablePercent() float64 {
@@ -124,13 +143,13 @@ func reason(command string, children int, size uint64, m memory) string {
 	switch {
 	case m.Level > 0:
 		state = fmt.Sprintf("memory pressure critical, %s installed, %s of swap in use",
-			gigabytes(m.Installed), gigabytes(m.SwapTotal-m.SwapFree))
+			Gigabytes(m.Installed), Gigabytes(m.SwapTotal-m.SwapFree))
 	case m.SwapTotal == 0:
 		state = fmt.Sprintf("%s of %s available, no swap",
-			gigabytes(m.Available), gigabytes(m.Installed))
+			Gigabytes(m.Available), Gigabytes(m.Installed))
 	default:
 		state = fmt.Sprintf("%s of %s available, swap %.0f %% used",
-			gigabytes(m.Available), gigabytes(m.Installed), 100-m.swapFreePercent())
+			Gigabytes(m.Available), Gigabytes(m.Installed), 100-m.swapFreePercent())
 	}
 	var processes string
 	switch {
@@ -141,7 +160,7 @@ func reason(command string, children int, size uint64, m memory) string {
 	}
 	return fmt.Sprintf("workbench guard: stopped `%s`%s. The machine was nearly out of memory "+
 		"(%s) and this was the largest agent command, at %s. Retry with less parallelism or a "+
-		"smaller input.", clip(command), processes, state, gigabytes(size))
+		"smaller input.", clip(command), processes, state, Gigabytes(size))
 }
 
 // clip makes a command fit one line of the reason: no newlines or
@@ -154,7 +173,8 @@ func clip(command string) string {
 	return command
 }
 
-func gigabytes(bytes uint64) string {
+// Gigabytes is a size as the stop reason and the log viewer show it: "4.2 GB".
+func Gigabytes(bytes uint64) string {
 	value := float64(bytes) / (1 << 30)
 	if value >= 10 {
 		return fmt.Sprintf("%.0f GB", value)
