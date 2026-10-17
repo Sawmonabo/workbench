@@ -156,23 +156,39 @@ synthetic answers.
   Workbench runs, are held, and a rerun keeps the digest.
   Unchecking every effect applies files only and is saved like any other
   selection. (target; not yet observed on a real host)
-- Codex and Claude Code updates, in an Ubuntu 24.04 arm64 container (1 GB
-  memory) with every other step skipped in `machine.toml`:
-  - Codex 0.162.0 from the standalone installer and Claude Code 2.1.300 from
-    the native installer planned `Update Codex 0.162.0 → 0.163.0 through its
-    standalone installer` and `Update Claude Code 2.1.300 → 2.1.301 through
-    its native installer`; `apply --approve-plan` ran both installers and left
-    `~/.local/bin` pointing at 0.163.0 and 2.1.301, the previous release and
-    version kept, `~/.profile` unchanged and no npm copy added (exit 0). A new
-    plan listed neither update.
-  - Codex 0.162.0 and Claude Code 2.1.300 installed with npm in nvm's default
-    Node 24.19.0, ahead of those on PATH, planned both updates `through npm`,
-    and the apply left that Node's packages at 0.163.0 and 2.1.301 (exit 0).
+- Codex and Claude Code updates, observed October 16, 2026 in Ubuntu 24.04
+  arm64 containers (1 GB memory, run as a normal user) with every other step
+  skipped in `machine.toml`:
+  - Latest mode, Claude Code on the `stable` channel: Codex 0.162.0 from the
+    standalone installer, its `auto-update-version` marker present, and Claude
+    Code 2.1.290 from the native installer planned `Update Codex 0.162.0 →
+    0.163.0 through its standalone installer from its latest channel` and
+    `Update Claude Code 2.1.290 → 2.1.292 through its native installer from
+    its stable channel`; `apply --approve-plan` (exit 0) left Codex 0.163.0
+    with the marker naming that release, Claude Code 2.1.292 with
+    `autoUpdatesChannel` still `stable`, and a new plan listing neither update.
+  - Pinned mode, the same installs on the `stable` channel: the apply (exit 0)
+    left Codex at exactly 0.163.0 with the marker removed and Claude Code at
+    2.1.301 with `minimumVersion` 2.1.301 and the channel still `stable`; a
+    new plan listed neither update.
+  - Pinned mode, Codex 0.162.0 and Claude Code 2.1.300 installed with npm in
+    nvm's default Node 24.19.0: both planned `through npm`, and the apply left
+    that Node's packages at 0.163.0 and 2.1.301 (exit 0).
+  - The update script run with a SHA-256 list that does not match the
+    installed Claude Code 2.1.301 removed it and pointed `~/.local/bin/claude`
+    at 2.1.300 again, which then ran; a planned Codex release the latest
+    channel no longer offers installed nothing. Both steps were reported
+    blocked with the reason, and the script ended 0.
+  - `claude install 2.1.301` left `autoUpdatesChannel` as it was (`stable` or
+    unset); `claude install stable` and `claude install latest` saved it.
   - On macOS, `apply --dry-run` in a disposable home with stub installs laid
-    out like each installer planned the same effects; latest mode planned the
-    channels' newest releases; a Claude Code newer than its pin planned
-    nothing; a prerelease Codex and a hand-written `claude` launcher were
-    named in warnings and left alone. Homebrew cask copies are not yet observed.
+    out like each installer planned the same effects in both modes and both
+    channels; a Codex 0.163.0-alpha.3 planned its update to 0.163.0 and a
+    0.164.0-alpha.1 nothing; a Claude Code newer than its pin planned nothing;
+    an nvm default of `lts/*` was followed to the Node it names; an isolated
+    `--destination` planned no updates; a hand-written `claude` launcher was
+    named in a warning and left alone. Homebrew cask copies are not yet
+    observed.
 - On macOS, an apply not given `--approve-plan` runs `brew update` after tool
   setup and before it plans, so the update effects are current; `--dry-run`,
   `--approve-plan` and an isolated `--destination` never do, and a failed

@@ -325,27 +325,46 @@ and Python that Workbench runs stay at the versions it qualified, and so does
 any tool whose update would change them; the plan does not mention them.
 
 On every platform the plan also covers Codex and Claude Code. It finds the copy
-your shell runs (bun's globals, nvm's default Node, `~/.local/bin`, then
-Homebrew's and the system's folders, the order the managed shell files put them
-on PATH) and reads how it was installed and its version from the installer's
-own files, without running it. When that version is older than the target, the
-`versions.toml` pin or, in latest mode, the newest release on that installer's
-channel (looked up while planning), the plan lists `update-codex` or
-`update-claude-code`, for example `Update Codex 0.162.0 → 0.163.0 through its
-standalone installer`, and approving it runs that installer at exactly that
-version: `npm install -g @openai/codex@VERSION` in the nvm Node it is in,
-OpenAI's standalone installer with `--release VERSION`, or `claude install
-VERSION`. A copy as new as the target or newer is left alone. On macOS a copy
-from a Homebrew cask (`codex`, `claude-code`, `claude-code@latest`) is one of the
-Homebrew updates above, at Homebrew's current version, the only one a cask
-installs. A copy installed any other way (apt, bun, Homebrew on Linux, a
-launcher of your own) is named in the plan's warnings and left alone, and a
-missing one is installed through npm by the command-line tools step. Installing
-a set Codex release turns off the standalone package's own background updates
-until the latest release is installed again; Claude Code's native install keeps
-updating itself unless its settings turn that off, so in pinned mode it can run
-ahead of the pin. In latest mode, a release published between `--dry-run` and
-`--approve-plan` changes the plan, so the approval is refused (exit 4). See
+your shell runs (on Linux and WSL `~/bin`, then bun's globals, nvm's default
+Node, Cargo's and Go's bin folders, `~/.local/bin`, then Homebrew's and the
+system's folders, the order the managed shell files put them on PATH) and reads
+how it was installed and its version from the installer's own files, without
+running it. When that version is older than the target, the plan lists
+`update-codex` or `update-claude-code`, for example `Update Codex 0.162.0 →
+0.163.0 through its standalone installer`. The target is the `versions.toml`
+pin, or in latest mode the newest release on the channel the tool's own
+updater follows, looked up while planning: Codex's latest channel, and for
+Claude Code the `autoUpdatesChannel` in its settings (`stable` or `latest`;
+managed settings files override yours). Approving it runs that installer:
+`npm install -g @openai/codex@VERSION` in the nvm Node it is in, OpenAI's
+standalone installer, or `claude install VERSION`, which leaves Claude Code's
+channel as it is. A copy as new as the target or newer is left alone; a
+prerelease counts as older than its release. On macOS a copy from a Homebrew
+cask (`codex`, `claude-code`, `claude-code@latest`) is one of the Homebrew
+updates above, at Homebrew's current version, the only one a cask installs. A
+copy installed any other way (apt, bun, Homebrew on Linux, a launcher of your
+own) is named in the plan's warnings and left alone, and a missing one is
+installed through npm by the command-line tools step.
+
+Both tools keep their own background updates where the mode allows. In latest
+mode the standalone installer runs with `--release latest`, as `codex update`
+does, which keeps Codex updating itself; the apply checks before that the
+channel still offers the planned release and afterwards that it is installed,
+or the step is blocked. In pinned mode it runs with `--release VERSION`, which
+turns Codex's background updates off so it stays at the pin; `codex update`
+turns them back on. Claude Code keeps updating itself on its channel; in
+pinned mode Workbench sets `minimumVersion` in its settings to the pin, so
+those updates never go below it, and it can run ahead of the pin, which the
+plan then leaves alone. Before a native Claude Code update the apply checks
+the GPG signature on Anthropic's release manifest for that version, and
+afterwards that the installed binary matches it; otherwise the previous
+version is put back and the step is blocked.
+
+In latest mode every plan looks the versions up again, including the recheck
+an interactive apply runs after you approve: a release published since the
+plan you approved, or a lookup that fails at the recheck, changes the plan, so
+the approval is refused (exit 4), as it is between `--dry-run` and
+`--approve-plan`. Run the apply again to plan the new release. See
 [ADR 0009](adr/0009-agent-updates-through-their-own-installer.md).
 
 The update list is as fresh as Homebrew's package index, which planning reads as
