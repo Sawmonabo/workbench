@@ -30,8 +30,8 @@
 
 ## Review Focus
 
-1. **A slow or stuck view must never slow the watcher.** Snapshots are sent without blocking and a full client is dropped; a stop request is run by the tick and answered before any wait. Pinned by Task 8's design and its Step 5 smoke, which leaves one connection unread for a minute while the watcher keeps ticking.
-2. **A person's stop while the guard's own stop is settling.** The person's stop is signalled at the next tick and followed across ticks; it sets no cooldown and counts toward no refusal. Pinned by Task 8's `followManual` design and the Step 5 smoke (stop a second command while a first is `stopping`).
+1. **A slow or stuck view must never slow the watcher.** Snapshots are sent without blocking and a client whose 4-message buffer is full is dropped; a stop request is run by the tick and answered before any wait. Pinned by Task 8's design and its Step 5 smoke, which leaves one connection unread while the watcher keeps ticking.
+2. **A person's stop while the guard's own stop is under way.** The guard's stop polls for up to 10 s inside its tick; during that poll the watcher still broadcasts snapshots (the rows show `stopping`), queued stop requests wait for the tick after it, and `Client.Stop` allows 12 s. The person's stop is then signalled and followed across ticks, sets no cooldown and counts toward no refusal, and the guard's own chooser skips a command a person is already stopping. Pinned by Task 8's `followManual` design and the Step 5 smoke (stop a second command while a first is `stopping`).
 3. **A watcher handover while a view is connected.** The new watcher takes the listener as descriptor 6 only when the handover said it was passed, listens fresh otherwise, and carries each command's peak; the view reconnects within a second and `Hello` gives up after 3 s against a watcher that ignores the socket. Pinned by Task 8's handover steps and Task 10's smoke.
 4. **Hook input without `cwd`.** `project` and `cwd` stay empty, the row shows `—`, pairing is today's. Pinned by Task 5's `noFolderKnown` case, whose note has no `Cwd`.
 5. **A `cd` to a quoted, `~` or `$VAR` path.** A quoted plain path strips and labels; `~` and `$VAR` make the folder unknown, so pairing is today's and nothing is rejected. Pinned by Task 5's `quotedFolder` and `tildeIsUnknown` cases.
@@ -48,7 +48,7 @@
 
 - [ ] **Step 1: Build both systems**
 
-Run: `go build -o "$WS/baseline/workbench-darwin" ./cmd/workbench && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o "$WS/baseline/workbench-linux" ./cmd/workbench`
+Run: `go build -buildvcs=false -o "$WS/baseline/workbench-darwin" ./cmd/workbench && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -buildvcs=false -o "$WS/baseline/workbench-linux" ./cmd/workbench`. `-buildvcs=false` matters: `version()` (`internal/cli/root.go:384`) otherwise reads the commit into the version that `doctor` prints, and the before and after builds sit on different commits.
 
 - [ ] **Step 2: Write the answers file**
 
@@ -188,7 +188,7 @@ In `.golangci.yml`, add `forbidigo` under `linters.enable` and:
         - pattern: '^runtime\.GOOS$'
           msg: platform tests belong in internal/platform (ADR 0012)
 ```
-(The golangci-lint JSON schema lists `analyze-types` with default `true`, so the qualified name matches; the literal source matches too.) Under `linters.exclusions.rules` add `- linters: [forbidigo]` with `path: internal/platform/` and another with `path: internal/release/archive\.go`.
+(The pattern matches the expression as written in the source; the repository imports `runtime` under its own name everywhere.) Under `linters.exclusions.rules` add `- linters: [forbidigo]` with `path: internal/platform/` and another with `path: internal/release/archive\.go`.
 
 - [ ] **Step 4: Prove the rule fires**
 
@@ -220,12 +220,12 @@ git commit -m "refactor(platform): read every platform fact and WSL once from in
 
 **Interfaces:**
 - Produces:
-  - `note` gains `Cwd string \`json:"cwd,omitempty"\`` (the hook's `cwd` after `filepath.EvalSymlinks`, so it compares with the kernel's real path; empty when absent or unresolvable), `Subagent string \`json:"subagent,omitempty"\``, `Project string \`json:"project,omitempty"\``.
+  - `note` gains `Cwd string \`json:"cwd,omitempty"\`` (the hook's `cwd` after `filepath.EvalSymlinks`, so it compares with the kernel's real path; empty when absent or unresolvable), `Folder string \`json:"folder,omitempty"\`` (the command's leading `cd` target, resolved against `Cwd` and through `EvalSymlinks` in `Pre`; empty when there is none, it is unknown or it does not resolve), `Subagent string \`json:"subagent,omitempty"\``, `Project string \`json:"project,omitempty"\``. All file reads happen in the pre hook, once; the matcher stays pure.
   - `hookInput` gains `Cwd string \`json:"cwd"\``, `AgentType string \`json:"agent_type"\``, `AgentID string \`json:"agent_id"\``; `Pre` sets `Subagent = input.AgentType` only when `input.AgentID != ""`, and `Project = projectName(input.Input.Command, input.Cwd)`.
-  - `project.go`: `func commandFolder(command string) (folder, rest string, ok bool)`: a leading `cd PATH &&` or `cd PATH;` where PATH is bare, single- or double-quoted; `ok` is false when PATH starts with `~` or `$` or holds a backquote (the shell would expand it, so the folder is unknown); `rest` is the command after the separator. `func CommandRest(command string) string` (exported: `rest` when `commandFolder` is `ok`, else the command). `func projectName(command, cwd string) string` (spec 6.2, over the `cd` folder when known else `cwd`, resolved with `filepath.Join(cwd, folder)` when relative; empty when nothing is known). `func folders(n note) []string`: the folders a process running `n` may sit in: `n.Cwd` and, when `commandFolder` is `ok`, that folder resolved against `n.Cwd` and through `EvalSymlinks`; each `filepath.Clean`ed, duplicates and empties dropped.
+  - `project.go`: `func commandFolder(command string) (folder, rest string, ok bool)`: a leading `cd PATH &&` or `cd PATH;` where PATH is bare, single- or double-quoted; `ok` is false when PATH starts with `~` or `$` or holds a backquote (the shell would expand it, so the folder is unknown); `rest` is the command after the separator. `func CommandRest(command string) string` (exported: `rest` when `commandFolder` is `ok`, else the command). `func projectName(command, cwd string) string` (spec 6.2, over the `cd` folder when known else `cwd`, resolved with `filepath.Join(cwd, folder)` when relative; empty when nothing is known). `func noteFolders(n note) []string` (not `folders`: `type folders struct` exists in `state.go`): `n.Cwd` and `n.Folder`, `filepath.Clean`ed, duplicates and empties dropped; no I/O.
   - `proc` gains `Folder string` (the kernel's real path, read lazily like `Args`; empty when unread or unreadable).
-  - **Ruling (spec 6.3 said "requires"):** the folder prefers, never rejects. In `match`, for each note collect every child `claims` accepts, in age order; take the oldest whose command process's `Folder` is in `folders(n)`; when no candidate's folder is known or matches, take the oldest, as today. A requirement would leave a command untracked, and so unguarded, whenever a folder could not be read or was written through a link, `~` or a variable; a preference only improves the choice. `claims` is unchanged.
-  - `loadArgs` reads `platform.Folder` for the processes whose `Args` it reads when any note of that agent has a non-empty `folders(n)`.
+  - **Ruling (spec 6.3 said "requires"):** the folder prefers, never rejects. In `match`, for each note collect every child `claims` accepts, in age order; take the oldest whose command process's `Folder` is in `noteFolders(n)`; when no candidate's folder is known or matches, take the oldest, as today. A requirement would leave a command untracked, and so unguarded, whenever a folder could not be read or was written through a link, `~` or a variable; a preference only improves the choice. `claims` is unchanged.
+  - `loadArgs` reads `platform.Folder` for the processes whose `Args` it reads when any note of that agent has a non-empty `noteFolders(n)`.
   - `seenNote` gains `cwd, project, subagent string` and `at time.Time` (the note's `NotedAt`), for Task 6's `unmatched` record.
 - Consumes: Task 3's `platform.Folder`.
 
@@ -240,9 +240,10 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 	agent := process(100, 1, 100, -3600, "claude")
 	login := "/w/.worktrees/feature-login"
 	api := "/w/.worktrees/api-server"
+	make := claudeShell(`'make test'`)
 	// The api-server note is older, its shell is younger: today's rule pairs them crosswise.
-	inLogin := inFolder(process(200, 100, 200, 0.4, claudeShell(`'make test'`)...), login)
-	inAPI := inFolder(process(201, 100, 201, 0.5, claudeShell(`'make test'`)...), api)
+	inLogin := inFolder(process(200, 100, 200, 0.4, make...), login)
+	inAPI := inFolder(process(201, 100, 201, 0.5, make...), api)
 	noteAPI := note{AgentPID: 100, AgentStart: start(-3600), Kind: claude, ToolUseID: "toolu_api",
 		Command: "make test", NotedStart: start(0.3), Cwd: api}
 	noteLogin := noteAPI
@@ -250,9 +251,12 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 	noFolder := noteAPI
 	noFolder.ToolUseID, noFolder.Cwd = "toolu_plain", ""
 	cdQuoted := noteAPI
-	cdQuoted.ToolUseID, cdQuoted.Command, cdQuoted.Cwd = "toolu_cd", "cd '/w/my repo' && make test", "/w"
-	cdTilde := cdQuoted
-	cdTilde.ToolUseID, cdTilde.Command = "toolu_tilde", "cd ~/repo && make test"
+	cdQuoted.ToolUseID, cdQuoted.Command, cdQuoted.Cwd, cdQuoted.Folder =
+		"toolu_cd", "cd '/w/my repo' && make test", "/w", "/w/my repo"
+	cdQuotedShell := claudeShell(`'cd '"'"'/w/my repo'"'"' && make test'`)
+	cdTilde := noteAPI
+	cdTilde.ToolUseID, cdTilde.Command, cdTilde.Cwd = "toolu_tilde", "cd ~/repo && make test", "/w"
+	cdTildeShell := claudeShell(`'cd ~/repo && make test'`)
 	for _, tc := range []struct {
 		name  string
 		notes []note
@@ -261,16 +265,30 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 	}{
 		{"sameTextTwoFolders", []note{noteAPI, noteLogin}, []proc{agent, inLogin, inAPI},
 			map[string]int{"toolu_api": 201, "toolu_login": 200}},
-		{"noFolderKnown", []note{noFolder}, []proc{agent, process(200, 100, 200, 0.4, claudeShell(`'make test'`)...)},
+		// Without a folder on the note, the oldest shell wins, as today.
+		{"noFolderKnown", []note{noFolder}, []proc{agent, inLogin, inAPI},
 			map[string]int{"toolu_plain": 200}},
-		{"folderUnreadableFallsBack", []note{noteAPI}, []proc{agent, process(200, 100, 200, 0.4, claudeShell(`'make test'`)...)},
+		// A rival whose folder could not be read is not preferred over one that matches.
+		{"unreadableRivalLoses", []note{noteAPI},
+			[]proc{agent, process(200, 100, 200, 0.4, make...), inAPI},
+			map[string]int{"toolu_api": 201}},
+		// No candidate matches: the oldest wins, as today, and nothing is rejected.
+		{"noMatchFallsBack", []note{noteAPI}, []proc{agent, inLogin},
 			map[string]int{"toolu_api": 200}},
 		{"quotedFolder", []note{cdQuoted},
-			[]proc{agent, inFolder(process(200, 100, 200, 0.4, claudeShell(`'cd '"'"'/w/my repo'"'"' && make test'`)...), "/w/my repo")},
-			map[string]int{"toolu_cd": 200}},
+			[]proc{agent, inFolder(process(200, 100, 200, 0.4, cdQuotedShell...), "/w"),
+				inFolder(process(201, 100, 201, 0.5, cdQuotedShell...), "/w/my repo")},
+			map[string]int{"toolu_cd": 201}},
+		// The shell sits in cwd until its cd runs, so cwd matches too.
+		{"cwdMatchesBeforeTheCd", []note{cdQuoted},
+			[]proc{agent, inFolder(process(200, 100, 200, 0.4, cdQuotedShell...), "/elsewhere"),
+				inFolder(process(201, 100, 201, 0.5, cdQuotedShell...), "/w")},
+			map[string]int{"toolu_cd": 201}},
+		// `~` is the shell's to expand: the folder is unknown, cwd still counts.
 		{"tildeIsUnknown", []note{cdTilde},
-			[]proc{agent, inFolder(process(200, 100, 200, 0.4, claudeShell(`'cd ~/repo && make test'`)...), "/w")},
-			map[string]int{"toolu_tilde": 200}},
+			[]proc{agent, inFolder(process(200, 100, 200, 0.4, cdTildeShell...), "/elsewhere"),
+				inFolder(process(201, 100, 201, 0.5, cdTildeShell...), "/w")},
+			map[string]int{"toolu_tilde": 201}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := roots(match(snapshotOf(tc.procs...), tc.notes, nil, nil))
@@ -286,7 +304,7 @@ No test for `projectName`: the project only labels (spec 6.2), so AGENTS.md admi
 - [ ] **Step 2: Run it**
 
 Run: `go test ./internal/guard/ -run TestMatchPrefersTheCommandInTheNotesFolder -v`
-Expected: FAIL to compile (`Cwd`, `inFolder` undefined).
+Expected: FAIL to compile (`Cwd`, `Folder` unknown fields).
 
 - [ ] **Step 3: Implement**
 
@@ -325,7 +343,7 @@ As listed. `stopLargest` keeps `platform.Footprint` for the decision (spec 6.4).
 
 - [ ] **Step 2: Smoke in dry-run**
 
-Smoke home `H=$(mktemp -d /tmp/wb.XXXX)`, `WORKBENCH_GUARD=dry-run`. Start a long-lived process named `claude` (`exec -a claude sleep 600 &` from a shell the smoke owns), and under a `sh -c` child of it run `workbench guard pre` fed a PreToolUse JSON (`hook_event_name`, `tool_name: Bash`, `tool_use_id: toolu_smoke1`, `session_id`, `cwd`, `tool_input.command: "sleep 20"`) then run `sleep 20` from that shell. Expected: `watch.log`'s `tracking` record carries `cwd` and `project`; the `ended` record carries `took` ≈ 20 and `peak` > 0. Remove `$H` and kill the smoke's processes.
+Smoke home `H=$(mktemp -d /tmp/wb.XXXX)`, `WORKBENCH_GUARD=dry-run`, every agent variable unset (`env -u CLAUDECODE -u CODEX_CI -u CODEX_THREAD_ID -u CODEX_SANDBOX -u CODEX_SANDBOX_NETWORK_DISABLED`, the list in `internal/operation/plan.go`). The fake agent is a `python3` script (not a shell, so `findAgent` takes it as the agent, and able to start children, which `exec -a claude sleep` is not): it runs `sh -c 'workbench guard pre'` with the PreToolUse JSON on stdin (`hook_event_name`, `tool_name: Bash`, `tool_use_id: toolu_smoke1`, `session_id`, `cwd`, `tool_input.command: "sleep 20"`), then starts `/bin/zsh -c` with Claude Code's command-shell text for `sleep 20` exactly as `claudeShell` in `match_test.go` writes it, since `runs` matches that shape (`match.go:147-160`). Keep this script in the SDD workspace; Tasks 8 to 10 reuse it. Expected: `watch.log`'s `tracking` record carries `cwd` and `project`; the `ended` record carries `took` ≈ 20 and `peak` > 0. Remove `$H` and kill the smoke's processes.
 
 - [ ] **Step 3: Gates and commit**
 
@@ -342,7 +360,7 @@ git commit -m "feat(guard): measure each tracked command every tick and record h
 - Modify: `internal/cli/guard.go` (`guardLogsCommand`'s `Long`, `Example`, flags; `showGuardLogs`; `guardEventText` → `guardLine`; `guardEventStyles`; `routineGuardEvents` deleted), `internal/guard/logs.go` (`ReadLog` gains `idle`), `docs/usage.md:212-235`
 
 **Interfaces:**
-- Produces: `func guardLine(paint painter, e guard.Event, running bool) string` printing spec section 4: `Jan _2 15:04:05`, the level padded to 5, the event padded to 9, then keys in the order `id agent subagent project by dry_run took size peak floor level available total still_running release old_release new_release new_pid msg error process cmd`. `id` is the first 8 characters of `e.Call` after `toolu_` or `call_`; `cmd` is `guard.CommandRest(e.Command)`. A value is written with `strconv.Quote` when it holds a space, `"`, `=`, `\` or a control character, else bare, the quoting logfmt readers expect ([Log::Fmt grammar](https://metacpan.org/pod/Log::Fmt)); Go's escapes keep a command with a newline on one line. `msg` prints only for `memory`, `refused`, `gave-up`, `error` and `raw`. `took`: one decimal under 10 s, whole seconds under a minute, else Go's `1m12s`. Sizes: `MB` under 1 GB, else `guard.Gigabytes`. Colors through `paint.style`: INFO `faint`, WARN `yellow`, ERROR `red`; the `id` value `lipgloss.Blue`; `took` ≥ 10 s bold; `peak`/`size` ≥ 1 GB `yellow`. `tracking` records are not printed. With `--follow`, a call whose `tracking` is 5 s old with no `ended`/`stopping` since prints one `INFO running` line (`running == true`: no `took`, `peak`).
+- Produces: `func guardLine(paint painter, e guard.Event, running bool) string` printing spec section 4: `Jan _2 15:04:05`, the level padded to 5, the event padded to 9, then keys in the order `id agent subagent project by dry_run took size peak floor level available total still_running release old_release new_release new_pid msg error process cmd`. `id` is the first 8 characters of `e.Call` after `toolu_` or `call_`; `cmd` is `guard.CommandRest(e.Command)`. A value is written with `strconv.Quote` when it holds a space, `"`, `=`, `\` or a control character, else bare, the quoting logfmt readers expect ([Log::Fmt grammar](https://metacpan.org/pod/Log::Fmt)); Go's escapes keep a command with a newline on one line. `msg` prints only for `memory`, `refused`, `gave-up`, `error` and `raw`. `took`: one decimal under 10 s, whole seconds under a minute, else Go's `1m12s`. Sizes through `func sizeValue(bytes uint64) string`: `MB` under 1 GB, else `guard.Gigabytes` with its space removed (`2.4GB`), so a value stays one token. Colors through `paint.style`: INFO `faint`, WARN `yellow`, ERROR `red`; the `id` value `lipgloss.Blue`; `took` ≥ 10 s bold; `peak`/`size` ≥ 1 GB `yellow`. `tracking` records are not printed. With `--follow`, a call whose `tracking` is 5 s old with no `ended`/`stopping` since prints one `INFO running` line (`running == true`: no `took`, `peak`).
 - `ReadLog(ctx, path, follow, emit, idle func() error)`: `idle` is called once per `followPoll` when following and no line arrived (nil allowed); `showGuardLogs` passes the running-line check, which is how a `running` line can appear without another record arriving.
 - The local `--verbose` flag and `routineGuardEvents` go; `Long` and `Example` lose their `--verbose` sentences (the root's global `--verbose` stays accepted and does nothing here); `--since`, `--follow`, `--json` stay. The empty-state message loses its `--verbose` hint.
 
@@ -369,7 +387,7 @@ git commit -m "feat(guard): print the guard log one event per line with an id, p
 
 **Files:**
 - Create: `internal/guard/protocol.go`, `internal/guard/socket.go`, `internal/guard/manual.go`, `internal/guard/client.go`
-- Modify: `internal/guard/watch.go` (`watcher` struct, `Watch`, `tick`, `carryOn`, the exit path), `internal/guard/handover.go` (`handoverVariable` value, `startHandover`, `inherit`, `carried`), `internal/guard/state.go` (`folders.socket()`), `internal/guard/logs.go` (`SocketPath`), `internal/guard/match_test.go`
+- Modify: `internal/guard/watch.go` (`watcher` struct, `Watch`, `tick`, `stopLargest`, `signal`, `carryOn`, the exit paths), `internal/guard/handover.go` (`listenerVariable`, `startHandover`, `handOver`'s `quiet`, `inherit`, `carried`), `internal/guard/state.go` (`folders.socket()`), `internal/guard/logs.go` (`SocketPath`), `internal/guard/match_test.go`
 
 **Interfaces:**
 - Produces, `protocol.go`:
@@ -377,14 +395,14 @@ git commit -m "feat(guard): print the guard log one event per line with an id, p
   - `type Snapshot struct { At time.Time \`json:"at"\`; Memory MemoryView \`json:"memory"\`; LargestPeak uint64 \`json:"largest_peak"\`; Commands []CommandView \`json:"commands"\` }`; `type MemoryView struct { Level string \`json:"level"\`; Installed, Available, Total, SwapFree, SwapTotal uint64 }` with lowercase snake tags (`Level`: `normal`/`warning`/`critical` from macOS's 1/2/4, `normal`/`low` from Linux's `decide`; **Ruling:** the header shows installed memory and swap on macOS and available of total on Linux, the figures the guard already reads, instead of spec 5's "10.5 of 16 GB used", which would need a Mach call the guard has no other use for); `type CommandView struct { ID, Agent, Subagent, Project, Cwd, Command, State, By string; DryRun bool; Started, Ended time.Time; Memory, Peak uint64; History []uint64; Tree []ProcessView }` with tags `id agent subagent project cwd cmd state by dry_run started ended memory peak history tree`; `type ProcessView struct { PID int \`json:"pid"\`; Name string \`json:"name"\`; Memory uint64 \`json:"memory"\` }`; `type StopResult struct { ID string \`json:"id"\`; OK bool \`json:"ok"\`; Error string \`json:"error,omitempty"\` }`. States `running`, `stopping`, `done`, `unmatched`, `stopped`; finished commands stay for `finishedShown = 60 * time.Second`.
 - `socket.go`:
   - `type server struct { listener *net.UnixListener; mu sync.Mutex; clients map[*client]struct{}; stops chan stopRequest }`; `type client struct { conn *net.UnixConn; send chan message }` (buffer 4); `type stopRequest struct { ids []string; force bool; peer procKey; reply chan []StopResult }` (`reply` buffered 1, so a tick never blocks on a client that left).
-  - `func (w *watcher) listen() error`: when `w.inheritedListener != nil` use it; else remove a stale `guard.sock` and `net.ListenUnix`. `func (s *server) serve()` accepts; per connection: `platform.Peer`; close unless `UID == os.Getuid()`; `platform.ProcessInfo(peer.PID)` for the peer's `procKey` (a PID alone can be reused); read `hello`, answer the highest common version with `Release` or `error` and close; then each `stop` becomes a `stopRequest` pushed without blocking (`error: busy` when `stops` is full). `func (s *server) broadcast(snap Snapshot)`: non-blocking send to each client; a full `send` closes that client. The tick drains `stops` at its start and runs `w.manualStop`; no other goroutine touches watcher fields. A request waits at most one tick (`delay(m)` ≤ 1 s): **Ruling**, no wake descriptor.
+  - `func (w *watcher) listen() error`: when `w.inheritedListener != nil` use it; else remove a stale `guard.sock` and `net.ListenUnix`. `func (s *server) serve()` accepts; per connection: `platform.Peer`; close unless `UID == os.Getuid()`; `platform.ProcessInfo(peer.PID)` for the peer's `procKey` (a PID alone can be reused); read `hello`, answer the highest common version with `Release` or `error` and close; then each `stop` becomes a `stopRequest` pushed without blocking (`error: busy` when `stops` is full). `func (s *server) broadcast(snap Snapshot)`: non-blocking send to each client; a full `send` closes that client. The tick drains `stops` right after `w.agents(s, notes)` (it needs that snapshot, those notes and `protected`) and runs `w.manualStop`; it keeps the last `Snapshot` it built in `w.view` and `Watch` broadcasts it after each tick when `w.server != nil`; no other goroutine touches watcher fields. A request waits at most one tick (`delay(m)` ≤ 1 s), or up to 10 s while the guard's own `signal` polls, during which `signal`'s loop broadcasts a view with the command `stopping`: **Ruling**, no wake descriptor, and `Client.Stop` allows 12 s.
   - Pure, tested: `func stopAllowed(peer procKey, s snapshot, protected map[int]uint64) bool`: the peer must be alive with its start (`s.alive`); walking `peer.PID` and its parents, none may be in `protected` with its start (the agents `w.agents(s, notes)` returns cover notes, tracked commands and the watcher). `func chooseStops(ids []string, tracked map[string]command, s snapshot) (stop []command, results []StopResult)`: an ID not in `tracked` → `{OK: false, Error: "unknown"}`; tracked but root gone or restarted → `"already finished"`; else chosen with `OK: true` (set once signalled).
 - `manual.go`:
   - `type manualStop struct { procs []proc; since time.Time; force, forced bool }`; `watcher.manual map[string]*manualStop`.
-  - `func (w *watcher) manualStop(req stopRequest, s snapshot, notes []note) []StopResult`: `_, protected := w.agents(s, notes)`; refuse all with `"not allowed"` when `!stopAllowed(req.peer, s, protected)`; else for each chosen command: `targets(s, c.Root, protected)`; write the kill record with `Reason: "Stopped by you (workbench guard memory)."`; log `stopping` with `endAttrs` plus `"by", "you"`, `"size"` from the usage's last sample; dry-run note → log `would stop (dry run)` and answer OK with nothing sent; else send `SIGTERM` (or `SIGKILL` when `force`, logging `forced`) with `platform.Signal` to each target; `OK` is whether any live target was signalled; record `w.manual[id] = &manualStop{procs: s.tree(root, outside(protected)), since: now, force: req.force}`. A person's stop sets no `w.stopped` cooldown and counts toward no `refusals` or `passed`: it was asked for, not chosen.
-  - `func (w *watcher) followManual(s snapshot, protected map[int]uint64)`, called each tick: for each manual stop, `escalation(s, m.procs, protected)` gives what is alive; none → state `stopped`, delete; alive and `since` + `killAfter` passed and not `forced` → `SIGKILL` each, log `forced`, mark; alive past `giveUp` → log `gave-up` with `still_running`, delete. The state shown is `stopping` while the entry exists.
-- Handover: `startHandover` passes the listener's file (`listener.File()`) as descriptor 6 and sets `WORKBENCH_GUARD_HANDOVER=PID,socket`; `inherit` parses `PID` or `PID,socket`: with `socket`, `unix.CloseOnExec(6)` and `net.FileListener(os.NewFile(6, "guard.sock"))` ([net.FileListener](https://pkg.go.dev/net#FileListener) returns a copy; close the `os.File` after); without it, listen fresh. The old watcher closes its listener copy after the handover line without removing the file. A watcher that exits (idle, lock changed, signal) closes the listener and removes the socket file **before** `w.release()`, while the lock is still its own; `carryOn`, when it re-locks, calls `listen()` again. **Ruling:** a watcher of this release handing over to an older release leaves descriptor 6 open and unused in that process, so `Client.Hello` has a 3 s deadline and the view then says the watcher runs an older release and to run `workbench update`.
-- `client.go`: `type Client struct{…}`; `func SocketPath() (string, error)` beside `LogPath` (error when the path exceeds 100 bytes, naming the state folder); `func Dial(ctx context.Context) (*Client, error)`; `func (c *Client) Hello() (release string, err error)` (3 s deadline); `func (c *Client) Snapshots() <-chan Snapshot` (closed on disconnect); `func (c *Client) Stop(ids []string, force bool) ([]StopResult, error)`; `func (c *Client) Close() error`.
+  - `func (w *watcher) manualStop(req stopRequest, s snapshot, protected map[int]uint64) []StopResult`: refuse all with `"not allowed"` when `!stopAllowed(req.peer, s, protected)`; else for each chosen command, in the order `stop` uses: a dry-run note → log `would stop (dry run)` with `"by", "you"` and answer OK, nothing written or sent; otherwise `targets(s, c.Root, protected)`, write the kill record with `Reason: "Stopped by you (workbench guard memory)."`, log `stopping` with `endAttrs` plus `"by", "you"` and `"size"` from the usage's last sample, send `SIGTERM` (or `SIGKILL` when `force`, logging `forced`) with `platform.Signal` to each target; when no live target was signalled, remove the record (as `stop` does) and answer `OK: false, Error: "already finished"`; else `OK: true` and `w.manual[id] = &manualStop{procs: s.tree(root, outside(protected)), since: now, force: req.force, forced: req.force}`. A person's stop sets no `w.stopped` cooldown and counts toward no `refusals` or `passed`: it was asked for, not chosen. `stopLargest` skips IDs in `w.manual`, so the guard never signals a command a person is already stopping, and `handOver`'s `quiet` also requires `len(w.manual) == 0`, so a stop still owed its SIGKILL is never dropped at a handover.
+  - `func (w *watcher) followManual(s snapshot, protected map[int]uint64)`, called each tick after `w.agents`: for each manual stop, `kill, wait := escalation(s, m.procs, protected)` and `m.procs = wait` (the contract: `wait` is what to follow next); `kill` empty → state `stopped`, delete; otherwise when `since` + `killAfter` has passed and `!m.forced`, `SIGKILL` each non-zombie in `kill`, log `forced`, set `m.forced`; when `since` + `giveUp` has passed, log `gave-up` with `still_running` and delete. The state shown is `stopping` while the entry exists.
+- Handover: `WORKBENCH_GUARD_HANDOVER` keeps its value, the parent PID (`takeLock`, `handover.go:259-266`, compares the whole value to `os.Getppid()`, in this release and in v0.1.26). A second variable, `const listenerVariable = "WORKBENCH_GUARD_LISTENER"`, set to `6` by `startHandover`, says the listener's file (`listener.File()`, closed in the parent right after `StartDetached`, as `readyWrite` is) rides as descriptor 6; an older release ignores it. `inherit` reads and unsets it: with `6`, `unix.CloseOnExec(6)` (extend the existing loop's bound) and `net.FileListener(os.NewFile(6, "guard.sock"))` ([net.FileListener](https://pkg.go.dev/net#FileListener) returns a copy; close the `os.File` after), kept in `w.inheritedListener`; without it, `listen()` listens fresh. The old watcher, after writing the handover line, calls `SetUnlinkOnClose(false)` and closes its listener: Go's default unlinks the socket file when a listener made by `ListenUnix` closes, which would delete the socket the new watcher serves. Exit paths: idle exit and a signal close the listener (unlink on, the file is this watcher's) **before** `w.release()`, while the lock is still its own; the lost-lock exit (`watch.go:180-183`) closes with unlink off, since another watcher may own the path by then; `carryOn` closes and removes before releasing, clears `w.inheritedListener`, and calls `listen()` again when it re-locks. **Ruling:** a watcher of this release handing over to an older release leaves descriptor 6 open and unused in that process, so `Client.Hello` has a 3 s deadline and the view then says the watcher runs an older release and to run `workbench update`.
+- `client.go`: `type Client struct{…}`; `func SocketPath() (string, error)` beside `LogPath` (error when the path exceeds 100 bytes, naming the state folder); `func Dial(ctx context.Context) (*Client, error)`; `func (c *Client) Hello() (release string, err error)` (3 s deadline); `func (c *Client) Snapshots() <-chan Snapshot` (closed on disconnect); `func (c *Client) Stop(ids []string, force bool) ([]StopResult, error)` (12 s deadline); `func (c *Client) Close() error`.
 - Consumes: Task 3's `platform.Peer`, `ProcessInfo`; Task 6's `usage`, `endAttrs`; the existing `targets`, `escalation`, `outside`, `kill` record.
 
 - [ ] **Step 1: Write the failing test**
@@ -444,7 +462,7 @@ Expected: FAIL to compile.
 
 - [ ] **Step 3: Implement**
 
-As listed. In `Watch`, after `takeLock`: `w.listen()` (an `error` record and no socket on failure), `go w.server.serve()`. After each `tick`: `w.server.broadcast(w.snapshotView(s, m))`.
+As listed. In `Watch`, after `takeLock`: `w.listen()` (an `error` record and `w.server == nil` on failure), then `go w.server.serve()`. After each `tick`, when `w.server != nil`: `w.server.broadcast(w.view)`; `tick` sets `w.view` once it has the snapshot and memory, and leaves the previous view in place on its early error returns.
 
 - [ ] **Step 4: Tests and gates**
 
@@ -452,7 +470,7 @@ Run: `go test ./internal/guard/` and the gate list. Expected: PASS.
 
 - [ ] **Step 5: Smoke**
 
-Smoke home `mktemp -d /tmp/wb.XXXX`, `WORKBENCH_GUARD=dry-run`, Task 6's setup with two 60 s commands. With `nc -U $H/…/guard/guard.sock`: send `{"type":"hello","versions":[1]}`, read the hello and a snapshot; a second connection with `versions:[7]` gets `error`; a third connection sends hello then nothing for a minute while `ps` shows the watcher's CPU unchanged and the first connection keeps receiving. Then without dry-run, on a `sleep` the smoke started: `{"type":"stop","ids":["<id>"]}` answers `ok:true` within a second, the next snapshots show `stopping` then `stopped`, and the log has `stopping … by=you`; a stop of the second command while the first is still `stopping` is answered too. Remove the home.
+Smoke home `mktemp -d /tmp/wb.XXXX`, `WORKBENCH_GUARD=dry-run`, Task 6's setup with two 60 s commands. With `nc -U $H/…/guard/guard.sock`: send `{"type":"hello","versions":[1]}`, read the hello and a snapshot; a second connection with `versions:[7]` gets `error`; a third connection sends hello then reads nothing: after four snapshots its buffer is full and the watcher closes it, while `ps` shows the watcher's CPU unchanged and the first connection keeps receiving. Then without dry-run, on a `sleep` the smoke started: `{"type":"stop","ids":["<id>"]}` answers `ok:true` within a second, the next snapshots show `stopping` then `stopped`, and the log has `stopping … by=you`; a stop of the second command while the first is still `stopping` is answered too. Remove the home.
 
 - [ ] **Step 6: Commit**
 
@@ -478,7 +496,7 @@ git commit -m "feat(guard): serve snapshots and take a person's stop over a peer
 
 - [ ] **Step 2: Smoke on macOS**
 
-Smoke home `mktemp -d /tmp/wb.XXXX`, dry-run first, Task 6's fake agent with two commands in two folders, in a `tmux` session so the window can be resized: rows show project, subagent, memory; Space, `k`, Enter (notice `stopped …`, log `would stop`); Enter on a row for details; Esc; `q`. Then without dry-run, stop a `sleep` the smoke started politely (row goes `stopping` then `stopped`) and another by force. `tmux resize-window -x 50` shows the widen message; `NO_COLOR=1` plain text; `CLAUDECODE=1 workbench guard memory; echo EXIT:$?` → refusal and `3`; `workbench guard memory < /dev/null | cat; echo "EXIT:${pipestatus[1]}"` → terminal refusal and `3`. Record each in the ledger; remove the home.
+Smoke home `mktemp -d /tmp/wb.XXXX`, dry-run first, Task 6's fake agent with two commands in two folders, in a `tmux` session so the window can be resized, every agent variable unset as in Task 6 (this session sets `CLAUDECODE=1`, which the view refuses): rows show project, subagent, memory; Space, `k`, Enter (notice `stopped …`, log `would stop`); Enter on a row for details; Esc; `q`. Then without dry-run, stop a `sleep` the smoke started politely (row goes `stopping` then `stopped`) and another by force. `tmux resize-window -x 50` shows the widen message; `NO_COLOR=1` plain text; `CLAUDECODE=1 workbench guard memory; echo EXIT:$?` → refusal and `3`; `workbench guard memory < /dev/null | cat; echo "EXIT:${pipestatus[1]}"` → terminal refusal and `3`. Record each in the ledger; remove the home.
 
 - [ ] **Step 3: Docs**
 
@@ -528,4 +546,5 @@ git commit -m "docs(acceptance): record the guard memory view and platform packa
 
 - Spec coverage: 3.1-3.5 → Tasks 2-4; 3.6 → Tasks 1 and 4; 4 → Task 7; 5 → Task 9; 6.1-6.3 → Task 5; 6.4 → Task 6; 6.5 → Task 8; 7 → each task's Interfaces; 8 → Tasks 5 and 8 (three spec tests merged into two tables); 9 → Task 10; 10 → Tasks 4, 7, 9, 10.
 - Rulings against the spec's text, each amended in Task 9: `System` keeps the Go name; effect lists stay shared and only the choice is per suffix; the folder prefers rather than requires; the snapshot message nests its payload and hello carries no `dry_run`; the header shows the memory the guard already reads; a stop request waits one tick; a person's stop is followed across ticks with no cooldown; the handover names what it passed and `Hello` times out.
-- Independent review (Oct 17, 2026, 22 findings) applied: manual stops no longer go through `stop`'s memory re-check or its 10 s wait; libc moves with `Footprint`; the folder is a preference with links resolved and `~`/`$` unknown; descriptor 6 is passed only when announced and never a live socket's victim; the pairing test now fails on today's code; the peer rides the request with its start time; the socket is removed before the lock is released; smoke homes are short; the filesystem policy files stay two; the baseline home path is fixed; protocol JSON tags are pinned; `seenNote` carries the new fields; `ReadLog` has an idle callback; `macOSOptionalEffects` moves with its only user; the `start()` constant stays untyped and line 408 is updated; no `send` field exists for tests.
+- Second review (Oct 17, 2026, 18 findings) applied: `noteFolders` avoids the `folders` type; the handover announces the listener in its own variable, since `takeLock` compares the whole handover value to the parent PID; unlink-on-close is turned off before the old watcher closes, and the lost-lock exit never removes the file; builds for the no-change check carry no VCS stamp; a dry-run manual stop writes no record and a refused one removes it; the guard's chooser skips a person's stop and the handover waits for it; `followManual` stores `escalation`'s `wait`; the guard's own 10 s poll broadcasts and `Client.Stop` allows 12 s; the pairing cases each have a rival in the wrong folder and the `cd` folder is resolved in the pre hook; the smoke's fake agent is a python3 script running Claude Code's shell shape with the agent variables unset; sizes print as one token.
+- First review (Oct 17, 2026, 22 findings) applied: manual stops no longer go through `stop`'s memory re-check or its 10 s wait; libc moves with `Footprint`; the folder is a preference with links resolved and `~`/`$` unknown; descriptor 6 is passed only when announced and never a live socket's victim; the pairing test now fails on today's code; the peer rides the request with its start time; the socket is removed before the lock is released; smoke homes are short; the filesystem policy files stay two; the baseline home path is fixed; protocol JSON tags are pinned; `seenNote` carries the new fields; `ReadLog` has an idle callback; `macOSOptionalEffects` moves with its only user; the `start()` constant stays untyped and line 408 is updated; no `send` field exists for tests.
