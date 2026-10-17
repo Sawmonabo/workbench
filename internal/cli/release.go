@@ -60,11 +60,12 @@ func updateCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// versionCommand prints this version, or with --list the published releases.
+// versionCommand prints this version, or with --list the published full
+// releases.
 func versionCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "version",
-		Short: "Show this Workbench version; --list shows every release",
+		Short: "Show this Workbench version; --list shows the published full releases",
 		Args:  cobra.NoArgs,
 		RunE: o.action(
 			versionAction,
@@ -107,31 +108,35 @@ func versionCommand(o *options) *cobra.Command {
 			},
 		),
 	}
-	cmd.Flags().Bool("list", false, "List the published releases, marking the installed and latest")
+	cmd.Flags().
+		Bool("list", false, "List the published full releases, marking the installed and latest")
 	return cmd
 }
 
-// releaseList is the published releases, newest first, and the installed tag.
+// releaseList is the published full releases, newest first, and the installed
+// tag.
 type releaseList struct {
 	Releases  []release.Published `json:"releases"`
 	Installed string              `json:"installed"`
 }
 
 // writeReleases prints one release per line, newest first, marking the
-// latest and the installed one with *.
+// latest and the installed one with *. An installed release the list lacks,
+// a pre-release or local build, follows on its own line.
 func writeReleases(w io.Writer, list releaseList) error {
 	if len(list.Releases) == 0 {
 		_, err := fmt.Fprintln(w, "  No releases published yet")
 		return err
 	}
-	rows := make([][]string, 0, len(list.Releases))
+	rows := make([][]string, 0, len(list.Releases)+1)
+	listed := false
 	for i, published := range list.Releases {
 		mark, notes := " ", []string{}
 		if i == 0 {
 			notes = append(notes, "latest")
 		}
 		if published.Tag == list.Installed {
-			mark = "*"
+			mark, listed = "*", true
 			notes = append(notes, "installed")
 		}
 		rows = append(rows, []string{
@@ -139,6 +144,9 @@ func writeReleases(w io.Writer, list releaseList) error {
 			published.Published.Local().Format("Jan 2, 2006"),
 			strings.Join(notes, ", "),
 		})
+	}
+	if list.Installed != "" && !listed {
+		rows = append(rows, []string{"* " + list.Installed, "", "installed"})
 	}
 	var b strings.Builder
 	writeTable(&b, lineWidth(w), 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})

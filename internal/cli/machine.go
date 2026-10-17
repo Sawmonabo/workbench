@@ -25,7 +25,7 @@ func doctorCommand(o *options) *cobra.Command {
 					[]operation.Component{{
 						Name:    "workbench",
 						Status:  operation.StatusComplete,
-						Message: version(),
+						Message: shownVersion(),
 					}},
 					components...,
 				)
