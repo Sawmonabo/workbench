@@ -650,6 +650,18 @@ synthetic answers.
   Codex hooks carried `PreToolUse` and `PostToolUse` with trusted hashes, and
   a stale managed guard hook in an existing settings file was replaced while a
   user's own hook was kept.
+- On 2026-10-17, on macOS in an isolated home with two locally built release
+  bundles installed by `workbench update VERSION --bundle FILE` and
+  `WORKBENCH_GUARD=dry-run`, a fake agent's `sleep` was tracked; installing
+  the second release made the watcher hand over about a second after the
+  update finished (`handover` in `guard logs`), and the new watcher tracked
+  the same command. `pgrep` sampled every 20 ms showed the new watcher beside
+  the old one only for the hand-off, before the old exited. A dangling
+  `workbench` link, a file that is not executable and a build without
+  handover each left the old watcher running with one logged line; pointing
+  the link back at the running release did nothing, and a downgrade handed
+  over once. A watcher started afresh matched a command that began before
+  it. Linux handover was not run.
 - On 2026-10-16, on a Mac (macOS 27.0) with 42 % of memory free and swap in
   use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of 6
   samples over about 9 seconds, and a dry-run watcher that called for a

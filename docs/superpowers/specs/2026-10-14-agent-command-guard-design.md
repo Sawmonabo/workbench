@@ -165,8 +165,10 @@ The three parts are hidden subcommands of the one `workbench` CLI, in the
 `internal/guard/` package, beside `workbench guard logs`, which shows the
 guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
 the owners the costs hook already uses: `operation.TryLock` for the
-one-watcher lock, `operation.StartDetached` to start the watcher (it finds
-Workbench's own executable and opens its output file itself),
+one-watcher lock (`operation.TryLockFile` and `operation.InheritLock` when a
+watcher passes it on, section 6.5), `operation.StartDetached` to start the
+watcher (from the command the hook ran as, `operation.Invoked`, resolving its
+links, and it opens the output file itself),
 `operation.AppendLog` for the capped log (and `operation.LogReader` to follow
 it), `operation.ReplacePrivateFile` for notes and kill records, and the
 operation layer's private-directory checks for its folder. Only the watch
@@ -207,7 +209,8 @@ macOS temp folder is pruned of files older than three days.
 
 ```
 <state>/guard/
-  watch.lock                          held by the running watcher
+  watch.lock                          held by the running watcher, passed
+                                      on at a handover (section 6.5)
   watch.log                           JSON Lines (section 4.1), cut in place
                                       to its newest half past 1 MiB
   watch.err, watch.err.1              the watcher's stdout and stderr, never
@@ -268,9 +271,10 @@ PID) when one process could not be read.
 
 | `event` | When |
 |---|---|
-| `started` | A watcher starts. |
+| `started` | A watcher starts, with `release`, the release it runs. |
 | `idle` | A watcher exits after 10 idle minutes. |
-| `exited` | A watcher exits because its lock file changed. |
+| `exited` | A watcher exits because its lock file changed, or on `SIGINT`, `SIGTERM` or `SIGHUP`. |
+| `handover` | A watcher hands over to the installed release's watcher (section 6.5), with `old_release`, `new_release` and `new_pid`. |
 | `tracking` | A noted command is found (section 6.1). |
 | `ended` | A tracked command or its agent ends. |
 | `unmatched` | A note goes away unmatched after its agent ran a child (section 6.1). |
@@ -306,7 +310,7 @@ line's own time is unknown. It prints the events in the machine's time zone
 (`Oct 16 9:24 PM`), a stop with its reason on the lines below, colored at a
 terminal: stops, `SIGKILL`, give-ups, errors and raw lines red, low memory,
 abandoned and unmatched notes, refusals and a lost lock yellow, the
-watcher's routine faint. By default it leaves out `tracking` and `ended`,
+watcher's routine (a handover included) faint. By default it leaves out `tracking` and `ended`,
 which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
 `2h`), as `docker logs --since` does, `today` and `yesterday` as
 `journalctl --since` does, a local date, date and time or time of today
@@ -341,7 +345,10 @@ wrote from the log (migrations design, section 6.4).
 3. Try `watch.lock` without waiting. If it is free, release it and start
    `workbench guard watch` with `operation.StartDetached`: a new session in
    `/`, with stdin on the null device and output appended to `watch.err`.
-   Nothing waits for it.
+   It starts the file the hook's own command (`~/.local/bin/workbench`, or
+   the absolute path the hook names) resolves to, with that command as
+   `argv[0]`, so the watcher knows the installed command to follow (section
+   6.5) and the file it runs. Nothing waits for it.
    The watcher takes the lock itself, and a second watcher that loses the race
    exits at once.
 4. Exit 0 with no output, so the call proceeds unchanged.
@@ -629,7 +636,8 @@ parallelism or a smaller input.
   one more command with the same text. This is known and
   bounded: the note is deleted when it is abandoned or its agent exits, and
   the match needs a
-  command of that exact shape started after the note.
+  command of that exact shape started after the note. A handover carries
+  these calls to the new watcher, so it is not a restart in this sense.
 - **Idle exit:**
   - The watcher exits when it has had no note and no tracked command for 10
     minutes.
@@ -644,6 +652,47 @@ parallelism or a smaller input.
   crashed watcher never looks alive. Each tick the watcher checks that the
   lock file is still the one it locked (same device and inode), and exits if
   not.
+- **Update (handover):** a watcher follows the installed command it was
+  started as (its `argv[0]`), which a release activation points at the new
+  release. After each tick it compares the file that command resolves to with
+  the file it runs, read once at its start, by device and inode, not by path
+  (`os.Executable` may give the link or its target, depending on the system).
+  When they differ, it starts that file's `guard watch` with
+  `WORKBENCH_GUARD_HANDOVER` set to its PID and, as descriptors 3 to 5, its
+  locked `watch.lock` and two pipes, as systemd passes sockets from
+  descriptor 3 with `LISTEN_PID` naming the receiver. An `flock` lock belongs
+  to the open file description, which a passed descriptor shares, survives
+  `execve` and holds until the last descriptor on it closes (Linux and BSD
+  `flock(2)`), so the lock is never free during the handover and no pre hook
+  starts a third watcher. The new watcher checks that descriptor 3 is
+  `watch.lock` and that no other description holds its lock
+  (`operation.InheritLock`), says it is ready on descriptor 4 with its
+  release, and waits on descriptor 5. The old one keeps watching meanwhile.
+  Once the new one is ready, and at a tick that read memory calling for
+  nothing, with no soft or critical hold running and no stop cooling down,
+  the old one logs `handover`, writes on descriptor 5 the roots of its
+  tracked commands (PID and start time) and the calls whose command ended or
+  that are passed over, and exits without another tick; the new one starts
+  ticking only on that line, so two watchers never act at once. A stop under
+  way finishes first, since it runs within a tick. The new watcher takes on
+  each carried command whose root still runs as its agent's child, and
+  matches every other note as any watcher does: start times are the
+  kernel's, so a command that started before it still matches its note. What
+  is not carried (refusal counts, abandonment clocks) restarts, which only
+  delays an abandonment. This is nginx's executable upgrade (the old master
+  starts the new binary and keeps running until it is told the new one
+  works), with the readiness wait of Cloudflare's tableflip; replacing the
+  process with `execve` would keep the lock but cannot be undone when the
+  new file turns out not to run.
+  - A command that cannot be read (a dangling link), a file that does not
+    start (not executable), or a watcher not ready within 10 seconds (one of
+    a release without handover finds the lock held and exits) leaves the old
+    watcher running. It logs this once, closes the pipe, which tells a late
+    new watcher to exit, and kills that watcher, its own unwaited child, so
+    no other process can have its PID. It tries again only when the command
+    resolves to another file, so two releases never take turns.
+  - A watcher started by a build without handover runs that build until it
+    is idle; `SIGTERM` stops it after any stop under way.
 - **Crash or reboot:**
   - Commands keep running, unguarded, until the next command's pre hook starts
     a new watcher.

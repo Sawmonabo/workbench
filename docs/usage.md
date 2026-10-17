@@ -183,13 +183,21 @@ tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
 (`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
 once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks and
-the watcher are hidden `workbench guard` commands.
+the watcher are hidden `workbench guard` commands. After `workbench update` (or
+an apply) installs another release, the running watcher hands over to that
+release's watcher within about a second, once no stop is under way or
+settling: the new one keeps watching the same commands, and the log shows the
+handover. When the new release cannot take over, the old watcher keeps
+watching and logs why once. A watcher from a build without handover keeps
+running its own code until it has been idle for 10 minutes; `kill` (its
+`SIGTERM`) stops it after any stop under way, and the next command's hook
+starts the installed release's.
 
 `workbench guard logs` shows what the guard did, oldest first, in the
 machine's time zone: each stop with its command and size and, below it, the
 reason the agent was told; low memory that stopped nothing; calls dropped
 without their post hook; notes whose command no known shape matched; the
-watcher starting and exiting; errors; and, after `watcher output: `, any line
+watcher starting, handing over to a new release and exiting; errors; and, after `watcher output: `, any line
 of the watcher's own output, such as a crash's trace, as it is, placed at the
 start of the watcher that wrote it. At a
 terminal stops, errors and raw lines are red, warnings yellow and routine
