@@ -1,0 +1,35 @@
+#!/bin/bash
+# Codex and Claude Code updates the approved plan named, each through the
+# installer of the copy the shell runs, at exactly the version the plan named.
+# WORKBENCH_AGENT_UPDATES lists them as TOOL:METHOD:VERSION, with :NODE after
+# an npm one, for example
+# "codex:standalone:0.163.0 claude-code:npm:2.1.301:v24.19.0"; without it
+# nothing runs. The plan chose them (internal/machine/agents.go) and never
+# names a downgrade or another way to install.
+# Runs on every apply (run_after_): an update that fails is blocked on its own
+# update-TOOL step, the others still run, and the next apply plans it again.
+set -uo pipefail
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ -z "${WORKBENCH_AGENT_UPDATES:-}" ]; then
+    exit 0
+fi
+{{ template "effect-report.sh" }}
+# The installers look for the command on PATH: ~/.local/bin first keeps Codex's
+# from taking its own copy for another one and editing a shell profile.
+export PATH="$HOME/.local/bin:$PATH"
+for update in $WORKBENCH_AGENT_UPDATES; do
+    IFS=: read -r tool method version node <<< "$update"
+    echo "==> Updating $tool to $version through $method..."
+    case "$tool:$method" in
+        codex:standalone)
+            curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh -s -- --release "$version" ;;
+        claude-code:native)
+            "$HOME/.local/bin/claude" install "$version" ;;
+        codex:npm)
+            PATH="$HOME/.nvm/versions/node/$node/bin:$PATH" npm install -g "@openai/codex@$version" ;;
+        claude-code:npm)
+            PATH="$HOME/.nvm/versions/node/$node/bin:$PATH" npm install -g "@anthropic-ai/claude-code@$version" ;;
+        *)
+            false ;;
+    esac || part_blocked "update-$tool" "$tool was not updated to $version (the output above says why), so the next apply tries again"
+done
+exit 0

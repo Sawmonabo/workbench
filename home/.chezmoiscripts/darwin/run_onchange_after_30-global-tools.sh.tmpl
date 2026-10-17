@@ -44,11 +44,12 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     policy="upgraded to the latest"
 {{- end }}
     # Versions are not compared here, so even with every tool installed the run
-    # still sets them: this never reports "no change".
+    # still sets them: this never reports "no change". Codex and Claude Code
+    # are the exception: their update steps set an installed copy's version.
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions are $policy"
+        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions other than Codex's and Claude Code's are $policy"
     else
-        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions are $policy"
+        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions other than Codex's and Claude Code's are $policy"
     fi
     exit 0
 fi
@@ -60,10 +61,10 @@ status=0
 # --- npm globals + codex + claude (into the default Node) ---
 {{ template "nvm-load.sh" }}
     nvm use default || missing+=("the default Node")
+    # Codex and Claude Code are installed here only when missing: an installed
+    # copy, from npm, Homebrew or its own installer, is updated by its own
+    # update step, so npm never adds a second copy beside it.
 {{- if eq $mode "pinned" }}
-    # macOS: claude and codex usually come from their native installers in
-    # ~/.local/bin, which self-update. Only fall back to npm when absent, so
-    # the npm copy never shadows the native one on PATH.
     command -v codex >/dev/null 2>&1 || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=(codex)
     command -v claude >/dev/null 2>&1 || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=(claude)
 {{- else }}

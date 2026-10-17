@@ -123,7 +123,9 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	c.Step("checking what each step would do here")
 	var wg sync.WaitGroup
 	for name, contents := range scripts {
-		if !p.active[name] || name == migrationsScript {
+		// The agent updates are planned without their script, which has no
+		// probe.
+		if !p.active[name] || name == migrationsScript || name == agentUpdatesScript {
 			continue
 		}
 		wg.Go(func() {
