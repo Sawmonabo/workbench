@@ -46,10 +46,11 @@ Each was read in the source named.
 - **Where Workbench stands.** Its low-level calls already sit in nine
   `_darwin.go`/`_linux.go` files (`internal/guard/platform_*`,
   `internal/operation/filesystem_*`, `image_metadata_*`, `libc_darwin.go`,
-  `askpass_*`), but 21 `runtime.GOOS` tests in 11 files of `machine`,
-  `operation`, `costs` and `release`, and seven `isWSL()` calls in four
-  files of `machine`, decide platform facts where they are used, and
-  `isWSL()` reads `/proc/sys/kernel/osrelease` on every call.
+  `askpass_*`), but 20 `runtime.GOOS` tests in 10 files of `machine`,
+  `operation` and `costs` (plus `release.Target()`, which names the build
+  itself), and six `isWSL()` calls in four files of `machine`, decide
+  platform facts where they are used, and `isWSL()` reads
+  `/proc/sys/kernel/osrelease` on every call.
 - **Log line format.** Charm's `charmbracelet/log` prints time, a styled
   level, the message and then `key=value` pairs on one line, and styles only
   a terminal ([README](https://github.com/charmbracelet/log)). logfmt is one
@@ -200,11 +201,11 @@ order, `cmd` last because it is the longest.
 ```
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd="./scripts/nap.sh"
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB reason="memory critical" cmd="cargo test --workspace"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
 Oct 17 14:43:02 WARN  memory    size=3.1GB floor=4.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
 Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
-Oct 17 14:45:10 ERROR error     msg="cannot read memory" error="proc_pid_rusage 81234: no such process"
+Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/statm: no such file or directory" process=81234
 Oct 17 14:50:00 INFO  idle
 ```
 
@@ -225,12 +226,15 @@ Oct 17 14:50:00 INFO  idle
 - **Colors**, on a terminal without `NO_COLOR` only: INFO dim, WARN yellow,
   ERROR red; keys dim, values plain; `id` blue; `took` of 10 s or more bold;
   `peak` or `size` of 1 GB or more yellow.
-- **Order of keys:** `id agent subagent project by took size peak floor
-  level available total reason still_running release old_release new_release
-  new_pid msg error process cmd`. A key without a value is left out. `msg`
-  is printed only where the event alone does not say what happened:
-  `memory`, `refused`, `gave-up`, `error` and `raw` (a watcher output line,
-  guard design 4.1).
+- **Order of keys:** `id agent subagent project by dry_run took size peak
+  floor level available total still_running release old_release new_release
+  new_pid msg error process cmd`. A key without a value is left out, and a
+  key the list does not name (`part`, `pid`, `root_pid`, `children`,
+  `reason`, the `memory` object's swap fields) is left off the line and kept
+  in `--json`; the `memory` object flattens to `level` on macOS and
+  `available` and `total` on Linux. `msg` is printed only where the event
+  alone does not say what happened: `memory`, `refused`, `gave-up`, `error`
+  and `raw` (a watcher output line, guard design 4.1).
 - A long line soft-wraps on screen and stays one line, so `grep` and copying
   keep the whole event.
 - `--since`, `--follow` and `--json` stay as they are (guard design 4.1).
