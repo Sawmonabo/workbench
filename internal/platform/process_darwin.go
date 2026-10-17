@@ -1,6 +1,4 @@
-//go:build darwin
-
-package guard
+package platform
 
 import (
 	"bytes"
@@ -10,22 +8,23 @@ import (
 	"time"
 
 	"golang.org/x/sys/unix"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
+
+// System is the operating system's Go name.
+const System = "darwin"
+
+// StartSecond is one second in Process.Start's units: microseconds of
+// kinfo_proc's p_starttime. That start time is the wall clock when the
+// process began, which the kernel records for the pre hook and for the
+// command alike, so only a clock step between the two can shift them.
+const StartSecond = 1_000_000
 
 // darwinZombie is SZOMB, kinfo_proc's p_stat for a zombie.
 const darwinZombie = 5
 
-// startSlack is one second in proc.Start's units: microseconds of
-// kinfo_proc's p_starttime. That start time is the wall clock when the
-// process began, which the kernel records for the pre hook and for the
-// command alike, so only a clock step between the two can shift them.
-const startSlack = 1_000_000
-
-func fromKinfo(k *unix.KinfoProc) proc {
+func fromKinfo(k *unix.KinfoProc) Process {
 	started := k.Proc.P_starttime
-	return proc{
+	return Process{
 		PID:    int(k.Proc.P_pid),
 		PPID:   int(k.Eproc.Ppid),
 		PGID:   int(k.Eproc.Pgid),
@@ -35,45 +34,48 @@ func fromKinfo(k *unix.KinfoProc) proc {
 	}
 }
 
-// snapshotNow lists every process. kern.proc.all reads them in one call, so
+// Processes lists every process. kern.proc.all reads them in one call, so
 // none is left out for want of a read.
-func snapshotNow(func(pid int, err error)) (snapshot, error) {
+func Processes(_ func(pid int, err error)) ([]Process, error) {
 	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil, err
 	}
-	s := make(snapshot, len(all))
+	out := make([]Process, len(all))
 	for i := range all {
-		p := fromKinfo(&all[i])
-		s[p.PID] = p
+		out[i] = fromKinfo(&all[i])
 	}
-	return s, nil
+	return out, nil
 }
 
-func processInfo(pid int) (proc, error) {
+// ProcessInfo reads one process through kern.proc.pid.
+func ProcessInfo(pid int) (Process, error) {
 	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
 	if err != nil {
-		return proc{}, fmt.Errorf("kern.proc.pid %d: %w", pid, err)
+		return Process{}, fmt.Errorf("kern.proc.pid %d: %w", pid, err)
 	}
 	return fromKinfo(k), nil
 }
 
-func readArgs(pid int) []string {
+// Args is the process's command line, nil when it cannot be read.
+func Args(pid int) []string {
 	args, _ := procArgs(pid)
 	return args
 }
 
-// readCallID is CODEX_TOOL_CALL_ID among the environment strings that follow
-// the arguments in kern.procargs2, up to the empty string that ends them.
-func readCallID(pid int) string {
+// Environ is the variable name among the environment strings that follow
+// the arguments in kern.procargs2, up to the empty string that ends them:
+// the environment the process started with. It is "" when absent or
+// unreadable.
+func Environ(pid int, name string) string {
 	_, rest := procArgs(pid)
 	for len(rest) > 0 {
 		end := bytes.IndexByte(rest, 0)
 		if end <= 0 {
 			return ""
 		}
-		if id, ok := strings.CutPrefix(string(rest[:end]), callIDVariable+"="); ok {
-			return id
+		if value, ok := strings.CutPrefix(string(rest[:end]), name+"="); ok {
+			return value
 		}
 		rest = rest[end+1:]
 	}
@@ -107,62 +109,47 @@ func procArgs(pid int) ([]string, []byte) {
 	return args, rest
 }
 
-// readMemory reads the kernel's pressure level, the RAM and vm.swapusage
-// (struct xsw_usage: total, avail, used as uint64).
-func readMemory() (memory, error) {
-	level, err := unix.SysctlUint32("kern.memorystatus_vm_pressure_level")
-	if err != nil {
-		return memory{}, err
-	}
-	installed, err := unix.SysctlUint64("hw.memsize")
-	if err != nil {
-		return memory{}, err
-	}
-	m := memory{Level: int(level), Installed: installed, FullAvg10: -1}
-	if swap, err := unix.SysctlRaw("vm.swapusage"); err == nil && len(swap) >= 24 {
-		m.SwapTotal = binary.LittleEndian.Uint64(swap[0:8])
-		m.SwapFree = binary.LittleEndian.Uint64(swap[8:16])
-	}
-	return m, nil
+// Resident is the memory the process holds for a live display. macOS has no
+// cheaper figure worth showing beside the physical footprint, so it is that
+// footprint again.
+func Resident(pid int) (uint64, error) {
+	return Footprint(pid)
 }
 
-// footprint is the process's physical footprint, the figure Activity Monitor
-// shows.
-func footprint(pid int) (uint64, error) {
-	return operation.PhysicalFootprint(pid)
-}
-
-// send signals t once its start time still matches the snapshot it came
-// from; a process that exited, is a zombie or whose PID was reused is left
-// alone, so it reports true only for a live process.
-func send(t target, sig unix.Signal) bool {
-	p, err := processInfo(t.PID)
-	if err != nil || p.Start != t.Start || p.Zombie {
+// Signal sends sig to p, or with group to the process group p leads, once
+// p's start time still matches; a process that exited, is a zombie or whose
+// PID was reused is left alone, so it reports true only for a live process.
+// Only p's PID and Start are read.
+func Signal(p Process, group bool, sig unix.Signal) bool {
+	now, err := ProcessInfo(p.PID)
+	if err != nil || now.Start != p.Start || now.Zombie {
 		return false
 	}
-	pid := t.PID
-	if t.Group {
+	pid := p.PID
+	if group {
 		pid = -pid
 	}
 	return unix.Kill(pid, sig) == nil
 }
 
-// waiter sleeps between ticks and wakes as soon as a watched agent exits,
+// Waiter sleeps between ticks and wakes as soon as a watched process exits,
 // through kqueue's EVFILT_PROC NOTE_EXIT. Without a kqueue it just sleeps.
-type waiter struct {
+type Waiter struct {
 	kq      int
 	watched map[int]bool
 }
 
-func newWaiter() *waiter {
+// NewWaiter opens the kqueue a Waiter waits on.
+func NewWaiter() *Waiter {
 	kq, err := unix.Kqueue()
 	if err != nil {
 		kq = -1
 	}
-	return &waiter{kq: kq, watched: map[int]bool{}}
+	return &Waiter{kq: kq, watched: map[int]bool{}}
 }
 
-func (w *waiter) watch(pid int) {
+// Watch makes Wait return when pid exits.
+func (w *Waiter) Watch(pid int) {
 	if w.kq < 0 || w.watched[pid] {
 		return
 	}
@@ -174,7 +161,8 @@ func (w *waiter) watch(pid int) {
 	}
 }
 
-func (w *waiter) wait(d time.Duration) {
+// Wait sleeps for d or until a watched process exits.
+func (w *Waiter) Wait(d time.Duration) {
 	if w.kq < 0 {
 		time.Sleep(d)
 		return
@@ -190,7 +178,8 @@ func (w *waiter) wait(d time.Duration) {
 	}
 }
 
-func (w *waiter) close() {
+// Close releases the kqueue.
+func (w *Waiter) Close() {
 	if w.kq >= 0 {
 		_ = unix.Close(w.kq)
 	}

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // hookInput is the part of a Claude Code or Codex hook's stdin the guard
@@ -65,7 +66,7 @@ var initNames = map[string]bool{
 // without an init; an init (initNames) never is.
 func findAgent(pid int) (proc, error) {
 	for range maxShellAncestors {
-		p, err := processInfo(pid)
+		p, err := platform.ProcessInfo(pid)
 		if err != nil {
 			return proc{}, err
 		}
@@ -73,7 +74,7 @@ func findAgent(pid int) (proc, error) {
 			if p.PID == 1 && initNames[p.Name] {
 				break
 			}
-			return p, nil
+			return proc{Process: p}, nil
 		}
 		if pid = p.PPID; pid < 1 {
 			break
@@ -114,7 +115,7 @@ func Pre(stdin *os.File) {
 			"call", input.ToolUseID, "error", err)
 		return
 	}
-	self, err := processInfo(os.Getpid())
+	self, err := platform.ProcessInfo(os.Getpid())
 	if err != nil {
 		f.event(
 			slog.LevelError,

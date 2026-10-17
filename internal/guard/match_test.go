@@ -4,6 +4,8 @@ import (
 	"maps"
 	"slices"
 	"testing"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // The guard may only ever stop a command an agent ran through its shell tool.
@@ -23,11 +25,16 @@ import (
 // start is a kernel start time, seconds after a fixed moment, in the
 // platform's units.
 func start(seconds float64) uint64 {
-	return uint64((1_000_000 + seconds) * startSlack)
+	return uint64((1_000_000 + seconds) * platform.StartSecond)
 }
 
 func process(pid, ppid, pgid int, seconds float64, args ...string) proc {
-	return proc{PID: pid, PPID: ppid, PGID: pgid, Start: start(seconds), Name: args[0], Args: args}
+	return proc{
+		Process: platform.Process{
+			PID: pid, PPID: ppid, PGID: pgid, Start: start(seconds), Name: args[0],
+		},
+		Args: args,
+	}
 }
 
 func zombie(p proc) proc {
@@ -405,7 +412,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 	}
 	for _, c := range cases {
 		s := snapshotOf(c.procs...)
-		got := targets(s, proc{PID: c.root, Start: c.start}, c.protected)
+		got := targets(s, proc{Process: platform.Process{PID: c.root, Start: c.start}}, c.protected)
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: targets %v, want %v", c.name, got, c.want)
 		}
