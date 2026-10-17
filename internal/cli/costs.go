@@ -683,7 +683,7 @@ func hookStates(tool costs.ToolStatus) string {
 		hooks = append(hooks, event+" "+state)
 	}
 	line := strings.Join(hooks, ", ")
-	if fixable && tool.ConfigMove == nil {
+	if fixable && (tool.ConfigMove == nil || tool.ConfigMove.Source == "") {
 		line += " (workbench apply)"
 	}
 	return line

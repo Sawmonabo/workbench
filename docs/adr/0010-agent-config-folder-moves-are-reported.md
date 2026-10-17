@@ -52,13 +52,20 @@ looks. Workbench's managed shell files set neither variable.
 C. Workbench resolves each tool's folder as its documentation describes:
 `CODEX_HOME` from the environment; `CLAUDE_CONFIG_DIR` from the environment,
 replaced by the `env` of the user settings in that folder, replaced by the
-managed settings files. When the folder is not `~/.claude` or `~/.codex` (compared as the same
-file when both exist), the plan for the real home warns, `doctor` reports a
-`claude-config-dir` or `codex-home` conflict, and `costs status` checks the
-hooks in the folder the tool reads and adds a `config` line instead of the
-`(workbench apply)` hint. Each names the variable, where it is set, the folder,
-and the fix: unset it or point it at the default folder, or remove it from the
-settings file that sets it. The costs ingest hook, given a Claude Code
+managed settings files. When the folder is not `~/.claude` or `~/.codex`
+(compared as the same file when both exist), the plan for the real home warns,
+`doctor` reports a `claude-config-dir` or `codex-home` conflict, and
+`costs status` checks the hooks in the folder the tool reads and adds a `config` line
+instead of the `(workbench apply)` hint. Each names the variable, where it is
+set, the folder, and the fix: unset it or point it at the default folder, or
+remove it from the settings file that sets it. Claude Code copies a settings
+file's value as written, so a path there must be absolute; a value that is not
+(`~/x`, `x`) names a folder that depends on where Claude Code starts, so
+Workbench ignores it and names it in the plan, `doctor` and `costs status`,
+asking for the absolute path. While the folder is moved, the costs ingest also
+reads `~/.claude/projects`, which can still hold transcripts written before
+the move; the ledger keys each response by its request ID, so one read from
+both folders counts once. The costs ingest hook, given a Claude Code
 transcript under no folder Workbench resolves, while `CLAUDE_CONFIG_DIR` is
 unset, gives its worker the folder the transcript is in, so usage from a
 scrubbed hook is still recorded.

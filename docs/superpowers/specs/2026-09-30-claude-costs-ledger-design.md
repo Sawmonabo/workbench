@@ -199,10 +199,14 @@ The worker:
 2. Keeps the log bounded: each write to a log over 400 KB first cuts it in
    place to its newest ~200 KB (`operation.AppendLog`).
 3. Discovers every `*.jsonl` recursively under `<config dir>/projects`, where
-   the config dir is `CLAUDE_CONFIG_DIR` if set, else `~/.claude`. Like Claude
-   Code, Workbench takes the variable from its environment, replaced by the
-   `env` of the user settings in that folder, replaced by the managed settings
-   files ([ADR 0010](../../adr/0010-agent-config-folder-moves-are-reported.md)).
+   the config dir is `CLAUDE_CONFIG_DIR` if set, else `~/.claude`, and, when
+   the variable moves it, under `~/.claude/projects` too, which can still hold
+   transcripts from before the move; a response read from both is stored once,
+   by its request ID. Like Claude Code, Workbench takes the variable from its
+   environment, replaced by the `env` of the user settings in that folder,
+   replaced by the managed settings files; a settings value that is not an
+   absolute path is ignored and reported
+   ([ADR 0010](../../adr/0010-agent-config-folder-moves-are-reported.md)).
 4. Reads the account email from `<config dir>/.claude.json` at
    `oauthAccount.emailAddress`, else `unknown`. (Claude Code keeps that file at
    `~/.claude.json` when `CLAUDE_CONFIG_DIR` is unset.) Rows are tagged with source

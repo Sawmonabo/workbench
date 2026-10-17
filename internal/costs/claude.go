@@ -27,7 +27,7 @@ func (claude) Name() string { return "claude" }
 // CLAUDE_CONFIG_DIR as Claude Code resolves it (see claudeConfigDir), else
 // ~/.claude.
 func ClaudeDir(home string) string {
-	dir, _ := claudeConfigDir(home)
+	dir, _, _ := claudeConfigDir(home)
 	return dir
 }
 
@@ -36,9 +36,11 @@ func ClaudeDir(home string) string {
 // "" when nothing does and the folder is ~/.claude. Claude Code takes the
 // variable from its environment, its user settings or its managed settings;
 // a settings file's env replaces the environment's value, managed settings
-// override the user's, and project and local settings cannot set it
-// (https://code.claude.com/docs/en/env-vars).
-func claudeConfigDir(home string) (dir, source string) {
+// override the user's, and project and local settings cannot set it. A
+// settings file's value is copied as written, so it must be an absolute path
+// (https://code.claude.com/docs/en/env-vars); one that is not depends on the
+// folder Claude Code starts in, so it is left out and returned in relative.
+func claudeConfigDir(home string) (dir, source string, relative []RelativeSetting) {
 	dir = filepath.Join(home, ".claude")
 	if env := os.Getenv("CLAUDE_CONFIG_DIR"); env != "" {
 		dir, source = env, "the environment"
@@ -52,12 +54,16 @@ func claudeConfigDir(home string) (dir, source string) {
 				Dir string `json:"CLAUDE_CONFIG_DIR"`
 			} `json:"env"`
 		}
-		if raw, err := os.ReadFile(path); err == nil && decode(raw, &settings) &&
-			settings.Env.Dir != "" {
+		raw, err := os.ReadFile(path)
+		switch {
+		case err != nil, !decode(raw, &settings), settings.Env.Dir == "":
+		case !filepath.IsAbs(settings.Env.Dir):
+			relative = append(relative, RelativeSetting{File: path, Value: settings.Env.Dir})
+		default:
 			dir, source = settings.Env.Dir, path
 		}
 	}
-	return dir, source
+	return dir, source, relative
 }
 
 // ClaudeManagedSettings are the machine's managed settings files, in the
@@ -79,62 +85,76 @@ func ClaudeManagedSettings() []string {
 }
 
 // ConfigMove reports CLAUDE_CONFIG_DIR pointing Claude Code away from
-// ~/.claude.
+// ~/.claude, or set to a relative path in a settings file.
 func (claude) ConfigMove(home string) (ConfigMove, bool) {
-	dir, source := claudeConfigDir(home)
+	dir, source, relative := claudeConfigDir(home)
 	move := ConfigMove{
 		Tool:     "Claude Code",
 		Variable: "CLAUDE_CONFIG_DIR",
 		Source:   source,
 		Dir:      dir,
 		Default:  filepath.Join(home, ".claude"),
+		Relative: relative,
 	}
-	return move, source != "" && !sameDir(dir, move.Default)
+	if sameDir(dir, move.Default) {
+		move.Source = ""
+	}
+	return move, move.Source != "" || len(relative) > 0
 }
 
 // claudeJSON is Claude Code's account and usage file: inside CLAUDE_CONFIG_DIR
 // when that is set, directly in the home directory otherwise.
 func claudeJSON(home string) string {
-	if dir, source := claudeConfigDir(home); source != "" {
+	if dir, source, _ := claudeConfigDir(home); source != "" {
 		return filepath.Join(dir, ".claude.json")
 	}
 	return filepath.Join(home, ".claude.json")
 }
 
-// claudeProjects is the directory Claude Code writes its transcripts under.
-func claudeProjects(home string) string { return filepath.Join(ClaudeDir(home), "projects") }
-
-// TranscriptRoots is where this tool's transcripts live.
-func (claude) TranscriptRoots(home string) []string { return []string{claudeProjects(home)} }
-
-// Transcripts lists every *.jsonl under projects/, subagent transcripts
-// included.
-func (claude) Transcripts(home string) ([]string, error) {
-	root := claudeProjects(home)
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		return nil, nil
+// TranscriptRoots is where Claude Code writes its transcripts: projects/ in
+// its config folder and, when CLAUDE_CONFIG_DIR moves that, also
+// ~/.claude/projects, which may still hold transcripts written before the
+// move. A response read from both is stored once, by its request ID.
+func (claude) TranscriptRoots(home string) []string {
+	roots := []string{filepath.Join(ClaudeDir(home), "projects")}
+	if old := filepath.Join(home, ".claude", "projects"); !sameDir(roots[0], old) {
+		roots = append(roots, old)
 	}
+	return roots
+}
+
+// Transcripts lists every *.jsonl under each transcript root, subagent
+// transcripts included.
+func (claude) Transcripts(home string) ([]string, error) {
 	var files []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			// A directory that vanished or cannot be read holds nothing to ingest.
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
+	for _, root := range (claude{}).TranscriptRoots(home) {
+		if info, err := os.Stat(root); err != nil || !info.IsDir() {
+			continue
+		}
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				// A directory that vanished or cannot be read holds nothing to ingest.
+				if entry != nil && entry.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			case filepath.Ext(path) != ".jsonl":
+			case entry.Type().IsRegular():
+				files = append(files, path)
+			case entry.Type()&fs.ModeSymlink != 0:
+				if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+					files = append(files, path)
+				}
 			}
 			return nil
-		case filepath.Ext(path) != ".jsonl":
-		case entry.Type().IsRegular():
-			files = append(files, path)
-		case entry.Type()&fs.ModeSymlink != 0:
-			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-				files = append(files, path)
-			}
+		})
+		if err != nil {
+			return files, err
 		}
-		return nil
-	})
+	}
 	sort.Strings(files)
-	return files, err
+	return files, nil
 }
 
 // claudeOAuth is the oauthAccount a .claude.json keeps: who is signed in and

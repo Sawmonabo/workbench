@@ -4,6 +4,7 @@
 package costs
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -128,13 +129,24 @@ func isIngestHook(command string) bool { return ingestCommand.MatchString(comman
 // Workbench installs the tool's settings, instructions and hooks in, so the
 // tool reads none of them. Two folders side by side, one per account, are the
 // variable's documented use, so Workbench names the move and installs nothing
-// in the other folder.
+// in the other folder. It also names a settings file that sets the variable
+// to a relative path, which Workbench ignores.
 type ConfigMove struct {
 	Tool     string `json:"tool"`     // "Claude Code", "Codex"
 	Variable string `json:"variable"` // CLAUDE_CONFIG_DIR, CODEX_HOME
-	Source   string `json:"source"`   // "the environment", or the settings file that sets it
-	Dir      string `json:"dir"`      // the folder the tool reads
-	Default  string `json:"default"`  // the folder Workbench installs in
+	// Source is "the environment", the settings file that sets it, or "" when
+	// it moves nothing.
+	Source   string            `json:"source"`
+	Dir      string            `json:"dir"`                // the folder the tool reads
+	Default  string            `json:"default"`            // the folder Workbench installs in
+	Relative []RelativeSetting `json:"relative,omitempty"` // settings files that set it to a relative path
+}
+
+// RelativeSetting is a settings file that sets a folder variable to a path
+// that is not absolute.
+type RelativeSetting struct {
+	File  string `json:"file"`
+	Value string `json:"value"`
 }
 
 // configMover is a source whose config folder a variable can move.
@@ -159,17 +171,30 @@ func ConfigMoves(home string) []ConfigMove {
 // Explain says what the move means and how to undo it, the same in the plan,
 // doctor and costs status.
 func (m ConfigMove) Explain(home string) string {
-	where, fix := m.Source, "unset it, or set it to "+operation.ShowPath(home, m.Default)
-	if m.Source != "the environment" {
-		where, fix = operation.ShowPath(
-			home,
-			m.Source,
-		), "remove it from that file, or set it there to "+m.Default
+	var parts []string
+	if m.Source != "" {
+		where, fix := m.Source, "unset it, or set it to "+operation.ShowPath(home, m.Default)
+		if m.Source != "the environment" {
+			where, fix = operation.ShowPath(
+				home,
+				m.Source,
+			), "remove it from that file, or set it there to "+m.Default
+		}
+		parts = append(parts, m.Variable+" in "+where+" points "+m.Tool+" at "+
+			operation.ShowPath(home, m.Dir)+", so it does not read the settings, instructions "+
+			"and costs and guard hooks Workbench installs in "+operation.ShowPath(home, m.Default)+
+			"; "+fix+", for them to apply")
 	}
-	return m.Variable + " in " + where + " points " + m.Tool + " at " +
-		operation.ShowPath(home, m.Dir) + ", so it does not read the settings, instructions " +
-		"and costs and guard hooks Workbench installs in " + operation.ShowPath(home, m.Default) +
-		"; " + fix + ", for them to apply"
+	for _, r := range m.Relative {
+		parts = append(parts, fmt.Sprintf(
+			"%s in %s is %q, not an absolute path: %s copies it as written and reads it from "+
+				"the folder it starts in, so Workbench ignores it and reads %s; write the "+
+				"absolute path there",
+			m.Variable, operation.ShowPath(home, r.File), r.Value, m.Tool,
+			operation.ShowPath(home, m.Dir),
+		))
+	}
+	return strings.Join(parts, "; ")
 }
 
 // sameDir reports whether a and b name the same folder: the same file when
