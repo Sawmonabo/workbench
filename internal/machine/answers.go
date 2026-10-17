@@ -13,6 +13,7 @@ import (
 	"unicode"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -199,7 +200,7 @@ func (a Answers) invalidKey() string {
 	}
 	role := a.text("machine_role")
 	work, personal := role != "personal", role != "work"
-	for i, want := range []bool{work, personal, isWSL()} {
+	for i, want := range []bool{work, personal, platform.WSL()} {
 		if key := derivedAnswers[i]; a[key] != want {
 			return key
 		}
@@ -221,7 +222,7 @@ func (a Answers) invalidKey() string {
 			}
 		}
 	}
-	if isWSL() {
+	if platform.WSL() {
 		return a.invalidWSLKey()
 	}
 	return ""

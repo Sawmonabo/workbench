@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -23,6 +22,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // agentUpdatesScript carries out the planned Codex and Claude Code updates;
@@ -166,7 +166,7 @@ func (p *preparation) planAgentUpdates(
 		case install.path == "":
 			continue
 		case install.cask != "":
-			if runtime.GOOS == "darwin" {
+			if platform.HasCasks {
 				p.agentCasks = append(p.agentCasks, install.cask)
 				continue
 			}
@@ -343,25 +343,9 @@ func agentNewer(a, b string) (newer, comparable bool) {
 // updates only the launcher it makes, ~/.local/bin/COMMAND, so a release of
 // its reached through any other launcher keeps no method.
 func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
-	var folders []string
-	if runtime.GOOS != "darwin" {
-		folders = append(folders, filepath.Join(home, "bin"))
-	}
-	folders = append(
-		folders,
-		filepath.Join(home, ".bun", "bin"),
-		nvm,
-		filepath.Join(home, ".cargo", "bin"),
-		"/usr/local/go/bin",
-		filepath.Join(home, "go", "bin"),
-		filepath.Join(home, ".local", "bin"),
-	)
-	if runtime.GOOS == "darwin" {
-		folders = append(folders, "/opt/homebrew/bin", "/usr/local/bin")
-	} else {
-		folders = append(folders, "/home/linuxbrew/.linuxbrew/bin", "/usr/local/bin")
-	}
-	folders = append(folders, "/usr/bin", "/bin")
+	folders := platform.ToolFolders(home)
+	bun := slices.Index(folders, filepath.Join(home, ".bun", "bin"))
+	folders = slices.Insert(folders, bun+1, nvm)
 	for _, folder := range folders {
 		if folder == "" {
 			continue

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/Sawmonabo/workbench/internal/release"
 )
 
@@ -299,14 +300,13 @@ func acquireTool(
 ) (operation.Dependency, error) {
 	version := requirements.Chezmoi
 	hash := requirements.ChezmoiSHA256[release.Target()]
-	asset := "chezmoi_" + version + "_" + runtime.GOOS + "_" + runtime.GOARCH + ".tar.gz"
+	asset := "chezmoi_" + version + "_" + platform.System + "_" + runtime.GOARCH + ".tar.gz"
 	location := "https://github.com/twpayne/chezmoi/releases/download/v" + version + "/" + asset
 	if name == "uv" {
 		version = requirements.UV
 		hash = requirements.UVSHA256[release.Target()]
 		cpu := map[string]string{"amd64": "x86_64", "arm64": "aarch64"}[runtime.GOARCH]
-		platform := map[string]string{"darwin": "apple-darwin", "linux": "unknown-linux-gnu"}[runtime.GOOS]
-		asset = "uv-" + cpu + "-" + platform + ".tar.gz"
+		asset = "uv-" + cpu + "-" + platform.AssetTriple + ".tar.gz"
 		location = "https://github.com/astral-sh/uv/releases/download/" + version + "/" + asset
 	}
 	if len(hash) != 64 {

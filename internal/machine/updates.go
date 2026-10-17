@@ -6,7 +6,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -15,6 +14,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // updateEffectPrefix starts the name of every update effect: update-<package>.
@@ -55,7 +55,7 @@ func (p *preparation) planUpdates(
 	c operation.Context,
 	files map[string][]byte,
 ) {
-	if runtime.GOOS != "darwin" {
+	if !platform.HasCasks {
 		return
 	}
 	c.Step("asking Homebrew for updates")
@@ -383,7 +383,8 @@ func installedVersions(
 
 // homebrew returns Homebrew's executable at its default prefix, or "".
 func homebrew() string {
-	for _, path := range []string{"/opt/homebrew/bin/brew", "/usr/local/bin/brew"} {
+	for _, prefix := range platform.HomebrewPrefixes {
+		path := prefix + "/bin/brew"
 		if info, err := os.Stat(path); err == nil && info.Mode().IsRegular() {
 			return path
 		}
@@ -462,7 +463,7 @@ func brewEnvironment(c operation.Context, brew string) []string {
 // that. An interrupt returns its own error.
 func RefreshHomebrew(ctx context.Context, c operation.Context) (refreshed bool, err error) {
 	brew := homebrew()
-	if runtime.GOOS != "darwin" || !c.RecordsHome() || brew == "" {
+	if !platform.HasCasks || !c.RecordsHome() || brew == "" {
 		return false, nil
 	}
 	defer c.ShowProgress("Refreshing Homebrew's package list")()

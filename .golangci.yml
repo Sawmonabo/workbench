@@ -4,6 +4,7 @@ linters:
   enable:
     - errorlint
     - exhaustive
+    - forbidigo
     - forcetypeassert
     - funlen
     - gocognit
@@ -17,6 +18,11 @@ linters:
     # to one branch.
     exhaustive:
       default-signifies-exhaustive: true
+    # One package answers which system Workbench runs on; nothing else asks.
+    forbidigo:
+      forbid:
+        - pattern: '^runtime\.GOOS$'
+          msg: platform tests belong in internal/platform
     # Hard guards; golines wraps ordinary code at 100 first.
     lll:
       line-length: 120
@@ -39,6 +45,12 @@ linters:
       # Safeguard tests read as one scenario; see AGENTS.md's test rule.
       - linters: [funlen]
         path: _test\.go
+      # The platform package owns platform facts, and a release names the
+      # build's own system and architecture, not a difference between systems.
+      - linters: [forbidigo]
+        path: internal/platform/
+      - linters: [forbidigo]
+        path: internal/release/archive\.go
 formatters:
   enable:
     - gofumpt

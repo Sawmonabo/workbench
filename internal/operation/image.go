@@ -9,12 +9,12 @@ import (
 	"os"
 	"os/user"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"golang.org/x/sys/unix"
 )
 
@@ -389,7 +389,7 @@ func creationParent(c Context, path string) (unix.Stat_t, error) {
 // inheritedGroup is the group a new file in folder gets: the folder's on macOS
 // and below a set-group-ID folder, else the effective group.
 func inheritedGroup(folder unix.Stat_t) uint32 {
-	if runtime.GOOS == "darwin" || folder.Mode&unix.S_ISGID != 0 {
+	if platform.GroupFromFolder || folder.Mode&unix.S_ISGID != 0 {
 		return uint32(folder.Gid)
 	}
 	return groupID(os.Getegid())

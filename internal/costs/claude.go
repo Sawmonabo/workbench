@@ -9,11 +9,12 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // claude is the Claude Code source: JSONL transcripts under
@@ -70,10 +71,7 @@ func claudeConfigDir(home string) (dir, source string, relative []RelativeSettin
 // order Claude Code merges them, a later one overriding an earlier:
 // managed-settings.json, then each managed-settings.d/*.json in name order.
 func ClaudeManagedSettings() []string {
-	managed := "/etc/claude-code"
-	if runtime.GOOS == "darwin" {
-		managed = "/Library/Application Support/ClaudeCode"
-	}
+	managed := platform.ClaudeManagedFolder
 	files := []string{filepath.Join(managed, "managed-settings.json")}
 	drops, _ := filepath.Glob(filepath.Join(managed, "managed-settings.d", "*.json"))
 	for _, drop := range drops {
