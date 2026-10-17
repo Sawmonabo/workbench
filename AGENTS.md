@@ -157,11 +157,12 @@ Releases are personal: pushing a `v*` tag publishes the four bundles and a
 tag-stamped `install.sh` through `.github/workflows/release.yml`, with that
 tag's changelog section as release notes, then commits the regenerated
 `CHANGELOG.md` to `main`. Write conventional commit subjects, which become the
-changelog; never edit `CHANGELOG.md` by hand. Only that workflow passes
-`scripts/package-release.py --published`; a local bundle is named after the
-next release with a `-dev.N` suffix (`v0.2.1-dev.1` after `v0.2.0`), and
-`update` without a VERSION replaces it with the latest published release. They are
-unsigned and grant no redistribution rights; add no LICENSE. Only the owner
+changelog; never edit `CHANGELOG.md` by hand. They are
+unsigned and grant no redistribution rights; add no LICENSE. Only that
+workflow passes `scripts/package-release.py --published`; a local bundle is
+named after the next release with a `-dev.N` suffix (`v0.2.1-dev.1` after
+`v0.2.0`), and `update` without a VERSION replaces it with the latest published
+release. Only the owner
 pushes release tags. Repository visibility changes, installation on a real
 machine and destructive branch/worktree cleanup still need the owner's explicit
 go-ahead.

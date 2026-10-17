@@ -738,7 +738,8 @@ synthetic answers.
 
 ### Output
 
-- `workbench version` prints the `--version` line. At a terminal, each result
+- `workbench version` prints the `--version` line, ending `(local build)` for a
+  build the release workflow did not publish. At a terminal, each result
   line carries a colored ✓, · or ✗, where · marks a step that changed nothing,
   such as tools already in place. Plans shown at a prompt are not repeated,
   and a successful run ends with a green ✓ summary. Piped output and

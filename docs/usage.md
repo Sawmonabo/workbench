@@ -44,11 +44,11 @@ logged-in `gh`. Never run it as root.
 | `apply --yes` | Never ask: apply your saved choices, and give anything new its default. Refused for a coding agent, which applies with `--approve-plan`. |
 | `apply --reset` | Forget your saved choices and ask again with the defaults; what you pick is saved. |
 | `apply --dry-run` | Print the plan and exit; installs, asks and changes nothing. |
-| `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. A local build is replaced by the latest published release, whatever its version. |
+| `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. A local build is replaced by the latest published release, whatever their versions. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work; an empty or malformed VERSION exits 2. |
 | `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
 | `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
-| `version` | Print this Workbench version, the same as `--version`. |
+| `version` | Print this Workbench version, the same as `--version`; a local build adds `(local build)`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
 | `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
@@ -88,10 +88,11 @@ any missing tool, and says `[WorkBench] vX is already installed; nothing was
 applied: run workbench apply`, so rerunning it finishes a setup that was stopped.
 Without a VERSION, a published release only moves forward: one newer than
 GitHub's latest is kept. A local build, one not built by the release workflow,
-is not on the release channel, so `update` replaces it with the latest published
-release whatever their versions, and says so: `Replacing local build
-v0.2.1-dev.1 with v0.2.0, the latest published release` (also in `--dry-run`
-and `--json`). Name a VERSION to install another published release.
+is not on the release channel, so when it is the installed release `update`
+replaces it with the latest published release whatever their versions, and
+says so: `Replacing local build v0.2.1-dev.1 with v0.2.0, the latest published
+release`. `--dry-run` shows it, with or without `--json`, and a real run prints
+it on stderr. Name a VERSION to install another published release.
 The installed release runs the update, so one older than v0.1.8 first prints its
 own `Installed Workbench vX; continuing with setup and apply`; the new release
 then installs only its tools, as above. A staged copy of a release that
@@ -685,8 +686,8 @@ python3 scripts/package-release.py --version v0.2.1-dev.1 --target darwin-arm64 
 
 A bundle built without `--published` is a local build. Name it after the next
 release with a `-dev.N` suffix, such as `v0.2.1-dev.1` after `v0.2.0`, so it
-sorts below that release; `update` without a VERSION replaces it with the
-latest published release.
+sorts below v0.2.1, the release it leads to; `update` without a VERSION
+replaces it with the latest published release.
 
 Targets are `darwin-arm64`, `darwin-amd64`, `linux-arm64` and `linux-amd64`.
 Existing bundle names are not overwritten. The payload holds machine sources,
