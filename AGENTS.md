@@ -159,10 +159,13 @@ tag's changelog section as release notes, then commits the regenerated
 `CHANGELOG.md` to `main`. Write conventional commit subjects, which become the
 changelog; never edit `CHANGELOG.md` by hand. They are
 unsigned and grant no redistribution rights; add no LICENSE. Only that
-workflow passes `scripts/package-release.py --published`; a local bundle is
-named after the next release with a `-dev.N` suffix (`v0.2.1-dev.1` after
-`v0.2.0`), and `update` without a VERSION replaces it with the latest published
-release. Only the owner
+workflow passes `scripts/package-release.py --published`. A tag with a hyphen
+(`v0.2.1-rc.1`) is published as a GitHub pre-release, which `update` installs
+only by name and which gets no changelog section; unreleased code reaches a
+real machine only as a pre-release. A local bundle is named after the next
+release with a `-dev.N` suffix (`v0.2.1-dev.1` after `v0.2.0`), is installed
+only in disposable homes and CI, and `update` without a VERSION replaces it
+with the latest published release (ADR 0011). Only the owner
 pushes release tags. Repository visibility changes, installation on a real
 machine and destructive branch/worktree cleanup still need the owner's explicit
 go-ahead.

@@ -93,6 +93,14 @@ replaces it with the latest published release whatever their versions, and
 says so: `Replacing local build v0.2.1-dev.1 with v0.2.0, the latest published
 release`. `--dry-run` shows it, with or without `--json`, and a real run prints
 it on stderr. Name a VERSION to install another published release.
+GitHub's latest release is the newest full release (`vX.Y.Z`), never a
+pre-release (`vX.Y.Z-rc.N`), so a machine moves to a pre-release only when it
+names one: `workbench update v0.2.1-rc.1`, or `install.sh --version
+v0.2.1-rc.1`. A pre-release is published, so `update` without a VERSION keeps
+it until `v0.2.1` is out, then installs that, since `v0.2.1-rc.1` sorts below
+`v0.2.1`. `version --list` shows full releases only; `gh release list -R
+Sawmonabo/workbench` and the repository's releases page also show
+pre-releases. See [ADR 0011](adr/0011-release-channels.md).
 The installed release runs the update, so one older than v0.1.8 first prints its
 own `Installed Workbench vX; continuing with setup and apply`; the new release
 then installs only its tools, as above. A staged copy of a release that
@@ -669,13 +677,24 @@ Pushing a `v*` tag runs `.github/workflows/release.yml`. It first runs the CI
 checks and publishes only if they pass, then builds the four
 bundles with `scripts/package-release.py --published`, which marks their
 executables as published releases, stamps the tag into a copy of
-`install.sh`, and publishes all five files as a GitHub release. Its release
-notes are that tag's section of the changelog, which git-cliff (a pinned release,
+`install.sh`, and publishes all five files as a GitHub release. A tag with a
+hyphen, such as `v0.2.1-rc.1`, is a pre-release: the same bundles are
+published as a GitHub pre-release, which never becomes the latest release, so
+only a machine that names it installs it. Cut one to try unreleased code on a
+real machine:
+
+```sh
+git tag v0.2.1-rc.1 && git push origin v0.2.1-rc.1
+```
+
+A full release's notes are that tag's section of the changelog, which git-cliff (a pinned release,
 checked against its SHA-256 by `scripts/git-cliff.sh`) builds from the
 conventional commit subjects (`feat:`, `fix:`, `docs:` and so on) with
-[cliff.toml](../cliff.toml). Once the release is out, the workflow commits the
+[cliff.toml](../cliff.toml). A pre-release gets no changelog section: its
+commits belong to the full release that follows, and its notes list the commits
+since the tag before it. Once a full release is out, the workflow commits the
 regenerated [CHANGELOG.md](../CHANGELOG.md) to `main`, so pull before your next
-commit. It does so only for a tag on `main` that is also the newest `v*` tag: a
+commit. It does so only for a tag on `main` that is also the newest full release tag: a
 tag off `main` publishes its release and leaves CHANGELOG.md alone, an older
 tag leaves it to the newer tag's run, and changelog commits run one at a time.
 Build one bundle locally with the pinned Go toolchain and Python 3.11+:
@@ -687,7 +706,9 @@ python3 scripts/package-release.py --version v0.2.1-dev.1 --target darwin-arm64 
 A bundle built without `--published` is a local build. Name it after the next
 release with a `-dev.N` suffix, such as `v0.2.1-dev.1` after `v0.2.0`, so it
 sorts below v0.2.1, the release it leads to; `update` without a VERSION
-replaces it with the latest published release.
+replaces it with the latest published release. Install local builds only in
+disposable homes and CI; unreleased code reaches a real machine as a
+pre-release.
 
 Targets are `darwin-arm64`, `darwin-amd64`, `linux-arm64` and `linux-amd64`.
 Existing bundle names are not overwritten. The payload holds machine sources,

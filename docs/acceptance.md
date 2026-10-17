@@ -40,6 +40,13 @@ synthetic answers.
 ### Releases, install and update
 
 - Tag pushes publish four bundles and an `install.sh` stamped with the tag.
+  A tag with a hyphen (`vX.Y.Z-rc.N`) is published as a GitHub pre-release with
+  notes for the commits since the tag before it, adds no changelog section and
+  commits no `CHANGELOG.md` (target; not yet observed, it needs a pushed
+  pre-release tag; the workflow's tag tests and git-cliff's output for a
+  pre-release and the full release after it were checked locally). A
+  `--published` bundle named `v0.1.26-rc.1`, installed in a disposable home,
+  stayed on `update` while GitHub's latest was `v0.1.25`.
   git-cliff 2.14.2 with `cliff.toml`, run at a tag, rendered every release
   from the commit history with no unreleased section, and that tag's section
   alone for its release notes. The release workflow downloads git-cliff through
