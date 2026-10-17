@@ -36,20 +36,34 @@ jobs:
           done
           sed "s/^default_version=.*/default_version=$VERSION/" install.sh > dist/install.sh
           grep -q "^default_version=$VERSION\$" dist/install.sh
-      # The release notes are this tag's section of CHANGELOG.md (cliff.toml).
+      # A full release's notes are its section of CHANGELOG.md (cliff.toml). A
+      # pre-release (a tag with a hyphen, vX.Y.Z-rc.N) has no section there, so
+      # its notes count every v* tag: the commits since the tag before it.
       - name: Write release notes
-        run: scripts/git-cliff.sh --config cliff.toml --latest --strip header -o "$RUNNER_TEMP/release-notes.md"
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          case $VERSION in
+          *-*) scripts/git-cliff.sh --config cliff.toml --latest --tag-pattern 'v[0-9]*' --strip header -o "$RUNNER_TEMP/release-notes.md" ;;
+          *) scripts/git-cliff.sh --config cliff.toml --latest --strip header -o "$RUNNER_TEMP/release-notes.md" ;;
+          esac
+      # A pre-release is published as one, so GitHub's latest release, which
+      # update and install.sh follow, stays the newest full release.
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ github.ref_name }}
-        run: >-
-          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag
-          --notes-file "$RUNNER_TEMP/release-notes.md" dist/*.tar.gz dist/install.sh
-  # Once the release is published, commit the changelog through this tag to
-  # main. A push with the workflow token starts no other workflow.
+        run: |
+          prerelease=false
+          case $VERSION in *-*) prerelease=true ;; esac
+          gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease="$prerelease" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" dist/*.tar.gz dist/install.sh
+  # Once a full release is published, commit the changelog through this tag
+  # to main. A pre-release gets no section and no commit. A push with the
+  # workflow token starts no other workflow.
   changelog:
     needs: release
+    if: ${{ !contains(github.ref_name, '-') }}
     # One changelog commit at a time. GitHub replaces a pending run in this
     # group with a newer one, which is fine here: the newest tag writes the
     # whole history. Releases themselves are never queued or cancelled.
@@ -73,8 +87,9 @@ jobs:
         run: |
           git checkout -B main origin/main
           git merge-base --is-ancestor "$GITHUB_SHA" HEAD || { echo "$VERSION is not on main; CHANGELOG.md left alone"; exit 0; }
-          # A newer tag's run writes the changelog; an older one must not overwrite it.
-          newest=$(git tag -l 'v*' --sort=-v:refname | head -n 1)
+          # A newer tag's run writes the changelog; an older one must not overwrite
+          # it. Pre-release tags are left out: git sorts v0.2.0-rc.1 after v0.2.0.
+          newest=$(git tag -l 'v*' --sort=-v:refname | grep -v -- - | head -n 1)
           [ "$newest" = "$VERSION" ] || { echo "$newest is newer than $VERSION; its run writes CHANGELOG.md"; exit 0; }
           cp "$RUNNER_TEMP/CHANGELOG.md" CHANGELOG.md
           git add CHANGELOG.md
