@@ -299,6 +299,9 @@ exist yet, and after a cut in place reads on from the line after the last
 one it read, or from the start when the cut took that line. `--json` prints
 the matching records unchanged, one per line.
 
+Migration `0004-old-guard-log` removes the free-text lines earlier builds
+wrote from the log (migrations design, section 6.4).
+
 ## 5. Pre hook
 
 1. Read the hook input. Ignore anything that is not a `Bash` call with a valid

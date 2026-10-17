@@ -7,7 +7,8 @@ first ones:
 - move the costs files out of the `claude-costs/` folders
 - remove the old shell-completion cache, which the startup files rebuild in
   Workbench's cache folder
-- remove the old `claude-costs` script's cache.
+- remove the old `claude-costs` script's cache
+- remove the agent command guard's old free-text log lines.
 
 After them every Workbench-owned file lives under the five runtime folders
 `operation.Resolve` returns, and new runs use only those paths.
@@ -211,7 +212,8 @@ internal/migrate/
 ├── migrate.go                  registry, check/run loop, record, step list
 ├── 0001_costs_folders.go       calls internal/costs for the ledger
 ├── 0002_completion_cache.go
-└── 0003_old_costs_cache.go
+├── 0003_old_costs_cache.go
+└── 0004_old_guard_log.go
 ```
 
 Each migration is a value:
@@ -251,6 +253,8 @@ at which paths exist (`Lstat`), with these small reads:
   a regular file, to tell Workbench's marker from someone else's file (6.2).
 - `0003` reads the old cache folder's listing, only when `Lstat` shows a real
   folder (6.3).
+- `0004` reads the guard log and its old rotated copy, only when `Lstat`
+  shows a regular file, to count their old-format lines (6.4).
 
 | Status | Meaning |
 |---|---|
@@ -829,6 +833,34 @@ real folder, is the one file kept and reported. A folder that can't be read
 keeps the migration *Pending* ("can't read …"), and so does an empty folder,
 until a run removes it.
 
+### 6.4 `0004-old-guard-log`
+
+**The old lines:** the agent command guard's log, `guard/watch.log` in
+Workbench's state folder, is JSON Lines (guard design, section 4.1). Earlier
+builds wrote free text, one line per event: the RFC 3339 time, a space, the
+writing process's PID, a space, and the part, `watch:`, `pre:`, `post:`, or
+`pre` or `post` with the call's `tool_use_id` and a colon. The first builds
+also rotated a full log into `guard/watch.log.1`. `workbench guard logs`
+would show each old line as raw watcher output.
+
+**What counts as old:** only a line that starts with exactly that shape. A
+log that holds none, such as one with only JSON records and raw crash
+output, is never touched, whatever its first line is.
+
+**The run:**
+1. Deletes `watch.log.1` when it holds an old line.
+2. Removes the old lines from `watch.log` and keeps every other line, in
+   order. The file is rewritten in place (`O_TRUNC`, same inode), as the
+   log's own cut does (`operation.AppendLog`), not deleted or replaced: a
+   running watcher keeps its stdout and stderr open on it, so a replaced file
+   would send its crash output to a file nobody can read, and its records may
+   follow the old lines. It takes no lock, as the cut takes none; a record
+   appended between the read and the write is lost, as with the cut.
+
+A path that isn't a regular file (a link) is never read through, stays and is
+reported. One that can't be read keeps the migration *Pending* ("can't read
+…").
+
 ## 7. The costs-ingest step's text
 
 `internal/machine/effects.go` `costs-ingest` `Undo` becomes:
@@ -854,7 +886,7 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 
 | File | Change |
 |---|---|
-| `internal/migrate/*` | New: registry, loop, three migrations |
+| `internal/migrate/*` | New: registry, loop, four migrations |
 | `internal/operation/state.go`, `context.go`, `filesystem_{darwin,linux}.go` | `ReplacePrivateFile`, taken out of `WritePrivate`; `RenameNoReplace`; `Paths.MigrateLock`. Every private folder is made with `PrivateDirectory(root, name)`, which checks each folder of a nested name; the operation layer also owns `PrivateTree` (checks a private tree, creating it or not), `SyncDirectory` (a folder fsync, counting `EINVAL` and `EBADF` as synced) and `RemoveIfThere` |
 | `internal/costs/move.go` | New: old and new locations, the check, the move, the ledger copy and its resume, the gate |
 | `internal/costs/ledger.go`, `rates.go`, `ingest.go`, `report.go` | New paths from `operation.Resolve`; the gate at every open; the hook's stderr line |

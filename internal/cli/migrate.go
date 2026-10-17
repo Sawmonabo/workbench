@@ -22,7 +22,7 @@ func migrateCommand(o *options) *cobra.Command {
 	var apply, dryRun, probe bool
 	cmd := &cobra.Command{
 		Use:   "migrate",
-		Short: "Move files earlier Workbench releases left outside Workbench's folders",
+		Short: "Move or clean up files earlier Workbench releases left behind",
 		Long: "Without flags, list each migration and whether it has anything to do; nothing " +
 			"changes. --apply runs every migration with something to do: at a terminal it shows " +
 			"the list and asks once; --dry-run --json prints it with a plan_digest that " +
