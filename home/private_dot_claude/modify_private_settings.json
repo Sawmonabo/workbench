@@ -54,6 +54,17 @@
   {{- end -}}
   {{- $_ := set $enforced.hooks $event (concat $groups $kept | uniq) -}}
 {{- end -}}
+{{- /* In pinned mode Claude Code's own background updates keep at least the
+       pinned version: minimumVersion, the floor Claude Code documents, is
+       raised to the pin, so its stable channel cannot take back an update to
+       a pin above stable. A floor at or above the pin, or one that is not
+       three dotted numbers, stays as it is. */ -}}
+{{- if eq .versions_mode "pinned" -}}
+  {{- $floor := get $live "minimumVersion" | default "" | toString -}}
+  {{- if or (not $floor) (and (regexMatch "^[0-9]+\\.[0-9]+\\.[0-9]+$" $floor) (semverCompare (printf "< %s" .versions.claude) $floor)) -}}
+    {{- $_ := set $enforced "minimumVersion" .versions.claude -}}
+  {{- end -}}
+{{- end -}}
 {{- $merged := mustMergeOverwrite (deepCopy .claude.defaults) $live $enforced -}}
 {{- if eq (toJson $merged) $unchanged -}}
 {{ .chezmoi.stdin }}

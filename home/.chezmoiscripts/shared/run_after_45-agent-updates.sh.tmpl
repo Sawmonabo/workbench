@@ -1,11 +1,15 @@
 #!/bin/bash
 # Codex and Claude Code updates the approved plan named, each through the
-# installer of the copy the shell runs, at exactly the version the plan named.
-# WORKBENCH_AGENT_UPDATES lists them as TOOL:METHOD:VERSION, with :NODE after
-# an npm one, for example
-# "codex:standalone:0.163.0 claude-code:npm:2.1.301:v24.19.0"; without it
-# nothing runs. The plan chose them (internal/machine/agents.go) and never
-# names a downgrade or another way to install.
+# installer of the copy the shell runs, ending at exactly the version the plan
+# named. WORKBENCH_AGENT_UPDATES lists them as TOOL:METHOD:VERSION:FROM, with
+# :NODE after an npm one, for example
+# "codex:standalone-latest:0.163.0:0.162.0 claude-code:npm:2.1.301:2.1.300:v24.19.0";
+# without it nothing runs. standalone installs that Codex release and
+# standalone-latest Codex's latest release, which must be VERSION.
+# WORKBENCH_CLAUDE_CODE_SHA256 lists the SHA-256 values of Anthropic's signed
+# release manifest for a native Claude Code update. The plan chose them
+# (internal/machine/agents.go) and never names a downgrade or another way to
+# install.
 # Runs on every apply (run_after_): an update that fails is blocked on its own
 # update-TOOL step, the others still run, and the next apply plans it again.
 set -uo pipefail
@@ -16,20 +20,88 @@ fi
 # The installers look for the command on PATH: ~/.local/bin first keeps Codex's
 # from taking its own copy for another one and editing a shell profile.
 export PATH="$HOME/.local/bin:$PATH"
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
+
+# codex_install RELEASE downloads OpenAI's standalone installer, then runs it
+# for RELEASE (a version, or latest), as codex update runs it. Run from a file
+# rather than piped into sh, a download cut short runs nothing.
+codex_install() {
+    local installer="$download_dir/codex-install.sh"
+    if ! curl -fsSL https://chatgpt.com/codex/install.sh -o "$installer" || [ ! -s "$installer" ]; then
+        why="Codex's installer could not be downloaded"
+        return 1
+    fi
+    CODEX_NON_INTERACTIVE=1 sh "$installer" --release "$1"
+}
+
+# codex_latest installs Codex's latest release, which keeps the standalone
+# package's own background updates on, when that release is still the planned
+# VERSION, and then checks that VERSION is the release installed: the
+# installer can end without installing, for example while Codex's own updater
+# runs.
+codex_latest() {
+    local channel installed
+    channel=$(curl -fsSL --max-time 30 https://releases.openai.com/codex/channels/latest |
+        sed -n 's/.*"tag_name"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)
+    channel=${channel#rust-v}
+    channel=${channel#v}
+    if [ "$channel" != "$version" ]; then
+        why="Codex's latest release is ${channel:-unknown} rather than the planned $version"
+        return 1
+    fi
+    codex_install latest || return 1
+    installed=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' \
+        "$HOME/.codex/packages/standalone/current/codex-package.json" 2>/dev/null | head -n 1)
+    if [ "$installed" != "$version" ]; then
+        why="Codex's installer left ${installed:-no release} installed rather than $version"
+        return 1
+    fi
+}
+
+# claude_native runs the native installer's own claude install VERSION, then
+# checks the installed binary against WORKBENCH_CLAUDE_CODE_SHA256. One that
+# does not match is removed, never run, and the launcher, the installer's
+# symlink into its versions folder, points at FROM again, which the installer
+# keeps.
+claude_native() {
+    local versions="$HOME/.local/share/claude/versions" actual
+    "$HOME/.local/bin/claude" install "$version" || return 1
+    if command -v sha256sum >/dev/null; then
+        actual=$(sha256sum "$versions/$version" | cut -d' ' -f1)
+    else
+        actual=$(shasum -a 256 "$versions/$version" | cut -d' ' -f1)
+    fi
+    case " $WORKBENCH_CLAUDE_CODE_SHA256 " in
+        *" $actual "*) return 0 ;;
+    esac
+    why="the installed Claude Code $version did not match Anthropic's signed release manifest"
+    if [ -x "$versions/$from" ] && ln -sfn "$versions/$from" "$HOME/.local/bin/claude"; then
+        rm -f "$versions/$version"
+        why="$why, so it was removed and $from put back"
+    else
+        why="$why, and $from could not be put back"
+    fi
+    return 1
+}
+
 for update in $WORKBENCH_AGENT_UPDATES; do
-    IFS=: read -r tool method version node <<< "$update"
-    echo "==> Updating $tool to $version through $method..."
+    IFS=: read -r tool method version from node <<< "$update"
+    echo "==> Updating $tool from $from to $version through $method..."
+    why=
     case "$tool:$method" in
         codex:standalone)
-            curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh -s -- --release "$version" ;;
+            codex_install "$version" ;;
+        codex:standalone-latest)
+            codex_latest ;;
         claude-code:native)
-            "$HOME/.local/bin/claude" install "$version" ;;
+            claude_native ;;
         codex:npm)
             PATH="$HOME/.nvm/versions/node/$node/bin:$PATH" npm install -g "@openai/codex@$version" ;;
         claude-code:npm)
             PATH="$HOME/.nvm/versions/node/$node/bin:$PATH" npm install -g "@anthropic-ai/claude-code@$version" ;;
         *)
             false ;;
-    esac || part_blocked "update-$tool" "$tool was not updated to $version (the output above says why), so the next apply tries again"
+    esac || part_blocked "update-$tool" "$tool was not updated to $version (${why:-the output above says why}), so the next apply tries again"
 done
 exit 0

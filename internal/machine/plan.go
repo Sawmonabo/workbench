@@ -150,8 +150,12 @@ func prepare(
 	if err = prepared.buildChanges(ctx, c); err != nil {
 		return prepared, err
 	}
-	prepared.planAgentUpdates(ctx, c, files, answers["versions_mode"] == "latest")
-	prepared.planUpdates(ctx, c, files)
+	// An isolated destination provisions nothing, so it has no updates to
+	// look up.
+	if c.Native.Destination == c.Home {
+		prepared.planAgentUpdates(ctx, c, files, answers["versions_mode"] == "latest")
+		prepared.planUpdates(ctx, c, files)
+	}
 	if err = prepared.selectEffects(ctx, c, selection, probe); err != nil {
 		return prepared, err
 	}
@@ -952,43 +956,8 @@ func (p *preparation) Apply(
 		// An isolated destination gets files only, rendered under the same
 		// environment as the preview; its scripts provision the real home.
 		args = append(args, "--exclude=scripts")
-	} else {
-		if err = p.selectScripts(); err != nil {
-			return err
-		}
-		environment = scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
-		// A script that cannot do one effect says so here and goes on with the
-		// others, so one part's failure does not stop the rest.
-		report = filepath.Join(p.scratch, "effect-report")
-		if err = p.runScriptsThroughStepRunner(); err != nil {
-			return err
-		}
-		environment = append(environment, "WORKBENCH_EFFECT_REPORT="+report)
-		if p.askpass != "" {
-			// The darwin scripts give it to Homebrew's own commands and the
-			// Touch ID step's one sudo command only.
-			environment = append(environment, "WORKBENCH_SUDO_ASKPASS="+p.askpass)
-		}
-		// Every effect is gated on its own: a shared script runs only the
-		// sections whose effect is checked, and the optional ones keep their
-		// existing == 1 checks.
-		for _, effect := range p.Plan.Effects {
-			if effect.Fixed {
-				continue
-			}
-			value := "0"
-			if effect.Checked {
-				value = "1"
-			}
-			environment = append(environment, effectVariable(effect.Name)+"="+value)
-		}
-		environment = append(environment, p.updateEnvironment()...)
-		environment = append(environment, p.agentEnvironment()...)
-		for i, value := range environment {
-			if rest, ok := strings.CutPrefix(value, "PATH="); ok {
-				environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
-			}
-		}
+	} else if environment, report, err = p.scriptsEnvironment(ctx, c); err != nil {
+		return err
 	}
 	request := operation.Process{
 		Executable:  p.executable,
@@ -1007,6 +976,55 @@ func (p *preparation) Apply(
 		p.blocked = readBlocked(report, p.Plan.Effects)
 	}
 	return err
+}
+
+// scriptsEnvironment selects the scripts this apply runs and returns the
+// environment they run with, and the file in which a script that cannot do
+// one effect says so and goes on with the others, so one part's failure does
+// not stop the rest.
+func (p *preparation) scriptsEnvironment(
+	ctx context.Context,
+	c operation.Context,
+) (environment []string, report string, err error) {
+	if err = p.selectScripts(); err != nil {
+		return nil, "", err
+	}
+	environment = scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
+	report = filepath.Join(p.scratch, "effect-report")
+	if err = p.runScriptsThroughStepRunner(); err != nil {
+		return nil, "", err
+	}
+	environment = append(environment, "WORKBENCH_EFFECT_REPORT="+report)
+	if p.askpass != "" {
+		// The darwin scripts give it to Homebrew's own commands and the
+		// Touch ID step's one sudo command only.
+		environment = append(environment, "WORKBENCH_SUDO_ASKPASS="+p.askpass)
+	}
+	// Every effect is gated on its own: a shared script runs only the
+	// sections whose effect is checked, and the optional ones keep their
+	// existing == 1 checks.
+	for _, effect := range p.Plan.Effects {
+		if effect.Fixed {
+			continue
+		}
+		value := "0"
+		if effect.Checked {
+			value = "1"
+		}
+		environment = append(environment, effectVariable(effect.Name)+"="+value)
+	}
+	environment = append(environment, p.updateEnvironment()...)
+	agents, err := p.agentEnvironment(ctx, report)
+	if err != nil {
+		return nil, "", err
+	}
+	environment = append(environment, agents...)
+	for i, value := range environment {
+		if rest, ok := strings.CutPrefix(value, "PATH="); ok {
+			environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
+		}
+	}
+	return environment, report, nil
 }
 
 // updateEnvironment tells the apply scripts which Homebrew updates the plan
