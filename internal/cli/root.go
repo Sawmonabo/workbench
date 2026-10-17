@@ -76,7 +76,7 @@ func newRoot(o *options) *cobra.Command {
 		Use:           "workbench",
 		Short:         "Set up and maintain developer machines and existing projects",
 		Long:          "Workbench shows what it will change, asks, then provisions the machine, applies recoverable configuration and configures existing projects.",
-		Version:       version(),
+		Version:       shownVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
 		Args:          cobra.NoArgs,
@@ -370,6 +370,15 @@ func writeDetails(out io.Writer, details any) error {
 	}
 	_, err = fmt.Fprintln(out, string(data))
 	return err
+}
+
+// shownVersion is the version --version and the version command print, which
+// marks a local build: one the release workflow did not publish.
+func shownVersion() string {
+	if buildPublished == "true" {
+		return version()
+	}
+	return version() + " (local build)"
 }
 
 func version() string {

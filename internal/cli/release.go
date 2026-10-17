@@ -22,7 +22,8 @@ var buildReleaseVersion = "dev"
 
 // buildPublished is "true" in a build the release workflow publishes
 // (scripts/package-release.py --published). Every other build is local: not on
-// the release channel, so update without a VERSION replaces it.
+// the release channel, so update without a VERSION, run by it as the active
+// release, replaces it.
 var buildPublished = ""
 
 // updateCommand installs the latest release, or VERSION, and the tools it
@@ -72,13 +73,16 @@ func versionCommand(o *options) *cobra.Command {
 				if list, _ := cmd.Flags().GetBool("list"); !list {
 					if !o.json {
 						// The same line as --version.
-						_, err := fmt.Fprintln(cmd.OutOrStdout(), cmd.Root().Name()+" "+version())
+						_, err := fmt.Fprintln(
+							cmd.OutOrStdout(),
+							cmd.Root().Name()+" "+shownVersion(),
+						)
 						return result, err
 					}
 					result.Results = append(result.Results, operation.Component{
 						Name:    "workbench",
 						Status:  operation.StatusComplete,
-						Message: version(),
+						Message: shownVersion(),
 					})
 					return result, nil
 				}
@@ -393,14 +397,14 @@ func continueInstalled(
 // readRelease reads --bundle, or finds and downloads release tag (the latest
 // when empty) for this machine. It returns no bundle when that release is
 // already the active one, unless an interrupted activation still needs
-// finishing, and when tag is empty, this build is published and the active
-// release is newer than the latest. When tag is empty and this build is local,
-// replacing names the local build the latest published release replaces.
+// finishing, and when tag is empty and the active release, not replaced as a
+// local build, is newer than the latest. Its second value, when tag is empty
+// and the latest published release replaces the active local build, says so.
 func readRelease(
 	cmd *cobra.Command,
 	c operation.Context,
 	tag string,
-) (bundle *release.Bundle, replacing string, err error) {
+) (*release.Bundle, string, error) {
 	installed, err := installedRelease(c)
 	if err != nil {
 		return nil, "", err
@@ -409,11 +413,11 @@ func readRelease(
 		return found == installed && release.ValidateSelection(c) == nil
 	}
 	if location, _ := cmd.Flags().GetString("bundle"); location != "" {
-		read, err := release.ReadBundle(cmd.Context(), location, tag)
-		if err != nil || current(read.Metadata.Release) {
+		bundle, err := release.ReadBundle(cmd.Context(), location, tag)
+		if err != nil || current(bundle.Metadata.Release) {
 			return nil, "", err
 		}
-		return &read, "", nil
+		return &bundle, "", nil
 	}
 	stop := c.ShowProgress("Getting Workbench " + cmp.Or(tag, "latest"))
 	defer stop()
@@ -422,25 +426,40 @@ func readRelease(
 	if err != nil || current(remote.Tag) {
 		return nil, "", err
 	}
-	// Without a VERSION, a published build only moves forward, so a lagging
-	// latest never takes it back. A local build is not on the release channel:
-	// the latest published release replaces it, whatever their versions.
-	if tag == "" && installed != "" {
-		if buildPublished == "true" {
-			if release.Newer(installed, remote.Tag) {
-				return nil, "", nil
-			}
-		} else {
-			replacing = "Replacing local build " + installed + " with " + remote.Tag +
-				", the latest published release"
-		}
+	// Without a VERSION, update only moves forward, so a lagging latest never
+	// takes a release back. An active local build is not on the release
+	// channel: the latest published release replaces it, whatever their
+	// versions. Only that build itself, run as the active release, can tell.
+	replacing := ""
+	switch {
+	case tag != "" || installed == "" || installed == remote.Tag:
+	case buildPublished != "true" && runsActive(c):
+		replacing = "Replacing local build " + installed + " with " + remote.Tag +
+			", the latest published release"
+	case release.Newer(installed, remote.Tag):
+		return nil, "", nil
 	}
 	c.Step("downloading " + remote.Tag)
-	downloaded, err := remote.Bundle(cmd.Context())
+	bundle, err := remote.Bundle(cmd.Context())
 	if err != nil {
 		return nil, "", err
 	}
-	return &downloaded, replacing, nil
+	return &bundle, replacing, nil
+}
+
+// runsActive reports whether this program is the active release's executable.
+func runsActive(c operation.Context) bool {
+	state, err := operation.ReadState(c.Paths)
+	if err != nil || state == nil || state.ActiveRelease == nil {
+		return false
+	}
+	running, err := os.Executable()
+	if err != nil {
+		return false
+	}
+	running, err = filepath.EvalSymlinks(running)
+	active, activeErr := filepath.EvalSymlinks(state.ActiveRelease.Executable)
+	return err == nil && activeErr == nil && running == active
 }
 
 // stageRelease stages and activates bundle, then removes what the approved
