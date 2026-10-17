@@ -19,7 +19,8 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         [ -n "$node_default" ] && [ "$node_default" != N/A ] && export PATH="${NVM_DIR:-$HOME/.nvm}/versions/node/$node_default/bin:$PATH"
     fi
     missing=()
-    for tool in codex claude corepack; do command -v "$tool" >/dev/null 2>&1 || missing+=("$tool"); done
+    for tool in codex claude; do command -v "$tool" >/dev/null 2>&1 || [ -x "/home/linuxbrew/.linuxbrew/bin/$tool" ] || missing+=("$tool"); done
+    command -v corepack >/dev/null 2>&1 || missing+=(corepack)
 {{- range $tool, $ver := .corepack_globals }}
     command -v "{{ $tool }}" >/dev/null 2>&1 || missing+=("{{ $tool }}")
 {{- end }}
@@ -60,13 +61,14 @@ status=0
     nvm use default || failed+=("the default Node could not be selected")
     # Codex and Claude Code are installed here only when missing: an installed
     # copy, from npm or its own installer, is updated by its own update step
-    # (45-agent-updates), so npm never adds a second copy beside it.
+    # (45-agent-updates), so npm never adds a second copy beside it, nor beside
+    # a Homebrew copy, which Workbench leaves alone.
 {{- if eq $mode "pinned" }}
-    command -v codex >/dev/null 2>&1 || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
-    command -v claude >/dev/null 2>&1 || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
+    command -v codex >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/codex ] || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
+    command -v claude >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/claude ] || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
 {{- else }}
-    command -v codex >/dev/null 2>&1 || npm install -g @openai/codex@latest || failed+=("codex could not be installed")
-    command -v claude >/dev/null 2>&1 || npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
+    command -v codex >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/codex ] || npm install -g @openai/codex@latest || failed+=("codex could not be installed")
+    command -v claude >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/claude ] || npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
 {{- end }}
     # Node >= 25 no longer bundles corepack; install it into the default Node first.
     command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=("corepack could not be installed")
