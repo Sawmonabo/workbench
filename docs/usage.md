@@ -86,12 +86,6 @@ exits 2. `update` ends with
 When that release is already installed it installs no release, still completes
 any missing tool, and says `[WorkBench] vX is already installed; nothing was
 applied: run workbench apply`, so rerunning it finishes a setup that was stopped.
-Without VERSION, `update` only moves forward: when the installed release is
-newer than the latest published one (a local build such as `v0.1.28-local`
-over `v0.1.25`), it keeps it and says why, in its `release` line and summary:
-`[WorkBench] v0.1.28-local is newer than the latest published release,
-v0.1.25, so it is kept (workbench update v0.1.25 installs that one); nothing
-was applied: run workbench apply`.
 The installed release runs the update, so one older than v0.1.8 first prints its
 own `Installed Workbench vX; continuing with setup and apply`; the new release
 then installs only its tools, as above. A staged copy of a release that
