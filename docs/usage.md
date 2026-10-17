@@ -50,7 +50,7 @@ logged-in `gh`. Never run it as root.
 | `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
 | `version` | Print this Workbench version, the same as `--version`. |
 | `version --list` | List the published releases, marking the latest and the installed one. |
-| `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks; no repair. |
+| `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
 | `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. Without a terminal, `--tool NAME` prints one tool's report. |
@@ -184,6 +184,24 @@ tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 (`watch.log`) are in Workbench's state folder under `guard/`. The hooks are
 hidden `workbench guard` commands. See the
 [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md).
+
+Workbench installs Claude Code's settings, instructions and hooks in
+`~/.claude` and Codex's in `~/.codex`, and never sets `CLAUDE_CONFIG_DIR` or
+`CODEX_HOME`. Either variable moves its tool to another folder, often one
+per account (`alias claude-work='CLAUDE_CONFIG_DIR=~/.claude-work claude'`),
+and the tool then reads none of what Workbench installs. Workbench leaves that
+folder alone, as installing there would pick one of your accounts for you.
+When the variable points elsewhere, set in Workbench's environment or, for
+`CLAUDE_CONFIG_DIR`, in the `env` of Claude Code's user or managed settings
+files (where Claude Code also takes it from), the `apply` plan warns, `doctor`
+reports `claude-config-dir` or `codex-home` as a conflict, and `costs status`
+checks the hooks in that folder and adds a `config` line, each naming the
+variable, where it is set and how to undo it. A session started with the variable only
+in that session's environment, such as through the alias, is invisible to
+Workbench. The costs ingest hook follows the folder a Claude Code session's
+transcript is in when the variable was stripped from the hook's environment
+(`CLAUDE_CODE_SUBPROCESS_ENV_SCRUB`). See
+[ADR 0010](adr/0010-agent-config-folder-moves-are-reported.md).
 
 ## Approval and automation
 

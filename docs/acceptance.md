@@ -701,6 +701,22 @@ synthetic answers.
   enabled, where a command whose shape differs would go unguarded and be
   logged, not stopped wrongly; and a real agent receiving the stop reason.
   Applying the hooks to a real machine is not yet observed.
+- A moved agent config folder is reported, not written. On 2026-10-16, on
+  macOS in a disposable home with synthetic answers, with `CLAUDE_CONFIG_DIR`
+  unset, set to `~/.claude` or `~/.claude/`, `apply --local-build --dry-run
+  --json` had no config-folder warning, `doctor` no `claude-config-dir` line
+  and `costs status` the `(workbench apply)` hint; set to `~/alt`, the plan
+  warned `CLAUDE_CONFIG_DIR in the environment points Claude Code at ~/alt, so
+  it does not read the settings, instructions and costs and guard hooks
+  Workbench installs in ~/.claude; unset it, or set it to ~/.claude, for them
+  to apply`, `doctor` reported it as `claude-config-dir: conflict` (exit 0) and
+  `costs status` showed the hooks of `~/alt` as missing without the hint, plus
+  a `config claude` line. The variable in `~/.claude/settings.json`'s `env` was
+  named the same way with `remove it from that file`, and `CODEX_HOME` set to
+  `~/codex-alt` gave `codex-home: conflict` and a `config codex` line. The
+  ingest hook, with the variable unset and a transcript under
+  `~/alt/projects`, recorded that transcript's response. Managed settings files
+  and a real Claude Code or Codex session were not observed.
 
 ### Output
 
