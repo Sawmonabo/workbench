@@ -3,6 +3,97 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.26](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.26) - 2026-10-17
+
+### Features
+
+- Log a watcher's exit on a signal
+- Hand the watch over to the release an update installs
+- Start a detached process from a command with descriptors to pass on, and take on a passed lock
+- --since and --until take the forms guard logs --since takes
+- Remove the guard log's old free-text lines
+- Show the watcher's raw output and unmatched notes in guard logs
+- Log events as JSON Lines and show them with workbench guard logs
+- Update Codex and Claude Code through the installer that put them there
+- Keep the costs files in Workbench's folders, and move them with workbench migrate
+- Stop the largest agent command before memory runs out
+
+### Fixes
+
+- Tidy release-note wording and keep an installed row with no releases
+- Show an installed pre-release or local build in version --list
+- Replace a local build only when it runs as the active release
+- Replace a local build with the latest published release
+- Say why a release newer than the latest published one is kept
+- Keep the watcher's own output out of its log, and follow any cut by an offset map
+- Let a log cut that adds more than it drops grow the file
+- Take the higher of the user and managed minimumVersion floors
+- Ignore a relative CLAUDE_CONFIG_DIR in settings, and keep reading ~/.claude/projects after a move
+- Cut logs in place without losing lines, and follow them by position
+- Report a CLAUDE_CONFIG_DIR or CODEX_HOME that moves an agent away from Workbench's settings
+- Plan no native Claude Code update below its settings' minimumVersion
+- Verify Claude Code's binary before it runs and set a floor that never stops updates
+- Keep Codex and Claude Code's own updaters on and check Claude Code's signed manifest
+- Leave a Homebrew Codex or Claude Code on Linux without adding an npm copy
+- Stage native's writes in the run's private folder and check that folder's group
+- Prefix only the enforced hooks that run workbench with its path
+- Match only by call ID where Codex sets them, and tick at 1 s at warning
+- Refuse a native file whose folder group the user cannot set
+- Bind Workbench's runtime folders into approved plans
+- Read Linux extended attribute names into a buffer
+- Match Codex commands by call ID, guard a PID 1 agent, drop abandoned notes
+- Run the agent hooks from the apply's bin folder
+- Match every agent shell form, read the cgroup, and hold soft signals
+- Read ACLs through libSystem's getattrlist and fgetattrlist
+- Open the ledger once per command and let empty old folders wait
+- Log what the worker's move left once the ledger moved
+- Gate every ledger open and finish the review's costs fixes
+
+### Documentation
+
+- Record the observed v0.1.26-rc.1 pre-release run
+- Explain release-note ranges and the changelog tag choice
+- Describe the full, pre-release and local channels
+- State when update replaces a local build
+- Describe the published stamp and local build naming
+- Record the watcher handover observed on Linux
+- Describe the watcher's handover to a newly installed release
+- Let a migration drop a held-open log's old-format lines
+- Describe how Workbench reports an agent config folder moved by its variable
+- Describe verify-before-run, the rising floor and the launcher rule for agent updates
+- Correct ADR 0009 and describe the agent updaters, channel and signed manifest
+- Describe the Codex and Claude Code updates and record ADR 0009
+- Restore the measured ingest timings and reflow reworded lines
+- Name the container inits never taken for an agent
+- State behaviour, not history, in the records, specs and comments
+- Record the overlay home check with the landed attribute read
+- Say a harness process with a note's exact shape is tracked
+- Record the Linux agent, pressure and migration runs
+- Bind the folders, gate at the open and follow the bin folder in the designs
+- Describe the shapes, cgroup reading, holds and abandonment the guard has
+
+### Maintenance
+
+- Allow the Claude Code signing key's public fingerprint
+- Write each release's notes from an explicit tag range
+- Publish a hyphenated tag as a GitHub pre-release
+- Drop the message explaining why update keeps a newer local build
+- Pin Codex 0.163.0 and Claude Code 2.1.301, the versions the guard was observed with
+- Drop writeTable's unparam exception
+- Call libSystem from one place and sweep stale writes once
+- Use wg.Go and errors.Is for missing files
+- Name the old-location variables once, in Go
+- Sweep stale write temporaries in one function for notes and killed
+- Own error categories and removal of a missing path
+- Write notes and price caches with ReplacePrivateFile
+- Start detached children and cap logs in one place
+- Own private folders and folder syncs in one place
+
+### merge
+
+- Workbench guard logs, a structured guard log and the old-log migration
+- Update Codex and Claude Code through their own installers
+
 ## [v0.1.25](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.25) - 2026-10-14
 
 ### Fixes
