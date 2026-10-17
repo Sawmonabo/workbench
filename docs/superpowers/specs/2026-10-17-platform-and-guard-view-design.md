@@ -47,9 +47,9 @@ Each was read in the source named.
   `_darwin.go`/`_linux.go` files (`internal/guard/platform_*`,
   `internal/operation/filesystem_*`, `image_metadata_*`, `libc_darwin.go`,
   `askpass_*`), but 21 `runtime.GOOS` tests in 11 files of `machine`,
-  `operation`, `costs` and `release`, and about 12 WSL tests in `machine`,
-  decide platform facts where they are used, and `isWSL()` reads
-  `/proc/sys/kernel/osrelease` on every call.
+  `operation`, `costs` and `release`, and seven `isWSL()` calls in four
+  files of `machine`, decide platform facts where they are used, and
+  `isWSL()` reads `/proc/sys/kernel/osrelease` on every call.
 - **Log line format.** Charm's `charmbracelet/log` prints time, a styled
   level, the message and then `key=value` pairs on one line, and styles only
   a terminal ([README](https://github.com/charmbracelet/log)). logfmt is one
@@ -158,7 +158,7 @@ When a file grows past one subject, it splits by subject with the same suffix
 | `GroupFromFolder` | new files take their folder's group | the `darwin` test in `operation.inheritedGroup` |
 | `TouchIDPossible` | Touch ID for sudo can exist | the test in `operation.TouchIDForSudo` |
 | `AssetTriple` | the `apple-darwin` or `unknown-linux-gnu` asset name part | the map in `machine/setup.go` |
-| process calls | list processes, one process's info, arguments, one environment value, physical footprint, resident memory, working folder, send a signal safely, wait for exit | `internal/guard/platform_*`, `operation.PhysicalFootprint` |
+| process calls | list processes, one process's info, arguments, one environment value, physical footprint, resident memory (`Resident`), working folder (`Folder`), send a signal safely, wait for exit | `internal/guard/platform_*`, `operation.PhysicalFootprint` |
 | memory reading | the system's memory pressure, available and total | `readMemory` in `internal/guard/platform_*` |
 | file calls | no-replace rename, private file system check, terminal check, ACL and metadata reads | `internal/operation/filesystem_*`, the calls in `image_metadata_*` |
 | `Peer(conn)` | the connected process's user and process ID | `LOCAL_PEERPID` in `operation/askpass_darwin.go`, new on Linux |
@@ -199,29 +199,38 @@ order, `cmd` last because it is the longest.
 
 ```
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
-Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s guarded=no cmd="./scripts/nap.sh"
-Oct 17 14:42:31 WARN  stopped   id=2Bv6Yc1d agent=claude project=api-server by=guard size=6.2GB reason="memory critical" cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    available=1.1GB total=16GB stopped=none
-Oct 17 14:44:40 WARN  stopped   id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s peak=1.3GB cmd="pnpm vitest run"
+Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd="./scripts/nap.sh"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB reason="memory critical" cmd="cargo test --workspace"
+Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
+Oct 17 14:43:02 WARN  memory    size=3.1GB floor=4.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
 Oct 17 14:45:10 ERROR error     msg="cannot read memory" error="proc_pid_rusage 81234: no such process"
+Oct 17 14:50:00 INFO  idle
 ```
 
 - **Time** is the machine's zone, `Jan 2 15:04:05`, as journalctl and the
   log's own records sort.
 - **Level** is the record's slog level. **Event** is the record's `event`
-  (guard design 4.1), with `tracking` folded away: a command shows once, when
-  it ends, is stopped or goes unmatched.
+  (guard design 4.1), with `tracking` folded away: a command shows when it
+  ends (`ended`), goes unmatched or is stopped (`stopping`, then `forced` or
+  `gave-up` if it comes to that). The watcher's own events (`started`,
+  `handover`, `idle`, `exited`) print the same way, dim.
 - **`id`** is the first 8 characters of the tool call ID after its `toolu_`
   or `call_` prefix. `--json` keeps the full ID.
 - **`project`** is where the command ran (section 6.2).
 - **`cmd`** is the note's command with a leading `cd PATH &&` or `cd PATH;`
   removed; the path went into `project`.
-- **Sizes** are `MB` below 1 GB, else `GB` with one decimal.
+- **Sizes** are `MB` below 1 GB, else `GB` with one decimal. **`took`** has
+  one decimal below 10 s, whole seconds below a minute, else `1m12s`.
 - **Colors**, on a terminal without `NO_COLOR` only: INFO dim, WARN yellow,
   ERROR red; keys dim, values plain; `id` blue; `took` of 10 s or more bold;
   `peak` or `size` of 1 GB or more yellow.
-- **Order of keys:** `id agent subagent project by took peak size reason
-  available total stopped msg error cmd`. A key without a value is left out.
+- **Order of keys:** `id agent subagent project by took size peak floor
+  level available total reason still_running release old_release new_release
+  new_pid msg error process cmd`. A key without a value is left out. `msg`
+  is printed only where the event alone does not say what happened:
+  `memory`, `refused`, `gave-up`, `error` and `raw` (a watcher output line,
+  guard design 4.1).
 - A long line soft-wraps on screen and stays one line, so `grep` and copying
   keep the whole event.
 - `--since`, `--follow` and `--json` stay as they are (guard design 4.1).
@@ -236,7 +245,7 @@ A full-screen Bubble Tea program in the alternate screen.
 
 ```
 [WorkBench] Guard memory  ● watching · v0.1.26 · memory normal · 10.5 of 16 GB used      2:41:08 PM
-3 running · 3 finished in the last minute · largest peak 6.2 GB
+2 running · 1 finished in the last minute · largest peak 6.2 GB
 
   ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT            COMMAND
 ▸ 4fQ8nX2a  ● run       claude  Explore    44s  2.2 GB  2.3 GB  feature-login  pnpm typecheck 2>&1 | tail -15
@@ -319,10 +328,12 @@ Each tick the watcher sums each tracked command's tree (guard design 6.3's
 tree, the same processes a stop would signal) and keeps per command the last
 120 sums and the peak. macOS uses the physical footprint, as stops do. Linux
 uses `/proc/PID/statm`'s resident pages for this sum; the stop decision keeps
-`smaps_rollup`'s Pss, read only when memory calls for a stop. The `ended`,
-`stopped` and `unmatched` records gain `took` (seconds, float), `peak`
-(bytes), `cwd`, `project` and `subagent`; `stopped` gains `by` (`guard` or
-`you`).
+`smaps_rollup`'s Pss, read only when memory calls for a stop. The `ended`
+and `stopping` records gain `took` (seconds, float), `peak` (bytes), `cwd`,
+`project` and `subagent`; `unmatched` gains the same but `peak`, since its
+command was never measured; `stopping` gains `by` (`guard` or `you`). The
+view's `stopped` state is a command whose `stopping` record has been written
+and whose processes are gone.
 
 ### 6.5 The socket
 
@@ -388,8 +399,8 @@ Everything else reuses what Workbench already has:
 - **Messages and records**: `encoding/json` for JSON Lines, and the guard's
   `slog` JSON records for the log.
 - **Socket handover**: the listening socket rides the handover the lock
-  already uses (`internal/guard/handover.go`, `operation.InheritLock`, passed
-  through `ExtraFiles`).
+  already uses (`internal/guard/handover.go`: `operation.StartDetached`'s
+  `Files` hands the open files over, `operation.InheritLock` takes them up).
 - **Stops**: the guard's existing stop path (`stop`, `targets` and the 5 s
   escalation in `internal/guard/watch.go`, sending through
   `internal/platform`); a manual stop adds only who asked and the message.
@@ -425,7 +436,6 @@ that nobody with the right to stop it chose:
 
 - AGENTS.md: the ownership row and the `runtime.GOOS` rule (section 3.5).
 - `docs/adr/0012-platform-package.md` (section 3.5).
-
 - `docs/usage.md`: the new `guard logs` format and the `guard memory`
   command, keys and refusals.
 - The guard design: note fields (section 4), log keys (4.1), pairing by
