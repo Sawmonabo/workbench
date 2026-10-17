@@ -250,7 +250,42 @@ uses `/proc/PID/statm`'s resident pages for this sum; the stop decision keeps
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
   memory).` In dry-run mode it logs `would stop` and signals nothing.
 
-## 6. Tests
+## 6. Platforms and reuse
+
+Workbench supports macOS and Linux, and WSL runs the Linux code. Platform
+code goes in `_darwin.go` and `_linux.go` files beside the existing ones, so
+each platform builds only its own; everything else is shared.
+
+| Need | macOS | Linux and WSL | Where |
+| --- | --- | --- | --- |
+| A process's memory each tick | `operation.PhysicalFootprint` (`proc_pid_rusage`), already used | `/proc/PID/statm` resident pages × page size, new | `footprint` beside the existing one in `internal/guard/platform_darwin.go` / `platform_linux.go` |
+| A process's working folder | `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`, a new call through the existing libc trampolines in `internal/operation/libc_darwin.go` | `os.Readlink("/proc/PID/cwd")` | same platform files |
+| The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` (`unix.GetsockoptInt`) | `SO_PEERCRED` (`unix.GetsockoptUcred`) | one `operation.Peer(conn) (uid, pid, error)` per platform; the password helper's `peerDescendsFrom` (`internal/operation/askpass_darwin.go`) is rewritten on top of it |
+| Is the peer under an agent | the guard's own process snapshot (`snapshot` in `internal/guard/guard.go`), which already walks parents and knows the noted agents | same | `internal/guard` |
+
+Everything else reuses what Workbench already has:
+
+- **Agent detection**: `operation.AgentSession` (`internal/operation/plan.go`).
+- **Terminal view**: Bubble Tea v2, Lip Gloss v2 and Bubbles v2 as in go.mod,
+  built like the costs report's full-screen view (`internal/cli/costsview.go`,
+  `view.AltScreen`), with the shared styles and `painter` from
+  `internal/cli/root.go` and widths from `lineWidth` and `terminalWidth`
+  (`internal/cli/table.go`).
+- **Log printing**: `guard.ReadLog` and the existing `--since` parser
+  (`internal/cli/timeflag.go`); only the line format in
+  `internal/cli/guard.go` changes. Sizes keep `guard.Gigabytes`, plus MB below
+  1 GB.
+- **Messages and records**: `encoding/json` for JSON Lines, and the guard's
+  `slog` JSON records for the log.
+- **Socket handover**: the listening socket rides the handover the lock
+  already uses (`internal/guard/handover.go`, `operation.InheritLock`, passed
+  through `ExtraFiles`).
+- **Stops**: the guard's existing stop path (`stop`, `targets`, `send` and the
+  5 s escalation in `internal/guard/watch.go` and the platform files); a
+  manual stop adds only who asked and the message.
+- **No new modules.** `golang.org/x/sys` already has every call above.
+
+## 7. Tests
 
 AGENTS.md admits tests only for data loss, credential exposure or
 unauthorized execution. Each of these guards against a command being stopped
@@ -262,7 +297,7 @@ that nobody with the right to stop it chose:
 3. Two notes with the same command text in two folders pair with the
    processes in their own folders.
 
-## 7. Checks before release
+## 8. Checks before release
 
 - macOS in a disposable home and Linux in a memory-capped Docker container,
   with `WORKBENCH_GUARD=dry-run` and then real stops of commands the check
@@ -274,7 +309,7 @@ that nobody with the right to stop it chose:
 - The view's and the watcher's CPU and memory over a minute with ten tracked
   commands, recorded in `docs/acceptance.md`.
 
-## 8. Docs
+## 9. Docs
 
 - `docs/usage.md`: the new `guard logs` format and the `guard memory`
   command, keys and refusals.
@@ -284,4 +319,4 @@ that nobody with the right to stop it chose:
   messages.
 - `docs/adr/0012-guard-memory-view.md`: why a socket served by the watcher,
   the peer checks and the agent lock, with the sources in section 2.
-- `docs/acceptance.md`: what the checks in section 7 observed.
+- `docs/acceptance.md`: what the checks in section 8 observed.
