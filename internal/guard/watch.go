@@ -193,6 +193,7 @@ func Watch(ctx context.Context, version string) {
 		}
 		w.waiter.wait(next)
 	}
+	f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
 }
 
 func (w *watcher) lock() bool {

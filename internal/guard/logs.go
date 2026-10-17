@@ -25,7 +25,7 @@ import (
 const (
 	EventStarted   = "started"   // a watcher started
 	EventIdle      = "idle"      // a watcher exited, idle
-	EventExited    = "exited"    // a watcher exited because its lock file changed
+	EventExited    = "exited"    // a watcher exited because its lock file changed or on a signal
 	EventHandover  = "handover"  // a watcher handed over to the installed release's watcher
 	EventTracking  = "tracking"  // a noted command was found
 	EventEnded     = "ended"     // a tracked command ended

@@ -200,7 +200,8 @@ var routineGuardEvents = map[string]bool{guard.EventTracking: true, guard.EventE
 
 // guardEventStyles color a stop and its outcome, errors and the watcher's raw
 // output red, low memory, calls the guard gave up on or could not match and a
-// lost lock yellow, and the watcher's routine faint.
+// watcher's exit on a lost lock or a signal yellow, and the watcher's routine,
+// a handover included, faint.
 var guardEventStyles = map[string]lipgloss.Style{
 	guard.EventStopping: red, guard.EventForced: red, guard.EventGaveUp: red,
 	guard.EventError: red, guard.EventRaw: red, guard.EventMemory: yellow,
