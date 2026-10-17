@@ -58,7 +58,9 @@ synthetic answers.
   observed).
   The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
   downloading from GitHub each installed a release.
-  `version --list` marks the latest and installed releases. Switching to an
+  `version --list` marks the latest and installed releases; an installed
+  release missing from the list, a pre-release or local build, follows on its
+  own line (observed for a local build in a disposable home). Switching to an
   older bundle and back worked, and `update 9.9.9` names the missing release.
 - `update` installs the release and its pinned tools and never applies the
   machine. From an older release it installs the latest and says

@@ -49,8 +49,8 @@ logged-in `gh`. Never run it as root.
 | `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
 | `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
 | `version` | Print this Workbench version, the same as `--version`; a local build adds `(local build)`. |
-| `version --list` | List the published releases, marking the latest and the installed one. |
-| `doctor` | What is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
+| `version --list` | List the published full releases, marking the latest and the installed one; an installed pre-release or local build follows on its own line. |
+| `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
 | `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. Without a terminal, `--tool NAME` prints one tool's report. |
@@ -95,12 +95,13 @@ release`. `--dry-run` shows it, with or without `--json`, and a real run prints
 it on stderr. Name a VERSION to install another published release.
 GitHub's latest release is the newest full release (`vX.Y.Z`), never a
 pre-release (`vX.Y.Z-rc.N`), so a machine moves to a pre-release only when it
-names one: `workbench update v0.2.1-rc.1`, or `install.sh --version
-v0.2.1-rc.1`. A pre-release is published, so `update` without a VERSION keeps
-it until `v0.2.1` is out, then installs that, since `v0.2.1-rc.1` sorts below
-`v0.2.1`. `version --list` shows full releases only; `gh release list -R
-Sawmonabo/workbench` and the repository's releases page also show
-pre-releases. See [ADR 0011](adr/0011-release-channels.md).
+names one: `workbench update v0.2.1-rc.1`, or the installer with `| sh -s --
+--version v0.2.1-rc.1`. A pre-release is published, so `update` without a
+VERSION keeps it until `v0.2.1` is out, then installs that, since
+`v0.2.1-rc.1` sorts below `v0.2.1`. `version --list` shows full releases only,
+and an installed release it lacks, such as a pre-release, on its own line; `gh
+release list -R Sawmonabo/workbench` and the repository's releases page also
+show pre-releases. See [ADR 0011](adr/0011-release-channels.md).
 The installed release runs the update, so one older than v0.1.8 first prints its
 own `Installed Workbench vX; continuing with setup and apply`; the new release
 then installs only its tools, as above. A staged copy of a release that

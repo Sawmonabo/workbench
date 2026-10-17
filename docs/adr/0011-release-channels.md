@@ -29,6 +29,16 @@ precedence than its normal version (`1.0.0-rc.1 < 1.0.0`).
   GitHub's latest release, so every machine's `update` installs it, and the
   changelog gains a section per candidate.
 
+For the changelog, git-cliff offers two ways to keep pre-release tags out of
+it. `ignore_tags` folds an ignored tag's commits into the next tag, as its
+documentation says, for the whole changelog and for an explicit range; but
+`--latest` and `--current` at a full release that follows pre-releases cover
+only the commits after the last pre-release tag, and `--current` at a
+pre-release prints an `Unreleased` section. A `tag_pattern` that matches only
+full release tags gives the same changelog, and a pre-release's own notes
+widen it with `--tag-pattern`. The second is used, with explicit ranges for
+every release's notes.
+
 ## Decision
 
 - **Full release.** Pushing a `vX.Y.Z` tag builds the bundles with
@@ -43,24 +53,30 @@ precedence than its normal version (`1.0.0-rc.1 < 1.0.0`).
   the release channel, so `update` without a version keeps it while it is
   newer than the latest full release and installs `vX.Y.Z` once that is
   published, because semantic versioning orders `vX.Y.Z-rc.N` below `vX.Y.Z`.
-  `workbench version --list` lists full releases only; `gh release list -R
-  Sawmonabo/workbench` and the repository's releases page also show
-  pre-releases.
+  `workbench version --list` lists full releases only, and adds an installed
+  release it lacks on its own line; `gh release list -R Sawmonabo/workbench`
+  and the repository's releases page also show pre-releases.
 - **Changelog.** `cliff.toml` matches only full release tags, so a
   pre-release gets no section and its commits belong to the full release that
   follows it. The changelog job does not run for a pre-release, and its check
   for the newest tag leaves pre-release tags out, because git's `v:refname`
-  order puts `v0.2.0-rc.1` after `v0.2.0`. A pre-release's notes are written
-  with the tag pattern widened to every `v*` tag: the commits since the tag
-  before it. git-cliff's `ignore_tags` was tried first, which its
-  documentation says moves an ignored tag's commits into the next tag; it
-  does for the whole changelog, but `--latest` then printed an empty
-  `Unreleased` section for the full release that followed a pre-release.
+  order puts `v0.2.0-rc.1` after `v0.2.0`.
+- **Release notes.** Each release's notes cover an explicit range ending at
+  its own tag, so a later tag or a rerun never changes them. A full release's
+  range starts at the previous full release (`git describe --exclude '*-*'`)
+  and matches its `CHANGELOG.md` section; a pre-release's starts at the
+  previous `v*` tag of any kind, with the tag pattern widened to
+  `^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`. With no earlier tag, the notes cover the whole history
+  up to the tag.
 - **Local build.** A bundle built without `--published` is local. Its name is
   the next release with a `-dev.N` suffix, so it sorts below that release.
   `update` without a version, run by a local build that is the active
   release, replaces it with the latest published release whatever the
-  versions, and `workbench version` prints `(local build)` after its version.
+  versions, and `workbench version` and `doctor` print `(local build)` after
+  its version. The channel is a stamp the release workflow builds into the
+  executable, not something read from the version: Deno does the same, fixing
+  a binary's channel when it is built (`DENO_CANARY`), and `deno upgrade`
+  without a version moves a canary build to the latest stable release.
   Local builds run only in disposable homes and CI; unreleased code reaches a
   real machine only as a pre-release.
 
@@ -81,5 +97,7 @@ precedence than its normal version (`1.0.0-rc.1 < 1.0.0`).
 - [Semantic Versioning 2.0.0, pre-release (item 9)](https://semver.org/#spec-item-9)
 - [Semantic Versioning 2.0.0, precedence (item 11)](https://semver.org/#spec-item-11)
 - [git-cliff configuration: `tag_pattern`, `ignore_tags`](https://git-cliff.org/docs/configuration/git)
-- [git-cliff arguments: `--latest`, `--tag-pattern`](https://git-cliff.org/docs/usage/args)
-- [Deno: build-time release channel, `deno upgrade`](https://docs.deno.com/runtime/reference/cli/upgrade/)
+- [git-cliff arguments: `[RANGE]`, `--latest`, `--current`, `--tag-pattern`](https://git-cliff.org/docs/usage/args)
+- [git describe: `--match`, `--exclude`](https://git-scm.com/docs/git-describe)
+- [Deno `upgrade`: no version upgrades to the latest stable release](https://docs.deno.com/runtime/reference/cli/upgrade/)
+- [Deno source: channel fixed at build time (`DENO_CANARY`)](https://github.com/denoland/deno/blob/main/cli/lib/version.rs)
