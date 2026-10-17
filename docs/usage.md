@@ -432,10 +432,10 @@ its `claude install VERSION` only if it matches the manifest. `claude install`
 downloads the version again itself, so the binary it installs is checked as
 well, even when the install fails: one that does not match is removed, the
 launcher points at the previous version again, and the step is blocked. A
-`claude` started between the install and that check runs the unchecked
-binary. A `minimumVersion` above the target, in your settings or managed
-settings, makes `claude install` install nothing, so the plan then names it in
-a warning and lists no Claude Code update.
+`claude` started between the install and that check runs the unchecked binary.
+A `minimumVersion` above the target, in your settings or managed settings (the
+higher one counts), makes `claude install` install nothing, so the plan then
+names it in a warning and lists no Claude Code update.
 
 In latest mode every plan looks the versions up again, including the recheck
 an interactive apply runs after you approve: a release published since the

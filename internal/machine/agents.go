@@ -496,12 +496,14 @@ var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // claudeUpdates returns the release channel Claude Code's own updates follow,
 // "stable" or "latest", and the minimumVersion below which its updates and
-// claude install install nothing, or "": each from the user's settings (in
-// CLAUDE_CONFIG_DIR when that is set), overridden by the machine's managed
-// settings files (costs.ClaudeManagedSettings), the way Claude Code merges
-// them. Project and local settings depend on the folder Claude Code starts in
-// and are not read. A channel unset or anything else means latest, Claude
-// Code's default.
+// claude install install nothing, or "". The channel comes from the user's
+// settings (in CLAUDE_CONFIG_DIR when that is set), overridden by the
+// machine's managed settings files (costs.ClaudeManagedSettings), the way
+// Claude Code merges them. The floor is the highest any of them sets, since a
+// managed minimum is one the user's settings cannot lower
+// (https://code.claude.com/docs/en/setup#pin-a-minimum-version). Project and
+// local settings depend on the folder Claude Code starts in and are not read.
+// A channel unset or anything else means latest, Claude Code's default.
 func claudeUpdates(home string) (channel, minimum string) {
 	read := func(path string) {
 		var settings struct {
@@ -515,7 +517,8 @@ func claudeUpdates(home string) (channel, minimum string) {
 		if settings.Channel != nil {
 			channel = *settings.Channel
 		}
-		if settings.Minimum != nil {
+		if settings.Minimum != nil && plainVersion.MatchString(*settings.Minimum) &&
+			(minimum == "" || newerVersion(*settings.Minimum, minimum)) {
 			minimum = *settings.Minimum
 		}
 	}
