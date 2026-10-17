@@ -643,18 +643,11 @@ func costsStatus(info costs.StatusInfo, width int) string {
 					overrides,
 				),
 			)
-			var hooks []string
-			fixable := false
-			for _, event := range []string{"SessionStart", "SessionEnd"} {
-				state := cmp.Or(tool.Hooks[event], costs.HookMissing)
-				fixable = fixable || state == costs.HookMissing || state == costs.HookUntrusted
-				hooks = append(hooks, event+" "+state)
+			add("hooks"+suffix, hookStates(tool))
+			if tool.ConfigMove != nil {
+				home, _ := os.UserHomeDir()
+				add("config"+suffix, tool.ConfigMove.Explain(home))
 			}
-			line := strings.Join(hooks, ", ")
-			if fixable {
-				line += " (workbench apply)"
-			}
-			add("hooks"+suffix, line)
 			if tool.Skipped > 0 {
 				add(
 					"skipped"+suffix,
@@ -676,6 +669,24 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			strings.TrimLeft(first, " ") + "\n" + rest)
 	}
 	return b.String()
+}
+
+// hookStates is a tool's ingest hook state for each session event, with the
+// command that installs or trusts them when the tool reads the folder
+// Workbench installs them in.
+func hookStates(tool costs.ToolStatus) string {
+	var hooks []string
+	fixable := false
+	for _, event := range []string{"SessionStart", "SessionEnd"} {
+		state := cmp.Or(tool.Hooks[event], costs.HookMissing)
+		fixable = fixable || state == costs.HookMissing || state == costs.HookUntrusted
+		hooks = append(hooks, event+" "+state)
+	}
+	line := strings.Join(hooks, ", ")
+	if fixable && tool.ConfigMove == nil {
+		line += " (workbench apply)"
+	}
+	return line
 }
 
 // signedIn is a tool's current sign-in as an account row names it.

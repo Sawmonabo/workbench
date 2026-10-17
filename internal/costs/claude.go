@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,18 +24,78 @@ type claude struct{}
 func (claude) Name() string { return "claude" }
 
 // ClaudeDir is where Claude Code keeps its state and its user settings:
-// CLAUDE_CONFIG_DIR, else ~/.claude.
+// CLAUDE_CONFIG_DIR as Claude Code resolves it (see claudeConfigDir), else
+// ~/.claude.
 func ClaudeDir(home string) string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
-		return dir
+	dir, _ := claudeConfigDir(home)
+	return dir
+}
+
+// claudeConfigDir is Claude Code's config folder and where CLAUDE_CONFIG_DIR
+// was set for it: "the environment", the settings file whose env sets it, or
+// "" when nothing does and the folder is ~/.claude. Claude Code takes the
+// variable from its environment, its user settings or its managed settings;
+// a settings file's env replaces the environment's value, managed settings
+// override the user's, and project and local settings cannot set it
+// (https://code.claude.com/docs/en/env-vars).
+func claudeConfigDir(home string) (dir, source string) {
+	dir = filepath.Join(home, ".claude")
+	if env := os.Getenv("CLAUDE_CONFIG_DIR"); env != "" {
+		dir, source = env, "the environment"
 	}
-	return filepath.Join(home, ".claude")
+	for _, path := range append(
+		[]string{filepath.Join(dir, "settings.json")},
+		ClaudeManagedSettings()...,
+	) {
+		var settings struct {
+			Env struct {
+				Dir string `json:"CLAUDE_CONFIG_DIR"`
+			} `json:"env"`
+		}
+		if raw, err := os.ReadFile(path); err == nil && decode(raw, &settings) &&
+			settings.Env.Dir != "" {
+			dir, source = settings.Env.Dir, path
+		}
+	}
+	return dir, source
+}
+
+// ClaudeManagedSettings are the machine's managed settings files, in the
+// order Claude Code merges them, a later one overriding an earlier:
+// managed-settings.json, then each managed-settings.d/*.json in name order.
+func ClaudeManagedSettings() []string {
+	managed := "/etc/claude-code"
+	if runtime.GOOS == "darwin" {
+		managed = "/Library/Application Support/ClaudeCode"
+	}
+	files := []string{filepath.Join(managed, "managed-settings.json")}
+	drops, _ := filepath.Glob(filepath.Join(managed, "managed-settings.d", "*.json"))
+	for _, drop := range drops {
+		if !strings.HasPrefix(filepath.Base(drop), ".") {
+			files = append(files, drop)
+		}
+	}
+	return files
+}
+
+// ConfigMove reports CLAUDE_CONFIG_DIR pointing Claude Code away from
+// ~/.claude.
+func (claude) ConfigMove(home string) (ConfigMove, bool) {
+	dir, source := claudeConfigDir(home)
+	move := ConfigMove{
+		Tool:     "Claude Code",
+		Variable: "CLAUDE_CONFIG_DIR",
+		Source:   source,
+		Dir:      dir,
+		Default:  filepath.Join(home, ".claude"),
+	}
+	return move, source != "" && !sameDir(dir, move.Default)
 }
 
 // claudeJSON is Claude Code's account and usage file: inside CLAUDE_CONFIG_DIR
 // when that is set, directly in the home directory otherwise.
 func claudeJSON(home string) string {
-	if dir := os.Getenv("CLAUDE_CONFIG_DIR"); dir != "" {
+	if dir, source := claudeConfigDir(home); source != "" {
 		return filepath.Join(dir, ".claude.json")
 	}
 	return filepath.Join(home, ".claude.json")

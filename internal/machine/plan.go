@@ -153,7 +153,7 @@ func prepare(
 		return prepared, err
 	}
 	// An isolated destination provisions nothing, so it has no updates to
-	// look up.
+	// look up, and no agent reads its settings from it.
 	if c.Native.Destination == c.Home {
 		prepared.planAgentUpdates(ctx, c, files, answers["versions_mode"] == "latest")
 		prepared.planUpdates(ctx, c, files)

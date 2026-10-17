@@ -770,6 +770,18 @@ func startWorker(event, transcript, session string) error {
 	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
 		return err
 	}
+	// Claude Code with CLAUDE_CODE_SUBPROCESS_ENV_SCRUB set runs its hooks
+	// without CLAUDE_CONFIG_DIR (https://code.claude.com/docs/en/env-vars),
+	// and the worker would read ~/.claude instead of the folder the session
+	// writes in. Its transcript, <config folder>/projects/<project>/<id>.jsonl,
+	// names that folder, which the worker is given back.
+	projects := filepath.Dir(filepath.Dir(transcript))
+	if os.Getenv("CLAUDE_CONFIG_DIR") == "" && filepath.IsAbs(transcript) &&
+		filepath.Base(projects) == "projects" && filepath.Ext(transcript) == ".jsonl" {
+		if _, owned := toolOfTranscript(paths.Home, transcript); !owned {
+			_ = os.Setenv("CLAUDE_CONFIG_DIR", filepath.Dir(projects))
+		}
+	}
 	// "--" keeps a value that starts with a dash from being read as a flag.
 	return operation.StartDetached(
 		[]string{"costs", "ingest", "--worker", "--quiet", "--", event, transcript, session},

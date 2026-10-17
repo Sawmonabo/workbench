@@ -668,6 +668,7 @@ type ToolStatus struct {
 	Coverage    Coverage          `json:"coverage"`
 	SignIn      SignInStatus      `json:"sign_in"`
 	Hooks       map[string]string `json:"hooks,omitempty"`         // event → a Hook* state
+	ConfigMove  *ConfigMove       `json:"config_move,omitempty"`   // nil unless a variable moved the tool's folder
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
@@ -715,6 +716,11 @@ func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 				Label:        subscriptionLabel(signIn.Subscription, signIn.Label),
 			}
 			status.Hooks = tool.Source.Hooks(paths.Home)
+			if mover, ok := tool.Source.(configMover); ok {
+				if move, moved := mover.ConfigMove(paths.Home); moved {
+					status.ConfigMove = &move
+				}
+			}
 			if counter, ok := tool.Source.(interface{ Skipped(string) int }); ok {
 				status.Skipped = counter.Skipped(paths.Home)
 			}

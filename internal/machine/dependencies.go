@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/pelletier/go-toml/v2"
@@ -424,6 +425,13 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 				},
 			)
 		}
+	}
+	for _, move := range costs.ConfigMoves(c.Home) {
+		results = append(results, operation.Component{
+			Name:    strings.ToLower(strings.ReplaceAll(move.Variable, "_", "-")),
+			Status:  operation.StatusConflict,
+			Message: move.Explain(c.Home),
+		})
 	}
 	root := filepath.Join(c.Home, ".config", "Code", "User")
 	if runtime.GOOS == "darwin" {

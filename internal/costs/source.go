@@ -4,9 +4,13 @@
 package costs
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Source is one AI tool whose transcripts the ledger records. Everything a
@@ -119,6 +123,71 @@ var ingestCommand = regexp.MustCompile(`(^|/)workbench'? costs ingest$`)
 
 // isIngestHook reports whether command is the ingest hook's command.
 func isIngestHook(command string) bool { return ingestCommand.MatchString(command) }
+
+// ConfigMove is a tool's config folder moved by a variable away from the one
+// Workbench installs the tool's settings, instructions and hooks in, so the
+// tool reads none of them. Two folders side by side, one per account, are the
+// variable's documented use, so Workbench names the move and installs nothing
+// in the other folder.
+type ConfigMove struct {
+	Tool     string `json:"tool"`     // "Claude Code", "Codex"
+	Variable string `json:"variable"` // CLAUDE_CONFIG_DIR, CODEX_HOME
+	Source   string `json:"source"`   // "the environment", or the settings file that sets it
+	Dir      string `json:"dir"`      // the folder the tool reads
+	Default  string `json:"default"`  // the folder Workbench installs in
+}
+
+// configMover is a source whose config folder a variable can move.
+type configMover interface {
+	ConfigMove(home string) (ConfigMove, bool)
+}
+
+// ConfigMoves is each tool's config folder that a variable moved (see
+// [ConfigMove]).
+func ConfigMoves(home string) []ConfigMove {
+	var moves []ConfigMove
+	for _, tool := range Tools {
+		if mover, ok := tool.Source.(configMover); ok {
+			if move, moved := mover.ConfigMove(home); moved {
+				moves = append(moves, move)
+			}
+		}
+	}
+	return moves
+}
+
+// Explain says what the move means and how to undo it, the same in the plan,
+// doctor and costs status.
+func (m ConfigMove) Explain(home string) string {
+	where, fix := m.Source, "unset it, or set it to "+operation.ShowPath(home, m.Default)
+	if m.Source != "the environment" {
+		where, fix = operation.ShowPath(
+			home,
+			m.Source,
+		), "remove it from that file, or set it there to "+m.Default
+	}
+	return m.Variable + " in " + where + " points " + m.Tool + " at " +
+		operation.ShowPath(home, m.Dir) + ", so it does not read the settings, instructions " +
+		"and costs and guard hooks Workbench installs in " + operation.ShowPath(home, m.Default) +
+		"; " + fix + ", for them to apply"
+}
+
+// sameDir reports whether a and b name the same folder: the same file when
+// both exist, else the same absolute path.
+func sameDir(a, b string) bool {
+	aInfo, aErr := os.Stat(a)
+	bInfo, bErr := os.Stat(b)
+	if aErr == nil && bErr == nil {
+		return os.SameFile(aInfo, bInfo)
+	}
+	absolute := func(path string) string {
+		if abs, err := filepath.Abs(path); err == nil {
+			return abs
+		}
+		return filepath.Clean(path)
+	}
+	return absolute(a) == absolute(b)
+}
 
 // Usage is one billed response, whatever tool produced it.
 type Usage struct {

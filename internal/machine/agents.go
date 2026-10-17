@@ -134,7 +134,9 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 // downgraded, and a missing agent is the global-tools step's to install. A
 // copy Homebrew installed is handed to the Homebrew updates (agentCasks); a
 // copy from anywhere else is named in a warning and left alone. The
-// latest-mode lookups run side by side.
+// latest-mode lookups run side by side. It first warns about each agent whose
+// config folder a variable moved away from the one Workbench installs its
+// settings in (costs.ConfigMoves).
 func (p *preparation) planAgentUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -142,6 +144,9 @@ func (p *preparation) planAgentUpdates(
 	latest bool,
 ) {
 	c.Step("checking Codex and Claude Code")
+	for _, move := range costs.ConfigMoves(c.Home) {
+		p.Plan.Warnings = append(p.Plan.Warnings, move.Explain(c.Home))
+	}
 	pins, err := agentPins(files)
 	if err != nil {
 		p.Plan.Warnings = append(
@@ -493,10 +498,10 @@ var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 // "stable" or "latest", and the minimumVersion below which its updates and
 // claude install install nothing, or "": each from the user's settings (in
 // CLAUDE_CONFIG_DIR when that is set), overridden by the machine's managed
-// settings files (managed-settings.json, then each managed-settings.d/*.json
-// in name order), the way Claude Code merges them. Project and local settings
-// depend on the folder Claude Code starts in and are not read. A channel
-// unset or anything else means latest, Claude Code's default.
+// settings files (costs.ClaudeManagedSettings), the way Claude Code merges
+// them. Project and local settings depend on the folder Claude Code starts in
+// and are not read. A channel unset or anything else means latest, Claude
+// Code's default.
 func claudeUpdates(home string) (channel, minimum string) {
 	read := func(path string) {
 		var settings struct {
@@ -515,16 +520,8 @@ func claudeUpdates(home string) (channel, minimum string) {
 		}
 	}
 	read(filepath.Join(costs.ClaudeDir(home), "settings.json"))
-	managed := "/etc/claude-code"
-	if runtime.GOOS == "darwin" {
-		managed = "/Library/Application Support/ClaudeCode"
-	}
-	read(filepath.Join(managed, "managed-settings.json"))
-	drops, _ := filepath.Glob(filepath.Join(managed, "managed-settings.d", "*.json"))
-	for _, drop := range drops {
-		if !strings.HasPrefix(filepath.Base(drop), ".") {
-			read(drop)
-		}
+	for _, path := range costs.ClaudeManagedSettings() {
+		read(path)
 	}
 	if channel != "stable" {
 		channel = "latest"

@@ -47,6 +47,18 @@ func codexDir(home string) string {
 	return dir
 }
 
+// ConfigMove reports CODEX_HOME pointing Codex away from ~/.codex.
+func (codex) ConfigMove(home string) (ConfigMove, bool) {
+	move := ConfigMove{
+		Tool:     "Codex",
+		Variable: "CODEX_HOME",
+		Source:   "the environment",
+		Dir:      codexDir(home),
+		Default:  filepath.Join(home, ".codex"),
+	}
+	return move, os.Getenv("CODEX_HOME") != "" && !sameDir(move.Dir, move.Default)
+}
+
 // TranscriptRoots is where this tool's transcripts live.
 func (codex) TranscriptRoots(home string) []string {
 	return []string{
