@@ -661,7 +661,10 @@ synthetic answers.
   handover each left the old watcher running with one logged line; pointing
   the link back at the running release did nothing, and a downgrade handed
   over once. A watcher started afresh matched a command that began before
-  it. Linux handover was not run.
+  it. In a Linux container (Debian, arm64), switching the `workbench` link
+  between two builds handed over the same way, the new watcher tracked the
+  command, and a dangling link was logged once; there the release was not
+  installed through `update`.
 - On 2026-10-16, on a Mac (macOS 27.0) with 42 % of memory free and swap in
   use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of 6
   samples over about 9 seconds, and a dry-run watcher that called for a
