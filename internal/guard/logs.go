@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"io/fs"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -19,7 +20,9 @@ import (
 // the process that wrote it. Records about a call add call, agent, command
 // (clipped as in the stop reason), root_pid and size in bytes; a stop adds
 // reason, the text the agent is told, and memory, the reading that called for
-// it; a failure adds error.
+// it; a failure adds error. The watcher's own output goes to the same file,
+// so a crash's trace can sit among the records: [ReadLog] gives each such
+// line as a raw event.
 const (
 	EventStarted   = "started"   // a watcher started
 	EventIdle      = "idle"      // a watcher exited, idle
@@ -34,6 +37,7 @@ const (
 	EventGaveUp    = "gave-up"   // a stopped command outlived the stop
 	EventRefused   = "refused"   // a stop signalled nothing
 	EventError     = "error"     // something could not be read or written
+	EventRaw       = "raw"       // a line of the log that is not a record, such as a crash's trace
 )
 
 // Event is the part of a guard log record the log viewer shows.
@@ -64,9 +68,11 @@ func LogPath() (string, error) {
 const followPoll = 250 * time.Millisecond
 
 // ReadLog calls emit with each record of the log at path, raw (without its
-// newline) and decoded, oldest first. A line that is not a record, such as
-// the output of a watcher that crashed, is skipped. A missing log has no
-// records. With follow it then keeps calling emit as records are appended,
+// newline) and decoded, oldest first. A non-blank line that is not a record,
+// such as the trace of a watcher that crashed, comes as an [EventRaw] record
+// at level ERROR with the line as its msg and no time, which is unknown,
+// encoded by [slog.JSONHandler] as the log's records are. A missing log has
+// no records. With follow it then keeps calling emit as records are appended,
 // until ctx ends: a log cut in place (see [operation.AppendLog]) is read on
 // from the line after the last one read, or from its start when the cut took
 // that line too, and a log created or replaced is read from its start.
@@ -155,14 +161,28 @@ func readFrom(
 		last = line
 		var e Event
 		raw := bytes.TrimSuffix(line, []byte("\n"))
-		if json.Unmarshal(raw, &e) != nil || e.Event == "" {
+		if len(bytes.TrimSpace(raw)) == 0 {
 			continue
+		}
+		if json.Unmarshal(raw, &e) != nil || e.Event == "" {
+			e = Event{Level: slog.LevelError.String(), Msg: string(raw), Event: EventRaw}
+			raw = rawRecord(e.Msg)
 		}
 		if err = emit(raw, e); err != nil {
 			return offset, last, err
 		}
 	}
 	return start + int64(end), last, nil
+}
+
+// rawRecord is a raw line as a record without a time, which
+// [slog.JSONHandler] leaves out.
+func rawRecord(line string) []byte {
+	var b bytes.Buffer
+	r := slog.NewRecord(time.Time{}, slog.LevelError, line, 0)
+	r.AddAttrs(slog.String("event", EventRaw))
+	_ = slog.NewJSONHandler(&b, nil).Handle(context.Background(), r)
+	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
 }
 
 // lastLine is where the whole line line last starts in data, or -1.

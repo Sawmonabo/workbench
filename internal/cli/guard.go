@@ -75,10 +75,11 @@ func guardLogsCommand(o *options) *cobra.Command {
 		Short: "Show the commands the guard stopped, memory warnings and watcher errors",
 		Long: "Show the guard log, oldest first, in this machine's time zone: each stop with the " +
 			"command, its size and the reason the agent was told, low memory that stopped nothing, " +
-			"calls dropped without their post hook, the watcher starting and exiting, and errors. " +
-			"--verbose adds every command the watcher tracked and ended. --json prints the log's " +
-			"own records (JSON Lines) unchanged. The log is watch.log in the guard folder of " +
-			"Workbench's state folder.",
+			"calls dropped without their post hook, notes no command shape matched, the watcher " +
+			"starting and exiting, errors, and any line of the watcher's own output, such as a " +
+			"crash's trace, as it is. --verbose adds every command the watcher tracked and ended. " +
+			"--json prints the log's own records (JSON Lines) unchanged, and any other line as a " +
+			"raw record. The log is watch.log in the guard folder of Workbench's state folder.",
 		Example: "  workbench guard logs\n" +
 			"  workbench guard logs --since 2h\n" +
 			"  workbench guard logs --since \"2026-10-16 21:00\" --verbose\n" +
@@ -94,6 +95,15 @@ func guardLogsCommand(o *options) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
+	// These shadow the root's persistent --json and --verbose, setting the
+	// same options, so help describes what they do here.
+	flags.BoolVar(
+		&o.json,
+		"json",
+		false,
+		"Print the log's records as JSON Lines, other lines as raw records",
+	)
+	flags.BoolVar(&o.verbose, "verbose", false, "Also show every command tracked and ended")
 	flags.BoolVarP(&follow, "follow", "f", false, "Keep printing new events until interrupted")
 	flags.StringVar(
 		&since,
@@ -117,10 +127,7 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 	out := cmd.OutOrStdout()
 	paint, width := newPainter(out), lineWidth(out)
 	shown, hidden := 0, 0
-	err = guard.ReadLog(cmd.Context(), path, follow, func(raw []byte, e guard.Event) error {
-		if e.Time.Before(since) {
-			return nil
-		}
+	show := func(raw []byte, e guard.Event) error {
 		if routineGuardEvents[e.Event] && !o.verbose {
 			hidden++
 			return nil
@@ -132,6 +139,38 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 		}
 		_, err := io.WriteString(out, guardEventText(paint, width, e))
 		return err
+	}
+	// A raw line has no time. It was written after the record before it, so
+	// --since keeps it when it keeps that record; lines before the first
+	// record wait for it and are kept when it is.
+	type line struct {
+		raw []byte
+		e   guard.Event
+	}
+	var waiting []line
+	keep, seenRecord := since.IsZero(), false
+	err = guard.ReadLog(cmd.Context(), path, follow, func(raw []byte, e guard.Event) error {
+		switch {
+		case e.Event == guard.EventRaw && keep:
+			return show(raw, e)
+		case e.Event == guard.EventRaw && !seenRecord:
+			waiting = append(waiting, line{raw, e})
+			return nil
+		case e.Event == guard.EventRaw:
+			return nil
+		}
+		seenRecord, keep = true, !e.Time.Before(since)
+		held := waiting
+		waiting = nil
+		if !keep {
+			return nil
+		}
+		for _, l := range held {
+			if err := show(l.raw, l.e); err != nil {
+				return err
+			}
+		}
+		return show(raw, e)
 	})
 	// The empty-state line is a message, not output, so it goes to stderr
 	// (clig.dev) and leaves --json's stdout empty.
@@ -150,24 +189,26 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 }
 
 // routineGuardEvents are shown only with --verbose.
-var routineGuardEvents = map[string]bool{
-	guard.EventTracking: true, guard.EventEnded: true, guard.EventUnmatched: true,
-}
+var routineGuardEvents = map[string]bool{guard.EventTracking: true, guard.EventEnded: true}
 
-// guardEventStyles color a stop and its outcome red, low memory and calls the
-// guard gave up on yellow, and the watcher's routine faint; anything else
-// prints plain, with errors red.
+// guardEventStyles color a stop and its outcome, errors and the watcher's raw
+// output red, low memory, calls the guard gave up on or could not match and a
+// lost lock yellow, and the watcher's routine faint.
 var guardEventStyles = map[string]lipgloss.Style{
 	guard.EventStopping: red, guard.EventForced: red, guard.EventGaveUp: red,
-	guard.EventError: red, guard.EventMemory: yellow, guard.EventAbandoned: yellow,
-	guard.EventRefused: yellow, guard.EventExited: yellow, guard.EventStarted: faint,
-	guard.EventIdle: faint, guard.EventTracking: faint, guard.EventEnded: faint,
-	guard.EventUnmatched: faint,
+	guard.EventError: red, guard.EventRaw: red, guard.EventMemory: yellow,
+	guard.EventAbandoned: yellow, guard.EventUnmatched: yellow, guard.EventRefused: yellow,
+	guard.EventExited: yellow, guard.EventStarted: faint, guard.EventIdle: faint,
+	guard.EventTracking: faint, guard.EventEnded: faint,
 }
 
 // guardEventText is one event for people: "Oct 16 9:24 PM  stopping: CMD
-// (4.2 GB)", with a stop's reason indented on the lines below.
+// (4.2 GB)", with a stop's reason indented on the lines below, or a raw line
+// as it is after "watcher output: ".
 func guardEventText(paint painter, width int, e guard.Event) string {
+	if e.Event == guard.EventRaw {
+		return paint.style(red, "watcher output: "+e.Msg) + "\n"
+	}
 	line := e.Time.Local().Format("Jan 2 3:04 PM") + "  " + e.Msg
 	if e.Command != "" {
 		line += ": " + e.Command

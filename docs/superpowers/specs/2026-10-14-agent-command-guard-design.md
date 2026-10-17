@@ -276,21 +276,28 @@ PID) when one process could not be read.
 | `gave-up` | A stopped command still runs 10 seconds on (section 6.4). |
 | `refused` | A stop signalled nothing. |
 | `error` | Something could not be read or written, or a hook panicked. |
+| `raw` | Only from `workbench guard logs`: a line of the file that is not a record. |
 
 The watcher's own stdout and stderr go to the same file, so a line that is
-not a record (a crash's trace) can sit among them; `workbench guard logs`
-skips such lines. It prints the events in the machine's time zone (`Oct 16
-9:24 PM`), a stop with its reason on the lines below, colored at a terminal:
-stops, `SIGKILL`, give-ups and errors red, low memory, abandoned notes,
-refusals and a lost lock yellow, the watcher's routine faint. By default it
-leaves out `tracking`, `ended` and `unmatched`, which `--verbose` adds.
-`--since` takes a Go duration before now (`10m`, `2h`), as `docker logs
---since` does, `today` and `yesterday` as `journalctl --since` does, a local
-date, date and time or time of today (`2026-10-16`, `2026-10-16 21:00`,
-`21:00`), or RFC 3339. `--follow` keeps printing new events: it waits for a
-log that does not exist yet, and after a cut in place reads on from the line
-after the last one it read, or from the start when the cut took that line.
-`--json` prints the matching records unchanged, one per line.
+not a record (a crash's trace) can sit among them. `workbench guard logs`
+shows each such line as it is, after `watcher output: `, in red; for
+`--json` it becomes a record with `level` `ERROR`, `event` `raw` and the line
+as `msg`, encoded by the same handler, which leaves out `time` because the
+line's time is unknown. It prints the events in the machine's time zone
+(`Oct 16 9:24 PM`), a stop with its reason on the lines below, colored at a
+terminal: stops, `SIGKILL`, give-ups, errors and raw lines red, low memory,
+abandoned and unmatched notes, refusals and a lost lock yellow, the
+watcher's routine faint. By default it leaves out `tracking` and `ended`,
+which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
+`2h`), as `docker logs --since` does, `today` and `yesterday` as
+`journalctl --since` does, a local date, date and time or time of today
+(`2026-10-16`, `2026-10-16 21:00`, `21:00`), or RFC 3339. A raw line was
+written after the record before it, so `--since` keeps it when it keeps that
+record; raw lines before the log's first record are kept when that record
+is. `--follow` keeps printing new events: it waits for a log that does not
+exist yet, and after a cut in place reads on from the line after the last
+one it read, or from the start when the cut took that line. `--json` prints
+the matching records unchanged, one per line.
 
 ## 5. Pre hook
 
