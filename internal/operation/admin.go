@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
 	"slices"
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // sudoPath is the one sudo Workbench runs. It is always this absolute path, never
@@ -60,7 +61,7 @@ type Admin struct {
 // cannot be used (over SSH, in tmux, with the lid closed, with no sensor) sudo
 // still falls back to the password, so this says what sudo tries first.
 func TouchIDForSudo() bool {
-	if runtime.GOOS != "darwin" {
+	if !platform.TouchIDPossible {
 		return false
 	}
 	for _, path := range []string{pamSudoLocal, pamSudo} {

@@ -10,13 +10,13 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"sort"
 	"strings"
 	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/charmbracelet/x/term"
 	"golang.org/x/sys/unix"
 )
@@ -160,10 +160,7 @@ func homeToolDirectory(directory string, homes []string) bool {
 // Recognize its installed-tool directories, not arbitrary repositories with a
 // Homebrew-shaped name. Explicit project exclusions and nested markers still win.
 func homebrewRepository(repository, directory string) bool {
-	known := runtime.GOOS == "darwin" &&
-		(repository == "/opt/homebrew" || repository == "/usr/local/Homebrew") ||
-		runtime.GOOS == "linux" && repository == "/home/linuxbrew/.linuxbrew/Homebrew"
-	if !known {
+	if !slices.Contains(platform.HomebrewRepositories, repository) {
 		return false
 	}
 	installed := false

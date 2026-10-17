@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // Plan runs only reviewed target enumeration/status/diff against copied native
@@ -383,7 +384,7 @@ func (p *preparation) stageNative(
 	// profile it writes. The apply renders with it (see scriptEnvironment), so
 	// the preview must as well, or the plan compares a different profile and
 	// never finds the one on disk already matching.
-	if name := os.Getenv("WSL_DISTRO_NAME"); isWSL() && name != "" {
+	if name := os.Getenv("WSL_DISTRO_NAME"); platform.WSL() && name != "" {
 		p.environment = append(p.environment, "WSL_DISTRO_NAME="+name)
 	}
 	return nil

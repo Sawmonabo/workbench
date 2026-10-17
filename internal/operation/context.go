@@ -6,11 +6,12 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"syscall"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // Paths are Workbench's private runtime directories and the directory that
@@ -174,38 +175,7 @@ func Within(root, path string) bool {
 }
 
 func runtimePaths(home string) (Paths, error) {
-	if runtime.GOOS != "darwin" && runtime.GOOS != "linux" {
-		return Paths{}, Fail(
-			ExitBlocked,
-			"platform",
-			"Workbench runtime paths require macOS or Linux/WSL",
-		)
-	}
-	defaults := []string{
-		filepath.Join(home, ".config", "workbench"),
-		filepath.Join(home, ".local", "share", "workbench"),
-		filepath.Join(home, ".local", "state", "workbench"),
-		filepath.Join(home, ".cache", "workbench"),
-		filepath.Join(home, ".local", "bin"),
-	}
-	if runtime.GOOS == "darwin" {
-		base := filepath.Join(home, "Library", "Application Support", "workbench")
-		defaults[0], defaults[1], defaults[2], defaults[3] = filepath.Join(
-			base,
-			"config",
-		), filepath.Join(
-			base,
-			"data",
-		), filepath.Join(
-			base,
-			"state",
-		), filepath.Join(
-			home,
-			"Library",
-			"Caches",
-			"workbench",
-		)
-	}
+	defaults := platform.RuntimeFolders(home)
 	names := []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}
 	for i, name := range names {
 		value := os.Getenv("WORKBENCH_" + name + "_DIR")

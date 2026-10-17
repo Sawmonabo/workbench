@@ -15,6 +15,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -241,7 +242,7 @@ func scriptEnvironment(
 	}
 	path := strings.Join(directories, string(os.PathListSeparator))
 	system := []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
-	if isWSL() {
+	if platform.WSL() {
 		// Windows host steps run cmd.exe, wsl.exe and powershell.exe through
 		// interop and need the name of the distribution they run in.
 		for _, name := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
@@ -302,64 +303,13 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 	result := operation.Component{
 		Name:    "platform",
 		Status:  operation.StatusBlocked,
-		Message: runtime.GOOS + "/" + runtime.GOARCH,
+		Message: platform.System + "/" + runtime.GOARCH,
 	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
 		return result
 	}
-	switch runtime.GOOS {
-	case "darwin":
-		output, err := operation.Run(
-			ctx,
-			c,
-			nil,
-			operation.Process{
-				Executable:  "/usr/bin/sw_vers",
-				Args:        []string{"-productVersion"},
-				Directory:   "/",
-				Environment: []string{"PATH=/usr/bin:/bin"},
-				Timeout:     10 * time.Second,
-			},
-		)
-		if err != nil {
-			return result
-		}
-		major, _ := strconv.Atoi(strings.Split(strings.TrimSpace(output.Stdout), ".")[0])
-		result.Message = fmt.Sprintf(
-			"macOS %s/%s; native provisioning qualification still required",
-			strings.TrimSpace(output.Stdout),
-			runtime.GOARCH,
-		)
-		if major >= 15 {
-			result.Status = operation.StatusComplete
-		}
-	case "linux":
-		data, err := os.ReadFile("/etc/os-release")
-		if err != nil {
-			return result
-		}
-		values := map[string]string{}
-		for line := range strings.SplitSeq(string(data), "\n") {
-			key, value, ok := strings.Cut(line, "=")
-			if ok {
-				values[key] = strings.Trim(value, `"`)
-			}
-		}
-		if values["ID"] == "ubuntu" &&
-			slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"]) {
-			result.Status = operation.StatusComplete
-		}
-		result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH
-		if isWSL() {
-			result.Message += "; WSL: Windows host steps are not yet qualified on a real host"
-		}
-	}
+	hostVersion(ctx, c, &result)
 	return result
-}
-
-func isWSL() bool {
-	data, _ := os.ReadFile("/proc/sys/kernel/osrelease")
-	return runtime.GOOS == "linux" && strings.Contains(strings.ToLower(string(data)), "microsoft")
 }
 
 // Doctor reports what Workbench has installed and applied, then probes
@@ -433,10 +383,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 			Message: move.Explain(c.Home),
 		})
 	}
-	root := filepath.Join(c.Home, ".config", "Code", "User")
-	if runtime.GOOS == "darwin" {
-		root = filepath.Join(c.Home, "Library", "Application Support", "Code", "User")
-	}
+	root := platform.VSCodeUserFolder(c.Home)
 	editors := []struct{ name, path string }{
 		{"editor-local", root},
 		{"editor-remote-wsl", filepath.Join(c.Home, ".vscode-server", "data", "Machine")},

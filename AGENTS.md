@@ -23,6 +23,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   because usage left unread could be lost (ADR 0008).
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.
+- Platform tests live only in `internal/platform/`: other packages read its
+  facts and calls and never test `runtime.GOOS` or WSL themselves, which a
+  `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the
+  build's own system.
 - Reuse common functionality at its existing owner. One Go/Cobra CLI, one Go
   module, focused internal packages; no public `pkg`, generic `utils`, mock-only
   interfaces, extra task runner or speculative plugin framework.
@@ -105,6 +109,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/python/` |
 | AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| Operating-system calls and platform facts | `internal/platform/` |
 | Agent command memory guard | `internal/guard/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
