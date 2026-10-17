@@ -140,15 +140,23 @@ func Pre(stdin *os.File) {
 	startWatcher(f)
 }
 
-// startWatcher starts `workbench guard watch` detached when the lock is free.
-// The watcher takes the lock itself; one that loses a race exits at once.
+// startWatcher starts `workbench guard watch` detached when the lock is free,
+// from the command this hook was run as, so the watcher knows the installed
+// command it is to follow to a new release (see watcher.handOver). The
+// watcher takes the lock itself; one that loses a race exits at once.
 func startWatcher(f folders) {
 	release, held, err := operation.TryLock(f.lock())
 	if err != nil || held {
 		return
 	}
 	release()
-	if err = operation.StartDetached([]string{"guard", "watch"}, f.output()); err != nil {
+	entry, err := operation.Invoked()
+	if err == nil {
+		_, err = operation.StartDetached(operation.Detached{
+			Entry: entry, Args: []string{"guard", "watch"}, Output: f.output(),
+		})
+	}
+	if err != nil {
 		f.event(slog.LevelError, EventError, "cannot start the watcher", "error", err)
 	}
 }

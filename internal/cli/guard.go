@@ -57,7 +57,7 @@ func guardCommand(o *options) *cobra.Command {
 			Hidden: true,
 			Args:   cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
-				guard.Watch(cmd.Context())
+				guard.Watch(cmd.Context(), version())
 				return nil
 			},
 		},
@@ -206,7 +206,7 @@ var guardEventStyles = map[string]lipgloss.Style{
 	guard.EventError: red, guard.EventRaw: red, guard.EventMemory: yellow,
 	guard.EventAbandoned: yellow, guard.EventUnmatched: yellow, guard.EventRefused: yellow,
 	guard.EventExited: yellow, guard.EventStarted: faint, guard.EventIdle: faint,
-	guard.EventTracking: faint, guard.EventEnded: faint,
+	guard.EventHandover: faint, guard.EventTracking: faint, guard.EventEnded: faint,
 }
 
 // guardEventText is one event for people: "Oct 16 9:24 PM  stopping: CMD

@@ -26,6 +26,7 @@ const (
 	EventStarted   = "started"   // a watcher started
 	EventIdle      = "idle"      // a watcher exited, idle
 	EventExited    = "exited"    // a watcher exited because its lock file changed
+	EventHandover  = "handover"  // a watcher handed over to the installed release's watcher
 	EventTracking  = "tracking"  // a noted command was found
 	EventEnded     = "ended"     // a tracked command ended
 	EventUnmatched = "unmatched" // a note went away while its agent had run a command no shape matched

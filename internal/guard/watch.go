@@ -57,6 +57,7 @@ type seenNote struct {
 type watcher struct {
 	f         folders
 	release   func()
+	lockFile  *os.File
 	lockInfo  os.FileInfo
 	tracked   map[string]command
 	seen      map[string]seenNote
@@ -102,6 +103,10 @@ type watcher struct {
 	// read, so each is logged once, not every tick.
 	unreadNotes map[string]bool
 	unreadPIDs  map[int]bool
+	// calm is set by a tick that read memory calling for nothing, with no
+	// hold under way: a moment a handover may happen at.
+	calm bool
+	handoff
 }
 
 // procKey names one process: its PID and start time.
@@ -114,11 +119,12 @@ type procKey struct {
 // hook. It finds each noted command, watches machine memory, and near
 // out-of-memory stops the largest agent command and records why. It returns
 // after ten minutes with no note and no tracked command, when its lock file is
-// no longer the one it locked, or at its next tick after ctx ends; a stop
-// under way finishes first. It has no terminal and logs only to the guard log.
-// It works from /, so it never holds the folder of the session that started
-// it.
-func Watch(ctx context.Context) {
+// no longer the one it locked, once it has handed over to another release's
+// watcher (see handOver), or at its next tick after ctx ends; a stop under way
+// finishes first. It has no terminal and logs only to the guard log. It works
+// from /, so it never holds the folder of the session that started it. version
+// is the release it runs, for the log.
+func Watch(ctx context.Context, version string) {
 	debug.SetMemoryLimit(32 << 20)
 	f, err := openFolders("watch")
 	if err != nil {
@@ -142,12 +148,16 @@ func Watch(ctx context.Context) {
 		missing:     map[procKey]int{},
 		unreadNotes: map[string]bool{},
 		unreadPIDs:  map[int]bool{},
+		handoff:     handoff{version: version},
 	}
 	defer w.waiter.close()
-	if !w.lock() {
+	if !w.takeLock() {
 		return
 	}
-	defer func() { w.release() }()
+	defer func() {
+		w.dropHandover()
+		w.release()
+	}()
 	detached, err := operation.RotateOutput(f.output(), logLimit)
 	if err != nil {
 		f.event(
@@ -164,14 +174,21 @@ func Watch(ctx context.Context) {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("watcher output",
 			"event", EventOutput, "part", "watch", "pid", os.Getpid())
 	}
-	f.event(slog.LevelInfo, EventStarted, "watcher started")
+	f.event(slog.LevelInfo, EventStarted, "watcher started", "release", version)
+	w.identify()
 	for ctx.Err() == nil {
 		if !w.ownsLock() {
 			f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
 			return
 		}
 		next := w.tick()
-		if time.Since(w.idleSince) >= idleExit && !w.carryOn() {
+		if w.handOver() {
+			return
+		}
+		if w.pending != nil {
+			next = min(next, handoverPoll)
+		}
+		if w.pending == nil && time.Since(w.idleSince) >= idleExit && !w.carryOn() {
 			return
 		}
 		w.waiter.wait(next)
@@ -179,16 +196,16 @@ func Watch(ctx context.Context) {
 }
 
 func (w *watcher) lock() bool {
-	release, held, err := operation.TryLock(w.f.lock())
+	f, held, err := operation.TryLockFile(w.f.lock())
 	if err != nil || held {
 		return false
 	}
 	info, err := os.Stat(w.f.lock())
 	if err != nil {
-		release()
+		_ = f.Close()
 		return false
 	}
-	w.release, w.lockInfo = release, info
+	w.lockFile, w.release, w.lockInfo = f, func() { _ = f.Close() }, info
 	return true
 }
 
@@ -228,6 +245,7 @@ func (w *watcher) carryOn() bool {
 // list or the notes folder cannot be read, it does nothing else this round.
 func (w *watcher) tick() time.Duration {
 	w.round++
+	w.calm = false
 	// Entries from before the last round were acted on or are no longer checked.
 	for key, first := range w.missing {
 		if first < w.round-1 {
@@ -245,6 +263,10 @@ func (w *watcher) tick() time.Duration {
 		return time.Second
 	}
 	w.forget(s)
+	if w.inherited != nil {
+		w.adopt(s, notes)
+		w.inherited = nil
+	}
 	agents, protected := w.agents(s, notes)
 	codexAgents := map[int]bool{}
 	for _, n := range notes {
@@ -293,6 +315,7 @@ func (w *watcher) tick() time.Duration {
 	if act == nothing {
 		w.underFloor = false
 	}
+	w.calm = act == nothing && w.softSince.IsZero() && w.criticalSince.IsZero()
 	if !w.coolingDown(s) && act != nothing && len(w.tracked) > 0 {
 		w.stopLargest(s, protected, act, m)
 	}
