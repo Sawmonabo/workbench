@@ -54,7 +54,7 @@ logged-in `gh`. Never run it as root.
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
 | `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. Without a terminal, `--tool NAME` prints one tool's report. |
-| `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until DATE` (a day in this machine's time zone), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
+| `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts a detached worker. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. `--worker` ingests in the foreground. |
 | `migrate` | List the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), and whether each has anything to do. `migrate --apply` runs them, asking the way `apply` does (`--dry-run --json`, `--approve-plan`, `--yes`); when only conflicts are left it exits 4 and names each file and what to do with it. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
@@ -426,9 +426,9 @@ you already had; Claude Code clears it itself when you switch its channel back
 to latest in `/config`.
 
 Before a native Claude Code update the apply checks the GPG signature on
-Anthropic's release manifest for that version, downloads that version's
-binary for your platform (named as Anthropic's `install.sh` names it) and runs
-its `claude install VERSION` only if it matches the manifest. `claude install`
+Anthropic's release manifest for that version, downloads that version's binary
+for your platform (named as Anthropic's `install.sh` names it) and runs its
+`claude install VERSION` only if it matches the manifest. `claude install`
 downloads the version again itself, so the binary it installs is checked as
 well, even when the install fails: one that does not match is removed, the
 launcher points at the previous version again, and the step is blocked. A

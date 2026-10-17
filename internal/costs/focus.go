@@ -51,10 +51,7 @@ func FocusOn(
 	if err != nil {
 		return focus, err
 	}
-	inPeriod, err := periodFilter(opts.Since, opts.Until)
-	if err != nil {
-		return focus, err
-	}
+	inPeriod := periodFilter(opts.Since, opts.Until)
 	type key struct{ project, model, day, session string }
 	byKey := map[key]*focusGroup{}
 	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {

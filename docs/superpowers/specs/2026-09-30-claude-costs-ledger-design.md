@@ -197,7 +197,8 @@ The worker:
 
 1. Takes a non-blocking exclusive lock on `ingest.lock`. If held, exits.
 2. Keeps the log bounded: each write to a log over 400 KB first cuts it in
-   place to its newest ~200 KB (`operation.AppendLog`).
+   place to its newest ~200 KB behind a `cut` record (`operation.AppendLog`,
+   `operation.RewriteLog`).
 3. Discovers every `*.jsonl` recursively under `<config dir>/projects`, where
    the config dir is `CLAUDE_CONFIG_DIR` if set, else `~/.claude`, and, when
    the variable moves it, under `~/.claude/projects` too, which can still hold
@@ -384,7 +385,7 @@ Rules:
 | --- | --- |
 | `--by project` | Default. One line per repository. |
 | `--by model`, `--by account`, `--by month` | One line per value of that dimension. |
-| `--since`, `--until` | Inclusive `YYYY-MM-DD` bounds on the response's day in the machine's local time zone; months and days in the report (`--by month`, a focus page's day table) and the dates of `status` coverage are local too. |
+| `--since`, `--until` | The forms `workbench guard logs --since` takes, read by one parser in `internal/cli`: a duration ago (`2h`), `today`, `yesterday`, a local date, date and time or time of today, or RFC 3339. A response counts from `--since` up to, not including, `--until`; an `--until` that names a day (a date, `today`, `yesterday`) ends at the next local midnight, so the day is included; months and days in the report (`--by month`, a focus page's day table) and the dates of `status` coverage are local too. |
 | `--all` | Include projects outside `~/dev` and `~/repos` (those that exist). |
 | `--top N` | Show the first N rows; totals and shares still cover every row. |
 | `--sort cost\|name\|calls` | Row order; cost descending by default. |

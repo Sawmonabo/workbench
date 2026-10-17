@@ -109,14 +109,13 @@ func guardLogsCommand(o *options) *cobra.Command {
 		&since,
 		"since",
 		"",
-		"Show events from then on: a duration ago (10m, 2h), today, yesterday, or a time in "+
-			"this machine's time zone (2026-10-16, \"2026-10-16 21:00\", 21:00) or RFC 3339",
+		"Show events from then on: "+timeFlagForms,
 	)
 	return cmd
 }
 
 func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string) error {
-	since, err := parseSince(sinceText, time.Now())
+	since, _, err := parseTimeFlag("--since", sinceText, time.Now())
 	if err != nil {
 		return err
 	}
@@ -232,47 +231,4 @@ func guardEventText(paint painter, width int, e guard.Event) string {
 		writeText(&b, width, 4, e.Reason)
 	}
 	return b.String()
-}
-
-// parseSince reads --since as `docker logs --since` and `journalctl --since`
-// do: a Go duration is that long before now (journalctl's "-2h" counts the
-// same), today and yesterday are midnight, and a date or time without a zone
-// is in this machine's: a date alone is its midnight, a time alone is today.
-// Empty means the start of the log.
-func parseSince(value string, now time.Time) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, nil
-	}
-	if d, err := time.ParseDuration(value); err == nil {
-		return now.Add(-d.Abs()), nil
-	}
-	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.Local)
-	switch value {
-	case "today":
-		return midnight, nil
-	case "yesterday":
-		return midnight.AddDate(0, 0, -1), nil
-	}
-	if t, err := time.Parse(time.RFC3339, value); err == nil {
-		return t, nil
-	}
-	for _, layout := range []string{
-		time.DateOnly, "2006-01-02 15:04", time.DateTime, "2006-01-02T15:04", "2006-01-02T15:04:05",
-	} {
-		if t, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return t, nil
-		}
-	}
-	for _, layout := range []string{"15:04", time.TimeOnly} {
-		if t, err := time.ParseInLocation(layout, value, time.Local); err == nil {
-			return time.Date(now.Year(), now.Month(), now.Day(),
-				t.Hour(), t.Minute(), t.Second(), 0, time.Local), nil
-		}
-	}
-	return time.Time{}, operation.Fail(
-		operation.ExitInvalid,
-		"invocation",
-		"--since needs a duration (10m, 2h), today, yesterday, a local date or time "+
-			"(2026-10-16, \"2026-10-16 21:00\", 21:00) or an RFC 3339 time",
-	)
 }

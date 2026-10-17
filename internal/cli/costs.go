@@ -26,6 +26,7 @@ type costsFlags struct {
 	top                          int
 	all, detail, tokens          bool
 	noRollup, csv                bool
+	from, to                     time.Time // since and until as read by validate
 }
 
 // costsCommand reports what AI coding tools cost from the durable ledger, and
@@ -59,13 +60,13 @@ func costsCommand(o *options) *cobra.Command {
 		&f.since,
 		"since",
 		"",
-		"First day to include, YYYY-MM-DD in this machine's time zone",
+		"First time to include: "+timeFlagForms,
 	)
 	flags.StringVar(
 		&f.until,
 		"until",
 		"",
-		"Last day to include, YYYY-MM-DD in this machine's time zone",
+		"Last time to include, the same forms; a day counts to its end",
 	)
 	home, _ := os.UserHomeDir()
 	flags.BoolVar(
@@ -127,10 +128,17 @@ func (f *costsFlags) validate() (costs.Tool, error) {
 	if !slices.Contains(costsOrders, f.sort) {
 		return none, invalidCostsFlag("--sort must be cost, name or calls")
 	}
-	for flag, day := range map[string]string{"--since": f.since, "--until": f.until} {
-		if _, err := time.Parse("2006-01-02", day); day != "" && err != nil {
-			return none, invalidCostsFlag("%s needs a YYYY-MM-DD date", flag)
-		}
+	now := time.Now()
+	var err error
+	if f.from, _, err = parseTimeFlag("--since", f.since, now); err != nil {
+		return none, err
+	}
+	var day bool
+	if f.to, day, err = parseTimeFlag("--until", f.until, now); err != nil {
+		return none, err
+	}
+	if day {
+		f.to = f.to.AddDate(0, 0, 1)
 	}
 	if f.top < 0 {
 		return none, invalidCostsFlag("--top needs a whole number")
@@ -148,7 +156,7 @@ func (f *costsFlags) validate() (costs.Tool, error) {
 
 func (f *costsFlags) options(tool costs.Tool) costs.ReportOptions {
 	return costs.ReportOptions{
-		Tool: tool.Name, By: f.by, Since: f.since, Until: f.until, All: f.all, Top: f.top,
+		Tool: tool.Name, By: f.by, Since: f.from, Until: f.to, All: f.all, Top: f.top,
 		Sort: f.sort, Detail: f.detail, NoRollup: f.noRollup, Tokens: f.tokens,
 	}
 }

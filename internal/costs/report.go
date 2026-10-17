@@ -207,15 +207,15 @@ func (e *Evidence) add(level string, n int64) {
 // ReportOptions selects what a report covers; the zero value is the default
 // view (by project, in scope, cost descending).
 type ReportOptions struct {
-	Tool         string // the ledger's tool column
-	By           string // project (default), model, account or month
-	Since, Until string // inclusive YYYY-MM-DD bounds on the response's day in the machine's time zone
-	All          bool   // include projects outside the project folders (Statement.Scope)
-	Top          int    // show only the first N rows; totals still cover all
-	Sort         string // cost (default), name or calls
-	Detail       bool   // project view: a model table per project
-	NoRollup     bool   // keep every working directory separate
-	Tokens       bool   // how the report is shown: the five token columns, not share, tokens and cached
+	Tool         string    // the ledger's tool column
+	By           string    // project (default), model, account or month
+	Since, Until time.Time // the response's time is at or after Since and before Until; zero for no bound
+	All          bool      // include projects outside the project folders (Statement.Scope)
+	Top          int       // show only the first N rows; totals still cover all
+	Sort         string    // cost (default), name or calls
+	Detail       bool      // project view: a model table per project
+	NoRollup     bool      // keep every working directory separate
+	Tokens       bool      // how the report is shown: the five token columns, not share, tokens and cached
 }
 
 // Statement is one tool's rows, totals and coverage, as [Report] returns them.
@@ -393,10 +393,7 @@ func loadGroups(
 ) ([]group, int, coverageTally, error) {
 	tool, _ := Lookup(opts.Tool)
 	var tally coverageTally
-	inPeriod, err := periodFilter(opts.Since, opts.Until)
-	if err != nil {
-		return nil, 0, tally, err
-	}
+	inPeriod := periodFilter(opts.Since, opts.Until)
 	labels, err := ledger.labels(ctx)
 	if err != nil {
 		return nil, 0, tally, err

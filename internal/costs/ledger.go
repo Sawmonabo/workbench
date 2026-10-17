@@ -748,37 +748,24 @@ const timeLayout = "2006-01-02T15:04:05.000Z"
 // session times beside them are shown in: a response belongs to the day on the
 // wall clock where it was made, not to the UTC day it is stored under.
 
-// periodFilter reports whether a stored response time falls within inclusive
-// YYYY-MM-DD bounds on its local day, "" for no bound: from the first day's
-// local midnight up to, not including, the next local midnight after the last
-// day. A period covers dated responses only: an undated one ("") sorts before
-// every day, so the end bound alone would count it while the start left it
-// out.
-func periodFilter(since, until string) (func(ts string) bool, error) {
-	var lo, hi string
-	for _, bound := range []struct {
-		flag, day string
-		plus      int
-		at        *string
-	}{
-		{"--since", since, 0, &lo},
-		{"--until", until, 1, &hi}, // the next midnight ends the last day
-	} {
-		if bound.day == "" {
-			continue
-		}
-		start, err := time.ParseInLocation(time.DateOnly, bound.day, time.Local)
-		if err != nil {
-			return nil, fmt.Errorf("%s needs a YYYY-MM-DD date: %w", bound.flag, err)
-		}
-		*bound.at = start.AddDate(0, 0, bound.plus).UTC().Format(timeLayout)
+// periodFilter reports whether a stored response time falls from since up
+// to, not including, until, a zero time for no bound. A period covers dated
+// responses only: an undated one ("") sorts before every time, so the end
+// bound alone would count it while the start left it out.
+func periodFilter(since, until time.Time) func(ts string) bool {
+	if since.IsZero() && until.IsZero() {
+		return func(string) bool { return true }
 	}
-	if lo == "" && hi == "" {
-		return func(string) bool { return true }, nil
+	var lo, hi string
+	if !since.IsZero() {
+		lo = since.UTC().Format(timeLayout)
+	}
+	if !until.IsZero() {
+		hi = until.UTC().Format(timeLayout)
 	}
 	return func(ts string) bool {
 		return ts != "" && (lo == "" || ts >= lo) && (hi == "" || ts < hi)
-	}, nil
+	}
 }
 
 // LocalDate is the machine-local calendar day (YYYY-MM-DD) of a stored
