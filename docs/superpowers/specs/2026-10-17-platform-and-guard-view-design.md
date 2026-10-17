@@ -43,10 +43,6 @@ Each was read in the source named.
 - **Detect once.** Tailscale's `version/distro` package detects the Linux
   distribution and WSL once and caches the answer (`lazy.SyncValue`) for every
   caller ([distro](https://pkg.go.dev/tailscale.com@v1.98.3/version/distro)).
-- **The model this follows.** ai-sidekicks' `sidekicks-platforms` crate holds
-  all operating-system code behind one interface, with a module per platform
-  (`macos`, `linux`, and `posix` for what they share) chosen at compile time;
-  only WSL is detected at run time.
 - **Where Workbench stands.** Its low-level calls already sit in nine
   `_darwin.go`/`_linux.go` files (`internal/guard/platform_*`,
   `internal/operation/filesystem_*`, `image_metadata_*`, `libc_darwin.go`,
@@ -64,8 +60,10 @@ Each was read in the source named.
 - **Color.** "Use color with intention … if everything is a different color,
   then the color means nothing", and disable it off a terminal or when asked
   ([clig.dev, Output](https://clig.dev/#output)).
-- **Short IDs.** Docker and git show a short prefix of a long unique ID; the
-  full ID stays in machine output.
+- **Short IDs.** `docker ps` shows 12 characters of a container's ID and
+  `--no-trunc` the whole ID ([docker container ls](https://docs.docker.com/reference/cli/docker/container/ls/));
+  git shows a short prefix of an object name with `--short`
+  ([git rev-parse](https://git-scm.com/docs/git-rev-parse)).
 - **Hook input.** Claude Code gives every hook `cwd`, and tool events from a
   subagent also carry `agent_id` and `agent_type` (for example `Explore`)
   ([hooks reference](https://code.claude.com/docs/en/hooks)). Codex gives
@@ -90,7 +88,7 @@ Each was read in the source named.
   Its renderer runs at most 60 frames a second (`defaultFPS` in
   `renderer.go`, v2.0.10) and rewrites only what changed.
 - **htop's kill.** `k` or F9 opens a signal menu with SIGTERM selected
-  (`defaultPosition = 15` in htop's `SignalsPanel.c`); Enter sends it to the
+  (`defaultPosition = 15` in htop's [`SignalsPanel.c`](https://github.com/htop-dev/htop/blob/main/SignalsPanel.c)); Enter sends it to the
   selected process, or to every tagged one ([htop(1)](https://www.man7.org/linux/man-pages/man1/htop.1.html)).
 - **Polite, then forced.** Kubernetes sends TERM, waits a grace period, then
   KILL ([Pod termination](https://kubernetes.io/docs/concepts/workloads/pods/pod-lifecycle/)).
@@ -200,11 +198,11 @@ One line per event: time, level, event, then `key=value` pairs in a fixed
 order, `cmd` last because it is the longest.
 
 ```
-Oct 17 14:41:05 INFO  ended     id=01VSwRPD agent=claude subagent=Explore project=rust-gone-session took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
-Oct 17 14:41:20 WARN  unmatched id=01Hc2wqP agent=claude project=rust-gone-session took=2.0s guarded=no cmd="./scripts/nap.sh"
-Oct 17 14:42:31 WARN  stopped   id=01T4J7Ko agent=claude project=rust-wire-code by=guard size=6.2GB reason="memory critical" cmd="cargo test --workspace"
+Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
+Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s guarded=no cmd="./scripts/nap.sh"
+Oct 17 14:42:31 WARN  stopped   id=2Bv6Yc1d agent=claude project=api-server by=guard size=6.2GB reason="memory critical" cmd="cargo test --workspace"
 Oct 17 14:43:02 WARN  memory    available=1.1GB total=16GB stopped=none
-Oct 17 14:44:40 WARN  stopped   id=01Pz8LmQ agent=claude project=rust-gone-session by=you took=8.0s peak=1.3GB cmd="pnpm vitest run"
+Oct 17 14:44:40 WARN  stopped   id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s peak=1.3GB cmd="pnpm vitest run"
 Oct 17 14:45:10 ERROR error     msg="cannot read memory" error="proc_pid_rusage 81234: no such process"
 ```
 
@@ -241,9 +239,9 @@ A full-screen Bubble Tea program in the alternate screen.
 3 running · 3 finished in the last minute · largest peak 6.2 GB
 
   ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT            COMMAND
-▸ 01VSwRPD  ● run       claude  Explore    44s  2.2 GB  2.3 GB  rust-gone-session  pnpm typecheck 2>&1 | tail -15
-  7cE2kR0L  ● run       codex               15s  840 MB  910 MB  market-squawk      cargo check -p feed
-  017akess  ✓ done      claude            0.6s       —   18 MB  rust-wire-code     rg -n -i 'digest' …
+▸ 4fQ8nX2a  ● run       claude  Explore    44s  2.2 GB  2.3 GB  feature-login  pnpm typecheck 2>&1 | tail -15
+  3Nd7Lp8z  ● run       codex               15s  840 MB  910 MB  price-feed      cargo check -p feed
+  5Jx2Gm6r  ✓ done      claude            0.6s       —   18 MB  api-server     rg -n -i 'digest' …
 
 ↑↓ move  space tag  enter details  k stop  q quit
 ```
@@ -266,7 +264,7 @@ A full-screen Bubble Tea program in the alternate screen.
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
   s)` selected and `Force kill now` below it. Enter sends, Esc cancels. The
   answer from the watcher is shown for 3 s on the bottom line, for example
-  `stopped 01VSwRPD` or `01VSwRPD already finished`.
+  `stopped 4fQ8nX2a` or `4fQ8nX2a already finished`.
 - **Details**: the full command, folder, agent, subagent, full ID, status
   and run time, memory now and peak, a one-line graph of the command's
   memory over the last 120 readings, and its process tree with each
