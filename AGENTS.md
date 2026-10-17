@@ -15,8 +15,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
   and the ledger is the only lasting record of spend. A second exception:
   numbered migrations in `internal/migrate/` may move files Workbench itself
   wrote into its runtime folders, without losing data, and delete caches,
-  logs, locks and empty files Workbench itself wrote, and an old copy whose new
-  copy holds the same bytes; they are idempotent, never touch other tools'
+  logs, locks and empty files Workbench itself wrote (or, in a log a running
+  process keeps open, only the lines of an older format), and an old copy
+  whose new copy holds the same bytes; they are idempotent, never touch other tools'
   files, never merge, and leave a file where it is when old and new data both
   exist. The costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008).
