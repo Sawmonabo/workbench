@@ -89,11 +89,6 @@ the release is tagged.
 - Start detached children and cap logs in one place
 - Own private folders and folder syncs in one place
 
-### merge
-
-- Workbench guard logs, a structured guard log and the old-log migration
-- Update Codex and Claude Code through their own installers
-
 ## [v0.1.25](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.25) - 2026-10-14
 
 ### Fixes
