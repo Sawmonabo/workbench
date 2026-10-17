@@ -42,16 +42,17 @@ synthetic answers.
 - Tag pushes publish four bundles and an `install.sh` stamped with the tag.
   A tag with a hyphen (`vX.Y.Z-rc.N`) is published as a GitHub pre-release with
   notes for the commits since the tag before it, adds no changelog section and
-  commits no `CHANGELOG.md` (target; not yet observed, it needs a pushed
-  pre-release tag; the workflow's tag tests and git-cliff's output for a
-  pre-release and the full release after it were checked locally). A
-  `--published` bundle named `v0.1.26-rc.1`, installed in a disposable home,
-  stayed on `update` while GitHub's latest was `v0.1.25`.
+  commits no `CHANGELOG.md` (observed for `v0.1.26-rc.1`: GitHub's latest
+  stayed `v0.1.25` and the changelog job was skipped; the full release after a
+  pre-release was checked locally with git-cliff). In a disposable home,
+  `update v0.1.26-rc.1` and the `install.sh` one-liner with `--version
+  v0.1.26-rc.1` each installed it, `update` without a version kept it, and
+  `version --list` showed it on its own line as installed.
   git-cliff 2.14.2 with `cliff.toml`, run at a tag, rendered every release
   from the commit history with no unreleased section, and that tag's section
   alone for its release notes. The release workflow downloads git-cliff through
-  `scripts/git-cliff.sh`, which checks a pinned SHA-256 (target; the next tag's
-  run is the first to use it). The update handoff carries the proxy, CA, color
+  `scripts/git-cliff.sh`, which checks a pinned SHA-256 (observed in the
+  `v0.1.26-rc.1` run). The update handoff carries the proxy, CA, color
   and agent variables and nothing else of the caller's environment, a download
   fails after a minute without data instead of a fixed total time, and a
   modified staged copy of a release is replaced on rerun (target; not yet
