@@ -124,7 +124,7 @@ type releaseList struct {
 // latest and the installed one with *. An installed release the list lacks,
 // a pre-release or local build, follows on its own line.
 func writeReleases(w io.Writer, list releaseList) error {
-	if len(list.Releases) == 0 {
+	if len(list.Releases) == 0 && list.Installed == "" {
 		_, err := fmt.Fprintln(w, "  No releases published yet")
 		return err
 	}

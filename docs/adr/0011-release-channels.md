@@ -49,10 +49,11 @@ every release's notes.
   the same `--published` bundles and publishes them with `gh release create
   --prerelease`. GitHub's latest release stays the newest full release, so no
   machine moves to the pre-release unless it asks: `workbench update
-  vX.Y.Z-rc.N`, or `install.sh --version vX.Y.Z-rc.N`. A pre-release is on
-  the release channel, so `update` without a version keeps it while it is
-  newer than the latest full release and installs `vX.Y.Z` once that is
-  published, because semantic versioning orders `vX.Y.Z-rc.N` below `vX.Y.Z`.
+  vX.Y.Z-rc.N`, or `install.sh` piped to `sh -s -- --version vX.Y.Z-rc.N`.
+  A pre-release is on the release channel, so `update` without a version
+  keeps it while it is newer than the latest full release and installs
+  `vX.Y.Z` once that is published, because semantic versioning orders
+  `vX.Y.Z-rc.N` below `vX.Y.Z`.
   `workbench version --list` lists full releases only, and adds an installed
   release it lacks on its own line; `gh release list -R Sawmonabo/workbench`
   and the repository's releases page also show pre-releases.
@@ -66,8 +67,8 @@ every release's notes.
   range starts at the previous full release (`git describe --exclude '*-*'`)
   and matches its `CHANGELOG.md` section; a pre-release's starts at the
   previous `v*` tag of any kind, with the tag pattern widened to
-  `^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`. With no earlier tag, the notes cover the whole history
-  up to the tag.
+  `^v[0-9]+\.[0-9]+\.[0-9]+(-.+)?$`. With no earlier tag, the notes cover
+  the whole history up to the tag.
 - **Local build.** A bundle built without `--published` is local. Its name is
   the next release with a `-dev.N` suffix, so it sorts below that release.
   `update` without a version, run by a local build that is the active

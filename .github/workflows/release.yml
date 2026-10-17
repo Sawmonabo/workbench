@@ -42,7 +42,7 @@ jobs:
       # previous full release. A pre-release (a tag with a hyphen,
       # vX.Y.Z-rc.N) has no section there: its notes start after any earlier
       # v* tag, with the tag pattern widened to count it. Without an earlier
-      # tag the notes cover the whole history the checked-out tag ends.
+      # tag the notes cover the whole history up to the tag.
       - name: Write release notes
         env:
           VERSION: ${{ github.ref_name }}

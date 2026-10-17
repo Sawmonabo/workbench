@@ -40,7 +40,5 @@ commit_parsers = [
   { message = "^docs", group = "<!-- 2 -->Documentation" },
   # The release workflow's own commit of this file.
   { message = "^chore\\(changelog\\)", skip = true },
-  # A merge's commits are listed one by one.
-  { message = "^merge", skip = true },
   { message = "^(refactor|style|perf|build|ci|test|chore|revert)", group = "<!-- 3 -->Maintenance" },
 ]
