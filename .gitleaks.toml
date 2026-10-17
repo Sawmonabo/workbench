@@ -19,3 +19,10 @@ condition = "AND"
 regexTarget = "secret"
 regexes = ['''^glpat-abc123def456ghi789$''']
 paths = ['''^internal/machine/files_test\.go$''']
+
+[[rules.allowlists]]
+description = "Public fingerprint of the Claude Code release signing key, as Anthropic's setup documentation lists it, not a credential"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^31ddde24ddfab679f42d7bd2baa929ff1a7ecace$''']
+paths = ['''^internal/machine/agents\.go$''']
