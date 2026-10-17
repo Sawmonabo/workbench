@@ -23,7 +23,8 @@ import (
 //     exclusive one, so no appended line falls between the cut's read and its
 //     truncate. The detached child's own output holds no lock; the cut copies
 //     what it appended meanwhile, so only bytes written between that copy and
-//     the truncate can be lost.
+//     the truncate, or where a cut that grew the file wrote its end, can be
+//     lost.
 //   - A cut starts the file with a cut record, a JSON line naming the bytes
 //     dropped from the log's start by every cut so far, so a [LogReader]
 //     keeps its place by a byte count, as a journald cursor does
@@ -118,15 +119,12 @@ func RewriteLog(path string, edit func(body []byte) []byte) error {
 		return nil
 	}
 	cut := append(cutRecord(dropped+int64(len(body)-len(kept))), kept...)
-	if len(cut) > len(data) {
-		// Written past the old end, the cut would overwrite or be overwritten
-		// by a line appended meanwhile.
-		return nil
-	}
 	if _, err = file.WriteAt(cut, 0); err != nil {
 		return err
 	}
-	read, write := int64(len(data)), int64(len(cut))
+	// A cut that drops fewer bytes than its record adds, such as a migration
+	// removing one short line, ends past the old end: copying goes on after it.
+	read, write := max(int64(len(data)), int64(len(cut))), int64(len(cut))
 	buffer := make([]byte, 64<<10)
 	for {
 		n, err := file.ReadAt(buffer, read)
