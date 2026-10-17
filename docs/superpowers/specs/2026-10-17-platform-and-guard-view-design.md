@@ -1,13 +1,20 @@
-# Guard log format and live memory view design
+# Platform package, guard log format and live memory view design
 
-Status: design, Oct 17, 2026. It changes how `workbench guard logs` prints the
-guard log and adds `workbench guard memory`, a live full-screen view of the
-commands the guard tracks, from which a person can stop them. It builds on the
+Status: design, Oct 17, 2026. First, it gathers every operating-system call
+and platform fact into one package, `internal/platform`, so no other package
+asks which system it runs on. Then it changes how `workbench guard logs`
+prints the guard log and adds `workbench guard memory`, a live full-screen
+view of the commands the guard tracks, from which a person can stop them,
+built on that package. The guard parts build on the
 [agent command guard design](2026-10-14-agent-command-guard-design.md); every
 section number below that names "guard design" points there.
 
 ## 1. Goal and boundaries
 
+- One package, `internal/platform`, owns every operating-system call and
+  every fact that differs between macOS and Linux (section 3). Other packages
+  call it and never test `runtime.GOOS` or WSL themselves. It lands first,
+  on its own, changing no behavior.
 - `workbench guard logs` prints one log line per event, the way log viewers
   do, with an ID that ties a command's lines together. It has no `--verbose`
   flag: every finished command is shown.
@@ -28,6 +35,25 @@ section number below that names "guard design" points there.
 
 Each was read in the source named.
 
+- **Platform code in Go.** A file whose name ends in `_GOOS` (for example
+  `platform_darwin.go`) builds only for that system, with no build line
+  ([go/build](https://pkg.go.dev/cmd/go/internal/help@go1.26.4)); the
+  standard library splits its own system calls this way. A `runtime.GOOS`
+  test is evaluated at run time and every branch must compile everywhere.
+- **Detect once.** Tailscale's `version/distro` package detects the Linux
+  distribution and WSL once and caches the answer (`lazy.SyncValue`) for every
+  caller ([distro](https://pkg.go.dev/tailscale.com@v1.98.3/version/distro)).
+- **The model this follows.** ai-sidekicks' `sidekicks-platforms` crate holds
+  all operating-system code behind one interface, with a module per platform
+  (`macos`, `linux`, and `posix` for what they share) chosen at compile time;
+  only WSL is detected at run time.
+- **Where Workbench stands.** Its low-level calls already sit in nine
+  `_darwin.go`/`_linux.go` files (`internal/guard/platform_*`,
+  `internal/operation/filesystem_*`, `image_metadata_*`, `libc_darwin.go`,
+  `askpass_*`), but 21 `runtime.GOOS` tests in 11 files of `machine`,
+  `operation`, `costs` and `release`, and about 12 WSL tests in `machine`,
+  decide platform facts where they are used, and `isWSL()` reads
+  `/proc/sys/kernel/osrelease` on every call.
 - **Log line format.** Charm's `charmbracelet/log` prints time, a styled
   level, the message and then `key=value` pairs on one line, and styles only
   a terminal ([README](https://github.com/charmbracelet/log)). logfmt is one
@@ -85,7 +111,90 @@ Each was read in the source named.
 - **Messages.** JSON Lines suits "passing messages between cooperating
   processes" ([jsonlines.org](https://jsonlines.org/)).
 
-## 3. `workbench guard logs`
+## 3. `internal/platform`
+
+### 3.1 What it owns
+
+- **Every operating-system call**: the system calls, libc calls and
+  `/proc` reads that differ between macOS and Linux. The logic around a call
+  stays with its owner; only the call moves. For example, the guard keeps
+  deciding what to stop, and `platform` sends the signal.
+- **Every platform fact**: a value that differs by system, such as the runtime
+  folders' default places, the Homebrew prefix, where VS Code and Claude Code
+  keep their files, or whether Homebrew casks exist.
+- **WSL**, detected once at first use (`sync.OnceValue`), never again.
+
+It imports only the standard library and `golang.org/x/sys`, never another
+Workbench package, so every other package may import it.
+
+### 3.2 Layout
+
+```
+internal/platform/
+  platform.go          shared types and the package documentation
+  platform_darwin.go   macOS: facts and calls
+  platform_linux.go    Linux and WSL: facts and calls
+  libc_darwin.go       libc trampolines (from internal/operation)
+  libc_darwin.s
+```
+
+Each exported name exists in both platform files with the same signature, so
+callers compile the same on both. There is no third file for other systems:
+Workbench ships for macOS and Linux only, so building for anything else fails
+to compile, which replaces the run-time refusal in `operation.runtimePaths`.
+When a file grows past one subject, it splits by subject with the same suffix
+(`process_darwin.go`, `process_linux.go`).
+
+### 3.3 Its interface
+
+| Name | What it gives | Replaces |
+| --- | --- | --- |
+| `System` | `"macos"` or `"linux"`, for messages | the `runtime.GOOS` strings in `checkPlatform` |
+| `WSL()` | true on WSL, read once | `machine.isWSL` |
+| `RuntimeFolders(home)` | the five default runtime folders | the branch in `operation.runtimePaths` |
+| `HomebrewPrefixes`, `HomebrewRepositories` | where Homebrew lives | `machine.findAgent` and `operation.homebrewRepository` |
+| `HasCasks` | Homebrew casks and Mac apps exist | the `darwin` tests in `machine/updates.go` and `agents.go` |
+| `ToolFolders(home)` | the folders searched for an agent's launcher, in order | the two branches in `machine.findAgent` |
+| `VSCodeUserFolder(home)` | VS Code's user settings folder | the branch in `machine` doctor |
+| `ClaudeManagedFolder` | Claude Code's managed settings folder | the branch in `costs.ClaudeManagedSettings` |
+| `GroupFromFolder` | new files take their folder's group | the `darwin` test in `operation.inheritedGroup` |
+| `TouchIDPossible` | Touch ID for sudo can exist | the test in `operation.TouchIDForSudo` |
+| `AssetTriple` | the `apple-darwin` or `unknown-linux-gnu` asset name part | the map in `machine/setup.go` |
+| process calls | list processes, one process's info, arguments, one environment value, physical footprint, resident memory, working folder, send a signal safely, wait for exit | `internal/guard/platform_*`, `operation.PhysicalFootprint` |
+| memory reading | the system's memory pressure, available and total | `readMemory` in `internal/guard/platform_*` |
+| file calls | no-replace rename, private file system check, terminal check, ACL and metadata reads | `internal/operation/filesystem_*`, the calls in `image_metadata_*` |
+| `Peer(conn)` | the connected process's user and process ID | `LOCAL_PEERPID` in `operation/askpass_darwin.go`, new on Linux |
+
+`release.Target()` keeps `runtime.GOOS` and `runtime.GOARCH`: it names the
+build's own bundle, not a platform difference, and `runtime.GOARCH` stays
+wherever it is used.
+
+### 3.4 Which platform's steps exist
+
+Which effects and steps a platform offers is Workbench policy, not an
+operating-system fact, so it stays in `internal/machine`. It is chosen by
+file suffix there too: `effects_darwin.go` and `effects_linux.go` each
+define the platform's effect list and optional effects, and the shared code
+calls them. WSL's additions on Linux read `platform.WSL()`.
+
+### 3.5 Kept that way
+
+A `forbidigo` rule in `.golangci.yml` forbids `runtime.GOOS` outside
+`internal/platform` and `internal/release/archive.go`, so a new platform test
+anywhere else fails `golangci-lint run`. AGENTS.md's ownership table gains
+the row "Operating-system calls and platform facts | `internal/platform/`",
+and `docs/adr/0012-platform-package.md` records why, with the sources in
+section 2.
+
+### 3.6 Checks
+
+The move changes no behavior. Before and after it, on macOS in a disposable
+home and on Linux in Docker (and the WSL simulation of `render-check.sh`):
+`workbench apply --dry-run --json` gives the same plan digest, `workbench
+doctor` the same lines, the guard's existing tests pass, and both systems
+build and lint. No new test: AGENTS.md admits none for a move.
+
+## 4. `workbench guard logs`
 
 One line per event: time, level, event, then `key=value` pairs in a fixed
 order, `cmd` last because it is the longest.
@@ -106,7 +215,7 @@ Oct 17 14:45:10 ERROR error     msg="cannot read memory" error="proc_pid_rusage 
   it ends, is stopped or goes unmatched.
 - **`id`** is the first 8 characters of the tool call ID after its `toolu_`
   or `call_` prefix. `--json` keeps the full ID.
-- **`project`** is where the command ran (section 5.2).
+- **`project`** is where the command ran (section 6.2).
 - **`cmd`** is the note's command with a leading `cd PATH &&` or `cd PATH;`
   removed; the path went into `project`.
 - **Sizes** are `MB` below 1 GB, else `GB` with one decimal.
@@ -123,7 +232,7 @@ Oct 17 14:45:10 ERROR error     msg="cannot read memory" error="proc_pid_rusage 
 - A stop's `reason` text, the message the agent is told, stays in `--json`
   and the live view's details.
 
-## 4. `workbench guard memory`
+## 5. `workbench guard memory`
 
 A full-screen Bubble Tea program in the alternate screen.
 
@@ -176,9 +285,9 @@ A full-screen Bubble Tea program in the alternate screen.
   the Codex variables AGENTS.md lists, the detection `apply` uses) it exits 3
   with `guard memory is for a person at a terminal`.
 
-## 5. Guard changes
+## 6. Guard changes
 
-### 5.1 Note fields
+### 6.1 Note fields
 
 The pre hook adds to each note (guard design 4):
 
@@ -186,9 +295,9 @@ The pre hook adds to each note (guard design 4):
 | --- | --- |
 | `cwd` | the hook input's `cwd` (Claude Code and Codex) |
 | `subagent` | Claude Code's `agent_type` when the call comes from a subagent; empty otherwise and for Codex |
-| `project` | section 5.2, computed once here |
+| `project` | section 6.2, computed once here |
 
-### 5.2 Project name
+### 6.2 Project name
 
 From the command's leading `cd PATH` when it has one, else from `cwd`,
 resolved against `cwd`: the folder name after a `.worktrees/` or
@@ -196,7 +305,7 @@ resolved against `cwd`: the folder name after a `.worktrees/` or
 folder at or above it that holds `.git`, else the path's last folder name.
 It only labels; nothing acts on it.
 
-### 5.3 Pairing by folder
+### 6.3 Pairing by folder
 
 `claims` in `internal/guard/match.go` also requires, when both are known,
 that the process running the command has as its working folder, when it is
@@ -206,7 +315,7 @@ that folder. Linux reads
 process whose folder cannot be read pairs as today. Codex commands with a
 call ID pair by ID as today.
 
-### 5.4 Memory every tick
+### 6.4 Memory every tick
 
 Each tick the watcher sums each tracked command's tree (guard design 6.3's
 tree, the same processes a stop would signal) and keeps per command the last
@@ -217,7 +326,7 @@ uses `/proc/PID/statm`'s resident pages for this sum; the stop decision keeps
 (bytes), `cwd`, `project` and `subagent`; `stopped` gains `by` (`guard` or
 `you`).
 
-### 5.5 The socket
+### 6.5 The socket
 
 - **Place.** `guard.sock` in the guard's state folder, which is private
   (0700). The watcher creates it after taking the lock (guard design 6.5),
@@ -250,18 +359,21 @@ uses `/proc/PID/statm`'s resident pages for this sum; the stop decision keeps
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
   memory).` In dry-run mode it logs `would stop` and signals nothing.
 
-## 6. Platforms and reuse
+## 7. Platforms and reuse
 
-Workbench supports macOS and Linux, and WSL runs the Linux code. Platform
-code goes in `_darwin.go` and `_linux.go` files beside the existing ones, so
-each platform builds only its own; everything else is shared.
+The guard view adds no platform test. Its three new operating-system needs
+are `internal/platform` calls (section 3.3), each with a macOS and a Linux
+version; WSL runs the Linux one.
 
-| Need | macOS | Linux and WSL | Where |
+| Need | macOS | Linux and WSL | Platform call |
 | --- | --- | --- | --- |
-| A process's memory each tick | `operation.PhysicalFootprint` (`proc_pid_rusage`), already used | `/proc/PID/statm` resident pages × page size, new | a new `resident(pid)` in `internal/guard/platform_darwin.go` (returns `footprint`) and `platform_linux.go`; `footprint` stays the stop decision's figure |
-| A process's working folder | `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`, a new call through the existing libc trampolines in `internal/operation/libc_darwin.go` | `os.Readlink("/proc/PID/cwd")` | same platform files |
-| The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` (`unix.GetsockoptInt`) | `SO_PEERCRED` (`unix.GetsockoptUcred`) | one `operation.Peer(conn) (uid, pid, error)` per platform; the password helper's `peerDescendsFrom` (`internal/operation/askpass_darwin.go`) is rewritten on top of it |
-| Is the peer under an agent | the guard's own process snapshot (`snapshot` in `internal/guard/guard.go`), which already walks parents and knows the noted agents | same | `internal/guard` |
+| A process's memory each tick | physical footprint (`proc_pid_rusage`), the figure stops use | `/proc/PID/statm` resident pages × page size; stops keep `smaps_rollup`'s Pss | `Resident(pid)` |
+| A process's working folder | `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`, through the libc trampolines | `os.Readlink("/proc/PID/cwd")` | `Folder(pid)` |
+| The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` | `SO_PEERCRED` (`unix.GetsockoptUcred`) | `Peer(conn)`, which the password helper uses too |
+
+Whether a peer descends from a noted agent is guard logic over its own
+process snapshot (`snapshot` in `internal/guard/guard.go`), not a platform
+call.
 
 Everything else reuses what Workbench already has:
 
@@ -280,12 +392,14 @@ Everything else reuses what Workbench already has:
 - **Socket handover**: the listening socket rides the handover the lock
   already uses (`internal/guard/handover.go`, `operation.InheritLock`, passed
   through `ExtraFiles`).
-- **Stops**: the guard's existing stop path (`stop`, `targets`, `send` and the
-  5 s escalation in `internal/guard/watch.go` and the platform files); a
-  manual stop adds only who asked and the message.
+- **Stops**: the guard's existing stop path (`stop`, `targets` and the 5 s
+  escalation in `internal/guard/watch.go`, sending through
+  `internal/platform`); a manual stop adds only who asked and the message.
 - **No new modules.** `golang.org/x/sys` already has every call above.
 
-## 7. Tests
+## 8. Tests
+
+The platform move adds none (section 3.6).
 
 AGENTS.md admits tests only for data loss, credential exposure or
 unauthorized execution. Each of these guards against a command being stopped
@@ -297,7 +411,7 @@ that nobody with the right to stop it chose:
 3. Two notes with the same command text in two folders pair with the
    processes in their own folders.
 
-## 8. Checks before release
+## 9. Checks before release
 
 - macOS in a disposable home and Linux in a memory-capped Docker container,
   with `WORKBENCH_GUARD=dry-run` and then real stops of commands the check
@@ -309,7 +423,10 @@ that nobody with the right to stop it chose:
 - The view's and the watcher's CPU and memory over a minute with ten tracked
   commands, recorded in `docs/acceptance.md`.
 
-## 9. Docs
+## 10. Docs
+
+- AGENTS.md: the ownership row and the `runtime.GOOS` rule (section 3.5).
+- `docs/adr/0012-platform-package.md` (section 3.5).
 
 - `docs/usage.md`: the new `guard logs` format and the `guard memory`
   command, keys and refusals.
@@ -317,6 +434,6 @@ that nobody with the right to stop it chose:
   folder (6.1), memory each tick and the socket (6.5).
 - `docs/superpowers/specs/workbench-contracts.md`: the socket and its
   messages.
-- `docs/adr/0012-guard-memory-view.md`: why a socket served by the watcher,
+- `docs/adr/0013-guard-memory-view.md`: why a socket served by the watcher,
   the peer checks and the agent lock, with the sources in section 2.
-- `docs/acceptance.md`: what the checks in section 8 observed.
+- `docs/acceptance.md`: what the checks in section 9 observed.
