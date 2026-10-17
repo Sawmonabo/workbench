@@ -850,16 +850,18 @@ output, is never touched, whatever its first line is.
 **The run:**
 1. Deletes `watch.log.1` when it holds an old line.
 2. Removes the old lines from `watch.log` and keeps every other line, in
-   order. The file is rewritten in place (`O_TRUNC`, same inode), as the
-   log's own cut does (`operation.AppendLog`), not deleted or replaced: a
-   running watcher keeps its stdout and stderr open on it, so a replaced file
-   would send its crash output to a file nobody can read, and its records may
-   follow the old lines. It takes no lock, as the cut takes none; a record
-   appended between the read and the write is lost, as with the cut.
+   order, with the log's own cut (`operation.RewriteLog`), not deleted or
+   replaced: a running watcher keeps its stdout and stderr open on it, so a
+   replaced file would send its crash output to a file nobody can read, and
+   its records may follow the old lines. The cut opens the file once, never
+   through a link, under the exclusive lock every append waits for, writes
+   a `cut` record and the kept lines from its start, copies anything the
+   watcher appended meanwhile after them, and truncates it there (same
+   inode, mode and owner).
 
 A path that isn't a regular file (a link) is never read through, stays and is
-reported. One that can't be read keeps the migration *Pending* ("can't read
-…").
+reported, and leaves the migration *Done* when nothing else is to do. One
+that can't be read keeps the migration *Pending* ("can't read …").
 
 ## 7. The costs-ingest step's text
 

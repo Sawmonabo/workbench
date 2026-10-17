@@ -167,9 +167,10 @@ guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
 the owners the costs hook already uses: `operation.TryLock` for the
 one-watcher lock, `operation.StartDetached` to start the watcher (it finds
 Workbench's own executable and opens the log itself), `operation.AppendLog`
-for the capped log, `operation.ReplacePrivateFile` for notes and kill records,
-and the operation layer's private-directory checks for its folder. Only the
-watch loop, the hook bodies and the platform readers are new.
+for the capped log (and `operation.LogReader` to follow it),
+`operation.ReplacePrivateFile` for notes and kill records, and the operation
+layer's private-directory checks for its folder. Only the watch loop, the hook
+bodies and the platform readers are new.
 
 The watcher is started on demand by the pre hook; there is no login item or
 service, and it exits after 10 idle minutes (section 6.5).
@@ -276,6 +277,7 @@ PID) when one process could not be read.
 | `gave-up` | A stopped command still runs 10 seconds on (section 6.4). |
 | `refused` | A stop signalled nothing. |
 | `error` | Something could not be read or written, or a hook panicked. |
+| `cut` | The log's first line after a cut in place: `dropped` counts the bytes every cut has removed from its start. `workbench guard logs` never shows it. |
 | `raw` | Only from `workbench guard logs`: a line of the file that is not a record. |
 
 The watcher's own stdout and stderr go to the same file, so a line that is
@@ -295,8 +297,14 @@ which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
 written after the record before it, so `--since` keeps it when it keeps that
 record; raw lines before the log's first record are kept when that record
 is. `--follow` keeps printing new events: it waits for a log that does not
-exist yet, and after a cut in place reads on from the line after the last
-one it read, or from the start when the cut took that line. `--json` prints
+exist yet and keeps its place by position, never by a line's content. It
+counts the bytes it has read, cut ones included, and the `cut` record says
+how many a cut removed, so after a cut it reads on from the same byte, as a
+journald cursor keeps a reader's place; `tail -F` instead rereads a file
+that shrank from its start and repeats lines. A cut that removed bytes the
+viewer had not read yet (it fell more than half the log behind) goes on from
+the log's oldest line; a log that is replaced, or shrinks with no `cut`
+record, is read from its start. `--json` prints
 the matching records unchanged, one per line.
 
 Migration `0004-old-guard-log` removes the free-text lines earlier builds

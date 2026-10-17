@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -19,8 +18,8 @@ import (
 // as raw watcher output. It removes those lines from guard/watch.log in place
 // and keeps every other line, records and raw output alike, because a running
 // watcher's stdout and stderr stay open on the file and its records may
-// follow the old lines; it rewrites the file as the log's own cut does (see
-// [operation.AppendLog]). It deletes guard/watch.log.1, the copy the first
+// follow the old lines; it rewrites the file with the log's own cut (see
+// [operation.RewriteLog]). It deletes guard/watch.log.1, the copy the first
 // builds rotated the log into, when that holds such a line. A file that holds
 // none is never touched.
 var oldGuardLog = Migration{
@@ -29,32 +28,34 @@ var oldGuardLog = Migration{
 	Doing: "removing the old free-text lines from the guard log",
 	What: "Removes the free-text lines earlier builds of the agent command guard wrote " +
 		"(\"<time> <pid> watch: …\", or pre or post) from the guard log, watch.log in the " +
-		"guard folder of Workbench's state folder, keeping every other line in place, and " +
+		"guard folder of Workbench's state folder, keeping every other line in place behind " +
+		"a record of the cut, and " +
 		"deletes watch.log.1 beside it, the copy the first builds rotated the log into, when " +
 		"it holds such lines. A log without them is left alone.",
 	Recovery: "nothing to undo: the removed lines are in an old format nothing reads, and " +
 		"the guard's records stay",
 	Check: func(l Locations) (Status, string) {
-		var text, other []string
+		var todo, other []string
 		for _, path := range guardLogPaths(l) {
 			shown := operation.ShowPath(l.Home, path)
 			lines, err := oldGuardLines(path)
 			switch {
-			case errors.Is(err, fs.ErrNotExist), err == nil && lines == 0:
-			case errors.Is(err, errNotRegular):
+			case err == nil && lines == 0:
+			case operation.NotRegularLog(err):
 				other = append(other, shown)
 			case err != nil:
-				text = append(text, "can't read "+shown)
+				todo = append(todo, "can't read "+shown)
 			case filepath.Ext(path) == ".1":
-				text = append(text, "deletes "+shown)
+				todo = append(todo, "deletes "+shown)
 			default:
-				text = append(text, fmt.Sprintf("removes %d old lines from %s", lines, shown))
+				todo = append(todo, fmt.Sprintf("removes %d old lines from %s", lines, shown))
 			}
 		}
+		text := todo
 		if len(other) > 0 {
 			text = append(text, keeps(other))
 		}
-		if len(text) == len(other) {
+		if len(todo) == 0 {
 			return Done, strings.Join(text, " and ")
 		}
 		return Pending, strings.Join(text, " and ")
@@ -62,35 +63,22 @@ var oldGuardLog = Migration{
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		var kept []string
 		for _, path := range guardLogPaths(l) {
-			data, err := readGuardLog(path)
-			switch {
-			case errors.Is(err, fs.ErrNotExist):
-				continue
-			case errors.Is(err, errNotRegular):
-				kept = append(kept, operation.ShowPath(l.Home, path))
-				continue
-			case err != nil:
-				return kept, err
-			}
-			var rest bytes.Buffer
-			removed := false
-			for line := range bytes.Lines(data) {
-				if oldGuardLine.Match(line) {
-					removed = true
-				} else {
-					rest.Write(line)
+			var err error
+			if filepath.Ext(path) == ".1" {
+				var lines int
+				if lines, err = oldGuardLines(path); err == nil && lines > 0 {
+					err = operation.RemoveIfThere(path)
+				}
+			} else {
+				err = operation.RewriteLog(path, withoutOldLines)
+				if errors.Is(err, fs.ErrNotExist) {
+					err = nil
 				}
 			}
 			switch {
-			case !removed:
-			case filepath.Ext(path) == ".1":
-				err = operation.RemoveIfThere(path)
-			default:
-				// Written in place, not replaced: the watcher's output stays
-				// open on it.
-				err = os.WriteFile(path, rest.Bytes(), 0o600)
-			}
-			if err != nil {
+			case operation.NotRegularLog(err):
+				kept = append(kept, operation.ShowPath(l.Home, path))
+			case err != nil:
 				return kept, err
 			}
 		}
@@ -113,25 +101,22 @@ func guardLogPaths(l Locations) []string {
 	return []string{log, log + ".1"}
 }
 
-// errNotRegular is a guard log path that holds something other than a
-// regular file, such as a link, which is never read through and stays.
-var errNotRegular = errors.New("not a regular file")
-
-// readGuardLog reads path when Lstat shows a regular file.
-func readGuardLog(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if err != nil {
-		return nil, err
+// withoutOldLines is the log body without its old free-text lines.
+func withoutOldLines(body []byte) []byte {
+	var rest bytes.Buffer
+	for line := range bytes.Lines(body) {
+		if !oldGuardLine.Match(line) {
+			rest.Write(line)
+		}
 	}
-	if !info.Mode().IsRegular() {
-		return nil, errNotRegular
-	}
-	return os.ReadFile(path)
+	return rest.Bytes()
 }
 
-// oldGuardLines counts the old free-text lines in path.
+// oldGuardLines counts the old free-text lines in the log at path, read as
+// [operation.LogReader] reads it: never through a link, and none when it is
+// missing.
 func oldGuardLines(path string) (int, error) {
-	data, err := readGuardLog(path)
+	data, err := operation.NewLogReader(path).Read()
 	if err != nil {
 		return 0, err
 	}

@@ -4,11 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"io"
-	"io/fs"
 	"log/slog"
-	"os"
 	"path/filepath"
 	"time"
 
@@ -22,7 +18,8 @@ import (
 // reason, the text the agent is told, and memory, the reading that called for
 // it; a failure adds error. The watcher's own output goes to the same file,
 // so a crash's trace can sit among the records: [ReadLog] gives each such
-// line as a raw event.
+// line as a raw event. A log that was cut starts with a record of event cut
+// (see [operation.RewriteLog]), which [ReadLog] never gives.
 const (
 	EventStarted   = "started"   // a watcher started
 	EventIdle      = "idle"      // a watcher exited, idle
@@ -73,31 +70,31 @@ const followPoll = 250 * time.Millisecond
 // at level ERROR with the line as its msg and no time, which is unknown,
 // encoded by [slog.JSONHandler] as the log's records are. A missing log has
 // no records. With follow it then keeps calling emit as records are appended,
-// until ctx ends: a log cut in place (see [operation.AppendLog]) is read on
-// from the line after the last one read, or from its start when the cut took
-// that line too, and a log created or replaced is read from its start.
+// until ctx ends, keeping its place across a cut as [operation.LogReader]
+// does.
 func ReadLog(
 	ctx context.Context,
 	path string,
 	follow bool,
 	emit func(raw []byte, e Event) error,
 ) error {
-	var identity os.FileInfo
-	var offset int64
-	var last []byte // the last line read, with its newline
+	reader := operation.NewLogReader(path)
 	for {
-		info, err := os.Stat(path)
-		switch {
-		case errors.Is(err, fs.ErrNotExist):
-			identity, offset, last = nil, 0, nil
-		case err != nil:
+		data, err := reader.Read()
+		if err != nil {
 			return err
-		default:
-			if identity != nil && !os.SameFile(identity, info) {
-				offset, last = 0, nil
+		}
+		for line := range bytes.Lines(data) {
+			raw := bytes.TrimSuffix(line, []byte("\n"))
+			if len(bytes.TrimSpace(raw)) == 0 {
+				continue
 			}
-			identity = info
-			if offset, last, err = readFrom(path, offset, last, emit); err != nil {
+			var e Event
+			if json.Unmarshal(raw, &e) != nil || e.Event == "" {
+				e = Event{Level: slog.LevelError.String(), Msg: string(raw), Event: EventRaw}
+				raw = rawRecord(e.Msg)
+			}
+			if err = emit(raw, e); err != nil {
 				return err
 			}
 		}
@@ -112,69 +109,6 @@ func ReadLog(
 	}
 }
 
-// readFrom emits the complete lines after offset and returns the new offset
-// and last line. It reads from the last line on, and when that is no longer
-// where it was, the log was cut: it reads the whole log and emits what
-// follows the last line, or every line when the cut took it.
-func readFrom(
-	path string,
-	offset int64,
-	last []byte,
-	emit func([]byte, Event) error,
-) (int64, []byte, error) {
-	file, err := os.Open(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return 0, nil, nil
-	}
-	if err != nil {
-		return offset, last, err
-	}
-	defer func() { _ = file.Close() }()
-	start := offset - int64(len(last))
-	if _, err = file.Seek(start, io.SeekStart); err != nil {
-		return offset, last, err
-	}
-	data, err := io.ReadAll(file)
-	if err != nil {
-		return offset, last, err
-	}
-	if !bytes.HasPrefix(data, last) {
-		if _, err = file.Seek(0, io.SeekStart); err != nil {
-			return offset, last, err
-		}
-		if data, err = io.ReadAll(file); err != nil {
-			return offset, last, err
-		}
-		start = 0
-		if at := lastLine(data, last); at >= 0 {
-			start = int64(at + len(last))
-		} else {
-			last = nil
-		}
-		data = data[start:]
-	} else {
-		start = offset
-		data = data[len(last):]
-	}
-	end := bytes.LastIndexByte(data, '\n') + 1
-	for line := range bytes.Lines(data[:end]) {
-		last = line
-		var e Event
-		raw := bytes.TrimSuffix(line, []byte("\n"))
-		if len(bytes.TrimSpace(raw)) == 0 {
-			continue
-		}
-		if json.Unmarshal(raw, &e) != nil || e.Event == "" {
-			e = Event{Level: slog.LevelError.String(), Msg: string(raw), Event: EventRaw}
-			raw = rawRecord(e.Msg)
-		}
-		if err = emit(raw, e); err != nil {
-			return offset, last, err
-		}
-	}
-	return start + int64(end), last, nil
-}
-
 // rawRecord is a raw line as a record without a time, which
 // [slog.JSONHandler] leaves out.
 func rawRecord(line string) []byte {
@@ -183,22 +117,4 @@ func rawRecord(line string) []byte {
 	r.AddAttrs(slog.String("event", EventRaw))
 	_ = slog.NewJSONHandler(&b, nil).Handle(context.Background(), r)
 	return bytes.TrimSuffix(b.Bytes(), []byte("\n"))
-}
-
-// lastLine is where the whole line line last starts in data, or -1.
-func lastLine(data, line []byte) int {
-	if len(line) == 0 {
-		return -1
-	}
-	for end := len(data); end > 0; {
-		at := bytes.LastIndex(data[:end], line)
-		if at < 0 {
-			return -1
-		}
-		if at == 0 || data[at-1] == '\n' {
-			return at
-		}
-		end = at + len(line) - 1
-	}
-	return -1
 }
