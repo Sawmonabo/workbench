@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 const (
@@ -82,7 +83,7 @@ type watcher struct {
 	setsCallIDs map[procKey]bool
 	idleSince   time.Time
 	expired     time.Time
-	waiter      *waiter
+	waiter      *platform.Waiter
 	// unsized are processes whose footprint could not be read, so each is
 	// logged once, not every tick.
 	unsized map[procKey]bool
@@ -143,14 +144,14 @@ func Watch(ctx context.Context, version string) {
 		setsCallIDs: map[procKey]bool{},
 		unsized:     map[procKey]bool{},
 		idleSince:   time.Now(),
-		waiter:      newWaiter(),
+		waiter:      platform.NewWaiter(),
 
 		missing:     map[procKey]int{},
 		unreadNotes: map[string]bool{},
 		unreadPIDs:  map[int]bool{},
 		handoff:     handoff{version: version},
 	}
-	defer w.waiter.close()
+	defer w.waiter.Close()
 	if !w.takeLock() {
 		return
 	}
@@ -191,7 +192,7 @@ func Watch(ctx context.Context, version string) {
 		if w.pending == nil && time.Since(w.idleSince) >= idleExit && !w.carryOn() {
 			return
 		}
-		w.waiter.wait(next)
+		w.waiter.Wait(next)
 	}
 	f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
 }
@@ -279,7 +280,7 @@ func (w *watcher) tick() time.Duration {
 		}
 	}
 	for _, agent := range agents {
-		w.waiter.watch(agent)
+		w.waiter.Watch(agent)
 		loadArgs(s, agent, codexAgents[agent])
 		if !codexAgents[agent] {
 			continue
@@ -466,22 +467,24 @@ func (w *watcher) gone(s snapshot, pid int, start uint64) bool {
 	return ok && first < w.round
 }
 
-// snapshot is snapshotNow, logging once each process left out for a reason
-// other than its exit.
+// snapshot is every process by PID, logging once each process left out for
+// a reason other than its exit.
 func (w *watcher) snapshot() (snapshot, error) {
-	return snapshotNow(func(pid int, err error) {
+	all, err := platform.Processes(func(pid int, err error) {
 		if !w.unreadPIDs[pid] {
 			w.unreadPIDs[pid] = true
 			w.f.event(slog.LevelError, EventError, "cannot read a process",
 				"process", pid, "error", err)
 		}
 	})
-}
-
-// exited reports whether err from reading a process means only that it
-// exited, which is no error.
-func exited(err error) bool {
-	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ESRCH)
+	if err != nil {
+		return nil, err
+	}
+	s := make(snapshot, len(all))
+	for _, p := range all {
+		s[p.PID] = proc{Process: p}
+	}
+	return s, nil
 }
 
 // callAttrs are the log attributes of a tracked call.
@@ -643,8 +646,9 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 			if p.Zombie {
 				continue
 			}
-			bytes, err := footprint(p.PID)
-			if key := (procKey{p.PID, p.Start}); err != nil && !exited(err) && !w.unsized[key] {
+			bytes, err := platform.Footprint(p.PID)
+			key := procKey{p.PID, p.Start}
+			if err != nil && !platform.Exited(err) && !w.unsized[key] {
 				w.unsized[key] = true
 				w.f.event(
 					slog.LevelError,
@@ -780,7 +784,8 @@ func (w *watcher) refused(c command) {
 func (w *watcher) signal(chosen []target, c command) bool {
 	sent := false
 	for _, t := range chosen {
-		sent = send(t, unix.SIGTERM) || sent
+		p := platform.Process{PID: t.PID, Start: t.Start}
+		sent = platform.Signal(p, t.Group, unix.SIGTERM) || sent
 	}
 	if !sent {
 		return false
@@ -830,7 +835,7 @@ func (w *watcher) escalate() bool {
 	w.stopped = wait
 	for _, p := range kill {
 		if !p.Zombie {
-			send(target{PID: p.PID, Start: p.Start}, unix.SIGKILL)
+			platform.Signal(p.Process, false, unix.SIGKILL)
 		}
 	}
 	return true
@@ -909,9 +914,9 @@ func loadArgs(s snapshot, agent int, callIDs bool) {
 			return
 		}
 		seen[pid] = true
-		p.Args = readArgs(pid)
+		p.Args = platform.Args(pid)
 		if callIDs && (pid == agent || p.PPID == agent) {
-			p.CallID = readCallID(pid)
+			p.CallID = platform.Environ(pid, callIDVariable)
 		}
 		s[pid] = p
 		if expand || len(p.Args) > 0 && launchers[filepath.Base(p.Args[0])] {

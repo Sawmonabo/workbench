@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // shells are the shells an agent runs commands and hooks through.
@@ -217,7 +219,7 @@ func match(s snapshot, notes []note, taken map[int]bool, setsCallIDs map[procKey
 		if !ok || agent.Start != n.AgentStart {
 			continue
 		}
-		earliest := n.NotedStart - min(n.NotedStart, startSlack)
+		earliest := n.NotedStart - min(n.NotedStart, platform.StartSecond)
 		for _, child := range s.children(agent.PID) {
 			if used[child.PID] || child.Start < earliest || slices.Equal(child.Args, agent.Args) {
 				continue

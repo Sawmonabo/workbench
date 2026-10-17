@@ -5,6 +5,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // preservedAttributes are the extended attributes images carry verbatim. Each
@@ -126,9 +128,9 @@ type aclEntry struct{ flags, rights uint32 }
 // count (KAUTH_FILESEC_NOACL when there is no ACL), flags and 24-byte entries.
 //
 // x/sys/unix wraps setattrlist but not getattrlist or fgetattrlist, so they
-// go through libcCall6 (libc_darwin.go). An error or unexpected layout fails
-// closed; switch once x/sys adds the wrappers. Each pointer becomes a uintptr
-// inside the call's argument list, as the unsafe rules require.
+// go through platform.LibcCall6. An error or unexpected layout fails closed;
+// switch once x/sys adds the wrappers. Each pointer becomes a uintptr inside
+// the call's argument list, as the unsafe rules require.
 func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	attributes := unix.Attrlist{
 		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
@@ -137,8 +139,8 @@ func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 	var data [8192]byte
 	var errno unix.Errno
 	if path == nil {
-		_, _, errno = libcCall6(
-			fgetattrlist,
+		_, _, errno = platform.LibcCall6(
+			platform.Fgetattrlist,
 			uintptr(fd),
 			uintptr(unsafe.Pointer(&attributes)),
 			uintptr(unsafe.Pointer(&data[0])),
@@ -147,8 +149,8 @@ func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
 			0,
 		)
 	} else {
-		_, _, errno = libcCall6(
-			getattrlist,
+		_, _, errno = platform.LibcCall6(
+			platform.Getattrlist,
 			uintptr(unsafe.Pointer(path)),
 			uintptr(unsafe.Pointer(&attributes)),
 			uintptr(unsafe.Pointer(&data[0])),

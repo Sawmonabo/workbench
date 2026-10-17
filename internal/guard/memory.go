@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // action is what the machine's memory calls for.
@@ -30,21 +32,31 @@ const (
 	softHold = 20 * time.Second
 )
 
-// memory is one reading of the machine's memory. On macOS Level is
-// kern.memorystatus_vm_pressure_level (1 normal, 2 warning, 4 critical),
-// which decides with the swap. On Linux Level is 0, Total is earlyoom's
-// figure (MemAvailable + AnonPages), so Available/Total is the share user
-// memory can still take, and FullAvg10 is the memory pressure file's full
-// avg10, -1 when absent. Installed is the machine's RAM, which sets the floor
-// below which the agent commands are too small to stop politely, and is named
-// in the reason text. In a cgroup with a lower memory limit, Linux reads that
-// cgroup instead and Installed is its limit (see confined).
-type memory struct {
-	Level               int
-	Available, Total    uint64
-	Installed           uint64
-	SwapFree, SwapTotal uint64
-	FullAvg10           float64
+// memory is one reading of the machine's memory (see platform.Memory) or,
+// as readMemory chooses, of this process's cgroup.
+type memory platform.Memory
+
+// readMemory reads the machine's memory. When this process's cgroup is
+// confined to less memory (see platform.CgroupMemory), it reads that cgroup
+// instead if it calls for more, or for as much on a reading that acts at once
+// where the machine's must hold (soft), or for as much as firmly with less
+// available.
+func readMemory() (memory, error) {
+	machine, err := platform.MachineMemory()
+	if err != nil {
+		return memory{}, err
+	}
+	m := memory(machine)
+	if confined, ok := platform.CgroupMemory(machine); ok {
+		group := memory(confined)
+		groupAct, groupSoft := decide(group)
+		machineAct, machineSoft := decide(m)
+		if groupAct > machineAct || groupAct == machineAct && (machineSoft && !groupSoft ||
+			machineSoft == groupSoft && group.availablePercent() <= m.availablePercent()) {
+			return group, nil
+		}
+	}
+	return m, nil
 }
 
 // LogValue is the reading in the guard log, in bytes: macOS's level with the
