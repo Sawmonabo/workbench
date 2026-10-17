@@ -47,7 +47,8 @@ func updateCommand(o *options) *cobra.Command {
 	cmd.Flags().String(
 		"runtime-ready",
 		"",
-		"Continue the verified runtime handoff after an install that is new or unchanged",
+		"Continue the verified runtime handoff after an install that is new (installed), "+
+			"unchanged, or kept as newer than the latest published release TAG (newer:TAG)",
 	)
 	_ = cmd.Flags().MarkHidden("runtime-ready")
 	o.localBuildFlag(cmd)
@@ -217,7 +218,7 @@ func updateRelease(
 	}
 	c.ReadOnly = false
 	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
-		return continueInstall(cmd, c, o, result, ready == "unchanged")
+		return continueInstall(cmd, c, o, result, ready)
 	}
 	tag := ""
 	if args := cmd.Flags().Args(); len(args) > 0 {
@@ -234,14 +235,14 @@ func updateRelease(
 			)
 		}
 	}
-	bundle, err := readRelease(cmd, c, tag)
+	bundle, latest, err := readRelease(cmd, c, tag)
 	if err != nil {
 		return result, err
 	}
 	if bundle == nil {
 		// Already installed: still install the tools, so rerunning update
 		// finishes a setup that was declined or failed.
-		return continueInstalled(cmd, c, o, result)
+		return continueInstalled(cmd, c, o, result, latest)
 	}
 	planner := releasePlanner(c, *bundle)
 	plan, err := planner(cmd.Context(), c)
@@ -355,68 +356,88 @@ func installCheckoutTools(
 }
 
 // continueInstalled hands off to the already active release to install its
-// tools, then stops: update never applies the machine.
+// tools, then stops: update never applies the machine. latest is the latest
+// published release when the active one is kept as newer than it.
 func continueInstalled(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
+	latest string,
 ) (operation.Result, error) {
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
 		return result, err
 	}
 	active := *state.ActiveRelease
+	ready, status := "unchanged", active.Identity.Release+" is already installed"
+	if latest != "" {
+		ready, status = "newer:"+latest, keptNewer(c, active.Identity.Release, latest)
+	}
 	result.Results = append(result.Results, operation.Component{
 		Name:    "release",
 		Status:  operation.StatusUnchanged,
-		Message: active.Identity.Release + " is already installed",
+		Message: status,
 	})
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
 	}
-	_, _ = fmt.Fprintf(
-		cmd.ErrOrStderr(),
-		"[WorkBench] %s is already installed; continuing with its tools\n",
-		active.Identity.Release,
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "[WorkBench] %s; continuing with its tools\n", status)
+	return result, operation.Handoff(c, active, handoffArgs(o, ready))
+}
+
+// keptNewer says that installed, newer than latest, the latest published
+// release, is kept, and how to install latest instead.
+func keptNewer(c operation.Context, installed, latest string) string {
+	return fmt.Sprintf(
+		"%s is newer than the latest published release, %s, so it is kept "+
+			"(%s update %s installs that one)",
+		installed, latest, c.WorkbenchCommand(), latest,
 	)
-	return result, operation.Handoff(c, active, handoffArgs(o, "unchanged"))
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
-// when empty) for this machine. It returns nil when that release is already
-// the active one, unless an interrupted activation still needs finishing, and
-// when tag is empty and the active release is newer than the latest.
-func readRelease(cmd *cobra.Command, c operation.Context, tag string) (*release.Bundle, error) {
+// when empty) for this machine. It returns no bundle when that release is
+// already the active one, unless an interrupted activation still needs
+// finishing, and, with the latest published release as latest, when tag is
+// empty and the active release is newer than that.
+func readRelease(
+	cmd *cobra.Command,
+	c operation.Context,
+	tag string,
+) (bundle *release.Bundle, latest string, err error) {
 	installed, err := installedRelease(c)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	current := func(found string) bool {
 		return found == installed && release.ValidateSelection(c) == nil
 	}
 	if location, _ := cmd.Flags().GetString("bundle"); location != "" {
-		bundle, err := release.ReadBundle(cmd.Context(), location, tag)
-		if err != nil || current(bundle.Metadata.Release) {
-			return nil, err
+		read, err := release.ReadBundle(cmd.Context(), location, tag)
+		if err != nil || current(read.Metadata.Release) {
+			return nil, "", err
 		}
-		return &bundle, nil
+		return &read, "", nil
 	}
 	stop := c.ShowProgress("Getting Workbench " + cmp.Or(tag, "latest"))
 	defer stop()
 	c.Step("asking GitHub for the release")
 	remote, err := release.Find(cmd.Context(), c, tag)
+	if err != nil || current(remote.Tag) {
+		return nil, "", err
+	}
 	// Without a VERSION, update only moves forward: an installed release newer
 	// than the latest published one (a local build) is kept.
-	if err != nil || current(remote.Tag) || (tag == "" && release.Newer(installed, remote.Tag)) {
-		return nil, err
+	if tag == "" && release.Newer(installed, remote.Tag) {
+		return nil, remote.Tag, nil
 	}
 	c.Step("downloading " + remote.Tag)
-	bundle, err := remote.Bundle(cmd.Context())
+	read, err := remote.Bundle(cmd.Context())
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &bundle, nil
+	return &read, "", nil
 }
 
 // stageRelease stages and activates bundle, then removes what the approved
@@ -495,14 +516,16 @@ func removeStale(m *operation.Mutation, plan operation.Plan, diagnostics io.Writ
 }
 
 // continueInstall runs in the activated runtime after the handoff. The parent
-// verified, staged and activated this release, or found it already active
-// (unchanged), so nothing is re-read from the original bundle location.
+// verified, staged and activated this release (ready is installed), or found
+// it already active (unchanged, or newer:TAG when kept as newer than the
+// latest published TAG), so nothing is re-read from the original bundle
+// location.
 func continueInstall(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
-	unchanged bool,
+	ready string,
 ) (operation.Result, error) {
 	state, stateErr := operation.ReadState(c.Paths)
 	actual, executableErr := os.Executable()
@@ -526,19 +549,25 @@ func continueInstall(
 		Status:  operation.StatusComplete,
 		Message: metadata.Release + " (" + metadata.Target + ")",
 	}
-	if unchanged {
+	status := "Installed " + metadata.Release + " and its tools"
+	latest, newer := strings.CutPrefix(ready, "newer:")
+	if ready == "unchanged" || newer {
 		// Nothing was installed, so a later refusal or failure is not partial.
 		installed.Status = operation.StatusUnchanged
 		installed.Message = metadata.Release + " is already installed"
+		if newer {
+			installed.Message = keptNewer(c, metadata.Release, latest)
+		}
+		status = installed.Message
 	}
 	result.Results = append(result.Results, installed)
 	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
-	return installTools(cmd, c, o, result, metadata.Release, unchanged)
+	return installTools(cmd, c, o, result, status)
 }
 
 // handoffArgs repeats the selections for the activated runtime, which
-// continues this install with --runtime-ready and whether the release was
-// installed now or unchanged.
+// continues this install with --runtime-ready and how the release got ready
+// (see continueInstall).
 func handoffArgs(o *options, install string) []string {
 	args := []string{"update", "--runtime-ready", install}
 	if o.nonInteractive {
@@ -557,14 +586,14 @@ func handoffArgs(o *options, install string) []string {
 }
 
 // installTools runs in the activated runtime: it puts the pinned tools in
-// place, without asking, and stops. Applying the machine is apply's job.
+// place, without asking, and stops, its summary opening with status, how the
+// release got ready. Applying the machine is apply's job.
 func installTools(
 	cmd *cobra.Command,
 	c operation.Context,
 	o *options,
 	result operation.Result,
-	version string,
-	unchanged bool,
+	status string,
 ) (operation.Result, error) {
 	_, err := setUp(cmd, c, o, nil, &result, false, nil)
 	if err != nil {
@@ -573,11 +602,8 @@ func installTools(
 	// The line says outright that nothing was applied: a release before
 	// v0.1.8, which hands its update over to this one, first announces
 	// "continuing with setup and apply".
-	next := "; nothing was applied: run " + c.WorkbenchCommand() + " apply"
-	result.Summary = "[WorkBench] Installed " + version + " and its tools" + next
-	if unchanged {
-		result.Summary = "[WorkBench] " + version + " is already installed" + next
-	}
+	result.Summary = "[WorkBench] " + status + "; nothing was applied: run " +
+		c.WorkbenchCommand() + " apply"
 	return result, nil
 }
 
