@@ -265,14 +265,12 @@ func (r runningCalls) due(now time.Time) []guard.Event {
 	return due
 }
 
-// blue marks a guard line's call id, the field that ties its events together.
-var blue = lipgloss.NewStyle().Foreground(lipgloss.Blue)
-
-// guardEventStyles color a line's time, level and event by its level: routine
-// faint, warnings yellow, errors red.
-var guardEventStyles = map[string]lipgloss.Style{
-	slog.LevelInfo.String(): faint, slog.LevelWarn.String(): yellow,
-	slog.LevelError.String(): red,
+// guardLevelStyles color a line's level label, and the label alone: routine
+// green, warnings gold and errors red, both bold. A level not named here is
+// faint.
+var guardLevelStyles = map[string]lipgloss.Style{
+	slog.LevelInfo.String(): guardGreen, slog.LevelWarn.String(): guardGold.Bold(true),
+	slog.LevelError.String(): guardRed.Bold(true),
 }
 
 // guardMessageEvents are the events whose name alone does not say what
@@ -286,10 +284,11 @@ var guardMessageEvents = map[string]bool{
 // first three fields: `Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a
 // project=api took=53s peak=2.4GB cmd="cargo test"`. The time is local, the
 // level is padded to 5 and the event to 9, and a raw line, which has no time,
-// leaves the time blank. Fields follow in a fixed order, cmd last as the
-// longest, each left out when empty; a field the order does not name stays in
-// --json only. running prints a tracking record as a running line, without
-// took and peak.
+// leaves the time blank. The time and the keys are faint, the level label
+// alone is colored and the event is plain. Fields follow in a fixed order, cmd
+// last as the longest, each left out when empty; a field the order does not
+// name stays in --json only. running prints a tracking record as a running
+// line, without took and peak.
 func guardLine(paint painter, e guard.Event, running bool) string {
 	name := e.Event
 	if running {
@@ -299,17 +298,18 @@ func guardLine(paint painter, e guard.Event, running bool) string {
 	if !e.Time.IsZero() {
 		when = e.Time.Local().Format(time.Stamp)
 	}
-	style, ok := guardEventStyles[e.Level]
+	level, ok := guardLevelStyles[e.Level]
 	if !ok {
-		style = faint
+		level = faint
 	}
 	fields := guardFields(e, running)
-	head := fmt.Sprintf("%s %-5s %-9s", when, e.Level, name)
+	// The level is padded outside its color, so only the label is painted.
+	tail := fmt.Sprintf("%s %-9s", strings.Repeat(" ", max(5-len(e.Level), 0)), name)
 	if len(fields) == 0 {
-		head = strings.TrimRight(head, " ")
+		tail = strings.TrimRight(tail, " ")
 	}
 	var b strings.Builder
-	b.WriteString(paint.style(style, head))
+	b.WriteString(paint.style(faint, when) + " " + paint.style(level, e.Level) + tail)
 	for _, f := range fields {
 		value := logfmtValue(f.value)
 		if f.style != nil {
@@ -330,7 +330,9 @@ type guardField struct {
 // guardFields are the fields of e in a guard line's order, each without a
 // value left out: a call's short id, where and by whom, how long it took and
 // how large it got, the memory reading, the watcher's releases and processes,
-// then msg, error, process and cmd.
+// then msg, error, process and cmd. Values are plain except the agent in its
+// hue, a stop by you and a took of 10 s or more bold, and a size or peak gold
+// from 1 GB and red from 4 GB.
 func guardFields(e guard.Event, running bool) []guardField {
 	took, peak := e.Took, e.Peak
 	if running {
@@ -345,15 +347,15 @@ func guardFields(e guard.Event, running bool) []guardField {
 		msg = e.Msg
 	}
 	fields := []guardField{
-		{"id", shortCallID(e.Call), &blue},
-		{"agent", e.Agent, nil},
+		{"id", shortCallID(e.Call), nil},
+		{"agent", e.Agent, agentStyle(e.Agent)},
 		{"subagent", e.Subagent, nil},
 		{"project", e.Project, nil},
-		{"by", e.By, nil},
+		{"by", e.By, styleIf(e.By == "you", bold)},
 		{"dry_run", whenTrue(e.DryRun), nil},
-		{"took", tookValue(took), styleAbove(took >= 10, bold)},
-		{"size", sizeValue(e.Size), styleAbove(e.Size >= 1<<30, yellow)},
-		{"peak", sizeValue(peak), styleAbove(peak >= 1<<30, yellow)},
+		{"took", tookValue(took), styleIf(took >= 10, bold)},
+		{"size", sizeValue(e.Size), sizeStyle(e.Size)},
+		{"peak", sizeValue(peak), sizeStyle(peak)},
 		{"floor", sizeValue(e.Floor), nil},
 		{"level", nonZero(e.Memory.Level), nil},
 		{"available", sizeValue(e.Memory.Available), nil},
@@ -371,9 +373,9 @@ func guardFields(e guard.Event, running bool) []guardField {
 	return slices.DeleteFunc(fields, func(f guardField) bool { return f.value == "" })
 }
 
-// styleAbove is style when over, else nil.
-func styleAbove(over bool, style lipgloss.Style) *lipgloss.Style {
-	if !over {
+// styleIf is style when on, else nil.
+func styleIf(on bool, style lipgloss.Style) *lipgloss.Style {
+	if !on {
 		return nil
 	}
 	return &style

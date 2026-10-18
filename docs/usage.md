@@ -246,11 +246,12 @@ Oct 17 14:50:00 INFO  idle
 ```
 
 A long line soft-wraps on screen and stays one line, so `grep` and copying
-keep the whole event. At a terminal INFO lines start faint, WARN yellow and
-ERROR red, keys are faint, `id` is blue, a `took` of 10 s or more is bold and
-a `size` or `peak` of 1 GB or more yellow; piped output, `TERM=dumb` and
-`NO_COLOR` get plain text. With nothing to show it says so on stderr and exits
-0.
+keep the whole event. At a terminal the time and the keys are faint, the level
+alone is colored (INFO green, WARN gold and bold, ERROR red and bold), the
+`agent` wears its agent's hue, `by=you` and a `took` of 10 s or more are bold,
+and a `size` or `peak` is bold, gold from 1 GB and red from 4 GB; the event,
+`id` and other values stay plain. Piped output, `TERM=dumb` and `NO_COLOR` get plain
+text. With nothing to show it says so on stderr and exits 0.
 
 ```bash
 workbench guard logs                        # one line per event

@@ -245,9 +245,20 @@ Oct 17 14:50:00 INFO  idle
   (`cmd=./scripts/nap.sh`).
 - **Sizes** are `MB` below 1 GB, else `GB` with one decimal. **`took`** has
   one decimal below 10 s, whole seconds below a minute, else `1m12s`.
-- **Colors**, on a terminal without `NO_COLOR` only: INFO dim, WARN yellow,
-  ERROR red; keys dim, values plain; `id` blue; `took` of 10 s or more bold;
-  `peak` or `size` of 1 GB or more yellow.
+- **Colors**, at a terminal: the time and the keys faint; the level label
+  alone colored, INFO green, WARN gold bold, ERROR red bold, an unknown level
+  faint; the event and `id` plain; `agent` in its agent's hue (clay for Claude
+  Code, steel for Codex); `by=you` bold; `took` of 10 s or more bold; `size`
+  or `peak` gold bold from 1 GB and red bold from 4 GB; every other value
+  plain. A pipe, `TERM=dumb` and `NO_COLOR` get plain text, as
+  [clig.dev](https://clig.dev/#output) advises. The colors are pinned hex
+  values, not the terminal's own yellow, red and green, which most themes draw
+  bright: the three semantic colors are a step darker and mean the same in the
+  log and the live view (green routine, gold worth a look, red acted on), and
+  one hue per agent lets the eye see whose command a line is. Lip Gloss
+  [`Color`](https://pkg.go.dev/charm.land/lipgloss/v2#Color) downsamples them
+  to what the terminal shows. Color goes only where a line needs the eye, not
+  on every value.
 - **Order of keys:** `id agent subagent project by dry_run took size peak
   floor level available total still_running release old_release new_release
   new_pid msg error process cmd`. A key without a value is left out, and a
