@@ -13,8 +13,8 @@ import (
 
 // StartSecond is one second in Process.Start's units: microseconds of
 // kinfo_proc's p_starttime. That start time is the wall clock when the
-// process began, which the kernel records for the pre hook and for the
-// command alike, so only a clock step between the two can shift them.
+// process began, so a clock step between two processes' starts shifts one
+// against the other.
 const StartSecond = 1_000_000
 
 // darwinZombie is SZOMB, kinfo_proc's p_stat for a zombie.
@@ -65,9 +65,10 @@ func ProcessInfo(pid int) (Process, error) {
 // path: proc_pidinfo with PROC_PIDVNODEPATHINFO (9) fills the 2352-byte
 // proc_vnodepathinfo, whose pvi_cdir.vip_path is the NUL-terminated path at
 // byte 152, at most MAXPATHLEN (1024) bytes. proc_pidinfo returns the bytes
-// it wrote, and 0 on failure with an errno libcCall6 does not read, so a
-// shorter result is the error: ProcessInfo's when the process has exited,
-// which Exited reports.
+// it wrote as a C int, and 0 on failure with an errno libcCall6 does not
+// read, so a shorter result is the error. For a process that has exited or
+// is a zombie, which has no working folder left, the error wraps ESRCH, which
+// Exited reports as on Linux.
 func Folder(pid int) (string, error) {
 	const (
 		vnodePathInfo = 9
@@ -85,9 +86,14 @@ func Folder(pid int) (string, error) {
 		size,
 		0,
 	)
-	if int(written) < size {
-		if _, err := ProcessInfo(pid); err != nil {
+	// Only the low 32 bits of the returned register hold the C int.
+	if int32(written) < size {
+		p, err := ProcessInfo(pid)
+		switch {
+		case err != nil:
 			return "", err
+		case p.Zombie:
+			return "", fmt.Errorf("proc_pidinfo %d: %w", pid, unix.ESRCH)
 		}
 		return "", fmt.Errorf("proc_pidinfo %d: unreadable", pid)
 	}
