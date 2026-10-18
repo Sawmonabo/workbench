@@ -247,11 +247,15 @@ Oct 17 14:50:00 INFO  idle
   Vertex AI's `vrtx_` (`toolu_bdrk_01…`), which every ID of that provider
   shares. `--json` keeps the full ID.
 - **`project`** is where the command ran (section 6.2).
-- **`cmd`** is the note's command with a leading `cd PATH &&` or `cd PATH;`
-  removed; the path went into `project`.
+- **`cmd`** is the command as the guard log records it, clipped as the stop
+  reason clips it (guard design 4.1 and 6.4): backticks as `'`, blanks and
+  newlines collapsed to one space, at most 120 characters with `…`, so a
+  multi-line command shows on one line, shortened; `guard memory`'s details
+  show it whole. A leading `cd PATH &&` or `cd PATH;` is removed; the path
+  went into `project`.
 - **Quoting**, as logfmt does: a value holding a space, `"`, `=`, `\` or a
-  control character is written in Go's double quotes, any other bare
-  (`cmd=./scripts/nap.sh`).
+  control character is written in Go's double quotes, which keep it on one
+  line, any other bare (`cmd=./scripts/nap.sh`).
 - **Sizes** are binary, as Activity Monitor counts them (1 GB is 1024 MB),
   whole `MB` below 1 GB, and take one of two roles. A measurement, a reading
   that moves (`size`, `peak`, `available`, memory and swap in use), has two
@@ -372,23 +376,25 @@ A full-screen Bubble Tea program in the alternate screen.
   a token outside quotes starts the next line, two spaces in, and a `;`
   ends its line and is dropped (`go test ./... 2>&1`, then `  | tail -20`).
   Nothing splits inside single or double quotes, `$' '`, backquotes, `$( )`,
-  `( )`, `${ }`, a `{ }` group or `[[ ]]` (where `||` and `&&` are the
-  test's own), after a backslash, or after a `#` that starts a comment; nor
-  do the `&` of `2>&1`, `|&`, `>|` or the `;;` that ends a `case` arm. A
-  command with no separator stays one wrapped line, and so does one that
-  holds a newline outside quotes, such as one with a here-document: its
-  author has laid it out already, and a here-document's body is data, not
-  steps. When the details do not fit, whole kinds of lines are cut, each
-  from its end and the order on screen kept, in this order: the process
-  lines, the Processes count, Subagent, Agent, ID, the blank line at the
-  top, the command's lines after its first, and Folder last. One `… N
-  more` line above the graph counts them, and a field that lost lines ends
-  with `…`. The command's first line, Status, Memory and the graph always
-  show, the facts needed to decide on `k stop`: at 11 lines the details are
-  `Command <first line>…`, Folder, Status, Memory, `… N more` and the
-  graph. Only when a reason above them wraps onto more lines than that
-  leaves room for do Memory, then Status, then the command go too, and the
-  graph and the key line still show. `k` stops from here too; Esc, ← or `h` goes back.
+  `( )`, `${ }`, a `{ }` group, `[[ ]]` (where `||` and `&&` are the test's
+  own) or a `case … esac` (whose patterns and arms are its own), after a
+  backslash, or in a comment, from a `#` that starts a word to the end of
+  its line; nor do the `&` of `2>&1`, `|&` or `>|`. A command with no
+  separator stays one wrapped line, and so does one that holds a newline
+  outside quotes, such as one with a here-document: its author has laid it
+  out already, and a here-document's body is data, not steps. When the
+  details do not fit, whole kinds of lines are cut, each from its end and
+  the order on screen kept, in this order: the process lines, the Processes
+  count, Subagent, Agent, ID, the blank line at the top, the command's lines
+  after its first, and Folder last. One `… N more` line above the graph
+  counts them, and a field that lost lines ends with `…`. The command's
+  first line, Status, Memory and the graph always show, the facts needed to
+  decide on `k stop`: at 11 lines the details are `Command <first line>…`,
+  Folder, Status, Memory, `… N more` and the graph. Only when a reason above
+  them wraps onto more lines than that leaves room for do Memory, then
+  Status go too; in 2 lines the details are the command's first line and the
+  graph, without the count, and in 1 the graph alone, and the key line still
+  shows. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
   The counts line, about 72 columns in full, drops `· swap …` first, then

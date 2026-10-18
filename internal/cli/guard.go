@@ -450,8 +450,8 @@ func sizeValue(text string) string { return strings.ReplaceAll(text, " ", "") }
 
 // logfmtValue is a value as logfmt writes it: bare when it is one token, else
 // in Go's double quotes. A space, a double quote, an equals sign, a backslash
-// or a control character ends a bare token, and Go's escapes keep a newline
-// in a command on the one line.
+// or a control character ends a bare token, and Go's escapes keep a value
+// with a control character on one line.
 func logfmtValue(value string) string {
 	if strings.ContainsAny(value, " \"=\\") || strings.ContainsFunc(value, unicode.IsControl) {
 		return strconv.Quote(value)

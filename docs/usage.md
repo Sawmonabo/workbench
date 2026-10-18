@@ -216,8 +216,10 @@ event: the time in the machine's time zone, the level, the event, then
 total still_running release old_release new_release new_pid msg error process
 cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
 `call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
-is the folder the command ran in; `cmd` is the command without a leading
-`cd PATH &&` or `cd PATH;`, last because it is the longest. Sizes are binary
+is the folder the command ran in; `cmd` is the command as the log records it,
+on one line (backticks as `'`, blanks and newlines collapsed to one space) and
+cut at 120 characters with `…`, without a leading `cd PATH &&` or `cd PATH;`,
+last because it is the longest; `guard memory`'s details show it whole. Sizes are binary
 (1 GB is 1024 MB) and whole `MB` below 1 GB; from 1 GB a reading that moves
 (`size`, `peak`, `available`) has two decimals (`2.41GB`) and a fixed total
 (`floor`, `total`) is whole (`16GB`), or has two decimals when it is not
@@ -226,8 +228,8 @@ minute, else `1m12s`; `level` is macOS's memory pressure level, `available`
 and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
 `gave-up`, `error` and `raw`, where the event alone does not say what
 happened. A value holding a space, `"`, `=`, `\` or a control character is
-written in Go's double quotes, so a command with a newline stays on one line and
-logfmt readers split the fields. The events are each command that ended, matched
+written in Go's double quotes, so each value stays on one line and logfmt
+readers split the fields. The events are each command that ended, matched
 no known shape (`unmatched`) or was stopped (`stopping`, then `forced` or
 `gave-up` if it comes to that), low memory that stopped nothing, calls dropped
 without their post hook, the watcher starting, handing over to a new release,
@@ -313,7 +315,8 @@ so a trackpad no longer scrolls the terminal's own buffer; to select text, hold
 Shift (Option in Terminal.app and iTerm2). The details lay a long command out
 one step per line, each `|`, `&&` or `||` outside quotes starting a line two
 spaces in (`go test ./... 2>&1`, then `| tail -20`), and a `;` ends its line; a
-test in `[[ ]]`, a `{ }` group and a command with a here-document stay whole.
+test in `[[ ]]`, a `{ }` group, a `case … esac` and a command with a
+here-document stay whole.
 When the details do not fit, the command's first line, folder, status, memory
 and graph stay, and one `… N more` line counts the rest. The watcher stops the
 command the way it stops for memory, logs it `by=you` and tells the agent

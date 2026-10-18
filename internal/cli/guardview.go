@@ -552,10 +552,10 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 }
 
 // View draws the screen in the alternate screen, or asks for a wider or a
-// taller window, so the key line and its notices always show. Mouse reporting
-// is on, as the apply checklist does (checklist.go): without it a trackpad or wheel scrolls
-// the terminal's own buffer and the screen slides away; with it the wheel
-// moves and a click selects.
+// taller window, so the key line and its notices always show. Mouse
+// reporting is on, as the apply checklist does (checklist.go): without it a
+// trackpad or wheel scrolls the terminal's own buffer and the screen slides
+// away; with it the wheel moves and a click selects.
 func (m *guardView) View() tea.View {
 	var text string
 	m.shown = 0
@@ -1046,9 +1046,14 @@ func fitDetails(lines []detailLine, room, width int) []string {
 		total[line.field]++
 	}
 	cut := 0
+	// The "… N more" line takes one line of its own, except in 2 lines or
+	// fewer, where the command's first line and the graph say more.
+	count := 0
+	if room > 2 {
+		count = 1
+	}
 	if len(lines) > room {
-		// The "… N more" line takes one line of its own.
-		lines, cut = cutDetails(lines, len(lines)-room+1)
+		lines, cut = cutDetails(lines, len(lines)-room+count)
 	}
 	kept := map[int]int{}
 	for _, line := range lines {
@@ -1059,7 +1064,8 @@ func fitDetails(lines []detailLine, room, width int) []string {
 	for i, line := range lines {
 		// The count shows where it fits; when only the graph is left, it
 		// does not.
-		if cut > 0 && line.field == graphField && i > 0 && lines[i-1].field != graphField {
+		if count > 0 && cut > 0 && line.field == graphField && i > 0 &&
+			lines[i-1].field != graphField {
 			out = append(out, faint.Render(fmt.Sprintf("%12s%s %d more", "", glyphs.Ellipsis, cut)))
 		}
 		text := line.text
@@ -1118,10 +1124,11 @@ func withEllipsis(line string, width int) string {
 // as it does && and ||: a step after the first starts with the |, && or ||
 // before it, and a ; ends its step and is dropped. Only operators that stand
 // as tokens split: none inside single or double quotes, $' ' or backquotes,
-// after a backslash, or inside $( ), ( ), ${ }, a { } group or [[ ]], where
-// || and && are a test's own; not the & of 2>&1, the |& that pipes both
-// streams, the >| of a forced overwrite or the ;; that ends a case arm; and
-// none in a comment, from a # that starts a word to the end. A command
+// after a backslash, or inside $( ), ( ), ${ }, a { } group, [[ ]], where
+// || and && are a test's own, or a case … esac, whose patterns and arms are
+// its own; not the & of 2>&1, the |& that pipes both streams or the >| of a
+// forced overwrite; and none in a comment, from a # that starts a word to
+// the end of its line. A command
 // holding a newline outside quotes, such as one with a here-document, is
 // already laid out by its author, and its body is data: it stays one step,
 // as does a command with no separator.
@@ -1145,7 +1152,12 @@ func commandSteps(command string) []string {
 			case command[i] == '\n':
 				return []string{command}
 			case command[i] == '#' && wordStart(command, i):
-				n = len(command) - i
+				// A comment ends at the newline, which is then seen.
+				if j := strings.IndexByte(command[i:], '\n'); j >= 0 {
+					n = j
+				} else {
+					n = len(command) - i
+				}
 			default:
 				n = nesting(&open, command, i)
 			}
@@ -1153,8 +1165,6 @@ func commandSteps(command string) []string {
 		if n == 0 && len(open) == 0 {
 			rest := command[i:]
 			switch {
-			case strings.HasPrefix(rest, ";;"), strings.HasPrefix(rest, ";&"):
-				n = 2
 			case strings.HasPrefix(rest, "&&"), strings.HasPrefix(rest, "||"):
 				cut(rest[:2])
 				i++
@@ -1197,7 +1207,7 @@ func quoted(quote *byte, command string, i int) int {
 		// after, so the newline is seen.
 		return 2
 	case *quote != 0:
-		if ch == *quote || *quote == '$' && ch == '\'' {
+		if *quote == '$' && ch == '\'' || *quote != '$' && ch == *quote {
 			*quote = 0
 		}
 		return 1
@@ -1212,9 +1222,10 @@ func quoted(quote *byte, command string, i int) int {
 }
 
 // nesting is how many bytes of command from i open or close something no
-// operator inside splits, which open records: ( or $(, ${, a { group or [[,
-// each closed by its own ), }, } or ]]. A { or [[ opens, and a group's } or a
-// ]] closes, only as a word of its own. It is 0 for any other byte.
+// operator inside splits, which open records: ( or $(, ${, a { group, [[ or
+// case, each closed by its own ), }, }, ]] or esac. A {, [[ or case opens, and
+// a group's }, a ]] or esac closes, only as a word of its own; a case
+// pattern's ) closes nothing.
 func nesting(open *[]string, command string, i int) int {
 	top := ""
 	if len(*open) > 0 {
@@ -1234,6 +1245,9 @@ func nesting(open *[]string, command string, i int) int {
 	case strings.HasPrefix(rest, "[[") && word && blankAt(command, i+2):
 		*open = append(*open, "[[")
 		return 2
+	case strings.HasPrefix(rest, "case") && word && blankAt(command, i+4):
+		*open = append(*open, "case")
+		return 4
 	case rest[0] == ')' && top == "(",
 		rest[0] == '}' && top == "${",
 		rest[0] == '}' && top == "{" && word && wordEnd(command, i+1):
@@ -1242,6 +1256,9 @@ func nesting(open *[]string, command string, i int) int {
 	case strings.HasPrefix(rest, "]]") && top == "[[" && word && wordEnd(command, i+2):
 		*open = (*open)[:len(*open)-1]
 		return 2
+	case strings.HasPrefix(rest, "esac") && top == "case" && word && wordEnd(command, i+4):
+		*open = (*open)[:len(*open)-1]
+		return 4
 	}
 	return 0
 }
