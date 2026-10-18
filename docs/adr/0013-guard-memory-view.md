@@ -81,7 +81,7 @@ a row could show the wrong project and a stop could hit the other call.
 - **The folder is a preference, never a rule.** Among the processes that
   claim a note, the watcher prefers one whose working folder is the note's
   leading `cd` folder, then one in the note's `cwd`, then one whose folder is
-  unknown, the oldest within a rank. A folder that cannot be read leaves the
+  unknown or neither, the oldest within a rank. A folder that cannot be read leaves the
   choice as it was, so no command goes unguarded because its folder is
   unknown.
 - **The socket survives a handover.** The listening socket rides the
@@ -102,8 +102,9 @@ a row could show the wrong project and a stop could hit the other call.
 - On Linux with `hidepid=2`, a person whose process chain passes through a
   process they cannot read gets `not allowed` for every stop: the check
   fails closed.
-- Finished rows are not carried across a handover, so they leave the view
-  early when one happens.
+- A handover carries the finished rows, who stopped each command and the
+  largest peak with the tracked commands, so the view shows the same rows
+  after it reconnects.
 
 ## Sources
 

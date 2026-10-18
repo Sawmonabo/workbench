@@ -300,11 +300,12 @@ after 5 s)` chosen and `Force kill now` below it, esc closes the menu or the
 details, and `q` or ctrl+c quits. The watcher stops the command the way it
 stops for memory, logs it `by=you` and tells the agent `Stopped by you
 (workbench guard memory).`; the bottom line shows its answer for 3 seconds
-(`stopped 4fQ8nX2a`, `4fQ8nX2a already finished`). The watcher serves the
-view on `guard.sock` beside its log, only to the same user, and never takes a
-stop from a process an agent with a guarded command started. In a window
-under 60 columns the view asks to be widened; narrower windows first shorten
-COMMAND, then drop SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it
+(`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
+finished`). The watcher serves the view on `guard.sock` beside its log, only
+to the same user, and never takes a stop from a process an agent with a
+guarded command started. In a window under 60 columns or 8 lines the view
+asks to be widened or made taller; narrower windows first shorten COMMAND,
+then drop SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it
 says so, keeps the last rows dimmed and reconnects every second; the watcher
 starts with the next agent command. Without a terminal on stdin and stdout,
 or with `--non-interactive`, it exits 3 with `guard memory needs a terminal;

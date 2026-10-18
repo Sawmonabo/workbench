@@ -275,7 +275,7 @@ A full-screen Bubble Tea program in the alternate screen.
   3Nd7Lp8z  ● run       codex               15s  840 MB  910 MB  price-feed      cargo check -p feed
   5Jx2Gm6r  ✓ done      claude            0.6s       —   18 MB  api-server     rg -n -i 'digest' …
 
-↑↓ move  space tag  enter details  k stop  q quit
+↑/↓ move  space tag  enter details  k stop  q quit
 ```
 
 - **Rows** are the commands the watcher tracks, newest first, then finished
@@ -296,23 +296,32 @@ A full-screen Bubble Tea program in the alternate screen.
   closes a menu or details; `q` and ctrl+c quit.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
-  s)` selected and `Force kill now` below it. Enter sends, Esc cancels. The
-  answer from the watcher is shown for 3 s on the bottom line, for example
-  `stopped 4fQ8nX2a` or `4fQ8nX2a already finished`.
+  s)` selected and `Force kill now` below it. The commands it names are
+  fixed when it opens: it closes with a notice when none of them still
+  runs, and Enter stops only those still running and names the others as
+  finished. Enter sends, Esc cancels. The answer from the watcher is shown
+  for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
+  4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
 - **Details**: the full command, folder, agent, subagent, full ID, status
   and run time, memory now and peak, a one-line graph of the command's
   memory over the last 120 readings, and its process tree with each
   process's memory. `k` stops from here too; Esc goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
-  and AGENT drop in that order. Below 60 columns the view says `Widen the
-  window to at least 60 columns`.
+  and AGENT drop in that order; a project name is clipped at 24 columns.
+  Below 60 columns the view says `Widen the window to at least 60 columns`,
+  and below 8 lines `Make the window at least 8 lines tall`, so the bottom
+  line always shows.
 - **No color** (`NO_COLOR` or no color support): the same screen in plain
   text; `▸`, `✓ ? ✗ ●` and the tag mark carry the state.
 - **Watcher not running**: the screen says so and that the watcher starts
   with the next agent command, keeps the last rows dimmed, and reconnects
-  every second.
-- **Refusals**, before the screen opens: without a terminal on stdin and
-  stdout, `guard memory` exits 3 with `guard memory needs a terminal; use
+  every second. When a watcher answers but cannot serve the view (another
+  release, or a socket it cannot reach), the header says `not connected`
+  and the line below says why.
+- **Refusals**, before the screen opens: with `--json` it exits 3 with
+  `guard memory has no JSON output; use workbench guard logs --json`.
+  Without a terminal on stdin and stdout, or with `--non-interactive`,
+  `guard memory` exits 3 with `guard memory needs a terminal; use
   workbench guard logs --follow`. Under a coding agent (`CLAUDECODE=1` or
   the Codex variables AGENTS.md lists, the detection `apply` uses) it exits 3
   with `guard memory is for a person at a terminal`.

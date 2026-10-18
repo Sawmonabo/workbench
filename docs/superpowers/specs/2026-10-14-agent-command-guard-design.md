@@ -715,17 +715,27 @@ parallelism or a smaller input.
   Once the new one is ready, and at a tick that read memory calling for
   nothing, with no soft or critical hold running, no stop cooling down and
   no person's stop under way, the old one logs `handover`, writes on
-  descriptor 5 the roots of its tracked commands (PID and start time), the
-  calls whose command ended or that are passed over, and each command's
-  memory readings, closes its copy of the socket without removing the file,
-  and exits without another tick; the new one starts
+  descriptor 5 what lives only in its memory: each tracked command's root
+  (PID and start time), note and memory readings, who stopped it (`guard`
+  or `you`) when it was signalled, the calls whose command ended or that are
+  passed over, the commands that finished within the last minute and the
+  largest peak. It then closes its copy of the socket without removing the
+  file, and exits without another tick; the new one starts
   ticking only on that line, so two watchers never act at once. A stop under
-  way finishes first, since it runs within a tick. The new watcher takes on
-  each carried command whose root still runs as its agent's child, and
-  matches every other note as any watcher does: start times are the
-  kernel's, so a command that started before it still matches its note. What
-  is not carried (refusal counts, abandonment clocks) restarts, which only
-  delays an abandonment. This is nginx's executable upgrade (the old master
+  way finishes first, since it runs within a tick. The new watcher keeps the
+  finished commands until a minute after each ended and the largest peak,
+  and takes on each carried command with its note, the one on disk or else
+  the carried one, since a post hook may have removed it while the watch
+  passed. A command whose root still runs as its agent's child is tracked
+  again, with its memory and whether it is passed over, and logged
+  `tracking`; one whose root died during the handover is tracked without a
+  log, so `forget` ends it once, as any command, after two rounds without
+  it: it logs `ended` once, keeps it among the finished commands with who
+  stopped it, and never matches its note again. A who-stopped mark is kept
+  only with its command. Every other note is matched as any watcher matches
+  it: start times are the kernel's, so a command that started before it
+  still matches its note. What is not carried (refusal counts, abandonment
+  clocks) restarts, which only delays an abandonment. This is nginx's executable upgrade (the old master
   starts the new binary and keeps running until it is told the new one
   works), with the readiness wait of Cloudflare's tableflip; replacing the
   process with `execve` would keep the lock but cannot be undone when the
