@@ -102,7 +102,7 @@ func FocusOn(
 		rate, priced := card.Rows.Lookup(g.model, tool.Tiers)
 		g.Priced = priced
 		if priced {
-			g.Cost = rate.Cost(g.Tokens)
+			g.addCost(rate.Cost(g.Tokens))
 		}
 		groups = append(groups, *g)
 	}
@@ -131,7 +131,7 @@ func sumBy(groups []focusGroup, key func(focusGroup) string) []Row {
 			rows = append(rows, Row{Name: k, Priced: true})
 		}
 		rows[i].Calls += g.Calls
-		rows[i].Cost += g.Cost
+		rows[i].addCost(g.exact)
 		rows[i].Priced = rows[i].Priced && g.Priced
 		rows[i].add(g.Tokens)
 	}
@@ -160,14 +160,14 @@ func activeDays(days []Row) []Row {
 // span and the model that cost the most in it.
 func sessions(groups []focusGroup) []Session {
 	byID := map[string]*Session{}
-	modelCost := map[string]map[string]float64{}
+	modelCost := map[string]map[string]int64{}
 	var order []string
 	for _, g := range groups {
 		s, ok := byID[g.session]
 		if !ok {
 			s = &Session{ID: g.session, Row: Row{Name: g.session, Priced: true}}
 			byID[g.session] = s
-			modelCost[g.session] = map[string]float64{}
+			modelCost[g.session] = map[string]int64{}
 			order = append(order, g.session)
 		}
 		if start, err := time.Parse(time.RFC3339, g.first); err == nil &&
@@ -178,15 +178,15 @@ func sessions(groups []focusGroup) []Session {
 			s.End = end
 		}
 		s.Calls += g.Calls
-		s.Cost += g.Cost
+		s.addCost(g.exact)
 		s.Priced = s.Priced && g.Priced
 		s.add(g.Tokens)
-		modelCost[g.session][g.model] += g.Cost
+		modelCost[g.session][g.model] += g.exact
 	}
 	out := make([]Session, 0, len(order))
 	for _, id := range order {
 		s := byID[id]
-		best := -1.0
+		best := int64(-1)
 		for model, cost := range modelCost[id] {
 			if cost > best || (cost == best && model < s.Model) {
 				s.Model, best = model, cost
@@ -194,6 +194,6 @@ func sessions(groups []focusGroup) []Session {
 		}
 		out = append(out, *s)
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].Cost > out[j].Cost })
+	sort.SliceStable(out, func(i, j int) bool { return out[i].exact > out[j].exact })
 	return out
 }

@@ -123,11 +123,16 @@ func isDigits(s string) bool {
 	return s != ""
 }
 
-// Cost is the list-price cost in USD of the tokens at this rate.
-func (r Rate) Cost(t Tokens) float64 {
-	return (float64(t.Input)*r.Input + float64(t.Output)*r.Output +
-		float64(t.CacheWrite5m)*r.CacheWrite5m + float64(t.CacheWrite1h)*r.CacheWrite1h +
-		float64(t.CacheRead)*r.CacheRead) / 1e6
+// Cost is the list-price cost of the tokens at this rate in picodollars
+// (1e-12 USD). Each rate, in USD per million tokens, counts to the nearest
+// millionth of a dollar, which is a whole number of picodollars a token, so
+// the cost is exact and any sum of costs is the same in any order or
+// grouping. An int64 holds up to about 9.2 million dollars.
+func (r Rate) Cost(t Tokens) int64 {
+	per := func(tokens int64, rate float64) int64 { return tokens * int64(math.Round(rate*1e6)) }
+	return per(t.Input, r.Input) + per(t.Output, r.Output) +
+		per(t.CacheWrite5m, r.CacheWrite5m) + per(t.CacheWrite1h, r.CacheWrite1h) +
+		per(t.CacheRead, r.CacheRead)
 }
 
 // Card is the merged rate card of every recorded tool.

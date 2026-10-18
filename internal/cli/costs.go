@@ -856,7 +856,7 @@ func costsPage(
 		&b,
 		width,
 		0,
-		pal.accent.Bold(true).Render(money(report.Total.Cost))+"  "+faint.Render(period),
+		pal.accent.Bold(true).Render(money(report.Total))+"  "+faint.Render(period),
 	)
 	writeNotes(&b, width, 0, []string{
 		tool.PriceNote,
@@ -895,7 +895,7 @@ func costsPage(
 				share = fmt.Sprintf("%.1f%%", block.Project.Cost/grand*100)
 			}
 			add(bold.Render(showPath(block.Project.Name))+"  "+
-				costStyle.Render(money(block.Project.Cost))+"  "+
+				costStyle.Render(money(block.Project))+"  "+
 				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
 				"model", "", block.Models, nil, "")
 		}
@@ -991,7 +991,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 	if n := len(dated); n > 0 {
 		notes = append(notes, day(dated[n-1].Name)+" → "+day(dated[0].Name))
 	}
-	writeText(&b, width, 0, pal.accent.Bold(true).Render(money(focus.Total.Cost)))
+	writeText(&b, width, 0, pal.accent.Bold(true).Render(money(focus.Total)))
 	writeNotes(&b, width, 0, notes)
 	parts := "model"
 	if focus.Kind == "model" {
@@ -1045,7 +1045,7 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		}
 		spec.Rows = append(spec.Rows, []string{
 			faint.Render(id), started, faint.Render(length), rowName(tool, session.Model),
-			costStyle.Render(money(session.Cost)), faint.Render(commas(session.Calls)),
+			costStyle.Render(money(session.Row)), faint.Render(commas(session.Calls)),
 		})
 	}
 	return spec
@@ -1197,9 +1197,9 @@ func reportTable(r reportSpec) tableSpec {
 
 // reportCells is one row's cells: name, cost, then the number columns.
 func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) []string {
-	cost := costStyle.Render(money(row.Cost))
+	cost := costStyle.Render(money(row))
 	if total {
-		cost = r.pal.accent.Render(money(row.Cost))
+		cost = r.pal.accent.Render(money(row))
 	}
 	out := []string{name, cost}
 	if r.tokens {
@@ -1414,7 +1414,12 @@ func human(n float64) string {
 	return strconv.FormatInt(int64(n), 10)
 }
 
-func money(v float64) string { return "$" + commasFloat(v, 2) }
+// money is a row's cost in dollars and cents, from the cents its owner
+// rounds once.
+func money(row costs.Row) string {
+	cents := row.Cents()
+	return fmt.Sprintf("$%s.%02d", commas(cents/100), cents%100)
+}
 
 func commas(n int64) string { return commasFloat(float64(n), 0) }
 
