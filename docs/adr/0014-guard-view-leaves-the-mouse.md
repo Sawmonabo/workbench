@@ -51,10 +51,9 @@ switches, which Terminal.app handles.
 ## Consequences
 
 - The wheel moves the list, scrolls the details and moves the stop menu's
-  choice, as the arrow keys do: in xterm under the mode; in Windows
-  Terminal, Ghostty and VTE terminals, which have the mode and, except
-  xterm, have it on by default (sources below); and in Terminal.app through
-  its own profile setting.
+  choice, as the arrow keys do: in xterm, Windows Terminal, Ghostty and VTE
+  terminals, which have the mode (vtdn, below) and get it from the view; and
+  in Terminal.app through its own profile setting.
 - A plain drag selects text on every screen, with no key held and no
   terminal setting changed.
 - A click on a row does nothing; the view is keyboard-driven, as `less` and most

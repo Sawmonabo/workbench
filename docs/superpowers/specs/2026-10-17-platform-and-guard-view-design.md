@@ -357,9 +357,10 @@ A full-screen Bubble Tea program in the alternate screen.
   do; Enter still sends. At start the view saves the mode's state (XTSAVE)
   and turns it on; when it ends, by a key, a signal or an error, it
   restores the saved state (XTRESTORE), a restore alone so that a terminal
-  without XTSAVE keeps its own setting. A terminal that knows neither
-  scrolls its own window under the wheel, as it does for `less`. A click on
-  a row does nothing (ADR 14). The key line reads
+  without XTSAVE keeps its own setting. A terminal with neither the mode
+  nor a setting of its own scrolls its own window under the wheel, as it
+  does for `less`. A click on a row does nothing (ADR 14). The key line
+  reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and
   `↑/↓ choose  enter send  esc/← cancel` in the menu.

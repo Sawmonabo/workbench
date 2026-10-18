@@ -36,13 +36,13 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
 			"commands that ended in the last minute, dimmed. The header counts the running and " +
 			"finished commands and shows the memory in use of the installed memory, the largest " +
-			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does; space tags a " +
-			"running command, enter or → opens the selected one's details (the full command, " +
-			"one step of a pipeline or && chain per line, its folder, processes and memory " +
-			"graph, which scroll with ↑, ↓, pgup, pgdn, home, end and the wheel), k opens the " +
-			"stop menu for the " +
-			"tagged commands or the selected one (a polite stop, force-killed after 5 s, or a " +
-			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
+			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does in most terminals; " +
+			"space tags a running command, enter or → opens the selected one's details (the " +
+			"full command, one step of a pipeline or && chain per line, its folder, processes " +
+			"and memory graph, which scroll with ↑, ↓, pgup, pgdn, home, end and the wheel), " +
+			"k opens the stop menu for the tagged commands or the selected one (a polite stop, " +
+			"force-killed after 5 s, or a forced kill now), esc or ← closes a menu or the " +
+			"details, and q, or esc on the " +
 			"list, quits. The watcher signals the command, logs the stop as by=you " +
 			"and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
 			"runs, the view says so and reconnects on its own. It needs a terminal, has no " +
@@ -567,8 +567,8 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 
 // View draws the screen in the alternate screen, or asks for a wider or a
 // taller window, so the key line and its notices always show. The view never
-// takes the mouse, so a plain drag selects text on every screen, and the
-// terminal sends a wheel step as ↑ or ↓ (altscroll.go), which move the list,
+// takes the mouse, so a plain drag selects text on every screen, and most
+// terminals send a wheel step as ↑ or ↓ (altscroll.go), which move the list,
 // scroll the details and move the stop menu's choice, as the keys do (ADR
 // 14).
 func (m *guardView) View() tea.View {
