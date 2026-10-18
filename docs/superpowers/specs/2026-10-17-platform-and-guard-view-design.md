@@ -345,17 +345,23 @@ A full-screen Bubble Tea program in the alternate screen.
   Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
   Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
-  quit, as the costs view's Esc does. On the list the mouse works too: the
-  wheel moves as ↑ and ↓ do, a click selects a row and a click on the
-  selected row opens its details; in details and in the stop menu, which
-  takes keys only, clicks and the wheel do nothing. The view turns mouse
-  reporting on because without it a trackpad or wheel scrolls the
+  quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
+  PgUp and PgDn a page, Home and End go to the top and the bottom, `k`
+  stops, Esc, ← or `h` goes back and `q` quits. On the list the mouse works
+  too: the wheel moves as ↑ and ↓ do, a click selects a row and a click on
+  the selected row opens its details. The view turns mouse reporting on
+  for the list because without it a trackpad or wheel scrolls the
   terminal's own buffer and the screen slides away; the list scrolls only
   when the selection leaves the window, so a row stays under the pointer
   that clicked it. With the mouse taken, hold Shift (Option in Terminal.app
-  and iTerm2) to select text. The key line reads
+  and iTerm2) to select text. In details, and in the stop menu over them,
+  which takes keys only, mouse reporting is off, so a plain drag selects
+  text; on the alternate screen most terminals then send a wheel step as
+  ↑ or ↓ (xterm's alternate scroll mode, 1007, in
+  [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)),
+  so the wheel scrolls the details. The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
-  `k stop  esc/← back  q quit` in details and
+  `↑/↓ scroll  k stop  esc/← back  q quit` in details and
   `↑/↓ choose  enter send  esc/← cancel` in the menu.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
@@ -382,19 +388,12 @@ A full-screen Bubble Tea program in the alternate screen.
   its line; nor do the `&` of `2>&1`, `|&` or `>|`. A command with no
   separator stays one wrapped line, and so does one that holds a newline
   outside quotes, such as one with a here-document: its author has laid it
-  out already, and a here-document's body is data, not steps. When the
-  details do not fit, whole kinds of lines are cut, each from its end and
-  the order on screen kept, in this order: the process lines, the Processes
-  count, Subagent, Agent, ID, the blank line at the top, the command's lines
-  after its first, and Folder last. One `… N more` line above the graph
-  counts them, and a field that lost lines ends with `…`. The command's
-  first line, Status, Memory and the graph always show, the facts needed to
-  decide on `k stop`: at 11 lines the details are `Command <first line>…`,
-  Folder, Status, Memory, `… N more` and the graph. Only when a reason above
-  them wraps onto more lines than that leaves room for do Memory, then
-  Status go too; in 2 lines the details are the command's first line and the
-  graph, without the count, and in 1 the graph alone, and the key line still
-  shows. `k` stops from here too; Esc, ← or `h` goes back.
+  out already, and a here-document's body is data, not steps. The details
+  show every line and never cut one: they lie in a pane that fills the room
+  between the header and the key line and scrolls when they are taller
+  than it. They open at their top; a new snapshot redraws them and keeps
+  the scroll offset, pulled back to their end when they grew shorter. `k`
+  stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project label is clipped at 32 columns, a
   `REPO/WORKTREE` label from the worktree's start (`api/…ure-login`), so
@@ -404,6 +403,8 @@ A full-screen Bubble Tea program in the alternate screen.
   window to at least 60 columns`, and below 11 lines `Make the window at
   least 11 lines tall` (the four header lines, the six-line stop menu below
   them and the key line), so the stop menu and the bottom line always show.
+  Details lay out the same way in any window and scroll; at 60×11 the pane
+  holds six lines, fewer when the header's fourth line wraps.
 - **Colors**: the guard's pinned palette (section 4). In the rows the
   STATUS cell is green for running, gold and bold for stopping, red for
   stopped, a dim gold for unmatched and plain for done; the AGENT cell
