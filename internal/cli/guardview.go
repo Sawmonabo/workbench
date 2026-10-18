@@ -31,11 +31,13 @@ func guardMemoryCommand(o *options) *cobra.Command {
 		Short: "Watch the commands the guard tracks and stop one",
 		Long: "Show, live, each agent command the guard's watcher tracks: its status, how long it " +
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
-			"commands that ended in the last minute, dimmed. ↑ and ↓ move, space tags a running " +
-			"command, enter opens its details (the full command, folder, memory graph and " +
-			"processes), k opens the stop menu for the tagged commands or the selected one " +
-			"(a polite stop, force-killed after 5 s, or a forced kill now), esc closes a menu or " +
-			"the details, and q quits. The watcher signals the command, logs the stop as by=you " +
+			"commands that ended in the last minute, dimmed. The header counts the running and " +
+			"finished commands and shows the memory in use of the installed memory, the largest " +
+			"peak and the swap in use. ↑ and ↓ move, space tags a running command, enter or → " +
+			"opens its details (the full command, folder, memory graph and processes), k opens " +
+			"the stop menu for the tagged commands or the selected one (a polite stop, " +
+			"force-killed after 5 s, or a forced kill now), esc or ← closes a menu or the " +
+			"details, and q quits. The watcher signals the command, logs the stop as by=you " +
 			"and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
 			"runs, the view says so and reconnects every second. It needs a terminal, has no " +
 			"--json output and refuses --non-interactive and coding agents; workbench guard " +
@@ -94,8 +96,8 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 // row, the tagged rows by call ID, what the screen shows (the list, the stop
 // menu or one command's details), the menu's chosen line, a short notice on
 // the bottom line until noticeUntil, the terminal's size, and the connection:
-// the watcher's release, whether a watcher answers, and why not when none
-// does. The rows stay after a disconnect, dimmed.
+// whether a watcher answers, and why not when none does. The rows stay after
+// a disconnect, dimmed.
 type guardView struct {
 	client      *guard.Client
 	snap        guard.Snapshot
@@ -107,7 +109,6 @@ type guardView struct {
 	noticeUntil time.Time
 	width       int
 	height      int
-	release     string
 	connected   bool
 	problem     string
 	// dialing is set while a connection attempt runs, so a tick never starts
@@ -146,11 +147,10 @@ type stoppedMsg []guard.StopResult
 // reconnecting.
 type tickMsg time.Time
 
-// connectedMsg is a connection attempt's outcome: a client that said hello
-// and the watcher's release, or why no watcher answered.
+// connectedMsg is a connection attempt's outcome: a client that said hello,
+// or why no watcher answered.
 type connectedMsg struct {
 	client  *guard.Client
-	release string
 	problem string
 }
 
@@ -165,12 +165,13 @@ const (
 )
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
-// header and the six-line stop menu below it, with the key line), how
+// four header lines and the six-line stop menu below them, with the key
+// line), how
 // long a notice stays, the readings the memory graph shows at most, and the
 // widest a project name is shown before it is clipped.
 const (
 	guardViewMinWidth  = 60
-	guardViewMinHeight = 10
+	guardViewMinHeight = 11
 	noticeShown        = 3 * time.Second
 	graphReadings      = 120
 	projectWidth       = 24
@@ -211,9 +212,8 @@ func connectWatcher() tea.Msg {
 	case err != nil:
 		return connectedMsg{problem: "Cannot reach the guard's watcher: " + err.Error()}
 	}
-	release, err := client.Hello()
-	if err == nil {
-		return connectedMsg{client: client, release: release}
+	if _, err = client.Hello(); err == nil {
+		return connectedMsg{client: client}
 	}
 	_ = client.Close()
 	switch {
@@ -252,7 +252,7 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.problem = msg.problem
 			return m, nil
 		}
-		m.client, m.release, m.connected, m.problem = msg.client, msg.release, true, ""
+		m.client, m.connected, m.problem = msg.client, true, ""
 		return m, waitSnapshot(m.client.Snapshots())
 	case snapshotMsg:
 		if m.client == nil {
@@ -375,7 +375,7 @@ func (m *guardView) press(key string) (tea.Model, tea.Cmd) {
 		return m, m.pressMenu(key)
 	case detailMode:
 		switch key {
-		case "esc":
+		case "esc", "left", "h":
 			m.mode = listMode
 		case "k":
 			m.openMenu(detailMode)
@@ -405,7 +405,7 @@ func (m *guardView) pressList(key string) {
 			}
 		}
 		m.cursor = max(min(m.cursor+1, rows-1), 0)
-	case "enter":
+	case "enter", "right", "l":
 		if m.cursor < rows {
 			m.mode = detailMode
 		}
@@ -415,14 +415,14 @@ func (m *guardView) pressList(key string) {
 }
 
 // pressMenu handles a key in the stop menu: ↑ and ↓ choose, enter sends and
-// esc cancels.
+// esc or ← cancels.
 func (m *guardView) pressMenu(key string) tea.Cmd {
 	switch key {
 	case "up":
 		m.menu = max(m.menu-1, 0)
 	case "down":
 		m.menu = min(m.menu+1, len(stopChoices)-1)
-	case "esc":
+	case "esc", "left", "h":
 		m.mode = m.menuFrom
 	case "enter":
 		m.mode = m.menuFrom
@@ -514,10 +514,11 @@ func (m *guardView) View() tea.View {
 	return view
 }
 
-// screen is the header, the list or the details with the stop menu over
-// them when it is open, and the key line at the bottom.
+// screen is the header (the head line, a blank line, the counts and the
+// status lines), the list or the details with the stop menu over them when it
+// is open, and the key line at the bottom.
 func (m *guardView) screen() string {
-	lines := append([]string{m.headLine(), m.countLine()}, m.statusLines()...)
+	lines := append([]string{m.headLine(), "", m.countLine()}, m.statusLines()...)
 	header := len(lines)
 	room := max(m.height-len(lines)-2, 1)
 	if m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode) {
@@ -534,66 +535,52 @@ func (m *guardView) screen() string {
 	return strings.Join(append(lines, m.keyLine()), "\n")
 }
 
-// headLine is the brand, the watcher's state and release, the machine's
-// memory and, at the right, the clock.
+// headLine is the brand, the watcher's state, a badge when memory is low or
+// critical, and the clock, on one line.
 func (m *guardView) headLine() string {
-	parts := []string{bold.Render("[WorkBench] Guard memory") + " "}
+	line := bold.Render("[WorkBench] Guard memory") + "  "
 	if m.connected {
-		parts = append(parts, green.Render(forTerm("●"))+" watching", m.release)
+		line += guardGreen.Render(forTerm("●")) + " watching"
 	} else {
 		state := " not connected"
 		if m.problem == watcherAbsent {
 			state = " not running"
 		}
-		parts = append(parts, yellow.Render(forTerm("○"))+state)
+		line += guardGold.Render(forTerm("○")) + state
 	}
-	if mem := m.snap.Memory; m.connected && mem.Level != "" {
-		level := mem.Level
-		switch level {
-		case "warning":
-			level = yellow.Render(level)
-		case "critical", "low":
-			level = red.Render(level)
+	dot := faint.Render(forTerm(" · "))
+	if m.connected {
+		// normal, and macOS's warning, are routine for the guard: no badge.
+		switch level := m.snap.Memory.Level; level {
+		case "low":
+			line += dot + guardGold.Bold(true).Render("memory "+level)
+		case "critical":
+			line += dot + guardRed.Bold(true).Render("memory "+level)
 		}
-		parts = append(parts, "memory "+level, memoryText(mem))
 	}
-	clock := time.Now().Format("3:04:05 PM")
-	left := fit(strings.Join(parts[:1], "")+strings.Join(parts[1:], forTerm(" · ")),
-		max(m.width-len(clock)-2, 1), false)
-	return left + strings.Repeat(" ", max(m.width-lipgloss.Width(left)-len(clock), 1)) + clock
+	return fit(line+dot+time.Now().Format("3:04:05 PM"), m.width, false)
 }
 
-// memoryText is the machine's memory as the watcher reads it: on Linux the
-// memory available of the total user memory may take, on macOS, which gives
-// a pressure level instead, the installed memory and the swap in use.
-func memoryText(mem guard.MemoryView) string {
-	if mem.Total > 0 {
-		return forTerm(sizeOf(mem.Available, mem.Total) + " available")
-	}
-	text := memorySize(mem.Installed) + " installed"
-	if mem.SwapTotal > 0 {
-		text += " · swap " + sizeOf(mem.SwapTotal-mem.SwapFree, mem.SwapTotal) + " used"
-	}
-	return forTerm(text)
-}
-
-// sizeOf is part of whole, the unit written once when both share it, as a
-// meter reads used against total: "1.2 of 5.0 GB", "840 MB of 16 GB".
-func sizeOf(part, whole uint64) string {
+// memorySlash is part of whole, the unit written once when both share it, as
+// a meter reads used against total: "9.4/16 GB", "840 MB/16 GB", "—/16 GB".
+func memorySlash(part, whole uint64) string {
 	p, w := memorySize(part), memorySize(whole)
 	number, unit, ok := strings.Cut(p, " ")
 	if ok && strings.HasSuffix(w, " "+unit) {
 		p = number
 	}
-	return p + " of " + w
+	return p + "/" + w
 }
 
 // memorySize is a size as the view shows it, [sizeText] or an em dash for
 // none.
 func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
-// countLine counts the running commands, those that finished in the last
-// minute, and gives the largest peak since the watcher started.
+// countLine counts the running commands and those that finished in the last
+// minute and, while a watcher answers, gives the memory in use of the
+// installed memory, the largest peak since the watcher started and the swap
+// in use, the memory figure bold and the rest faint. A narrow window drops
+// the swap, then the peak, then clips the line.
 func (m *guardView) countLine() string {
 	running := 0
 	for _, c := range m.snap.Commands {
@@ -601,14 +588,24 @@ func (m *guardView) countLine() string {
 			running++
 		}
 	}
-	finished, peak := len(m.snap.Commands)-running, memorySize(m.snap.LargestPeak)
-	line := forTerm(fmt.Sprintf(
-		"%d running · %d finished in the last minute · largest peak %s",
-		running, finished, peak))
-	if ansi.StringWidth(line) > m.width {
-		line = forTerm(fmt.Sprintf("%d running · %d finished in 1 min · peak %s",
-			running, finished, peak))
+	counts := fmt.Sprintf("%d running · %d finished", running, len(m.snap.Commands)-running)
+	if !m.connected {
+		return fit(faint.Render(forTerm(counts)), m.width, false)
 	}
+	mem := m.snap.Memory
+	before, figure := forTerm(counts+" · mem "), forTerm(memorySlash(mem.Used, mem.Installed))
+	tails := []string{forTerm(" · peak " + memorySize(m.snap.LargestPeak))}
+	if mem.SwapTotal > 0 {
+		tails = append(
+			tails,
+			forTerm(" · swap "+memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)),
+		)
+	}
+	width := func() int { return ansi.StringWidth(before + figure + strings.Join(tails, "")) }
+	for len(tails) > 0 && width() > m.width {
+		tails = tails[:len(tails)-1]
+	}
+	line := faint.Render(before) + bold.Render(figure) + faint.Render(strings.Join(tails, ""))
 	return fit(line, m.width, false)
 }
 
@@ -637,7 +634,7 @@ func (m *guardView) statusLines() []string {
 	}
 	lines := strings.Split(ansi.Wrap(forTerm(text), m.width, ""), "\n")
 	for i, line := range lines {
-		lines[i] = yellow.Render(line)
+		lines[i] = guardGold.Render(line)
 	}
 	return lines
 }
@@ -748,16 +745,18 @@ func statusText(state string, dry bool) string {
 	return text
 }
 
-// statusStyle colors a state: running green, stopping and unmatched yellow,
-// stopped red, done plain.
+// statusStyle colors a state: running green, stopping gold and bold,
+// stopped red, unmatched a dim gold, done plain.
 func statusStyle(state string) lipgloss.Style {
 	switch state {
 	case "running":
-		return green
-	case "stopping", "unmatched":
-		return yellow
+		return guardGreen
+	case "stopping":
+		return guardGold.Bold(true)
 	case "stopped":
-		return red
+		return guardRed
+	case "unmatched":
+		return guardDimGold
 	}
 	return lipgloss.NewStyle()
 }
@@ -781,7 +780,7 @@ func padded(cols []column, cells []string, shown, widths []int) []string {
 
 // styledRow is row i with its marks: the selected row bold behind ▸, a
 // tagged one marked *, a finished one or any while no watcher answers faint,
-// the status in its color.
+// the status, the agent and a size of a gigabyte or more in their colors.
 func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string {
 	c := m.snap.Commands[i]
 	style := lipgloss.NewStyle()
@@ -793,12 +792,19 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 		mark, style = forTerm("▸"), style.Bold(true)
 	}
 	if m.tagged[c.ID] {
-		tag = yellow.Render("*")
+		tag = guardGold.Render("*")
 	}
+	var memory *lipgloss.Style
+	if active(c.State) {
+		memory = sizeStyle(c.Memory)
+	}
+	colors := map[int]*lipgloss.Style{2: agentStyle(c.Agent), 5: memory, 6: sizeStyle(c.Peak)}
+	status := statusStyle(c.State)
+	colors[1] = &status
 	out := padded(guardColumns, cells, shown, widths)
 	for n, col := range shown {
-		if col == 1 {
-			out[n] = statusStyle(c.State).Inherit(style).Render(out[n])
+		if color := colors[col]; color != nil {
+			out[n] = color.Inherit(style).Render(out[n])
 		} else {
 			out[n] = style.Render(out[n])
 		}
@@ -815,7 +821,7 @@ func (m *guardView) detailLines(room int) []string {
 	}
 	c := m.snap.Commands[m.cursor]
 	cells := m.cells(c)
-	status := forTerm(statusText(c.State, c.DryRun))
+	status := statusStyle(c.State).Render(forTerm(statusText(c.State, c.DryRun)))
 	if c.By != "" {
 		status += " by " + c.By
 	}
@@ -842,7 +848,14 @@ func (m *guardView) detailLines(room int) []string {
 	lines = append(lines, label("Subagent", cmp.Or(c.Subagent, "—"))...)
 	lines = append(lines, label("ID", c.ID)...)
 	lines = append(lines, label("Status", status)...)
-	lines = append(lines, label("Memory", cells[5]+" now"+forTerm(" · ")+"peak "+cells[6])...)
+	now, peak := cells[5], cells[6]
+	if s := sizeStyle(c.Memory); s != nil && active(c.State) {
+		now = s.Render(now)
+	}
+	if s := sizeStyle(c.Peak); s != nil {
+		peak = s.Render(peak)
+	}
+	lines = append(lines, label("Memory", now+" now"+forTerm(" · ")+"peak "+peak)...)
 	lines = append(lines, label("Graph", graph(c.History, c.Peak, m.width-14))...)
 	lines = append(lines, label("Processes", processCount(len(c.Tree)))...)
 	for _, p := range c.Tree {
@@ -938,14 +951,14 @@ func (m *guardView) keyLine() string {
 		return fit(forTerm(m.notice), m.width, false)
 	}
 	keys := [][2]string{
-		{"↑/↓", "move"}, {"space", "tag"}, {"enter", "details"}, {"k", "stop"}, {"q", "quit"},
+		{"↑/↓", "move"}, {"space", "tag"}, {"enter/→", "details"}, {"k", "stop"}, {"q", "quit"},
 	}
 	switch m.mode {
 	case listMode:
 	case menuMode:
-		keys = [][2]string{{"↑/↓", "choose"}, {"enter", "send"}, {"esc", "cancel"}}
+		keys = [][2]string{{"↑/↓", "choose"}, {"enter", "send"}, {"esc/←", "cancel"}}
 	case detailMode:
-		keys = [][2]string{{"k", "stop"}, {"esc", "back"}, {"q", "quit"}}
+		keys = [][2]string{{"k", "stop"}, {"esc/←", "back"}, {"q", "quit"}}
 	}
 	parts := make([]string, len(keys))
 	for i, key := range keys {
