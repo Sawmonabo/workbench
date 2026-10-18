@@ -562,7 +562,8 @@ func (m *guardView) headLine() string {
 }
 
 // memorySlash is part of whole, the unit written once when both share it, as
-// a meter reads used against total: "9.4/16 GB", "840 MB/16 GB", "—/16 GB".
+// a meter reads used against total: "9.4/16 GB", "840 MB/16 GB"; a part of 0,
+// which a watcher without the reading sends, is "—/16 GB".
 func memorySlash(part, whole uint64) string {
 	p, w := memorySize(part), memorySize(whole)
 	number, unit, ok := strings.Cut(p, " ")
@@ -596,10 +597,12 @@ func (m *guardView) countLine() string {
 	before, figure := forTerm(counts+" · mem "), forTerm(memorySlash(mem.Used, mem.Installed))
 	tails := []string{forTerm(" · peak " + memorySize(m.snap.LargestPeak))}
 	if mem.SwapTotal > 0 {
-		tails = append(
-			tails,
-			forTerm(" · swap "+memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)),
-		)
+		// Swap not in use is a reading of 0, not a missing one.
+		swap := memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)
+		if mem.SwapFree >= mem.SwapTotal {
+			swap = "0/" + memorySize(mem.SwapTotal)
+		}
+		tails = append(tails, forTerm(" · swap "+swap))
 	}
 	width := func() int { return ansi.StringWidth(before + figure + strings.Join(tails, "")) }
 	for len(tails) > 0 && width() > m.width {

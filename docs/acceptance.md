@@ -734,6 +734,12 @@ synthetic answers.
   agent clay) at 24-bit and 256-color depth, `guard logs` colored the level
   label alone with the agent in its hue and the event and `id` plain, and
   `NO_COLOR` printed plain text.
+- On 2026-10-18, in a Debian container (`python:3-slim`, arm64) capped at
+  2 GiB as uid 1000 with the same fake agent, the view's header read `mem 63
+  MB/2.0 GB`, the container's `memory.current` less its `inactive_file`
+  over its limit, and `→`, `h`, the 60-column count line, the pinned colors
+  and `NO_COLOR` behaved as on macOS; `guard logs` colored the level and the
+  agent the same way.
 - On 2026-10-17, in an Ubuntu 24.04 container (Docker 29.8.2, kernel
   7.0.14-linuxkit, arm64) capped at 2 GiB, as uid 1000 with a disposable home
   and Python added to the container for the stand-in agent, whose commands ran
