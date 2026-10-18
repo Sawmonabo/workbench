@@ -539,7 +539,7 @@ resolver arrangements may remain blocked rather than execute unexpectedly.
 `.python-version` and identifiable existing test job. It preserves that job and
 adds owned Ruff/basedpyright checks. Ambiguous owners/unsupported YAML receive
 a manual proposal, not a second pipeline or fabricated tests. See the
-[portable policy](../project/python/README.md).
+[portable policy](../project/pythonpolicy/README.md).
 
 ## Recovery and runtime storage
 

@@ -81,7 +81,7 @@ and does not authorize application.
   stays in the live `~/.claude/settings.json` until you delete it there.
 - All three merges leave a file untouched when they would change no value, so
   an app saving its settings in its own key order is not a change to apply.
-- Portable project policy belongs in `project/python/`, not global settings.
+- Portable project policy belongs in `project/pythonpolicy/`, not global settings.
   Project editing preserves supported comments/order through format-aware
   libraries and rejects unsupported round trips.
 

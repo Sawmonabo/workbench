@@ -32,8 +32,8 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
         if item.is_file():
             relative = item.relative_to(root)
             if relative.parts[0] == "project" and relative.as_posix() not in {
-                "project/python/policy.toml", "project/python/gitignore.entries",
-                "project/python/extensions.json", "project/python/checks.example.yml",
+                "project/pythonpolicy/policy.toml", "project/pythonpolicy/gitignore.entries",
+                "project/pythonpolicy/extensions.json", "project/pythonpolicy/checks.example.yml",
             }:
                 continue
             if any(part in {".git", "__pycache__", ".venv", ".env", ".DS_Store"} for part in relative.parts):

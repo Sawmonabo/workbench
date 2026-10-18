@@ -14,7 +14,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/jsonc"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
-	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
+	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 	"github.com/tailscale/hujson"
 )
 

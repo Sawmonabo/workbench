@@ -16,7 +16,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
+	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 )
 
 // interactive reports whether this run may prompt at all.

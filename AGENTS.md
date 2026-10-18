@@ -107,7 +107,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Package/extension names and pins | `home/.chezmoidata/packages.toml`, `versions.toml` |
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
-| Portable Python project policy | `project/python/` |
+| Portable Python project policy | `project/pythonpolicy/` |
 | AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
 | Agent command memory guard | `internal/guard/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |

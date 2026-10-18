@@ -37,7 +37,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/operation/` | Context, bounded execution, plan revalidation, private state/locks and scoped checkpoints/recovery. |
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
-| `internal/project/`, `project/python/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
+| `internal/project/`, `project/pythonpolicy/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
 | `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches and remove the guard log's old free-text lines; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
@@ -105,7 +105,7 @@ internal/costs/                    AI-tool cost ledger and reports
 internal/migrate/                  Migrations of Workbench's own files
 internal/guard/                    Agent command memory guard
 home/                             Existing canonical machine configuration
-project/python/                   Portable configuration policy, not app scaffolding
+project/pythonpolicy/                   Portable configuration policy, not app scaffolding
 scripts/                          Existing validation plus release tooling
 docs/superpowers/specs/            Product specifications
 docs/superpowers/plans/            Dependency-ordered implementation plans
@@ -357,7 +357,7 @@ Implement existing uv-managed Python projects first. Manually verify a represent
 
 ### Reusable Python assets
 
-`project/python/policy.toml` contains tool settings only, never complete application metadata:
+`project/pythonpolicy/policy.toml` contains tool settings only, never complete application metadata:
 
 ```toml
 [tool.ty.rules]
@@ -381,7 +381,7 @@ reportMatchNotExhaustive = "error"
 
 Validate native configuration acceptance, including [basedpyright configuration](https://docs.basedpyright.com/latest/configuration/config-files/), before release. Inspect separately located tool configs and project-specific rule choices; do not blindly append tables or erase existing policies. No fixed source/test layout, Python baseline, package name, build backend or test framework is introduced.
 
-`project/python/extensions.json` supplies these optional recommendations:
+`project/pythonpolicy/extensions.json` supplies these optional recommendations:
 
 ```json
 {
@@ -396,7 +396,7 @@ Validate native configuration acceptance, including [basedpyright configuration]
 
 Merge unique recommendations after review and resolve contradictions. Recommendations do not install or disable extensions. Personal theme, zoom and machine-specific settings never enter this file or the project.
 
-Optional `project/python/gitignore.entries` covers `.venv/`, `__pycache__/`, `*.py[cod]`, `.pytest_cache/`, `.ruff_cache/`, `dist/`, `*.egg-info/`, `.coverage`, `htmlcov/`, `.env`, `.env.*` and the `!.env.example` exception. Preserve existing pattern order and negations; add only relevant absent entries, without replacing the file.
+Optional `project/pythonpolicy/gitignore.entries` covers `.venv/`, `__pycache__/`, `*.py[cod]`, `.pytest_cache/`, `.ruff_cache/`, `dist/`, `*.egg-info/`, `.coverage`, `htmlcov/`, `.env`, `.env.*` and the `!.env.example` exception. Preserve existing pattern order and negations; add only relevant absent entries, without replacing the file.
 
 ### Dependencies, checks and CI
 
@@ -412,7 +412,7 @@ uv run --locked basedpyright
 
 Run the project's existing tests; use `uv run --locked pytest` only when pytest is its chosen runner. `uv run --locked ty check` is an optional whole-project check, not a second required CI gate. Checks do not fix files; deliberate formatting/fix commands remain separate and require review of their changes.
 
-An optional `project/python/checks.example.yml` must demonstrate read-only repository permissions, checkout without persisted credentials, uv setup, locked development-dependency synchronization, the three checks above and the real test command. Set a bounded job timeout and cancel superseded checks. Select a supported Python version from the project, validate pinned action/tool references before publication, and adapt an existing workflow instead of creating a duplicate pipeline. Do not alter branch protection or change CI providers automatically.
+An optional `project/pythonpolicy/checks.example.yml` must demonstrate read-only repository permissions, checkout without persisted credentials, uv setup, locked development-dependency synchronization, the three checks above and the real test command. Set a bounded job timeout and cancel superseded checks. Select a supported Python version from the project, validate pinned action/tool references before publication, and adapt an existing workflow instead of creating a duplicate pipeline. Do not alter branch protection or change CI providers automatically.
 
 Project configuration may approve package resolution/environment changes, but these must be listed as external effects and never run during dry-run. Record a portable Workbench policy identity without embedding installation paths, using the `[tool.workbench]` format in the implementation contracts. Never make project execution depend on Workbench being installed.
 

@@ -13,7 +13,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
-	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
+	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 	"github.com/goccy/go-yaml"
 	"github.com/goccy/go-yaml/ast"
 	"github.com/goccy/go-yaml/parser"
@@ -89,7 +89,7 @@ func ciFailure(message string) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"project_ci",
-		message+"; adapt project/python/checks.example.yml manually",
+		message+"; adapt project/pythonpolicy/checks.example.yml manually",
 	)
 }
 

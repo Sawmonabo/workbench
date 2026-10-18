@@ -245,7 +245,7 @@ owner pushes a `v*` tag, not when files are implemented.
 ### Files
 
 - Add `internal/project/`; use only minimal package-local inputs if a justified destructive-scope test requires them.
-- Add `project/python/policy.toml`, `extensions.json`, `gitignore.entries`, `checks.example.yml` and their usage documentation from design section 9.
+- Add `project/pythonpolicy/policy.toml`, `extensions.json`, `gitignore.entries`, `checks.example.yml` and their usage documentation from design section 9.
 - Reuse shared operation/context/consent/checkpoint code; do not add a Python CLI or installer.
 
 ### Work

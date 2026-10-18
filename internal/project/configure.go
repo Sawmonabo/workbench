@@ -14,7 +14,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
-	pythonpolicy "github.com/Sawmonabo/workbench/project/python"
+	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 )
 
 // ConfigureOptions selects what project configure changes.

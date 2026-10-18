@@ -1,6 +1,5 @@
 // Package pythonpolicy embeds the portable Python project policy that project
-// configure applies. It is not a public API. Its name differs from its
-// directory so callers can keep local variables named python.
+// configure applies. It is not a public API.
 package pythonpolicy
 
 import _ "embed"
