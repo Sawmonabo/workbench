@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net"
@@ -153,8 +154,9 @@ func (s *server) handle(conn *net.UnixConn) {
 	answer := message{Type: messageHello, Version: ProtocolVersion, Release: s.release}
 	if !slices.Contains(hello.Versions, ProtocolVersion) {
 		answer = message{
-			Type:  messageError,
-			Error: "no protocol version in common; the watcher speaks 1",
+			Type: messageError,
+			Error: fmt.Sprintf("no protocol version in common; the watcher speaks %d",
+				ProtocolVersion),
 		}
 	}
 	if writeMessage(conn, answer) != nil || answer.Type == messageError {

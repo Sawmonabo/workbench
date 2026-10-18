@@ -63,7 +63,9 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 		if force && !m.forced {
 			kill, wait := escalation(s, m.procs, protected)
 			m.procs = wait
-			w.killManual(m, kill)
+			if len(kill) > 0 {
+				w.killManual(m, kill)
+			}
 		}
 		return ""
 	}

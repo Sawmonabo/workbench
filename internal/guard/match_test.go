@@ -601,16 +601,10 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		agent,
 		shell,
 		process(300, 200, 300, 0.5, "workbench", "guard", "memory"), // under the agent's command
-		process(
-			400,
-			1,
-			400,
-			0.6,
-			"zsh",
-		),
+		process(400, 1, 400, 0.6, "zsh"),
 		process(401, 400, 401, 0.7, "workbench", "guard", "memory"),
-		process(500, 1, 500, -3600, "claude"),
-	) // agent-named, left no note
+		process(500, 1, 500, -3600, "claude"), // agent-named, left no note
+	)
 	protected := map[int]uint64{100: start(-3600)}
 	for _, tc := range []struct {
 		name string
