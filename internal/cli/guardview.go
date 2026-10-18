@@ -604,7 +604,7 @@ func (m *guardView) countLine() string {
 		// Swap not in use is a reading of 0, not a missing one.
 		swap := memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)
 		if mem.SwapFree >= mem.SwapTotal {
-			swap = "0/" + memorySize(mem.SwapTotal)
+			swap = "0/" + capacityText(mem.SwapTotal)
 		}
 		tails = append(tails, forTerm(" · swap "+swap))
 	}
