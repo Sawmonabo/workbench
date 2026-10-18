@@ -115,6 +115,9 @@ type guardView struct {
 	dialing bool
 	// menuFrom is the screen the stop menu opened from and returns to.
 	menuFrom viewMode
+	// targets are the call IDs the open stop menu names, fixed when it opens,
+	// so a stop never falls to another row once they finish.
+	targets []string
 }
 
 // viewMode is what the view shows.
@@ -161,31 +164,20 @@ const (
 		"version; run workbench update."
 )
 
-// The view's sizes: the narrowest window it draws in, how long a notice
-// stays, and the readings the memory graph shows at most.
+// The view's sizes: the narrowest and the shortest window it draws in (the
+// header, the column heads, three rows, a blank line and the key line), how
+// long a notice stays, the readings the memory graph shows at most, and the
+// widest a project name is shown before it is clipped.
 const (
-	guardViewMinWidth = 60
-	noticeShown       = 3 * time.Second
-	graphReadings     = 120
+	guardViewMinWidth  = 60
+	guardViewMinHeight = 8
+	noticeShown        = 3 * time.Second
+	graphReadings      = 120
+	projectWidth       = 24
 )
 
 // The two stops the menu offers, polite first, as the guard's own stops go.
 var stopChoices = []string{"Stop (polite, force-killed after 5 s)", "Force kill now"}
-
-// viewGlyphs swaps the view's own marks, which the shared glyph set does not
-// know, for ASCII stand-ins where the locale is not UTF-8.
-var viewGlyphs = func() *strings.Replacer {
-	if glyphs.Rule == "─" {
-		return strings.NewReplacer()
-	}
-	return strings.NewReplacer(
-		"▸", ">", "●", "o", "○", ".", "◌", "~",
-		"▁", "_", "▂", ".", "▃", "-", "▄", "~", "▅", "=", "▆", "+", "▇", "*", "█", "#",
-	)
-}()
-
-// viewText is s in the terminal's glyphs.
-func viewText(s string) string { return glyphs.text.Replace(viewGlyphs.Replace(s)) }
 
 // nextTick waits a second for the next tickMsg.
 func nextTick() tea.Cmd {
@@ -292,16 +284,43 @@ func (m *guardView) take(snap guard.Snapshot) {
 	)
 	if at < 0 {
 		m.cursor = max(min(m.cursor, len(snap.Commands)-1), 0)
-		m.mode = listMode
+		if m.mode == detailMode {
+			m.mode = listMode
+		}
+		m.menuFrom = listMode
 	} else {
 		m.cursor = at
 	}
 	for id := range m.tagged {
-		i := slices.IndexFunc(snap.Commands, func(c guard.CommandView) bool { return c.ID == id })
-		if i < 0 || !active(snap.Commands[i].State) {
+		if !slices.Contains(m.running([]string{id}), id) {
 			delete(m.tagged, id)
 		}
 	}
+	if m.mode == menuMode && len(m.running(m.targets)) == 0 {
+		m.mode = m.menuFrom
+		m.say(shortIDs(m.targets) + " already finished; nothing was stopped")
+	}
+}
+
+// running are those of ids whose command still runs, in the order given.
+func (m *guardView) running(ids []string) []string {
+	var out []string
+	for _, id := range ids {
+		i := slices.IndexFunc(m.snap.Commands, func(c guard.CommandView) bool { return c.ID == id })
+		if i >= 0 && active(m.snap.Commands[i].State) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// shortIDs are call IDs as the view shows them, joined with commas.
+func shortIDs(ids []string) string {
+	short := make([]string, len(ids))
+	for i, id := range ids {
+		short[i] = shortCallID(id)
+	}
+	return strings.Join(short, ", ")
 }
 
 // selectedID is the selected command's call ID, empty with no rows.
@@ -321,14 +340,21 @@ func (m *guardView) say(text string) {
 	m.notice, m.noticeUntil = text, time.Now().Add(noticeShown)
 }
 
-// answered shows the watcher's answer to a stop: "stopped 4fQ8nX2a", or the
-// ID and why not ("4fQ8nX2a already finished").
+// answered shows the watcher's answer to a stop: "stopped 4fQ8nX2a",
+// "logged 4fQ8nX2a (dry run)" for a dry-run command, which goes on running,
+// or the ID and why not ("4fQ8nX2a already finished").
 func (m *guardView) answered(results []guard.StopResult) {
 	parts := make([]string, 0, len(results))
 	for _, r := range results {
-		if r.OK {
+		dry := slices.ContainsFunc(m.snap.Commands, func(c guard.CommandView) bool {
+			return c.ID == r.ID && c.DryRun
+		})
+		switch {
+		case r.OK && dry:
+			parts = append(parts, "logged "+shortCallID(r.ID)+" (dry run)")
+		case r.OK:
 			parts = append(parts, "stopped "+shortCallID(r.ID))
-		} else {
+		default:
 			parts = append(parts, shortCallID(r.ID)+" "+r.Error)
 		}
 	}
@@ -396,7 +422,18 @@ func (m *guardView) pressMenu(key string) tea.Cmd {
 		m.mode = m.menuFrom
 	case "enter":
 		m.mode = m.menuFrom
-		return m.send(m.stopTargets(m.menuFrom), m.menu == 1)
+		ids := m.running(m.targets)
+		var gone []string
+		for _, id := range m.targets {
+			if !slices.Contains(ids, id) {
+				gone = append(gone, id)
+			}
+		}
+		cmd := m.send(ids, m.menu == 1)
+		if len(gone) > 0 {
+			m.say(strings.TrimPrefix(m.notice+"; ", "; ") + shortIDs(gone) + " already finished")
+		}
+		return cmd
 	}
 	return nil
 }
@@ -422,14 +459,15 @@ func (m *guardView) stopTargets(from viewMode) []string {
 // openMenu opens the stop menu from a screen, its polite stop chosen, when
 // there is a running command to stop and a watcher to ask.
 func (m *guardView) openMenu(from viewMode) {
+	ids := m.stopTargets(from)
 	switch {
-	case len(m.stopTargets(from)) == 0 && m.cursor < len(m.snap.Commands):
+	case len(ids) == 0 && m.cursor < len(m.snap.Commands):
 		m.say(shortCallID(m.selectedID()) + " already finished")
-	case len(m.stopTargets(from)) == 0:
+	case len(ids) == 0:
 	case !m.connected:
-		m.say("The watcher is not running; nothing was stopped")
+		m.say("No watcher is connected; nothing was stopped")
 	default:
-		m.mode, m.menu, m.menuFrom = menuMode, 0, from
+		m.mode, m.menu, m.menuFrom, m.targets = menuMode, 0, from, ids
 	}
 }
 
@@ -438,13 +476,10 @@ func (m *guardView) openMenu(from viewMode) {
 func (m *guardView) send(ids []string, force bool) tea.Cmd {
 	client := m.client
 	if len(ids) == 0 || client == nil {
+		m.notice = ""
 		return nil
 	}
-	short := make([]string, len(ids))
-	for i, id := range ids {
-		short[i] = shortCallID(id)
-	}
-	m.say("asking the watcher to stop " + strings.Join(short, ", "))
+	m.say("asking the watcher to stop " + shortIDs(ids))
 	clear(m.tagged)
 	return func() tea.Msg {
 		results, err := client.Stop(ids, force)
@@ -458,10 +493,16 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 	}
 }
 
-// View draws the screen in the alternate screen, or asks for a wider window.
+// View draws the screen in the alternate screen, or asks for a wider or a
+// taller window, so the key line and its notices always show.
 func (m *guardView) View() tea.View {
-	text := "Widen the window to at least 60 columns"
-	if m.width >= guardViewMinWidth {
+	var text string
+	switch {
+	case m.width < guardViewMinWidth:
+		text = fmt.Sprintf("Widen the window to at least %d columns", guardViewMinWidth)
+	case m.height < guardViewMinHeight:
+		text = fmt.Sprintf("Make the window at least %d lines tall", guardViewMinHeight)
+	default:
 		text = m.screen()
 	}
 	view := tea.NewView(text)
@@ -493,9 +534,13 @@ func (m *guardView) screen() string {
 func (m *guardView) headLine() string {
 	parts := []string{bold.Render("[WorkBench] Guard memory") + " "}
 	if m.connected {
-		parts = append(parts, green.Render(viewText("●"))+" watching", m.release)
+		parts = append(parts, green.Render(forTerm("●"))+" watching", m.release)
 	} else {
-		parts = append(parts, yellow.Render(viewText("○"))+" not running")
+		state := " not connected"
+		if m.problem == watcherAbsent {
+			state = " not running"
+		}
+		parts = append(parts, yellow.Render(forTerm("○"))+state)
 	}
 	if mem := m.snap.Memory; m.connected && mem.Level != "" {
 		level := mem.Level
@@ -508,7 +553,7 @@ func (m *guardView) headLine() string {
 		parts = append(parts, "memory "+level, memoryText(mem))
 	}
 	clock := time.Now().Format("3:04:05 PM")
-	left := fit(strings.Join(parts[:1], "")+strings.Join(parts[1:], viewText(" · ")),
+	left := fit(strings.Join(parts[:1], "")+strings.Join(parts[1:], forTerm(" · ")),
 		max(m.width-len(clock)-2, 1), false)
 	return left + strings.Repeat(" ", max(m.width-lipgloss.Width(left)-len(clock), 1)) + clock
 }
@@ -518,27 +563,29 @@ func (m *guardView) headLine() string {
 // a pressure level instead, the installed memory and the swap in use.
 func memoryText(mem guard.MemoryView) string {
 	if mem.Total > 0 {
-		return memorySize(mem.Available) + " of " + memorySize(mem.Total) + " available"
+		return sizeOf(mem.Available, mem.Total) + " available"
 	}
 	text := memorySize(mem.Installed) + " installed"
 	if mem.SwapTotal > 0 {
-		text += viewText(" · ") + "swap " + memorySize(mem.SwapTotal-mem.SwapFree) + " of " +
-			memorySize(mem.SwapTotal) + " used"
+		text += " · swap " + sizeOf(mem.SwapTotal-mem.SwapFree, mem.SwapTotal) + " used"
 	}
-	return text
+	return forTerm(text)
 }
 
-// memorySize is a size as the view shows it: whole MB under 1 GB, else
-// [guard.Gigabytes]; an em dash for none.
-func memorySize(bytes uint64) string {
-	switch {
-	case bytes == 0:
-		return "—"
-	case bytes < 1<<30:
-		return fmt.Sprintf("%.0f MB", float64(bytes)/(1<<20))
+// sizeOf is part of whole, the unit written once when both share it, as a
+// meter reads used against total: "1.2 of 5.0 GB", "840 MB of 16 GB".
+func sizeOf(part, whole uint64) string {
+	p, w := memorySize(part), memorySize(whole)
+	number, unit, ok := strings.Cut(p, " ")
+	if ok && strings.HasSuffix(w, " "+unit) {
+		p = number
 	}
-	return guard.Gigabytes(bytes)
+	return p + " of " + w
 }
+
+// memorySize is a size as the view shows it, [sizeText] or an em dash for
+// none.
+func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
 // countLine counts the running commands, those that finished in the last
 // minute, and gives the largest peak since the watcher started.
@@ -551,7 +598,7 @@ func (m *guardView) countLine() string {
 	}
 	line := fmt.Sprintf("%d running · %d finished in the last minute · largest peak %s",
 		running, len(m.snap.Commands)-running, memorySize(m.snap.LargestPeak))
-	return fit(viewText(line), m.width, false)
+	return fit(forTerm(line), m.width, false)
 }
 
 // statusLine says why no watcher answers, or, when a shown command is a dry
@@ -611,7 +658,7 @@ func (m *guardView) tableLines(room int) []string {
 	for i, c := range guardColumns {
 		heads[i] = c.Head
 	}
-	head := strings.Join(padded(heads, shown, widths), strings.Repeat(" ", gap))
+	head := strings.Join(padded(guardColumns, heads, shown, widths), strings.Repeat(" ", gap))
 	lines := []string{faint.Render(strings.Repeat(" ", guardRowPrefix) + head)}
 	visible := max(room-1, 1)
 	first := max(m.cursor-visible+1, 0)
@@ -638,15 +685,13 @@ func (m *guardView) cells(c guard.CommandView) []string {
 	}
 	return []string{
 		shortCallID(c.ID),
-		viewText(statusText(c.State)),
+		forTerm(statusText(c.State)),
 		c.Agent,
 		c.Subagent,
 		took,
 		now,
-		memorySize(
-			c.Peak,
-		),
-		c.Project,
+		memorySize(c.Peak),
+		fit(c.Project, projectWidth, false),
 		strings.Join(strings.Fields(guard.CommandRest(c.Command)), " "),
 	}
 }
@@ -683,16 +728,16 @@ func statusStyle(state string) lipgloss.Style {
 	return lipgloss.NewStyle()
 }
 
-// padded are cells of the shown columns, each fitted to its width and
-// padded on its side, the last left unpadded.
-func padded(cells []string, shown, widths []int) []string {
+// padded are cells of the shown columns of cols, each fitted to its width
+// and padded on its side, the last column left unpadded.
+func padded(cols []column, cells []string, shown, widths []int) []string {
 	out := make([]string, 0, len(shown))
 	for _, i := range shown {
 		cell := fit(cells[i], widths[i], false)
 		pad := strings.Repeat(" ", max(widths[i]-ansi.StringWidth(cell), 0))
-		if guardColumns[i].Right {
+		if cols[i].Right {
 			cell = pad + cell
-		} else if i != len(guardColumns)-1 {
+		} else if i != len(cols)-1 {
 			cell += pad
 		}
 		out = append(out, cell)
@@ -711,12 +756,12 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 	}
 	mark, tag := " ", " "
 	if i == m.cursor && m.mode != detailMode {
-		mark, style = viewText("▸"), style.Bold(true)
+		mark, style = forTerm("▸"), style.Bold(true)
 	}
 	if m.tagged[c.ID] {
 		tag = yellow.Render("*")
 	}
-	out := padded(cells, shown, widths)
+	out := padded(guardColumns, cells, shown, widths)
 	for n, col := range shown {
 		if col == 1 {
 			out[n] = statusStyle(c.State).Inherit(style).Render(out[n])
@@ -736,12 +781,12 @@ func (m *guardView) detailLines(room int) []string {
 	}
 	c := m.snap.Commands[m.cursor]
 	cells := m.cells(c)
-	status := viewText(statusText(c.State))
+	status := forTerm(statusText(c.State))
 	if c.By != "" {
 		status += " by " + c.By
 	}
 	if cells[4] != "" {
-		status += viewText(" · ") + cells[4]
+		status += forTerm(" · ") + cells[4]
 	}
 	label := func(name, value string) []string {
 		var b strings.Builder
@@ -763,12 +808,12 @@ func (m *guardView) detailLines(room int) []string {
 	lines = append(lines, label("Subagent", cmp.Or(c.Subagent, "—"))...)
 	lines = append(lines, label("ID", c.ID)...)
 	lines = append(lines, label("Status", status)...)
-	lines = append(lines, label("Memory", cells[5]+" now"+viewText(" · ")+"peak "+cells[6])...)
+	lines = append(lines, label("Memory", cells[5]+" now"+forTerm(" · ")+"peak "+cells[6])...)
 	lines = append(lines, label("Graph", graph(c.History, c.Peak, m.width-14))...)
 	lines = append(lines, label("Processes", processCount(len(c.Tree)))...)
 	for _, p := range c.Tree {
-		lines = append(lines, fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID, fit(p.Name, 20, false),
-			memorySize(p.Memory)))
+		lines = append(lines, forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
+			fit(p.Name, 20, false), memorySize(p.Memory))))
 	}
 	if len(lines) > room {
 		lines = append(lines[:room-1], faint.Render(fmt.Sprintf("%12s%s %d more", "",
@@ -804,13 +849,13 @@ func graph(history []uint64, peak uint64, width int) string {
 		}
 		b.WriteRune(bars[level])
 	}
-	return viewText(b.String())
+	return forTerm(b.String())
 }
 
 // menuBox is the stop menu: a box titled with the command and its memory, or
 // the number of tagged commands, and the two stops, the chosen one marked.
 func (m *guardView) menuBox() []string {
-	ids := m.stopTargets(m.menuFrom)
+	ids := m.targets
 	title := fmt.Sprintf("Stop %d tagged commands", len(ids))
 	if len(ids) == 1 {
 		i := slices.IndexFunc(
@@ -824,10 +869,10 @@ func (m *guardView) menuBox() []string {
 				memorySize(c.Memory) + ")"
 		}
 	}
-	lines := []string{bold.Render(viewText(title)), ""}
+	lines := []string{bold.Render(forTerm(title)), ""}
 	for i, choice := range stopChoices {
 		if i == m.menu {
-			lines = append(lines, bold.Render(viewText("▸ "+choice)))
+			lines = append(lines, bold.Render(forTerm("▸ "+choice)))
 		} else {
 			lines = append(lines, "  "+choice)
 		}
@@ -856,7 +901,7 @@ func (m *guardView) overlay(lines, box []string) []string {
 // keyLine is the notice while it shows, else the keys the screen takes.
 func (m *guardView) keyLine() string {
 	if m.notice != "" && time.Now().Before(m.noticeUntil) {
-		return fit(viewText(m.notice), m.width, false)
+		return fit(forTerm(m.notice), m.width, false)
 	}
 	keys := [][2]string{
 		{"↑/↓", "move"}, {"space", "tag"}, {"enter", "details"}, {"k", "stop"}, {"q", "quit"},
@@ -870,7 +915,7 @@ func (m *guardView) keyLine() string {
 	}
 	parts := make([]string, len(keys))
 	for i, key := range keys {
-		parts[i] = bold.Render(viewText(key[0])) + " " + faint.Render(key[1])
+		parts[i] = bold.Render(forTerm(key[0])) + " " + faint.Render(key[1])
 	}
 	return fit(strings.Join(parts, "  "), m.width, false)
 }

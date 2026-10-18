@@ -444,7 +444,7 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		}
 		p, running := s[root.PID]
 		running = running && s.alive(root.PID, root.Start)
-		if !noted || running && p.PPID != n.AgentPID {
+		if !noted || (running && p.PPID != n.AgentPID) {
 			continue
 		}
 		if !running {

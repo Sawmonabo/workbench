@@ -418,17 +418,20 @@ func tookValue(seconds float64) string {
 	return took.Round(time.Second).String()
 }
 
-// sizeValue is a size in bytes as one token: whole MB under 1 GB, else
-// [guard.Gigabytes] without its space ("2.4GB"); empty for 0.
-func sizeValue(bytes uint64) string {
+// sizeText is a size in bytes as people read it: whole MB under 1 GB, else
+// [guard.Gigabytes] ("840 MB", "2.4 GB"); empty for 0.
+func sizeText(bytes uint64) string {
 	switch {
 	case bytes == 0:
 		return ""
 	case bytes < 1<<30:
-		return fmt.Sprintf("%.0fMB", float64(bytes)/(1<<20))
+		return fmt.Sprintf("%.0f MB", float64(bytes)/(1<<20))
 	}
-	return strings.ReplaceAll(guard.Gigabytes(bytes), " ", "")
+	return guard.Gigabytes(bytes)
 }
+
+// sizeValue is [sizeText] as one token, without its space ("2.4GB").
+func sizeValue(bytes uint64) string { return strings.ReplaceAll(sizeText(bytes), " ", "") }
 
 // logfmtValue is a value as logfmt writes it: bare when it is one token, else
 // in Go's double quotes. A space, a double quote, an equals sign, a backslash

@@ -101,6 +101,17 @@ var asciiText = strings.NewReplacer(
 	"↑", "up",
 	"↓", "down",
 	"░", "-",
+	"▸", ">",
+	"●", "o",
+	"○", ".",
+	"◌", "~",
+	"▁", "_",
+	"▂", ".",
+	"▃", "-",
+	"▄", "~",
+	"▅", "=",
+	"▆", "+",
+	"▇", "*",
 )
 
 // plain rewrites every cell for the terminal's glyphs before anything is
