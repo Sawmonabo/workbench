@@ -518,6 +518,7 @@ func (m *guardView) View() tea.View {
 // them when it is open, and the key line at the bottom.
 func (m *guardView) screen() string {
 	lines := append([]string{m.headLine(), m.countLine()}, m.statusLines()...)
+	header := len(lines)
 	room := max(m.height-len(lines)-2, 1)
 	if m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode) {
 		lines = append(lines, m.detailLines(room+1)...)
@@ -528,7 +529,7 @@ func (m *guardView) screen() string {
 		lines = append(lines, "")
 	}
 	if m.mode == menuMode {
-		lines = m.overlay(lines, m.menuBox())
+		lines = m.overlay(lines, m.menuBox(), header)
 	}
 	return strings.Join(append(lines, m.keyLine()), "\n")
 }
@@ -914,12 +915,12 @@ func (m *guardView) menuBox() []string {
 	return strings.Split(box, "\n")
 }
 
-// overlay draws box over the middle of lines, keeping what lies left and
-// right of it.
-func (m *guardView) overlay(lines, box []string) []string {
+// overlay draws box over the middle of lines, below the first header lines
+// and keeping what lies left and right of it.
+func (m *guardView) overlay(lines, box []string, header int) []string {
 	boxWidth := lipgloss.Width(strings.Join(box, "\n"))
 	left := max((m.width-boxWidth)/2, 0)
-	top := min(max((len(lines)-len(box))/2, 3), max(len(lines)-len(box), 0))
+	top := min(max((len(lines)-len(box))/2, header), max(len(lines)-len(box), 0))
 	for i, row := range box {
 		at := top + i
 		if at >= len(lines) {
