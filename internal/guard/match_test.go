@@ -592,8 +592,8 @@ func TestEscalationStaysInsideTheStoppedCommand(t *testing.T) {
 	}
 }
 
-// A stop nobody with the right to stop it chose, or that an agent's own
-// command sends against another agent's work, is an unauthorized SIGTERM.
+// A stop nobody with the right to stop it chose, or sent by a process still
+// under a noted agent, is an unauthorized SIGTERM.
 func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 	agent := process(100, 1, 100, -3600, "claude")
 	shell := process(200, 100, 200, 0.4, claudeShell(`'make'`)...)

@@ -215,9 +215,9 @@ event: the time in the machine's time zone, the level, the event, then
 `id agent subagent project by dry_run took size peak floor level available
 total still_running release old_release new_release new_pid msg error process
 cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
-`call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project` is the folder the command ran in; `cmd` is the
-command without a leading `cd PATH &&` or `cd PATH;`, last because it is the
-longest. Sizes are `MB` below 1 GB, else `GB` with one decimal; `took` has one
+`call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
+is the folder the command ran in; `cmd` is the command without a leading
+`cd PATH &&` or `cd PATH;`, last because it is the longest. Sizes are `MB` below 1 GB, else `GB` with one decimal; `took` has one
 decimal below 10 s, whole seconds below a minute, else `1m12s`; `level` is
 macOS's memory pressure level, `available` and `total` Linux's memory. `msg`
 shows only for `memory`, `refused`, `gave-up`, `error` and `raw`, where the
