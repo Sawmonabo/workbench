@@ -14,9 +14,12 @@ import (
 // The guard log is JSON Lines from [slog.JSONHandler]: each record has time,
 // level, msg and event, one of these, with part (pre, post or watch) and pid,
 // the process that wrote it. Records about a call add call, agent, command
-// (clipped as in the stop reason), root_pid and size in bytes; a stop adds
-// reason, the text the agent is told, and memory, the reading that called for
-// it; a failure adds error. A log that was cut starts with a record of event
+// (clipped as in the stop reason), root_pid and, when the note has them, cwd,
+// project and subagent; ended, unmatched and stopping add took, the seconds
+// since the call's note, and ended and stopping add peak, the command's
+// largest size in bytes. A stop adds by (guard), size in bytes, reason, the
+// text the agent is told, and memory, the reading that called for it; a
+// failure adds error. A log that was cut starts with a record of event
 // cut (see [operation.RewriteLog]), which [ReadLog] never gives. The
 // watcher's own stdout and stderr, such as a crash's trace, go to its output
 // file (see outputFile), which each watcher starts with a record of event
@@ -46,18 +49,40 @@ const (
 // watcher that wrote it (zero when unknown) and Until at the next watcher's
 // start, zero while none has started since.
 type Event struct {
-	Time    time.Time `json:"time"`
-	Level   string    `json:"level"`
-	Msg     string    `json:"msg"`
-	Event   string    `json:"event"`
-	Command string    `json:"command"`
-	Size    uint64    `json:"size"`
-	Reason  string    `json:"reason"`
-	Error   string    `json:"error"`
-	DryRun  bool      `json:"dry_run"`
-	Started time.Time `json:"started"`
-	Output  bool      `json:"-"`
-	Until   time.Time `json:"-"`
+	Time     time.Time `json:"time"`
+	Level    string    `json:"level"`
+	Msg      string    `json:"msg"`
+	Event    string    `json:"event"`
+	Call     string    `json:"call"`
+	Agent    string    `json:"agent"`
+	Subagent string    `json:"subagent"`
+	Project  string    `json:"project"`
+	Cwd      string    `json:"cwd"`
+	Command  string    `json:"command"`
+	By       string    `json:"by"`
+	Took     float64   `json:"took"`
+	Size     uint64    `json:"size"`
+	Peak     uint64    `json:"peak"`
+	Floor    uint64    `json:"floor"`
+	// Memory is the reading of a stop or memory record: macOS's level, or
+	// Linux's available and total bytes.
+	Memory struct {
+		Level     int    `json:"level"`
+		Available uint64 `json:"available"`
+		Total     uint64 `json:"total"`
+	} `json:"memory"`
+	Reason       string    `json:"reason"`
+	Error        string    `json:"error"`
+	Process      int       `json:"process"`
+	StillRunning []int     `json:"still_running"`
+	Release      string    `json:"release"`
+	OldRelease   string    `json:"old_release"`
+	NewRelease   string    `json:"new_release"`
+	NewPID       int       `json:"new_pid"`
+	DryRun       bool      `json:"dry_run"`
+	Started      time.Time `json:"started"`
+	Output       bool      `json:"-"`
+	Until        time.Time `json:"-"`
 }
 
 func logFile(root string) string { return filepath.Join(root, "watch.log") }

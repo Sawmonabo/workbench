@@ -36,7 +36,29 @@ const (
 	abandonAfter = 10 * time.Minute
 
 	refusalLimit = 3
+
+	// samplesKept is how many of a command's latest sizes are kept: two
+	// minutes at the normal tick.
+	samplesKept = 120
 )
+
+// usage is a tracked command's memory, measured each tick over the processes
+// a stop would signal: its latest sizes in bytes, oldest first, at most
+// samplesKept of them, the largest it has had, and when it was first tracked.
+type usage struct {
+	Samples []uint64  `json:"samples"`
+	Peak    uint64    `json:"peak"`
+	Since   time.Time `json:"since"`
+}
+
+// add records one size, dropping the oldest beyond samplesKept.
+func (u *usage) add(size uint64) {
+	u.Samples = append(u.Samples, size)
+	if extra := len(u.Samples) - samplesKept; extra > 0 {
+		u.Samples = slices.Delete(u.Samples, 0, extra)
+	}
+	u.Peak = max(u.Peak, size)
+}
 
 // seenNote is a note the watcher has read: its command, agent with its kind
 // and NotedStart, read when this watcher first read it, matched once it was
@@ -61,14 +83,19 @@ type seenNote struct {
 }
 
 type watcher struct {
-	f         folders
-	release   func()
-	lockFile  *os.File
-	lockInfo  os.FileInfo
-	tracked   map[string]command
-	seen      map[string]seenNote
-	stopped   []proc    // the last stopped command's processes
-	quietFrom time.Time // when they were all gone
+	f        folders
+	release  func()
+	lockFile *os.File
+	lockInfo os.FileInfo
+	tracked  map[string]command
+	// usage is each tracked command's memory, by call, kept as long as it is
+	// tracked; largestPeak is the largest peak any command reached since this
+	// watcher, or the one it took over from, started.
+	usage       map[string]*usage
+	largestPeak uint64
+	seen        map[string]seenNote
+	stopped     []proc    // the last stopped command's processes
+	quietFrom   time.Time // when they were all gone
 	// passed are commands never chosen again: a dry-run one already logged,
 	// one still running after a stop gave up on it, or one whose stops kept
 	// signalling nothing.
@@ -140,6 +167,7 @@ func Watch(ctx context.Context, version string) {
 		f:         f,
 		release:   func() {},
 		tracked:   map[string]command{},
+		usage:     map[string]*usage{},
 		seen:      map[string]seenNote{},
 		passed:    map[string]bool{},
 		ended:     map[string]bool{},
@@ -304,11 +332,13 @@ func (w *watcher) tick() time.Duration {
 	for _, c := range match(s, w.untracked(notes), taken, w.setsCallIDs) {
 		taken[c.Root.PID] = true
 		w.tracked[c.Note.ToolUseID] = c
+		w.usage[c.Note.ToolUseID] = &usage{Since: time.Now()}
 		seen := w.seen[c.Note.ToolUseID]
 		seen.matched = true
 		w.seen[c.Note.ToolUseID] = seen
 		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
 	}
+	w.measure(s, protected)
 	w.markChildSeen(s, agents, notes, taken)
 	if len(notes) > 0 || len(w.tracked) > 0 {
 		w.idleSince = time.Now()
@@ -440,8 +470,11 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		if !present[id] {
 			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
 			if !seen.matched && seen.childSeen {
+				attrs := append([]any{"call", id, "agent", seen.kind},
+					placeAttrs(seen.cwd, seen.project, seen.subagent)...)
 				w.f.event(slog.LevelInfo, EventUnmatched, "ended without matching a command",
-					"call", id, "agent", seen.kind, "command", clip(seen.command))
+					append(attrs, "took", time.Since(seen.at).Seconds(),
+						"command", clip(seen.command))...)
 			}
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -497,12 +530,72 @@ func (w *watcher) snapshot() (snapshot, error) {
 	return s, nil
 }
 
-// callAttrs are the log attributes of a tracked call.
+// callAttrs are the log attributes of a tracked call: its note's folder,
+// project and subagent only when the note has them.
 func callAttrs(c command) []any {
-	return []any{
-		"call", c.Note.ToolUseID, "agent", c.Note.Kind, "root_pid", c.Root.PID,
-		"command", clip(c.Note.Command),
+	attrs := append([]any{"call", c.Note.ToolUseID, "agent", c.Note.Kind},
+		placeAttrs(c.Note.Cwd, c.Note.Project, c.Note.Subagent)...)
+	return append(attrs, "root_pid", c.Root.PID, "command", clip(c.Note.Command))
+}
+
+// placeAttrs are a call's working folder, project and subagent as log
+// attributes, each left out when empty.
+func placeAttrs(cwd, project, subagent string) []any {
+	var attrs []any
+	for _, attr := range [][2]string{{"cwd", cwd}, {"project", project}, {"subagent", subagent}} {
+		if attr[1] != "" {
+			attrs = append(attrs, attr[0], attr[1])
+		}
 	}
+	return attrs
+}
+
+// endAttrs are a tracked call's log attributes when it ends or is stopped:
+// callAttrs with how long it has run since its note, in seconds, and its peak
+// size in bytes.
+func (w *watcher) endAttrs(c command) []any {
+	var peak uint64
+	if u := w.usage[c.Note.ToolUseID]; u != nil {
+		peak = u.Peak
+	}
+	return append(callAttrs(c), "took", time.Since(c.Note.NotedAt).Seconds(), "peak", peak)
+}
+
+// measure adds each tracked command's size this tick to its usage: the
+// resident sizes over the tree a stop would signal, without protected
+// processes. A command whose root is absent from this snapshot is left for
+// forget.
+func (w *watcher) measure(s snapshot, protected map[int]uint64) {
+	skip := outside(protected)
+	for id, c := range w.tracked {
+		u := w.usage[id]
+		if u == nil || !s.alive(c.Root.PID, c.Root.Start) {
+			continue
+		}
+		u.add(w.size(s.tree(c.Root.PID, skip), platform.Resident))
+		w.largestPeak = max(w.largestPeak, u.Peak)
+	}
+}
+
+// size is the sum of read over the processes, zombies left out. A process
+// whose size cannot be read, for a reason other than its exit, counts as 0
+// and is logged once.
+func (w *watcher) size(procs []proc, read func(pid int) (uint64, error)) uint64 {
+	var total uint64
+	for _, p := range procs {
+		if p.Zombie {
+			continue
+		}
+		bytes, err := read(p.PID)
+		key := procKey{p.PID, p.Start}
+		if err != nil && !platform.Exited(err) && !w.unsized[key] {
+			w.unsized[key] = true
+			w.f.event(slog.LevelError, EventError, "cannot read a process's size (counted as 0)",
+				"process", p.PID, "error", err)
+		}
+		total += bytes
+	}
+	return total
 }
 
 // markChildSeen sets childSeen on each waiting note whose agent has a child
@@ -547,7 +640,9 @@ func (w *watcher) forget(s snapshot) {
 		rootGone := w.gone(s, c.Root.PID, c.Root.Start)
 		agentGone := w.gone(s, c.Note.AgentPID, c.Note.AgentStart)
 		if rootGone || agentGone {
+			w.f.event(slog.LevelInfo, EventEnded, "ended", w.endAttrs(c)...)
 			delete(w.tracked, id)
+			delete(w.usage, id)
 			delete(w.passed, id)
 			delete(w.refusals, id)
 			// Only a call whose note is still on disk is remembered: when the
@@ -556,7 +651,6 @@ func (w *watcher) forget(s snapshot) {
 			if _, noted := w.seen[id]; noted && !agentGone {
 				w.ended[id] = true
 			}
-			w.f.event(slog.LevelInfo, EventEnded, "ended", callAttrs(c)...)
 		}
 	}
 }
@@ -651,27 +745,7 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 			continue
 		}
 		tree := s.tree(c.Root.PID, skip)
-		var size uint64
-		for _, p := range tree {
-			if p.Zombie {
-				continue
-			}
-			bytes, err := platform.Footprint(p.PID)
-			key := procKey{p.PID, p.Start}
-			if err != nil && !platform.Exited(err) && !w.unsized[key] {
-				w.unsized[key] = true
-				w.f.event(
-					slog.LevelError,
-					EventError,
-					"cannot read a process's size (counted as 0)",
-					"process",
-					p.PID,
-					"error",
-					err,
-				)
-			}
-			size += bytes
-		}
+		size := w.size(tree, platform.Footprint)
 		total += size
 		if members == nil || size > chosenSize ||
 			size == chosenSize && c.Root.Start < chosen.Root.Start {
@@ -730,7 +804,7 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		return
 	}
 	text := reason(c.Note.Command, children, size, m)
-	stopping := append(callAttrs(c),
+	stopping := append(w.endAttrs(c), "by", "guard",
 		"size", size, "children", children, "reason", text, "memory", m)
 	if c.Note.DryRun {
 		w.passed[c.Note.ToolUseID] = true
