@@ -354,17 +354,20 @@ A full-screen Bubble Tea program in the alternate screen.
   terminal's own buffer and the screen slides away; the list scrolls only
   when the selection leaves the window, so a row stays under the pointer
   that clicked it. With the mouse taken, hold Shift (Option in Terminal.app
-  and iTerm2) to select text. In details, and in the stop menu over them,
-  which takes keys only, mouse reporting is off, so a plain drag selects
-  text, and the wheel still scrolls the details: at start the view turns on
-  the terminal's alternate scroll mode (xterm's DECSET 1007 in
+  and iTerm2) to select text. In details mouse reporting is off, so a plain
+  drag selects text, and the wheel still scrolls the details: at start the
+  view turns on the terminal's alternate scroll mode (xterm's DECSET 1007 in
   [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)),
   under which a wheel step on the alternate screen is sent as ↑ or ↓ while
-  the mouse is not taken; mouse reporting takes precedence over it on the
-  list. The mode's prior state is saved first (XTSAVE) and, when the view
-  ends, however it ends, the mode is turned off and that state restored
-  (XTRESTORE), so a terminal that had it on keeps it. A terminal without the
-  mode ignores the sequences and scrolls its own buffer under the wheel in
+  the mouse is not taken; mouse reporting takes precedence over it. The stop
+  menu, which takes keys only, keeps the mouse taken so that a wheel step
+  over it is dropped rather than moving its choice. Before the set the view
+  asks the terminal for the mode's state (DECRQM) and saves it (XTSAVE);
+  when the view ends, by a key, a signal or an error, it leaves the mode
+  alone if the terminal reported it already on, and otherwise turns it off
+  and restores the saved state (XTRESTORE), so a terminal that reports or
+  saves the mode is left as it was found. A terminal without the mode
+  ignores the sequences and scrolls its own buffer under the wheel in
   details, as before. The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and

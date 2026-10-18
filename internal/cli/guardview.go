@@ -100,9 +100,9 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		tea.WithoutSignalHandler(),
 	)
 	_, err := program.Run()
-	// Whatever ended the view, the terminal must not keep sending the wheel
+	// However the view ended, the terminal must not keep sending the wheel
 	// as arrow keys to the shell.
-	disarmAltScroll(os.Stdout)
+	model.altScroll.disarm(os.Stdout)
 	if model.client != nil {
 		_ = model.client.Close()
 	}
@@ -142,6 +142,8 @@ type guardView struct {
 	// noColor is set when the terminal shows no color (a NO_COLOR or dumb
 	// terminal), so the selected row is marked bold instead of by its band.
 	noColor bool
+	// altScroll is the view's hold on the terminal's alternate scroll mode.
+	altScroll altScroll
 	// details is the details' scrolling pane, its content and size set as
 	// each frame draws it, so a new snapshot keeps its scroll offset.
 	details viewport.Model
@@ -271,16 +273,18 @@ func connectWatcher() tea.Msg {
 		")."}
 }
 
-// Init connects, starts the clock and asks the terminal for its background,
-// which picks the selected row's band.
+// Init connects, starts the clock, asks the terminal for its background,
+// which picks the selected row's band, and turns on alternate scroll
+// (altscroll.go).
 func (m *guardView) Init() tea.Cmd {
 	m.dialing = true
-	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor, armAltScroll())
+	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor, m.altScroll.arm())
 }
 
 // Update takes a message. Each tick schedules the next and, while no watcher
 // answers and no attempt runs, tries again.
 func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	m.altScroll.note(msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -294,8 +298,8 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelMsg:
 		// In the details the view turns mouse reporting off, so the wheel
-		// comes as ↑ and ↓ (alternate scroll, armAltScroll); a wheel step
-		// sent before it went off scrolls.
+		// comes as ↑ and ↓ (alternate scroll, altscroll.go); a wheel event
+		// the terminal sent before reporting went off still scrolls them.
 		switch {
 		case m.mode == detailMode:
 			m.details, _ = m.details.Update(msg)
@@ -598,11 +602,12 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 // taller window, so the key line and its notices always show. On the list
 // mouse reporting is on, as the apply checklist does (checklist.go): without
 // it a trackpad or wheel scrolls the terminal's own buffer and the screen
-// slides away; with it the wheel moves and a click selects. In the details,
-// and the stop menu over them, it is off, so a plain drag selects text, and
-// the terminal sends a wheel step as ↑ or ↓, which scroll the details,
-// because the view turned alternate scroll mode on (altscroll.go); mouse
-// reporting takes precedence over it on the list.
+// slides away; with it the wheel moves and a click selects. In the details
+// it is off, so a plain drag selects text, and the terminal sends a wheel
+// step as ↑ or ↓, which scroll the details, because the view turned
+// alternate scroll mode on (altscroll.go); mouse reporting takes precedence
+// over it. The stop menu keeps the mouse taken, so a wheel step there is
+// dropped (Update) instead of arriving as ↑ or ↓ and moving its choice.
 func (m *guardView) View() tea.View {
 	var text string
 	m.shown = 0
@@ -617,7 +622,7 @@ func (m *guardView) View() tea.View {
 	view := tea.NewView(text)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
-	if m.inDetails() {
+	if m.mode == detailMode {
 		view.MouseMode = tea.MouseModeNone
 	}
 	return view
