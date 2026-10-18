@@ -289,7 +289,8 @@ tracks, newest first: its short ID, status (`● run`, `◌ stopping`), agent,
 subagent, run time, memory now and at its peak, project and command, then,
 dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
 The header's first line gives the watcher's state (`● watching`, `○ not
-running`, `○ not connected`), a `memory low` or `memory critical` badge when memory runs short,
+running`, `○ not connected`), a `memory low` or `memory critical` badge when
+memory runs short,
 and the clock; below a blank line, the counts (`3 running · 2 finished`) and,
 while a watcher answers, the memory in use of the installed memory (`mem
 9.4/16 GB`), the largest peak and the swap in use; then a line that says `dry
@@ -302,7 +303,8 @@ memory over the last 120 readings and its processes with theirs), `k` opens
 the stop menu for the tagged commands or the selected one, with `Stop (polite,
 force-killed after 5 s)` chosen and `Force kill now` below it, esc, ← or `h`
 closes the menu or the details, and `q` or ctrl+c quits. The watcher stops
-the command the way it stops for memory, logs it `by=you` and tells the agent `Stopped by you (workbench guard
+the command the way it stops for memory, logs it `by=you` and tells the agent
+`Stopped by you (workbench guard
 memory).`; the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,
 `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already finished`). The watcher serves
 the view on `guard.sock` beside its log, only to the same user, and never

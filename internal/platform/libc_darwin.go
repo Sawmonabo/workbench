@@ -68,7 +68,8 @@ var hostPort = sync.OnceValue(func() uintptr {
 // fills the revisions it knows and refuses a count below revision 0's. Read
 // as natural_t (uint32): wire_count at byte 12, purgeable_count at 88,
 // compressor_page_count at 128 and internal_page_count at 140. It returns a
-// kern_return_t in the low 32 bits, 0 on success, and sets no errno.
+// kern_return_t in the low 32 bits, 0 on success, and sets no errno; a count
+// written back short of internal_page_count is an error too.
 func usedPages() (uint64, error) {
 	const (
 		hostVMInfo64 = 4
@@ -94,7 +95,7 @@ func usedPages() (uint64, error) {
 	}
 	if int(count)*4 < internalAt+4 {
 		return 0, fmt.Errorf(
-			"host_statistics64: %d words, fewer than the %d read",
+			"host_statistics64 filled %d words, fewer than the %d the reading needs",
 			count,
 			internalAt/4+1,
 		)

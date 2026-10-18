@@ -314,15 +314,15 @@ A full-screen Bubble Tea program in the alternate screen.
   short, `memory low` gold and bold or `memory critical` red and bold, and
   none for `normal` or macOS's `warning`, which the guard treats as routine;
   then a dim ` · ` and the clock (`3:04:05 PM`), inline, which a window too
-  narrow for the badge and the clock drops. The second is
-  blank. The third, dim: the counts, `N running · M finished` (finished in
-  the last minute), and, while a watcher answers, `mem USED/INSTALLED`: the
+  narrow for the badge and the clock drops. The second is blank. The third,
+  dim: the counts, `N running · M finished` (finished in the last minute),
+  and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
   2), of the installed memory, bold and not dim, its unit written once when
-  both share it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that does not
-  send it, and nothing before the first snapshot); `peak P`, the largest peak since the watcher started; and `swap
-  USED/TOTAL`, left out where there is no swap. The fourth says why no
+  both share it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that
+  does not send it); `peak P`, the largest peak since the watcher started;
+  and `swap USED/TOTAL`, left out where there is no swap. The fourth says why no
   watcher answers or, when every shown command is a dry run, `dry run: stops
   are logged, not sent`, when only some are, `dry run on 2 of 5 commands:
   stops are logged, not sent`, in gold, and is blank otherwise; the dry-run
