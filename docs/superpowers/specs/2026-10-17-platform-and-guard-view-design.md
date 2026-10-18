@@ -290,15 +290,17 @@ Oct 17 14:50:00 INFO  idle
 A full-screen Bubble Tea program in the alternate screen.
 
 ```
-[WorkBench] Guard memory  ● watching · v0.1.26 · memory normal · 16 GB installed · swap 1.2 of 5.0 GB used  2:41:08 PM
-2 running · 1 finished in the last minute · largest peak 6.2 GB
+[WorkBench] Guard memory  ● watching · 11:33:32 PM
 
-  ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT            COMMAND
-▸ 4fQ8nX2a  ● run       claude  Explore    44s  2.2 GB  2.3 GB  feature-login  pnpm typecheck 2>&1 | tail -15
-  3Nd7Lp8z  ● run       codex               15s  840 MB  910 MB  price-feed      cargo check -p feed
-  5Jx2Gm6r  ✓ done      claude            0.6s       —   18 MB  api-server     rg -n -i 'digest' …
+3 running · 2 finished · mem 9.4/16 GB · peak 2.5 GB · swap 4.1/5.0 GB
 
-↑/↓ move  space tag  enter details  k stop  q quit
+   ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT        COMMAND
+▸ 01HsQEPc  ● run       claude  implementer 24s  1.5 GB  1.5 GB  api-server     go test ./... 2>&1 | tail -20
+   3Nd7Lp8z  ● run       codex              15s  840 MB  910 MB  price-feed     cargo check -p feed
+   7Kp3Rt9m  ● run       claude             8.0s  320 MB  2.5 GB  feature-login  pnpm vitest run
+   5Jx2Gm6r  ✓ done      claude             0.6s       —   18 MB  api-server     rg -n -i 'digest' …
+   2Bv6Yc1d  ✗ stopped   claude           1m12s       —  2.4 GB  api-server     cargo test --workspace
+↑/↓ move  space tag  enter/→ details  k stop  q quit
 ```
 
 - **Rows** are the commands the watcher tracks, newest first, then finished
@@ -306,41 +308,62 @@ A full-screen Bubble Tea program in the alternate screen.
   `? unmatched`, `✗ stopped` (by the guard or by you). A row stopping and
   waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
   `(dry)` (`● run (dry)`), in the list and in its details.
-- **Header**: the watcher's state and release, the memory level (macOS's
-  pressure level, normal, warning or critical; on Linux, normal or low by
-  the guard's thresholds in guard design 6.2), the memory (on macOS, which
-  gives a pressure level, the installed memory and the swap in use; on Linux
-  the memory available of the total user memory may take), the clock,
-  and counts: running, finished in the last minute, and the largest peak
-  since the watcher started (in a narrow window `N running · M finished in
-  1 min · peak X`). When every shown command is a dry run the header says
-  `dry run: stops are logged, not sent`; when only some are, `dry run on 2
-  of 5 commands: their stops are logged, not sent`. A status text longer
-  than the window wraps onto a second line, so no line is cut at 60
-  columns.
+- **Header**, four lines. The first: the brand, bold; the watcher's state
+  (`●` green and ` watching` while connected, else `○` gold and ` not
+  running` or ` not connected`); a badge after the state when memory runs
+  short, `memory low` gold and bold or `memory critical` red and bold, and
+  none for `normal` or macOS's `warning`, which the guard treats as routine;
+  then a dim ` · ` and the clock (`3:04:05 PM`), inline. The second is
+  blank. The third, dim: the counts, `N running · M finished` (finished in
+  the last minute), and, while a watcher answers, `mem USED/INSTALLED`: the
+  snapshot's `memory.used`, the memory in use as the system's own monitor
+  counts it (the used-memory figure `platform.Memory.Used` carries, section
+  2), of the installed memory, bold and not dim, its unit written once when both share
+  it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that does not
+  send it); `peak P`, the largest peak since the watcher started; and `swap
+  USED/TOTAL`, left out where there is no swap. The fourth says why no
+  watcher answers or, when every shown command is a dry run, `dry run: stops
+  are logged, not sent`, when only some are, `dry run on 2 of 5 commands:
+  their stops are logged, not sent`, in gold, and is blank otherwise; a
+  text longer than the window wraps onto another line, so no line is cut at
+  60 columns.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
-  Space tags or untags a running row and moves down; Enter opens details;
-  `k` opens the stop menu for the tagged rows, or the selected one; Esc
-  closes a menu or details; `q` and ctrl+c quit.
+  Space tags or untags a running row and moves down; Enter, → or `l` opens
+  details; `k` opens the stop menu for the tagged rows, or the selected one;
+  Esc, ← or `h` closes a menu or details; `q` and ctrl+c quit. The key line
+  reads `↑/↓ move  space tag  enter/→ details  k stop  q quit` on the list,
+  `k stop  esc/← back  q quit` in details and `↑/↓ choose  enter send
+  esc/← cancel` in the menu.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
   s)` selected and `Force kill now` below it. The commands it names are
   fixed when it opens: it closes with a notice when none of them still
   runs, and Enter stops only those still running and names the others as
-  finished. Enter sends, Esc cancels. The answer from the watcher is shown
+  finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher is shown
   for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
 - **Details**: the full command, folder, agent, subagent, full ID, status
   and run time, memory now and peak, a one-line graph of the command's
   memory over the last 120 readings, and its process tree with each
-  process's memory. `k` stops from here too; Esc goes back.
+  process's memory. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
-  Below 60 columns the view says `Widen the window to at least 60 columns`,
-  and below 10 lines `Make the window at least 10 lines tall`, so the stop
-  menu and the bottom line always show.
-- **No color** (`NO_COLOR` or no color support): the same screen in plain
-  text; `▸`, `✓ ? ✗ ●` and the tag mark carry the state.
+  The counts line, about 72 columns in full, drops `· swap …` first, then
+  `· peak …`, and is then clipped. Below 60 columns the view says `Widen the
+  window to at least 60 columns`, and below 11 lines `Make the window at
+  least 11 lines tall` (the four header lines, the six-line stop menu below
+  them and the key line), so the stop menu and the bottom line always show.
+- **Colors**: the guard's pinned palette (section 4). In the rows the
+  STATUS cell is green for running, gold and bold for stopping, red for
+  stopped, a dim gold for unmatched and plain for done; the AGENT cell
+  takes its agent's hue; MEMORY and PEAK are gold and bold from 1 GB and
+  red and bold from 4 GB; the tag mark `*` is gold. Each keeps the row's
+  own dimming and bold, so a finished row stays dim and the selected one
+  bold (a 6.2 GB peak on a finished row is still red and bold). In the
+  details the status and the memory values take the same colors.
+- **No color** (`NO_COLOR` or no color support): the same screen without
+  color, bold and dim kept, as the costs view keeps them; `▸`, `✓ ? ✗ ●`,
+  `○` and the tag mark carry the state, and the badge's words the memory.
 - **Watcher not running**: the screen says so and that the watcher starts
   with the next agent command, keeps the last rows dimmed, and reconnects
   every second. When a watcher may run but cannot serve the view (another
