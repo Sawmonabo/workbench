@@ -18,6 +18,13 @@ type ACE struct{ Flags, Rights uint32 }
 // it does not recognize, which no caller may read as "no ACL".
 var ErrUnsupportedACL = errors.New("unsupported ACL layout")
 
+// IsTerminal reports whether fd is a terminal: whether its terminal settings
+// can be read.
+func IsTerminal(fd uintptr) bool {
+	_, err := unix.IoctlGetTermios(int(fd), termiosRequest)
+	return err == nil
+}
+
 // existingStatfs is statfs of path or, while path does not exist yet, of its
 // first existing ancestor, the filesystem a new file at path would be on.
 func existingStatfs(path string) (unix.Statfs_t, error) {

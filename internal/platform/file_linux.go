@@ -2,11 +2,8 @@ package platform
 
 import "golang.org/x/sys/unix"
 
-// IsTerminal reports whether fd is a terminal.
-func IsTerminal(fd uintptr) bool {
-	_, err := unix.IoctlGetTermios(int(fd), unix.TCGETS)
-	return err == nil
-}
+// termiosRequest is the ioctl request that reads a terminal's settings.
+const termiosRequest = unix.TCGETS
 
 // NativeFilesystem reports whether path, or its first existing ancestor, is
 // on a native Linux filesystem: ext, XFS, Btrfs, tmpfs or overlay, including

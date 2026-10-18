@@ -7,11 +7,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// IsTerminal reports whether fd is a terminal.
-func IsTerminal(fd uintptr) bool {
-	_, err := unix.IoctlGetTermios(int(fd), unix.TIOCGETA)
-	return err == nil
-}
+// termiosRequest is the ioctl request that reads a terminal's settings.
+const termiosRequest = unix.TIOCGETA
 
 // NativeFilesystem reports whether path, or its first existing ancestor, is
 // on APFS or HFS. The error is a statfs failure.
