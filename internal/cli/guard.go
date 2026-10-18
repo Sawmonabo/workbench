@@ -3,8 +3,12 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log/slog"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
@@ -73,18 +77,23 @@ func guardLogsCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "logs",
 		Short: "Show the commands the guard stopped, memory warnings and watcher errors",
-		Long: "Show the guard log, oldest first, in this machine's time zone: each stop with the " +
-			"command, its size and the reason the agent was told, low memory that stopped nothing, " +
-			"calls dropped without their post hook, notes no command shape matched, the watcher " +
-			"starting and exiting, errors, and any line of the watcher's own output, such as a " +
-			"crash's trace, as it is, placed at the start of the watcher that wrote it. --verbose " +
-			"adds every command the watcher tracked and ended. --json prints the log's own records " +
-			"(JSON Lines) unchanged, and any other line as a raw record. The log is watch.log in " +
-			"the guard folder of Workbench's state folder, and the watcher's own output watch.err " +
-			"beside it.",
+		Long: "Show the guard log, oldest first, one line per event: the time in this machine's " +
+			"time zone, the level and the event, then key=value fields in a fixed order (id, " +
+			"agent, subagent, project, by, dry_run, took, size, peak, floor, level, available, " +
+			"total, still_running, release, old_release, new_release, new_pid, msg, error, " +
+			"process, cmd), a value with a space, quote, equals sign or backslash in Go quotes. " +
+			"The events are each command that ended, matched no known shape or was stopped, low " +
+			"memory that stopped nothing, calls dropped without their post hook, the watcher " +
+			"starting, handing over and exiting, errors, and any line of the watcher's own " +
+			"output, such as a crash's trace, as a raw event placed at the start of the watcher " +
+			"that wrote it. With --follow, a command still running 5 seconds after the watcher " +
+			"found it gets one running line. --json prints the log's own records (JSON Lines) " +
+			"unchanged, the full call IDs, stop reasons and each tracked command included, and " +
+			"any other line as a raw record. The log is watch.log in the guard folder of " +
+			"Workbench's state folder, and the watcher's own output watch.err beside it.",
 		Example: "  workbench guard logs\n" +
 			"  workbench guard logs --since 2h\n" +
-			"  workbench guard logs --since \"2026-10-16 21:00\" --verbose\n" +
+			"  workbench guard logs --since \"2026-10-16 21:00\"\n" +
 			"  workbench guard logs --follow\n" +
 			"  workbench guard logs --json --since today",
 		Args: cobra.NoArgs,
@@ -97,15 +106,14 @@ func guardLogsCommand(o *options) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
-	// These shadow the root's persistent --json and --verbose, setting the
-	// same options, so help describes what they do here.
+	// This shadows the root's persistent --json, setting the same option, so
+	// help describes what it does here.
 	flags.BoolVar(
 		&o.json,
 		"json",
 		false,
 		"Print the log's records as JSON Lines, other lines as raw records",
 	)
-	flags.BoolVar(&o.verbose, "verbose", false, "Also show every command tracked and ended")
 	flags.BoolVarP(&follow, "follow", "f", false, "Keep printing new events until interrupted")
 	flags.StringVar(
 		&since,
@@ -126,20 +134,33 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 		return err
 	}
 	out := cmd.OutOrStdout()
-	paint, width := newPainter(out), lineWidth(out)
-	shown, hidden := 0, 0
+	paint := newPainter(out)
+	shown := 0
+	calls := runningCalls{tracked: map[string]guard.Event{}, told: map[string]bool{}}
 	show := func(raw []byte, e guard.Event) error {
-		if routineGuardEvents[e.Event] && !o.verbose {
-			hidden++
-			return nil
-		}
-		shown++
 		if o.json {
+			shown++
 			_, err := fmt.Fprintf(out, "%s\n", raw)
 			return err
 		}
-		_, err := io.WriteString(out, guardEventText(paint, width, e))
+		calls.see(e)
+		if e.Event == guard.EventTracking {
+			return nil
+		}
+		shown++
+		_, err := io.WriteString(out, guardLine(paint, e, false)+"\n")
 		return err
+	}
+	var idle func() error
+	if follow && !o.json {
+		idle = func() error {
+			for _, e := range calls.due(time.Now()) {
+				if _, err := io.WriteString(out, guardLine(paint, e, true)+"\n"); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
 	}
 	// A raw line has no time. One of the watcher's output file was written
 	// while its watcher ran, so --since keeps it unless the next watcher
@@ -178,7 +199,7 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 			}
 		}
 		return show(raw, e)
-	})
+	}, idle)
 	// The empty-state line is a message, not output, so it goes to stderr
 	// (clig.dev) and leaves --json's stdout empty.
 	if err != nil || shown > 0 || follow {
@@ -188,56 +209,228 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 	if !since.IsZero() {
 		text = "No guard events since " + since.Local().Format("Jan 2 3:04 PM")
 	}
-	if hidden > 0 {
-		text += fmt.Sprintf("; --verbose shows %d more about the commands it tracked", hidden)
-	}
 	_, err = fmt.Fprintln(cmd.ErrOrStderr(), text+".")
 	return err
 }
 
-// routineGuardEvents are shown only with --verbose.
-var routineGuardEvents = map[string]bool{guard.EventTracking: true, guard.EventEnded: true}
+// runningAfter is how long a tracked command runs before a followed log
+// prints that it is still running.
+const runningAfter = 5 * time.Second
 
-// guardEventStyles color a stop and its outcome, errors and the watcher's raw
-// output red, low memory, calls the guard gave up on or could not match and a
-// watcher's exit on a lost lock or a signal yellow, and the watcher's routine,
-// a handover included, faint.
-var guardEventStyles = map[string]lipgloss.Style{
-	guard.EventStopping: red, guard.EventForced: red, guard.EventGaveUp: red,
-	guard.EventError: red, guard.EventRaw: red, guard.EventMemory: yellow,
-	guard.EventAbandoned: yellow, guard.EventUnmatched: yellow, guard.EventRefused: yellow,
-	guard.EventExited: yellow, guard.EventStarted: faint, guard.EventIdle: faint,
-	guard.EventHandover: faint, guard.EventTracking: faint, guard.EventEnded: faint,
+// runningCalls are the calls a followed log saw tracked and not yet end, so
+// each still running runningAfter later gets one running line: tracked holds
+// their tracking records by call ID, and told the calls that got their line.
+// A watcher that starts, goes idle or exits leaves none of the earlier
+// watcher's calls tracked; one it adopts in a handover is tracked again.
+type runningCalls struct {
+	tracked map[string]guard.Event
+	told    map[string]bool
 }
 
-// guardEventText is one event for people: "Oct 16 9:24 PM  stopping: CMD
-// (4.2 GB)", with a stop's reason indented on the lines below, or a raw line
-// as it is after "watcher output: ".
-func guardEventText(paint painter, width int, e guard.Event) string {
-	if e.Event == guard.EventRaw {
-		return paint.style(red, "watcher output: "+e.Msg) + "\n"
-	}
-	line := e.Time.Local().Format("Jan 2 3:04 PM") + "  " + e.Msg
-	if e.Command != "" {
-		line += ": " + e.Command
-	}
-	if e.Size > 0 {
-		line += " (" + guard.Gigabytes(e.Size) + ")"
-	}
-	if e.Error != "" {
-		line += ": " + e.Error
-	}
-	var wrapped, b strings.Builder
-	writeText(&wrapped, width, 0, line)
-	style, styled := guardEventStyles[e.Event]
-	for text := range strings.Lines(wrapped.String()) {
-		if styled {
-			text = paint.style(style, strings.TrimSuffix(text, "\n")) + "\n"
+// see notes a record the log gave.
+func (r runningCalls) see(e guard.Event) {
+	switch e.Event {
+	case guard.EventTracking:
+		if !r.told[e.Call] {
+			r.tracked[e.Call] = e
 		}
-		b.WriteString(text)
+	case guard.EventEnded, guard.EventStopping, guard.EventAbandoned:
+		delete(r.tracked, e.Call)
+	case guard.EventStarted, guard.EventIdle, guard.EventExited:
+		clear(r.tracked)
 	}
-	if e.Reason != "" {
-		writeText(&b, width, 4, e.Reason)
+}
+
+// due are the tracking records of the calls tracked at least runningAfter
+// before now, oldest first, each timed now and given once.
+func (r runningCalls) due(now time.Time) []guard.Event {
+	var due []guard.Event
+	for call, e := range r.tracked {
+		if now.Sub(e.Time) >= runningAfter {
+			due = append(due, e)
+			delete(r.tracked, call)
+			r.told[call] = true
+		}
+	}
+	slices.SortFunc(due, func(a, b guard.Event) int { return a.Time.Compare(b.Time) })
+	for i := range due {
+		due[i].Time = now
+	}
+	return due
+}
+
+// blue marks a guard line's call id, the field that ties its events together.
+var blue = lipgloss.NewStyle().Foreground(lipgloss.Blue)
+
+// guardEventStyles color a line's time, level and event by its level: routine
+// faint, warnings yellow, errors red.
+var guardEventStyles = map[string]lipgloss.Style{
+	slog.LevelInfo.String(): faint, slog.LevelWarn.String(): yellow,
+	slog.LevelError.String(): red,
+}
+
+// guardMessageEvents are the events whose name alone does not say what
+// happened, so their line keeps the record's msg.
+var guardMessageEvents = map[string]bool{
+	guard.EventMemory: true, guard.EventRefused: true, guard.EventGaveUp: true,
+	guard.EventError: true, guard.EventRaw: true,
+}
+
+// guardLine is one event on one line, as logfmt readers parse it after its
+// first three fields: `Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a
+// project=api took=53s peak=2.4GB cmd="cargo test"`. The time is local, the
+// level is padded to 5 and the event to 9, and a raw line, which has no time,
+// leaves the time blank. Fields follow in a fixed order, cmd last as the
+// longest, each left out when empty; a field the order does not name stays in
+// --json only. running prints a tracking record as a running line, without
+// took and peak.
+func guardLine(paint painter, e guard.Event, running bool) string {
+	name := e.Event
+	if running {
+		name = "running"
+	}
+	when := strings.Repeat(" ", len(time.Stamp))
+	if !e.Time.IsZero() {
+		when = e.Time.Local().Format(time.Stamp)
+	}
+	style, ok := guardEventStyles[e.Level]
+	if !ok {
+		style = faint
+	}
+	fields := guardFields(e, running)
+	head := fmt.Sprintf("%s %-5s %-9s", when, e.Level, name)
+	if len(fields) == 0 {
+		head = strings.TrimRight(head, " ")
+	}
+	var b strings.Builder
+	b.WriteString(paint.style(style, head))
+	for _, f := range fields {
+		value := logfmtValue(f.value)
+		if f.style != nil {
+			value = paint.style(*f.style, value)
+		}
+		b.WriteString(" " + paint.style(faint, f.key+"=") + value)
 	}
 	return b.String()
+}
+
+// guardField is one key=value of a guard line, its value styled when style
+// is set.
+type guardField struct {
+	key, value string
+	style      *lipgloss.Style
+}
+
+// guardFields are the fields of e in a guard line's order, each without a
+// value left out: a call's short id, where and by whom, how long it took and
+// how large it got, the memory reading, the watcher's releases and processes,
+// then msg, error, process and cmd.
+func guardFields(e guard.Event, running bool) []guardField {
+	took, peak := e.Took, e.Peak
+	if running {
+		took, peak = 0, 0
+	}
+	stillRunning := make([]string, len(e.StillRunning))
+	for i, pid := range e.StillRunning {
+		stillRunning[i] = strconv.Itoa(pid)
+	}
+	msg := ""
+	if guardMessageEvents[e.Event] {
+		msg = e.Msg
+	}
+	fields := []guardField{
+		{"id", shortCallID(e.Call), &blue},
+		{"agent", e.Agent, nil},
+		{"subagent", e.Subagent, nil},
+		{"project", e.Project, nil},
+		{"by", e.By, nil},
+		{"dry_run", whenTrue(e.DryRun), nil},
+		{"took", tookValue(took), styleAbove(took >= 10, bold)},
+		{"size", sizeValue(e.Size), styleAbove(e.Size >= 1<<30, yellow)},
+		{"peak", sizeValue(peak), styleAbove(peak >= 1<<30, yellow)},
+		{"floor", sizeValue(e.Floor), nil},
+		{"level", nonZero(e.Memory.Level), nil},
+		{"available", sizeValue(e.Memory.Available), nil},
+		{"total", sizeValue(e.Memory.Total), nil},
+		{"still_running", strings.Join(stillRunning, ","), nil},
+		{"release", e.Release, nil},
+		{"old_release", e.OldRelease, nil},
+		{"new_release", e.NewRelease, nil},
+		{"new_pid", nonZero(e.NewPID), nil},
+		{"msg", msg, nil},
+		{"error", e.Error, nil},
+		{"process", nonZero(e.Process), nil},
+		{"cmd", guard.CommandRest(e.Command), nil},
+	}
+	return slices.DeleteFunc(fields, func(f guardField) bool { return f.value == "" })
+}
+
+// styleAbove is style when over, else nil.
+func styleAbove(over bool, style lipgloss.Style) *lipgloss.Style {
+	if !over {
+		return nil
+	}
+	return &style
+}
+
+// whenTrue is "true" when set, else empty, so a false flag is left out.
+func whenTrue(set bool) string {
+	if !set {
+		return ""
+	}
+	return "true"
+}
+
+// nonZero is n in decimal, or empty for 0.
+func nonZero(n int) string {
+	if n == 0 {
+		return ""
+	}
+	return strconv.Itoa(n)
+}
+
+// shortCallID is the first 8 characters of a tool call ID after its toolu_
+// (Claude Code) or call_ (Codex) prefix, enough to tell calls apart on screen.
+func shortCallID(call string) string {
+	call = strings.TrimPrefix(strings.TrimPrefix(call, "toolu_"), "call_")
+	return call[:min(8, len(call))]
+}
+
+// tookValue is seconds as a guard line shows them: one decimal under 10 s,
+// whole seconds under a minute, else Go's duration form ("1m12s"); empty for
+// 0, which the log never gives a call that ran.
+func tookValue(seconds float64) string {
+	took := time.Duration(seconds * float64(time.Second))
+	switch {
+	case took <= 0:
+		return ""
+	case took.Round(100*time.Millisecond) < 10*time.Second:
+		return fmt.Sprintf("%.1fs", took.Seconds())
+	case took.Round(time.Second) < time.Minute:
+		return fmt.Sprintf("%.0fs", took.Seconds())
+	}
+	return took.Round(time.Second).String()
+}
+
+// sizeValue is a size in bytes as one token: whole MB under 1 GB, else
+// [guard.Gigabytes] without its space ("2.4GB"); empty for 0.
+func sizeValue(bytes uint64) string {
+	switch {
+	case bytes == 0:
+		return ""
+	case bytes < 1<<30:
+		return fmt.Sprintf("%.0fMB", float64(bytes)/(1<<20))
+	}
+	return strings.ReplaceAll(guard.Gigabytes(bytes), " ", "")
+}
+
+// logfmtValue is a value as logfmt writes it: bare when it is one token, else
+// in Go's double quotes. A space, a double quote, an equals sign, a backslash
+// or a control character ends a bare token, and Go's escapes keep a newline
+// in a command on the one line.
+func logfmtValue(value string) string {
+	if strings.ContainsAny(value, " \"=\\") || strings.ContainsFunc(value, unicode.IsControl) {
+		return strconv.Quote(value)
+	}
+	return value
 }

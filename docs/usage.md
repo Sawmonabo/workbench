@@ -209,20 +209,51 @@ running its own code until it has been idle for 10 minutes; `kill` (its
 `SIGTERM`) stops it after any stop under way, and the next command's hook
 starts the installed release's.
 
-`workbench guard logs` shows what the guard did, oldest first, in the
-machine's time zone: each stop with its command and size and, below it, the
-reason the agent was told; low memory that stopped nothing; calls dropped
-without their post hook; notes whose command no known shape matched; the
-watcher starting, handing over to a new release and exiting; errors; and, after `watcher output: `, any line
-of the watcher's own output, such as a crash's trace, as it is, placed at the
-start of the watcher that wrote it. At a
-terminal stops, errors and raw lines are red, warnings yellow and routine
-lines faint; piped output, `TERM=dumb` and `NO_COLOR` get plain text. With nothing
-to show it says so on stderr and exits 0.
+`workbench guard logs` shows what the guard did, oldest first, one line per
+event: the time in the machine's time zone, the level, the event, then
+`key=value` fields in this order, each left out when it has no value:
+`id agent subagent project by dry_run took size peak floor level available
+total still_running release old_release new_release new_pid msg error process
+cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
+`call_` prefix; `project` is the folder the command ran in; `cmd` is the
+command without a leading `cd PATH &&` or `cd PATH;`, last because it is the
+longest. Sizes are `MB` below 1 GB, else `GB` with one decimal; `took` has one
+decimal below 10 s, whole seconds below a minute, else `1m12s`; `level` is
+macOS's memory pressure level, `available` and `total` Linux's memory. `msg`
+shows only for `memory`, `refused`, `gave-up`, `error` and `raw`, where the
+event alone does not say what happened. A value holding a space, `"`, `=`,
+`\` or a control character is written in Go's double quotes, so a command with
+a newline stays on one line and logfmt readers split the fields. The events
+are each command that ended, matched no known shape (`unmatched`) or was
+stopped (`stopping`, then `forced` or `gave-up` if it comes to that), low
+memory that stopped nothing, calls dropped without their post hook, the
+watcher starting, handing over to a new release, going idle and exiting,
+errors, and any line of the watcher's own output, such as a crash's trace, as
+a `raw` event with its line in `msg` and no time, placed at the start of the
+watcher that wrote it. Commands the watcher only started tracking are left
+out; with `--follow`, one still running 5 s after the watcher found it gets
+one `running` line, without `took` or `peak`.
+
+```text
+Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
+Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
+Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
+Oct 17 14:43:02 WARN  memory    size=3.1GB floor=4.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
+Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/statm: no such file or directory" process=81234
+Oct 17 14:50:00 INFO  idle
+```
+
+A long line soft-wraps on screen and stays one line, so `grep` and copying
+keep the whole event. At a terminal INFO lines start faint, WARN yellow and
+ERROR red, keys are faint, `id` is blue, a `took` of 10 s or more is bold and
+a `size` or `peak` of 1 GB or more yellow; piped output, `TERM=dumb` and
+`NO_COLOR` get plain text. With nothing to show it says so on stderr and exits
+0.
 
 ```bash
-workbench guard logs                        # what matters
-workbench guard logs --verbose              # also every command tracked and ended
+workbench guard logs                        # one line per event
 workbench guard logs --since 2h             # a Go duration before now
 workbench guard logs --since "2026-10-16 21:00"
 workbench guard logs -f                     # keep printing new events
@@ -238,12 +269,15 @@ place by byte offset, so a cut of the log (to its newest half, or a
 migration's that drops lines from the middle) and a rotation of the output
 neither skip nor repeat a line, even lines that read the same. The log is
 JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
-`idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`, `memory`,
-`stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and `pid` (a log
-that was cut starts with a `cut` record, which the viewer never shows), and,
-by event, `call`, `agent`, `command`, `root_pid`, `size`, `children`,
-`reason`, `memory`, `floor`, `dry_run`, `still_running`, `process` and
-`error`; `--json` prints the matching records unchanged, one per line, and a
+`handover`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
+`memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
+`pid` (a log that was cut starts with a `cut` record, which the viewer never
+shows), and, by event, `call`, `agent`, `subagent`, `cwd`, `project`,
+`command`, `root_pid`, `by`, `took`, `size`, `peak`, `children`, `reason`,
+`memory`, `floor`, `dry_run`, `still_running`, `release`, `old_release`,
+`new_release`, `new_pid`, `process` and `error`; `--json` prints the matching
+records unchanged, one per line, `tracking` records and full call IDs
+included, and a
 line of the watcher's output as
 `{"level":"ERROR","msg":"<the line>","event":"raw","started":"<its watcher's start>"}`.
 See the [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),

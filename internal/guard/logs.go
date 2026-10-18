@@ -122,12 +122,15 @@ type entry struct {
 // records (a line of the log by the record before it). A missing file has no
 // lines. With follow it then keeps calling emit as lines are appended, until
 // ctx ends, keeping its place across a cut and a rotation as
-// [operation.LogReader] does.
+// [operation.LogReader] does, and calls idle, when not nil, after each check
+// that found no new line, so a viewer can print what the passing time alone
+// tells.
 func ReadLog(
 	ctx context.Context,
 	path string,
 	follow bool,
 	emit func(raw []byte, e Event) error,
+	idle func() error,
 ) error {
 	v := &logView{
 		log:    operation.NewLogReader(path),
@@ -153,6 +156,11 @@ func ReadLog(
 		}
 		if !follow {
 			return nil
+		}
+		if idle != nil && len(entries) == 0 {
+			if err = idle(); err != nil {
+				return err
+			}
 		}
 		before = nil
 		select {
