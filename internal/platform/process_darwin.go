@@ -10,9 +10,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// System is the operating system's Go name.
-const System = "darwin"
-
 // StartSecond is one second in Process.Start's units: microseconds of
 // kinfo_proc's p_starttime. That start time is the wall clock when the
 // process began, which the kernel records for the pre hook and for the

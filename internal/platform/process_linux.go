@@ -12,9 +12,6 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// System is the operating system's Go name.
-const System = "linux"
-
 // StartSecond is one second in Process.Start's units: clock ticks since boot
 // (USER_HZ, 100 on every architecture Workbench ships for), the unit of
 // /proc/<pid>/stat's starttime. Ticks since boot never follow a wall-clock
