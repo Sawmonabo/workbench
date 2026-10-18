@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"io"
 	"math"
 	"os"
@@ -22,7 +23,8 @@ import (
 // further. It
 // clips with an ellipsis: from the left for paths (ClipLeft), so the part that
 // tells them apart survives, otherwise from the right. Faint columns are
-// secondary detail and print dimmed.
+// secondary detail and print dimmed. A Mark column, first, holds a one-cell
+// marker that a stacked row prints before its first line.
 type column struct {
 	Head     string
 	Right    bool
@@ -31,6 +33,7 @@ type column struct {
 	ClipLeft bool
 	Keep     int
 	Faint    bool
+	Mark     bool
 }
 
 // tableSpec is one table: its columns, its rows, whether a bold, underlined
@@ -387,10 +390,15 @@ func trimEnd(line string) string {
 
 // stacked prints each row as a block: a first line joining the cells before
 // the Clip column (or the Clip cell when it comes first), then one indented
-// "head value" line per other cell. Values clip to width. at is fitRows' row
-// of each line: every line of a row's block is that row's.
+// "head value" line per other cell. Values clip to width. A Mark column's
+// cell leads the first line, and the other lines indent under the name. at is
+// fitRows' row of each line: every line of a row's block is that row's.
 func stacked(width, indent int, t tableSpec, active []int) (lines []string, at []int) {
 	pad := strings.Repeat(" ", indent)
+	mark := -1
+	if len(active) > 1 && t.Cols[active[0]].Mark {
+		mark, active = active[0], active[1:]
+	}
 	rows := t.Rows
 	if t.Total != nil {
 		rows = append(slices.Clip(rows), t.Total)
@@ -426,7 +434,11 @@ func stacked(width, indent int, t tableSpec, active []int) (lines []string, at [
 				first = append(first, text)
 			}
 		}
-		add(pad, strings.Join(first, "  "), lead == 1 && t.Cols[active[0]].ClipLeft && !label)
+		start, more := pad, pad+"  "
+		if mark >= 0 {
+			start, more = pad+cmp.Or(cell(mark), " ")+" ", more+"  "
+		}
+		add(start, strings.Join(first, "  "), lead == 1 && t.Cols[active[0]].ClipLeft && !label)
 		for _, i := range active[min(lead, len(active)):] {
 			text := cell(i)
 			if text == "" {
@@ -436,7 +448,7 @@ func stacked(width, indent int, t tableSpec, active []int) (lines []string, at [
 				text = faint.Render(head) + " " + text
 			}
 			// A path clips from the left only when no head label precedes it.
-			add(pad+"  ", text, t.Cols[i].ClipLeft && t.Cols[i].Head == "" && !label)
+			add(more, text, t.Cols[i].ClipLeft && t.Cols[i].Head == "" && !label)
 		}
 	}
 	return lines, at

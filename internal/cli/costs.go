@@ -1252,7 +1252,7 @@ func addShareBars(spec *tableSpec, r reportSpec) {
 // addMarker puts a column in front for the tab view's cursor: the selected
 // row's marker, a space elsewhere, so stacked rows line up too.
 func addMarker(spec *tableSpec, r reportSpec) {
-	spec.Cols = slices.Insert(spec.Cols, 0, column{})
+	spec.Cols = slices.Insert(spec.Cols, 0, column{Mark: true})
 	for i, row := range spec.Rows {
 		mark := " "
 		if i == r.mark {
