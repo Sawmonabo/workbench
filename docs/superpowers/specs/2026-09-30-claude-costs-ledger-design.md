@@ -519,10 +519,14 @@ prints `[WorkBench] Codex costs are not implemented yet` and exits 0. Tabs are
 the split by tool, so there is no `--by tool`; flags set what every tab shows.
 
 In the view, ↑/↓ move a `›` marker over the project and model rows and Enter
-opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches tools; Tab and Shift+Tab still do). A project's page shows its
-total and share, its cost by model, by day (active days, newest first) and
-by session (start, length, the model that cost the most, cost, calls),
-costliest first. A model's page shows the same with its cost by project.
+opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches tools; Tab and Shift+Tab still do).
+The view turns mouse reporting on, so a trackpad never scrolls the terminal's
+own buffer under it: the mouse wheel moves the selection, a click selects a
+row and a click on the selected row opens it; on a page the wheel scrolls.
+A project's page shows its total and share, its cost by model, by day
+(active days, newest first) and by session (start, length, the model that
+cost the most, cost, calls), costliest first. A model's page shows the same
+with its cost by project.
 Pages read the ledger with the report's period, scope and rollup, and quitting
 from one leaves that page printed.
 
