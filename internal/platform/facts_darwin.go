@@ -38,12 +38,17 @@ var HomebrewRepositories = []string{"/opt/homebrew", "/usr/local/Homebrew"}
 const HasCasks = true
 
 // ToolFolders are the folders searched for an agent's launcher, in the order
-// the managed shell startup files put them on PATH: bun's globals, Cargo's and
-// Go's bin folders, ~/.local/bin, then Homebrew's and the system's folders.
-// Each call returns a new slice.
-func ToolFolders(home string) []string {
-	return []string{
-		filepath.Join(home, ".bun", "bin"),
+// the managed shell startup files put them on PATH: bun's globals, nvm (the
+// bin folder of nvm's default Node, left out when empty), Cargo's and Go's bin
+// folders, ~/.local/bin, then Homebrew's and the system's folders. Each call
+// returns a new slice.
+func ToolFolders(home, nvm string) []string {
+	folders := []string{filepath.Join(home, ".bun", "bin")}
+	if nvm != "" {
+		folders = append(folders, nvm)
+	}
+	return append(
+		folders,
 		filepath.Join(home, ".cargo", "bin"),
 		"/usr/local/go/bin",
 		filepath.Join(home, "go", "bin"),
@@ -52,7 +57,7 @@ func ToolFolders(home string) []string {
 		"/usr/local/bin",
 		"/usr/bin",
 		"/bin",
-	}
+	)
 }
 
 // VSCodeUserFolder is VS Code's user settings folder.

@@ -343,13 +343,7 @@ func agentNewer(a, b string) (newer, comparable bool) {
 // updates only the launcher it makes, ~/.local/bin/COMMAND, so a release of
 // its reached through any other launcher keeps no method.
 func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
-	folders := platform.ToolFolders(home)
-	bun := slices.Index(folders, filepath.Join(home, ".bun", "bin"))
-	folders = slices.Insert(folders, bun+1, nvm)
-	for _, folder := range folders {
-		if folder == "" {
-			continue
-		}
+	for _, folder := range platform.ToolFolders(home, nvm) {
 		path := filepath.Join(folder, agent.command)
 		info, err := os.Stat(path)
 		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
