@@ -1,6 +1,10 @@
 package cli
 
-import "charm.land/lipgloss/v2"
+import (
+	"image/color"
+
+	"charm.land/lipgloss/v2"
+)
 
 // The guard's colors, pinned rather than the terminal's own green, yellow
 // and red, which many themes draw bright: three semantic colors a step darker
@@ -64,16 +68,38 @@ func sizeStyle(bytes uint64) *lipgloss.Style {
 // The selected row's band and accent in the live view, for a dark terminal
 // and for a light one. The band is a slate a few steps lighter than a dark
 // background, the way lazygit's selectedLineBgColor marks its selected line;
-// the accent, a light steel, marks the row's ▸ and its ID, bold. On the dark
-// band the red and the dim gold lose contrast (1.6:1 and 2.4:1, against 2.7:1
-// and 3.9:1 on a #1e1e1e background), more so on a finished row, which is
-// faint, so on it they are drawn lighter, to at least the contrast they have
-// off the band; the light band keeps them as they are.
+// the accent, a light steel, marks the row's ▸ and its ID, bold.
 var (
 	guardBandDark    = lipgloss.Color("#3a4252")
 	guardBandLight   = lipgloss.Color("#d6dde8")
 	guardAccentDark  = lipgloss.Color("#9ec1dc")
 	guardAccentLight = lipgloss.Color("#2f5c7e")
-	guardRedOnBand   = lipgloss.Color("#d0606a")
-	guardDimGoldBand = lipgloss.Color("#b4a264")
 )
+
+// guardOnBand are the colors drawn on the selected row in place of the
+// pinned ones, for the dark band (false) and the light one (true): each
+// pinned color with under 3:1 contrast against the band, or little more,
+// becomes the same hue lighter on the dark band and darker on the light one,
+// to about 3.2:1 or more. 3:1 is WCAG 2's floor for large text (success
+// criterion 1.4.3) and for parts of a view a person must tell apart (1.4.11,
+// https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html). Gold
+// stays brighter than the dim gold. A color not listed has 3:1 or more as it
+// is, and the pinned values themselves stay as they are off the band.
+var guardOnBand = map[bool]map[color.Color]color.Color{
+	// The dark band, #3a4252.
+	false: {
+		guardGreen.GetForeground():   lipgloss.Color("#6e9c72"), // 2.54:1 to 3.20:1
+		guardGold.GetForeground():    lipgloss.Color("#b9942e"), // 2.94:1 to 3.53:1
+		guardRed.GetForeground():     lipgloss.Color("#e5737c"), // 1.61:1 to 3.40:1
+		guardDimGold.GetForeground(): lipgloss.Color("#a39145"), // 2.37:1 to 3.22:1
+		guardCodex.GetForeground():   lipgloss.Color("#7297aa"), // 3.11:1 to 3.23:1
+	},
+	// The light band, #d6dde8; the red (4.58:1) and the dim gold (3.12:1)
+	// keep their pinned values.
+	true: {
+		guardGreen.GetForeground():  lipgloss.Color("#59825d"), // 2.91:1 to 3.22:1
+		guardGold.GetForeground():   lipgloss.Color("#927525"), // 2.52:1 to 3.21:1
+		guardClaude.GetForeground(): lipgloss.Color("#a26d3e"), // 2.19:1 to 3.21:1
+		guardCodex.GetForeground():  lipgloss.Color("#587d92"), // 2.37:1 to 3.23:1
+	},
+}

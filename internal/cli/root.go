@@ -318,7 +318,7 @@ var (
 type painter bool
 
 func newPainter(w io.Writer) painter {
-	return painter(colorprofile.Detect(w, os.Environ()) > colorprofile.Ascii)
+	return painter(colorprofile.Detect(w, os.Environ()) > colorprofile.ASCII)
 }
 
 func (p painter) style(style lipgloss.Style, text string) string {

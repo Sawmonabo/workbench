@@ -79,7 +79,14 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 			"guard memory is for a person at a terminal",
 		)
 	}
-	model := &guardView{width: terminalWidth(os.Stdout), height: 24, tagged: map[string]bool{}}
+	// The color profile Bubble Tea reports arrives after the first frame:
+	// until then the view decides as every other colored output does.
+	model := &guardView{
+		width:   terminalWidth(os.Stdout),
+		height:  24,
+		tagged:  map[string]bool{},
+		noColor: !bool(newPainter(os.Stdout)),
+	}
 	program := tea.NewProgram(
 		model,
 		tea.WithInput(os.Stdin),
@@ -256,7 +263,7 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.BackgroundColorMsg:
 		m.light = !msg.IsDark()
 	case tea.ColorProfileMsg:
-		m.noColor = msg.Profile <= colorprofile.Ascii
+		m.noColor = msg.Profile <= colorprofile.ASCII
 	case tea.MouseClickMsg:
 		if m.mode == listMode && msg.Button == tea.MouseLeft {
 			m.click(msg.Y)
@@ -546,7 +553,7 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 
 // View draws the screen in the alternate screen, or asks for a wider or a
 // taller window, so the key line and its notices always show. Mouse reporting
-// is on, as in the plan's checklist: without it a trackpad or wheel scrolls
+// is on, as the apply checklist does (checklist.go): without it a trackpad or wheel scrolls
 // the terminal's own buffer and the screen slides away; with it the wheel
 // moves and a click selects.
 func (m *guardView) View() tea.View {
@@ -658,7 +665,8 @@ func (m *guardView) countLine() string {
 	if mem.SwapTotal > 0 {
 		// Swap not in use is a reading of 0, not a missing one.
 		swap := memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)
-		if mem.SwapFree >= mem.SwapTotal {
+		// Under half a MB in use, which prints as 0 MB, reads the same way.
+		if mem.SwapFree >= mem.SwapTotal || mem.SwapTotal-mem.SwapFree < 1<<19 {
 			swap = "0/" + capacityText(mem.SwapTotal)
 		}
 		tails = append(tails, forTerm(" · swap "+swap))
@@ -865,10 +873,11 @@ func padded(cols []column, cells []string, shown, widths []int) []string {
 // styledRow is row i with its marks: a tagged one marked *, a finished one or
 // any while no watcher answers faint, the status, the agent and a size of a
 // gigabyte or more in their colors. The selected row, behind ▸, lies on a
-// band across the window, its ▸ and ID bold in the accent; every piece of it,
-// the gaps and the fill to the right edge too, is drawn on the band, since
-// each Render ends its own style. Without color there is no band, and the
-// selected row is bold instead.
+// band across the window, its ▸ and ID bold in the accent and its colors,
+// the * too, as [onBand] draws them; every piece of it, the gaps and the fill
+// to the right edge too, is drawn on the band, since each Render ends its own
+// style. Without color there is no band, and the selected row is bold
+// instead.
 func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string {
 	c := m.snap.Commands[i]
 	style := lipgloss.NewStyle()
@@ -889,7 +898,11 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 	}
 	tag := band.Render(" ")
 	if m.tagged[c.ID] {
-		tag = guardGold.Inherit(band).Render("*")
+		gold := guardGold
+		if selected && !m.noColor {
+			gold = onBand(gold, m.light)
+		}
+		tag = gold.Inherit(band).Render("*")
 	}
 	now, peak := sizeStyles(c)
 	status := statusStyle(c.State)
@@ -904,8 +917,8 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 		switch color := colors[col]; {
 		case col == 0:
 			out[n] = markStyle.Render(out[n])
-		case color != nil && selected && !m.noColor && !m.light:
-			out[n] = onBand(*color).Inherit(style).Render(out[n])
+		case color != nil && selected && !m.noColor:
+			out[n] = onBand(*color, m.light).Inherit(style).Render(out[n])
 		case color != nil:
 			out[n] = color.Inherit(style).Render(out[n])
 		default:
@@ -920,14 +933,12 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 	return row
 }
 
-// onBand is a color drawn on the dark band: the red and the dim gold lighter,
-// any other as it is.
-func onBand(s lipgloss.Style) lipgloss.Style {
-	switch s.GetForeground() {
-	case guardRed.GetForeground():
-		return s.Foreground(guardRedOnBand)
-	case guardDimGold.GetForeground():
-		return s.Foreground(guardDimGoldBand)
+// onBand is s as the selected row draws it on the light band or the dark
+// one: its foreground swapped for the one [guardOnBand] lists, so it keeps at
+// least 3:1 contrast with the band, and the rest of s as it is.
+func onBand(s lipgloss.Style, light bool) lipgloss.Style {
+	if lifted, ok := guardOnBand[light][s.GetForeground()]; ok {
+		return s.Foreground(lifted)
 	}
 	return s
 }
@@ -1132,8 +1143,9 @@ func (m *guardView) overlay(lines, box []string, header int) []string {
 			break
 		}
 		base := lines[at] + strings.Repeat(" ", max(m.width-ansi.StringWidth(lines[at]), 0))
-		// Truncate keeps the style open where it cuts, so the reset keeps
-		// the selected row's band off the box's border.
+		// Truncate carries the cut part's escape codes along; the reset makes
+		// sure no style the line left open, such as the selected row's band,
+		// reaches the box's border.
 		lines[at] = ansi.Truncate(base, left, "") + ansi.ResetStyle + row +
 			ansi.TruncateLeft(base, left+boxWidth, "")
 	}
