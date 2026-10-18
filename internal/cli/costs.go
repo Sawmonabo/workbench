@@ -819,26 +819,27 @@ type target struct{ kind, name string }
 // notes that report something. A tool without a source, or without rows,
 // says so.
 func costsBody(tool costs.Tool, report costs.Statement, width int) string {
-	body, _ := costsPage(tool, report, width, -1)
+	body, _, _ := costsPage(tool, report, width, -1)
 	return body
 }
 
 // costsPage is costsBody for the tab view when selected >= 0: the project and
 // model rows it can open get a marker column, the selected one marked, and
-// targets lists them in order.
+// targets lists them in order. hits holds, for each line of the body, the
+// index in targets of the row on it, or -1; it may stop before the last line.
 func costsPage(
 	tool costs.Tool,
 	report costs.Statement,
 	width, selected int,
-) (string, []target) {
+) (body string, targets []target, hits []int) {
 	var b strings.Builder
 	switch {
 	case tool.Source == nil:
 		writeFaint(&b, width, 0, tool.Title+" costs are not implemented yet.")
-		return b.String(), nil
+		return b.String(), nil, nil
 	case report.Empty():
 		writeFaint(&b, width, 0, emptyReport(report))
-		return b.String(), nil
+		return b.String(), nil, nil
 	}
 	pal := toolPalette(tool.Name)
 	opts := report.Options
@@ -855,7 +856,7 @@ func costsPage(
 		&b,
 		width,
 		0,
-		pal.accent.Bold(true).Render(money(report.Total.Cost))+"  "+faint.Render(period),
+		pal.accent.Bold(true).Render(money(report.Total))+"  "+faint.Render(period),
 	)
 	writeNotes(&b, width, 0, []string{
 		tool.PriceNote,
@@ -873,7 +874,6 @@ func costsPage(
 		width: width, pal: pal, mark: mark,
 	}
 	var sections []reportSpec
-	var targets []target
 	add := func(heading, head, kind string, rows []costs.Row, total *costs.Row, label string) {
 		section := base
 		section.heading, section.head, section.rows, section.total, section.label = heading, head, rows, total, label
@@ -895,7 +895,7 @@ func costsPage(
 				share = fmt.Sprintf("%.1f%%", block.Project.Cost/grand*100)
 			}
 			add(bold.Render(showPath(block.Project.Name))+"  "+
-				costStyle.Render(money(block.Project.Cost))+"  "+
+				costStyle.Render(money(block.Project))+"  "+
 				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
 				"model", "", block.Models, nil, "")
 		}
@@ -913,14 +913,16 @@ func costsPage(
 	if report.By != "account" && len(report.Accounts) > 1 {
 		add("", "account", "", report.Accounts, nil, "")
 	}
-	writeSections(&b, width, sections)
+	hits = writeSections(&b, width, sections)
 	writeFooter(&b, tool, width, report)
-	return b.String(), targets
+	return b.String(), targets, hits
 }
 
 // writeSections writes report tables with one bar width for all of them, so
-// bars compare across tables: all the width the widest table leaves.
-func writeSections(b *strings.Builder, width int, sections []reportSpec) {
+// bars compare across tables: all the width the widest table leaves. hits
+// holds, for each line of b, the row on it, or -1: the rows of the sections
+// with a kind are numbered in order across them, as costsPage's targets are.
+func writeSections(b *strings.Builder, width int, sections []reportSpec) (hits []int) {
 	bar := width
 	for _, section := range sections {
 		spec := reportTable(section)
@@ -932,6 +934,7 @@ func writeSections(b *strings.Builder, width int, sections []reportSpec) {
 		}
 		bar = min(bar, width-need)
 	}
+	first := 0 // the number of the section's first row
 	for _, section := range sections {
 		b.WriteString("\n")
 		if section.heading != "" {
@@ -940,8 +943,26 @@ func writeSections(b *strings.Builder, width int, sections []reportSpec) {
 		if bar >= minBar {
 			section.bar = bar
 		}
-		writeTable(b, width, 2, reportTable(section))
+		lines, rows := fitRows(width, 2, reportTable(section))
+		if section.kind != "" {
+			// Every line of b ends in a newline, so the count is the line
+			// the table starts on.
+			for range strings.Count(b.String(), "\n") - len(hits) {
+				hits = append(hits, -1)
+			}
+			for _, row := range rows {
+				if row >= 0 {
+					row += first
+				}
+				hits = append(hits, row)
+			}
+			first += len(section.rows)
+		}
+		for _, line := range lines {
+			b.WriteString(line + "\n")
+		}
 	}
+	return hits
 }
 
 // focusBody is the page of one project or model: the way back, its total and
@@ -970,7 +991,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 	if n := len(dated); n > 0 {
 		notes = append(notes, day(dated[n-1].Name)+" → "+day(dated[0].Name))
 	}
-	writeText(&b, width, 0, pal.accent.Bold(true).Render(money(focus.Total.Cost)))
+	writeText(&b, width, 0, pal.accent.Bold(true).Render(money(focus.Total)))
 	writeNotes(&b, width, 0, notes)
 	parts := "model"
 	if focus.Kind == "model" {
@@ -1024,7 +1045,7 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		}
 		spec.Rows = append(spec.Rows, []string{
 			faint.Render(id), started, faint.Render(length), rowName(tool, session.Model),
-			costStyle.Render(money(session.Cost)), faint.Render(commas(session.Calls)),
+			costStyle.Render(money(session.Row)), faint.Render(commas(session.Calls)),
 		})
 	}
 	return spec
@@ -1176,9 +1197,9 @@ func reportTable(r reportSpec) tableSpec {
 
 // reportCells is one row's cells: name, cost, then the number columns.
 func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) []string {
-	cost := costStyle.Render(money(row.Cost))
+	cost := costStyle.Render(money(row))
 	if total {
-		cost = r.pal.accent.Render(money(row.Cost))
+		cost = r.pal.accent.Render(money(row))
 	}
 	out := []string{name, cost}
 	if r.tokens {
@@ -1231,7 +1252,7 @@ func addShareBars(spec *tableSpec, r reportSpec) {
 // addMarker puts a column in front for the tab view's cursor: the selected
 // row's marker, a space elsewhere, so stacked rows line up too.
 func addMarker(spec *tableSpec, r reportSpec) {
-	spec.Cols = slices.Insert(spec.Cols, 0, column{})
+	spec.Cols = slices.Insert(spec.Cols, 0, column{Mark: true})
 	for i, row := range spec.Rows {
 		mark := " "
 		if i == r.mark {
@@ -1393,7 +1414,12 @@ func human(n float64) string {
 	return strconv.FormatInt(int64(n), 10)
 }
 
-func money(v float64) string { return "$" + commasFloat(v, 2) }
+// money is a row's cost in dollars and cents, from the cents its owner
+// rounds once.
+func money(row costs.Row) string {
+	cents := row.Cents()
+	return fmt.Sprintf("$%s.%02d", commas(cents/100), cents%100)
+}
 
 func commas(n int64) string { return commasFloat(float64(n), 0) }
 

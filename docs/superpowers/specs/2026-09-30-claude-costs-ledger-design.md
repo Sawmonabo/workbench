@@ -348,6 +348,10 @@ Rules:
   cache: `cache read / (input + cache writes + cache read)`). `--tokens`
   replaces `share`, `tokens` and `cached` with `input`, `output`, `cache 5m`,
   `cache 1h`, `cache read` and adds a one-line legend to the footer.
+- Dollars: costs add up exactly, in whole picodollars (each rate counts to
+  the nearest millionth of a dollar per million tokens), and a figure is its
+  exact sum rounded once to the cent, half a cent up, so a row, a total and a
+  project's or model's page show the same figure for the same responses.
 - Width: lines are sized to the terminal (`shutil.get_terminal_size`, 100 when
   not a terminal). The name column takes what the numeric columns leave, at
   least 24, and long names are clipped from the left with `…` so the
@@ -519,10 +523,14 @@ prints `[WorkBench] Codex costs are not implemented yet` and exits 0. Tabs are
 the split by tool, so there is no `--by tool`; flags set what every tab shows.
 
 In the view, ↑/↓ move a `›` marker over the project and model rows and Enter
-opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches tools; Tab and Shift+Tab still do). A project's page shows its
-total and share, its cost by model, by day (active days, newest first) and
-by session (start, length, the model that cost the most, cost, calls),
-costliest first. A model's page shows the same with its cost by project.
+opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches tools; Tab and Shift+Tab still do).
+The view turns mouse reporting on, so a trackpad never scrolls the terminal's
+own buffer under it: the mouse wheel moves the selection, a click selects a
+row and a click on the selected row opens it; on a page the wheel scrolls.
+A project's page shows its total and share, its cost by model, by day
+(active days, newest first) and by session (start, length, the model that
+cost the most, cost, calls), costliest first. A model's page shows the same
+with its cost by project.
 Pages read the ledger with the report's period, scope and rollup, and quitting
 from one leaves that page printed.
 

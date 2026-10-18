@@ -56,7 +56,19 @@ type Row struct {
 	Subscription      string `json:"subscription,omitempty"`
 	SubscriptionLabel string `json:"subscription_label,omitempty"`
 	Tokens
+	exact int64 // the cost in picodollars (see [Rate.Cost]); Cost is it in USD
 }
+
+// addCost adds picodollars to the row's exact cost and sets Cost from it, so
+// rows that sum the same responses hold the same Cost however they group them.
+func (r *Row) addCost(picodollars int64) {
+	r.exact += picodollars
+	r.Cost = float64(r.exact) / 1e12
+}
+
+// Cents is the row's cost in cents: its exact cost rounded once, half a cent
+// up, so every view of the same responses prints the same figure.
+func (r Row) Cents() int64 { return (r.exact + 5e9) / 1e10 }
 
 // unknownSubscription is what the report shows for rows no evidence ties to a
 // subscription.
@@ -454,7 +466,7 @@ func loadGroups(
 		g.label = subscriptionLabel(g.subscription, g.label)
 		g.Priced = priced
 		if priced {
-			g.Cost = rate.Cost(g.Tokens)
+			g.addCost(rate.Cost(g.Tokens))
 		}
 		groups = append(groups, *g)
 	}
@@ -536,7 +548,7 @@ func aggregate(groups []group, by string) []Row {
 			rows = append(rows, row)
 		}
 		rows[i].Calls += g.Calls
-		rows[i].Cost += g.Cost
+		rows[i].addCost(g.exact)
 		rows[i].Priced = rows[i].Priced && g.Priced
 		rows[i].add(g.Tokens)
 	}
@@ -549,7 +561,7 @@ func sortRows(rows []Row, by string) []Row {
 		"calls": func(a, b Row) bool { return a.Calls > b.Calls },
 	}[by]
 	if less == nil {
-		less = func(a, b Row) bool { return a.Cost > b.Cost }
+		less = func(a, b Row) bool { return a.exact > b.exact }
 	}
 	sort.SliceStable(rows, func(i, j int) bool { return less(rows[i], rows[j]) })
 	return rows
@@ -559,7 +571,7 @@ func total(rows []Row) Row {
 	t := Row{Priced: true}
 	for _, r := range rows {
 		t.Calls += r.Calls
-		t.Cost += r.Cost
+		t.addCost(r.exact)
 		t.Priced = t.Priced && r.Priced
 		t.add(r.Tokens)
 	}

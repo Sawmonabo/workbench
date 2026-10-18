@@ -1,20 +1,21 @@
 package cli
 
 import (
+	"slices"
 	"strings"
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 )
 
 // costsView is the interactive report: a tab bar with one tab per
 // costs.Tools entry, the active tab's report in a viewport, refit at every
-// resize, and a key line. ↑/↓ select a project or model row and enter opens
-// its page; esc goes back.
+// resize, and a key line. ↑/↓ or the mouse wheel select a project or model
+// row and enter, or a click on the selected row, opens its page; esc goes
+// back. On a page the wheel scrolls.
 type costsView struct {
 	tools    []costs.Tool
 	reports  map[string]costs.Statement // computed before the view starts; absent for a tool without a Source
@@ -22,6 +23,7 @@ type costsView struct {
 	active   int
 	selected int
 	targets  []target
+	hits     []int // the target on each line of the viewport's content, or -1
 	focus    *costs.Focus
 	problem  string // why the last page could not open
 	width    int
@@ -34,6 +36,10 @@ type focusLoader func(tool costs.Tool, kind, name string) (costs.Focus, error)
 
 // costsChrome is the lines around the viewport: tab bar, rule and key line.
 const costsChrome = 3
+
+// costsTop is the screen row the viewport starts on, under the tab bar and
+// the rule.
+const costsTop = 2
 
 func newCostsView(
 	tools []costs.Tool,
@@ -64,20 +70,23 @@ func (m *costsView) render() {
 	m.view.SetHeight(max(m.height-costsChrome, 1))
 	if m.focus != nil {
 		m.view.SetContent("\n" + focusBody(tool, *m.focus, m.reports[tool.Name], m.width))
+		m.hits = nil
 		return
 	}
-	body, targets := costsPage(tool, m.reports[tool.Name], m.width, m.selected)
+	body, targets, hits := costsPage(tool, m.reports[tool.Name], m.width, m.selected)
 	m.targets = targets
+	// The lines above the body: the blank line, then the problem, if any,
+	// wrapped so the reason shows whole.
+	var lead strings.Builder
+	lead.WriteString("\n")
 	if m.problem != "" {
-		body = yellow.Render(m.problem) + "\n" + body
+		writeStyled(&lead, m.width, 0, m.problem, yellow)
 	}
-	m.view.SetContent("\n" + body)
-	marker := glyphs.text.Replace("›")
-	for i, line := range strings.Split("\n"+body, "\n") {
-		if strings.HasPrefix(strings.TrimLeft(ansi.Strip(line), " "), marker) {
-			m.view.EnsureVisible(i, 0, 0)
-			break
-		}
+	m.view.SetContent(lead.String() + body)
+	m.hits = slices.Repeat([]int{-1}, strings.Count(lead.String(), "\n"))
+	m.hits = append(m.hits, hits...)
+	if line := slices.Index(m.hits, m.selected); line >= 0 {
+		m.view.EnsureVisible(line, 0, 0)
 	}
 }
 
@@ -104,6 +113,24 @@ func (m *costsView) open() {
 	}
 	m.focus, m.problem = &focus, ""
 	m.view.GotoTop()
+	m.render()
+}
+
+// click selects the row under a click on screen row y; a click on the
+// selected row opens it. A click anywhere else does nothing.
+func (m *costsView) click(y int) {
+	if y < costsTop || y >= costsTop+m.view.Height() {
+		return
+	}
+	line := y - costsTop + m.view.YOffset()
+	if line >= len(m.hits) || m.hits[line] < 0 {
+		return
+	}
+	if m.hits[line] == m.selected {
+		m.open()
+		return
+	}
+	m.selected = m.hits[line]
 	m.render()
 }
 
@@ -148,6 +175,27 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			var cmd tea.Cmd
 			m.view, cmd = m.view.Update(msg)
 			return m, cmd
+		}
+	case tea.MouseClickMsg:
+		if m.focus == nil && msg.Button == tea.MouseLeft {
+			m.click(msg.Y)
+		}
+	case tea.MouseWheelMsg:
+		// On a page the wheel scrolls; on the report it moves the selection
+		// as ↑/↓ do, and the viewport follows it.
+		if m.focus != nil {
+			var cmd tea.Cmd
+			m.view, cmd = m.view.Update(msg)
+			return m, cmd
+		}
+		switch msg.Button {
+		case tea.MouseWheelUp:
+			m.selected = max(m.selected-1, 0)
+			m.render()
+		case tea.MouseWheelDown:
+			m.selected = max(min(m.selected+1, len(m.targets)-1), 0)
+			m.render()
+		default:
 		}
 	}
 	return m, nil
@@ -204,5 +252,8 @@ func (m *costsView) View() tea.View {
 	rule := faint.Render(strings.Repeat(glyphs.Rule, m.width))
 	view := tea.NewView(m.tabBar() + "\n" + rule + "\n" + m.view.View() + "\n" + m.keyLine())
 	view.AltScreen = true
+	// Reporting the mouse gives the wheel and clicks to the view, so a
+	// trackpad no longer scrolls the terminal's own buffer under it.
+	view.MouseMode = tea.MouseModeCellMotion
 	return view
 }
