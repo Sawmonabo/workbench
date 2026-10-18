@@ -221,7 +221,6 @@ func (w *watcher) startHandover() *handover {
 	_, _ = readyWrite.Close(), startRead.Close()
 	if listener != nil {
 		_ = listener.Close()
-		w.keepNonblocking()
 	}
 	if err != nil {
 		_, _ = readyRead.Close(), startWrite.Close()
@@ -244,32 +243,31 @@ func (w *watcher) startHandover() *handover {
 
 // listenerFile is a copy of the socket's listening descriptor to pass on, nil
 // without a socket or when it cannot be copied: the new watcher then listens
-// anew.
+// anew. The copy is made with F_DUPFD_CLOEXEC and wrapped by [os.NewFile],
+// not taken from [net.UnixListener.File]: a starting process takes each
+// file's descriptor, and that of a File from net is put in blocking mode
+// ([os.File.Fd]), a mode the socket's descriptors share, so this watcher's
+// accept could block a thread and its close at the handover wait for a
+// client that may never come. One from NewFile keeps its mode. The copy is
+// close-on-exec, like every descriptor Go opens, so no other child gets it;
+// the child it is passed to gets it as descriptor 6 by dup2, which clears
+// that flag.
 func (w *watcher) listenerFile() *os.File {
 	if w.server == nil {
 		return nil
 	}
-	f, err := w.server.listener.File()
+	raw, err := w.server.listener.SyscallConn()
 	if err != nil {
 		return nil
 	}
-	return f
-}
-
-// keepNonblocking sets the listener back to non-blocking. Starting a process
-// with a copy of it takes the copy's descriptor, which puts it in blocking
-// mode ([os.File.Fd]), and the mode belongs to the socket both share: left
-// so, an accept would block a thread, and closing the listener at the
-// handover would wait for a client that may never come.
-func (w *watcher) keepNonblocking() {
-	if w.server == nil {
-		return
+	duplicate, dupErr := -1, error(nil)
+	err = raw.Control(func(fd uintptr) {
+		duplicate, dupErr = unix.FcntlInt(fd, unix.F_DUPFD_CLOEXEC, 0)
+	})
+	if err != nil || dupErr != nil || duplicate < 0 {
+		return nil
 	}
-	raw, err := w.server.listener.SyscallConn()
-	if err != nil {
-		return
-	}
-	_ = raw.Control(func(fd uintptr) { _ = unix.SetNonblock(int(fd), true) })
+	return os.NewFile(uintptr(duplicate), "guard.sock")
 }
 
 // cancelHandover gives up the handover under way: it closes the pipe, which
