@@ -13,6 +13,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/colorprofile"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
@@ -33,11 +34,13 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
 			"commands that ended in the last minute, dimmed. The header counts the running and " +
 			"finished commands and shows the memory in use of the installed memory, the largest " +
-			"peak and the swap in use. ↑ and ↓ move, space tags a running command, enter or → " +
-			"opens its details (the full command, folder, memory graph and processes), k opens " +
-			"the stop menu for the tagged commands or the selected one (a polite stop, " +
-			"force-killed after 5 s, or a forced kill now), esc or ← closes a menu or the " +
-			"details, and q quits. The watcher signals the command, logs the stop as by=you " +
+			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does, and a click " +
+			"selects a row; space tags a running command, enter, → or a click on the selected " +
+			"row opens its details (the full command, one step of a pipeline or && chain per " +
+			"line, its folder, processes and memory graph), k opens the stop menu for the " +
+			"tagged commands or the selected one (a polite stop, force-killed after 5 s, or a " +
+			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
+			"list, quits. The watcher signals the command, logs the stop as by=you " +
 			"and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
 			"runs, the view says so and reconnects every second. It needs a terminal, has no " +
 			"--json output and refuses --non-interactive and coding agents; workbench guard " +
@@ -119,6 +122,16 @@ type guardView struct {
 	// targets are the call IDs the open stop menu names, fixed when it opens,
 	// so a stop never falls to another row once they finish.
 	targets []string
+	// light is set once the terminal reports a light background; until then,
+	// and where it never answers, the view draws for a dark one.
+	light bool
+	// noColor is set when the terminal shows no color (a NO_COLOR or dumb
+	// terminal), so the selected row is marked bold instead of by its band.
+	noColor bool
+	// first is the first list row shown, and rowsTop the screen line it is
+	// drawn on, as the last frame drew them, so a click finds its row; shown
+	// is how many rows that frame drew.
+	first, rowsTop, shown int
 }
 
 // viewMode is what the view shows.
@@ -227,10 +240,11 @@ func connectWatcher() tea.Msg {
 		"); reconnecting every second."}
 }
 
-// Init connects and starts the clock.
+// Init connects, starts the clock and asks the terminal for its background,
+// which picks the selected row's band.
 func (m *guardView) Init() tea.Cmd {
 	m.dialing = true
-	return tea.Batch(connectWatcher, nextTick())
+	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor)
 }
 
 // Update takes a message. Each tick schedules the next and, while no watcher
@@ -239,6 +253,24 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
+	case tea.BackgroundColorMsg:
+		m.light = !msg.IsDark()
+	case tea.ColorProfileMsg:
+		m.noColor = msg.Profile <= colorprofile.Ascii
+	case tea.MouseClickMsg:
+		if m.mode == listMode && msg.Button == tea.MouseLeft {
+			m.click(msg.Y)
+		}
+	case tea.MouseWheelMsg:
+		if m.mode == listMode {
+			switch msg.Button {
+			case tea.MouseWheelUp:
+				m.pressList("up")
+			case tea.MouseWheelDown:
+				m.pressList("down")
+			default:
+			}
+		}
 	case tickMsg:
 		if !m.connected && !m.dialing {
 			m.dialing = true
@@ -364,9 +396,10 @@ func (m *guardView) answered(results []guard.StopResult) {
 	m.say(strings.Join(parts, "; "))
 }
 
-// press handles a key in the present mode; q and ctrl+c quit from any.
+// press handles a key in the present mode; q and ctrl+c quit from any, esc
+// from the list, as in the costs view.
 func (m *guardView) press(key string) (tea.Model, tea.Cmd) {
-	if key == "q" || key == "ctrl+c" {
+	if key == "q" || key == "ctrl+c" || (key == "esc" && m.mode == listMode) {
 		return m, tea.Quit
 	}
 	switch m.mode {
@@ -441,6 +474,21 @@ func (m *guardView) pressMenu(key string) tea.Cmd {
 	return nil
 }
 
+// click selects the list row on screen line y; a click on the selected row
+// opens its details. A click on the header, the column heads or below the
+// rows does nothing.
+func (m *guardView) click(y int) {
+	at := y - m.rowsTop
+	if at < 0 || at >= m.shown || m.first+at >= len(m.snap.Commands) {
+		return
+	}
+	if m.first+at == m.cursor {
+		m.mode = detailMode
+		return
+	}
+	m.cursor = m.first + at
+}
+
 // stopTargets are the call IDs a stop would name: from the details, the
 // command shown; from the list, the tagged commands still running, or else
 // the selected one when it runs.
@@ -497,9 +545,13 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 }
 
 // View draws the screen in the alternate screen, or asks for a wider or a
-// taller window, so the key line and its notices always show.
+// taller window, so the key line and its notices always show. Mouse reporting
+// is on, as in the plan's checklist: without it a trackpad or wheel scrolls
+// the terminal's own buffer and the screen slides away; with it the wheel
+// moves and a click selects.
 func (m *guardView) View() tea.View {
 	var text string
+	m.shown = 0
 	switch {
 	case m.width < guardViewMinWidth:
 		text = fmt.Sprintf("Widen the window to at least %d columns", guardViewMinWidth)
@@ -510,6 +562,7 @@ func (m *guardView) View() tea.View {
 	}
 	view := tea.NewView(text)
 	view.AltScreen = true
+	view.MouseMode = tea.MouseModeCellMotion
 	return view
 }
 
@@ -523,6 +576,8 @@ func (m *guardView) screen() string {
 	if m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode) {
 		lines = append(lines, m.detailLines(room+1)...)
 	} else {
+		// The column heads come first, then the rows.
+		m.rowsTop = header + 1
 		lines = append(lines, m.tableLines(room+1)...)
 	}
 	for len(lines) < m.height-1 {
@@ -676,7 +731,8 @@ const (
 const guardRowPrefix = 3
 
 // tableLines are the column heads and as many rows as fit in room lines,
-// scrolled so the selected row shows.
+// scrolled so the selected row shows: the window moves only when the
+// selection leaves it, so a row stays under the pointer that clicked it.
 func (m *guardView) tableLines(room int) []string {
 	if len(m.snap.Commands) == 0 {
 		if m.connected {
@@ -704,10 +760,12 @@ func (m *guardView) tableLines(room int) []string {
 	head := strings.Join(padded(guardColumns, heads, shown, widths), strings.Repeat(" ", gap))
 	lines := []string{faint.Render(strings.Repeat(" ", guardRowPrefix) + head)}
 	visible := max(room-1, 1)
-	first := max(m.cursor-visible+1, 0)
-	for i := first; i < min(first+visible, len(spec.Rows)); i++ {
+	m.first = min(max(m.first, m.cursor-visible+1), m.cursor, max(len(spec.Rows)-visible, 0))
+	m.first = max(m.first, 0)
+	for i := m.first; i < min(m.first+visible, len(spec.Rows)); i++ {
 		lines = append(lines, m.styledRow(i, spec.Rows[i], shown, widths))
 	}
+	m.shown = len(lines) - 1
 	return lines
 }
 
@@ -804,21 +862,34 @@ func padded(cols []column, cells []string, shown, widths []int) []string {
 	return out
 }
 
-// styledRow is row i with its marks: the selected row bold behind ▸, a
-// tagged one marked *, a finished one or any while no watcher answers faint,
-// the status, the agent and a size of a gigabyte or more in their colors.
+// styledRow is row i with its marks: a tagged one marked *, a finished one or
+// any while no watcher answers faint, the status, the agent and a size of a
+// gigabyte or more in their colors. The selected row, behind ▸, lies on a
+// band across the window, its ▸ and ID bold in the accent; every piece of it,
+// the gaps and the fill to the right edge too, is drawn on the band, since
+// each Render ends its own style. Without color there is no band, and the
+// selected row is bold instead.
 func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string {
 	c := m.snap.Commands[i]
 	style := lipgloss.NewStyle()
 	if !active(c.State) || !m.connected {
 		style = style.Faint(true)
 	}
-	mark, tag := " ", " "
-	if i == m.cursor && m.mode != detailMode {
+	selected := i == m.cursor && m.mode != detailMode
+	band, mark, markStyle := lipgloss.NewStyle(), " ", style
+	switch {
+	case selected && m.noColor:
 		mark, style = forTerm("▸"), style.Bold(true)
+		markStyle = style
+	case selected:
+		pick := lipgloss.LightDark(!m.light)
+		band = band.Background(pick(guardBandLight, guardBandDark))
+		mark, style = forTerm("▸"), style.Inherit(band)
+		markStyle = band.Foreground(pick(guardAccentLight, guardAccentDark)).Bold(true)
 	}
+	tag := band.Render(" ")
 	if m.tagged[c.ID] {
-		tag = guardGold.Render("*")
+		tag = guardGold.Inherit(band).Render("*")
 	}
 	now, peak := sizeStyles(c)
 	status := statusStyle(c.State)
@@ -830,18 +901,43 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 	}
 	out := padded(guardColumns, cells, shown, widths)
 	for n, col := range shown {
-		if color := colors[col]; color != nil {
+		switch color := colors[col]; {
+		case col == 0:
+			out[n] = markStyle.Render(out[n])
+		case color != nil && selected && !m.noColor && !m.light:
+			out[n] = onBand(*color).Inherit(style).Render(out[n])
+		case color != nil:
 			out[n] = color.Inherit(style).Render(out[n])
-		} else {
+		default:
 			out[n] = style.Render(out[n])
 		}
 	}
-	return mark + tag + " " + strings.Join(out, strings.Repeat(" ", gap))
+	row := markStyle.Render(mark) + tag + band.Render(" ") +
+		strings.Join(out, band.Render(strings.Repeat(" ", gap)))
+	if selected {
+		row += band.Render(strings.Repeat(" ", max(m.width-ansi.StringWidth(row), 0)))
+	}
+	return row
+}
+
+// onBand is a color drawn on the dark band: the red and the dim gold lighter,
+// any other as it is.
+func onBand(s lipgloss.Style) lipgloss.Style {
+	switch s.GetForeground() {
+	case guardRed.GetForeground():
+		return s.Foreground(guardRedOnBand)
+	case guardDimGold.GetForeground():
+		return s.Foreground(guardDimGoldBand)
+	}
+	return s
 }
 
 // detailLines are the selected command's details in at most room lines: the
-// full command, folder, agent, subagent, full ID, status and run time,
-// memory now and at its peak, a graph of its memory, and its processes.
+// full command, one step of it per line, its folder, agent, subagent, full
+// ID, status and run time, memory now and at its peak, its processes, and a
+// graph of its memory last. Lines that do not fit are cut from the end of
+// the process list, and then from the end of what precedes it, into one
+// "… N more" line; the graph always shows.
 func (m *guardView) detailLines(room int) []string {
 	if m.cursor >= len(m.snap.Commands) {
 		return nil
@@ -855,9 +951,12 @@ func (m *guardView) detailLines(room int) []string {
 	if cells[4] != "" {
 		status += forTerm(" · ") + cells[4]
 	}
-	label := func(name, value string) []string {
+	label := func(name string, values ...string) []string {
 		var b strings.Builder
-		writeText(&b, m.width-12, 0, value)
+		for i, value := range values {
+			// A step after the first starts with its operator, two spaces in.
+			writeText(&b, m.width-12, min(i, 1)*2, value)
+		}
 		lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 		for i := range lines {
 			head := strings.Repeat(" ", 12)
@@ -869,7 +968,7 @@ func (m *guardView) detailLines(room int) []string {
 		return lines
 	}
 	lines := []string{""}
-	lines = append(lines, label("Command", c.Command)...)
+	lines = append(lines, label("Command", commandSteps(c.Command)...)...)
 	lines = append(lines, label("Folder", showPath(c.Cwd))...)
 	lines = append(lines, label("Agent", c.Agent)...)
 	lines = append(lines, label("Subagent", cmp.Or(c.Subagent, "—"))...)
@@ -884,17 +983,82 @@ func (m *guardView) detailLines(room int) []string {
 		peak = peakStyle.Render(peak)
 	}
 	lines = append(lines, label("Memory", now+" now"+forTerm(" · ")+"peak "+peak)...)
-	lines = append(lines, label("Graph", graph(c.History, c.Peak, m.width-14))...)
 	lines = append(lines, label("Processes", processCount(len(c.Tree)))...)
 	for _, p := range c.Tree {
 		lines = append(lines, forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
 			fit(p.Name, 20, false), memorySize(p.Memory))))
 	}
-	if len(lines) > room {
-		lines = append(lines[:room-1], faint.Render(fmt.Sprintf("%12s%s %d more", "",
-			glyphs.Ellipsis, len(lines)-room+1)))
+	last := label("Graph", graph(c.History, c.Peak, m.width-14))
+	if keep := max(room-len(last), 1); len(lines) > keep {
+		lines = append(lines[:keep-1], faint.Render(fmt.Sprintf("%12s%s %d more", "",
+			glyphs.Ellipsis, len(lines)-keep+1)))
 	}
-	return lines
+	return append(lines, last...)
+}
+
+// commandSteps splits a shell command into the steps a reader follows, as
+// the Google Shell Style Guide lays out a long pipeline, one step per line
+// (https://google.github.io/styleguide/shellguide.html#s5.5-pipelines), and
+// as it does && and ||: a step after the first starts with the |, && or ||
+// before it, and a ; ends its step and is dropped. Only operators that stand
+// as tokens split: none inside single or double quotes, after a backslash,
+// or inside $( ), ( ) or backquotes, and not the & of 2>&1, the |& that
+// pipes both streams or the >| of a forced overwrite. A command with none
+// is one step.
+func commandSteps(command string) []string {
+	var steps []string
+	var step strings.Builder
+	quote, depth, op := byte(0), 0, ""
+	// cut ends the step, which op started, and starts one with next.
+	cut := func(next string) {
+		if text := strings.TrimSpace(step.String()); text != "" {
+			steps = append(steps, strings.TrimSpace(op+" "+text))
+		}
+		step.Reset()
+		op = next
+	}
+	for i := 0; i < len(command); i++ {
+		ch := command[i]
+		rest := command[i:]
+		switch {
+		case quote == '\'':
+			if ch == '\'' {
+				quote = 0
+			}
+		case ch == '\\' && i+1 < len(command):
+			step.WriteByte(ch)
+			i++
+			ch = command[i]
+		case quote == '"' || quote == '`':
+			if ch == quote {
+				quote = 0
+			}
+		case ch == '\'' || ch == '"' || ch == '`':
+			quote = ch
+		case ch == '(':
+			depth++
+		case ch == ')':
+			depth = max(depth-1, 0)
+		case depth > 0:
+		case strings.HasPrefix(rest, "&&"), strings.HasPrefix(rest, "||"):
+			cut(rest[:2])
+			i++
+			continue
+		case strings.HasPrefix(rest, "|&"), ch == '|' && i > 0 && command[i-1] == '>':
+		case ch == '|':
+			cut("|")
+			continue
+		case ch == ';':
+			cut("")
+			continue
+		}
+		step.WriteByte(ch)
+	}
+	cut("")
+	if len(steps) == 0 {
+		return []string{command}
+	}
+	return steps
 }
 
 // processCount says how many processes a command's tree holds now.
@@ -968,7 +1132,10 @@ func (m *guardView) overlay(lines, box []string, header int) []string {
 			break
 		}
 		base := lines[at] + strings.Repeat(" ", max(m.width-ansi.StringWidth(lines[at]), 0))
-		lines[at] = ansi.Truncate(base, left, "") + row + ansi.TruncateLeft(base, left+boxWidth, "")
+		// Truncate keeps the style open where it cuts, so the reset keeps
+		// the selected row's band off the box's border.
+		lines[at] = ansi.Truncate(base, left, "") + ansi.ResetStyle + row +
+			ansi.TruncateLeft(base, left+boxWidth, "")
 	}
 	return lines
 }
@@ -979,7 +1146,7 @@ func (m *guardView) keyLine() string {
 		return fit(forTerm(m.notice), m.width, false)
 	}
 	keys := [][2]string{
-		{"↑/↓", "move"}, {"space", "tag"}, {"enter/→", "details"}, {"k", "stop"}, {"q", "quit"},
+		{"↑/↓", "move"}, {"space", "tag"}, {"enter/→", "details"}, {"k", "stop"}, {"q/esc", "quit"},
 	}
 	switch m.mode {
 	case listMode:

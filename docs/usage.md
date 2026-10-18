@@ -300,13 +300,21 @@ while a watcher answers, the memory in use of the installed memory (`mem
 11.27/16 GB`), the largest peak and the swap in use; then a line that says `dry
 run: stops are logged, not sent` when every shown command is a dry run, or
 `dry run on 2 of 5 commands: …` when some are, each marked `(dry)` in its
-status. ↑ and ↓ move (there is no `j` or `k`, since `k` stops, as in htop),
-space tags a running command and moves down, enter, → or `l` opens the
-selected one's details (the full command, folder, full ID, a graph of its
-memory over the last 120 readings and its processes with theirs), `k` opens
-the stop menu for the tagged commands or the selected one, with `Stop (polite,
-force-killed after 5 s)` chosen and `Force kill now` below it, esc, ← or `h`
-closes the menu or the details, and `q` or ctrl+c quits. The watcher stops
+status. The selected row lies on a slate band across the window, its `▸` and
+ID bold in a light steel; a light terminal gets a light band, and without
+color the row is bold instead. ↑ and ↓ move (there is no `j` or `k`, since `k`
+stops, as in htop), space tags a running command and moves down, enter, → or
+`l` opens the selected one's details (the full command, folder, full ID, its
+processes with theirs and a graph of its memory over the last 120 readings),
+`k` opens the stop menu for the tagged commands or the selected one, with
+`Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below it,
+esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
+ctrl+c quits. On the list the mouse wheel moves as ↑ and ↓ do, a click
+selects a row and a click on the selected row opens its details; the view
+takes the mouse so a trackpad no longer scrolls the terminal's own buffer. The
+details lay a long command out one step per line, each `|`, `&&` or `||`
+outside quotes starting a line two spaces in (`go test ./... 2>&1`, then
+`| tail -20`). The watcher stops
 the command the way it stops for memory, logs it `by=you` and tells the agent
 `Stopped by you (workbench guard
 memory).`; the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,

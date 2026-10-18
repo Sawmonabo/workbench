@@ -307,7 +307,7 @@ A full-screen Bubble Tea program in the alternate screen.
    7Kp3Rt9m  ● run      claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
    5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
    2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
-↑/↓ move  space tag  enter/→ details  k stop  q quit
+↑/↓ move  space tag  enter/→ details  k stop  q/esc quit
 ```
 
 - **Rows** are the commands the watcher tracks, newest first, then finished
@@ -339,10 +339,17 @@ A full-screen Bubble Tea program in the alternate screen.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
   Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
-  Esc, ← or `h` closes a menu or details; `q` and ctrl+c quit. The key line
-  reads `↑/↓ move  space tag  enter/→ details  k stop  q quit` on the list,
-  `k stop  esc/← back  q quit` in details and `↑/↓ choose  enter send
-  esc/← cancel` in the menu.
+  Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
+  quit, as the costs view's Esc does. On the list the mouse works too: the
+  wheel moves as ↑ and ↓ do, a click selects a row and a click on the
+  selected row opens its details; in details and in the stop menu, which
+  takes keys only, clicks and the wheel do nothing. The view turns mouse
+  reporting on because without it a trackpad or wheel scrolls the
+  terminal's own buffer and the screen slides away; the list scrolls only
+  when the selection leaves the window, so a row stays under the pointer
+  that clicked it. The key line reads `↑/↓ move  space tag  enter/→ details
+  k stop  q/esc quit` on the list, `k stop  esc/← back  q quit` in details
+  and `↑/↓ choose  enter send  esc/← cancel` in the menu.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
   s)` selected and `Force kill now` below it. The commands it names are
@@ -351,10 +358,22 @@ A full-screen Bubble Tea program in the alternate screen.
   finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher
   is shown for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
-- **Details**: the full command, folder, agent, subagent, full ID, status
-  and run time, memory now and peak, a one-line graph of the command's
-  memory over the last 120 readings, and its process tree with each
-  process's memory. `k` stops from here too; Esc, ← or `h` goes back.
+- **Details**, in this order: the full command, folder, agent, subagent,
+  full ID, status and run time, memory now and peak, the number of
+  processes and the process tree with each process's memory, and last a
+  one-line graph of the command's memory over the last 120 readings. The
+  command is laid out one step per line, as the Google Shell Style Guide
+  lays out a long pipeline
+  ([Pipelines](https://google.github.io/styleguide/shellguide.html#s5.5-pipelines)),
+  which it applies to `&&` and `||` too: a `|`, `&&` or `||` that stands as
+  a token outside quotes starts the next line, two spaces in, and a `;`
+  ends its line and is dropped (`go test ./... 2>&1`, then `  | tail -20`).
+  Nothing inside single or double quotes, `$( )` or backquotes splits, nor
+  the `&` of `2>&1`, `|&` or `>|`, and a command with no separator stays
+  one wrapped line. When the details do not fit, the process list is cut
+  first, then the lines above it, into one `… N more` line, and the graph
+  always shows: at 11 lines, the command's first lines, `… N more` and the
+  graph. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
   The counts line, about 72 columns in full, drops `· swap …` first, then
@@ -367,12 +386,30 @@ A full-screen Bubble Tea program in the alternate screen.
   stopped, a dim gold for unmatched and plain for done; the AGENT cell
   takes its agent's hue; MEMORY and PEAK are gold and bold from 1 GB and
   red and bold from 4 GB; the tag mark `*` is gold. Each keeps the row's
-  own dimming and bold, so a finished row stays dim and the selected one
-  bold (a 6.21 GB peak on a finished row is still red and bold). In the
-  details the status and the memory values take the same colors.
+  own dimming, so a finished row stays dim (a 6.21 GB peak on a finished
+  row is still red and bold). The selected row lies on a band across the
+  window, `#3a4252`, a slate a few steps lighter than a dark background,
+  the way lazygit's `selectedLineBgColor` marks the selected line
+  ([Config.md](https://github.com/jesseduffield/lazygit/blob/master/docs/Config.md)),
+  with its `▸` and ID bold in a light steel accent, `#9ec1dc`; the rest of
+  the row keeps its colors and is not bold, and a finished row stays dim
+  under the band. On the dark band the red and the dim gold lose contrast
+  (1.6:1 and 2.4:1, against 2.7:1 and 3.9:1 on a `#1e1e1e` background), so
+  on the selected row they are drawn lighter, `#d0606a` and `#b4a264`. The
+  view asks the terminal for its background color
+  ([`RequestBackgroundColor`, `BackgroundColorMsg`](https://pkg.go.dev/charm.land/bubbletea/v2@v2.0.10#BackgroundColorMsg))
+  and picks the band with Lip Gloss's
+  [`LightDark`](https://pkg.go.dev/charm.land/lipgloss/v2@v2.0.6#LightDark):
+  on a light terminal the band is `#d6dde8` and the accent `#2f5c7e`, and
+  the red and dim gold keep their pinned values. Until the terminal
+  answers, and where it never does (some terminals and multiplexers do
+  not), the view draws for a dark background. In the details the status
+  and the memory values take the same colors.
 - **No color** (`NO_COLOR` or no color support): the same screen without
   color, bold and dim kept, as the costs view keeps them; `▸`, `✓ ? ✗ ●`,
   `○` and the tag mark carry the state, and the badge's words the memory.
+  The band and the accent are color, so without color the selected row
+  keeps its `▸` and is bold instead.
 - **Watcher not running**: the screen says so and that the watcher starts
   with the next agent command, keeps the last rows dimmed, and reconnects
   every second. When a watcher may run but cannot serve the view (another

@@ -60,3 +60,20 @@ func sizeStyle(bytes uint64) *lipgloss.Style {
 	}
 	return nil
 }
+
+// The selected row's band and accent in the live view, for a dark terminal
+// and for a light one. The band is a slate a few steps lighter than a dark
+// background, the way lazygit's selectedLineBgColor marks its selected line;
+// the accent, a light steel, marks the row's ▸ and its ID, bold. On the dark
+// band the red and the dim gold lose contrast (1.6:1 and 2.4:1, against 2.7:1
+// and 3.9:1 on a #1e1e1e background), more so on a finished row, which is
+// faint, so on it they are drawn lighter, to at least the contrast they have
+// off the band; the light band keeps them as they are.
+var (
+	guardBandDark    = lipgloss.Color("#3a4252")
+	guardBandLight   = lipgloss.Color("#d6dde8")
+	guardAccentDark  = lipgloss.Color("#9ec1dc")
+	guardAccentLight = lipgloss.Color("#2f5c7e")
+	guardRedOnBand   = lipgloss.Color("#d0606a")
+	guardDimGoldBand = lipgloss.Color("#b4a264")
+)
