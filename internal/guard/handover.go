@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"path/filepath"
 	"slices"
@@ -26,6 +27,16 @@ import (
 // watcher's child ignores it.
 const handoverVariable = "WORKBENCH_GUARD_HANDOVER"
 
+// listenerVariable is set, to 6, beside handoverVariable when the old
+// watcher also passes its listening socket, as descriptor 6, so clients
+// connected meanwhile wait in its queue and none is refused. A release that
+// does not know it leaves the descriptor unused, and clients then get no
+// hello (see [Client.Hello]).
+const (
+	listenerVariable = "WORKBENCH_GUARD_LISTENER"
+	listenerFD       = 6
+)
+
 const (
 	// readyWait bounds how long the old watcher waits for the new one to say
 	// it is ready; it keeps watching meanwhile.
@@ -38,7 +49,7 @@ const (
 // (version), the command it was started as (entry) and the file it runs
 // (self), read once at its start, the handover under way, the installed file
 // a handover to failed (failedTarget) and the last error reading the entry,
-// each logged once, and, in a new watcher, what the old one carried.
+// each logged once, and, in a new watcher, what the old one carried and the socket it passed.
 type handoff struct {
 	version      string
 	entry        string
@@ -47,6 +58,9 @@ type handoff struct {
 	failedTarget os.FileInfo
 	entryErr     string
 	inherited    *carried
+	// inheritedListener is the socket the old watcher passed, until listen
+	// serves it.
+	inheritedListener *net.UnixListener
 }
 
 // handover is a handover under way: the new watcher, the installed file it
@@ -117,7 +131,9 @@ func (w *watcher) identify() {
 // to another file.
 func (w *watcher) handOver() bool {
 	h := w.pending
-	quiet := w.calm && w.stopped == nil
+	// A person's stop still owed its SIGKILL is not carried, so it holds the
+	// handover as the guard's own does.
+	quiet := w.calm && w.stopped == nil && len(w.manual) == 0
 	if h == nil {
 		if quiet && w.entry != "" {
 			w.pending = w.startHandover()
@@ -151,6 +167,8 @@ func (w *watcher) handOver() bool {
 	}
 	_ = h.start.Close()
 	w.pending = nil
+	// The new watcher serves the socket now, so its file stays.
+	w.closeServer(false)
 	return true
 }
 
@@ -186,14 +204,25 @@ func (w *watcher) startHandover() *handover {
 		w.failHandover(target, err)
 		return nil
 	}
+	env := []string{handoverVariable + "=" + strconv.Itoa(os.Getpid())}
+	files := []*os.File{w.lockFile, readyWrite, startRead}
+	listener := w.listenerFile()
+	if listener != nil {
+		env = append(env, listenerVariable+"="+strconv.Itoa(listenerFD))
+		files = append(files, listener)
+	}
 	process, err := operation.StartDetached(operation.Detached{
 		Entry:  w.entry,
 		Args:   []string{"guard", "watch"},
 		Output: w.f.output(),
-		Env:    []string{handoverVariable + "=" + strconv.Itoa(os.Getpid())},
-		Files:  []*os.File{w.lockFile, readyWrite, startRead},
+		Env:    env,
+		Files:  files,
 	})
 	_, _ = readyWrite.Close(), startRead.Close()
+	if listener != nil {
+		_ = listener.Close()
+		w.keepNonblocking()
+	}
 	if err != nil {
 		_, _ = readyRead.Close(), startWrite.Close()
 		w.failHandover(target, err)
@@ -211,6 +240,36 @@ func (w *watcher) startHandover() *handover {
 		h.ready <- release
 	}()
 	return h
+}
+
+// listenerFile is a copy of the socket's listening descriptor to pass on, nil
+// without a socket or when it cannot be copied: the new watcher then listens
+// anew.
+func (w *watcher) listenerFile() *os.File {
+	if w.server == nil {
+		return nil
+	}
+	f, err := w.server.listener.File()
+	if err != nil {
+		return nil
+	}
+	return f
+}
+
+// keepNonblocking sets the listener back to non-blocking. Starting a process
+// with a copy of it takes the copy's descriptor, which puts it in blocking
+// mode ([os.File.Fd]), and the mode belongs to the socket both share: left
+// so, an accept would block a thread, and closing the listener at the
+// handover would wait for a client that may never come.
+func (w *watcher) keepNonblocking() {
+	if w.server == nil {
+		return
+	}
+	raw, err := w.server.listener.SyscallConn()
+	if err != nil {
+		return
+	}
+	_ = raw.Control(func(fd uintptr) { _ = unix.SetNonblock(int(fd), true) })
 }
 
 // cancelHandover gives up the handover under way: it closes the pipe, which
@@ -268,22 +327,28 @@ func (w *watcher) carried() carried {
 // (see inherit), or anew.
 func (w *watcher) takeLock() bool {
 	parent := os.Getenv(handoverVariable)
-	_ = os.Unsetenv(handoverVariable)
+	listener := os.Getenv(listenerVariable)
+	_, _ = os.Unsetenv(handoverVariable), os.Unsetenv(listenerVariable)
 	if parent == "" || parent != strconv.Itoa(os.Getppid()) {
 		return w.lock()
 	}
-	return w.inherit()
+	return w.inherit(listener == strconv.Itoa(listenerFD))
 }
 
 // inherit takes over from the watcher that started this one (see handOver).
 // It takes on the lock passed as descriptor 3, which must be the guard's lock
 // file with no other process's lock on it, says it is ready, with its
 // release, on descriptor 4, and waits on descriptor 5 for what the old
-// watcher carried, the word to start. It reports false, having acted on
-// nothing, when the lock is not the guard's or the old watcher closes the
-// pipe without a word.
-func (w *watcher) inherit() bool {
-	for fd := 3; fd <= 5; fd++ {
+// watcher carried, the word to start. With listener, it takes on the
+// listening socket passed as descriptor 6 (see listenerVariable). It reports
+// false, having acted on nothing, when the lock is not the guard's or the old
+// watcher closes the pipe without a word.
+func (w *watcher) inherit(listener bool) bool {
+	last := 5
+	if listener {
+		last = listenerFD
+	}
+	for fd := 3; fd <= last; fd++ {
 		unix.CloseOnExec(fd)
 	}
 	lock, ready, start := os.NewFile(
@@ -318,7 +383,28 @@ func (w *watcher) inherit() bool {
 	_ = json.Unmarshal(line, &c)
 	w.inherited = &c
 	w.lockFile, w.release, w.lockInfo = lock, func() { _ = lock.Close() }, info
+	if listener {
+		w.inheritedListener = takeListener()
+	}
 	return true
+}
+
+// takeListener takes the listening socket passed as descriptor 6. Go's
+// copy is its own descriptor, so the passed one is closed. It gives nil when
+// the descriptor is not a Unix listener; the watcher then listens anew.
+func takeListener() *net.UnixListener {
+	f := os.NewFile(listenerFD, "guard.sock")
+	defer func() { _ = f.Close() }()
+	ln, err := net.FileListener(f)
+	if err != nil {
+		return nil
+	}
+	unixListener, ok := ln.(*net.UnixListener)
+	if !ok {
+		_ = ln.Close()
+		return nil
+	}
+	return unixListener
 }
 
 // adopt takes on what the old watcher carried: the largest peak and, for
