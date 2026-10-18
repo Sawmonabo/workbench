@@ -2,9 +2,9 @@ package guard
 
 import "time"
 
-// ProtocolVersion is the version of the messages the watcher's socket speaks:
+// protocolVersion is the version of the messages the watcher's socket speaks:
 // JSON Lines, one message per line, each with its type.
-const ProtocolVersion = 1
+const protocolVersion = 1
 
 // The message types. A client says hello with the versions it speaks; the
 // watcher answers hello with the highest it shares and its release, or error

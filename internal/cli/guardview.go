@@ -165,12 +165,12 @@ const (
 )
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
-// header, the column heads, three rows, a blank line and the key line), how
+// header and the six-line stop menu below it, with the key line), how
 // long a notice stays, the readings the memory graph shows at most, and the
 // widest a project name is shown before it is clipped.
 const (
 	guardViewMinWidth  = 60
-	guardViewMinHeight = 8
+	guardViewMinHeight = 10
 	noticeShown        = 3 * time.Second
 	graphReadings      = 120
 	projectWidth       = 24
@@ -919,7 +919,7 @@ func (m *guardView) menuBox() []string {
 func (m *guardView) overlay(lines, box []string) []string {
 	boxWidth := lipgloss.Width(strings.Join(box, "\n"))
 	left := max((m.width-boxWidth)/2, 0)
-	top := max((len(lines)-len(box))/2, 3)
+	top := min(max((len(lines)-len(box))/2, 3), max(len(lines)-len(box), 0))
 	for i, row := range box {
 		at := top + i
 		if at >= len(lines) {

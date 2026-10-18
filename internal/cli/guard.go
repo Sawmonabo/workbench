@@ -396,9 +396,16 @@ func nonZero(n int) string {
 }
 
 // shortCallID is the first 8 characters of a tool call ID after its toolu_
-// (Claude Code) or call_ (Codex) prefix, enough to tell calls apart on screen.
+// (Claude Code) or call_ (Codex) prefix and any provider segment after it,
+// enough to tell calls apart on screen. Claude on Amazon Bedrock and Google
+// Vertex AI adds a short lowercase segment ("toolu_bdrk_01…",
+// "toolu_vrtx_01…"), the same in every ID, so it is left out too.
 func shortCallID(call string) string {
 	call = strings.TrimPrefix(strings.TrimPrefix(call, "toolu_"), "call_")
+	if segment, rest, ok := strings.Cut(call, "_"); ok && len(segment) >= 2 &&
+		len(segment) <= 8 && strings.Trim(segment, "abcdefghijklmnopqrstuvwxyz") == "" {
+		call = rest
+	}
 	return call[:min(8, len(call))]
 }
 

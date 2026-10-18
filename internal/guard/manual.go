@@ -69,8 +69,10 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 		}
 		return ""
 	}
-	var size uint64
-	if u := w.usage[id]; u != nil && len(u.Samples) > 0 {
+	// size is what the guard's own stop records: the tree's footprint (Pss on
+	// Linux), read now, or the last reading when none of it can be read.
+	size := w.size(s.tree(c.Root.PID, outside(protected)), platform.Footprint)
+	if u := w.usage[id]; size == 0 && u != nil && len(u.Samples) > 0 {
 		size = u.Samples[len(u.Samples)-1]
 	}
 	stopping := append(w.endAttrs(c), "by", "you", "size", size)

@@ -405,9 +405,9 @@ func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 }
 
 // demand is what memory calls for at now, after the holds that keep a brief
-// dip from stopping anything: a soft condition calls for a polite stop only once it has lasted softHold,
-// and macOS's critical level calls for a forced stop once it has lasted
-// criticalHold.
+// dip from stopping anything: a soft condition calls for a polite stop only
+// once it has lasted softHold, and macOS's critical level calls for a forced
+// stop once it has lasted criticalHold.
 func (w *watcher) demand(m memory, now time.Time) action {
 	act, soft := decide(m)
 	if !soft {
@@ -516,7 +516,9 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			if !seen.matched && seen.childSeen {
 				attrs := append([]any{"call", id, "agent", seen.kind},
 					placeAttrs(seen.cwd, seen.project, seen.subagent)...)
-				w.f.event(slog.LevelInfo, EventUnmatched, "ended without matching a command",
+				// A note that never found its command left that command unguarded,
+				// which a person should see.
+				w.f.event(slog.LevelWarn, EventUnmatched, "ended without matching a command",
 					append(attrs, "took", time.Since(seen.at).Seconds(),
 						"command", clip(seen.command))...)
 				w.finish(CommandView{

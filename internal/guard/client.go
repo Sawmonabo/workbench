@@ -39,10 +39,10 @@ var ErrProtocolVersion = errors.New("the watcher speaks no protocol version this
 // socketFile is the watcher's socket in the guard folder root.
 func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 
-// SocketPath is the watcher's socket path. It reads nothing and creates
+// socketPath is the watcher's socket path. It reads nothing and creates
 // nothing. A path too long for a socket address is an error naming the state
 // folder, which holds it.
-func SocketPath() (string, error) {
+func socketPath() (string, error) {
 	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
 		return "", err
@@ -72,7 +72,7 @@ type Client struct {
 
 // Dial connects to the watcher's socket. It fails when no watcher listens.
 func Dial(ctx context.Context) (*Client, error) {
-	path, err := SocketPath()
+	path, err := socketPath()
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +104,7 @@ func (c *Client) Hello() (release string, err error) {
 	if err := c.conn.SetDeadline(time.Now().Add(helloWait)); err != nil {
 		return "", err
 	}
-	if err := c.write(message{Type: messageHello, Versions: []int{ProtocolVersion}}); err != nil {
+	if err := c.write(message{Type: messageHello, Versions: []int{protocolVersion}}); err != nil {
 		return "", err
 	}
 	reply, err := c.read()
@@ -115,7 +115,7 @@ func (c *Client) Hello() (release string, err error) {
 	case reply.Type == messageError:
 		// The only error a watcher answers a hello with is no common version.
 		return "", fmt.Errorf("%w: %s", ErrProtocolVersion, reply.Error)
-	case reply.Type != messageHello || reply.Version != ProtocolVersion:
+	case reply.Type != messageHello || reply.Version != protocolVersion:
 		return "", fmt.Errorf("%w: the watcher answered %q with version %d",
 			ErrProtocolVersion, reply.Type, reply.Version)
 	}
