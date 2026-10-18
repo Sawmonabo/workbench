@@ -75,13 +75,15 @@ func (m *costsView) render() {
 	}
 	body, targets, hits := costsPage(tool, m.reports[tool.Name], m.width, m.selected)
 	m.targets = targets
-	// The lines above the body: the blank line, then the problem, if any.
-	lead := "\n"
+	// The lines above the body: the blank line, then the problem, if any,
+	// wrapped so the reason shows whole.
+	var lead strings.Builder
+	lead.WriteString("\n")
 	if m.problem != "" {
-		lead += yellow.Render(m.problem) + "\n"
+		writeStyled(&lead, m.width, 0, m.problem, yellow)
 	}
-	m.view.SetContent(lead + body)
-	m.hits = slices.Repeat([]int{-1}, strings.Count(lead, "\n"))
+	m.view.SetContent(lead.String() + body)
+	m.hits = slices.Repeat([]int{-1}, strings.Count(lead.String(), "\n"))
 	m.hits = append(m.hits, hits...)
 	if line := slices.Index(m.hits, m.selected); line >= 0 {
 		m.view.EnsureVisible(line, 0, 0)
