@@ -3,6 +3,115 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.27](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.27) - 2026-10-18
+
+### Features
+
+- Turn on the terminal's alternate scroll so the wheel scrolls the details
+- Scroll the details and free the mouse there for text selection
+- Label a worktree by its repository and drop the retry note
+- Mark the selected row with a band, take the mouse, split long commands in details
+- Turn the mouse on in the costs view
+- Print measurements with two decimals and capacities whole
+- Give the memory view the guard's colors, a four-line header and arrow keys
+- Read the machine's used memory on macOS and Linux
+- Color the log's level, agent and sizes in the pinned colors
+- Scaffold the guard's pinned colors and a used-memory field
+- Add workbench guard memory, a live view of tracked commands with a stop menu
+- Serve snapshots and take a person's stop over a peer-checked Unix socket
+- Print the guard log one event per line with an id, project and key=value fields
+- Measure each tracked command every tick and record how long it ran and its peak
+- Note each call's folder, project and subagent and prefer the command in the note's folder
+
+### Fixes
+
+- Match the saved alternate scroll state with a restore when it stays on
+- Keep the mouse in the stop menu, ask the terminal before setting alternate scroll
+- Cap a rate override at 1000 USD per million tokens
+- Keep $' ' and case … esac whole, end a comment at its line and say what the log's cmd holds
+- Keep the key line on screen when a long reason shortens the details
+- Refuse rates out of range, scroll where the wheel selects nothing
+- Color a size from where it prints as 1.00 GB and 4.00 GB
+- Show here-documents, tests and groups whole in the details
+- Keep the command, status and memory in details that do not fit
+- Keep every color on the selected row's band at 3:1 or more
+- Wrap the reason a page could not open
+- Keep the marker on the name's line in a stacked table
+- Print one figure for the same responses on every view
+- Show the swap total whole when no swap is in use
+- Keep the clock and the stop menu clear of the header, drop the unused release
+- Show swap not in use as 0, not as a missing reading
+- Keep the stop menu below a status line that wrapped
+- Warn on unmatched notes, size a person's stop like the guard's, keep provider IDs apart
+- Refuse a person's stop from under an agent running as PID 1
+- Mark dry-run rows, keep the view inside 60 columns, make the socket owner-only
+- Stop only the commands the menu opened with, and say what a dry run did
+- Refuse --json and --non-interactive in guard memory, detect another protocol by error
+- End a carried command whose root died during the handover, with who stopped it
+- Carry the finished commands and who stopped each across a handover
+- Log a repeated forced stop only when it kills, and name the protocol version from its constant
+- Pass the listening socket without switching it to blocking mode
+- Report a zombie's or exited process's folder as exited and read proc_pidinfo's int result
+- Leave merge commits out of the changelog
+
+### Documentation
+
+- Describe the scrolling details and text selection there
+- Describe the band's contrast, the details' cut and what splits
+- Describe the selected row's band, the mouse and the details' command steps
+- Say how dollar figures add up and round
+- Describe the mouse in the costs view
+- State the size rule and update the examples to it
+- Wrap the view's lines and name what the reader needs
+- Say what the hello checks and wrap the view's lines
+- Record the header, color and arrow-key check
+- Describe the memory view's header, colors and arrow keys
+- State where the used memory comes from
+- Point the guard design at the log's pinned colors
+- Describe the log's pinned colors and why they are pinned
+- Wrap the id sentence and state the stop test's risk as the docs do
+- Match the log examples, the stop check, CI linting and tests to the code
+- Describe dry-run marks, narrow-window lines and the socket's mode
+- Name the macOS and Go versions the latest checks ran on
+- Record the guard memory view and platform package checks
+- Describe what a handover carries and the view's refusals and limits
+- Describe shared files beside the per-system pairs
+- Show the platform package's shipped layout and System's Go names
+- Keep the guard's floor rule in the guard's memory comment
+- Add the platform package to the owners table
+- List the platform package and realign the layout listing
+- Capture the Linux baseline from an image with CA certificates as a non-root user
+- Plan the baseline apply from a home outside the worktree with the pinned tools installed
+- Capture the apply plan in the baseline and drop the init flag that does not exist
+- Keep the socket path helper out of the log reader's file
+- Avoid shadowing make in the pairing test and name the assembly symbol rename
+- Apply the second plan review: handover listener variable, manual-stop ordering, pure folder preference
+- Apply the plan review: asynchronous manual stops, folder preference, handover descriptor and sources
+- Plan the platform package, the log line format and the memory view
+- Keep the stop reason out of the log line and name the unlisted keys
+- Use the guard's real event names and verified counts in the spec
+- Cite the short-ID and htop sources and use neutral examples
+- Design one package for operating-system calls and platform facts
+- Name the per-tick memory reader apart from the stop's
+- State the memory view's platform code and the code it reuses
+- Design the log line format and the live memory view
+
+### Maintenance
+
+- Lint the linux and the darwin target by name
+- Open the handed-over descriptors one per line
+- Keep the snapshot builders in view.go, apart from the message format
+- Place nvm's folder in ToolFolders on both systems
+- Share IsTerminal over each system's termios request
+- Name the Python policy folder after its package so imports need no alias
+- Name the documentation-only file doc.go
+- Move the file and socket calls and read a process's folder and peer on both systems
+- Declare the system name once, beside the other platform facts
+- Move the guard's process, memory, signal and libc calls into one package
+- Read every platform fact and WSL once from internal/platform
+- Add the package that will own operating-system calls and platform facts
+- Explain rules in comments instead of citing design documents
+
 ## [v0.1.26](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.26) - 2026-10-17
 
 ### Features
