@@ -528,8 +528,10 @@ tools; Tab and Shift+Tab still do). The view turns mouse reporting on, so a
 trackpad never scrolls the terminal's own buffer under it: the mouse wheel moves
 the selection, a click selects a row and a click on the selected row opens it;
 the wheel scrolls a page, a report with no row to select (by account or month)
-and below the last row, where the notes are. With the mouse taken, hold Shift
-(Option in Terminal.app and iTerm2) to select text. A project's page shows its
+and below the last row, where the notes are. With the mouse taken, text is
+selected through the terminal's bypass: Terminal.app's View → Allow Mouse
+Reporting (⌘R) hands the mouse back until toggled again, other terminals use a
+held key such as Shift or Option. A project's page shows its
 total and share, its cost by model, by day (active days, newest first) and by
 session (start, length, the model that cost the most, cost, calls), costliest
 first. A model's page shows the same with its cost by project.

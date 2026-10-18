@@ -53,7 +53,7 @@ logged-in `gh`. Never run it as root.
 | `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
-| `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, hold Shift (Option in Terminal.app and iTerm2) to select text. Without a terminal, `--tool NAME` prints one tool's report. |
+| `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, select text with your terminal's bypass: Terminal.app's View → Allow Mouse Reporting (⌘R) hands the mouse back until toggled again; other terminals use a held key such as Shift or Option. Without a terminal, `--tool NAME` prints one tool's report. |
 | `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts a detached worker. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. `--worker` ingests in the foreground. |
@@ -309,19 +309,17 @@ processes and their memory, and a graph of its memory over the last 120
 readings), `k` opens the stop menu for the tagged commands or the selected one,
 with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
 it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
-ctrl+c quits. The view never takes the mouse, so a plain drag selects
-text on every screen, and the mouse wheel moves as ↑ and ↓ do: it moves the
-selection on the list, scrolls the details and moves the stop menu's choice
-(Enter still sends). The details lay a long command out
-one step per line, each `|`, `&&` or `||` outside quotes starting a line two
+ctrl+c quits. The view never takes the mouse (it reports no mouse events to
+the program), so a plain drag selects text on every screen, and in most
+terminals the mouse wheel moves as ↑ and ↓ do: it moves the selection on the
+list, scrolls the details and moves the stop menu's choice (enter still
+sends). The details lay a long command out one step per line, each `|`, `&&` or `||` outside quotes starting a line two
 spaces in (`go test ./... 2>&1`, then `| tail -20`), and a `;` ends its line; a
 test in `[[ ]]`, a `{ }` group, a `case … esac` and a command with a
 here-document stay whole.
 The details show every line and scroll when they are taller than the window: ↑
-and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends, and the
-mouse wheel scrolls them too. The
-watcher stops the
-command the way it stops for memory, logs it `by=you` and tells the agent
+and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends. The
+watcher stops the command the way it stops for memory, logs it `by=you` and tells the agent
 `Stopped by you (workbench guard memory).`; the bottom line shows its answer for
 3 seconds (`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
 finished`). The watcher serves the view on `guard.sock` beside its log, only to

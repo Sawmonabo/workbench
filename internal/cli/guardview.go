@@ -39,7 +39,8 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does; space tags a " +
 			"running command, enter or → opens the selected one's details (the full command, " +
 			"one step of a pipeline or && chain per line, its folder, processes and memory " +
-			"graph, which scroll with ↑, ↓, pgup, pgdn, home, end and the wheel), k opens the stop menu for the " +
+			"graph, which scroll with ↑, ↓, pgup, pgdn, home, end and the wheel), k opens the " +
+			"stop menu for the " +
 			"tagged commands or the selected one (a polite stop, force-killed after 5 s, or a " +
 			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
 			"list, quits. The watcher signals the command, logs the stop as by=you " +
@@ -99,8 +100,8 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		tea.WithoutSignalHandler(),
 	)
 	_, err := program.Run()
-	// However the view ended, the terminal must not keep sending the wheel
-	// as arrow keys to the shell.
+	// However the view ended, put the terminal's alternate scroll setting
+	// back as the view found it.
 	model.altScroll.disarm(os.Stdout)
 	if model.client != nil {
 		_ = model.client.Close()
@@ -568,11 +569,8 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 // taller window, so the key line and its notices always show. The view never
 // takes the mouse, so a plain drag selects text on every screen, and the
 // terminal sends a wheel step as ↑ or ↓ (altscroll.go), which move the list,
-// scroll the details and move the stop menu's choice, as the keys do. The
-// view once took the mouse on the list and released it in the details, and
-// Terminal.app then scrolled its own window under the wheel in the details;
-// tools that never take the mouse, and tools that take it on every screen,
-// scroll there as expected (ADR 14).
+// scroll the details and move the stop menu's choice, as the keys do (ADR
+// 14).
 func (m *guardView) View() tea.View {
 	var text string
 	switch {

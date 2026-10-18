@@ -347,18 +347,19 @@ A full-screen Bubble Tea program in the alternate screen.
   Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
   quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
   PgUp and PgDn a page, Home and End go to the top and the bottom, `k`
-  stops, Esc, ← or `h` goes back and `q` quits. The view never
-  takes the mouse, so a plain drag selects text on every screen; the
-  terminal sends a wheel step on the alternate screen as ↑ or ↓ (xterm's
-  alternate scroll mode, DECSET 1007 in
+  stops, Esc, ← or `h` goes back and `q` quits. The view never takes the
+  mouse (it reports no mouse events), so a plain drag selects text on every
+  screen; most terminals send a wheel step on the alternate screen as ↑ or
+  ↓ (xterm's alternate scroll mode, DECSET 1007 in
   [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html);
   Terminal.app has a setting of its own for it), so the wheel moves the
   list, scrolls the details and moves the stop menu's choice as the keys
   do; Enter still sends. At start the view saves the mode's state (XTSAVE)
-  and turns it on; when it ends, by a key, a signal or an error, it turns
-  the mode off and restores the saved state (XTRESTORE). A terminal that
-  knows neither scrolls its own window under the wheel, as it does for
-  `less`. A click on a row does nothing (ADR 14). The key line reads
+  and turns it on; when it ends, by a key, a signal or an error, it
+  restores the saved state (XTRESTORE), a restore alone so that a terminal
+  without XTSAVE keeps its own setting. A terminal that knows neither
+  scrolls its own window under the wheel, as it does for `less`. A click on
+  a row does nothing (ADR 14). The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and
   `↑/↓ choose  enter send  esc/← cancel` in the menu.
@@ -632,4 +633,6 @@ that nobody with the right to stop it chose:
   messages.
 - `docs/adr/0013-guard-memory-view.md`: why a socket served by the watcher,
   the peer checks and the agent lock, with the sources in section 2.
+- `docs/adr/0014-guard-view-leaves-the-mouse.md`: why the view never reports
+  the mouse, with its terminal sources.
 - `docs/acceptance.md`: what the checks in section 9 observed.
