@@ -75,7 +75,7 @@ one rate source inside `rates`, and there is no cache to clean.
 | --- | --- |
 | `<data>/costs/ledger.sqlite` | The durable record. User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
 | `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. Replaced whole through `operation.ReplacePrivateFile`, so an existing cache must be a private regular file with one link, or the refresh fails and leaves it. |
-| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields, each a number from 0 to 1,000,000 USD per million tokens; any other key, or a rate outside that range, rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
+| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields, each a number from 0 to 1,000 USD per million tokens; any other key, or a rate outside that range, rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `<state>/costs/ingest.log` | Bounded worker log. |
 | `<state>/costs/ingest.err`, `ingest.err.1` | The detached worker's stdout and stderr, never cut (`operation.RotateOutput`). |
 | `<state>/costs/ingest.lock` | Single-instance lock. |

@@ -158,7 +158,7 @@ file it names in its place or remove the link. The first `costs` or
 ingests them once inline. Manual rate overrides go in `costs/rates.json` in
 Workbench's config folder, keyed by model
 prefix, with any of `input`, `output`, `cache_write_5m`, `cache_write_1h` and
-`cache_read` in USD per million tokens, each from 0 to 1,000,000.
+`cache_read` in USD per million tokens, each from 0 to 1,000.
 The account table names each row's email and plan only from what Claude Code
 and Codex wrote down; usage they never recorded shows `not recorded`, with a
 note saying since when each tool records it. A Claude Code row belongs to the
