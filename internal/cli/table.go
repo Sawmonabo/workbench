@@ -182,7 +182,9 @@ func showPath(path string) string {
 
 // fitRows lays t out so that no line, indent included, is wider than width.
 // lipgloss renders whatever fits; below minClip each row is a stacked block.
-func fitRows(width, indent int, t tableSpec) []string {
+// rows holds, for each line, the index in t.Rows of the row it shows, or -1
+// for a head, rule or total line.
+func fitRows(width, indent int, t tableSpec) (lines []string, rows []int) {
 	t = t.plain()
 	active, widths, stack := layout(width, indent, t)
 	if stack {
@@ -238,7 +240,8 @@ func layout(width, indent int, t tableSpec) (active, widths []int, stack bool) {
 
 // writeTable writes fitRows' lines to b.
 func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
-	for _, line := range fitRows(width, indent, t) {
+	lines, _ := fitRows(width, indent, t)
+	for _, line := range lines {
 		b.WriteString(line + "\n")
 	}
 }
@@ -288,8 +291,9 @@ func naturalWidths(t tableSpec) []int {
 
 // renderTable hands the surviving columns, clipped to widths, to lipgloss. Cells
 // are clipped first so lipgloss's natural width is the fitted width; the
-// table's own Width is never set because it would spread narrow tables.
-func renderTable(indent int, t tableSpec, active, widths []int) []string {
+// table's own Width is never set because it would spread narrow tables. rows
+// is fitRows' row of each line.
+func renderTable(indent int, t tableSpec, active, widths []int) (lines []string, rows []int) {
 	// Faint cells are styled here, not in StyleFunc, so an empty one adds no
 	// escape codes and its line still ends without spaces once colors strip.
 	// Only data rows clip from the left: a head or total label is not a path.
@@ -339,12 +343,23 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 		tbl = tbl.Row(cells(t.Total, false, true)...)
 	}
 	if !t.Header && len(t.Rows) == 0 && t.Total == nil {
-		return nil
+		return nil, nil
 	}
 	pad := strings.Repeat(" ", indent)
-	var lines []string
 	for line := range strings.SplitSeq(tbl.Render(), "\n") {
 		lines = append(lines, pad+trimEnd(line))
+		rows = append(rows, -1)
+	}
+	// The data rows are one line each, after the head and its rule (as many
+	// lines as lipgloss draws them) and before the total.
+	head := len(lines) - len(t.Rows)
+	if t.Total != nil {
+		head--
+	}
+	if head >= 0 {
+		for i := range t.Rows {
+			rows[head+i] = i
+		}
 	}
 	if t.Total != nil {
 		// The rule spans the table and sits above the total row.
@@ -354,8 +369,9 @@ func renderTable(indent int, t tableSpec, active, widths []int) []string {
 		}
 		rule := pad + faint.Render(strings.Repeat(glyphs.Rule, widest))
 		lines = append(lines[:len(lines)-1], rule, lines[len(lines)-1])
+		rows = append(rows[:len(rows)-1], -1, -1)
 	}
-	return lines
+	return lines, rows
 }
 
 // trimEnd drops the spaces that end a line even when escape codes follow
@@ -371,8 +387,9 @@ func trimEnd(line string) string {
 
 // stacked prints each row as a block: a first line joining the cells before
 // the Clip column (or the Clip cell when it comes first), then one indented
-// "head value" line per other cell. Values clip to width.
-func stacked(width, indent int, t tableSpec, active []int) []string {
+// "head value" line per other cell. Values clip to width. at is fitRows' row
+// of each line: every line of a row's block is that row's.
+func stacked(width, indent int, t tableSpec, active []int) (lines []string, at []int) {
 	pad := strings.Repeat(" ", indent)
 	rows := t.Rows
 	if t.Total != nil {
@@ -385,16 +402,21 @@ func stacked(width, indent int, t tableSpec, active []int) []string {
 			break
 		}
 	}
-	var lines []string
+	row := -1 // the row the next line shows
 	add := func(prefix, text string, left bool) {
 		room := max(width-ansi.StringWidth(prefix), 1)
 		lines = append(lines, prefix+fit(text, room, left))
+		at = append(at, row)
 	}
-	for r, row := range rows {
+	for r, cells := range rows {
 		label := t.Total != nil && r == len(rows)-1 // the total's label is not a path
+		row = r
+		if label {
+			row = -1
+		}
 		cell := func(i int) string {
-			if i < len(row) {
-				return row[i]
+			if i < len(cells) {
+				return cells[i]
 			}
 			return ""
 		}
@@ -417,7 +439,7 @@ func stacked(width, indent int, t tableSpec, active []int) []string {
 			add(pad+"  ", text, t.Cols[i].ClipLeft && t.Cols[i].Head == "" && !label)
 		}
 	}
-	return lines
+	return lines, at
 }
 
 // fit shortens s to width display cells with the ellipsis glyph, from the
