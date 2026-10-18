@@ -58,10 +58,13 @@ type Snapshot struct {
 // MemoryView is the machine's memory, in bytes, as the guard reads it. Level
 // is macOS's pressure level (normal, warning or critical) with the installed
 // memory and swap, or on Linux normal or low by the guard's thresholds, with
-// the memory available of the total user memory may take.
+// the memory available of the total user memory may take. Used is the memory
+// in use of Installed as the system's own monitor counts it (see
+// platform.Memory).
 type MemoryView struct {
 	Level     string `json:"level"`
 	Installed uint64 `json:"installed"`
+	Used      uint64 `json:"used"`
 	Available uint64 `json:"available"`
 	Total     uint64 `json:"total"`
 	SwapFree  uint64 `json:"swap_free"`
@@ -122,7 +125,7 @@ func memoryView(m memory) MemoryView {
 		}
 	}
 	return MemoryView{
-		Level: level, Installed: m.Installed, Available: m.Available, Total: m.Total,
-		SwapFree: m.SwapFree, SwapTotal: m.SwapTotal,
+		Level: level, Installed: m.Installed, Used: m.Used, Available: m.Available,
+		Total: m.Total, SwapFree: m.SwapFree, SwapTotal: m.SwapTotal,
 	}
 }
