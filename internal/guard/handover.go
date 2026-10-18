@@ -61,12 +61,15 @@ type handover struct {
 }
 
 // carried is what the old watcher hands over beside the notes on disk, which
-// the new one reads itself: the tracked commands' roots, and the calls whose
-// command ended or that are passed over, which live only in memory.
+// the new one reads itself: the tracked commands' roots and memory, the calls
+// whose command ended or that are passed over, and the largest peak, which
+// live only in memory.
 type carried struct {
-	Tracked map[string]procRef `json:"tracked"`
-	Ended   []string           `json:"ended"`
-	Passed  []string           `json:"passed"`
+	Tracked     map[string]procRef `json:"tracked"`
+	Ended       []string           `json:"ended"`
+	Passed      []string           `json:"passed"`
+	Usage       map[string]usage   `json:"usage"`
+	LargestPeak uint64             `json:"largest_peak"`
 }
 
 type procRef struct {
@@ -241,9 +244,16 @@ func (w *watcher) failHandover(target os.FileInfo, cause error) {
 
 // carried is what this watcher hands over.
 func (w *watcher) carried() carried {
-	c := carried{Tracked: map[string]procRef{}}
+	c := carried{
+		Tracked:     map[string]procRef{},
+		Usage:       map[string]usage{},
+		LargestPeak: w.largestPeak,
+	}
 	for id, cmd := range w.tracked {
 		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
+		if u := w.usage[id]; u != nil {
+			c.Usage[id] = *u
+		}
 	}
 	for id := range w.ended {
 		c.Ended = append(c.Ended, id)
@@ -311,13 +321,15 @@ func (w *watcher) inherit() bool {
 	return true
 }
 
-// adopt takes on what the old watcher carried for each note still on disk:
-// its tracked command when the root still runs, with its start time, as the
-// note's agent's child, with whether it is passed over, and whether its
-// command ended.
+// adopt takes on what the old watcher carried: the largest peak and, for
+// each note still on disk, its tracked command when the root still runs, with
+// its start time, as the note's agent's child, with its memory, whether it is
+// passed over, and whether its command ended. A tracked command carried
+// without memory starts it anew.
 // Other notes are matched as a new watcher matches them (see match).
 func (w *watcher) adopt(s snapshot, notes []note) {
 	c := w.inherited
+	w.largestPeak = max(w.largestPeak, c.LargestPeak)
 	for _, n := range notes {
 		id := n.ToolUseID
 		if slices.Contains(c.Ended, id) {
@@ -327,6 +339,11 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		if p := s[root.PID]; ok && s.alive(root.PID, root.Start) && p.PPID == n.AgentPID {
 			cmd := command{Note: n, Root: p}
 			w.tracked[id] = cmd
+			u, kept := c.Usage[id]
+			if !kept {
+				u = usage{Since: time.Now()}
+			}
+			w.usage[id] = &u
 			w.passed[id] = slices.Contains(c.Passed, id)
 			seen := w.seen[id]
 			seen.matched = true
