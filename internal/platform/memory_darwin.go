@@ -6,8 +6,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// MachineMemory reads the kernel's pressure level, the RAM and vm.swapusage
-// (struct xsw_usage: total, avail, used as uint64).
+// MachineMemory reads the kernel's pressure level, the RAM, the pages in use
+// (usedPages) times hw.pagesize and vm.swapusage (struct xsw_usage: total,
+// avail, used as uint64).
 func MachineMemory() (Memory, error) {
 	level, err := unix.SysctlUint32("kern.memorystatus_vm_pressure_level")
 	if err != nil {
@@ -17,7 +18,18 @@ func MachineMemory() (Memory, error) {
 	if err != nil {
 		return Memory{}, err
 	}
-	m := Memory{Level: int(level), Installed: installed, FullAvg10: -1}
+	pages, err := usedPages()
+	if err != nil {
+		return Memory{}, err
+	}
+	pagesize, err := unix.SysctlUint32("hw.pagesize")
+	if err != nil {
+		return Memory{}, err
+	}
+	m := Memory{
+		Level: int(level), Installed: installed,
+		Used: pages * uint64(pagesize), FullAvg10: -1,
+	}
 	if swap, err := unix.SysctlRaw("vm.swapusage"); err == nil && len(swap) >= 24 {
 		m.SwapTotal = binary.LittleEndian.Uint64(swap[0:8])
 		m.SwapFree = binary.LittleEndian.Uint64(swap[8:16])

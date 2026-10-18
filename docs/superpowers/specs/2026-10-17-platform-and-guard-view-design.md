@@ -83,6 +83,15 @@ Each was read in the source named.
   Linux. The kernel builds `smaps_rollup` by walking the process's mappings
   ([proc(5) docs](https://docs.kernel.org/filesystems/proc.html)), so its cost
   grows with the process; `/proc/PID/statm`'s resident count is a counter.
+- **Memory in use.** Activity Monitor's Memory Used is App Memory (the
+  anonymous pages less the purgeable ones) plus Wired plus Compressed; htop
+  adopted the same pages for Apple silicon
+  ([htop#1439](https://github.com/htop-dev/htop/pull/1439)), and
+  `host_statistics64` with `HOST_VM_INFO64` gives each count in
+  `struct vm_statistics64` (`mach/vm_statistics.h`). On Linux, `free(1)`'s
+  used column is "Total - Available" since procps-ng 4.0
+  ([NEWS](https://sources.debian.org/src/procps/2%3A4.0.4-9/NEWS),
+  [free(1)](https://manpages.debian.org/trixie/procps/free.1.en.html)).
 - **Live terminal view.** Bubble Tea, already Workbench's terminal library,
   feeds outside events into a program through a channel and a command that
   waits for the next one ([realtime example](https://github.com/charmbracelet/bubbletea/blob/main/examples/realtime/main.go)).
@@ -172,7 +181,7 @@ anything else fails to compile, which replaces the run-time refusal in
 | `TouchIDPossible` | Touch ID for sudo can exist | the test in `operation.TouchIDForSudo` |
 | `AssetTriple` | the `apple-darwin` or `unknown-linux-gnu` asset name part | the map in `machine/setup.go` |
 | process calls | list processes, one process's info, arguments, one environment value, physical footprint, resident memory (`Resident`), working folder (`Folder`), send a signal safely, wait for exit | `internal/guard/platform_*`, `operation.PhysicalFootprint` |
-| memory reading | the system's memory pressure, available and total | `readMemory` in `internal/guard/platform_*` |
+| memory reading | the system's memory pressure, available, total and in use (`Used`) | `readMemory` in `internal/guard/platform_*` |
 | file calls | no-replace rename, private file system check, terminal check, ACL and metadata reads | `internal/operation/filesystem_*`, the calls in `image_metadata_*` |
 | `Peer(conn)` | the connected process's user and process ID | `LOCAL_PEERPID` in `operation/askpass_darwin.go`, new on Linux |
 
@@ -414,7 +423,7 @@ and whose processes are gone.
   runs a different release and to run `workbench update`. Every message has
   one type, and each type uses only its own fields.
 - **Snapshot**, after each tick:
-  `{"type":"snapshot","snapshot":{"at":TIME,"memory":{"level":"normal","installed":N,"available":N,"total":N,"swap_free":N,"swap_total":N},"largest_peak":N,"commands":[…]}}`,
+  `{"type":"snapshot","snapshot":{"at":TIME,"memory":{"level":"normal","installed":N,"used":N,"available":N,"total":N,"swap_free":N,"swap_total":N},"largest_peak":N,"commands":[…]}}`,
   the snapshot nested under `snapshot`, each command with `id` (full),
   `agent`, `subagent`, `project`, `cwd`, `cmd`, `state` (`running`,
   `stopping`, `done`, `unmatched`, `stopped`), `by`, `dry_run` (the note's),

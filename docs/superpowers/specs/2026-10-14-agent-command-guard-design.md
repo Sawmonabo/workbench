@@ -136,6 +136,15 @@ Read from documentation and source:
   available. XNU asks programs to trim caches at warning and Jetsam kills at
   critical; warning is common in ordinary use (a machine with 42 % of its
   memory free read warning on every sample over nine seconds).
+  The memory in use, as Activity Monitor's Memory Used counts it (App Memory,
+  the anonymous pages less the purgeable ones, plus Wired plus Compressed),
+  comes from libSystem's `host_statistics64` with `HOST_VM_INFO64`, called
+  through the same trampolines as `proc_pid_rusage` on the port
+  `mach_host_self` returns once per process; it fills `struct vm_statistics64`
+  (`mach/vm_statistics.h`), whose `internal_page_count`, `purgeable_count`,
+  `wire_count` and `compressor_page_count` times `hw.pagesize` give the
+  figure. htop counts the same pages on Apple silicon
+  ([htop#1439](https://github.com/htop-dev/htop/pull/1439)).
 - **A process's macOS footprint without cgo.** libSystem's `proc_pid_rusage`
   with `RUSAGE_INFO_V0` fills `rusage_info_v0`, whose `ri_phys_footprint` at
   offset 72 is the figure Activity Monitor shows. Resident memory from `ps`
@@ -835,7 +844,7 @@ day.
 
 | | macOS | Linux, WSL2 |
 |---|---|---|
-| Machine | `kern.memorystatus_vm_pressure_level`, `vm.swapusage`, `hw.memsize` | `/proc/meminfo`, `/proc/pressure/memory`; in a limiting cgroup v2 (`/proc/self/cgroup`) its `memory.max`, `memory.current`, `memory.stat`, `memory.pressure`, `memory.swap.max`, `memory.swap.current` |
+| Machine | `kern.memorystatus_vm_pressure_level`, `vm.swapusage`, `hw.memsize`, `hw.pagesize`, libSystem `host_statistics64` (`HOST_VM_INFO64`) | `/proc/meminfo`, `/proc/pressure/memory`; in a limiting cgroup v2 (`/proc/self/cgroup`) its `memory.max`, `memory.current`, `memory.stat`, `memory.pressure`, `memory.swap.max`, `memory.swap.current` |
 | Processes | `kern.proc.all`, `kern.procargs2` (with the environment after the arguments, for Codex's call ID) | `/proc/<pid>/stat`, `/proc/<pid>/cmdline`, `/proc/<pid>/environ` (Codex's call ID) |
 | Size | libSystem `proc_pid_rusage`, `ri_phys_footprint` (`platform.Footprint`) | `/proc/<pid>/smaps_rollup` `Pss` |
 | Agent exit | `kqueue` `EVFILT_PROC` `NOTE_EXIT` | pidfd |
