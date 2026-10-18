@@ -282,7 +282,7 @@ var guardMessageEvents = map[string]bool{
 
 // guardLine is one event on one line, as logfmt readers parse it after its
 // first three fields: `Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a
-// project=api took=53s peak=2.4GB cmd="cargo test"`. The time is local, the
+// project=api took=53s peak=2.41GB cmd="cargo test"`. The time is local, the
 // level is padded to 5 and the event to 9, and a raw line, which has no time,
 // leaves the time blank. The time and the keys are faint, the level label
 // alone is colored and the event is plain. Fields follow in a fixed order, cmd

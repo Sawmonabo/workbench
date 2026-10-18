@@ -187,16 +187,16 @@ func clip(command string) string {
 	return command
 }
 
-// mbLimit is where a size moves from MB to GB: half a MB under 1 GB, so a
+// MBLimit is where a size moves from MB to GB: half a MB under 1 GB, so a
 // size that rounds to 1024 MB prints in GB.
-const mbLimit = 1<<30 - 1<<19
+const MBLimit = 1<<30 - 1<<19
 
 // Size is a measurement, a reading that moves (memory used or available, a
 // command's size and peak, swap in use), as the stop reason, the log viewer
 // and the live view show it: whole MB under 1 GB, else GB with two decimals
 // ("289 MB", "1.52 GB"). GB and MB are binary, as Activity Monitor counts them.
 func Size(bytes uint64) string {
-	if bytes < mbLimit {
+	if bytes < MBLimit {
 		return fmt.Sprintf("%.0f MB", float64(bytes)/(1<<20))
 	}
 	return fmt.Sprintf("%.2f GB", float64(bytes)/(1<<30))
@@ -206,7 +206,7 @@ func Size(bytes uint64) string {
 // cgroup limit): whole MB under 1 GB, else whole GB when the value is whole at
 // two decimals and two decimals otherwise ("256 MB", "16 GB", "1.86 GB").
 func Capacity(bytes uint64) string {
-	if bytes < mbLimit {
+	if bytes < MBLimit {
 		return Size(bytes)
 	}
 	return strings.TrimSuffix(fmt.Sprintf("%.2f", float64(bytes)/(1<<30)), ".00") + " GB"
