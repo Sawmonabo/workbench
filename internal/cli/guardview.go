@@ -977,7 +977,8 @@ const (
 // order on screen kept, and one "… N more" line above the graph counts them;
 // a field that loses its later lines but keeps its first ends with "…". At
 // the smallest window the details are the Command's first line, Folder,
-// Status, Memory, "… N more" and Graph.
+// Status, Memory, "… N more" and Graph; only a reason above them that wraps
+// onto more lines leaves less, and the graph still shows.
 func (m *guardView) detailLines(room int) []string {
 	if m.cursor >= len(m.snap.Commands) {
 		return nil
@@ -1056,6 +1057,8 @@ func fitDetails(lines []detailLine, room, width int) []string {
 	graphField := lines[len(lines)-1].field
 	out := make([]string, 0, len(lines)+1)
 	for i, line := range lines {
+		// The count shows where it fits; when only the graph is left, it
+		// does not.
 		if cut > 0 && line.field == graphField && i > 0 && lines[i-1].field != graphField {
 			out = append(out, faint.Render(fmt.Sprintf("%12s%s %d more", "", glyphs.Ellipsis, cut)))
 		}
@@ -1071,9 +1074,12 @@ func fitDetails(lines []detailLine, room, width int) []string {
 }
 
 // cutDetails drops n lines from lines, or as many as may go: each time the
-// last line of the highest cut class left. It returns the lines kept and how
-// many it dropped.
+// last line of the highest cut class left and, once only lines never cut are
+// left, as when a long reason above the details leaves very few lines, the
+// last line before the graph, the last field, which always stays. It returns
+// the lines kept and how many it dropped.
 func cutDetails(lines []detailLine, n int) ([]detailLine, int) {
+	graphField := lines[len(lines)-1].field
 	dropped := 0
 	for ; dropped < n; dropped++ {
 		at := -1
@@ -1081,6 +1087,12 @@ func cutDetails(lines []detailLine, n int) ([]detailLine, int) {
 			if line.cut > 0 && (at < 0 || line.cut >= lines[at].cut) {
 				at = i
 			}
+		}
+		if at < 0 {
+			at = slices.IndexFunc(
+				lines,
+				func(l detailLine) bool { return l.field == graphField },
+			) - 1
 		}
 		if at < 0 {
 			break

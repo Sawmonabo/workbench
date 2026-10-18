@@ -386,7 +386,9 @@ A full-screen Bubble Tea program in the alternate screen.
   with `…`. The command's first line, Status, Memory and the graph always
   show, the facts needed to decide on `k stop`: at 11 lines the details are
   `Command <first line>…`, Folder, Status, Memory, `… N more` and the
-  graph. `k` stops from here too; Esc, ← or `h` goes back.
+  graph. Only when a reason above them wraps onto more lines than that
+  leaves room for do Memory, then Status, then the command go too, and the
+  graph and the key line still show. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
   The counts line, about 72 columns in full, drops `· swap …` first, then
