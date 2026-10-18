@@ -591,3 +591,59 @@ func TestEscalationStaysInsideTheStoppedCommand(t *testing.T) {
 		}
 	}
 }
+
+// A stop nobody with the right to stop it chose, or that an agent's own
+// command sends against another agent's work, is an unauthorized SIGTERM.
+func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
+	agent := process(100, 1, 100, -3600, "claude")
+	shell := process(200, 100, 200, 0.4, claudeShell(`'make'`)...)
+	s := snapshotOf(
+		agent,
+		shell,
+		process(300, 200, 300, 0.5, "workbench", "guard", "memory"), // under the agent's command
+		process(
+			400,
+			1,
+			400,
+			0.6,
+			"zsh",
+		),
+		process(401, 400, 401, 0.7, "workbench", "guard", "memory"),
+		process(500, 1, 500, -3600, "claude"),
+	) // agent-named, left no note
+	protected := map[int]uint64{100: start(-3600)}
+	for _, tc := range []struct {
+		name string
+		peer procKey
+		want bool
+	}{
+		{"personAtATerminal", procKey{401, start(0.7)}, true},
+		{"underTheAgentsCommand", procKey{300, start(0.5)}, false},
+		{"theAgentItself", procKey{100, start(-3600)}, false},
+		{"peerExitedPIDReused", procKey{401, start(9)}, false},
+		{"unknownPeer", procKey{999, start(0)}, false},
+		{"agentWithoutANote", procKey{500, start(-3600)}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stopAllowed(tc.peer, s, protected); got != tc.want {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
+	}
+	tracked := map[string]command{
+		"toolu_live": {Root: shell},
+		"toolu_gone": {Root: process(201, 100, 201, 0.1, "sh")},
+	}
+	stop, results := chooseStops([]string{"toolu_live", "toolu_gone", "toolu_never"}, tracked, s)
+	if len(stop) != 1 || stop[0].Root.PID != 200 {
+		t.Fatalf("chosen %v, want only the live command", stop)
+	}
+	want := []StopResult{
+		{ID: "toolu_live", OK: true},
+		{ID: "toolu_gone", Error: "already finished"},
+		{ID: "toolu_never", Error: "unknown"},
+	}
+	if !slices.Equal(results, want) {
+		t.Fatalf("results %v, want %v", results, want)
+	}
+}

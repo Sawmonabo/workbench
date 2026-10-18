@@ -139,6 +139,17 @@ type watcher struct {
 	// calm is set by a tick that read memory calling for nothing, with no
 	// hold under way: a moment a handover may happen at.
 	calm bool
+	// server is the socket guard memory connects to, nil when it could not be
+	// served; view is the last snapshot a tick built for it.
+	server *server
+	view   Snapshot
+	// manual are the stops people asked for, by call, while they are followed
+	// (see followManual); stoppedBy names who stopped each tracked command
+	// that was signalled, guard or you; finished are the commands that ended
+	// within finishedShown, for the snapshots.
+	manual    map[string]*manualStop
+	stoppedBy map[string]string
+	finished  []CommandView
 	handoff
 }
 
@@ -173,6 +184,8 @@ func Watch(ctx context.Context, version string) {
 		ended:     map[string]bool{},
 		lastEnded: map[procKey]uint64{},
 		refusals:  map[string]int{},
+		manual:    map[string]*manualStop{},
+		stoppedBy: map[string]string{},
 
 		setsCallIDs: map[procKey]bool{},
 		unsized:     map[procKey]bool{},
@@ -188,8 +201,13 @@ func Watch(ctx context.Context, version string) {
 	if !w.takeLock() {
 		return
 	}
+	// The socket file is removed on the way out while the lock is still this
+	// watcher's, except when the lock was lost: another watcher may serve
+	// the path by then.
+	unlink := true
 	defer func() {
 		w.dropHandover()
+		w.closeServer(unlink)
 		w.release()
 	}()
 	detached, err := operation.RotateOutput(f.output(), logLimit)
@@ -210,12 +228,19 @@ func Watch(ctx context.Context, version string) {
 	}
 	f.event(slog.LevelInfo, EventStarted, "watcher started", "release", version)
 	w.identify()
+	if err := w.listen(); err != nil {
+		w.listenFailed(err)
+	}
 	for ctx.Err() == nil {
 		if !w.ownsLock() {
 			f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
+			unlink = false
 			return
 		}
 		next := w.tick()
+		if w.server != nil && !w.view.At.IsZero() {
+			w.server.broadcast(w.view)
+		}
 		if w.handOver() {
 			return
 		}
@@ -256,8 +281,12 @@ func (w *watcher) ownsLock() bool {
 // read, makes it take the lock again and carry on, unless another watcher took
 // it first; so a note written as a watcher stops is never left without one.
 // Only notes that parse and whose agent runs count, so a broken note cannot
-// keep the watcher alive. It logs why it does not carry on.
+// keep the watcher alive. It logs why it does not carry on. The socket is
+// closed and its file removed before the lock goes, and served anew once the
+// lock is taken again.
 func (w *watcher) carryOn() bool {
+	w.closeServer(true)
+	w.inheritedListener = nil
 	w.release()
 	w.release = func() {}
 	if s, err := w.snapshot(); err == nil {
@@ -273,11 +302,16 @@ func (w *watcher) carryOn() bool {
 		return false
 	}
 	w.idleSince = time.Now()
+	if err := w.listen(); err != nil {
+		w.listenFailed(err)
+	}
 	return true
 }
 
 // tick runs one round and returns the time to the next. When the process
 // list or the notes folder cannot be read, it does nothing else this round.
+// It follows the stops people asked for and takes new ones with the same
+// snapshot, and keeps what it saw in view.
 func (w *watcher) tick() time.Duration {
 	w.round++
 	w.calm = false
@@ -303,6 +337,49 @@ func (w *watcher) tick() time.Duration {
 		w.inherited = nil
 	}
 	agents, protected := w.agents(s, notes)
+	w.followManual(s, protected)
+	w.drainStops(s, protected)
+	w.readAgents(s, agents, notes)
+	taken := map[int]bool{}
+	for _, c := range w.tracked {
+		taken[c.Root.PID] = true
+	}
+	for _, c := range match(s, w.untracked(notes), taken, w.setsCallIDs) {
+		taken[c.Root.PID] = true
+		w.tracked[c.Note.ToolUseID] = c
+		w.usage[c.Note.ToolUseID] = &usage{Since: time.Now()}
+		seen := w.seen[c.Note.ToolUseID]
+		seen.matched = true
+		w.seen[c.Note.ToolUseID] = seen
+		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
+	}
+	trees := w.measure(s, protected)
+	w.markChildSeen(s, agents, notes, taken)
+	if len(notes) > 0 || len(w.tracked) > 0 {
+		w.idleSince = time.Now()
+	}
+	w.expireKills()
+	m, err := readMemory()
+	if err != nil {
+		w.f.event(slog.LevelError, EventError, "cannot read memory", "error", err)
+		return time.Second
+	}
+	w.view = w.buildView(s, m, trees)
+	act := w.demand(m, time.Now())
+	if act == nothing {
+		w.underFloor = false
+	}
+	w.calm = act == nothing && w.softSince.IsZero() && w.criticalSince.IsZero()
+	if !w.coolingDown(s) && act != nothing && len(w.tracked) > 0 {
+		w.stopLargest(s, protected, act, m)
+	}
+	return delay(m)
+}
+
+// readAgents has the waiter wake at each agent's exit and reads what matching
+// needs of each (see loadArgs), noting the Codex agents seen setting call IDs
+// of their own while they run.
+func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 	codexAgents, inFolders := map[int]bool{}, map[int]bool{}
 	for _, n := range notes {
 		codexAgents[n.AgentPID] = codexAgents[n.AgentPID] || n.Kind == codex
@@ -325,39 +402,6 @@ func (w *watcher) tick() time.Duration {
 			}
 		}
 	}
-	taken := map[int]bool{}
-	for _, c := range w.tracked {
-		taken[c.Root.PID] = true
-	}
-	for _, c := range match(s, w.untracked(notes), taken, w.setsCallIDs) {
-		taken[c.Root.PID] = true
-		w.tracked[c.Note.ToolUseID] = c
-		w.usage[c.Note.ToolUseID] = &usage{Since: time.Now()}
-		seen := w.seen[c.Note.ToolUseID]
-		seen.matched = true
-		w.seen[c.Note.ToolUseID] = seen
-		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
-	}
-	w.measure(s, protected)
-	w.markChildSeen(s, agents, notes, taken)
-	if len(notes) > 0 || len(w.tracked) > 0 {
-		w.idleSince = time.Now()
-	}
-	w.expireKills()
-	m, err := readMemory()
-	if err != nil {
-		w.f.event(slog.LevelError, EventError, "cannot read memory", "error", err)
-		return time.Second
-	}
-	act := w.demand(m, time.Now())
-	if act == nothing {
-		w.underFloor = false
-	}
-	w.calm = act == nothing && w.softSince.IsZero() && w.criticalSince.IsZero()
-	if !w.coolingDown(s) && act != nothing && len(w.tracked) > 0 {
-		w.stopLargest(s, protected, act, m)
-	}
-	return delay(m)
 }
 
 // demand is what memory calls for at now, after the holds that keep a brief
@@ -475,6 +519,11 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 				w.f.event(slog.LevelInfo, EventUnmatched, "ended without matching a command",
 					append(attrs, "took", time.Since(seen.at).Seconds(),
 						"command", clip(seen.command))...)
+				w.finish(CommandView{
+					ID: id, Agent: string(seen.kind), Subagent: seen.subagent,
+					Project: seen.project, Cwd: seen.cwd, Command: seen.command,
+					State: stateUnmatched, Started: seen.at,
+				})
 			}
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -564,17 +613,21 @@ func (w *watcher) endAttrs(c command) []any {
 // measure adds each tracked command's size this tick to its usage: the
 // resident sizes over the tree a stop would signal, without protected
 // processes. A command whose root is absent from this snapshot is left for
-// forget.
-func (w *watcher) measure(s snapshot, protected map[int]uint64) {
+// forget. It gives each measured command's tree with the sizes it read.
+func (w *watcher) measure(s snapshot, protected map[int]uint64) map[string][]ProcessView {
 	skip := outside(protected)
+	trees := map[string][]ProcessView{}
 	for id, c := range w.tracked {
 		u := w.usage[id]
 		if u == nil || !s.alive(c.Root.PID, c.Root.Start) {
 			continue
 		}
-		u.add(w.size(s.tree(c.Root.PID, skip), platform.Resident))
+		tree, sizes := s.tree(c.Root.PID, skip), map[int]uint64{}
+		u.add(w.size(tree, residentInto(sizes)))
 		w.largestPeak = max(w.largestPeak, u.Peak)
+		trees[id] = treeView(tree, sizes)
 	}
+	return trees
 }
 
 // size is the sum of read over the processes, zombies left out. A process
@@ -641,6 +694,12 @@ func (w *watcher) forget(s snapshot) {
 		agentGone := w.gone(s, c.Note.AgentPID, c.Note.AgentStart)
 		if rootGone || agentGone {
 			w.f.event(slog.LevelInfo, EventEnded, "ended", w.endAttrs(c)...)
+			state := stateDone
+			if w.stoppedBy[id] != "" {
+				state = stateStopped
+			}
+			w.finish(w.commandView(id, c, state))
+			delete(w.stoppedBy, id)
 			delete(w.tracked, id)
 			delete(w.usage, id)
 			delete(w.passed, id)
@@ -732,16 +791,16 @@ func (w *watcher) coolingDown(s snapshot) bool {
 // tree (without protected processes); a tie goes to the older command. A
 // passed call is left out: a dry-run one already logged, one a stop gave up
 // on, or one whose stops signalled nothing three times in a row. So is one
-// whose root is absent from this snapshot. A polite stop leaves the commands
-// running when together they hold less than the memory floor, and logs that
-// once a pressure episode.
+// whose root is absent from this snapshot, and one a person is stopping. A
+// polite stop leaves the commands running when together they hold less than
+// the memory floor, and logs that once a pressure episode.
 func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, m memory) {
 	skip := outside(protected)
 	var chosen command
 	var chosenSize, total uint64
 	var members []proc
 	for id, c := range w.tracked {
-		if w.passed[id] || !s.alive(c.Root.PID, c.Root.Start) {
+		if w.passed[id] || w.manual[id] != nil || !s.alive(c.Root.PID, c.Root.Start) {
 			continue
 		}
 		tree := s.tree(c.Root.PID, skip)
@@ -863,7 +922,8 @@ func (w *watcher) refused(c command) {
 
 // signal sends SIGTERM, then SIGKILL once memory calls for a forced stop or
 // after five seconds, polling every 100 ms until the command's processes are
-// gone, and gives up after ten seconds. It reports whether any live target
+// gone, and gives up after ten seconds; meanwhile it shows the command
+// stopping to the clients each second. It reports whether any live target
 // was signalled.
 func (w *watcher) signal(chosen []target, c command) bool {
 	sent := false
@@ -874,8 +934,15 @@ func (w *watcher) signal(chosen []target, c command) bool {
 	if !sent {
 		return false
 	}
+	w.stoppedBy[c.Note.ToolUseID] = "guard"
+	w.showStopping(c.Note.ToolUseID)
 	killed := false
+	shown := time.Now()
 	for start := time.Now(); time.Since(start) < giveUp; time.Sleep(100 * time.Millisecond) {
+		if time.Since(shown) >= time.Second {
+			shown = time.Now()
+			w.showStopping(c.Note.ToolUseID)
+		}
 		if s, err := w.snapshot(); err == nil && !w.anyAlive(s) {
 			return true
 		}
@@ -887,6 +954,26 @@ func (w *watcher) signal(chosen []target, c command) bool {
 	}
 	w.abandon(c)
 	return true
+}
+
+// showStopping sends the clients the last view with the command id shown as
+// stopping by the guard, since no tick runs while signal polls. The view's
+// commands are copied, never changed in place: a client may still be
+// writing the last one.
+func (w *watcher) showStopping(id string) {
+	if w.server == nil || w.view.At.IsZero() {
+		return
+	}
+	view := w.view
+	view.At = time.Now()
+	view.Commands = slices.Clone(view.Commands)
+	for i := range view.Commands {
+		if view.Commands[i].ID == id && view.Commands[i].Ended.IsZero() {
+			view.Commands[i].State, view.Commands[i].By = stateStopping, "guard"
+		}
+	}
+	w.view = view
+	w.server.broadcast(view)
 }
 
 // escalateNow is true after five seconds or once memory calls for a forced
