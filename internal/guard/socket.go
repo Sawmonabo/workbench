@@ -63,20 +63,33 @@ type stopRequest struct {
 	reply chan []StopResult
 }
 
+// socketMode is the socket file's mode: only its owner may connect. The
+// folder is already private and each peer's user is checked at accept; the
+// mode guards the file itself as well, should the folder ever be opened.
+const socketMode = 0o600
+
 // listen serves the socket in the guard folder: the listener the old
 // watcher handed over, or a new one in place of a socket left behind, which
-// holding the lock makes this watcher's to replace.
+// holding the lock makes this watcher's to replace. A new socket is made
+// owner-only before anything is served; a handed-over one keeps its file, and
+// is made owner-only too in case a release that left it to the umask made it.
 func (w *watcher) listen() error {
+	path := w.f.socket()
 	listener := w.inheritedListener
 	w.inheritedListener = nil
-	if listener == nil {
-		path := w.f.socket()
+	if listener != nil {
+		_ = os.Chmod(path, socketMode)
+	} else {
 		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return err
 		}
 		var err error
 		listener, err = net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
 		if err != nil {
+			return err
+		}
+		if err := os.Chmod(path, socketMode); err != nil {
+			_ = listener.Close()
 			return err
 		}
 	}

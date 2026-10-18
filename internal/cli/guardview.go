@@ -199,7 +199,8 @@ func waitSnapshot(ch <-chan guard.Snapshot) tea.Cmd {
 // connectWatcher dials the watcher's socket and says hello. A missing or
 // refused socket means no watcher runs; a hello that times out means a
 // watcher of an older release took the socket over without serving it; a
-// hello without a protocol version in common means another release.
+// hello without a protocol version in common means another release; any
+// other failed hello is shown as it is.
 func connectWatcher() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -221,7 +222,10 @@ func connectWatcher() tea.Msg {
 	case errors.Is(err, guard.ErrProtocolVersion):
 		return connectedMsg{problem: watcherOther}
 	}
-	return connectedMsg{problem: watcherAbsent}
+	// A watcher answered the dial, so one runs: it may be exiting or handing
+	// over, which the next attempt finds out.
+	return connectedMsg{problem: "The watcher did not finish the hello (" + err.Error() +
+		"); reconnecting every second."}
 }
 
 // Init connects and starts the clock.
@@ -513,7 +517,7 @@ func (m *guardView) View() tea.View {
 // screen is the header, the list or the details with the stop menu over
 // them when it is open, and the key line at the bottom.
 func (m *guardView) screen() string {
-	lines := []string{m.headLine(), m.countLine(), m.statusLine()}
+	lines := append([]string{m.headLine(), m.countLine()}, m.statusLines()...)
 	room := max(m.height-len(lines)-2, 1)
 	if m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode) {
 		lines = append(lines, m.detailLines(room+1)...)
@@ -563,7 +567,7 @@ func (m *guardView) headLine() string {
 // a pressure level instead, the installed memory and the swap in use.
 func memoryText(mem guard.MemoryView) string {
 	if mem.Total > 0 {
-		return sizeOf(mem.Available, mem.Total) + " available"
+		return forTerm(sizeOf(mem.Available, mem.Total) + " available")
 	}
 	text := memorySize(mem.Installed) + " installed"
 	if mem.SwapTotal > 0 {
@@ -596,21 +600,45 @@ func (m *guardView) countLine() string {
 			running++
 		}
 	}
-	line := fmt.Sprintf("%d running · %d finished in the last minute · largest peak %s",
-		running, len(m.snap.Commands)-running, memorySize(m.snap.LargestPeak))
-	return fit(forTerm(line), m.width, false)
+	finished, peak := len(m.snap.Commands)-running, memorySize(m.snap.LargestPeak)
+	line := forTerm(fmt.Sprintf(
+		"%d running · %d finished in the last minute · largest peak %s",
+		running, finished, peak))
+	if ansi.StringWidth(line) > m.width {
+		line = forTerm(fmt.Sprintf("%d running · %d finished in 1 min · peak %s",
+			running, finished, peak))
+	}
+	return fit(line, m.width, false)
 }
 
-// statusLine says why no watcher answers, or, when a shown command is a dry
-// run, that stops are only logged; else it is blank.
-func (m *guardView) statusLine() string {
-	if !m.connected && m.problem != "" {
-		return fit(yellow.Render(m.problem), m.width, false)
+// statusLines say why no watcher answers or, when shown commands are dry
+// runs, that their stops are only logged: for all of them, or for how many;
+// else they are one blank line. A long text wraps to the window.
+func (m *guardView) statusLines() []string {
+	text := ""
+	dry := 0
+	for _, c := range m.snap.Commands {
+		if c.DryRun {
+			dry++
+		}
 	}
-	if slices.ContainsFunc(m.snap.Commands, func(c guard.CommandView) bool { return c.DryRun }) {
-		return yellow.Render("dry run: stops are logged, not sent")
+	switch {
+	case !m.connected && m.problem != "":
+		text = m.problem
+	case dry > 0 && dry == len(m.snap.Commands):
+		text = "dry run: stops are logged, not sent"
+	case dry > 0:
+		text = fmt.Sprintf("dry run on %d of %d commands: their stops are logged, not sent",
+			dry, len(m.snap.Commands))
 	}
-	return ""
+	if text == "" {
+		return []string{""}
+	}
+	lines := strings.Split(ansi.Wrap(forTerm(text), m.width, ""), "\n")
+	for i, line := range lines {
+		lines[i] = yellow.Render(line)
+	}
+	return lines
 }
 
 // guardColumns are the list's columns. COMMAND shrinks first, to 20 cells,
@@ -685,7 +713,7 @@ func (m *guardView) cells(c guard.CommandView) []string {
 	}
 	return []string{
 		shortCallID(c.ID),
-		forTerm(statusText(c.State)),
+		forTerm(statusText(c.State, c.DryRun)),
 		c.Agent,
 		c.Subagent,
 		took,
@@ -697,21 +725,26 @@ func (m *guardView) cells(c guard.CommandView) []string {
 }
 
 // statusText is a state as the list shows it: a mark that carries the state
-// without color, then a word.
-func statusText(state string) string {
+// without color, then a word, and "(dry)" for a dry-run command, whose stops
+// are only logged.
+func statusText(state string, dry bool) string {
+	text := state
 	switch state {
 	case "running":
-		return "● run"
+		text = "● run"
 	case "stopping":
-		return "◌ stopping"
+		text = "◌ stopping"
 	case "done":
-		return "✓ done"
+		text = "✓ done"
 	case "unmatched":
-		return "? unmatched"
+		text = "? unmatched"
 	case "stopped":
-		return "✗ stopped"
+		text = "✗ stopped"
 	}
-	return state
+	if dry {
+		text += " (dry)"
+	}
+	return text
 }
 
 // statusStyle colors a state: running green, stopping and unmatched yellow,
@@ -781,7 +814,7 @@ func (m *guardView) detailLines(room int) []string {
 	}
 	c := m.snap.Commands[m.cursor]
 	cells := m.cells(c)
-	status := forTerm(statusText(c.State))
+	status := forTerm(statusText(c.State, c.DryRun))
 	if c.By != "" {
 		status += " by " + c.By
 	}
