@@ -719,6 +719,21 @@ synthetic answers.
   that speaks another protocol version, the view said to run `workbench
   update`. With `CLAUDECODE=1`, without a terminal, with `--non-interactive`
   or with `--json`, it exited 3 before opening the screen.
+- On 2026-10-18, on macOS in a disposable home with a fake agent under
+  `WORKBENCH_GUARD=dry-run`, `workbench guard memory` drew the four-line
+  header: the brand, `● watching` and the clock on the first line, the counts
+  with `mem 7.9/16 GB`, the largest peak and `swap 4.5/6.0 GB` on the third,
+  and the dry-run notice on the fourth. The `mem` figure matched `vm_stat`
+  (anonymous less purgeable plus wired plus compressor pages, times the page
+  size) read a second apart. `→` and `l` opened the selected command's
+  details, `←` and `h` closed them, `←` closed the stop menu, and the key
+  lines read `enter/→ details` and `esc/← back`. At 60 columns the count line
+  dropped the swap; at 60×11 the stop menu drew below the header, and at 10
+  lines the view asked for 11. The escape codes carried the pinned colors
+  (the running mark and the INFO label green, the dry-run notice gold, the
+  agent clay) at 24-bit and 256-color depth, `guard logs` colored the level
+  label alone with the agent in its hue and the event and `id` plain, and
+  `NO_COLOR` printed plain text.
 - On 2026-10-17, in an Ubuntu 24.04 container (Docker 29.8.2, kernel
   7.0.14-linuxkit, arm64) capped at 2 GiB, as uid 1000 with a disposable home
   and Python added to the container for the stand-in agent, whose commands ran
