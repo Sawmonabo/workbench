@@ -598,6 +598,7 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 	agent := process(100, 1, 100, -3600, "claude")
 	shell := process(200, 100, 200, 0.4, claudeShell(`'make'`)...)
 	s := snapshotOf(
+		process(1, 0, 1, -7200, "launchd"),
 		agent,
 		shell,
 		process(300, 200, 300, 0.5, "workbench", "guard", "memory"), // under the agent's command
@@ -606,20 +607,30 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		process(500, 1, 500, -3600, "claude"), // agent-named, left no note
 	)
 	protected := map[int]uint64{100: start(-3600)}
+	// An agent may be PID 1, in a container started without an init.
+	inContainer := snapshotOf(
+		process(1, 0, 1, -3600, "claude"),
+		process(600, 1, 600, 0.8, "workbench", "guard", "memory"),
+	)
+	containerAgent := map[int]uint64{1: start(-3600)}
 	for _, tc := range []struct {
-		name string
-		peer procKey
-		want bool
+		name      string
+		s         snapshot
+		protected map[int]uint64
+		peer      procKey
+		want      bool
 	}{
-		{"personAtATerminal", procKey{401, start(0.7)}, true},
-		{"underTheAgentsCommand", procKey{300, start(0.5)}, false},
-		{"theAgentItself", procKey{100, start(-3600)}, false},
-		{"peerExitedPIDReused", procKey{401, start(9)}, false},
-		{"unknownPeer", procKey{999, start(0)}, false},
-		{"agentWithoutANote", procKey{500, start(-3600)}, true},
+		{"personAtATerminal", s, protected, procKey{401, start(0.7)}, true},
+		{"underTheAgentsCommand", s, protected, procKey{300, start(0.5)}, false},
+		{"theAgentItself", s, protected, procKey{100, start(-3600)}, false},
+		{"peerExitedPIDReused", s, protected, procKey{401, start(9)}, false},
+		{"unknownPeer", s, protected, procKey{999, start(0)}, false},
+		{"agentWithoutANote", s, protected, procKey{500, start(-3600)}, true},
+		{"underAnAgentAtPID1", inContainer, containerAgent, procKey{600, start(0.8)}, false},
+		{"theAgentAtPID1", inContainer, containerAgent, procKey{1, start(-3600)}, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := stopAllowed(tc.peer, s, protected); got != tc.want {
+			if got := stopAllowed(tc.peer, tc.s, tc.protected); got != tc.want {
 				t.Fatalf("got %v, want %v", got, tc.want)
 			}
 		})
