@@ -309,22 +309,17 @@ processes and their memory, and a graph of its memory over the last 120
 readings), `k` opens the stop menu for the tagged commands or the selected one,
 with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
 it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
-ctrl+c quits. On the list the mouse wheel moves as ↑ and ↓ do, a click selects a
-row and a click on the selected row opens its details; the view takes the mouse
-there so a trackpad no longer scrolls the terminal's own buffer. On the list
-hold Shift (Option in Terminal.app and iTerm2) to select text; in the details a
-plain drag selects. The details lay a long command out
+ctrl+c quits. The view never takes the mouse, so a plain drag selects
+text on every screen, and the mouse wheel moves as ↑ and ↓ do: it moves the
+selection on the list, scrolls the details and moves the stop menu's choice
+(Enter still sends). The details lay a long command out
 one step per line, each `|`, `&&` or `||` outside quotes starting a line two
 spaces in (`go test ./... 2>&1`, then `| tail -20`), and a `;` ends its line; a
 test in `[[ ]]`, a `{ }` group, a `case … esac` and a command with a
 here-document stay whole.
 The details show every line and scroll when they are taller than the window: ↑
-and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends, and in
-most terminals the mouse wheel scrolls them too: the view turns on the
-terminal's alternate scroll mode, which sends a wheel step as ↑ or ↓ where the
-mouse is not taken, and turns it off again when it quits unless the terminal
-reports that it was on already. The
-stop menu takes the mouse again, so a wheel step over it does nothing. The
+and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends, and the
+mouse wheel scrolls them too. The
 watcher stops the
 command the way it stops for memory, logs it `by=you` and tells the agent
 `Stopped by you (workbench guard memory).`; the bottom line shows its answer for

@@ -36,11 +36,10 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
 			"commands that ended in the last minute, dimmed. The header counts the running and " +
 			"finished commands and shows the memory in use of the installed memory, the largest " +
-			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does, and a click " +
-			"selects a row; space tags a running command, enter, → or a click on the selected " +
-			"row opens its details (the full command, one step of a pipeline or && chain per " +
-			"line, its folder, processes and memory graph, which scroll with ↑, ↓, pgup, pgdn, " +
-			"home and end and where a drag of the mouse selects text), k opens the stop menu for the " +
+			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does; space tags a " +
+			"running command, enter or → opens the selected one's details (the full command, " +
+			"one step of a pipeline or && chain per line, its folder, processes and memory " +
+			"graph, which scroll with ↑, ↓, pgup, pgdn, home, end and the wheel), k opens the stop menu for the " +
 			"tagged commands or the selected one (a polite stop, force-killed after 5 s, or a " +
 			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
 			"list, quits. The watcher signals the command, logs the stop as by=you " +
@@ -147,10 +146,9 @@ type guardView struct {
 	// details is the details' scrolling pane, its content and size set as
 	// each frame draws it, so a new snapshot keeps its scroll offset.
 	details viewport.Model
-	// first is the first list row shown, and rowsTop the screen line it is
-	// drawn on, as the last frame drew them, so a click finds its row; shown
-	// is how many rows that frame drew.
-	first, rowsTop, shown int
+	// first is the first list row shown, as the last frame drew it, so the
+	// list scrolls only when the selection leaves the window.
+	first int
 }
 
 // viewMode is what the view shows.
@@ -292,23 +290,6 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.light = !msg.IsDark()
 	case tea.ColorProfileMsg:
 		m.noColor = msg.Profile <= colorprofile.ASCII
-	case tea.MouseClickMsg:
-		if m.mode == listMode && msg.Button == tea.MouseLeft {
-			m.click(msg.Y)
-		}
-	case tea.MouseWheelMsg:
-		// In the details the view turns mouse reporting off, so the wheel
-		// comes as ↑ and ↓ (alternate scroll, altscroll.go); a wheel event
-		// the terminal sent before reporting went off still scrolls them.
-		switch {
-		case m.mode == detailMode:
-			m.details, _ = m.details.Update(msg)
-		case m.mode != listMode:
-		case msg.Button == tea.MouseWheelUp:
-			m.pressList("up")
-		case msg.Button == tea.MouseWheelDown:
-			m.pressList("down")
-		}
 	case tickMsg:
 		if !m.connected && !m.dialing {
 			m.dialing = true
@@ -522,21 +503,6 @@ func (m *guardView) pressMenu(key string) tea.Cmd {
 	return nil
 }
 
-// click selects the list row on screen line y; a click on the selected row
-// opens its details. A click on the header, the column heads or below the
-// rows does nothing.
-func (m *guardView) click(y int) {
-	at := y - m.rowsTop
-	if at < 0 || at >= m.shown || m.first+at >= len(m.snap.Commands) {
-		return
-	}
-	if m.first+at == m.cursor {
-		m.openDetails()
-		return
-	}
-	m.cursor = m.first + at
-}
-
 // openDetails shows the selected command's details from their top.
 func (m *guardView) openDetails() {
 	m.mode = detailMode
@@ -599,18 +565,16 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 }
 
 // View draws the screen in the alternate screen, or asks for a wider or a
-// taller window, so the key line and its notices always show. On the list
-// mouse reporting is on, as the apply checklist does (checklist.go): without
-// it a trackpad or wheel scrolls the terminal's own buffer and the screen
-// slides away; with it the wheel moves and a click selects. In the details
-// it is off, so a plain drag selects text, and the terminal sends a wheel
-// step as ↑ or ↓, which scroll the details, because the view turned
-// alternate scroll mode on (altscroll.go); mouse reporting takes precedence
-// over it. The stop menu keeps the mouse taken, so a wheel step there is
-// dropped (Update) instead of arriving as ↑ or ↓ and moving its choice.
+// taller window, so the key line and its notices always show. The view never
+// takes the mouse, so a plain drag selects text on every screen, and the
+// terminal sends a wheel step as ↑ or ↓ (altscroll.go), which move the list,
+// scroll the details and move the stop menu's choice, as the keys do. The
+// view once took the mouse on the list and released it in the details, and
+// Terminal.app then scrolled its own window under the wheel in the details;
+// tools that never take the mouse, and tools that take it on every screen,
+// scroll there as expected (ADR 14).
 func (m *guardView) View() tea.View {
 	var text string
-	m.shown = 0
 	switch {
 	case m.width < guardViewMinWidth:
 		text = fmt.Sprintf("Widen the window to at least %d columns", guardViewMinWidth)
@@ -621,10 +585,6 @@ func (m *guardView) View() tea.View {
 	}
 	view := tea.NewView(text)
 	view.AltScreen = true
-	view.MouseMode = tea.MouseModeCellMotion
-	if m.mode == detailMode {
-		view.MouseMode = tea.MouseModeNone
-	}
 	return view
 }
 
@@ -644,7 +604,6 @@ func (m *guardView) screen() string {
 		lines = append(lines, strings.Split(m.details.View(), "\n")...)
 	} else {
 		// The column heads come first, then the rows.
-		m.rowsTop = header + 1
 		lines = append(lines, m.tableLines(room+1)...)
 	}
 	for len(lines) < m.height-1 {
@@ -806,7 +765,7 @@ const guardRowPrefix = 3
 
 // tableLines are the column heads and as many rows as fit in room lines,
 // scrolled so the selected row shows: the window moves only when the
-// selection leaves it, so a row stays under the pointer that clicked it.
+// selection leaves it, so the rows stay put while the selection walks.
 func (m *guardView) tableLines(room int) []string {
 	if len(m.snap.Commands) == 0 {
 		if m.connected {
@@ -839,7 +798,6 @@ func (m *guardView) tableLines(room int) []string {
 	for i := m.first; i < min(m.first+visible, len(spec.Rows)); i++ {
 		lines = append(lines, m.styledRow(i, spec.Rows[i], shown, widths))
 	}
-	m.shown = len(lines) - 1
 	return lines
 }
 

@@ -347,28 +347,18 @@ A full-screen Bubble Tea program in the alternate screen.
   Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
   quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
   PgUp and PgDn a page, Home and End go to the top and the bottom, `k`
-  stops, Esc, ← or `h` goes back and `q` quits. On the list the mouse works
-  too: the wheel moves as ↑ and ↓ do, a click selects a row and a click on
-  the selected row opens its details. The view turns mouse reporting on
-  for the list because without it a trackpad or wheel scrolls the
-  terminal's own buffer and the screen slides away; the list scrolls only
-  when the selection leaves the window, so a row stays under the pointer
-  that clicked it. With the mouse taken, hold Shift (Option in Terminal.app
-  and iTerm2) to select text. In details mouse reporting is off, so a plain
-  drag selects text, and the wheel still scrolls the details: at start the
-  view turns on the terminal's alternate scroll mode (xterm's DECSET 1007 in
-  [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)),
-  under which a wheel step on the alternate screen is sent as ↑ or ↓ while
-  the mouse is not taken; mouse reporting takes precedence over it. The stop
-  menu, which takes keys only, keeps the mouse taken so that a wheel step
-  over it is dropped rather than moving its choice. Before the set the view
-  asks the terminal for the mode's state (DECRQM) and saves it (XTSAVE);
-  when the view ends, by a key, a signal or an error, it leaves the mode
-  alone if the terminal reported it already on, and otherwise turns it off
-  and restores the saved state (XTRESTORE), so a terminal that reports or
-  saves the mode is left as it was found. A terminal without the mode
-  ignores the sequences and scrolls its own buffer under the wheel in
-  details, as before. The key line reads
+  stops, Esc, ← or `h` goes back and `q` quits. The view never
+  takes the mouse, so a plain drag selects text on every screen; the
+  terminal sends a wheel step on the alternate screen as ↑ or ↓ (xterm's
+  alternate scroll mode, DECSET 1007 in
+  [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html);
+  Terminal.app has a setting of its own for it), so the wheel moves the
+  list, scrolls the details and moves the stop menu's choice as the keys
+  do; Enter still sends. At start the view saves the mode's state (XTSAVE)
+  and turns it on; when it ends, by a key, a signal or an error, it turns
+  the mode off and restores the saved state (XTRESTORE). A terminal that
+  knows neither scrolls its own window under the wheel, as it does for
+  `less`. A click on a row does nothing (ADR 14). The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and
   `↑/↓ choose  enter send  esc/← cancel` in the menu.
