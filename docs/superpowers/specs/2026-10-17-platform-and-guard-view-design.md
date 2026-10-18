@@ -349,17 +349,19 @@ A full-screen Bubble Tea program in the alternate screen.
   PgUp and PgDn a page, Home and End go to the top and the bottom, `k`
   stops, Esc, ← or `h` goes back and `q` quits. The view never takes the
   mouse (it reports no mouse events), so a plain drag selects text on every
-  screen, and the terminal sends a wheel step on the alternate screen as ↑
+  screen, and most terminals send a wheel step on the alternate screen as ↑
   or ↓, so the wheel moves the list, scrolls the details and moves the stop
   menu's choice as the keys do; Enter still sends. Two terminal modes make
-  that happen, set at start and undone when the view ends, by a key, a
+  that happen, set at start and put back when the view ends, by a key, a
   signal or an error: application cursor keys (DECCKM, DECSET 1), which
   Terminal.app requires before it sends the wheel as arrow keys, as `less`
-  and `vim` set it, and which is reset at exit; and xterm's alternate
-  scroll mode (DECSET 1007 in
+  and `vim` set it through terminfo's `smkx`, and which is reset at exit;
+  and xterm's alternate scroll mode (DECSET 1007 in
   [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)),
   whose state is saved first (XTSAVE) and restored at exit (XTRESTORE), a
   restore alone so that a terminal without XTSAVE keeps its own setting. A
+  terminal with neither mode scrolls its own window under the wheel, as it
+  does for `less`. A
   click on a row does nothing (ADR 14). The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and

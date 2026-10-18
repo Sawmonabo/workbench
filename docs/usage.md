@@ -310,8 +310,8 @@ readings), `k` opens the stop menu for the tagged commands or the selected one,
 with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
 it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
 ctrl+c quits. The view never takes the mouse (it asks the terminal for no
-mouse events), so a plain drag selects text on every screen, and the mouse
-wheel moves as ↑ and ↓ do: it moves the selection on the
+mouse events), so a plain drag selects text on every screen, and in most
+terminals the mouse wheel moves as ↑ and ↓ do: it moves the selection on the
 list, scrolls the details and moves the stop menu's choice (enter still
 sends). The details lay a long command out one step per line, each `|`, `&&`
 or `||` outside quotes starting a line two spaces in (`go test ./... 2>&1`,

@@ -14,13 +14,14 @@ import (
 // the wheel still moves the view.
 //
 //   - Application cursor keys (DECCKM, DECSET 1): Terminal.app sends the
-//     wheel as arrow keys on the alternate screen only while this mode is on,
-//     which is why less and vim scroll there and a program that leaves the
-//     mode off does not (observed with a byte probe; its hidden preference
-//     ScrollAlternateScreenWithoutApplicationCursorMode names the rule). The
-//     mode changes the arrow keys' encoding to SS3 (ESC O A), which Bubble
-//     Tea decodes as the same keys. Every curses program sets it on entry and
-//     resets it on exit (terminfo smkx and rmkx), as the view does.
+//     wheel as arrow keys on the alternate screen only while this mode is on
+//     (observed with a byte probe; the name of its hidden preference
+//     ScrollAlternateScreenWithoutApplicationCursorMode suggests the rule),
+//     which is why less and vim, which send it by default, scroll there and
+//     a program that leaves the mode off does not. The mode changes the arrow
+//     keys' encoding to SS3 (ESC O A), which Bubble Tea decodes as the same
+//     keys. Programs that read keys through terminfo set it on entry and
+//     reset it on exit (the DECCKM half of smkx and rmkx), as the view does.
 //   - Alternate scroll (DECSET 1007, xterm's "Wheel mice" in
 //     https://invisible-island.net/xterm/ctlseqs/ctlseqs.html): in xterm the
 //     wheel is sent as ↑ or ↓ on the alternate screen only while this mode is
@@ -47,29 +48,28 @@ type wheelModes struct {
 
 // armSeq is the arming sequence, written as one payload because separate
 // commands in a batch have no order: the save first, so it holds the
-// alternate scroll state before the set; then the two sets, each its own
-// sequence, so a terminal that knows one mode and not the other applies the
-// one it knows.
-var armSeq = saveAltScroll + ansi.SetMode(altScrollMode) + ansi.SetMode(ansi.ModeCursorKeys)
+// alternate scroll state before the set; then the two sets, one sequence
+// each.
+var armSeq = saveAltScroll + ansi.SetMode(altScrollMode) + ansi.SetModeCursorKeys
 
 // arm saves the terminal's alternate scroll state and turns both modes on.
-func (w *wheelModes) arm() tea.Cmd {
+func (m *wheelModes) arm() tea.Cmd {
 	return tea.Raw(armSeq)
 }
 
 // note reads the raw write itself, which Bubble Tea passes to Update once it
 // has queued the bytes, so disarm knows the arming write was queued.
-func (w *wheelModes) note(msg tea.Msg) {
+func (m *wheelModes) note(msg tea.Msg) {
 	if msg, ok := msg.(tea.RawMsg); ok && msg.Msg == armSeq {
-		w.armed = true
+		m.armed = true
 	}
 }
 
 // disarm, after the program has returned, turns application cursor keys off
 // and restores the alternate scroll state, when the view armed them.
-func (w *wheelModes) disarm(out io.Writer) {
-	if !w.armed {
+func (m *wheelModes) disarm(w io.Writer) {
+	if !m.armed {
 		return
 	}
-	_, _ = io.WriteString(out, ansi.ResetMode(ansi.ModeCursorKeys)+restoreAltScroll)
+	_, _ = io.WriteString(w, ansi.ResetModeCursorKeys+restoreAltScroll)
 }
