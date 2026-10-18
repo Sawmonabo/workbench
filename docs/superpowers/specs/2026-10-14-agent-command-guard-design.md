@@ -697,30 +697,30 @@ parallelism or a smaller input.
   not.
 - **Update (handover):** a watcher follows the installed command it was
   started as (its `argv[0]`), which a release activation points at the new
-  release. After each tick it compares the file that command resolves to with
-  the file it runs, read once at its start, by device and inode, not by path
-  (`os.Executable` may give the link or its target, depending on the system).
-  When they differ, it starts that file's `guard watch` with
+  release. After each tick it compares the file that command resolves to
+  with the file it runs, read once at its start, by device and inode, not by
+  path (`os.Executable` may give the link or its target, depending on the
+  system). When they differ, it starts that file's `guard watch` with
   `WORKBENCH_GUARD_HANDOVER` set to its PID and, as descriptors 3 to 5, its
   locked `watch.lock` and two pipes, and, as descriptor 6 with
   `WORKBENCH_GUARD_LISTENER=6`, its listening `guard.sock`, as systemd
-  passes sockets from descriptor 3 with `LISTEN_PID` naming the receiver. An `flock` lock belongs
-  to the open file description, which a passed descriptor shares, survives
-  `execve` and holds until the last descriptor on it closes (Linux and BSD
-  `flock(2)`), so the lock is never free during the handover and no pre hook
-  starts a third watcher. The new watcher checks that descriptor 3 is
-  `watch.lock` and that no other description holds its lock
-  (`operation.InheritLock`), says it is ready on descriptor 4 with its
-  release, and waits on descriptor 5. The old one keeps watching meanwhile.
-  Once the new one is ready, and at a tick that read memory calling for
-  nothing, with no soft or critical hold running, no stop cooling down and
-  no person's stop under way, the old one logs `handover`, writes on
-  descriptor 5 what lives only in its memory: each tracked command's root
-  (PID and start time), note and memory readings, who stopped it (`guard`
-  or `you`) when it was signalled, the calls whose command ended or that are
-  passed over, the commands that finished within the last minute and the
-  largest peak. It then closes its copy of the socket without removing the
-  file, and exits without another tick; the new one starts
+  passes sockets from descriptor 3 with `LISTEN_PID` naming the receiver. An
+  `flock` lock belongs to the open file description, which a passed
+  descriptor shares, survives `execve` and holds until the last descriptor
+  on it closes (Linux and BSD `flock(2)`), so the lock is never free during
+  the handover and no pre hook starts a third watcher. The new watcher
+  checks that descriptor 3 is `watch.lock` and that no other description
+  holds its lock (`operation.InheritLock`), says it is ready on descriptor 4
+  with its release, and waits on descriptor 5. The old one keeps watching
+  meanwhile. Once the new one is ready, and at a tick that read memory
+  calling for nothing, with no soft or critical hold running, no stop
+  cooling down and no person's stop under way, the old one logs `handover`,
+  writes on descriptor 5 what lives only in its memory: each tracked
+  command's root (PID and start time), note and memory readings, who stopped
+  it (`guard` or `you`) when it was signalled, the calls whose command ended
+  or that are passed over, the commands that finished within the last minute
+  and the largest peak. It then closes its copy of the socket without
+  removing the file, and exits without another tick; the new one starts
   ticking only on that line, so two watchers never act at once. A stop under
   way finishes first, since it runs within a tick. The new watcher keeps the
   finished commands until a minute after each ended and the largest peak,
@@ -735,11 +735,11 @@ parallelism or a smaller input.
   only with its command. Every other note is matched as any watcher matches
   it: start times are the kernel's, so a command that started before it
   still matches its note. What is not carried (refusal counts, abandonment
-  clocks) restarts, which only delays an abandonment. This is nginx's executable upgrade (the old master
-  starts the new binary and keeps running until it is told the new one
-  works), with the readiness wait of Cloudflare's tableflip; replacing the
-  process with `execve` would keep the lock but cannot be undone when the
-  new file turns out not to run.
+  clocks) restarts, which only delays an abandonment. This is nginx's
+  executable upgrade (the old master starts the new binary and keeps running
+  until it is told the new one works), with the readiness wait of
+  Cloudflare's tableflip; replacing the process with `execve` would keep the
+  lock but cannot be undone when the new file turns out not to run.
   - A command that cannot be read (a dangling link), a file that does not
     start (not executable), or a watcher not ready within 10 seconds (one of
     a release without handover finds the lock held and exits) leaves the old
@@ -750,7 +750,9 @@ parallelism or a smaller input.
   - A watcher started by a build without handover runs that build until it
     is idle; `SIGTERM` stops it after any stop under way.
 - **The socket:** the watcher serves `guard.sock`, in this 0700 folder, to
-  `workbench guard memory`. It creates it after taking the lock, removing a
+  `workbench guard memory`. The file itself is made 0600 before anything is
+  served, and again when a handover passes it on, so only its owner may
+  connect even if the folder's mode changes. It creates it after taking the lock, removing a
   stale file first, takes it over at a handover (above), and removes it when
   it exits, except when its lock file changed, since another watcher may
   serve it then. At accept it reads the peer's user and process ID

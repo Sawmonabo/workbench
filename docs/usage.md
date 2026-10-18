@@ -283,36 +283,36 @@ line of the watcher's output as
 See the [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
 section 4.1.
 
-`workbench guard memory` shows, live and full screen, each command the
-watcher tracks, newest first: its short ID, status (`● run`, `◌ stopping`),
-agent, subagent, run time, memory now and at its peak, project and command,
-then, dimmed for a minute, those that ended (`✓ done`, `? unmatched`,
-`✗ stopped`). The header gives the watcher's release, the memory level and
-the memory (on macOS the installed memory and the swap in use, on Linux the
-memory available of the total), the clock, the counts and the largest peak,
-and says `dry run: stops are logged, not sent` when a shown command is a dry
-run. ↑ and ↓ move (there is no `j` or `k`, since `k` stops, as in htop),
-space tags a running command and moves down, enter opens the selected one's
-details (the full command, folder, full ID, a graph of its memory over the
-last 120 readings and its processes with theirs), `k` opens the stop menu for
-the tagged commands or the selected one, with `Stop (polite, force-killed
-after 5 s)` chosen and `Force kill now` below it, esc closes the menu or the
-details, and `q` or ctrl+c quits. The watcher stops the command the way it
-stops for memory, logs it `by=you` and tells the agent `Stopped by you
-(workbench guard memory).`; the bottom line shows its answer for 3 seconds
-(`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
-finished`). The watcher serves the view on `guard.sock` beside its log, only
-to the same user, and never takes a stop from a process an agent with a
-guarded command started. In a window under 60 columns or 8 lines the view
-asks to be widened or made taller; narrower windows first shorten COMMAND,
-then drop SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it
-says so, keeps the last rows dimmed and reconnects every second; the watcher
-starts with the next agent command. Without a terminal on stdin and stdout,
-or with `--non-interactive`, it exits 3 with `guard memory needs a terminal;
-use workbench guard logs --follow`; with `--json`, which it has no output
-for, it exits 3 and points at `guard logs --json`; and under a coding agent
-(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with
-`guard memory is for a person at a terminal`.
+`workbench guard memory` shows, live and full screen, each command the watcher
+tracks, newest first: its short ID, status (`● run`, `◌ stopping`), agent,
+subagent, run time, memory now and at its peak, project and command, then,
+dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
+The header gives the watcher's release, the memory level and the memory (on
+macOS the installed memory and the swap in use, on Linux the memory available
+of the total), the clock, the counts and the largest peak, and says `dry run:
+stops are logged, not sent` when every shown command is a dry run, or `dry run
+on 2 of 5 commands: …` when some are, each marked `(dry)` in its status. ↑ and
+↓ move (there is no `j` or `k`, since `k` stops, as in htop), space tags a
+running command and moves down, enter opens the selected one's details (the
+full command, folder, full ID, a graph of its memory over the last 120
+readings and its processes with theirs), `k` opens the stop menu for the
+tagged commands or the selected one, with `Stop (polite, force-killed after 5
+s)` chosen and `Force kill now` below it, esc closes the menu or the details,
+and `q` or ctrl+c quits. The watcher stops the command the way it stops for
+memory, logs it `by=you` and tells the agent `Stopped by you (workbench guard
+memory).`; the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,
+`logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already finished`). The watcher serves
+the view on `guard.sock` beside its log, only to the same user, and never
+takes a stop from a process an agent with a guarded command started. In a
+window under 60 columns or 8 lines the view asks to be widened or made taller;
+narrower windows first shorten COMMAND, then drop SUBAGENT, PROJECT, PEAK and
+AGENT. While no watcher runs it says so, keeps the last rows dimmed and
+reconnects every second; the watcher starts with the next agent command.
+Without a terminal on stdin and stdout, or with `--non-interactive`, it exits
+3 with `guard memory needs a terminal; use workbench guard logs --follow`;
+with `--json`, which it has no output for, it exits 3 and points at `guard
+logs --json`; and under a coding agent (`CLAUDECODE` or a Codex variable, as
+`apply` detects) it exits 3 with `guard memory is for a person at a terminal`.
 
 ```bash
 workbench guard memory                      # watch, tag and stop agent commands

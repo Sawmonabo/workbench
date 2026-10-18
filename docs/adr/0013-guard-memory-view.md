@@ -80,10 +80,10 @@ a row could show the wrong project and a stop could hit the other call.
   stops for memory go on. Under dry-run it is only logged.
 - **The folder is a preference, never a rule.** Among the processes that
   claim a note, the watcher prefers one whose working folder is the note's
-  leading `cd` folder, then one in the note's `cwd`, then one whose folder is
-  unknown or neither, the oldest within a rank. A folder that cannot be read leaves the
-  choice as it was, so no command goes unguarded because its folder is
-  unknown.
+  leading `cd` folder, then one in the note's `cwd`, then one whose folder
+  is unknown or neither, the oldest within a rank. A folder that cannot be
+  read leaves the choice as it was, so no command goes unguarded because its
+  folder is unknown.
 - **The socket survives a handover.** The listening socket rides the
   handover with the lock, as descriptor 6, and the old watcher closes its
   copy without removing the file, so a view sees one disconnect and

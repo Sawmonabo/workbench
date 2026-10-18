@@ -281,15 +281,20 @@ A full-screen Bubble Tea program in the alternate screen.
 - **Rows** are the commands the watcher tracks, newest first, then finished
   ones, dimmed, for 60 s after they end, with their outcome: `✓ done`,
   `? unmatched`, `✗ stopped` (by the guard or by you). A row stopping and
-  waiting on its 5 s shows `◌ stopping`.
+  waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
+  `(dry)` (`● run (dry)`), in the list and in its details.
 - **Header**: the watcher's state and release, the memory level (macOS's
   pressure level, normal, warning or critical; on Linux, normal or low by
   the guard's thresholds in guard design 6.2), the memory (on macOS, which
   gives a pressure level, the installed memory and the swap in use; on Linux
   the memory available of the total user memory may take), the clock,
   and counts: running, finished in the last minute, and the largest peak
-  since the watcher started. In dry-run mode the header says `dry run:
-  stops are logged, not sent`.
+  since the watcher started (in a narrow window `N running · M finished in
+  1 min · peak X`). When every shown command is a dry run the header says
+  `dry run: stops are logged, not sent`; when only some are, `dry run on 2
+  of 5 commands: their stops are logged, not sent`. A status text longer
+  than the window wraps onto a second line, so no line is cut at 60
+  columns.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
   Space tags or untags a running row and moves down; Enter opens details;
   `k` opens the stop menu for the tagged rows, or the selected one; Esc
@@ -315,9 +320,10 @@ A full-screen Bubble Tea program in the alternate screen.
   text; `▸`, `✓ ? ✗ ●` and the tag mark carry the state.
 - **Watcher not running**: the screen says so and that the watcher starts
   with the next agent command, keeps the last rows dimmed, and reconnects
-  every second. When a watcher answers but cannot serve the view (another
-  release, or a socket it cannot reach), the header says `not connected`
-  and the line below says why.
+  every second. When a watcher may run but cannot serve the view (another
+  release, a socket it cannot reach, or a hello it did not finish, as when
+  it is exiting), the header says `not connected`, the line below says why,
+  and the view tries again each second.
 - **Refusals**, before the screen opens: with `--json` it exits 3 with
   `guard memory has no JSON output; use workbench guard logs --json`.
   Without a terminal on stdin and stdout, or with `--non-interactive`,
