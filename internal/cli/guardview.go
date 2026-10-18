@@ -100,6 +100,9 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		tea.WithoutSignalHandler(),
 	)
 	_, err := program.Run()
+	// Whatever ended the view, the terminal must not keep sending the wheel
+	// as arrow keys to the shell.
+	disarmAltScroll(os.Stdout)
 	if model.client != nil {
 		_ = model.client.Close()
 	}
@@ -272,7 +275,7 @@ func connectWatcher() tea.Msg {
 // which picks the selected row's band.
 func (m *guardView) Init() tea.Cmd {
 	m.dialing = true
-	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor)
+	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor, armAltScroll())
 }
 
 // Update takes a message. Each tick schedules the next and, while no watcher
@@ -291,7 +294,8 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case tea.MouseWheelMsg:
 		// In the details the view turns mouse reporting off, so the wheel
-		// comes as ↑ and ↓; a wheel step sent before it went off scrolls.
+		// comes as ↑ and ↓ (alternate scroll, armAltScroll); a wheel step
+		// sent before it went off scrolls.
 		switch {
 		case m.mode == detailMode:
 			m.details, _ = m.details.Update(msg)
@@ -595,11 +599,10 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 // mouse reporting is on, as the apply checklist does (checklist.go): without
 // it a trackpad or wheel scrolls the terminal's own buffer and the screen
 // slides away; with it the wheel moves and a click selects. In the details,
-// and the stop menu over them, it is off, so a plain drag selects text: on
-// the alternate screen most terminals then send a wheel step as ↑ or ↓
-// (xterm's alternate scroll mode, 1007,
-// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html), which scroll the
-// details.
+// and the stop menu over them, it is off, so a plain drag selects text, and
+// the terminal sends a wheel step as ↑ or ↓, which scroll the details,
+// because the view turned alternate scroll mode on (altscroll.go); mouse
+// reporting takes precedence over it on the list.
 func (m *guardView) View() tea.View {
 	var text string
 	m.shown = 0

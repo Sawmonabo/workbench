@@ -356,10 +356,16 @@ A full-screen Bubble Tea program in the alternate screen.
   that clicked it. With the mouse taken, hold Shift (Option in Terminal.app
   and iTerm2) to select text. In details, and in the stop menu over them,
   which takes keys only, mouse reporting is off, so a plain drag selects
-  text; on the alternate screen most terminals then send a wheel step as
-  ↑ or ↓ (xterm's alternate scroll mode, 1007, in
+  text, and the wheel still scrolls the details: at start the view turns on
+  the terminal's alternate scroll mode (xterm's DECSET 1007 in
   [Control Sequences](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html)),
-  so the wheel scrolls the details. The key line reads
+  under which a wheel step on the alternate screen is sent as ↑ or ↓ while
+  the mouse is not taken; mouse reporting takes precedence over it on the
+  list. The mode's prior state is saved first (XTSAVE) and, when the view
+  ends, however it ends, the mode is turned off and that state restored
+  (XTRESTORE), so a terminal that had it on keeps it. A terminal without the
+  mode ignores the sequences and scrolls its own buffer under the wheel in
+  details, as before. The key line reads
   `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
   `↑/↓ scroll  k stop  esc/← back  q quit` in details and
   `↑/↓ choose  enter send  esc/← cancel` in the menu.
