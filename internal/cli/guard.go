@@ -23,14 +23,18 @@ import (
 // and print no result envelope. pre and post take any arguments, flags
 // included (flag parsing is off, so even the root's --json is just an
 // argument), so nothing an agent passes makes them exit non-zero, and print
-// only what the hook protocol reads. logs is for people.
+// only what the hook protocol reads. logs and memory are for people.
 func guardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
-		Short: "Show what the agent command memory guard did",
+		Short: "Show what the agent command memory guard did, and watch what it tracks",
 		Long: "The guard stops the largest shell command Claude Code or Codex started when the " +
 			"machine is about to run out of memory, and tells the agent why. Its hooks and " +
-			"watcher run by themselves; `workbench guard logs` shows what they did.",
+			"watcher run by themselves. `workbench guard logs` shows what they did, one line " +
+			"per event. `workbench guard memory` shows, live, the commands the guard tracks " +
+			"and stops the ones you choose.",
+		Example: "  workbench guard logs --since 2h\n" +
+			"  workbench guard memory",
 		Args: cobra.NoArgs,
 		RunE: showHelp,
 	}

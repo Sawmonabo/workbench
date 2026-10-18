@@ -22,8 +22,9 @@ import (
 )
 
 // guardMemoryCommand opens the live view of the commands the guard tracks. It
-// is for a person: without a terminal on stdin and stdout, or under a coding
-// agent, it exits 3 before the screen opens.
+// is for a person: with --json, with --non-interactive or without a terminal
+// on stdin and stdout, or under a coding agent, it exits 3 before the screen
+// opens.
 func guardMemoryCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "memory",
@@ -36,19 +37,30 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"(a polite stop, force-killed after 5 s, or a forced kill now), esc closes a menu or " +
 			"the details, and q quits. The watcher signals the command, logs the stop as by=you " +
 			"and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
-			"runs, the view says so and reconnects every second. It needs a terminal and refuses " +
-			"to run under a coding agent; workbench guard logs --follow prints the same events.",
+			"runs, the view says so and reconnects every second. It needs a terminal, has no " +
+			"--json output and refuses --non-interactive and coding agents; workbench guard " +
+			"logs --follow prints the same events.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd) })
+			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd, o) })
 		},
 	}
 }
 
 // runGuardView refuses a caller that is not a person at a terminal, then runs
-// the view until it quits. It starts the program as the costs view does.
-func runGuardView(cmd *cobra.Command) error {
-	if !platform.IsTerminal(os.Stdin.Fd()) || !platform.IsTerminal(os.Stdout.Fd()) {
+// the view until it quits. It starts the program as the costs view does. A
+// full-screen view prints nothing a program could read, so --json is refused,
+// and --non-interactive counts as no terminal, as --choose treats it.
+func runGuardView(cmd *cobra.Command, o *options) error {
+	if o.json {
+		return operation.Fail(
+			operation.ExitBlocked,
+			"json",
+			"guard memory has no JSON output; use workbench guard logs --json",
+		)
+	}
+	if o.nonInteractive || !platform.IsTerminal(os.Stdin.Fd()) ||
+		!platform.IsTerminal(os.Stdout.Fd()) {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"terminal",
@@ -145,6 +157,8 @@ const (
 		"command. Reconnecting every second."
 	watcherOlder = "The watcher runs an older Workbench release that does not serve this " +
 		"view; run workbench update."
+	watcherOther = "The watcher runs a Workbench release that speaks another protocol " +
+		"version; run workbench update."
 )
 
 // The view's sizes: the narrowest window it draws in, how long a notice
@@ -193,8 +207,7 @@ func waitSnapshot(ch <-chan guard.Snapshot) tea.Cmd {
 // connectWatcher dials the watcher's socket and says hello. A missing or
 // refused socket means no watcher runs; a hello that times out means a
 // watcher of an older release took the socket over without serving it; a
-// hello the watcher refuses names a protocol version, and means another
-// release.
+// hello without a protocol version in common means another release.
 func connectWatcher() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
@@ -213,9 +226,8 @@ func connectWatcher() tea.Msg {
 	switch {
 	case errors.Is(err, os.ErrDeadlineExceeded):
 		return connectedMsg{problem: watcherOlder}
-	case strings.Contains(err.Error(), "version"):
-		return connectedMsg{problem: "The watcher runs a different Workbench release (" +
-			err.Error() + "); run workbench update."}
+	case errors.Is(err, guard.ErrProtocolVersion):
+		return connectedMsg{problem: watcherOther}
 	}
 	return connectedMsg{problem: watcherAbsent}
 }

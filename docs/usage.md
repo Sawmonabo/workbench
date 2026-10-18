@@ -306,10 +306,12 @@ stop from a process an agent with a guarded command started. In a window
 under 60 columns the view asks to be widened; narrower windows first shorten
 COMMAND, then drop SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it
 says so, keeps the last rows dimmed and reconnects every second; the watcher
-starts with the next agent command. Without a terminal on stdin and stdout it
-exits 3 with `guard memory needs a terminal; use workbench guard logs
---follow`, and under a coding agent (`CLAUDECODE` or a Codex variable, as
-`apply` detects) with `guard memory is for a person at a terminal`.
+starts with the next agent command. Without a terminal on stdin and stdout,
+or with `--non-interactive`, it exits 3 with `guard memory needs a terminal;
+use workbench guard logs --follow`; with `--json`, which it has no output
+for, it exits 3 and points at `guard logs --json`; and under a coding agent
+(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with
+`guard memory is for a person at a terminal`.
 
 ```bash
 workbench guard memory                      # watch, tag and stop agent commands

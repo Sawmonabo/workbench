@@ -32,6 +32,10 @@ const (
 // errClosed is what Stop gives once the watcher has gone.
 var errClosed = errors.New("the watcher closed the connection")
 
+// ErrProtocolVersion is what Hello wraps when the watcher speaks no protocol
+// version this client knows: it runs another release.
+var ErrProtocolVersion = errors.New("the watcher speaks no protocol version this client knows")
+
 // socketFile is the watcher's socket in the guard folder root.
 func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 
@@ -109,9 +113,11 @@ func (c *Client) Hello() (release string, err error) {
 	}
 	switch {
 	case reply.Type == messageError:
-		return "", errors.New(reply.Error)
+		// The only error a watcher answers a hello with is no common version.
+		return "", fmt.Errorf("%w: %s", ErrProtocolVersion, reply.Error)
 	case reply.Type != messageHello || reply.Version != ProtocolVersion:
-		return "", fmt.Errorf("the watcher answered %q with version %d", reply.Type, reply.Version)
+		return "", fmt.Errorf("%w: the watcher answered %q with version %d",
+			ErrProtocolVersion, reply.Type, reply.Version)
 	}
 	if err := c.conn.SetDeadline(time.Time{}); err != nil {
 		return "", err
