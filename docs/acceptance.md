@@ -7,10 +7,11 @@ native target is qualified; the open gates are listed below.
 
 ## Verified
 
-Checks ran on macOS 27.0 arm64 (Go 1.27.1, go.mod 1.26.8, golangci-lint 2.14.0, Homebrew
-chezmoi 2.70.3, uv 0.12.3, Python 3.13.7), in an Ubuntu 24.04 container and in
-GitHub Actions. Interactive checks ran under a pseudo-terminal. Unless an entry
-says otherwise, changes went only to disposable homes and destinations with
+Checks ran on macOS 27.0 and 27.0.1 arm64 (Go 1.27.1 and 1.27.2, go.mod 1.26.8,
+golangci-lint 2.14.0, Homebrew chezmoi 2.70.3, uv 0.12.3, Python 3.13.7), in an
+Ubuntu 24.04 container and in GitHub Actions. Interactive checks ran under a
+pseudo-terminal. Unless an entry says otherwise, changes went only to disposable
+homes and destinations with
 synthetic answers.
 
 ### Continuous integration
