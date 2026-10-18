@@ -217,13 +217,27 @@ macOS temp folder is pruned of files older than three days.
                                       cut; a watcher that starts while
                                       watch.err is past 1 MiB renames it to
                                       watch.err.1
+  guard.sock                          the watcher's socket for
+                                      `workbench guard memory` (section 6.5)
   notes/<tool_use_id>.json            {agent pid, agent start, kind,
                                        session_id, tool_use_id, command,
                                        noted_start, noted_at, dry_run,
-                                       posted}
+                                       posted, cwd, folder, subagent,
+                                       project}
   killed/<tool_use_id>.json           {reason, ...}  written by the watcher
 ```
 
+- **Note fields.** `cwd` is the hook input's `cwd` (Claude Code and Codex)
+  and `folder` the target of the command's leading `cd PATH &&` or
+  `cd PATH;`, both as real paths so they compare with the folder the kernel
+  reports for a process, and either left out when unknown. `subagent` is
+  Claude Code's `agent_type` when a subagent made the call, left out
+  otherwise and for Codex. `project` labels where the command ran: the
+  folder name after a `.worktrees/` or `worktrees/` component of the `cd`
+  folder or else `cwd`, else the name of the nearest folder at or above it
+  that holds `.git`, else its last folder name; nothing acts on it.
+  `session_id`, `noted_at`, `subagent` and `project` are for a person
+  reading the note and the log.
 - **File names.** A `tool_use_id` becomes a file name only if it matches
   `[A-Za-z0-9_-]{1,128}`. Any other call is not guarded.
 - **Writes** go through `operation.ReplacePrivateFile`: a `.write-<id>`
@@ -260,8 +274,13 @@ one `Write` per record, and each becomes one appended line under the log's
 `level` (`INFO`, `WARN`, `ERROR`), `msg` (a sentence for a person), `event`,
 `part` (`pre`, `post` or `watch`) and `pid` (the process that wrote it).
 Records about a call add `call` (its `tool_use_id`), `agent` (`claude` or
-`codex`), `command` (clipped as in the reason, section 6.4), `root_pid` and
-`size` in bytes; a stop adds `children`, `reason` (the text the agent is told)
+`codex`), the note's `cwd`, `project` and `subagent` (each left out when
+empty, section 4), `command` (clipped as in the reason, section 6.4),
+`root_pid` and `size` in bytes; `ended` and `stopping` add `took` (seconds
+since the note, a float) and `peak` (the largest size measured, section
+6.3), `unmatched` adds `took` only, since its command was never measured,
+and `stopping` adds `by` (`guard`, or `you` for a stop from `workbench guard
+memory`); a stop adds `children`, `reason` (the text the agent is told)
 and `memory` (the reading: macOS's `level`, or Linux's `available`, `total`
 and `full_avg10`, each with `installed`, `swap_free` and `swap_total`, in
 bytes), and `dry_run` for a dry run; low memory under the floor adds `size`
@@ -299,19 +318,24 @@ stdout and stderr at a new `watch.err` (`operation.RotateOutput`); a rename
 moves no byte, so a process still writing to the old file writes on into
 `watch.err.1`. Each watcher then writes an `output` record there, the time
 it started. `workbench guard logs` reads `watch.err.1`, then `watch.err`,
-and shows each line that is not a record as it is, after `watcher output: `,
-in red, placed among the log's records at its watcher's start (lines from
+and shows each line that is not a record as a `raw` event, the line in its
+`msg` and no time, placed among the log's records at its watcher's start (lines from
 before any `output` record come first); a line of the log that is not a
 record, which earlier builds wrote, is placed after the record before it.
 For `--json` such a line becomes a record with `level` `ERROR`, `event`
 `raw`, the line as `msg` and, from `watch.err`, `started`, its watcher's
 start, encoded by the same handler, which leaves out `time` because the
-line's own time is unknown. It prints the events in the machine's time zone
-(`Oct 16 9:24 PM`), a stop with its reason on the lines below, colored at a
-terminal: stops, `SIGKILL`, give-ups, errors and raw lines red, low memory,
-abandoned and unmatched notes, refusals and a lost lock yellow, the
-watcher's routine (a handover included) faint. By default it leaves out `tracking` and `ended`,
-which `--verbose` adds. `--since` takes a Go duration before now (`10m`,
+line's own time is unknown. It prints one line per event, as log viewers
+do: the time in the machine's zone (`Oct 17 14:41:05`), the level, the event
+and then `key=value` fields in a fixed order with `cmd` last and the call's
+first 8 ID characters as `id`, a value in Go quotes when it holds a space,
+`"`, `=`, `\` or a control character (the [platform and guard view
+design](2026-10-17-platform-and-guard-view-design.md), section 4). At a
+terminal INFO is faint, WARN yellow and ERROR red. Every finished command
+shows (`ended`); `tracking` is folded away, and with `--follow` a command
+still running 5 seconds after it was found gets one `running` line. There is
+no `--verbose`. The stop's `reason` stays in `--json` and the live view's
+details. `--since` takes a Go duration before now (`10m`,
 `2h`), as `docker logs --since` does, `today` and `yesterday` as
 `journalctl --since` does, a local date, date and time or time of today
 (`2026-10-16`, `2026-10-16 21:00`, `21:00`), or RFC 3339. A line of
@@ -414,8 +438,18 @@ note.
 - **Timing:** the child and that process must have started at or after the
   note's `noted_start`, less one second, comparing kernel start times
   (section 4).
-- **Duplicates:** when two notes carry the same text, the earlier note goes to
-  the earlier-started child.
+- **Folder:** among the children that claim a note, the watcher prefers the
+  one whose process running the command has as its working folder the
+  note's `folder` (its leading `cd` target, which that shell has entered),
+  then one in the note's `cwd`, then one whose folder is unknown or neither,
+  the oldest within a rank. It prefers and never rejects, so a folder that
+  cannot be read (Linux `/proc/<pid>/cwd`; macOS `proc_pidinfo` with
+  `PROC_PIDVNODEPATHINFO`) or a `cd` through a link, `~` or a variable leaves
+  the choice as it was. Two identical commands started together from two
+  worktrees of one repository so pair each with its own folder, which
+  command text alone could not tell apart.
+- **Duplicates:** when two notes carry the same text, the earlier note
+  chooses first, and in a rank goes to the earlier-started child.
 
 A child that still carries its parent's own command line has forked but not
 yet exec'd, so it is checked again on the next tick. A child whose exec'd
@@ -522,6 +556,15 @@ initial values until section 10 step 4 drives them.
   - macOS: `ri_phys_footprint`
   - Linux: `Pss` from `/proc/<pid>/smaps_rollup`, which counts shared pages
     once.
+- **Measured every tick:** each tick the watcher also sums each tracked
+  command's tree, the processes a stop would signal, and keeps per command
+  the last 120 sums (two minutes at the normal tick), its peak and the
+  largest peak of any command. macOS sums the physical footprint, as stops
+  do; Linux sums `/proc/<pid>/statm`'s resident pages, a counter, and reads
+  `smaps_rollup`'s Pss, which the kernel builds by walking every mapping,
+  only for the sizing above when memory calls for a stop. The sums give the
+  `peak` of the `ended` and `stopping` records and the live view's memory;
+  a handover carries them to the new watcher.
 - **Choosing:** the watcher stops the largest tracked command across every
   session; ties go to the older command.
 - **Who's eligible:** only agent commands are candidates, never other
@@ -659,8 +702,9 @@ parallelism or a smaller input.
   (`os.Executable` may give the link or its target, depending on the system).
   When they differ, it starts that file's `guard watch` with
   `WORKBENCH_GUARD_HANDOVER` set to its PID and, as descriptors 3 to 5, its
-  locked `watch.lock` and two pipes, as systemd passes sockets from
-  descriptor 3 with `LISTEN_PID` naming the receiver. An `flock` lock belongs
+  locked `watch.lock` and two pipes, and, as descriptor 6 with
+  `WORKBENCH_GUARD_LISTENER=6`, its listening `guard.sock`, as systemd
+  passes sockets from descriptor 3 with `LISTEN_PID` naming the receiver. An `flock` lock belongs
   to the open file description, which a passed descriptor shares, survives
   `execve` and holds until the last descriptor on it closes (Linux and BSD
   `flock(2)`), so the lock is never free during the handover and no pre hook
@@ -669,10 +713,12 @@ parallelism or a smaller input.
   (`operation.InheritLock`), says it is ready on descriptor 4 with its
   release, and waits on descriptor 5. The old one keeps watching meanwhile.
   Once the new one is ready, and at a tick that read memory calling for
-  nothing, with no soft or critical hold running and no stop cooling down,
-  the old one logs `handover`, writes on descriptor 5 the roots of its
-  tracked commands (PID and start time) and the calls whose command ended or
-  that are passed over, and exits without another tick; the new one starts
+  nothing, with no soft or critical hold running, no stop cooling down and
+  no person's stop under way, the old one logs `handover`, writes on
+  descriptor 5 the roots of its tracked commands (PID and start time), the
+  calls whose command ended or that are passed over, and each command's
+  memory readings, closes its copy of the socket without removing the file,
+  and exits without another tick; the new one starts
   ticking only on that line, so two watchers never act at once. A stop under
   way finishes first, since it runs within a tick. The new watcher takes on
   each carried command whose root still runs as its agent's child, and
@@ -693,6 +739,30 @@ parallelism or a smaller input.
     resolves to another file, so two releases never take turns.
   - A watcher started by a build without handover runs that build until it
     is idle; `SIGTERM` stops it after any stop under way.
+- **The socket:** the watcher serves `guard.sock`, in this 0700 folder, to
+  `workbench guard memory`. It creates it after taking the lock, removing a
+  stale file first, takes it over at a handover (above), and removes it when
+  it exits, except when its lock file changed, since another watcher may
+  serve it then. At accept it reads the peer's user and process ID
+  (`platform.Peer`: `SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and
+  `LOCAL_PEERPID` on macOS) and closes a connection from another user;
+  pathname sockets honor their folder's permissions, but unix(7) warns
+  portable programs not to rely on that. Messages are JSON Lines: `hello`
+  with the versions the view speaks, answered with the highest both share
+  and the release, or `error` and close; a `snapshot` after each tick; a
+  `stop` naming call IDs, polite or forced, answered by `stopped` with each
+  ID's result (`unknown`, `already finished`, `not allowed`), or `error`
+  `busy` when eight stops already wait. A `stop` from a process under an
+  agent that has a note is `not allowed`, so an agent's command cannot stop
+  another's work. Only the tick goroutine owns the watcher's state: the
+  socket's goroutines hand it stops over a channel and get the answer on a
+  channel of their own, and each snapshot goes to every client without
+  blocking; a client whose four-message buffer is full, or whose write takes
+  over 5 seconds, is disconnected. A person's stop goes the path of section
+  6.4 (`force` sends `SIGKILL` at once), is followed across ticks with the
+  same 5-second escalation, is logged `stopping` with `by` `you`, tells the
+  agent `Stopped by you (workbench guard memory).`, and starts no cooldown;
+  under dry-run it is only logged.
 - **Crash or reboot:**
   - Commands keep running, unguarded, until the next command's pre hook starts
     a new watcher.

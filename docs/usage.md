@@ -239,9 +239,9 @@ Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore projec
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
 Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    size=3.1GB floor=4.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
 Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
-Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/statm: no such file or directory" process=81234
+Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
 Oct 17 14:50:00 INFO  idle
 ```
 
@@ -282,6 +282,38 @@ line of the watcher's output as
 `{"level":"ERROR","msg":"<the line>","event":"raw","started":"<its watcher's start>"}`.
 See the [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
 section 4.1.
+
+`workbench guard memory` shows, live and full screen, each command the
+watcher tracks, newest first: its short ID, status (`● run`, `◌ stopping`),
+agent, subagent, run time, memory now and at its peak, project and command,
+then, dimmed for a minute, those that ended (`✓ done`, `? unmatched`,
+`✗ stopped`). The header gives the watcher's release, the memory level and
+the memory (on macOS the installed memory and the swap in use, on Linux the
+memory available of the total), the clock, the counts and the largest peak,
+and says `dry run: stops are logged, not sent` when a shown command is a dry
+run. ↑ and ↓ move (there is no `j` or `k`, since `k` stops, as in htop),
+space tags a running command and moves down, enter opens the selected one's
+details (the full command, folder, full ID, a graph of its memory over the
+last 120 readings and its processes with theirs), `k` opens the stop menu for
+the tagged commands or the selected one, with `Stop (polite, force-killed
+after 5 s)` chosen and `Force kill now` below it, esc closes the menu or the
+details, and `q` or ctrl+c quits. The watcher stops the command the way it
+stops for memory, logs it `by=you` and tells the agent `Stopped by you
+(workbench guard memory).`; the bottom line shows its answer for 3 seconds
+(`stopped 4fQ8nX2a`, `4fQ8nX2a already finished`). The watcher serves the
+view on `guard.sock` beside its log, only to the same user, and never takes a
+stop from a process an agent with a guarded command started. In a window
+under 60 columns the view asks to be widened; narrower windows first shorten
+COMMAND, then drop SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it
+says so, keeps the last rows dimmed and reconnects every second; the watcher
+starts with the next agent command. Without a terminal on stdin and stdout it
+exits 3 with `guard memory needs a terminal; use workbench guard logs
+--follow`, and under a coding agent (`CLAUDECODE` or a Codex variable, as
+`apply` detects) with `guard memory is for a person at a terminal`.
+
+```bash
+workbench guard memory                      # watch, tag and stop agent commands
+```
 
 Workbench installs Claude Code's settings, instructions and hooks in
 `~/.claude` and Codex's in `~/.codex`, and never sets `CLAUDE_CONFIG_DIR` or
