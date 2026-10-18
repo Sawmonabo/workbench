@@ -75,7 +75,7 @@ one rate source inside `rates`, and there is no cache to clean.
 | --- | --- |
 | `<data>/costs/ledger.sqlite` | The durable record. User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
 | `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. Replaced whole through `operation.ReplacePrivateFile`, so an existing cache must be a private regular file with one link, or the refresh fails and leaves it. |
-| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields; any other key rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
+| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields, each a number from 0 to 1,000,000 USD per million tokens; any other key, or a rate outside that range, rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
 | `<state>/costs/ingest.log` | Bounded worker log. |
 | `<state>/costs/ingest.err`, `ingest.err.1` | The detached worker's stdout and stderr, never cut (`operation.RotateOutput`). |
 | `<state>/costs/ingest.lock` | Single-instance lock. |
@@ -523,14 +523,16 @@ prints `[WorkBench] Codex costs are not implemented yet` and exits 0. Tabs are
 the split by tool, so there is no `--by tool`; flags set what every tab shows.
 
 In the view, ↑/↓ move a `›` marker over the project and model rows and Enter
-opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches tools; Tab and Shift+Tab still do).
-The view turns mouse reporting on, so a trackpad never scrolls the terminal's
-own buffer under it: the mouse wheel moves the selection, a click selects a
-row and a click on the selected row opens it; on a page the wheel scrolls.
-A project's page shows its total and share, its cost by model, by day
-(active days, newest first) and by session (start, length, the model that
-cost the most, cost, calls), costliest first. A model's page shows the same
-with its cost by project.
+opens that row's page; ←, Esc or Backspace goes back (on a page ← never switches
+tools; Tab and Shift+Tab still do). The view turns mouse reporting on, so a
+trackpad never scrolls the terminal's own buffer under it: the mouse wheel moves
+the selection, a click selects a row and a click on the selected row opens it;
+the wheel scrolls a page, a report with no row to select (by account or month)
+and below the last row, where the notes are. With the mouse taken, hold Shift
+(Option in Terminal.app and iTerm2) to select text. A project's page shows its
+total and share, its cost by model, by day (active days, newest first) and by
+session (start, length, the model that cost the most, cost, calls), costliest
+first. A model's page shows the same with its cost by project.
 Pages read the ledger with the report's period, scope and rollup, and quitting
 from one leaves that page printed.
 

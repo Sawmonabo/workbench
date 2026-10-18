@@ -53,7 +53,7 @@ logged-in `gh`. Never run it as root.
 | `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
-| `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; on a page the wheel scrolls. Without a terminal, `--tool NAME` prints one tool's report. |
+| `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, hold Shift (Option in Terminal.app and iTerm2) to select text. Without a terminal, `--tool NAME` prints one tool's report. |
 | `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside `~/dev` and `~/repos`, of those that exist), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `costs ingest` | The hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts a detached worker. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. `--worker` ingests in the foreground. |
@@ -158,7 +158,7 @@ file it names in its place or remove the link. The first `costs` or
 ingests them once inline. Manual rate overrides go in `costs/rates.json` in
 Workbench's config folder, keyed by model
 prefix, with any of `input`, `output`, `cache_write_5m`, `cache_write_1h` and
-`cache_read` in USD per million tokens.
+`cache_read` in USD per million tokens, each from 0 to 1,000,000.
 The account table names each row's email and plan only from what Claude Code
 and Codex wrote down; usage they never recorded shows `not recorded`, with a
 note saying since when each tool records it. A Claude Code row belongs to the
@@ -225,18 +225,17 @@ whole (`1.86GB`); `took` has one decimal below 10 s, whole seconds below a
 minute, else `1m12s`; `level` is macOS's memory pressure level, `available`
 and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
 `gave-up`, `error` and `raw`, where the event alone does not say what
-happened. A value holding a space, `"`, `=`,
-`\` or a control character is written in Go's double quotes, so a command with
-a newline stays on one line and logfmt readers split the fields. The events
-are each command that ended, matched no known shape (`unmatched`) or was
-stopped (`stopping`, then `forced` or `gave-up` if it comes to that), low
-memory that stopped nothing, calls dropped without their post hook, the
-watcher starting, handing over to a new release, going idle and exiting,
-errors, and any line of the watcher's own output, such as a crash's trace, as
-a `raw` event with its line in `msg` and no time, placed at the start of the
-watcher that wrote it. Commands the watcher only started tracking are left
-out; with `--follow`, one still running 5 s after the watcher found it gets
-one `running` line, without `took` or `peak`.
+happened. A value holding a space, `"`, `=`, `\` or a control character is
+written in Go's double quotes, so a command with a newline stays on one line and
+logfmt readers split the fields. The events are each command that ended, matched
+no known shape (`unmatched`) or was stopped (`stopping`, then `forced` or
+`gave-up` if it comes to that), low memory that stopped nothing, calls dropped
+without their post hook, the watcher starting, handing over to a new release,
+going idle and exiting, errors, and any line of the watcher's own output, such
+as a crash's trace, as a `raw` event with its line in `msg` and no time, placed
+at the start of the watcher that wrote it. Commands the watcher only started
+tracking are left out; with `--follow`, one still running 5 s after the watcher
+found it gets one `running` line, without `took` or `peak`.
 
 ```text
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.41GB cmd="pnpm typecheck 2>&1 | tail -15"
@@ -294,42 +293,44 @@ subagent, run time, memory now and at its peak, project and command, then,
 dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
 The header's first line gives the watcher's state (`● watching`, `○ not
 running`, `○ not connected`), a `memory low` or `memory critical` badge when
-memory runs short,
-and the clock; below a blank line, the counts (`3 running · 2 finished`) and,
-while a watcher answers, the memory in use of the installed memory (`mem
-11.27/16 GB`), the largest peak and the swap in use; then a line that says `dry
-run: stops are logged, not sent` when every shown command is a dry run, or
-`dry run on 2 of 5 commands: …` when some are, each marked `(dry)` in its
-status. The selected row lies on a slate band across the window, its `▸` and
-ID bold in a light steel; a light terminal gets a light band, and without
+memory runs short, and the clock; below a blank line, the counts (`3 running · 2
+finished`) and, while a watcher answers, the memory in use of the installed
+memory (`mem 11.27/16 GB`), the largest peak and the swap in use; then a line
+that says `dry run: stops are logged, not sent` when every shown command is a
+dry run, or `dry run on 2 of 5 commands: …` when some are, each marked `(dry)`
+in its status. The selected row lies on a slate band across the window, its `▸`
+and ID bold in a light steel; a light terminal gets a light band, and without
 color the row is bold instead. ↑ and ↓ move (there is no `j` or `k`, since `k`
-stops, as in htop), space tags a running command and moves down, enter, → or
-`l` opens the selected one's details (the full command, folder, full ID, its
-processes with theirs and a graph of its memory over the last 120 readings),
-`k` opens the stop menu for the tagged commands or the selected one, with
-`Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below it,
-esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
-ctrl+c quits. On the list the mouse wheel moves as ↑ and ↓ do, a click
-selects a row and a click on the selected row opens its details; the view
-takes the mouse so a trackpad no longer scrolls the terminal's own buffer. The
-details lay a long command out one step per line, each `|`, `&&` or `||`
-outside quotes starting a line two spaces in (`go test ./... 2>&1`, then
-`| tail -20`). The watcher stops
-the command the way it stops for memory, logs it `by=you` and tells the agent
-`Stopped by you (workbench guard
-memory).`; the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,
-`logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already finished`). The watcher serves
-the view on `guard.sock` beside its log, only to the same user, and never
-takes a stop from a process still under an agent with a guarded command. In a
-window under 60 columns or 11 lines the view asks to be widened or made taller;
-narrower windows first shorten COMMAND, then drop SUBAGENT, PROJECT, PEAK and
-AGENT. While no watcher runs it says so, keeps the last rows dimmed and
-reconnects every second; the watcher starts with the next agent command.
-Without a terminal on stdin and stdout, or with `--non-interactive`, it exits
-3 with `guard memory needs a terminal; use workbench guard logs --follow`;
-with `--json`, which it has no output for, it exits 3 and points at `guard
-logs --json`; and under a coding agent (`CLAUDECODE` or a Codex variable, as
-`apply` detects) it exits 3 with `guard memory is for a person at a terminal`.
+stops, as in htop), space tags a running command and moves down, enter, → or `l`
+opens the selected one's details (the full command, folder, full ID, its
+processes and their memory, and a graph of its memory over the last 120
+readings), `k` opens the stop menu for the tagged commands or the selected one,
+with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
+it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
+ctrl+c quits. On the list the mouse wheel moves as ↑ and ↓ do, a click selects a
+row and a click on the selected row opens its details; the view takes the mouse
+so a trackpad no longer scrolls the terminal's own buffer; to select text, hold
+Shift (Option in Terminal.app and iTerm2). The details lay a long command out
+one step per line, each `|`, `&&` or `||` outside quotes starting a line two
+spaces in (`go test ./... 2>&1`, then `| tail -20`), and a `;` ends its line; a
+test in `[[ ]]`, a `{ }` group and a command with a here-document stay whole.
+When the details do not fit, the command's first line, folder, status, memory
+and graph stay, and one `… N more` line counts the rest. The watcher stops the
+command the way it stops for memory, logs it `by=you` and tells the agent
+`Stopped by you (workbench guard memory).`; the bottom line shows its answer for
+3 seconds (`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
+finished`). The watcher serves the view on `guard.sock` beside its log, only to
+the same user, and never takes a stop from a process still under an agent with a
+guarded command. In a window under 60 columns or 11 lines the view asks to be
+widened or made taller; narrower windows first shorten COMMAND, then drop
+SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it says so, keeps the
+last rows dimmed and reconnects every second; the watcher starts with the next
+agent command. Without a terminal on stdin and stdout, or with
+`--non-interactive`, it exits 3 with `guard memory needs a terminal; use
+workbench guard logs --follow`; with `--json`, which it has no output for, it
+exits 3 and points at `guard logs --json`; and under a coding agent
+(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with `guard
+memory is for a person at a terminal`.
 
 ```bash
 workbench guard memory                      # watch, tag and stop agent commands

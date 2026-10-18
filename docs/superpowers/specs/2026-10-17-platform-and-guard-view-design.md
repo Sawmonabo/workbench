@@ -265,7 +265,8 @@ Oct 17 14:50:00 INFO  idle
   alone colored, INFO green, WARN gold bold, ERROR red bold, an unknown level
   faint; the event and `id` plain; `agent` in its agent's hue (clay for Claude
   Code, steel for Codex); `by=you` bold; `took` of 10 s or more bold; `size`
-  or `peak` gold bold from 1 GB and red bold from 4 GB; every other value
+  or `peak` gold bold from 1 GB and red bold from 4 GB, counted as the
+  size prints, so `1.00 GB` is gold and `4.00 GB` red; every other value
   plain. A pipe, `TERM=dumb` and `NO_COLOR` get plain text, as
   [clig.dev](https://clig.dev/#output) advises. The colors are pinned hex
   values, not the terminal's own yellow, red and green, which most themes draw
@@ -347,9 +348,11 @@ A full-screen Bubble Tea program in the alternate screen.
   reporting on because without it a trackpad or wheel scrolls the
   terminal's own buffer and the screen slides away; the list scrolls only
   when the selection leaves the window, so a row stays under the pointer
-  that clicked it. The key line reads `↑/↓ move  space tag  enter/→ details
-  k stop  q/esc quit` on the list, `k stop  esc/← back  q quit` in details
-  and `↑/↓ choose  enter send  esc/← cancel` in the menu.
+  that clicked it. With the mouse taken, hold Shift (Option in Terminal.app
+  and iTerm2) to select text. The key line reads
+  `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
+  `k stop  esc/← back  q quit` in details and
+  `↑/↓ choose  enter send  esc/← cancel` in the menu.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
   s)` selected and `Force kill now` below it. The commands it names are
@@ -368,11 +371,21 @@ A full-screen Bubble Tea program in the alternate screen.
   which it applies to `&&` and `||` too: a `|`, `&&` or `||` that stands as
   a token outside quotes starts the next line, two spaces in, and a `;`
   ends its line and is dropped (`go test ./... 2>&1`, then `  | tail -20`).
-  Nothing inside single or double quotes, `$( )` or backquotes splits, nor
-  the `&` of `2>&1`, `|&` or `>|`, and a command with no separator stays
-  one wrapped line. When the details do not fit, the process list is cut
-  first, then the lines above it, into one `… N more` line, and the graph
-  always shows: at 11 lines, the command's first lines, `… N more` and the
+  Nothing splits inside single or double quotes, `$' '`, backquotes, `$( )`,
+  `( )`, `${ }`, a `{ }` group or `[[ ]]` (where `||` and `&&` are the
+  test's own), after a backslash, or after a `#` that starts a comment; nor
+  do the `&` of `2>&1`, `|&`, `>|` or the `;;` that ends a `case` arm. A
+  command with no separator stays one wrapped line, and so does one that
+  holds a newline outside quotes, such as one with a here-document: its
+  author has laid it out already, and a here-document's body is data, not
+  steps. When the details do not fit, whole kinds of lines are cut, each
+  from its end and the order on screen kept, in this order: the process
+  lines, the Processes count, Subagent, Agent, ID, the blank line at the
+  top, the command's lines after its first, and Folder last. One `… N
+  more` line above the graph counts them, and a field that lost lines ends
+  with `…`. The command's first line, Status, Memory and the graph always
+  show, the facts needed to decide on `k stop`: at 11 lines the details are
+  `Command <first line>…`, Folder, Status, Memory, `… N more` and the
   graph. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
@@ -391,20 +404,35 @@ A full-screen Bubble Tea program in the alternate screen.
   window, `#3a4252`, a slate a few steps lighter than a dark background,
   the way lazygit's `selectedLineBgColor` marks the selected line
   ([Config.md](https://github.com/jesseduffield/lazygit/blob/master/docs/Config.md)),
-  with its `▸` and ID bold in a light steel accent, `#9ec1dc`; the rest of
-  the row keeps its colors and is not bold, and a finished row stays dim
-  under the band. On the dark band the red and the dim gold lose contrast
-  (1.6:1 and 2.4:1, against 2.7:1 and 3.9:1 on a `#1e1e1e` background), so
-  on the selected row they are drawn lighter, `#d0606a` and `#b4a264`. The
-  view asks the terminal for its background color
+  with its `▸` and ID bold in a light steel accent, `#9ec1dc`, not dimmed
+  even on a finished row; the rest of the row keeps its colors and is not
+  bold, and a finished row stays dim under the band. Every colored
+  foreground on the selected row, the tag mark `*` too, keeps at least 3:1
+  contrast with the band by WCAG 2's contrast ratio
+  ([Understanding SC 1.4.3](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html));
+  3:1 is its floor for large text and for the parts of a view a person
+  must tell apart
+  ([1.4.11](https://www.w3.org/WAI/WCAG22/Understanding/non-text-contrast.html)),
+  while 4.5:1 for normal text would turn the palette to pastels. A pinned
+  color under it, or only just over it, is drawn on the selected row as
+  the same hue lighter, to about 3.2:1 or more: on the dark band green
+  `#6e9c72` (2.54:1 pinned), gold `#b9942e` (2.94:1), red `#e5737c`
+  (1.61:1), dim gold `#a39145` (2.37:1, still dimmer than the gold) and
+  steel `#7297aa` (3.11:1); clay keeps its pinned value (3.38:1). Off the
+  band every color keeps its pinned value. The view asks the terminal for
+  its background color
   ([`RequestBackgroundColor`, `BackgroundColorMsg`](https://pkg.go.dev/charm.land/bubbletea/v2@v2.0.10#BackgroundColorMsg))
   and picks the band with Lip Gloss's
   [`LightDark`](https://pkg.go.dev/charm.land/lipgloss/v2@v2.0.6#LightDark):
   on a light terminal the band is `#d6dde8` and the accent `#2f5c7e`, and
-  the red and dim gold keep their pinned values. Until the terminal
-  answers, and where it never does (some terminals and multiplexers do
-  not), the view draws for a dark background. In the details the status
-  and the memory values take the same colors.
+  the colors under 3:1 there are drawn darker: green `#59825d` (2.91:1
+  pinned), gold `#927525` (2.52:1), clay `#a26d3e` (2.19:1) and steel
+  `#587d92` (2.37:1); the red (4.58:1) and the dim gold (3.12:1) keep
+  their pinned values. Until the terminal answers, and where it never does
+  (some terminals and multiplexers do not), the view draws for a dark
+  background. Terminals draw a finished row's dimming by blending toward
+  the background, which the ratio does not measure. In the details the
+  status and the memory values take the pinned colors.
 - **No color** (`NO_COLOR` or no color support): the same screen without
   color, bold and dim kept, as the costs view keeps them; `▸`, `✓ ? ✗ ●`,
   `○` and the tag mark carry the state, and the badge's words the memory.
