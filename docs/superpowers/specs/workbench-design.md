@@ -41,6 +41,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches and remove the guard log's old free-text lines; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
+| `internal/platform/` | Every operating-system call and platform fact, in `_darwin.go`/`_linux.go` pairs with the same names; no other package asks which system it runs on (ADR 0012). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
 | `home/.chezmoitemplates/` | Shared shell/native configuration fragments and merges. |
