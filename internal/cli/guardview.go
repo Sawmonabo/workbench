@@ -943,12 +943,41 @@ func onBand(s lipgloss.Style, light bool) lipgloss.Style {
 	return s
 }
 
-// detailLines are the selected command's details in at most room lines: the
-// full command, one step of it per line, its folder, agent, subagent, full
-// ID, status and run time, memory now and at its peak, its processes, and a
-// graph of its memory last. Lines that do not fit are cut from the end of
-// the process list, and then from the end of what precedes it, into one
-// "… N more" line; the graph always shows.
+// detailLine is one line of the details: its text, the field it belongs to
+// (each process line is a field of its own) and when it is cut when the
+// details do not fit: 0 never, a higher class first.
+type detailLine struct {
+	text  string
+	field int
+	cut   int
+}
+
+// The cut classes of the details, from the last to go to the first: Folder,
+// the Command's lines after its first, the blank line at the top, ID, Agent,
+// Subagent, the Processes count and the process lines. The Command's first
+// line, Status, Memory and Graph are never cut: they say what runs, whether
+// it still does and how large it is, which a person needs to decide on k
+// stop; Folder says which project the command belongs to.
+const (
+	cutFolder = iota + 1
+	cutLaterLines
+	cutBlank
+	cutID
+	cutAgent
+	cutSubagent
+	cutCount
+	cutProcess
+)
+
+// detailLines are the selected command's details in at most room lines, in
+// this order: the full command, one step of it per line, its folder, agent,
+// subagent, full ID, status and run time, memory now and at its peak, its
+// processes, and a graph of its memory. When they do not fit, whole classes
+// of lines are cut in the order of the cut constants, each from its end, the
+// order on screen kept, and one "… N more" line above the graph counts them;
+// a field that loses its later lines but keeps its first ends with "…". At
+// the smallest window the details are the Command's first line, Folder,
+// Status, Memory, "… N more" and Graph.
 func (m *guardView) detailLines(room int) []string {
 	if m.cursor >= len(m.snap.Commands) {
 		return nil
@@ -962,29 +991,33 @@ func (m *guardView) detailLines(room int) []string {
 	if cells[4] != "" {
 		status += forTerm(" · ") + cells[4]
 	}
-	label := func(name string, values ...string) []string {
-		var b strings.Builder
+	var lines []detailLine
+	field := 0
+	// add lays out a field's values under its label, a value after the first
+	// starting on its own line two spaces in, its first line cut as first
+	// says and the others as rest.
+	add := func(name string, first, rest int, values ...string) {
+		field++
 		for i, value := range values {
-			// A step after the first starts with its operator, two spaces in.
+			var b strings.Builder
 			writeText(&b, m.width-12, min(i, 1)*2, value)
-		}
-		lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
-		for i := range lines {
-			head := strings.Repeat(" ", 12)
-			if i == 0 {
-				head = faint.Render(fmt.Sprintf("  %-10s", name))
+			for line := range strings.SplitSeq(strings.TrimSuffix(b.String(), "\n"), "\n") {
+				head, cut := strings.Repeat(" ", 12), rest
+				if len(lines) == 0 || lines[len(lines)-1].field != field {
+					head, cut = faint.Render(fmt.Sprintf("  %-10s", name)), first
+				}
+				lines = append(lines, detailLine{head + line, field, cut})
 			}
-			lines[i] = head + lines[i]
 		}
-		return lines
 	}
-	lines := []string{""}
-	lines = append(lines, label("Command", commandSteps(c.Command)...)...)
-	lines = append(lines, label("Folder", showPath(c.Cwd))...)
-	lines = append(lines, label("Agent", c.Agent)...)
-	lines = append(lines, label("Subagent", cmp.Or(c.Subagent, "—"))...)
-	lines = append(lines, label("ID", c.ID)...)
-	lines = append(lines, label("Status", status)...)
+	field++
+	lines = append(lines, detailLine{"", field, cutBlank})
+	add("Command", 0, cutLaterLines, commandSteps(c.Command)...)
+	add("Folder", cutFolder, cutFolder, showPath(c.Cwd))
+	add("Agent", cutAgent, cutAgent, c.Agent)
+	add("Subagent", cutSubagent, cutSubagent, cmp.Or(c.Subagent, "—"))
+	add("ID", cutID, cutID, c.ID)
+	add("Status", 0, 0, status)
 	now, peak := cells[memoryColumn], cells[peakColumn]
 	nowStyle, peakStyle := sizeStyles(c)
 	if nowStyle != nil {
@@ -993,18 +1026,78 @@ func (m *guardView) detailLines(room int) []string {
 	if peakStyle != nil {
 		peak = peakStyle.Render(peak)
 	}
-	lines = append(lines, label("Memory", now+" now"+forTerm(" · ")+"peak "+peak)...)
-	lines = append(lines, label("Processes", processCount(len(c.Tree)))...)
+	add("Memory", 0, 0, now+" now"+forTerm(" · ")+"peak "+peak)
+	add("Processes", cutCount, cutCount, processCount(len(c.Tree)))
 	for _, p := range c.Tree {
-		lines = append(lines, forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
-			fit(p.Name, 20, false), memorySize(p.Memory))))
+		field++
+		lines = append(lines, detailLine{forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
+			fit(p.Name, 20, false), memorySize(p.Memory))), field, cutProcess})
 	}
-	last := label("Graph", graph(c.History, c.Peak, m.width-14))
-	if keep := max(room-len(last), 1); len(lines) > keep {
-		lines = append(lines[:keep-1], faint.Render(fmt.Sprintf("%12s%s %d more", "",
-			glyphs.Ellipsis, len(lines)-keep+1)))
+	add("Graph", 0, 0, graph(c.History, c.Peak, m.width-14))
+	return fitDetails(lines, room, m.width)
+}
+
+// fitDetails are the details' lines in at most room lines as [detailLines]
+// cuts them, the "… N more" line just above the graph, the last one.
+func fitDetails(lines []detailLine, room, width int) []string {
+	total := map[int]int{}
+	for _, line := range lines {
+		total[line.field]++
 	}
-	return append(lines, last...)
+	cut := 0
+	if len(lines) > room {
+		// The "… N more" line takes one line of its own.
+		lines, cut = cutDetails(lines, len(lines)-room+1)
+	}
+	kept := map[int]int{}
+	for _, line := range lines {
+		kept[line.field]++
+	}
+	graphField := lines[len(lines)-1].field
+	out := make([]string, 0, len(lines)+1)
+	for i, line := range lines {
+		if cut > 0 && line.field == graphField && i > 0 && lines[i-1].field != graphField {
+			out = append(out, faint.Render(fmt.Sprintf("%12s%s %d more", "", glyphs.Ellipsis, cut)))
+		}
+		text := line.text
+		// A field that lost its later lines but kept its first goes on.
+		lastOfField := i+1 < len(lines) && lines[i+1].field != line.field
+		if lastOfField && kept[line.field] < total[line.field] {
+			text = withEllipsis(text, width)
+		}
+		out = append(out, text)
+	}
+	return out
+}
+
+// cutDetails drops n lines from lines, or as many as may go: each time the
+// last line of the highest cut class left. It returns the lines kept and how
+// many it dropped.
+func cutDetails(lines []detailLine, n int) ([]detailLine, int) {
+	dropped := 0
+	for ; dropped < n; dropped++ {
+		at := -1
+		for i, line := range lines {
+			if line.cut > 0 && (at < 0 || line.cut >= lines[at].cut) {
+				at = i
+			}
+		}
+		if at < 0 {
+			break
+		}
+		lines = slices.Delete(lines, at, at+1)
+	}
+	return lines, dropped
+}
+
+// withEllipsis is a line that goes on in lines not shown: it ends with an
+// ellipsis, cut first to fit width with it.
+func withEllipsis(line string, width int) string {
+	room := width - ansi.StringWidth(glyphs.Ellipsis)
+	if ansi.StringWidth(line) > room {
+		line = ansi.Truncate(line, room, "")
+	}
+	return line + glyphs.Ellipsis
 }
 
 // commandSteps splits a shell command into the steps a reader follows, as
