@@ -354,12 +354,12 @@ func guardFields(e guard.Event, running bool) []guardField {
 		{"by", e.By, styleIf(e.By == "you", bold)},
 		{"dry_run", whenTrue(e.DryRun), nil},
 		{"took", tookValue(took), styleIf(took >= 10, bold)},
-		{"size", sizeValue(e.Size), sizeStyle(e.Size)},
-		{"peak", sizeValue(peak), sizeStyle(peak)},
-		{"floor", sizeValue(e.Floor), nil},
+		{"size", sizeValue(sizeText(e.Size)), sizeStyle(e.Size)},
+		{"peak", sizeValue(sizeText(peak)), sizeStyle(peak)},
+		{"floor", sizeValue(capacityText(e.Floor)), nil},
 		{"level", nonZero(e.Memory.Level), nil},
-		{"available", sizeValue(e.Memory.Available), nil},
-		{"total", sizeValue(e.Memory.Total), nil},
+		{"available", sizeValue(sizeText(e.Memory.Available)), nil},
+		{"total", sizeValue(capacityText(e.Memory.Total)), nil},
 		{"still_running", strings.Join(stillRunning, ","), nil},
 		{"release", e.Release, nil},
 		{"old_release", e.OldRelease, nil},
@@ -427,20 +427,26 @@ func tookValue(seconds float64) string {
 	return took.Round(time.Second).String()
 }
 
-// sizeText is a size in bytes as people read it: whole MB under 1 GB, else
-// [guard.Gigabytes] ("840 MB", "2.4 GB"); empty for 0.
+// sizeText is a measurement, [guard.Size] ("840 MB", "2.41 GB"); empty for
+// 0.
 func sizeText(bytes uint64) string {
-	switch {
-	case bytes == 0:
+	if bytes == 0 {
 		return ""
-	case bytes < 1<<30:
-		return fmt.Sprintf("%.0f MB", float64(bytes)/(1<<20))
 	}
-	return guard.Gigabytes(bytes)
+	return guard.Size(bytes)
 }
 
-// sizeValue is [sizeText] as one token, without its space ("2.4GB").
-func sizeValue(bytes uint64) string { return strings.ReplaceAll(sizeText(bytes), " ", "") }
+// capacityText is a capacity, [guard.Capacity] ("16 GB", "1.86 GB"); empty
+// for 0.
+func capacityText(bytes uint64) string {
+	if bytes == 0 {
+		return ""
+	}
+	return guard.Capacity(bytes)
+}
+
+// sizeValue is a size text as one token, without its space ("2.41GB").
+func sizeValue(text string) string { return strings.ReplaceAll(text, " ", "") }
 
 // logfmtValue is a value as logfmt writes it: bare when it is one token, else
 // in Go's double quotes. A space, a double quote, an equals sign, a backslash
