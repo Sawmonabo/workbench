@@ -348,6 +348,10 @@ Rules:
   cache: `cache read / (input + cache writes + cache read)`). `--tokens`
   replaces `share`, `tokens` and `cached` with `input`, `output`, `cache 5m`,
   `cache 1h`, `cache read` and adds a one-line legend to the footer.
+- Dollars: costs add up exactly, in whole picodollars (each rate counts to
+  the nearest millionth of a dollar per million tokens), and a figure is its
+  exact sum rounded once to the cent, half a cent up, so a row, a total and a
+  project's or model's page show the same figure for the same responses.
 - Width: lines are sized to the terminal (`shutil.get_terminal_size`, 100 when
   not a terminal). The name column takes what the numeric columns leave, at
   least 24, and long names are clipped from the left with `…` so the
