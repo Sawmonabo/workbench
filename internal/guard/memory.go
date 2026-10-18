@@ -33,7 +33,9 @@ const (
 )
 
 // memory is one reading of the machine's memory (see platform.Memory) or,
-// as readMemory chooses, of this process's cgroup.
+// as readMemory chooses, of this process's cgroup. Its Installed sets the
+// floor below which the agent commands are too small to stop politely, and is
+// named in the reason text.
 type memory platform.Memory
 
 // readMemory reads the machine's memory. When this process's cgroup is

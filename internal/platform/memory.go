@@ -5,10 +5,8 @@ package platform
 // which decides with the swap. On Linux Level is 0, Total is earlyoom's
 // figure (MemAvailable + AnonPages), so Available/Total is the share user
 // memory can still take, and FullAvg10 is the memory pressure file's full
-// avg10, -1 when absent. Installed is the machine's RAM, which sets the floor
-// below which the agent commands are too small to stop politely, and is named
-// in the reason text. A cgroup's reading (see CgroupMemory) has its memory
-// limit as Installed.
+// avg10, -1 when absent. Installed is the machine's RAM; a cgroup's reading
+// (see CgroupMemory) has its memory limit as Installed.
 type Memory struct {
 	Level               int
 	Available, Total    uint64
