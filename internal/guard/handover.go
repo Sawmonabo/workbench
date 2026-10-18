@@ -357,16 +357,9 @@ func (w *watcher) inherit(listener bool) bool {
 	for fd := 3; fd <= last; fd++ {
 		unix.CloseOnExec(fd)
 	}
-	lock, ready, start := os.NewFile(
-		3,
-		"watch.lock",
-	), os.NewFile(
-		4,
-		"ready",
-	), os.NewFile(
-		5,
-		"start",
-	)
+	lock := os.NewFile(3, "watch.lock")
+	ready := os.NewFile(4, "ready")
+	start := os.NewFile(5, "start")
 	defer func() { _, _ = ready.Close(), start.Close() }()
 	if held, err := operation.InheritLock(lock, w.f.lock()); err != nil || held {
 		_ = lock.Close()
