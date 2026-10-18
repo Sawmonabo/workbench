@@ -104,8 +104,9 @@ internal/project/                  Discovery and project configuration
 internal/costs/                    AI-tool cost ledger and reports
 internal/migrate/                  Migrations of Workbench's own files
 internal/guard/                    Agent command memory guard
+internal/platform/                 Operating-system calls and platform facts
 home/                             Existing canonical machine configuration
-project/pythonpolicy/                   Portable configuration policy, not app scaffolding
+project/pythonpolicy/              Portable configuration policy, not app scaffolding
 scripts/                          Existing validation plus release tooling
 docs/superpowers/specs/            Product specifications
 docs/superpowers/plans/            Dependency-ordered implementation plans
