@@ -215,7 +215,7 @@ event: the time in the machine's time zone, the level, the event, then
 `id agent subagent project by dry_run took size peak floor level available
 total still_running release old_release new_release new_pid msg error process
 cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
-`call_` prefix; `project` is the folder the command ran in; `cmd` is the
+`call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project` is the folder the command ran in; `cmd` is the
 command without a leading `cd PATH &&` or `cd PATH;`, last because it is the
 longest. Sizes are `MB` below 1 GB, else `GB` with one decimal; `took` has one
 decimal below 10 s, whole seconds below a minute, else `1m12s`; `level` is
@@ -237,7 +237,7 @@ one `running` line, without `took` or `peak`.
 ```text
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB available=1.1GB total=16GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
 Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
 Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
@@ -303,8 +303,8 @@ memory, logs it `by=you` and tells the agent `Stopped by you (workbench guard
 memory).`; the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,
 `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already finished`). The watcher serves
 the view on `guard.sock` beside its log, only to the same user, and never
-takes a stop from a process an agent with a guarded command started. In a
-window under 60 columns or 8 lines the view asks to be widened or made taller;
+takes a stop from a process still under an agent with a guarded command. In a
+window under 60 columns or 10 lines the view asks to be widened or made taller;
 narrower windows first shorten COMMAND, then drop SUBAGENT, PROJECT, PEAK and
 AGENT. While no watcher runs it says so, keeps the last rows dimmed and
 reconnects every second; the watcher starts with the next agent command.

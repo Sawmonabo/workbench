@@ -54,9 +54,13 @@ a row could show the wrong project and a stop could hit the other call.
   this feature for security". At accept the watcher reads the peer's user
   and process ID (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and
   `LOCAL_PEERPID` on macOS, through `platform.Peer`) and closes a
-  connection from another user. It refuses a `stop` from a process that
-  descends from an agent with a note, so a command one agent runs cannot stop
-  another agent's work; when a link in that chain cannot be read, it refuses.
+  connection from another user. It refuses a `stop` from a process still
+  under an agent with a note, PID 1 included; when a link in that chain
+  cannot be read, it refuses. The check follows parent processes only: a
+  command that detached from its agent (`setsid`, a double fork) is no longer
+  under it, and could signal the same user's processes with `kill` anyway,
+  so this keeps an agent's ordinary commands from using the view's path, not
+  a determined one.
   The view itself refuses to run without a terminal or under a coding agent,
   by the detection `apply` uses.
 - **The tick owns the state; broadcasts never block.** Every field of the

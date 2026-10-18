@@ -765,8 +765,9 @@ parallelism or a smaller input.
   `stop` naming call IDs, polite or forced, answered by `stopped` with each
   ID's result (`unknown`, `already finished`, `not allowed`), or `error`
   `busy` when eight stops already wait. A `stop` from a process under an
-  agent that has a note is `not allowed`, so an agent's command cannot stop
-  another's work. Only the tick goroutine owns the watcher's state: the
+  agent that has a note, PID 1 included, is `not allowed`; the check follows
+  parents only, so it binds a process still under a noted agent, not one
+  that detached. Only the tick goroutine owns the watcher's state: the
   socket's goroutines hand it stops over a channel and get the answer on a
   channel of their own, and each snapshot goes to every client without
   blocking; a client whose four-message buffer is full, or whose write takes

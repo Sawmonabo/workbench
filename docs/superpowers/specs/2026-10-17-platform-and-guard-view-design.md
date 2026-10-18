@@ -217,7 +217,7 @@ order, `cmd` last because it is the longest.
 ```
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB available=1.1GB total=16GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
 Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
 Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
@@ -225,7 +225,8 @@ Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81
 Oct 17 14:50:00 INFO  idle
 ```
 
-- **Time** is the machine's zone, `Jan 2 15:04:05`, as journalctl and the
+- **Time** is the machine's zone, `Jan _2 15:04:05` (Go's `time.Stamp`, the
+  day padded to two columns, so the fields line up), as journalctl and the
   log's own records sort.
 - **Level** is the record's slog level. **Event** is the record's `event`
   (guard design 4.1), with `tracking` folded away: a command shows when it
@@ -233,7 +234,9 @@ Oct 17 14:50:00 INFO  idle
   `gave-up` if it comes to that). The watcher's own events (`started`,
   `handover`, `idle`, `exited`) print the same way, dim.
 - **`id`** is the first 8 characters of the tool call ID after its `toolu_`
-  or `call_` prefix. `--json` keeps the full ID.
+  or `call_` prefix and a provider segment such as Bedrock's `bdrk_` or
+  Vertex AI's `vrtx_` (`toolu_bdrk_01…`), which every ID of that provider
+  shares. `--json` keeps the full ID.
 - **`project`** is where the command ran (section 6.2).
 - **`cmd`** is the note's command with a leading `cd PATH &&` or `cd PATH;`
   removed; the path went into `project`.
@@ -314,8 +317,8 @@ A full-screen Bubble Tea program in the alternate screen.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
   and AGENT drop in that order; a project name is clipped at 24 columns.
   Below 60 columns the view says `Widen the window to at least 60 columns`,
-  and below 8 lines `Make the window at least 8 lines tall`, so the bottom
-  line always shows.
+  and below 10 lines `Make the window at least 10 lines tall`, so the stop
+  menu and the bottom line always show.
 - **No color** (`NO_COLOR` or no color support): the same screen in plain
   text; `▸`, `✓ ? ✗ ●` and the tag mark carry the state.
 - **Watcher not running**: the screen says so and that the watcher starts
@@ -390,8 +393,8 @@ and whose processes are gone.
   credentials (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and `LOCAL_PEERPID`
   on macOS) and closes it unless the user ID is its own. It may serve a
   snapshot to any such peer; it refuses a `stop` from a peer whose process
-  descends from an agent that has a note, so a command an agent runs cannot
-  stop another agent's work.
+  is still under an agent that has a note (parents only: a detached command
+  is not under it, and could use `kill` anyway).
 - **Messages.** JSON Lines in both directions. The view first sends
   `{"type":"hello","versions":[1]}`; the watcher answers
   `{"type":"hello","version":1,"release":"v0.1.26"}` with the highest
@@ -464,8 +467,11 @@ AGENTS.md admits tests only for data loss, credential exposure or
 unauthorized execution. Each of these guards against a command being stopped
 that nobody with the right to stop it chose:
 
-1. The watcher refuses a `stop` from a peer of another user and from a peer
-   under a noted agent.
+1. The watcher refuses a `stop` from a peer under a noted agent, PID 1
+   included (`TestManualStopsOnlyWhatAPersonMayStop`). The other-user case
+   has no test: it is decided at accept from the peer's credentials, which
+   only a real socket and a second user give, and no test opens a socket;
+   it is checked by reading `handle` in `internal/guard/socket.go`.
 2. A `stop` naming an unknown or finished ID signals nothing.
 3. Two notes with the same command text in two folders pair with the
    processes in their own folders.

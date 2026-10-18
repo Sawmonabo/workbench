@@ -49,7 +49,7 @@ every caller.
 - **Its facts.** `System` is the system's name; `RuntimeFolders(home)` the
   five default runtime folders; `HomebrewPrefixes` and
   `HomebrewRepositories` where Homebrew lives; `HasCasks` whether Homebrew
-  casks and Mac apps exist; `ToolFolders(home)` the folders searched, in
+  casks and Mac apps exist; `ToolFolders(home, nvm)` the folders searched, in
   order, for an agent's launcher; `VSCodeUserFolder(home)` VS Code's user
   settings folder; `ClaudeManagedFolder` Claude Code's managed settings
   folder; `GroupFromFolder` whether a new file takes its folder's group;
@@ -92,8 +92,10 @@ every caller.
 - The move must change no behavior: the doctor's lines and the plan digest
   are compared before and after it, on macOS, on Linux and in the WSL
   simulation.
-- CI lints the darwin build only, so a change to a `_linux.go` file is linted
-  with `GOOS=linux golangci-lint run` before it lands.
+- CI lints the linux and the darwin build, each by name with `GOOS` set,
+  so the linters and the `runtime.GOOS` rule see both systems' suffix files;
+  run `GOOS=linux golangci-lint run` and `GOOS=darwin golangci-lint run`
+  locally before a change to either lands.
 - Building for a system other than macOS or Linux fails at compile time
   instead of refusing at run time.
 
