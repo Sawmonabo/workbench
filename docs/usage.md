@@ -217,11 +217,15 @@ total still_running release old_release new_release new_pid msg error process
 cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
 `call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
 is the folder the command ran in; `cmd` is the command without a leading
-`cd PATH &&` or `cd PATH;`, last because it is the longest. Sizes are `MB` below 1 GB, else `GB` with one decimal; `took` has one
-decimal below 10 s, whole seconds below a minute, else `1m12s`; `level` is
-macOS's memory pressure level, `available` and `total` Linux's memory. `msg`
-shows only for `memory`, `refused`, `gave-up`, `error` and `raw`, where the
-event alone does not say what happened. A value holding a space, `"`, `=`,
+`cd PATH &&` or `cd PATH;`, last because it is the longest. Sizes are binary
+(1 GB is 1024 MB) and whole `MB` below 1 GB; from 1 GB a reading that moves
+(`size`, `peak`, `available`) has two decimals (`2.41GB`) and a fixed total
+(`floor`, `total`) is whole (`16GB`), or has two decimals when it is not
+whole (`1.86GB`); `took` has one decimal below 10 s, whole seconds below a
+minute, else `1m12s`; `level` is macOS's memory pressure level, `available`
+and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
+`gave-up`, `error` and `raw`, where the event alone does not say what
+happened. A value holding a space, `"`, `=`,
 `\` or a control character is written in Go's double quotes, so a command with
 a newline stays on one line and logfmt readers split the fields. The events
 are each command that ended, matched no known shape (`unmatched`) or was
@@ -235,12 +239,12 @@ out; with `--follow`, one still running 5 s after the watcher found it gets
 one `running` line, without `took` or `peak`.
 
 ```text
-Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
+Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.41GB cmd="pnpm typecheck 2>&1 | tail -15"
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB available=1.1GB total=16GB cmd="cargo test --workspace"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.21GB peak=6.21GB available=1.12GB total=16GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
-Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
+Oct 17 14:43:02 WARN  memory    size=740MB floor=1GB available=1.12GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.31GB peak=1.31GB cmd="pnpm vitest run"
 Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
 Oct 17 14:50:00 INFO  idle
 ```
@@ -293,7 +297,7 @@ running`, `○ not connected`), a `memory low` or `memory critical` badge when
 memory runs short,
 and the clock; below a blank line, the counts (`3 running · 2 finished`) and,
 while a watcher answers, the memory in use of the installed memory (`mem
-9.4/16 GB`), the largest peak and the swap in use; then a line that says `dry
+11.27/16 GB`), the largest peak and the swap in use; then a line that says `dry
 run: stops are logged, not sent` when every shown command is a dry run, or
 `dry run on 2 of 5 commands: …` when some are, each marked `(dry)` in its
 status. ↑ and ↓ move (there is no `j` or `k`, since `k` stops, as in htop),

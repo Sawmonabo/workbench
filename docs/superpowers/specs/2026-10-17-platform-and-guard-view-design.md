@@ -224,12 +224,12 @@ One line per event: time, level, event, then `key=value` pairs in a fixed
 order, `cmd` last because it is the longest.
 
 ```
-Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
+Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.41GB cmd="pnpm typecheck 2>&1 | tail -15"
 Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB available=1.1GB total=16GB cmd="cargo test --workspace"
+Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.21GB peak=6.21GB available=1.12GB total=16GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
-Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
+Oct 17 14:43:02 WARN  memory    size=740MB floor=1GB available=1.12GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.31GB peak=1.31GB cmd="pnpm vitest run"
 Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
 Oct 17 14:50:00 INFO  idle
 ```
@@ -252,8 +252,15 @@ Oct 17 14:50:00 INFO  idle
 - **Quoting**, as logfmt does: a value holding a space, `"`, `=`, `\` or a
   control character is written in Go's double quotes, any other bare
   (`cmd=./scripts/nap.sh`).
-- **Sizes** are `MB` below 1 GB, else `GB` with one decimal. **`took`** has
-  one decimal below 10 s, whole seconds below a minute, else `1m12s`.
+- **Sizes** are binary, as Activity Monitor counts them (1 GB is 1024 MB),
+  whole `MB` below 1 GB, and take one of two roles. A measurement, a reading
+  that moves (`size`, `peak`, `available`, memory and swap in use), has two
+  decimals from 1 GB (`peak=2.41GB`). A capacity, a fixed total (`total`,
+  `floor`, installed memory, swap total, a container's limit), is a whole
+  number when it is whole at two decimals (`total=16GB`) and has two decimals
+  when it is not (`1.86GB` for an odd container limit). The reason the guard
+  gives the agent follows the same rule. **`took`** has one decimal below
+  10 s, whole seconds below a minute, else `1m12s`.
 - **Colors**, at a terminal: the time and the keys faint; the level label
   alone colored, INFO green, WARN gold bold, ERROR red bold, an unknown level
   faint; the event and `id` plain; `agent` in its agent's hue (clay for Claude
@@ -292,14 +299,14 @@ A full-screen Bubble Tea program in the alternate screen.
 ```
 [WorkBench] Guard memory  ● watching · 11:33:32 PM
 
-3 running · 2 finished · mem 9.4/16 GB · peak 6.2 GB · swap 4.1/5.0 GB
+3 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 
-   ID        STATUS     AGENT   SUBAGENT      TIME  MEMORY    PEAK  PROJECT        COMMAND
-▸  01HsQEPc  ● run      claude  implementer    24s  1.5 GB  1.5 GB  api-server     go test ./... 2>&1 | tail -20
-   3Nd7Lp8z  ● run      codex                  15s  840 MB  910 MB  price-feed     cargo check -p feed
-   7Kp3Rt9m  ● run      claude                8.0s  320 MB  2.5 GB  feature-login  pnpm vitest run
-   5Jx2Gm6r  ✓ done     claude  Explore       0.6s       —   18 MB  api-server     rg -n -i digest src
-   2Bv6Yc1d  ✗ stopped  claude               1m12s       —  6.2 GB  api-server     cargo test --workspace
+   ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
+▸  01HsQEPc  ● run      claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
+   3Nd7Lp8z  ● run      codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
+   7Kp3Rt9m  ● run      claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
+   5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
+   2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
 ↑/↓ move  space tag  enter/→ details  k stop  q quit
 ```
 
@@ -320,14 +327,15 @@ A full-screen Bubble Tea program in the alternate screen.
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
   2), of the installed memory, bold and not dim, its unit written once when
-  both share it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that
-  does not send it); `peak P`, the largest peak since the watcher started;
-  and `swap USED/TOTAL`, left out where there is no swap. The fourth says why no
-  watcher answers or, when every shown command is a dry run, `dry run: stops
-  are logged, not sent`, when only some are, `dry run on 2 of 5 commands:
-  stops are logged, not sent`, in gold, and is blank otherwise; the dry-run
-  texts fit 60 columns, and a longer text wraps onto another line, so no line
-  is cut.
+  both share it (`11.27/16 GB`, `289 MB/16 GB`, `—/16 GB` from a watcher
+  that does not send it); the used figure is a measurement and the installed
+  and swap totals capacities, by the rule in section 4; `peak P`, the largest
+  peak since the watcher started; and `swap USED/TOTAL`, left out where there
+  is no swap. The fourth says why no watcher answers or, when every shown
+  command is a dry run, `dry run: stops are logged, not sent`, when only some
+  are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold, and
+  is blank otherwise; the dry-run texts fit 60 columns, and a longer text
+  wraps onto another line, so no line is cut.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
   Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
@@ -360,7 +368,7 @@ A full-screen Bubble Tea program in the alternate screen.
   takes its agent's hue; MEMORY and PEAK are gold and bold from 1 GB and
   red and bold from 4 GB; the tag mark `*` is gold. Each keeps the row's
   own dimming and bold, so a finished row stays dim and the selected one
-  bold (a 6.2 GB peak on a finished row is still red and bold). In the
+  bold (a 6.21 GB peak on a finished row is still red and bold). In the
   details the status and the memory values take the same colors.
 - **No color** (`NO_COLOR` or no color support): the same screen without
   color, bold and dim kept, as the costs view keeps them; `▸`, `✓ ? ✗ ●`,
@@ -491,8 +499,9 @@ Everything else reuses what Workbench already has:
   (`internal/cli/table.go`).
 - **Log printing**: `guard.ReadLog` and the existing `--since` parser
   (`internal/cli/timeflag.go`); only the line format in
-  `internal/cli/guard.go` changes. Sizes keep `guard.Gigabytes`, plus MB below
-  1 GB.
+  `internal/cli/guard.go` changes. Sizes print through `guard.Size` (a
+  measurement) and `guard.Capacity` (a capacity), which the stop reason uses
+  too.
 - **Messages and records**: `encoding/json` for JSON Lines, and the guard's
   `slog` JSON records for the log.
 - **Socket handover**: the listening socket rides the handover the lock

@@ -157,13 +157,13 @@ func reason(command string, children int, size uint64, m memory) string {
 	switch {
 	case m.Level > 0:
 		state = fmt.Sprintf("memory pressure critical, %s installed, %s of swap in use",
-			Gigabytes(m.Installed), Gigabytes(m.SwapTotal-m.SwapFree))
+			Capacity(m.Installed), Size(m.SwapTotal-m.SwapFree))
 	case m.SwapTotal == 0:
 		state = fmt.Sprintf("%s of %s available, no swap",
-			Gigabytes(m.Available), Gigabytes(m.Installed))
+			Size(m.Available), Capacity(m.Installed))
 	default:
 		state = fmt.Sprintf("%s of %s available, swap %.0f %% used",
-			Gigabytes(m.Available), Gigabytes(m.Installed), 100-m.swapFreePercent())
+			Size(m.Available), Capacity(m.Installed), 100-m.swapFreePercent())
 	}
 	var processes string
 	switch {
@@ -174,7 +174,7 @@ func reason(command string, children int, size uint64, m memory) string {
 	}
 	return fmt.Sprintf("workbench guard: stopped `%s`%s. The machine was nearly out of memory "+
 		"(%s) and this was the largest agent command, at %s. Retry with less parallelism or a "+
-		"smaller input.", clip(command), processes, state, Gigabytes(size))
+		"smaller input.", clip(command), processes, state, Size(size))
 }
 
 // clip makes a command fit one line of the reason: no newlines or
@@ -187,11 +187,27 @@ func clip(command string) string {
 	return command
 }
 
-// Gigabytes is a size as the stop reason and the log viewer show it: "4.2 GB".
-func Gigabytes(bytes uint64) string {
-	value := float64(bytes) / (1 << 30)
-	if value >= 10 {
-		return fmt.Sprintf("%.0f GB", value)
+// mbLimit is where a size moves from MB to GB: half a MB under 1 GB, so a
+// size that rounds to 1024 MB prints in GB.
+const mbLimit = 1<<30 - 1<<19
+
+// Size is a measurement, a reading that moves (memory used or available, a
+// command's size and peak, swap in use), as the stop reason, the log viewer
+// and the live view show it: whole MB under 1 GB, else GB with two decimals
+// ("289 MB", "1.52 GB"). GB and MB are binary, as Activity Monitor counts them.
+func Size(bytes uint64) string {
+	if bytes < mbLimit {
+		return fmt.Sprintf("%.0f MB", float64(bytes)/(1<<20))
 	}
-	return fmt.Sprintf("%.1f GB", value)
+	return fmt.Sprintf("%.2f GB", float64(bytes)/(1<<30))
+}
+
+// Capacity is a fixed total (installed memory, swap total, the stop floor, a
+// cgroup limit): whole MB under 1 GB, else whole GB when the value is whole at
+// two decimals and two decimals otherwise ("256 MB", "16 GB", "1.86 GB").
+func Capacity(bytes uint64) string {
+	if bytes < mbLimit {
+		return Size(bytes)
+	}
+	return strings.TrimSuffix(fmt.Sprintf("%.2f", float64(bytes)/(1<<30)), ".00") + " GB"
 }

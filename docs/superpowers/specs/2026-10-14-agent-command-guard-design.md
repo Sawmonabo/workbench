@@ -660,8 +660,8 @@ The reason names the command, its size, the machine's state and what to try:
 
 ```
 workbench guard: stopped `uv run pytest -n 8` and its 6 child processes. The
-machine was nearly out of memory (1.1 GB of 32 GB available, swap 94 % used)
-and this was the largest agent command, at 9.3 GB. Retry with less
+machine was nearly out of memory (1.12 GB of 32 GB available, swap 94 % used)
+and this was the largest agent command, at 9.31 GB. Retry with less
 parallelism or a smaller input.
 ```
 

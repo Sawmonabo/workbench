@@ -564,11 +564,12 @@ func (m *guardView) headLine() string {
 	return fit(line, m.width, false)
 }
 
-// memorySlash is part of whole, the unit written once when both share it, as
-// a meter reads used against total: "9.4/16 GB", "840 MB/16 GB"; a part of 0,
-// which a watcher without the reading sends, is "—/16 GB".
+// memorySlash is a measurement (part) of a capacity (whole), the unit written
+// once when both share it, as a meter reads used against total: "11.27/16
+// GB", "289 MB/16 GB"; a part of 0, which a watcher without the reading
+// sends, is "—/16 GB".
 func memorySlash(part, whole uint64) string {
-	p, w := memorySize(part), memorySize(whole)
+	p, w := memorySize(part), cmp.Or(capacityText(whole), "—")
 	number, unit, ok := strings.Cut(p, " ")
 	if ok && strings.HasSuffix(w, " "+unit) {
 		p = number
@@ -576,8 +577,8 @@ func memorySlash(part, whole uint64) string {
 	return p + "/" + w
 }
 
-// memorySize is a size as the view shows it, [sizeText] or an em dash for
-// none.
+// memorySize is a measurement as the view shows it, [sizeText] or an em dash
+// for none.
 func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
 // countLine counts the running commands and those that finished in the last
@@ -603,7 +604,7 @@ func (m *guardView) countLine() string {
 		// Swap not in use is a reading of 0, not a missing one.
 		swap := memorySlash(mem.SwapTotal-mem.SwapFree, mem.SwapTotal)
 		if mem.SwapFree >= mem.SwapTotal {
-			swap = "0/" + memorySize(mem.SwapTotal)
+			swap = "0/" + capacityText(mem.SwapTotal)
 		}
 		tails = append(tails, forTerm(" · swap "+swap))
 	}
