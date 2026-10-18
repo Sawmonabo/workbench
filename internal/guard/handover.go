@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"net"
 	"os"
 	"path/filepath"
@@ -17,6 +18,7 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // handoverVariable is set, to the old watcher's PID, in the environment of
@@ -75,12 +77,15 @@ type handover struct {
 }
 
 // carried is what the old watcher hands over beside the notes on disk, which
-// the new one reads itself: the tracked commands' roots and memory, the calls
-// whose command ended or that are passed over, the largest peak, the
-// commands that finished within finishedShown and who stopped each tracked
-// command that was signalled, which live only in memory.
+// the new one reads itself: the tracked commands' roots, notes and memory,
+// the calls whose command ended or that are passed over, the largest peak,
+// the commands that finished within finishedShown and who stopped each
+// tracked command that was signalled, which live only in memory. The notes
+// let the new watcher end a command whose note the post hook removed while
+// the watch passed.
 type carried struct {
 	Tracked     map[string]procRef `json:"tracked"`
+	Notes       map[string]note    `json:"notes"`
 	Ended       []string           `json:"ended"`
 	Passed      []string           `json:"passed"`
 	Usage       map[string]usage   `json:"usage"`
@@ -306,6 +311,7 @@ func (w *watcher) failHandover(target os.FileInfo, cause error) {
 func (w *watcher) carried() carried {
 	c := carried{
 		Tracked:     map[string]procRef{},
+		Notes:       map[string]note{},
 		Usage:       map[string]usage{},
 		LargestPeak: w.largestPeak,
 		Finished:    w.finished,
@@ -313,6 +319,7 @@ func (w *watcher) carried() carried {
 	}
 	for id, cmd := range w.tracked {
 		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
+		c.Notes[id] = cmd.Note
 		if u := w.usage[id]; u != nil {
 			c.Usage[id] = *u
 		}
@@ -408,37 +415,61 @@ func takeListener() *net.UnixListener {
 
 // adopt takes on what the old watcher carried: the largest peak, the
 // finished commands, which buildView drops finishedShown after they ended as
-// it does its own, and, for each note still on disk, its tracked command when
-// the root still runs, with its start time, as the note's agent's child, with
-// its memory, whether it is passed over, who stopped it, and whether its
-// command ended. A tracked command carried without memory starts it anew.
-// Other notes are matched as a new watcher matches them (see match).
+// it does its own, who stopped each tracked command, and each tracked command
+// with its note, the one on disk or else the one carried. A command whose
+// root still runs, with its start time, as the note's agent's child is
+// tracked again with its memory, whether it is passed over, and logged. One
+// whose root is gone is tracked without a log, so forget ends it as it ends
+// any command, once its root has been absent for two rounds: it logs the end
+// once and keeps it among the finished commands with who stopped it, and the
+// note on disk is never matched again. A tracked command carried without
+// memory starts it anew. Other notes are matched as a new watcher matches
+// them (see match).
 func (w *watcher) adopt(s snapshot, notes []note) {
 	c := w.inherited
 	w.largestPeak = max(w.largestPeak, c.LargestPeak)
 	w.finished = append(w.finished, c.Finished...)
+	maps.Copy(w.stoppedBy, c.StoppedBy)
+	onDisk := map[string]note{}
 	for _, n := range notes {
-		id := n.ToolUseID
-		if slices.Contains(c.Ended, id) {
-			w.ended[id] = true
+		onDisk[n.ToolUseID] = n
+		if slices.Contains(c.Ended, n.ToolUseID) {
+			w.ended[n.ToolUseID] = true
 		}
-		root, ok := c.Tracked[id]
-		if p := s[root.PID]; ok && s.alive(root.PID, root.Start) && p.PPID == n.AgentPID {
-			cmd := command{Note: n, Root: p}
-			w.tracked[id] = cmd
-			u, kept := c.Usage[id]
-			if !kept {
-				u = usage{Since: time.Now()}
-			}
-			w.usage[id] = &u
-			w.passed[id] = slices.Contains(c.Passed, id)
-			if by := c.StoppedBy[id]; by != "" {
-				w.stoppedBy[id] = by
-			}
-			seen := w.seen[id]
+	}
+	for id, root := range c.Tracked {
+		n, noted := onDisk[id]
+		if !noted {
+			n, noted = c.Notes[id]
+		}
+		p, running := s[root.PID]
+		running = running && s.alive(root.PID, root.Start)
+		if !noted || running && p.PPID != n.AgentPID {
+			continue
+		}
+		if !running {
+			p = proc{Process: platform.Process{PID: root.PID, PPID: n.AgentPID, Start: root.Start}}
+		}
+		cmd := command{Note: n, Root: p}
+		w.tracked[id] = cmd
+		u, kept := c.Usage[id]
+		if !kept {
+			u = usage{Since: time.Now()}
+		}
+		w.usage[id] = &u
+		w.passed[id] = slices.Contains(c.Passed, id)
+		if seen, ok := w.seen[id]; ok {
 			seen.matched = true
 			w.seen[id] = seen
+		}
+		if running {
 			w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(cmd)...)
+		}
+	}
+	// A mark is shown only with its tracked command.
+	for id := range w.stoppedBy {
+		if _, ok := w.tracked[id]; !ok {
+			delete(w.stoppedBy, id)
 		}
 	}
 }
