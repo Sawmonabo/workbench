@@ -149,12 +149,12 @@ internal/platform/
   libc_darwin.s
 ```
 
-Each exported name exists in both platform files with the same signature, so
-callers compile the same on both. There is no third file for other systems:
-Workbench ships for macOS and Linux only, so building for anything else fails
-to compile, which replaces the run-time refusal in `operation.runtimePaths`.
-When a file grows past one subject, it splits by subject with the same suffix
-(`process_darwin.go`, `process_linux.go`).
+Each subject's `_darwin.go` and `_linux.go` files export the same names with
+the same signatures, so callers compile the same on both; a file without a
+suffix holds only what is identical on both systems. There is no third file
+for other systems: Workbench ships for macOS and Linux only, so building for
+anything else fails to compile, which replaces the run-time refusal in
+`operation.runtimePaths`.
 
 ### 3.3 Its interface
 
