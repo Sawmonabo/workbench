@@ -197,10 +197,15 @@ func (s snapshot) launched(child proc, seen map[int]bool) []proc {
 // kernel's own units, never against the wall clock. A child in taken, or
 // still carrying its agent's command line (forked, not yet exec'd), is
 // skipped; the next tick looks again. Notes go oldest first, each to its
-// oldest matching child, so of two notes with the same text the earlier gets
-// the earlier child. A child whose command line matches no note is never
-// tracked. setsCallIDs are the Codex agents seen to give a command its own
-// call ID (see claims).
+// oldest matching child whose command runs in the note's cd folder, else in
+// its cwd (noteFolders, see folderRank), else to its oldest matching child,
+// so of two notes with the same text the one from the other folder is not
+// given the other's command, and otherwise the earlier gets the earlier
+// child. The folder only prefers: one that is unknown, unreadable or reached
+// through a link, ~ or a variable leaves the choice as it was and never
+// leaves a command untracked. A child whose command line matches no note is
+// never tracked. setsCallIDs are the Codex agents seen to give a command its
+// own call ID (see claims).
 func match(s snapshot, notes []note, taken map[int]bool, setsCallIDs map[procKey]bool) []command {
 	notes = slices.Clone(notes)
 	slices.SortFunc(notes, func(a, b note) int {
@@ -220,6 +225,9 @@ func match(s snapshot, notes []note, taken map[int]bool, setsCallIDs map[procKey
 			continue
 		}
 		earliest := n.NotedStart - min(n.NotedStart, platform.StartSecond)
+		dirs := noteFolders(n)
+		var chosen proc
+		best := -2
 		for _, child := range s.children(agent.PID) {
 			if used[child.PID] || child.Start < earliest || slices.Equal(child.Args, agent.Args) {
 				continue
@@ -227,12 +235,34 @@ func match(s snapshot, notes []note, taken map[int]bool, setsCallIDs map[procKey
 			if !claims(s, n, agent, child, earliest, setsCallIDs[procKey{agent.PID, agent.Start}]) {
 				continue
 			}
-			used[child.PID] = true
-			out = append(out, command{Note: n, Root: child})
-			break
+			if rank := s.folderRank(child, dirs); rank > best {
+				chosen, best = child, rank
+			}
+			if best == len(dirs)-1 {
+				break
+			}
+		}
+		if best > -2 {
+			used[chosen.PID] = true
+			out = append(out, command{Note: n, Root: chosen})
 		}
 	}
 	return out
+}
+
+// folderRank is the index in dirs (noteFolders: cwd, then the leading cd's
+// folder) of the last folder that a process which may run a note's command
+// for child (commandProcesses) has as its known working folder, or -1 for
+// none. A shell in the cd's folder has run that cd, so it ranks above one
+// still in cwd, which another call with the same text from that cwd may be.
+func (s snapshot) folderRank(child proc, dirs []string) int {
+	rank := -1
+	for _, p := range s.commandProcesses(child) {
+		if p.Folder != "" {
+			rank = max(rank, slices.Index(dirs, p.Folder))
+		}
+	}
+	return rank
 }
 
 // claims reports whether child runs n's command. A child of a Codex agent

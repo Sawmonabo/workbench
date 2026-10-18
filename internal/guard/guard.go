@@ -24,8 +24,12 @@ const (
 // hook process's own kernel start time, in the units of proc.Start, so the
 // matcher compares kernel start times with each other and never with the
 // wall clock. Posted marks a background call's note after its post hook,
-// which runs while the command goes on. SessionID and NotedAt are only for a
-// person reading the note.
+// which runs while the command goes on. Cwd is the agent's working folder for
+// the call and Folder the command's leading cd target, both real paths, so
+// they compare with the folder the kernel reports for a process; either is
+// empty when unknown. Subagent is the Claude Code subagent type that made the
+// call, and Project labels the folder (see projectName). SessionID, NotedAt,
+// Subagent and Project are only for a person reading the note.
 type note struct {
 	AgentPID   int       `json:"agent_pid"`
 	AgentStart uint64    `json:"agent_start"`
@@ -37,17 +41,24 @@ type note struct {
 	NotedAt    time.Time `json:"noted_at"`
 	DryRun     bool      `json:"dry_run,omitempty"`
 	Posted     bool      `json:"posted,omitempty"`
+	Cwd        string    `json:"cwd,omitempty"`
+	Folder     string    `json:"folder,omitempty"`
+	Subagent   string    `json:"subagent,omitempty"`
+	Project    string    `json:"project,omitempty"`
 }
 
 // proc is one process in a snapshot. Args stays nil until read. CallID is
 // CODEX_TOOL_CALL_ID from the environment it started with, read only for a
 // Codex agent and its direct children: Codex 0.163.0 and later set it on each
 // command to the hook's tool_use_id, and it survives the exec of a shell or a
-// #! script.
+// #! script. Folder is the working folder the kernel reports, a real path,
+// read like Args only when matching may use it, and empty when unread or
+// unreadable.
 type proc struct {
 	platform.Process
 	Args   []string
 	CallID string
+	Folder string
 }
 
 // snapshot is every process at one moment, by PID.

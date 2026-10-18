@@ -42,12 +42,17 @@ const (
 // and NotedStart, read when this watcher first read it, matched once it was
 // tracked, childSeen as markChildSeen sets it, and posted and postedRound
 // from the first tick it was read marked posted. One that goes away unmatched
-// with childSeen is logged.
+// with childSeen is logged, with the note's cwd, project, subagent and at, its
+// NotedAt.
 type seenNote struct {
 	command     string
 	agent       procKey
 	kind        kind
 	noted       uint64
+	cwd         string
+	project     string
+	subagent    string
+	at          time.Time
 	read        time.Time
 	matched     bool
 	childSeen   bool
@@ -270,9 +275,10 @@ func (w *watcher) tick() time.Duration {
 		w.inherited = nil
 	}
 	agents, protected := w.agents(s, notes)
-	codexAgents := map[int]bool{}
+	codexAgents, inFolders := map[int]bool{}, map[int]bool{}
 	for _, n := range notes {
 		codexAgents[n.AgentPID] = codexAgents[n.AgentPID] || n.Kind == codex
+		inFolders[n.AgentPID] = inFolders[n.AgentPID] || len(noteFolders(n)) > 0
 	}
 	for key := range w.setsCallIDs {
 		if !s.alive(key.pid, key.start) {
@@ -281,7 +287,7 @@ func (w *watcher) tick() time.Duration {
 	}
 	for _, agent := range agents {
 		w.waiter.Watch(agent)
-		loadArgs(s, agent, codexAgents[agent])
+		loadArgs(s, agent, codexAgents[agent], inFolders[agent])
 		if !codexAgents[agent] {
 			continue
 		}
@@ -397,11 +403,15 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		seen, ok := w.seen[id]
 		if !ok {
 			seen = seenNote{
-				command: n.Command,
-				agent:   procKey{n.AgentPID, n.AgentStart},
-				kind:    n.Kind,
-				noted:   n.NotedStart,
-				read:    now,
+				command:  n.Command,
+				agent:    procKey{n.AgentPID, n.AgentStart},
+				kind:     n.Kind,
+				noted:    n.NotedStart,
+				cwd:      n.Cwd,
+				project:  n.Project,
+				subagent: n.Subagent,
+				at:       n.NotedAt,
+				read:     now,
 			}
 		}
 		if n.Posted && seen.posted.IsZero() {
@@ -903,9 +913,10 @@ func (w *watcher) abandon(c command) {
 // loadArgs reads the command lines matching looks at: the agent's, its direct
 // children's and, below a sandbox launcher, what the launcher started. For a
 // Codex agent it also reads the CallID of the agent and its direct children;
-// no other part of any environment is kept. Sizes need neither, so the rest
-// of the tree is not read.
-func loadArgs(s snapshot, agent int, callIDs bool) {
+// no other part of any environment is kept. With folders, a note of the agent
+// knows a folder, so it also reads each one's Folder; one it cannot read stays
+// empty. Sizes need none of these, so the rest of the tree is not read.
+func loadArgs(s snapshot, agent int, callIDs, folders bool) {
 	seen := map[int]bool{}
 	var read func(pid int, expand bool)
 	read = func(pid int, expand bool) {
@@ -917,6 +928,9 @@ func loadArgs(s snapshot, agent int, callIDs bool) {
 		p.Args = platform.Args(pid)
 		if callIDs && (pid == agent || p.PPID == agent) {
 			p.CallID = platform.Environ(pid, callIDVariable)
+		}
+		if folders {
+			p.Folder, _ = platform.Folder(pid)
 		}
 		s[pid] = p
 		if expand || len(p.Args) > 0 && launchers[filepath.Base(p.Args[0])] {
