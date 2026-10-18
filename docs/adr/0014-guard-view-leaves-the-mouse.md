@@ -15,11 +15,18 @@ terminal:
   selects text under a plain drag; a menu toggle or a held key is needed,
   and which one varies by terminal (Terminal.app: View → Allow Mouse
   Reporting, ⌘R).
-- A program can leave the mouse alone. A plain drag selects text, and most
-  terminals send a wheel step on the alternate screen as ↑ or ↓, so a view
-  that moves on those keys scrolls under the wheel too. In xterm that is
-  alternate scroll mode (DECSET 1007, off by default there); Terminal.app
-  has a profile setting for it and knows nothing of the mode.
+- A program can leave the mouse alone. A plain drag selects text, and
+  terminals send a wheel step on the alternate screen as ↑ or ↓ under a
+  mode of theirs, so a view that moves on those keys scrolls under the wheel
+  too. In xterm that is alternate scroll mode (DECSET 1007, off by default
+  there). Terminal.app knows nothing of that mode: it sends the wheel as
+  arrow keys only while the program has application cursor keys on (DECCKM,
+  DECSET 1), the mode every curses program sets on entry (terminfo `smkx`),
+  which is why `less` and `vim` scroll there and a Bubble Tea view, which
+  never sets it, does not. A byte probe in Terminal.app 2.15 showed it: on
+  the alternate screen the wheel sent nothing, nothing with 1007 set, and
+  `ESC O B` / `ESC O A` with DECCKM set; its hidden preference
+  `ScrollAlternateScreenWithoutApplicationCursorMode` names the rule.
 
 The view first did both: it reported the mouse on the list, for a click to
 select a row, and released it in the details, for a plain drag. In
@@ -35,15 +42,18 @@ not parse that either.
 
 ## Decision
 
-The view never reports the mouse, on any screen. It sets xterm's alternate
-scroll mode as it starts, saving the terminal's state first (XTSAVE), and
-restores that state (XTRESTORE) when it ends, for terminals that need the
-mode; it sends no mode query. The exit is a restore alone, not a reset: a
-terminal without XTSAVE, Windows Terminal among them, ignores the restore
-and keeps the mode as its own setting left it, where a reset would have
-turned a default-on setting off for the rest of the tab. Clicking a row no
-longer does anything: ↑ and ↓ move, Enter, → or `l` opens the details, as
-before.
+The view never reports the mouse, on any screen. As it starts it turns on
+application cursor keys, which it resets when it ends, as every curses
+program does; and it sets xterm's alternate scroll mode, saving the
+terminal's state first (XTSAVE) and restoring it (XTRESTORE) when it ends,
+for terminals that need that mode; it sends no mode query. The alternate
+scroll exit is a restore alone, not a reset: a terminal without XTSAVE,
+Windows Terminal among them, ignores the restore and keeps the mode as its
+own setting left it, where a reset would have turned a default-on setting
+off for the rest of the tab. Application cursor keys change the arrow keys'
+encoding to SS3 (`ESC O A`), which Bubble Tea decodes as the same keys.
+Clicking a row no longer does anything: ↑ and ↓ move, Enter, → or `l` opens
+the details, as before.
 
 The costs view is unchanged: it reports the mouse on every screen and never
 switches, which Terminal.app handles.
@@ -51,9 +61,9 @@ switches, which Terminal.app handles.
 ## Consequences
 
 - The wheel moves the list, scrolls the details and moves the stop menu's
-  choice, as the arrow keys do: in xterm, Windows Terminal, Ghostty and VTE
-  terminals, which have the mode (vtdn, below) and get it from the view; and
-  in Terminal.app through its own profile setting.
+  choice, as the arrow keys do: in Terminal.app through application cursor
+  keys (probed), and in xterm, Windows Terminal, Ghostty and VTE terminals,
+  which have alternate scroll (vtdn, below) and get it from the view.
 - A plain drag selects text on every screen, with no key held and no
   terminal setting changed.
 - A click on a row does nothing; the view is keyboard-driven, as `less` and most
@@ -78,6 +88,9 @@ switches, which Terminal.app handles.
   ⌘R toggles Allow Mouse Reporting.
 - [vtdn, Alt Scroll (mode 1007)](https://vtdn.dev/docs/decset/mode1007-alt-scroll/):
   the mode's definition and default.
+- [iTerm2 issue 2464, "Application cursor key mode for mouse wheel"](https://gitlab.com/gnachman/iterm2/issues/2464):
+  reports that Terminal.app sends the wheel as scroll key codes to programs
+  that have enabled application key mode, the behavior the probe confirmed.
 - [Windows Terminal issue 13187](https://github.com/microsoft/terminal/issues/13187):
   every terminal tested that has alternate scroll has it on by default,
   except xterm; Windows Terminal turned it on by default in PR 16535.

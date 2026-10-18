@@ -100,9 +100,8 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		tea.WithoutSignalHandler(),
 	)
 	_, err := program.Run()
-	// However the view ended, put the terminal's alternate scroll setting
-	// back as the view found it.
-	model.altScroll.disarm(os.Stdout)
+	// However the view ended, put the terminal's modes back (wheelmodes.go).
+	model.wheel.disarm(os.Stdout)
 	if model.client != nil {
 		_ = model.client.Close()
 	}
@@ -142,8 +141,9 @@ type guardView struct {
 	// noColor is set when the terminal shows no color (a NO_COLOR or dumb
 	// terminal), so the selected row is marked bold instead of by its band.
 	noColor bool
-	// altScroll is the view's hold on the terminal's alternate scroll mode.
-	altScroll altScroll
+	// wheel is the view's hold on the terminal modes that make the wheel
+	// scroll it.
+	wheel wheelModes
 	// details is the details' scrolling pane, its content and size set as
 	// each frame draws it, so a new snapshot keeps its scroll offset.
 	details viewport.Model
@@ -273,17 +273,17 @@ func connectWatcher() tea.Msg {
 }
 
 // Init connects, starts the clock, asks the terminal for its background,
-// which picks the selected row's band, and turns on alternate scroll
-// (altscroll.go).
+// which picks the selected row's band, and turns on the modes that make the
+// wheel scroll the view (wheelmodes.go).
 func (m *guardView) Init() tea.Cmd {
 	m.dialing = true
-	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor, m.altScroll.arm())
+	return tea.Batch(connectWatcher, nextTick(), tea.RequestBackgroundColor, m.wheel.arm())
 }
 
 // Update takes a message. Each tick schedules the next and, while no watcher
 // answers and no attempt runs, tries again.
 func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	m.altScroll.note(msg)
+	m.wheel.note(msg)
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -567,8 +567,8 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 
 // View draws the screen in the alternate screen, or asks for a wider or a
 // taller window, so the key line and its notices always show. The view never
-// takes the mouse, so a plain drag selects text on every screen, and most
-// terminals send a wheel step as ↑ or ↓ (altscroll.go), which move the list,
+// takes the mouse, so a plain drag selects text on every screen, and the
+// terminal sends a wheel step as ↑ or ↓ (wheelmodes.go), which move the list,
 // scroll the details and move the stop menu's choice, as the keys do (ADR
 // 14).
 func (m *guardView) View() tea.View {
