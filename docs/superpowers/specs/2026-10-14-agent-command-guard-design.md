@@ -139,7 +139,7 @@ Read from documentation and source:
   The memory in use, as Activity Monitor's Memory Used counts it (App Memory,
   the anonymous pages less the purgeable ones, plus Wired plus Compressed),
   comes from libSystem's `host_statistics64` with `HOST_VM_INFO64`, called
-  through the same trampolines as `proc_pid_rusage` on the port
+  through trampolines like `proc_pid_rusage`'s on the port
   `mach_host_self` returns once per process; it fills `struct vm_statistics64`
   (`mach/vm_statistics.h`), whose `internal_page_count`, `purgeable_count`,
   `wire_count` and `compressor_page_count` times `hw.pagesize` give the

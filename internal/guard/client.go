@@ -100,30 +100,30 @@ func Dial(ctx context.Context) (*Client, error) {
 // release the watcher runs. It fails after three seconds without an answer:
 // a watcher of an older release that took the socket over never answers.
 // Once it succeeds the client starts reading snapshots.
-func (c *Client) Hello() (release string, err error) {
+func (c *Client) Hello() error {
 	if err := c.conn.SetDeadline(time.Now().Add(helloWait)); err != nil {
-		return "", err
+		return err
 	}
 	if err := c.write(message{Type: messageHello, Versions: []int{protocolVersion}}); err != nil {
-		return "", err
+		return err
 	}
 	reply, err := c.read()
 	if err != nil {
-		return "", err
+		return err
 	}
 	switch {
 	case reply.Type == messageError:
 		// The only error a watcher answers a hello with is no common version.
-		return "", fmt.Errorf("%w: %s", ErrProtocolVersion, reply.Error)
+		return fmt.Errorf("%w: %s", ErrProtocolVersion, reply.Error)
 	case reply.Type != messageHello || reply.Version != protocolVersion:
-		return "", fmt.Errorf("%w: the watcher answered %q with version %d",
+		return fmt.Errorf("%w: the watcher answered %q with version %d",
 			ErrProtocolVersion, reply.Type, reply.Version)
 	}
 	if err := c.conn.SetDeadline(time.Time{}); err != nil {
-		return "", err
+		return err
 	}
 	go c.receive()
-	return reply.Release, nil
+	return nil
 }
 
 // Snapshots gives the watcher's snapshots, the latest only when the reader is

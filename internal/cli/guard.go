@@ -331,8 +331,8 @@ type guardField struct {
 // value left out: a call's short id, where and by whom, how long it took and
 // how large it got, the memory reading, the watcher's releases and processes,
 // then msg, error, process and cmd. Values are plain except the agent in its
-// hue, a stop by you and a took of 10 s or more bold, and a size or peak gold
-// from 1 GB and red from 4 GB.
+// hue, a stop by you and a took of 10 s or more bold, and a size or peak bold
+// in gold from 1 GB and in red from 4 GB.
 func guardFields(e guard.Event, running bool) []guardField {
 	took, peak := e.Took, e.Peak
 	if running {

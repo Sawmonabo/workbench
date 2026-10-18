@@ -292,14 +292,14 @@ A full-screen Bubble Tea program in the alternate screen.
 ```
 [WorkBench] Guard memory  ● watching · 11:33:32 PM
 
-3 running · 2 finished · mem 9.4/16 GB · peak 2.5 GB · swap 4.1/5.0 GB
+3 running · 2 finished · mem 9.4/16 GB · peak 6.2 GB · swap 4.1/5.0 GB
 
-   ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT        COMMAND
-▸ 01HsQEPc  ● run       claude  implementer 24s  1.5 GB  1.5 GB  api-server     go test ./... 2>&1 | tail -20
-   3Nd7Lp8z  ● run       codex              15s  840 MB  910 MB  price-feed     cargo check -p feed
-   7Kp3Rt9m  ● run       claude             8.0s  320 MB  2.5 GB  feature-login  pnpm vitest run
-   5Jx2Gm6r  ✓ done      claude             0.6s       —   18 MB  api-server     rg -n -i 'digest' …
-   2Bv6Yc1d  ✗ stopped   claude           1m12s       —  2.4 GB  api-server     cargo test --workspace
+   ID        STATUS     AGENT   SUBAGENT      TIME  MEMORY    PEAK  PROJECT        COMMAND
+▸  01HsQEPc  ● run      claude  implementer    24s  1.5 GB  1.5 GB  api-server     go test ./... 2>&1 | tail -20
+   3Nd7Lp8z  ● run      codex                  15s  840 MB  910 MB  price-feed     cargo check -p feed
+   7Kp3Rt9m  ● run      claude                8.0s  320 MB  2.5 GB  feature-login  pnpm vitest run
+   5Jx2Gm6r  ✓ done     claude  Explore       0.6s       —   18 MB  api-server     rg -n -i digest src
+   2Bv6Yc1d  ✗ stopped  claude               1m12s       —  6.2 GB  api-server     cargo test --workspace
 ↑/↓ move  space tag  enter/→ details  k stop  q quit
 ```
 
@@ -313,20 +313,21 @@ A full-screen Bubble Tea program in the alternate screen.
   running` or ` not connected`); a badge after the state when memory runs
   short, `memory low` gold and bold or `memory critical` red and bold, and
   none for `normal` or macOS's `warning`, which the guard treats as routine;
-  then a dim ` · ` and the clock (`3:04:05 PM`), inline. The second is
+  then a dim ` · ` and the clock (`3:04:05 PM`), inline, which a window too
+  narrow for the badge and the clock drops. The second is
   blank. The third, dim: the counts, `N running · M finished` (finished in
   the last minute), and, while a watcher answers, `mem USED/INSTALLED`: the
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
-  2), of the installed memory, bold and not dim, its unit written once when both share
-  it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that does not
-  send it); `peak P`, the largest peak since the watcher started; and `swap
+  2), of the installed memory, bold and not dim, its unit written once when
+  both share it (`9.4/16 GB`, `840 MB/16 GB`, `—/16 GB` from a watcher that does not
+  send it, and nothing before the first snapshot); `peak P`, the largest peak since the watcher started; and `swap
   USED/TOTAL`, left out where there is no swap. The fourth says why no
   watcher answers or, when every shown command is a dry run, `dry run: stops
   are logged, not sent`, when only some are, `dry run on 2 of 5 commands:
-  their stops are logged, not sent`, in gold, and is blank otherwise; a
-  text longer than the window wraps onto another line, so no line is cut at
-  60 columns.
+  stops are logged, not sent`, in gold, and is blank otherwise; the dry-run
+  texts fit 60 columns, and a longer text wraps onto another line, so no line
+  is cut.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
   Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
@@ -339,8 +340,8 @@ A full-screen Bubble Tea program in the alternate screen.
   s)` selected and `Force kill now` below it. The commands it names are
   fixed when it opens: it closes with a notice when none of them still
   runs, and Enter stops only those still running and names the others as
-  finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher is shown
-  for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
+  finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher
+  is shown for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
 - **Details**: the full command, folder, agent, subagent, full ID, status
   and run time, memory now and peak, a one-line graph of the command's
@@ -368,7 +369,7 @@ A full-screen Bubble Tea program in the alternate screen.
   with the next agent command, keeps the last rows dimmed, and reconnects
   every second. When a watcher may run but cannot serve the view (another
   release, a socket it cannot reach, or a hello it did not finish, as when
-  it is exiting), the header says `not connected`, the line below says why,
+  it is exiting), the header says `not connected`, its fourth line says why,
   and the view tries again each second.
 - **Refusals**, before the screen opens: with `--json` it exits 3 with
   `guard memory has no JSON output; use workbench guard logs --json`.

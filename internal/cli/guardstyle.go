@@ -8,13 +8,14 @@ import "charm.land/lipgloss/v2"
 // routine, gold worth a look, red acted on), and one hue per agent, so the
 // eye can tell whose command a line is. lipgloss downsamples them to what the
 // terminal shows, and a pipe or NO_COLOR gets none. Faint and bold come from
-// the terminal and stay under NO_COLOR, as the costs view's do. The values are
-// chosen on a dark background, where they also read on a light one.
+// the terminal and stay under NO_COLOR, as the costs view's do. The values were
+// chosen on a dark background and read on a light one too.
 var (
 	// guardGreen marks an INFO level and a running command.
 	guardGreen = lipgloss.NewStyle().Foreground(lipgloss.Color("#5e8a62"))
-	// guardGold marks a WARN level, a command stopping, a size of 1 GB or
-	// more and low memory; bold where it is a level, a state or a badge.
+	// guardGold marks a WARN level, a command stopping, a tag, a watcher not
+	// answering (○ and the status text), a size of 1 GB or more and low
+	// memory; bold where it is a level, a state, a badge or a size.
 	guardGold = lipgloss.NewStyle().Foreground(lipgloss.Color("#a8862a"))
 	// guardRed marks an ERROR level, a stopped command, a size of 4 GB or
 	// more and critical memory; bold where it is a level, a size or a badge.

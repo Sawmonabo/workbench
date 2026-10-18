@@ -92,6 +92,13 @@ func usedPages() (uint64, error) {
 	if code := int32(kr); code != 0 {
 		return 0, fmt.Errorf("host_statistics64: kern_return %d", code)
 	}
+	if int(count)*4 < internalAt+4 {
+		return 0, fmt.Errorf(
+			"host_statistics64: %d words, fewer than the %d read",
+			count,
+			internalAt/4+1,
+		)
+	}
 	page := func(at int) uint64 { return uint64(binary.LittleEndian.Uint32(info[at : at+4])) }
 	internal, purgeable := page(internalAt), page(purgeableAt)
 	return internal - min(internal, purgeable) + page(wireAt) + page(compressorAt), nil

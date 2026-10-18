@@ -166,9 +166,8 @@ const (
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
 // four header lines and the six-line stop menu below them, with the key
-// line), how
-// long a notice stays, the readings the memory graph shows at most, and the
-// widest a project name is shown before it is clipped.
+// line), how long a notice stays, the readings the memory graph shows at
+// most, and the widest a project name is shown before it is clipped.
 const (
 	guardViewMinWidth  = 60
 	guardViewMinHeight = 11
@@ -212,7 +211,7 @@ func connectWatcher() tea.Msg {
 	case err != nil:
 		return connectedMsg{problem: "Cannot reach the guard's watcher: " + err.Error()}
 	}
-	if _, err = client.Hello(); err == nil {
+	if err = client.Hello(); err == nil {
 		return connectedMsg{client: client}
 	}
 	_ = client.Close()
@@ -536,7 +535,8 @@ func (m *guardView) screen() string {
 }
 
 // headLine is the brand, the watcher's state, a badge when memory is low or
-// critical, and the clock, on one line.
+// critical, and the clock, on one line; a window too narrow for all of them
+// loses the clock.
 func (m *guardView) headLine() string {
 	line := bold.Render("[WorkBench] Guard memory") + "  "
 	if m.connected {
@@ -558,7 +558,10 @@ func (m *guardView) headLine() string {
 			line += dot + guardRed.Bold(true).Render("memory "+level)
 		}
 	}
-	return fit(line+dot+time.Now().Format("3:04:05 PM"), m.width, false)
+	if clock := line + dot + time.Now().Format("3:04:05 PM"); ansi.StringWidth(clock) <= m.width {
+		return clock
+	}
+	return fit(line, m.width, false)
 }
 
 // memorySlash is part of whole, the unit written once when both share it, as
@@ -578,7 +581,7 @@ func memorySlash(part, whole uint64) string {
 func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
 // countLine counts the running commands and those that finished in the last
-// minute and, while a watcher answers, gives the memory in use of the
+// minute and, once a watcher has sent a snapshot, gives the memory in use of the
 // installed memory, the largest peak since the watcher started and the swap
 // in use, the memory figure bold and the rest faint. A narrow window drops
 // the swap, then the peak, then clips the line.
@@ -590,7 +593,7 @@ func (m *guardView) countLine() string {
 		}
 	}
 	counts := fmt.Sprintf("%d running · %d finished", running, len(m.snap.Commands)-running)
-	if !m.connected {
+	if !m.connected || m.snap.At.IsZero() {
 		return fit(faint.Render(forTerm(counts)), m.width, false)
 	}
 	mem := m.snap.Memory
@@ -614,7 +617,8 @@ func (m *guardView) countLine() string {
 
 // statusLines say why no watcher answers or, when shown commands are dry
 // runs, that their stops are only logged: for all of them, or for how many;
-// else they are one blank line. A long text wraps to the window.
+// else they are one blank line. A long text wraps to the window; the dry-run
+// texts fit 60 columns, so the stop menu never covers a second line of them.
 func (m *guardView) statusLines() []string {
 	text := ""
 	dry := 0
@@ -629,7 +633,7 @@ func (m *guardView) statusLines() []string {
 	case dry > 0 && dry == len(m.snap.Commands):
 		text = "dry run: stops are logged, not sent"
 	case dry > 0:
-		text = fmt.Sprintf("dry run on %d of %d commands: their stops are logged, not sent",
+		text = fmt.Sprintf("dry run on %d of %d commands: stops are logged, not sent",
 			dry, len(m.snap.Commands))
 	}
 	if text == "" {
@@ -656,6 +660,15 @@ var guardColumns = []column{
 	{Head: "PROJECT", Drop: 3},
 	{Head: "COMMAND", Clip: true, Keep: 20},
 }
+
+// The columns a row colors: the status in its state's color, the agent in
+// its hue, the memory and the peak by size.
+const (
+	statusColumn = 1
+	agentColumn  = 2
+	memoryColumn = 5
+	peakColumn   = 6
+)
 
 // guardRowPrefix is the cells before a row: the selection mark, the tag mark and
 // a space.
@@ -748,6 +761,15 @@ func statusText(state string, dry bool) string {
 	return text
 }
 
+// sizeStyles are the styles of a command's memory now (while it runs; a
+// finished one shows none) and of its peak, each nil below a gigabyte.
+func sizeStyles(c guard.CommandView) (now, peak *lipgloss.Style) {
+	if active(c.State) {
+		now = sizeStyle(c.Memory)
+	}
+	return now, sizeStyle(c.Peak)
+}
+
 // statusStyle colors a state: running green, stopping gold and bold,
 // stopped red, unmatched a dim gold, done plain.
 func statusStyle(state string) lipgloss.Style {
@@ -797,13 +819,14 @@ func (m *guardView) styledRow(i int, cells []string, shown, widths []int) string
 	if m.tagged[c.ID] {
 		tag = guardGold.Render("*")
 	}
-	var memory *lipgloss.Style
-	if active(c.State) {
-		memory = sizeStyle(c.Memory)
-	}
-	colors := map[int]*lipgloss.Style{2: agentStyle(c.Agent), 5: memory, 6: sizeStyle(c.Peak)}
+	now, peak := sizeStyles(c)
 	status := statusStyle(c.State)
-	colors[1] = &status
+	colors := map[int]*lipgloss.Style{
+		statusColumn: &status,
+		agentColumn:  agentStyle(c.Agent),
+		memoryColumn: now,
+		peakColumn:   peak,
+	}
 	out := padded(guardColumns, cells, shown, widths)
 	for n, col := range shown {
 		if color := colors[col]; color != nil {
@@ -851,12 +874,13 @@ func (m *guardView) detailLines(room int) []string {
 	lines = append(lines, label("Subagent", cmp.Or(c.Subagent, "—"))...)
 	lines = append(lines, label("ID", c.ID)...)
 	lines = append(lines, label("Status", status)...)
-	now, peak := cells[5], cells[6]
-	if s := sizeStyle(c.Memory); s != nil && active(c.State) {
-		now = s.Render(now)
+	now, peak := cells[memoryColumn], cells[peakColumn]
+	nowStyle, peakStyle := sizeStyles(c)
+	if nowStyle != nil {
+		now = nowStyle.Render(now)
 	}
-	if s := sizeStyle(c.Peak); s != nil {
-		peak = s.Render(peak)
+	if peakStyle != nil {
+		peak = peakStyle.Render(peak)
 	}
 	lines = append(lines, label("Memory", now+" now"+forTerm(" · ")+"peak "+peak)...)
 	lines = append(lines, label("Graph", graph(c.History, c.Peak, m.width-14))...)
