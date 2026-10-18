@@ -260,8 +260,9 @@ func loadCard(paths Paths) (Card, error) {
 }
 
 // readOverrides reads the manual overrides file: {model prefix: {rate field:
-// USD per million tokens}}. A key outside the rate fields or a non-numeric
-// value rejects the whole file; nothing is converted or silently ignored.
+// USD per million tokens}}. A key outside the rate fields, a non-numeric
+// value or a rate outside 0 to 1,000,000 rejects the whole file; nothing is
+// converted or silently ignored.
 func readOverrides(path string) (map[string]map[string]float64, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -302,6 +303,15 @@ func readOverrides(path string) (map[string]map[string]float64, error) {
 			number, ok := v.(float64)
 			if !ok {
 				return nil, invalid("%q.%s must be a number", prefix, name)
+			}
+			// A cost counts in picodollars in an int64 (see [Rate.Cost]): a
+			// negative rate would print a malformed figure and a huge one
+			// overflow it.
+			if number < 0 || number > 1e6 {
+				return nil, invalid(
+					"%q.%s must be between 0 and 1000000 USD per million tokens",
+					prefix, name,
+				)
 			}
 			out[prefix][name] = number
 		}

@@ -1414,8 +1414,8 @@ func human(n float64) string {
 	return strconv.FormatInt(int64(n), 10)
 }
 
-// money is a row's cost in dollars and cents, from the cents its owner
-// rounds once.
+// money is a row's cost in dollars and cents, from [costs.Row.Cents], which
+// rounds its exact sum once.
 func money(row costs.Row) string {
 	cents := row.Cents()
 	return fmt.Sprintf("$%s.%02d", commas(cents/100), cents%100)

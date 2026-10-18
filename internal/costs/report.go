@@ -56,7 +56,9 @@ type Row struct {
 	Subscription      string `json:"subscription,omitempty"`
 	SubscriptionLabel string `json:"subscription_label,omitempty"`
 	Tokens
-	exact int64 // the cost in picodollars (see [Rate.Cost]); Cost is it in USD
+	// exact is the cost in picodollars (see [Rate.Cost]). Cost is set from it
+	// by addCost; a Row whose Cost is set directly prints $0.00.
+	exact int64
 }
 
 // addCost adds picodollars to the row's exact cost and sets Cost from it, so
@@ -66,8 +68,9 @@ func (r *Row) addCost(picodollars int64) {
 	r.Cost = float64(r.exact) / 1e12
 }
 
-// Cents is the row's cost in cents: its exact cost rounded once, half a cent
-// up, so every view of the same responses prints the same figure.
+// Cents is the row's cost in cents, for a non-negative cost: its exact cost
+// rounded once, half a cent up, so every view of the same responses prints
+// the same figure.
 func (r Row) Cents() int64 { return (r.exact + 5e9) / 1e10 }
 
 // unknownSubscription is what the report shows for rows no evidence ties to a

@@ -13,9 +13,10 @@ import (
 
 // costsView is the interactive report: a tab bar with one tab per
 // costs.Tools entry, the active tab's report in a viewport, refit at every
-// resize, and a key line. ↑/↓ or the mouse wheel select a project or model
-// row and enter, or a click on the selected row, opens its page; esc goes
-// back. On a page the wheel scrolls.
+// resize, and a key line. ↑/↓ or the wheel move the selection, a click
+// selects a row, and enter or a click on the selected row opens its page;
+// esc goes back. On a page, on a report with no row to select and past the
+// last row, the wheel scrolls.
 type costsView struct {
 	tools    []costs.Tool
 	reports  map[string]costs.Statement // computed before the view starts; absent for a tool without a Source
@@ -85,8 +86,19 @@ func (m *costsView) render() {
 	m.view.SetContent(lead.String() + body)
 	m.hits = slices.Repeat([]int{-1}, strings.Count(lead.String(), "\n"))
 	m.hits = append(m.hits, hits...)
-	if line := slices.Index(m.hits, m.selected); line >= 0 {
-		m.view.EnsureVisible(line, 0, 0)
+	// Scroll as little as shows every line of the selected row, its first
+	// when they do not all fit: in the stacked layout a row takes several.
+	if first := slices.Index(m.hits, m.selected); first >= 0 {
+		last := first
+		for last+1 < len(m.hits) && m.hits[last+1] == m.selected {
+			last++
+		}
+		if bottom := m.view.YOffset() + m.view.Height() - 1; last > bottom {
+			m.view.SetYOffset(m.view.YOffset() + last - bottom)
+		}
+		if first < m.view.YOffset() {
+			m.view.SetYOffset(first)
+		}
 	}
 }
 
@@ -181,9 +193,12 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.click(msg.Y)
 		}
 	case tea.MouseWheelMsg:
-		// On a page the wheel scrolls; on the report it moves the selection
-		// as ↑/↓ do, and the viewport follows it.
-		if m.focus != nil {
+		// On the report the wheel moves the selection as ↑/↓ do, and the
+		// viewport follows it; on a page, on a report with no row to select
+		// and down from the last row, which leaves notes below it, the wheel
+		// scrolls.
+		last := m.selected >= len(m.targets)-1
+		if m.focus != nil || len(m.targets) == 0 || last && msg.Button == tea.MouseWheelDown {
 			var cmd tea.Cmd
 			m.view, cmd = m.view.Update(msg)
 			return m, cmd
