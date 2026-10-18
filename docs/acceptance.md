@@ -678,6 +678,71 @@ synthetic answers.
   between two builds handed over the same way, the new watcher tracked the
   command, and a dangling link was logged once; there the release was not
   installed through `update`.
+- On 2026-10-17, after the process, memory and machine readers the guard and
+  the planner share moved into one package per system, the same commands gave
+  the same output as before the move: `doctor`, `apply --local-build --dry-run
+  --json` in a disposable home with synthetic answers (the same `plan_digest`)
+  on macOS and in an Ubuntu 24.04 container as uid 1000, the Linux `init
+  --answers-from FILE --dry-run --json` plan, and `render-check.sh personal
+  pinned wsl`; the macOS init plan differed only in the answers-file path it
+  quotes.
+- On 2026-10-17, on macOS in disposable homes with a fake agent and
+  `WORKBENCH_GUARD=dry-run`, `workbench guard logs` printed one line per event
+  (time, level, event, then `id=`, `agent=`, `subagent=`, `project=`, `by=`,
+  `dry_run=`, `took=`, `size=`, `peak=` and `cmd=` where they apply, the
+  command quoted when it holds a space), a `running` line for a command still
+  running after 5 s under `--follow`, the log's own records under `--json`,
+  and `No guard events since …` (exit 0) for an empty `--since` window.
+  `NO_COLOR` and piped output dropped the color.
+- On 2026-10-17, on macOS in disposable homes, `workbench guard memory` ran
+  against a fake agent's commands, dry run first. It listed four commands in
+  four folders newest first with their project, the subagent of the one a
+  subagent ran, their memory and peak, and kept the selection on its row as
+  rows arrived above it. Tagging two rows and stopping them logged both stops
+  as `by=you dry_run=true` and left the commands running. Details showed the
+  folder, full ID, a memory graph and the process tree, and `k` there opened
+  the same stop menu. Below 60 columns the view asked to be widened; at 60 it
+  showed ID, status, time, memory and command, at 75 also agent and peak, and
+  at 90 every column. `NO_COLOR` dropped the color and kept bold and faint,
+  and an ASCII locale replaced the marks. Live, a polite stop of a command
+  that ignores SIGTERM showed `◌ stopping`, then `✗ stopped` after the SIGKILL
+  5 s later; a forced stop showed `✗ stopped` within two seconds; `k` on a
+  finished row answered `already finished`; and each post hook returned
+  `Stopped by you (workbench guard memory).` as `additionalContext`. A stop
+  sent by a command the agent ran was refused (`not allowed`). A client that
+  stopped reading was disconnected while another kept receiving one snapshot a
+  second. The view stayed connected through a handover, in which the socket
+  was passed to the new watcher rather than recreated. When the watcher was
+  killed it showed `○ not running` with the last rows dimmed and reconnected
+  by itself when the next hook started a watcher. Against a stand-in watcher
+  that speaks another protocol version, the view said to run `workbench
+  update`. With `CLAUDECODE=1`, without a terminal, with `--non-interactive`
+  or with `--json`, it exited 3 before opening the screen.
+- On 2026-10-17, in an Ubuntu 24.04 container (Docker 29.8.2, kernel
+  7.0.14-linuxkit, arm64) capped at 2 GiB, as uid 1000 with a disposable home
+  and Python added to the container for the stand-in agent, whose commands ran
+  in Claude Code's bash shape, `workbench guard memory` ran through `docker
+  exec -it` with the same results as on macOS: four dry-run rows with project
+  and subagent, a tagged pair stopped as `by=you dry_run=true` with the
+  commands still running, details with the process tree, the narrow layouts,
+  then a live polite stop of a command that ignores SIGTERM (`◌ stopping`,
+  `forced` 5 s later, `✗ stopped`), a forced stop, `already finished` on a
+  finished row, and the stop reason from both post hooks. The header showed
+  the machine's figures on the first screen (`11 GB of 11 GB available`) and
+  the container's limit after that (`1.9 GB of 1.9 GB available`). Pointing
+  the home's `workbench` link at a second build while four commands ran and
+  three finished rows were shown handed over about a second later: the
+  header's release changed, every row, peak and the largest peak stayed, a
+  running row's memory graph kept its earlier readings, and `guard logs`
+  showed one `handover` line naming both releases. Killing that watcher showed
+  `○ not running`; the next hook started a fresh watcher, the view reconnected
+  by itself, and the finished rows, which live only in the watcher's memory,
+  were gone. Without a terminal and with `CLAUDECODE=1` it exited 3.
+- On 2026-10-17, with ten tracked `sleep 60` commands, sampling `ps` every 10
+  s for a minute, the watcher used 0.41 s of CPU (about 0.7 %) at 30–31 MB
+  resident on macOS and 0.39 s (about 0.6 %) at 22–24 MB in the Linux
+  container above; the open view used 0.42 s (about 0.7 %) at 28–31 MB on
+  macOS and 1.15 s (about 1.9 %) at 26–27 MB in the container.
 - On 2026-10-16, on a Mac (macOS 27.0) with 42 % of memory free and swap in
   use, `kern.memorystatus_vm_pressure_level` read 2 (warning) on 6 of 6
   samples over about 9 seconds, and a dry-run watcher that called for a
@@ -723,11 +788,16 @@ synthetic answers.
   as the container's PID 1, the guard stopped the command as above; a hook
   that took no PID 1 for an agent found none, and the kernel killed the
   command.
-- Not yet observed: a stop under real memory pressure on macOS or WSL2, or
-  on Linux outside a memory-limited cgroup; either agent's interactive
-  session, Claude Code's own sandbox and either agent on WSL2 with the guard
-  enabled, where a command whose shape differs would go unguarded and be
-  logged, not stopped wrongly; and a real agent receiving the stop reason.
+- Not yet observed: a stop under real memory pressure on macOS or WSL2, or on
+  Linux outside a memory-limited cgroup; either agent's interactive session,
+  Claude Code's own sandbox and either agent on WSL2 with the guard enabled,
+  where a command whose shape differs would go unguarded and be logged, not
+  stopped wrongly; and a real agent receiving the stop reason. `workbench
+  guard memory` has not been run against real Claude Code and Codex commands,
+  such as the same command in two worktrees of one repository at once, one
+  through a subagent, to see each row carry its project and subagent and a
+  stop hit the row chosen; nor has it shown a stop the guard chose under
+  memory pressure, or a watcher of an older release holding the socket.
   Applying the hooks to a real machine is not yet observed.
 - A moved agent config folder is reported, not written. On 2026-10-16, on
   macOS in a disposable home with synthetic answers, with `CLAUDE_CONFIG_DIR`
