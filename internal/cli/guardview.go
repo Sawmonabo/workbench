@@ -11,6 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"charm.land/bubbles/v2/key"
+	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/colorprofile"
@@ -37,7 +39,8 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"peak and the swap in use. ↑ and ↓ move, as the mouse wheel does, and a click " +
 			"selects a row; space tags a running command, enter, → or a click on the selected " +
 			"row opens its details (the full command, one step of a pipeline or && chain per " +
-			"line, its folder, processes and memory graph), k opens the stop menu for the " +
+			"line, its folder, processes and memory graph, which scroll with ↑, ↓, pgup, pgdn, " +
+			"home and end and where a drag of the mouse selects text), k opens the stop menu for the " +
 			"tagged commands or the selected one (a polite stop, force-killed after 5 s, or a " +
 			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
 			"list, quits. The watcher signals the command, logs the stop as by=you " +
@@ -86,6 +89,7 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		height:  24,
 		tagged:  map[string]bool{},
 		noColor: !bool(newPainter(os.Stdout)),
+		details: detailsViewport(),
 	}
 	program := tea.NewProgram(
 		model,
@@ -135,6 +139,9 @@ type guardView struct {
 	// noColor is set when the terminal shows no color (a NO_COLOR or dumb
 	// terminal), so the selected row is marked bold instead of by its band.
 	noColor bool
+	// details is the details' scrolling pane, its content and size set as
+	// each frame draws it, so a new snapshot keeps its scroll offset.
+	details viewport.Model
 	// first is the first list row shown, and rowsTop the screen line it is
 	// drawn on, as the last frame drew them, so a click finds its row; shown
 	// is how many rows that frame drew.
@@ -198,6 +205,20 @@ const (
 
 // The two stops the menu offers, polite first, as the guard's own stops go.
 var stopChoices = []string{"Stop (polite, force-killed after 5 s)", "Force kill now"}
+
+// detailsViewport is the details' pane: ↑ and ↓ scroll a line and pgup and
+// pgdn a page; home and end go to its ends, and the view takes every other
+// key itself, so k stops and ← goes back rather than scrolling.
+func detailsViewport() viewport.Model {
+	pane := viewport.New()
+	pane.KeyMap = viewport.KeyMap{
+		Up:       key.NewBinding(key.WithKeys("up")),
+		Down:     key.NewBinding(key.WithKeys("down")),
+		PageUp:   key.NewBinding(key.WithKeys("pgup")),
+		PageDown: key.NewBinding(key.WithKeys("pgdown")),
+	}
+	return pane
+}
 
 // nextTick waits a second for the next tickMsg.
 func nextTick() tea.Cmd {
@@ -269,14 +290,16 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.click(msg.Y)
 		}
 	case tea.MouseWheelMsg:
-		if m.mode == listMode {
-			switch msg.Button {
-			case tea.MouseWheelUp:
-				m.pressList("up")
-			case tea.MouseWheelDown:
-				m.pressList("down")
-			default:
-			}
+		// In the details the view turns mouse reporting off, so the wheel
+		// comes as ↑ and ↓; a wheel step sent before it went off scrolls.
+		switch {
+		case m.mode == detailMode:
+			m.details, _ = m.details.Update(msg)
+		case m.mode != listMode:
+		case msg.Button == tea.MouseWheelUp:
+			m.pressList("up")
+		case msg.Button == tea.MouseWheelDown:
+			m.pressList("down")
 		}
 	case tickMsg:
 		if !m.connected && !m.dialing {
@@ -309,7 +332,7 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case stoppedMsg:
 		m.answered(msg)
 	case tea.KeyPressMsg:
-		return m.press(msg.String())
+		return m.press(msg)
 	}
 	return m, nil
 }
@@ -404,8 +427,10 @@ func (m *guardView) answered(results []guard.StopResult) {
 }
 
 // press handles a key in the present mode; q and ctrl+c quit from any, esc
-// from the list, as in the costs view.
-func (m *guardView) press(key string) (tea.Model, tea.Cmd) {
+// from the list, as in the costs view. In the details the keys that scroll
+// go to their pane.
+func (m *guardView) press(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	key := msg.String()
 	if key == "q" || key == "ctrl+c" || (key == "esc" && m.mode == listMode) {
 		return m, tea.Quit
 	}
@@ -418,6 +443,14 @@ func (m *guardView) press(key string) (tea.Model, tea.Cmd) {
 			m.mode = listMode
 		case "k":
 			m.openMenu(detailMode)
+		case "home":
+			m.details.GotoTop()
+		case "end":
+			m.details.GotoBottom()
+		default:
+			var cmd tea.Cmd
+			m.details, cmd = m.details.Update(msg)
+			return m, cmd
 		}
 	default:
 		m.pressList(key)
@@ -446,7 +479,7 @@ func (m *guardView) pressList(key string) {
 		m.cursor = max(min(m.cursor+1, rows-1), 0)
 	case "enter", "right", "l":
 		if m.cursor < rows {
-			m.mode = detailMode
+			m.openDetails()
 		}
 	case "k":
 		m.openMenu(listMode)
@@ -490,10 +523,16 @@ func (m *guardView) click(y int) {
 		return
 	}
 	if m.first+at == m.cursor {
-		m.mode = detailMode
+		m.openDetails()
 		return
 	}
 	m.cursor = m.first + at
+}
+
+// openDetails shows the selected command's details from their top.
+func (m *guardView) openDetails() {
+	m.mode = detailMode
+	m.details.GotoTop()
 }
 
 // stopTargets are the call IDs a stop would name: from the details, the
@@ -552,10 +591,15 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 }
 
 // View draws the screen in the alternate screen, or asks for a wider or a
-// taller window, so the key line and its notices always show. Mouse
-// reporting is on, as the apply checklist does (checklist.go): without it a
-// trackpad or wheel scrolls the terminal's own buffer and the screen slides
-// away; with it the wheel moves and a click selects.
+// taller window, so the key line and its notices always show. On the list
+// mouse reporting is on, as the apply checklist does (checklist.go): without
+// it a trackpad or wheel scrolls the terminal's own buffer and the screen
+// slides away; with it the wheel moves and a click selects. In the details,
+// and the stop menu over them, it is off, so a plain drag selects text: on
+// the alternate screen most terminals then send a wheel step as ↑ or ↓
+// (xterm's alternate scroll mode, 1007,
+// https://invisible-island.net/xterm/ctlseqs/ctlseqs.html), which scroll the
+// details.
 func (m *guardView) View() tea.View {
 	var text string
 	m.shown = 0
@@ -570,6 +614,9 @@ func (m *guardView) View() tea.View {
 	view := tea.NewView(text)
 	view.AltScreen = true
 	view.MouseMode = tea.MouseModeCellMotion
+	if m.inDetails() {
+		view.MouseMode = tea.MouseModeNone
+	}
 	return view
 }
 
@@ -580,8 +627,13 @@ func (m *guardView) screen() string {
 	lines := append([]string{m.headLine(), "", m.countLine()}, m.statusLines()...)
 	header := len(lines)
 	room := max(m.height-len(lines)-2, 1)
-	if m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode) {
-		lines = append(lines, m.detailLines(room+1)...)
+	if m.inDetails() {
+		// The pane takes its new size first, so the content it then gets
+		// pulls an offset past its end back.
+		m.details.SetWidth(m.width)
+		m.details.SetHeight(room + 1)
+		m.details.SetContentLines(m.detailLines())
+		lines = append(lines, strings.Split(m.details.View(), "\n")...)
 	} else {
 		// The column heads come first, then the rows.
 		m.rowsTop = header + 1
@@ -594,6 +646,12 @@ func (m *guardView) screen() string {
 		lines = m.overlay(lines, m.menuBox(), header)
 	}
 	return strings.Join(append(lines, m.keyLine()), "\n")
+}
+
+// inDetails reports whether the screen shows the details, alone or under the
+// stop menu.
+func (m *guardView) inDetails() bool {
+	return m.mode == detailMode || (m.mode == menuMode && m.menuFrom == detailMode)
 }
 
 // headLine is the brand, the watcher's state, a badge when memory is low or
@@ -958,43 +1016,12 @@ func onBand(s lipgloss.Style, light bool) lipgloss.Style {
 	return s
 }
 
-// detailLine is one line of the details: its text, the field it belongs to
-// (each process line is a field of its own) and when it is cut when the
-// details do not fit: 0 never, a higher class first.
-type detailLine struct {
-	text  string
-	field int
-	cut   int
-}
-
-// The cut classes of the details, from the last to go to the first: Folder,
-// the Command's lines after its first, the blank line at the top, ID, Agent,
-// Subagent, the Processes count and the process lines. The Command's first
-// line, Status, Memory and Graph are never cut: they say what runs, whether
-// it still does and how large it is, which a person needs to decide on k
-// stop; Folder says which project the command belongs to.
-const (
-	cutFolder = iota + 1
-	cutLaterLines
-	cutBlank
-	cutID
-	cutAgent
-	cutSubagent
-	cutCount
-	cutProcess
-)
-
-// detailLines are the selected command's details in at most room lines, in
-// this order: the full command, one step of it per line, its folder, agent,
-// subagent, full ID, status and run time, memory now and at its peak, its
-// processes, and a graph of its memory. When they do not fit, whole classes
-// of lines are cut in the order of the cut constants, each from its end, the
-// order on screen kept, and one "… N more" line above the graph counts them;
-// a field that loses its later lines but keeps its first ends with "…". At
-// the smallest window the details are the Command's first line, Folder,
-// Status, Memory, "… N more" and Graph; only a reason above them that wraps
-// onto more lines leaves less, and the graph still shows.
-func (m *guardView) detailLines(room int) []string {
+// detailLines are the selected command's details, every line of them, in
+// this order: a blank line, the full command, one step of it per line, its
+// folder, agent, subagent, full ID, status and run time, memory now and at
+// its peak, its processes, and a graph of its memory. The details pane
+// scrolls through them; none is cut.
+func (m *guardView) detailLines() []string {
 	if m.cursor >= len(m.snap.Commands) {
 		return nil
 	}
@@ -1007,33 +1034,26 @@ func (m *guardView) detailLines(room int) []string {
 	if cells[4] != "" {
 		status += forTerm(" · ") + cells[4]
 	}
-	var lines []detailLine
-	field := 0
+	lines := []string{""}
 	// add lays out a field's values under its label, a value after the first
-	// starting on its own line two spaces in, its first line cut as first
-	// says and the others as rest.
-	add := func(name string, first, rest int, values ...string) {
-		field++
+	// starting on its own line two spaces in.
+	add := func(name string, values ...string) {
+		head := faint.Render(fmt.Sprintf("  %-10s", name))
 		for i, value := range values {
 			var b strings.Builder
 			writeText(&b, m.width-12, min(i, 1)*2, value)
 			for line := range strings.SplitSeq(strings.TrimSuffix(b.String(), "\n"), "\n") {
-				head, cut := strings.Repeat(" ", 12), rest
-				if len(lines) == 0 || lines[len(lines)-1].field != field {
-					head, cut = faint.Render(fmt.Sprintf("  %-10s", name)), first
-				}
-				lines = append(lines, detailLine{head + line, field, cut})
+				lines = append(lines, head+line)
+				head = strings.Repeat(" ", 12)
 			}
 		}
 	}
-	field++
-	lines = append(lines, detailLine{"", field, cutBlank})
-	add("Command", 0, cutLaterLines, commandSteps(c.Command)...)
-	add("Folder", cutFolder, cutFolder, showPath(c.Cwd))
-	add("Agent", cutAgent, cutAgent, c.Agent)
-	add("Subagent", cutSubagent, cutSubagent, cmp.Or(c.Subagent, "—"))
-	add("ID", cutID, cutID, c.ID)
-	add("Status", 0, 0, status)
+	add("Command", commandSteps(c.Command)...)
+	add("Folder", showPath(c.Cwd))
+	add("Agent", c.Agent)
+	add("Subagent", cmp.Or(c.Subagent, "—"))
+	add("ID", c.ID)
+	add("Status", status)
 	now, peak := cells[memoryColumn], cells[peakColumn]
 	nowStyle, peakStyle := sizeStyles(c)
 	if nowStyle != nil {
@@ -1042,95 +1062,14 @@ func (m *guardView) detailLines(room int) []string {
 	if peakStyle != nil {
 		peak = peakStyle.Render(peak)
 	}
-	add("Memory", 0, 0, now+" now"+forTerm(" · ")+"peak "+peak)
-	add("Processes", cutCount, cutCount, processCount(len(c.Tree)))
+	add("Memory", now+" now"+forTerm(" · ")+"peak "+peak)
+	add("Processes", processCount(len(c.Tree)))
 	for _, p := range c.Tree {
-		field++
-		lines = append(lines, detailLine{forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
-			fit(p.Name, 20, false), memorySize(p.Memory))), field, cutProcess})
+		lines = append(lines, forTerm(fmt.Sprintf("%12s%-8d %-20s %10s", "", p.PID,
+			fit(p.Name, 20, false), memorySize(p.Memory))))
 	}
-	add("Graph", 0, 0, graph(c.History, c.Peak, m.width-14))
-	return fitDetails(lines, room, m.width)
-}
-
-// fitDetails are the details' lines in at most room lines as [detailLines]
-// cuts them, the "… N more" line just above the graph, the last one.
-func fitDetails(lines []detailLine, room, width int) []string {
-	total := map[int]int{}
-	for _, line := range lines {
-		total[line.field]++
-	}
-	cut := 0
-	// The "… N more" line takes one line of its own, except in 2 lines or
-	// fewer, where the command's first line and the graph say more.
-	count := 0
-	if room > 2 {
-		count = 1
-	}
-	if len(lines) > room {
-		lines, cut = cutDetails(lines, len(lines)-room+count)
-	}
-	kept := map[int]int{}
-	for _, line := range lines {
-		kept[line.field]++
-	}
-	graphField := lines[len(lines)-1].field
-	out := make([]string, 0, len(lines)+1)
-	for i, line := range lines {
-		// The count shows where it fits; when only the graph is left, it
-		// does not.
-		if count > 0 && cut > 0 && line.field == graphField && i > 0 &&
-			lines[i-1].field != graphField {
-			out = append(out, faint.Render(fmt.Sprintf("%12s%s %d more", "", glyphs.Ellipsis, cut)))
-		}
-		text := line.text
-		// A field that lost its later lines but kept its first goes on.
-		lastOfField := i+1 < len(lines) && lines[i+1].field != line.field
-		if lastOfField && kept[line.field] < total[line.field] {
-			text = withEllipsis(text, width)
-		}
-		out = append(out, text)
-	}
-	return out
-}
-
-// cutDetails drops n lines from lines, or as many as may go: each time the
-// last line of the highest cut class left and, once only lines never cut are
-// left, as when a long reason above the details leaves very few lines, the
-// last line before the graph, the last field, which always stays. It returns
-// the lines kept and how many it dropped.
-func cutDetails(lines []detailLine, n int) ([]detailLine, int) {
-	graphField := lines[len(lines)-1].field
-	dropped := 0
-	for ; dropped < n; dropped++ {
-		at := -1
-		for i, line := range lines {
-			if line.cut > 0 && (at < 0 || line.cut >= lines[at].cut) {
-				at = i
-			}
-		}
-		if at < 0 {
-			at = slices.IndexFunc(
-				lines,
-				func(l detailLine) bool { return l.field == graphField },
-			) - 1
-		}
-		if at < 0 {
-			break
-		}
-		lines = slices.Delete(lines, at, at+1)
-	}
-	return lines, dropped
-}
-
-// withEllipsis is a line that goes on in lines not shown: it ends with an
-// ellipsis, cut first to fit width with it.
-func withEllipsis(line string, width int) string {
-	room := width - ansi.StringWidth(glyphs.Ellipsis)
-	if ansi.StringWidth(line) > room {
-		line = ansi.Truncate(line, room, "")
-	}
-	return line + glyphs.Ellipsis
+	add("Graph", graph(c.History, c.Peak, m.width-14))
+	return lines
 }
 
 // commandSteps splits a shell command into the steps a reader follows, as
@@ -1388,7 +1327,7 @@ func (m *guardView) keyLine() string {
 	case menuMode:
 		keys = [][2]string{{"↑/↓", "choose"}, {"enter", "send"}, {"esc/←", "cancel"}}
 	case detailMode:
-		keys = [][2]string{{"k", "stop"}, {"esc/←", "back"}, {"q", "quit"}}
+		keys = [][2]string{{"↑/↓", "scroll"}, {"k", "stop"}, {"esc/←", "back"}, {"q", "quit"}}
 	}
 	parts := make([]string, len(keys))
 	for i, key := range keys {
