@@ -13,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // State describes current selections only. Checkpoint/image validation belongs
@@ -493,7 +495,7 @@ func RemoveIfThere(path string) error {
 // checks to and renames, which is safe only under the caller's own lock, and
 // an error checking to stops it.
 func RenameNoReplace(from, to string) error {
-	err := renameNoReplace(from, to)
+	err := platform.RenameNoReplace(from, to)
 	if err == nil {
 		return nil
 	}

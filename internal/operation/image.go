@@ -742,7 +742,7 @@ func writeImage(c Context, path string, expected, desired Image) error {
 	if !sameImage(current, expected) {
 		return Fail(ExitConflict, "conflict", "Target changed while preparing its replacement")
 	}
-	if err = replaceImage(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {
+	if err = platform.RenameAt(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {
 		return err
 	}
 	return syncDirectory(parent)

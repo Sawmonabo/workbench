@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/unix"
 )
@@ -45,13 +46,52 @@ func Processes(_ func(pid int, err error)) ([]Process, error) {
 	return out, nil
 }
 
-// ProcessInfo reads one process through kern.proc.pid.
+// ProcessInfo reads one process through kern.proc.pid. For a PID no process
+// has, the sysctl returns no record and no error, because the kernel's
+// sysctl_prochandle walks the processes without reporting whether one
+// matched, so that case wraps ESRCH, which Exited reports as on Linux.
 func ProcessInfo(pid int) (Process, error) {
-	k, err := unix.SysctlKinfoProc("kern.proc.pid", pid)
+	found, err := unix.SysctlKinfoProcSlice("kern.proc.pid", pid)
 	if err != nil {
 		return Process{}, fmt.Errorf("kern.proc.pid %d: %w", pid, err)
 	}
-	return fromKinfo(k), nil
+	if len(found) == 0 {
+		return Process{}, fmt.Errorf("kern.proc.pid %d: %w", pid, unix.ESRCH)
+	}
+	return fromKinfo(&found[0]), nil
+}
+
+// Folder is the process's working folder as the kernel reports it, a real
+// path: proc_pidinfo with PROC_PIDVNODEPATHINFO (9) fills the 2352-byte
+// proc_vnodepathinfo, whose pvi_cdir.vip_path is the NUL-terminated path at
+// byte 152, at most MAXPATHLEN (1024) bytes. proc_pidinfo returns the bytes
+// it wrote, and 0 on failure with an errno libcCall6 does not read, so a
+// shorter result is the error: ProcessInfo's when the process has exited,
+// which Exited reports.
+func Folder(pid int) (string, error) {
+	const (
+		vnodePathInfo = 9
+		size          = 2352
+		pathAt        = 152
+		pathMax       = 1024
+	)
+	var info [size]byte
+	written, _, _ := libcCall6(
+		procPidinfo,
+		uintptr(pid),
+		vnodePathInfo,
+		0,
+		uintptr(unsafe.Pointer(&info[0])),
+		size,
+		0,
+	)
+	if int(written) < size {
+		if _, err := ProcessInfo(pid); err != nil {
+			return "", err
+		}
+		return "", fmt.Errorf("proc_pidinfo %d: unreadable", pid)
+	}
+	return unix.ByteSliceToString(info[pathAt : pathAt+pathMax]), nil
 }
 
 // Args is the process's command line, nil when it cannot be read.

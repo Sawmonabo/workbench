@@ -1,25 +1,16 @@
 package operation
 
-import "golang.org/x/sys/unix"
+import "github.com/Sawmonabo/workbench/internal/platform"
 
 // preservedAttributes is empty: fileMetadata blocks any extended attribute.
 var preservedAttributes []string
-
-func replaceImage(fd int, from, to string, absent bool) error {
-	if absent {
-		return unix.Renameat2(fd, from, fd, to, unix.RENAME_NOREPLACE)
-	}
-	return unix.Renameat(fd, from, fd, to)
-}
 
 func fileMetadata(fd int, path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	size, err := attributeNames(
-		func(names []byte) (int, error) { return unix.Flistxattr(fd, names) },
-	)
-	if err != nil || size != 0 {
+	count, err := platform.ExtendedAttributeCount(fd, "")
+	if err != nil || count != 0 {
 		return Fail(
 			ExitBlocked,
 			"metadata",
@@ -41,10 +32,8 @@ func linkMetadata(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	size, err := attributeNames(
-		func(names []byte) (int, error) { return unix.Llistxattr(path, names) },
-	)
-	if err != nil || size != 0 {
+	count, err := platform.ExtendedAttributeCount(-1, path)
+	if err != nil || count != 0 {
 		return Fail(
 			ExitBlocked,
 			"metadata",
@@ -52,17 +41,4 @@ func linkMetadata(path string) error {
 		)
 	}
 	return nil
-}
-
-// attributeNames is the length of a file's extended attribute name list as
-// list reads it. A call without a buffer only bounds that length: on
-// overlayfs it also counts the trusted.overlay.* names the read leaves out,
-// so the names are read into a buffer that size. A list that grew in between
-// fails with ERANGE.
-func attributeNames(list func(names []byte) (int, error)) (int, error) {
-	size, err := list(nil)
-	if err != nil || size == 0 {
-		return size, err
-	}
-	return list(make([]byte, size))
 }

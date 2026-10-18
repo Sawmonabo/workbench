@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 const (
@@ -27,6 +29,36 @@ const (
 	// socketPathMax is the longest path the folder and socket names can have.
 	socketPathMax = len("/wb-askpass-4294967295/s")
 )
+
+// askpassAncestry bounds the walk up a process tree, far deeper than any real one.
+const askpassAncestry = 256
+
+// peerDescendsFrom reports whether the process that connected to conn was started,
+// directly or not, by the process ancestor, and is not ancestor itself. It reads
+// the peer's process ID from the socket and walks parent process IDs from the
+// kernel's process table. A peer that cannot be found, such as one that already
+// exited, or whose parent chain reaches PID 1 (launchd or init) first, is refused.
+func peerDescendsFrom(conn *net.UnixConn, ancestor int) bool {
+	peer, err := platform.Peer(conn)
+	if err != nil {
+		return false
+	}
+	pid := peer.PID
+	for range askpassAncestry {
+		if pid <= 1 {
+			return false
+		}
+		info, err := platform.ProcessInfo(pid)
+		if err != nil {
+			return false
+		}
+		pid = info.PPID
+		if pid == ancestor {
+			return true
+		}
+	}
+	return false
+}
 
 // askpassService is, for one apply, a private folder holding the SUDO_ASKPASS
 // helper and the Unix socket it asks Workbench on. The helper is a two-line

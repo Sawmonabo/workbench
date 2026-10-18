@@ -1,42 +1,13 @@
 package operation
 
-import (
-	"errors"
-	"io/fs"
-	"os"
-	"path/filepath"
-	"syscall"
-
-	"golang.org/x/sys/unix"
-)
-
-// IsTerminal reports whether file is a terminal.
-func IsTerminal(file *os.File) bool {
-	_, err := unix.IoctlGetTermios(int(file.Fd()), unix.TIOCGETA)
-	return err == nil
-}
+import "github.com/Sawmonabo/workbench/internal/platform"
 
 func privateFilesystem(path string) error {
-	var stat syscall.Statfs_t
-	for {
-		err := syscall.Statfs(path, &stat)
-		if err == nil {
-			break
-		}
-		if !errors.Is(err, fs.ErrNotExist) || path == filepath.Dir(path) {
-			return Fail(ExitBlocked, "filesystem", "Cannot verify private state filesystem")
-		}
-		path = filepath.Dir(path)
+	native, err := platform.NativeFilesystem(path)
+	if err != nil {
+		return Fail(ExitBlocked, "filesystem", "Cannot verify private state filesystem")
 	}
-	// Fstypename is a NUL-terminated ASCII name stored as int8.
-	name := make([]byte, 0, len(stat.Fstypename))
-	for _, char := range stat.Fstypename {
-		if char == 0 {
-			break
-		}
-		name = append(name, byte(char))
-	}
-	if string(name) != "apfs" && string(name) != "hfs" {
+	if !native {
 		return Fail(
 			ExitBlocked,
 			"filesystem",
@@ -44,9 +15,4 @@ func privateFilesystem(path string) error {
 		)
 	}
 	return nil
-}
-
-// renameNoReplace is renameatx_np with RENAME_EXCL.
-func renameNoReplace(from, to string) error {
-	return unix.RenameatxNp(unix.AT_FDCWD, from, unix.AT_FDCWD, to, unix.RENAME_EXCL)
 }

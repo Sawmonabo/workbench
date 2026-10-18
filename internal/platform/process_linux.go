@@ -50,6 +50,12 @@ func ProcessInfo(pid int) (Process, error) {
 	}, nil
 }
 
+// Folder is the process's working folder as the kernel reports it, a real
+// path: the target of /proc/<pid>/cwd.
+func Folder(pid int) (string, error) {
+	return os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
+}
+
 // Processes lists every process. One whose stat cannot be read is left
 // out: it exited (ENOENT, ESRCH) or, for any other error, it is passed to
 // unreadable.

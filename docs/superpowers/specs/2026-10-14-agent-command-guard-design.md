@@ -140,10 +140,10 @@ Read from documentation and source:
   with `RUSAGE_INFO_V0` fills `rusage_info_v0`, whose `ri_phys_footprint` at
   offset 72 is the figure Activity Monitor shows. Resident memory from `ps`
   is wrong both ways: it misses compressed memory and counts shared pages.
-  Raw syscalls are unsupported on macOS, so `operation.PhysicalFootprint`
-  (`internal/operation/libc_darwin.go`) calls the function the way
+  Raw syscalls are unsupported on macOS, so `platform.Footprint`
+  (`internal/platform/libc_darwin.go`) calls the function the way
   `golang.org/x/sys` calls libSystem, through the runtime's `syscall.syscall6`
-  and a trampoline in `libc_darwin.s`, beside the `getattrlist` and
+  and a trampoline in `internal/platform/libc_darwin.s`, beside the `getattrlist` and
   `fgetattrlist` calls of the ACL checks. cgo would break `CGO_ENABLED=0`
   release builds and raise the binary's minimum macOS to the build machine's,
   27.0 against 12.0.
@@ -753,12 +753,12 @@ day.
 |---|---|---|
 | Machine | `kern.memorystatus_vm_pressure_level`, `vm.swapusage`, `hw.memsize` | `/proc/meminfo`, `/proc/pressure/memory`; in a limiting cgroup v2 (`/proc/self/cgroup`) its `memory.max`, `memory.current`, `memory.stat`, `memory.pressure`, `memory.swap.max`, `memory.swap.current` |
 | Processes | `kern.proc.all`, `kern.procargs2` (with the environment after the arguments, for Codex's call ID) | `/proc/<pid>/stat`, `/proc/<pid>/cmdline`, `/proc/<pid>/environ` (Codex's call ID) |
-| Size | libSystem `proc_pid_rusage`, `ri_phys_footprint` (`operation.PhysicalFootprint`) | `/proc/<pid>/smaps_rollup` `Pss` |
+| Size | libSystem `proc_pid_rusage`, `ri_phys_footprint` (`platform.Footprint`) | `/proc/<pid>/smaps_rollup` `Pss` |
 | Agent exit | `kqueue` `EVFILT_PROC` `NOTE_EXIT` | pidfd |
 
-The macOS footprint comes from `operation.PhysicalFootprint`
-(`internal/operation/libc_darwin.go`), which calls libSystem through one
-trampoline file, `libc_darwin.s`, with the ACL checks' `getattrlist` and
+The macOS footprint comes from `platform.Footprint`
+(`internal/platform/libc_darwin.go`), which calls libSystem through one
+trampoline file, `internal/platform/libc_darwin.s`, with the ACL checks' `getattrlist` and
 `fgetattrlist` (section 2):
 - an error fails closed: the process counts as size 0 and is logged once,
   unless it only means the process exited, which counts as 0 unlogged

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // costsFlags are the report flags of `workbench costs`.
@@ -169,8 +170,8 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	}
 	out := cmd.OutOrStdout()
 	width := terminalWidth(out)
-	tabs := o.interactive() && !f.csv && out == os.Stdout && operation.IsTerminal(os.Stdout) &&
-		operation.IsTerminal(os.Stdin)
+	tabs := o.interactive() && !f.csv && out == os.Stdout && platform.IsTerminal(os.Stdout.Fd()) &&
+		platform.IsTerminal(os.Stdin.Fd())
 	if tool.Source == nil && !tabs {
 		switch {
 		case o.json:

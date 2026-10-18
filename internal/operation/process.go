@@ -225,7 +225,7 @@ func StandardTerminal() *os.File {
 	for _, standard := range []*os.File{os.Stdin, os.Stdout, os.Stderr} {
 		fd := standard.Fd()
 		flags, err := unix.FcntlInt(fd, unix.F_GETFL, 0)
-		if err != nil || flags&unix.O_ACCMODE != unix.O_RDWR || !IsTerminal(standard) {
+		if err != nil || flags&unix.O_ACCMODE != unix.O_RDWR || !platform.IsTerminal(fd) {
 			continue
 		}
 		if duplicate, err := unix.FcntlInt(fd, unix.F_DUPFD_CLOEXEC, 0); err == nil {
@@ -368,7 +368,7 @@ func RotateOutput(path string, limit int64) (bool, error) {
 // stdin cannot hold the hook, while a busy agent still has time to write it.
 // A nil stdin, a terminal or a timeout gives nil.
 func ReadHookInput(stdin *os.File) []byte {
-	if stdin == nil || IsTerminal(stdin) {
+	if stdin == nil || platform.IsTerminal(stdin.Fd()) {
 		return nil
 	}
 	read := make(chan []byte, 1)
@@ -499,7 +499,7 @@ func Run(
 // executable and working directory.
 func (request *Process) admit(c Context, mutation *Mutation) (string, string, error) {
 	if request.Terminal != nil &&
-		(!request.Mutates || len(request.Input) != 0 || !IsTerminal(request.Terminal)) {
+		(!request.Mutates || len(request.Input) != 0 || !platform.IsTerminal(request.Terminal.Fd())) {
 		return "", "", Fail(
 			ExitBlocked,
 			"terminal",

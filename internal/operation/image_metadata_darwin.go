@@ -1,8 +1,7 @@
 package operation
 
 import (
-	"encoding/binary"
-	"unsafe"
+	"errors"
 
 	"golang.org/x/sys/unix"
 
@@ -20,14 +19,6 @@ var preservedAttributes = []string{
 	"com.apple.lastuseddate#PS",
 }
 
-func replaceImage(fd int, from, to string, absent bool) error {
-	flags := uint32(0)
-	if absent {
-		flags = unix.RENAME_EXCL
-	}
-	return unix.RenameatxNp(fd, from, fd, to, flags)
-}
-
 func fileMetadata(fd int, path string) error { return metadata(fd, path, noACL) }
 
 // containerMetadata is fileMetadata for a folder that holds Workbench's own
@@ -36,7 +27,7 @@ func fileMetadata(fd int, path string) error { return metadata(fd, path, noACL) 
 // so it may keep the ACL entries folderACL admits. Its flags still block.
 func containerMetadata(fd int, path string) error { return metadata(fd, path, folderACL) }
 
-func metadata(fd int, path string, acl func([]aclEntry, bool, error) error) error {
+func metadata(fd int, path string, acl func([]platform.ACE, bool, error) error) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
@@ -44,7 +35,7 @@ func metadata(fd int, path string, acl func([]aclEntry, bool, error) error) erro
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags != 0 {
 		return Fail(ExitBlocked, "metadata", "Target filesystem flags cannot be preserved")
 	}
-	return acl(darwinACL(fd, nil))
+	return acl(targetACL(fd, ""))
 }
 
 // parentMetadata admits the folder a target is written into. Workbench adds,
@@ -60,7 +51,7 @@ func parentMetadata(fd int, path string) error {
 	if err := unix.Fstat(fd, &stat); err != nil || stat.Flags&^unix.UF_HIDDEN != 0 {
 		return Fail(ExitBlocked, "metadata", "Target folder filesystem flags cannot be preserved")
 	}
-	return folderACL(darwinACL(fd, nil))
+	return folderACL(targetACL(fd, ""))
 }
 
 // folderACL admits the ACL of a folder whose own entries Workbench leaves
@@ -68,7 +59,7 @@ func parentMetadata(fd int, path string) error {
 // macOS puts one admitted entry, "group:everyone deny delete", on the home
 // folder and its standard folders such as ~/Library; it only stops the folder
 // itself from being deleted.
-func folderACL(entries []aclEntry, _ bool, err error) error {
+func folderACL(entries []platform.ACE, _ bool, err error) error {
 	if err != nil {
 		return err
 	}
@@ -79,7 +70,7 @@ func folderACL(entries []aclEntry, _ bool, err error) error {
 		childChanges = 1<<2 | 1<<5 | 1<<6 // KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY, DELETE_CHILD
 	)
 	for _, entry := range entries {
-		if entry.flags&inherits != 0 || entry.flags&kind == deny && entry.rights&childChanges != 0 {
+		if entry.Flags&inherits != 0 || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
 			return Fail(
 				ExitBlocked,
 				"metadata",
@@ -98,16 +89,12 @@ func linkMetadata(path string) error {
 	if err := unix.Lstat(path, &stat); err != nil || stat.Flags != 0 {
 		return Fail(ExitBlocked, "metadata", "Target link flags cannot be preserved")
 	}
-	pointer, err := unix.BytePtrFromString(path)
-	if err != nil {
-		return err
-	}
-	return noACL(darwinACL(-1, pointer))
+	return noACL(targetACL(-1, path))
 }
 
 // noACL rejects any ACL, even an empty one, on a target Workbench replaces:
 // the replacement would not carry it.
-func noACL(_ []aclEntry, present bool, err error) error {
+func noACL(_ []platform.ACE, present bool, err error) error {
 	if err == nil && present {
 		return Fail(
 			ExitBlocked,
@@ -118,78 +105,15 @@ func noACL(_ []aclEntry, present bool, err error) error {
 	return err
 }
 
-// aclEntry is one kauth_ace (sys/kauth.h) after its 16-byte applicable GUID.
-type aclEntry struct{ flags, rights uint32 }
-
-// darwinACL returns the ACL entries of fd, or of path when it is non-nil, and
-// whether an ACL is present at all. Darwin does not expose ACLs through
-// listxattr. getattrlist's extended-security attribute contains
-// kauth_filesec (sys/kauth.h): magic, owner and group GUIDs, then the entry
-// count (KAUTH_FILESEC_NOACL when there is no ACL), flags and 24-byte entries.
-//
-// x/sys/unix wraps setattrlist but not getattrlist or fgetattrlist, so they
-// go through platform.LibcCall6. An error or unexpected layout fails closed;
-// switch once x/sys adds the wrappers. Each pointer becomes a uintptr inside
-// the call's argument list, as the unsafe rules require.
-func darwinACL(fd int, path *byte) ([]aclEntry, bool, error) {
-	attributes := unix.Attrlist{
-		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
-		Commonattr:  unix.ATTR_CMN_EXTENDED_SECURITY,
-	}
-	var data [8192]byte
-	var errno unix.Errno
-	if path == nil {
-		_, _, errno = platform.LibcCall6(
-			platform.Fgetattrlist,
-			uintptr(fd),
-			uintptr(unsafe.Pointer(&attributes)),
-			uintptr(unsafe.Pointer(&data[0])),
-			uintptr(len(data)),
-			unix.FSOPT_NOFOLLOW,
-			0,
-		)
-	} else {
-		_, _, errno = platform.LibcCall6(
-			platform.Getattrlist,
-			uintptr(unsafe.Pointer(path)),
-			uintptr(unsafe.Pointer(&attributes)),
-			uintptr(unsafe.Pointer(&data[0])),
-			uintptr(len(data)),
-			unix.FSOPT_NOFOLLOW,
-			0,
-		)
-	}
-	if errno != 0 {
+// targetACL reads the ACL of fd, or of path when it is not empty, failing
+// closed when it cannot be read or its layout is unknown.
+func targetACL(fd int, path string) ([]platform.ACE, bool, error) {
+	entries, present, err := platform.FileSecurity(fd, path)
+	switch {
+	case errors.Is(err, platform.ErrUnsupportedACL):
+		return nil, false, Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
+	case err != nil:
 		return nil, false, Fail(ExitBlocked, "metadata", "Cannot verify target ACL semantics")
 	}
-	unsupported := Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
-	length := int(binary.LittleEndian.Uint32(data[0:4]))
-	offset := 4 + int(int32(binary.LittleEndian.Uint32(data[4:8])))
-	size := int(binary.LittleEndian.Uint32(data[8:12]))
-	if size == 0 {
-		return nil, false, nil
-	}
-	if length > len(data) || offset < 12 || size < 44 || offset+size > length {
-		return nil, false, unsupported
-	}
-	security := data[offset : offset+size]
-	count := binary.LittleEndian.Uint32(security[36:40])
-	if binary.LittleEndian.Uint32(security[:4]) != 0x012cc16d {
-		return nil, false, unsupported
-	}
-	if count == 0xffffffff {
-		return nil, false, nil
-	}
-	if count > 128 || size < 44+24*int(count) {
-		return nil, false, unsupported
-	}
-	entries := make([]aclEntry, count)
-	for i := range entries {
-		entry := security[44+24*i:]
-		entries[i] = aclEntry{
-			flags:  binary.LittleEndian.Uint32(entry[16:20]),
-			rights: binary.LittleEndian.Uint32(entry[20:24]),
-		}
-	}
-	return entries, true, nil
+	return entries, present, nil
 }

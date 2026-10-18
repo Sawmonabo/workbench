@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // newProgress shows progress on diagnostics: one live status line when it is
@@ -18,7 +19,7 @@ import (
 // function clears the status line.
 func newProgress(o *options, diagnostics io.Writer) (operation.Progress, func()) {
 	file, ok := diagnostics.(*os.File)
-	if ok && o.interactive() && operation.IsTerminal(file) {
+	if ok && o.interactive() && platform.IsTerminal(file.Fd()) {
 		status := &statusLine{output: file}
 		return status, status.Stop
 	}

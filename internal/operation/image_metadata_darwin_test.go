@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // Prevent silently stripping a macOS safeguard on revert: containerMetadata admits
@@ -47,13 +49,13 @@ func TestFolderModeRestoreKeepsACLAndFlags(t *testing.T) {
 		},
 		Scope: Scope{Kind: "machine", Root: root},
 	}
-	acl := func() []aclEntry {
+	acl := func() []platform.ACE {
 		fd, openErr := unix.Open(folder, unix.O_RDONLY|unix.O_DIRECTORY, 0)
 		if openErr != nil {
 			t.Fatal(openErr)
 		}
 		defer func() { _ = unix.Close(fd) }()
-		entries, _, aclErr := darwinACL(fd, nil)
+		entries, _, aclErr := platform.FileSecurity(fd, "")
 		if aclErr != nil {
 			t.Fatal(aclErr)
 		}
