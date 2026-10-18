@@ -331,7 +331,8 @@ and then `key=value` fields in a fixed order with `cmd` last and the call's
 first 8 ID characters as `id`, a value in Go quotes when it holds a space,
 `"`, `=`, `\` or a control character (the [platform and guard view
 design](2026-10-17-platform-and-guard-view-design.md), section 4). At a
-terminal INFO is faint, WARN yellow and ERROR red. Every finished command
+terminal the level label is colored (INFO green, WARN gold, ERROR red, in
+the pinned colors that section gives). Every finished command
 shows (`ended`); `tracking` is folded away, and with `--follow` a command
 still running 5 seconds after it was found gets one `running` line. There is
 no `--verbose`. The stop's `reason` stays in `--json` and the live view's
