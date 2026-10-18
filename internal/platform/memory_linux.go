@@ -33,6 +33,7 @@ func MachineMemory() (Memory, error) {
 		Available: values["MemAvailable"],
 		Total:     values["MemAvailable"] + values["AnonPages"],
 		Installed: values["MemTotal"],
+		Used:      values["MemTotal"] - min(values["MemTotal"], values["MemAvailable"]),
 		SwapFree:  values["SwapFree"],
 		SwapTotal: values["SwapTotal"],
 		FullAvg10: fullAvg10("/proc/pressure/memory"),
@@ -77,7 +78,8 @@ func cgroupNumber(path string) (uint64, error) {
 // Available is the limit less what the cgroup holds beyond inactive file
 // cache; Total adds its anonymous memory (earlyoom's figure within the
 // cgroup); the swap is the cgroup's when memory.swap.max is lower than the
-// machine's. ok is false without cgroup v2 or such a limit, or when the limit
+// machine's. Used is what the cgroup holds, of the limit as Installed. ok is
+// false without cgroup v2 or such a limit, or when the limit
 // is no lower than the machine's memory.
 func CgroupMemory(machine Memory) (Memory, bool) {
 	data, err := os.ReadFile("/proc/self/cgroup")
@@ -127,7 +129,8 @@ func CgroupMemory(machine Memory) (Memory, bool) {
 	held := current - min(current, stat["inactive_file"])
 	available := limit - min(limit, held)
 	m := Memory{
-		Available: available, Total: available + stat["anon"], Installed: limit,
+		Available: available, Total: available + stat["anon"],
+		Installed: limit, Used: held,
 		SwapTotal: machine.SwapTotal, SwapFree: machine.SwapFree,
 		FullAvg10: fullAvg10(filepath.Join(dir, "memory.pressure")),
 	}
