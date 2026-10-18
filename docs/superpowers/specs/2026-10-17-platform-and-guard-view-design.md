@@ -185,8 +185,12 @@ wherever it is used.
 Which effects and steps a platform offers is Workbench policy, not an
 operating-system fact, so it stays in `internal/machine`. It is chosen by
 file suffix there too: `effects_darwin.go` and `effects_linux.go` each
-define the platform's effect list and optional effects, and the shared code
-calls them. WSL's additions on Linux read `platform.WSL()`.
+define `platformEffects` and `platformOptionalEffects`, which pick the
+platform's effects, and the shared code calls them. The effect lists
+themselves stay shared in `effects.go`, because a test that runs on macOS
+checks the Mac, Linux and WSL lists together; only the Mac's optional
+effects live in the macOS file, since nothing on Linux uses them. WSL's
+additions on Linux read `platform.WSL()`.
 
 ### 3.5 Kept that way
 
@@ -212,12 +216,12 @@ order, `cmd` last because it is the longest.
 
 ```
 Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.4GB cmd="pnpm typecheck 2>&1 | tail -15"
-Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd="./scripts/nap.sh"
+Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
 Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.2GB peak=6.2GB cmd="cargo test --workspace"
 Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    size=3.1GB floor=4.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17 14:43:02 WARN  memory    size=740MB floor=1.0GB available=1.1GB total=16GB msg="memory is low, but the agent commands are too small to stop"
 Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.3GB peak=1.3GB cmd="pnpm vitest run"
-Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/statm: no such file or directory" process=81234
+Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
 Oct 17 14:50:00 INFO  idle
 ```
 
@@ -233,6 +237,9 @@ Oct 17 14:50:00 INFO  idle
 - **`project`** is where the command ran (section 6.2).
 - **`cmd`** is the note's command with a leading `cd PATH &&` or `cd PATH;`
   removed; the path went into `project`.
+- **Quoting**, as logfmt does: a value holding a space, `"`, `=`, `\` or a
+  control character is written in Go's double quotes, any other bare
+  (`cmd=./scripts/nap.sh`).
 - **Sizes** are `MB` below 1 GB, else `GB` with one decimal. **`took`** has
   one decimal below 10 s, whole seconds below a minute, else `1m12s`.
 - **Colors**, on a terminal without `NO_COLOR` only: INFO dim, WARN yellow,
@@ -260,7 +267,7 @@ Oct 17 14:50:00 INFO  idle
 A full-screen Bubble Tea program in the alternate screen.
 
 ```
-[WorkBench] Guard memory  ● watching · v0.1.26 · memory normal · 10.5 of 16 GB used      2:41:08 PM
+[WorkBench] Guard memory  ● watching · v0.1.26 · memory normal · 16 GB installed · swap 1.2 of 5.0 GB used  2:41:08 PM
 2 running · 1 finished in the last minute · largest peak 6.2 GB
 
   ID        STATUS      AGENT   SUBAGENT  TIME  MEMORY    PEAK  PROJECT            COMMAND
@@ -277,7 +284,9 @@ A full-screen Bubble Tea program in the alternate screen.
   waiting on its 5 s shows `◌ stopping`.
 - **Header**: the watcher's state and release, the memory level (macOS's
   pressure level, normal, warning or critical; on Linux, normal or low by
-  the guard's thresholds in guard design 6.2), memory in use, the clock,
+  the guard's thresholds in guard design 6.2), the memory (on macOS, which
+  gives a pressure level, the installed memory and the swap in use; on Linux
+  the memory available of the total user memory may take), the clock,
   and counts: running, finished in the last minute, and the largest peak
   since the watcher started. In dry-run mode the header says `dry run:
   stops are logged, not sent`.
@@ -330,13 +339,14 @@ It only labels; nothing acts on it.
 
 ### 6.3 Pairing by folder
 
-`claims` in `internal/guard/match.go` also requires, when both are known,
-that the process running the command has as its working folder, when it is
-paired, either the note's `cwd` or, for a command that starts with `cd PATH`,
-that folder. Linux reads
+`match` in `internal/guard/match.go` prefers by folder and never rejects
+by it: among the children that claim a note, it takes the one whose process
+running the command has as its working folder the folder of the note's
+leading `cd PATH`, above one in the note's `cwd`, above one whose folder is
+unknown or neither, the oldest within a rank. Linux reads
 `/proc/PID/cwd`; macOS reads `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`. A
-process whose folder cannot be read pairs as today. Codex commands with a
-call ID pair by ID as today.
+process whose folder cannot be read ranks last and still pairs as today.
+Codex commands with a call ID pair by ID as today.
 
 ### 6.4 Memory every tick
 
@@ -357,7 +367,10 @@ and whose processes are gone.
   (0700). The watcher creates it after taking the lock (guard design 6.5),
   removing a stale socket file first, and removes it when it exits.
   A handover (guard design 6.5) passes the listening socket with the lock,
-  so a connected view sees one disconnect and reconnects.
+  as descriptor 6, announced by `WORKBENCH_GUARD_LISTENER=6` while
+  `WORKBENCH_GUARD_HANDOVER` keeps the old watcher's PID. The old watcher
+  sets unlink-on-close off before it closes its copy, so the socket file
+  stays, and a connected view sees one disconnect and reconnects.
 - **Who may connect.** The watcher reads each connection's peer
   credentials (`SO_PEERCRED` on Linux, `LOCAL_PEERCRED` and `LOCAL_PEERPID`
   on macOS) and closes it unless the user ID is its own. It may serve a
@@ -366,16 +379,18 @@ and whose processes are gone.
   stop another agent's work.
 - **Messages.** JSON Lines in both directions. The view first sends
   `{"type":"hello","versions":[1]}`; the watcher answers
-  `{"type":"hello","version":1,"release":"v0.1.26","dry_run":false}` with
-  the highest version both list, or `{"type":"error","error":"no common
-  version"}` and closes; the view then says the watcher runs a different
-  release and to run `workbench update`.
+  `{"type":"hello","version":1,"release":"v0.1.26"}` with the highest
+  version both list, or `{"type":"error","error":"no protocol version in
+  common; the watcher speaks 1"}` and closes; the view then says the watcher
+  runs a different release and to run `workbench update`. Every message has
+  one type, and each type uses only its own fields.
 - **Snapshot**, after each tick:
-  `{"type":"snapshot","at":TIME,"memory":{"level":"normal","used":N,"total":N},"commands":[…]}`,
-  each command with `id` (full), `agent`, `subagent`, `project`, `cwd`,
-  `cmd`, `state` (`running`, `stopping`, `done`, `unmatched`, `stopped`),
-  `by`, `started`, `ended`, `memory`, `peak`, `history` (the last readings),
-  and `tree` (`pid`, `name`, `memory` per process) for running ones.
+  `{"type":"snapshot","snapshot":{"at":TIME,"memory":{"level":"normal","installed":N,"available":N,"total":N,"swap_free":N,"swap_total":N},"largest_peak":N,"commands":[…]}}`,
+  the snapshot nested under `snapshot`, each command with `id` (full),
+  `agent`, `subagent`, `project`, `cwd`, `cmd`, `state` (`running`,
+  `stopping`, `done`, `unmatched`, `stopped`), `by`, `dry_run` (the note's),
+  `started`, `ended`, `memory`, `peak`, `history` (the last readings), and
+  `tree` (`pid`, `name`, `memory` per process) for running ones.
 - **Stop**: `{"type":"stop","ids":[…],"force":false}`. The watcher answers
   `{"type":"stopped","results":[{"id":…,"ok":true}|{"id":…,"ok":false,"error":"already finished"}]}`.
   It looks each ID up among its tracked commands, never a process number,
@@ -383,6 +398,10 @@ and whose processes are gone.
   targets, start-time checks, pidfd on Linux, 5 s escalation; `force` sends
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
   memory).` In dry-run mode it logs `would stop` and signals nothing.
+  A person's stop is asynchronous: the answer comes once the first signal
+  is sent, the tick goroutine follows the stop across ticks (the row shows
+  `stopping`, then `stopped`) and escalates after 5 s, and it starts no
+  cooldown, so the guard's own stops go on as before.
 
 ## 7. Platforms and reuse
 
@@ -394,7 +413,7 @@ version; WSL runs the Linux one.
 | --- | --- | --- | --- |
 | A process's memory each tick | physical footprint (`proc_pid_rusage`), the figure stops use | `/proc/PID/statm` resident pages × page size; stops keep `smaps_rollup`'s Pss | `Resident(pid)` |
 | A process's working folder | `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`, through the libc trampolines | `os.Readlink("/proc/PID/cwd")` | `Folder(pid)` |
-| The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` | `SO_PEERCRED` (`unix.GetsockoptUcred`) | `Peer(conn)`, which the password helper uses too |
+| The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` | `SO_PEERCRED` (`unix.GetsockoptUcred`) | `Peer(conn)`, giving `platform.Credentials{UID, PID}`, which the password helper uses too |
 
 Whether a peer descends from a noted agent is guard logic over its own
 process snapshot (`snapshot` in `internal/guard/guard.go`), not a platform
