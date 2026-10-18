@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,12 +17,17 @@ import (
 
 // hookInput is the part of a Claude Code or Codex hook's stdin the guard
 // reads. Codex's carries turn_id; Claude Code's tool_use_id starts "toolu_".
+// Both carry cwd. Claude Code sets agent_id and agent_type only for a call a
+// subagent makes.
 type hookInput struct {
 	Event     string  `json:"hook_event_name"`
 	Tool      string  `json:"tool_name"`
 	ToolUseID string  `json:"tool_use_id"`
 	SessionID string  `json:"session_id"`
 	TurnID    *string `json:"turn_id"`
+	Cwd       string  `json:"cwd"`
+	AgentType string  `json:"agent_type"`
+	AgentID   string  `json:"agent_id"`
 	Input     struct {
 		Command    string `json:"command"`
 		Background bool   `json:"run_in_background"`
@@ -132,6 +138,11 @@ func Pre(stdin *os.File) {
 		AgentPID: agent.PID, AgentStart: agent.Start, Kind: agentType,
 		SessionID: input.SessionID, ToolUseID: input.ToolUseID, Command: input.Input.Command,
 		NotedStart: self.Start, NotedAt: time.Now(), DryRun: mode == "dry-run",
+		Project: projectName(input.Input.Command, input.Cwd),
+	}
+	n.Cwd, n.Folder = callFolders(input)
+	if input.AgentID != "" {
+		n.Subagent = input.AgentType
 	}
 	if err = writeJSON(f.note(n.ToolUseID), n); err != nil {
 		f.event(slog.LevelError, EventError, "cannot write the note; the call is not guarded",
@@ -139,6 +150,21 @@ func Pre(stdin *os.File) {
 		return
 	}
 	startWatcher(f)
+}
+
+// callFolders are the call's working folder and its command's leading cd
+// target, a relative one taken against the working folder, each as a real
+// path, or empty when unknown or unresolvable. They are read here, once, so
+// the watcher's matching reads no files for them.
+func callFolders(input hookInput) (cwd, folder string) {
+	cwd = realPath(input.Cwd)
+	if target, _, ok := commandFolder(input.Input.Command); ok {
+		if !filepath.IsAbs(target) && cwd != "" {
+			target = filepath.Join(cwd, target)
+		}
+		folder = realPath(target)
+	}
+	return cwd, folder
 }
 
 // startWatcher starts `workbench guard watch` detached when the lock is free,

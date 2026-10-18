@@ -42,6 +42,12 @@ func zombie(p proc) proc {
 	return p
 }
 
+// inFolder is p with the working folder the kernel reports for it.
+func inFolder(p proc, folder string) proc {
+	p.Folder = folder
+	return p
+}
+
 // claudeShell is Claude Code 2.1.300's command shell on macOS, which reads
 // the command from ` < /dev/null`.
 func claudeShell(eval string) []string {
@@ -352,6 +358,103 @@ func TestMatchOnlyTheAgentsOwnChild(t *testing.T) {
 	got := roots(match(s, notes, nil, nil))
 	if len(got) != 1 || got["exec-6"] != 430 {
 		t.Fatalf("matched %v, want only exec-6→430", got)
+	}
+}
+
+// Pairing two notes with the same text crosswise would stop the command in
+// the other worktree than the one chosen: a SIGTERM nobody asked for.
+func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
+	agent := process(100, 1, 100, -3600, "claude")
+	login := "/w/.worktrees/feature-login"
+	api := "/w/.worktrees/api-server"
+	makeTest := claudeShell(`'make test'`)
+	// The api-server note is older, its shell is younger: today's rule pairs them crosswise.
+	inLogin := inFolder(process(200, 100, 200, 0.4, makeTest...), login)
+	inAPI := inFolder(process(201, 100, 201, 0.5, makeTest...), api)
+	noteAPI := note{
+		AgentPID: 100, AgentStart: start(-3600), Kind: claude, ToolUseID: "toolu_api",
+		Command: "make test", NotedStart: start(0.3), Cwd: api,
+	}
+	noteLogin := noteAPI
+	noteLogin.ToolUseID, noteLogin.Cwd, noteLogin.NotedStart = "toolu_login", login, start(0.35)
+	noFolder := noteAPI
+	noFolder.ToolUseID, noFolder.Cwd = "toolu_plain", ""
+	cdQuoted := noteAPI
+	cdQuoted.ToolUseID, cdQuoted.Command, cdQuoted.Cwd, cdQuoted.Folder =
+		"toolu_cd", "cd '/w/my repo' && make test", "/w", "/w/my repo"
+	cdQuotedShell := claudeShell(`'cd '"'"'/w/my repo'"'"' && make test'`)
+	cdTilde := noteAPI
+	cdTilde.ToolUseID, cdTilde.Command, cdTilde.Cwd = "toolu_tilde", "cd ~/repo && make test", "/w"
+	cdTildeShell := claudeShell(`'cd ~/repo && make test'`)
+	for _, tc := range []struct {
+		name  string
+		notes []note
+		procs []proc
+		want  map[string]int
+	}{
+		{
+			"sameTextTwoFolders",
+			[]note{noteAPI, noteLogin},
+			[]proc{agent, inLogin, inAPI},
+			map[string]int{"toolu_api": 201, "toolu_login": 200},
+		},
+		// Without a folder on the note, the oldest shell wins, as today.
+		{
+			"noFolderKnown",
+			[]note{noFolder},
+			[]proc{agent, inLogin, inAPI},
+			map[string]int{"toolu_plain": 200},
+		},
+		// A rival whose folder could not be read is not preferred over one that matches.
+		{
+			"unreadableRivalLoses",
+			[]note{noteAPI},
+			[]proc{agent, process(200, 100, 200, 0.4, makeTest...), inAPI},
+			map[string]int{"toolu_api": 201},
+		},
+		// No candidate matches: the oldest wins, as today, and nothing is rejected.
+		{
+			"noMatchFallsBack",
+			[]note{noteAPI},
+			[]proc{agent, inLogin},
+			map[string]int{"toolu_api": 200},
+		},
+		{
+			"quotedFolder",
+			[]note{cdQuoted},
+			[]proc{
+				agent, inFolder(process(200, 100, 200, 0.4, cdQuotedShell...), "/w"),
+				inFolder(process(201, 100, 201, 0.5, cdQuotedShell...), "/w/my repo"),
+			},
+			map[string]int{"toolu_cd": 201},
+		},
+		// The shell sits in cwd until its cd runs, so cwd matches too.
+		{
+			"cwdMatchesBeforeTheCd",
+			[]note{cdQuoted},
+			[]proc{
+				agent, inFolder(process(200, 100, 200, 0.4, cdQuotedShell...), "/elsewhere"),
+				inFolder(process(201, 100, 201, 0.5, cdQuotedShell...), "/w"),
+			},
+			map[string]int{"toolu_cd": 201},
+		},
+		// `~` is the shell's to expand: the folder is unknown, cwd still counts.
+		{
+			"tildeIsUnknown",
+			[]note{cdTilde},
+			[]proc{
+				agent, inFolder(process(200, 100, 200, 0.4, cdTildeShell...), "/elsewhere"),
+				inFolder(process(201, 100, 201, 0.5, cdTildeShell...), "/w"),
+			},
+			map[string]int{"toolu_tilde": 201},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := roots(match(snapshotOf(tc.procs...), tc.notes, nil, nil))
+			if !maps.Equal(got, tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 
