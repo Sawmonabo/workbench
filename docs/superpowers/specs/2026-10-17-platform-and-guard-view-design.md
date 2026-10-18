@@ -130,9 +130,21 @@ Workbench package, so every other package may import it.
 
 ```
 internal/platform/
-  platform.go          shared types and the package documentation
-  platform_darwin.go   macOS: facts and calls
-  platform_linux.go    Linux and WSL: facts and calls
+  doc.go               the package documentation
+  facts_darwin.go      macOS facts
+  facts_linux.go       Linux facts and WSL
+  process.go           shared process type and Exited
+  process_darwin.go    macOS process calls
+  process_linux.go     Linux process calls
+  memory.go            shared memory reading type
+  memory_darwin.go     macOS memory reading
+  memory_linux.go      Linux memory reading
+  file.go              shared file calls and types
+  file_darwin.go       macOS file calls
+  file_linux.go        Linux file calls
+  socket.go            shared peer credentials
+  socket_darwin.go     macOS peer credentials
+  socket_linux.go      Linux peer credentials
   libc_darwin.go       libc trampolines (from internal/operation)
   libc_darwin.s
 ```
@@ -148,12 +160,12 @@ When a file grows past one subject, it splits by subject with the same suffix
 
 | Name | What it gives | Replaces |
 | --- | --- | --- |
-| `System` | `"macos"` or `"linux"`, for messages | the `runtime.GOOS` strings in `checkPlatform` |
+| `System` | the Go name, `"darwin"` or `"linux"`, for messages | the `runtime.GOOS` strings in `checkPlatform` |
 | `WSL()` | true on WSL, read once | `machine.isWSL` |
 | `RuntimeFolders(home)` | the five default runtime folders | the branch in `operation.runtimePaths` |
 | `HomebrewPrefixes`, `HomebrewRepositories` | where Homebrew lives | `machine.findAgent` and `operation.homebrewRepository` |
 | `HasCasks` | Homebrew casks and Mac apps exist | the `darwin` tests in `machine/updates.go` and `agents.go` |
-| `ToolFolders(home)` | the folders searched for an agent's launcher, in order | the two branches in `machine.findAgent` |
+| `ToolFolders(home, nvm)` | the folders searched for an agent's launcher, in order, with nvm's default Node in its place | the two branches in `machine.findAgent` |
 | `VSCodeUserFolder(home)` | VS Code's user settings folder | the branch in `machine` doctor |
 | `ClaudeManagedFolder` | Claude Code's managed settings folder | the branch in `costs.ClaudeManagedSettings` |
 | `GroupFromFolder` | new files take their folder's group | the `darwin` test in `operation.inheritedGroup` |
