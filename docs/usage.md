@@ -322,7 +322,8 @@ The details show every line and scroll when they are taller than the window: ↑
 and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends, and in
 most terminals the mouse wheel scrolls them too: the view turns on the
 terminal's alternate scroll mode, which sends a wheel step as ↑ or ↓ where the
-mouse is not taken, and leaves the terminal as it found it when it quits. The
+mouse is not taken, and turns it off again when it quits unless the terminal
+reports that it was on already. The
 stop menu takes the mouse again, so a wheel step over it does nothing. The
 watcher stops the
 command the way it stops for memory, logs it `by=you` and tells the agent

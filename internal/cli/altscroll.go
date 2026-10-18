@@ -36,15 +36,15 @@ type altScroll struct {
 	wasOn bool
 }
 
-// armCmd is the arming write, as one payload because separate commands in a
+// armSeq is the arming sequence, written as one payload because separate commands in a
 // batch have no order: the query (DECRQM) first, so its answer is the state
 // before the set; then the save, before the set for the same reason; then
 // the set.
-var armCmd = ansi.RequestMode(altScrollMode) + saveAltScroll + ansi.SetMode(altScrollMode)
+var armSeq = ansi.RequestMode(altScrollMode) + saveAltScroll + ansi.SetMode(altScrollMode)
 
 // arm asks the terminal for the mode's state, saves it and turns the mode on.
 func (a *altScroll) arm() tea.Cmd {
-	return tea.Raw(armCmd)
+	return tea.Raw(armSeq)
 }
 
 // note reads the messages that concern the mode: the raw write itself, which
@@ -53,7 +53,7 @@ func (a *altScroll) arm() tea.Cmd {
 func (a *altScroll) note(msg tea.Msg) {
 	switch msg := msg.(type) {
 	case tea.RawMsg:
-		if msg.Msg == armCmd {
+		if msg.Msg == armSeq {
 			a.armed = true
 		}
 	case tea.ModeReportMsg:
@@ -64,14 +64,18 @@ func (a *altScroll) note(msg tea.Msg) {
 }
 
 // disarm, after the program has returned, leaves the terminal as the view
-// found it. Nothing is written when the view never armed the mode, or when
-// the terminal reported it already on. Otherwise the mode is turned off and
-// the saved state restored: the reset first, for a terminal without XTSAVE
-// and XTRESTORE, which ignores the restore; where the terminal has them, the
-// restore then puts back what it held before the view.
+// found it. Nothing is written when the view never armed the mode. When the
+// terminal reported the mode already on, only the restore goes out, which
+// matches the save and leaves the mode on. Otherwise the mode is turned off
+// and the saved state restored: the reset first, for a terminal without
+// XTSAVE and XTRESTORE, which ignores the restore; where the terminal has
+// them, the restore then puts back what it held before the view.
 func (a *altScroll) disarm(w io.Writer) {
-	if !a.armed || a.wasOn {
-		return
+	switch {
+	case !a.armed:
+	case a.wasOn:
+		_, _ = io.WriteString(w, restoreAltScroll)
+	default:
+		_, _ = io.WriteString(w, ansi.ResetMode(altScrollMode)+restoreAltScroll)
 	}
-	_, _ = io.WriteString(w, ansi.ResetMode(altScrollMode)+restoreAltScroll)
 }
