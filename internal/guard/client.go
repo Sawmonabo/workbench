@@ -96,8 +96,8 @@ func Dial(ctx context.Context) (*Client, error) {
 	}, nil
 }
 
-// Hello says which protocol versions this client speaks and gives the
-// release the watcher runs. It fails after three seconds without an answer:
+// Hello says which protocol versions this client speaks and checks that the
+// watcher shares one. It fails after three seconds without an answer:
 // a watcher of an older release that took the socket over never answers.
 // Once it succeeds the client starts reading snapshots.
 func (c *Client) Hello() error {
