@@ -396,7 +396,9 @@ A full-screen Bubble Tea program in the alternate screen.
   graph, without the count, and in 1 the graph alone, and the key line still
   shows. `k` stops from here too; Esc, ← or `h` goes back.
 - **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
-  and AGENT drop in that order; a project name is clipped at 24 columns.
+  and AGENT drop in that order; a project label is clipped at 32 columns, a
+  `REPO/WORKTREE` label from the worktree's start (`api/…ure-login`), so
+  the repository always reads.
   The counts line, about 72 columns in full, drops `· swap …` first, then
   `· peak …`, and is then clipped. Below 60 columns the view says `Widen the
   window to at least 60 columns`, and below 11 lines `Make the window at
@@ -448,7 +450,8 @@ A full-screen Bubble Tea program in the alternate screen.
   keeps its `▸` and is bold instead.
 - **Watcher not running**: the screen says so and that the watcher starts
   with the next agent command, keeps the last rows dimmed, and reconnects
-  every second. When a watcher may run but cannot serve the view (another
+  every second without saying so: the screen states the fact, not the
+  retry. When a watcher may run but cannot serve the view (another
   release, a socket it cannot reach, or a hello it did not finish, as when
   it is exiting), the header says `not connected`, its fourth line says why,
   and the view tries again each second.
@@ -475,9 +478,12 @@ The pre hook adds to each note (guard design 4):
 ### 6.2 Project name
 
 From the command's leading `cd PATH` when it has one, else from `cwd`,
-resolved against `cwd`: the folder name after a `.worktrees/` or
-`worktrees/` component when the path has one, else the name of the nearest
-folder at or above it that holds `.git`, else the path's last folder name.
+resolved against `cwd`: `REPO/WORKTREE`, the name of the folder holding a
+`.worktrees/` or `worktrees/` component and the name after it, when the path
+has one (`api/feature-login`: the repository is the project and the worktree
+its branch, as the costs report folds a worktree into its project), else the
+name of the nearest folder at or above it that holds `.git`, else the path's
+last folder name.
 It only labels; nothing acts on it.
 
 ### 6.3 Pairing by folder

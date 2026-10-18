@@ -327,8 +327,9 @@ the same user, and never takes a stop from a process still under an agent with a
 guarded command. In a window under 60 columns or 11 lines the view asks to be
 widened or made taller; narrower windows first shorten COMMAND, then drop
 SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it says so, keeps the
-last rows dimmed and reconnects every second; the watcher starts with the next
-agent command. Without a terminal on stdin and stdout, or with
+last rows dimmed and reconnects on its own; the watcher starts with the next
+agent command. A command in a git worktree is labeled by its repository and
+worktree (`api/feature-login`). Without a terminal on stdin and stdout, or with
 `--non-interactive`, it exits 3 with `guard memory needs a terminal; use
 workbench guard logs --follow`; with `--json`, which it has no output for, it
 exits 3 and points at `guard logs --json`; and under a coding agent

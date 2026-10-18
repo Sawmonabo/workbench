@@ -42,7 +42,7 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"forced kill now), esc or ← closes a menu or the details, and q, or esc on the " +
 			"list, quits. The watcher signals the command, logs the stop as by=you " +
 			"and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
-			"runs, the view says so and reconnects every second. It needs a terminal, has no " +
+			"runs, the view says so and reconnects on its own. It needs a terminal, has no " +
 			"--json output and refuses --non-interactive and coding agents; workbench guard " +
 			"logs --follow prints the same events.",
 		Args: cobra.NoArgs,
@@ -177,7 +177,7 @@ type connectedMsg struct {
 // The texts the view shows when no watcher answers.
 const (
 	watcherAbsent = "The guard's watcher is not running; it starts with the next agent " +
-		"command. Reconnecting every second."
+		"command."
 	watcherOlder = "The watcher runs an older Workbench release that does not serve this " +
 		"view; run workbench update."
 	watcherOther = "The watcher runs a Workbench release that speaks another protocol " +
@@ -193,7 +193,7 @@ const (
 	guardViewMinHeight = 11
 	noticeShown        = 3 * time.Second
 	graphReadings      = 120
-	projectWidth       = 24
+	projectWidth       = 32
 )
 
 // The two stops the menu offers, polite first, as the guard's own stops go.
@@ -244,7 +244,7 @@ func connectWatcher() tea.Msg {
 	// A watcher answered the dial, so one runs: it may be exiting or handing
 	// over, which the next attempt finds out.
 	return connectedMsg{problem: "The watcher did not finish the hello (" + err.Error() +
-		"); reconnecting every second."}
+		")."}
 }
 
 // Init connects, starts the clock and asks the terminal for its background,
@@ -800,9 +800,24 @@ func (m *guardView) cells(c guard.CommandView) []string {
 		took,
 		now,
 		memorySize(c.Peak),
-		fit(c.Project, projectWidth, false),
+		projectLabel(c.Project, projectWidth),
 		strings.Join(strings.Fields(guard.CommandRest(c.Command)), " "),
 	}
+}
+
+// projectLabel fits a project label to width: a label naming a worktree under
+// its repository ("api/feature-login") keeps the repository's name and clips
+// the worktree's from its start ("api/…ure-login"), so the project always
+// reads; any other label is clipped at its end.
+func projectLabel(project string, width int) string {
+	if ansi.StringWidth(project) <= width {
+		return project
+	}
+	repo, tree, ok := strings.Cut(project, "/")
+	if !ok || ansi.StringWidth(repo)+2 >= width {
+		return fit(project, width, false)
+	}
+	return repo + "/" + fit(tree, width-ansi.StringWidth(repo)-1, true)
 }
 
 // statusText is a state as the list shows it: a mark that carries the state

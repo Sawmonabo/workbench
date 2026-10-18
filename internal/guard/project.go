@@ -64,12 +64,14 @@ func CommandRest(command string) string {
 }
 
 // projectName labels the folder a command runs in: its leading cd's folder
-// when known, else cwd, a relative folder taken against cwd. The label is the
-// name after the last .worktrees or worktrees folder in the path when one
-// follows it, else the name of the nearest folder at or above the path that
-// holds .git (a folder, or a file in a linked worktree), else the path's last
-// name. It is empty when no folder is known. It only labels; nothing acts on
-// it.
+// when known, else cwd, a relative folder taken against cwd. A path through a
+// .worktrees or worktrees folder is labeled REPO/WORKTREE: the name of the
+// folder holding that folder, which is the repository, and the name after it
+// ("api/feature-login"), so the project and the branch of it both read; with
+// no folder before it, the worktree's name alone. Any other path is labeled
+// by the nearest folder at or above it that holds .git (a folder, or a file
+// in a linked worktree), else by its last name. It is empty when no folder is
+// known. It only labels; nothing acts on it.
 func projectName(command, cwd string) string {
 	path := cwd
 	if folder, _, ok := commandFolder(command); ok {
@@ -88,6 +90,9 @@ func projectName(command, cwd string) string {
 	parts := strings.Split(path, string(filepath.Separator))
 	for i := len(parts) - 2; i >= 0; i-- {
 		if (parts[i] == ".worktrees" || parts[i] == "worktrees") && parts[i+1] != "" {
+			if i > 0 && parts[i-1] != "" {
+				return parts[i-1] + "/" + parts[i+1]
+			}
 			return parts[i+1]
 		}
 	}

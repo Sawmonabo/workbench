@@ -241,9 +241,9 @@ macOS temp folder is pruned of files older than three days.
   `cd PATH;`, both as real paths so they compare with the folder the kernel
   reports for a process, and either left out when unknown. `subagent` is
   Claude Code's `agent_type` when a subagent made the call, left out
-  otherwise and for Codex. `project` labels where the command ran: the
-  folder name after a `.worktrees/` or `worktrees/` component of the `cd`
-  folder or else `cwd`, else the name of the nearest folder at or above it
+  otherwise and for Codex. `project` labels where the command ran:
+  `REPO/WORKTREE` from a `.worktrees/` or `worktrees/` component of the `cd`
+  folder or else `cwd` (the folder holding it and the name after it), else the name of the nearest folder at or above it
   that holds `.git`, else its last folder name; nothing acts on it.
   `session_id`, `noted_at`, `subagent` and `project` are for a person
   reading the note and the log.
