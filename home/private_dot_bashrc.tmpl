@@ -133,7 +133,6 @@ export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 {{- if .has_work }}
 
 # --- Work tooling ---
-alias create-spec='source "$HOME/repos/ai-devtools/.venv/bin/activate" && python "$HOME/repos/ai-devtools/.claude/tmp/sessions/2026-02-10/artifacts/create_spec_only.py"'
 # promptctl
 [ -f "$HOME/.promptctl/shell/aliases.sh" ] && source "$HOME/.promptctl/shell/aliases.sh"
 {{- end }}
