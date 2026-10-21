@@ -3,12 +3,20 @@
 Status: design, Oct 21, 2026. It makes AlmaLinux 10 a Linux target, so one
 Windows PC can run Workbench in two WSL distributions: the Ubuntu one for
 personal work and an AlmaLinux 10 one for work. Each keeps its own machine
-answers. The work setup itself needs no new mechanism: the existing
-`machine_role` answer already separates it. What stops it today is that
-Workbench refuses every distribution but Ubuntu, and its package step only
-knows apt. It also gives the work credentials one home, `work.env`, that
-Claude Code, Codex and the owner's own command-line tools all read by name,
-in place of the token copies Workbench writes today, and removes Bitwarden.
+answers. Work and personal stay roles (`machine_role`), and the same design
+holds when both roles share one machine (`both`). The change has six parts:
+
+1. AlmaLinux 10 passes the platform check and the package step learns dnf,
+   with EPEL as its own step.
+2. Each role has a folder the owner picks (defaults `~/repos` and `~/dev`).
+3. Work credentials live in one file, `work.env` (and personal ones in
+   `personal.env`), each loaded only inside its own folder, in place of the
+   token copies Workbench writes today. A migration moves the saved tokens.
+4. The work MCP servers start only for agent sessions inside the work folder,
+   for Claude Code and Codex alike, through a Workbench launch gate.
+5. A record on Windows keeps two distributions from fighting over the shared
+   Windows files.
+6. Bitwarden is removed.
 
 ## 1. Why
 
@@ -18,6 +26,12 @@ Workbench on that distribution stops at the platform check
 so the work setup can only live on the Ubuntu distribution, next to the
 personal one. `docs/linux.md` records the Ubuntu-only rule as a decision; this
 design replaces it for AlmaLinux 10.
+
+The work credentials are copied into four places today (section 4.11), the
+folders are fixed, and the work MCP servers are kept out of personal projects
+only by an instruction to Codex (section 4.14). Roles can change and can share
+a machine, so these have to hold on any machine, not only on a work-only
+distribution.
 
 ## 2. What was observed
 
@@ -54,6 +68,11 @@ On the AlmaLinux distribution, read only (`wsl.exe -d AlmaLinux-10`), Oct 21,
   `/etc/bash.bashrc` on their own), and `/etc/bashrc` is what runs
   `/etc/profile.d/*.sh` in a shell that is not a login shell, such as a tmux
   pane. Workbench's managed `.bashrc` does not source it.
+- Claude Code has the two dispatch servers as hand-added user-scope entries
+  in `~/.claude.json`, with literal tokens, so they start in every Claude Code
+  session. Workbench's Codex template renders them with literal tokens and
+  `enabled = false`, so Codex never starts them
+  (`home/.chezmoitemplates/codex-config.toml.tmpl`).
 
 On the web:
 
@@ -66,6 +85,17 @@ On the web:
   [fd-find](https://packages.fedoraproject.org/pkgs/rust-fd-find/fd-find/),
   [gh](https://packages.fedoraproject.org/pkgs/gh/gh/)), and `ripgrep`
   ([ripgrep](https://packages.fedoraproject.org/pkgs/rust-ripgrep/ripgrep/)).
+- Claude Code: a stdio server's environment gets `CLAUDE_PROJECT_DIR`, "the
+  project root"; an unset `${VAR}` with no default is passed as the literal
+  text with a warning in `claude mcp list` and `/mcp`; `/mcp` flags servers
+  that advertise the tools capability but expose none; local scope outranks
+  project scope, which outranks user scope, whole entry by whole entry
+  ([MCP docs](https://code.claude.com/docs/en/mcp)).
+- Codex: a stdio server starts in the session's working folder
+  (`current_dir`, `codex-rs/rmcp-client/src/stdio_server_launcher.rs`) with
+  only a core environment (`HOME`, `PATH`, `SHELL`, `USER` and a few more)
+  plus the names in `env_vars`, and the entry's `env` table is applied last,
+  so it wins (`create_env_for_mcp_server`, `codex-rs/rmcp-client/src/utils.rs`).
 
 So EPEL is needed for `bat` and `fd`. Rust is not needed for them on
 AlmaLinux. The Runtime managers step still installs rustup for the cargo
@@ -77,11 +107,14 @@ Goals:
 
 - `workbench apply` plans and applies on AlmaLinux 10 (any 10.x) on amd64 and
   arm64, natively and on WSL, with the same steps, questions and consent as
-  Ubuntu.
-- The work distribution is just a machine whose role is `work`. No new
-  question or mode separates work from personal; the one new file,
-  `work.env`, exists only on work machines.
-- Work lives in `~/repos` and personal in `~/dev`, as now.
+  Ubuntu, plus the `epel` step.
+- Work and personal stay roles. A machine may be `work`, `personal` or
+  `both`, and every rule below holds for all three, including when the role
+  changes later.
+- Each role lives in a folder the owner picks, default `~/repos` for work and
+  `~/dev` for personal.
+- Work credentials never reach a shell, command or agent session started
+  outside the work folder, and the work MCP servers never start there.
 - Any number of Workbench distributions on one Windows user, or just one,
   without any of them undoing another's Windows-side changes, and without
   Workbench naming or needing a particular distribution (section 4.7).
@@ -92,12 +125,14 @@ Non-goals:
   Only `ID=almalinux` is accepted.
 - A Windows Terminal settings file with a styled profile for more than one
   distribution (follow-up, section 8).
-- New MCP servers. The owner's own dispatch servers stay; only how they
-  get their credentials changes (section 4.11).
+- New MCP servers. The owner's own dispatch servers stay; how they start and
+  get their credentials changes (sections 4.11 and 4.14).
 - An OS keyring. The AlmaLinux distribution has no `secret-tool` or
   `gnome-keyring-daemon`; a private env file referenced by name is what both
   agents document.
 - Changing the Ubuntu targets or the Ubuntu package path.
+- Installing the work VS Code extension into Windows VS Code from WSL (it is
+  not installed there today either).
 
 Anti-goals (a change that does these is wrong even if it works):
 
@@ -107,29 +142,43 @@ Anti-goals (a change that does these is wrong even if it works):
   failed or blocked part, never as success.
 - Turning on any repository other than EPEL, or changing a repository the
   owner turned on or off.
+- A credential value in a plan, `--json`, log, rendered file, agent config or
+  the repository.
+- Files written into the owner's repositories.
 - Provisioning the developer's live AlmaLinux distribution to test the code.
 
 ## 4. Design
 
 ### 4.1 Work and personal are roles, not distributions
 
-Nothing new. The saved answers live per machine in `machine.toml`, never in
-the repository, and each WSL distribution has its own. The owner sets the
-AlmaLinux distribution to `work` with `workbench init --ask machine_role`
-and then runs `apply`. The owner will
-change the Ubuntu distribution to `personal` the same way; nothing in this
-design depends on Ubuntu being there, and a PC with only the AlmaLinux
-distribution works the same.
+The saved answers live per machine in `machine.toml`, never in the
+repository, and each WSL distribution has its own. The owner sets the
+AlmaLinux distribution to `work` with `workbench init --ask machine_role` and
+then runs `apply`. Nothing in this design depends on Ubuntu being there, and
+a PC with only the AlmaLinux distribution works the same.
 
 The owner installs Workbench on the AlmaLinux distribution from a release,
 not a checkout. Per `AGENTS.md`, unreleased code reaches a real machine only
 as a pre-release the owner tags, so this change reaches that distribution
 through a pre-release or the next release.
 
-With role `work`: `~/.gitconfig` uses the single `email` answer and has no
-per-folder override; Codex gets the work MCP servers and trusts `~/repos`;
-`~/dev` trust is removed; the shells get the work block and load `work.env`
-(section 4.11); the work tools step installs the work VS Code extension.
+The Ubuntu distribution becomes `personal`. Order matters: the owner switches
+it with the release already installed there, before installing this change.
+Today's release drops the answers the new role does not use, so the token
+answers leave that distribution's `machine.toml` then, and migration 0005
+(section 4.11) has nothing to move there. Done the other way round, the
+migration writes a `work.env` on Ubuntu while it is still `both`; after the
+switch the plan warns about it (section 4.11) and the owner deletes it.
+
+With role `work` (and for the work half of `both`):
+
+- `~/.gitconfig` uses the work email for the work folder.
+- Both agents get the two dispatch servers through the launch gate
+  (section 4.14), and Codex trusts the work folder.
+- The shells load `work.env` inside the work folder (section 4.11).
+- The work tools step installs the work VS Code extension on macOS and on
+  Linux outside WSL. On WSL it is not planned: its only part needs a local
+  VS Code (section 4.12).
 
 ### 4.2 The platform check accepts AlmaLinux 10
 
@@ -141,9 +190,9 @@ version only. The message stays `ID VERSION_ID/arch`, plus the WSL note.
 
 The `forbidigo` rule in `.golangci.yml` forbids only `runtime.GOOS`, and the
 file already reads `/etc/os-release` behind its `_linux.go` suffix, so the
-check stays where it is. Moving the `/etc/os-release` read into
-`internal/platform` (ADR 0012) is the builder's call; it is not needed for
-this change.
+check may stay where it is. The new package-manager fact (section 4.3) does
+belong in `internal/platform`; moving the `/etc/os-release` read there too is
+the builder's call.
 
 ### 4.3 The package step learns dnf
 
@@ -151,19 +200,25 @@ this change.
 package manager at run time, the way its tmux part already does: `apt-get`
 when present, otherwise `dnf`, otherwise the part fails with the reason. No
 template branches on the distribution, so `render-check.sh` renders the same
-files as before.
+package script for every distribution.
 
 On dnf, as root through `sudo`, like the apt lines:
 
 1. **EPEL** is its own step, `epel`, beside `linux-packages`, and on by
    default like it (not under Optional). It is listed only on a host whose
-   package manager is dnf. Its part runs first in the same packages script,
-   behind its own `WORKBENCH_EFFECT_EPEL` switch, the way `work-tools` already
-   shares that script: when `rpm -q epel-release` fails it runs
+   package manager is dnf: `internal/platform` gains that fact (dnf when
+   `dnf` is found and `apt-get` is not), and `platformEffects` in
+   `internal/machine/effects_linux.go` lists `epel` from it. `effectSources`
+   gets `epel: 00-packages`, and the linux list in
+   `TestSharedScriptsGateEverySectionOnItsOwnEffect`
+   (`internal/machine/effects_test.go`) gets `epel`, so the shared-script
+   safeguard covers the new switch.
+   Its part runs first in the same packages script, behind its own
+   `WORKBENCH_EFFECT_EPEL` switch, the way `work-tools` already shares that
+   script: when `rpm -q epel-release` fails it runs
    `sudo dnf install -y epel-release` (from AlmaLinux's `extras`
    repository). Its probe line is `epel: = EPEL is on` when the package is
-   installed, otherwise `epel: turn on EPEL (uses sudo)`. If the owner turns
-   the step off, the bat and fd parts fail saying EPEL is off. It runs no
+   installed, otherwise `epel: turn on EPEL (uses sudo)`. It runs no
    `dnf config-manager` and no `crb`: CRB is on by default, and Workbench
    does not change a repository the owner set. Why a step of its own:
    `workbench-contracts.md` (the paragraph on ordinary apply) asks that
@@ -172,13 +227,19 @@ On dnf, as root through `sudo`, like the apt lines:
    of change. On the owner's AlmaLinux distribution EPEL is already on, so
    the step has nothing to do there.
 2. **Base packages**, replacing `build-essential curl unzip git
-   ca-certificates fontconfig`: `dnf install -y gcc gcc-c++ make curl unzip
-   git ca-certificates fontconfig`. Today the base part is skipped without a
-   word when `apt-get` is missing, so the font part later fails on the
-   missing `fc-cache`; on AlmaLinux it now runs.
+   ca-certificates fontconfig`: `gcc gcc-c++ make curl unzip git
+   ca-certificates fontconfig`, installing only the ones `rpm -q` does not
+   find, so an image that ships `curl-minimal` keeps it rather than hitting
+   a package conflict. Today the base part is skipped without a word when
+   `apt-get` is missing, so the font part later fails on the missing
+   `fc-cache`; on AlmaLinux it now runs.
 3. **bat and fd**: `dnf install -y bat fd-find`. The commands are already
-   `bat` and `fd`, so no `~/.local/bin` link is made. The cargo fallback
-   stays only for a system with neither apt nor dnf, where it already exists.
+   `bat` and `fd`, so no `~/.local/bin` link is made. When the EPEL
+   repository is not enabled (`dnf repolist --enabled` does not list it,
+   whatever the `epel` switch says), the bat and fd parts fail saying EPEL is
+   off. The packages script is `run_once`, so a failed part makes chezmoi run
+   it again on the next apply; that is intended. The cargo fallback stays
+   only for a system with neither apt nor dnf, where it already exists.
 4. **tmux**: unchanged (it already has the dnf branch). AppStream's tmux is
    3.3a; the managed `tmux.conf` uses TPM and the Dracula theme and sets no
    option newer than 3.3. The builder confirms the theme loads in the
@@ -212,17 +273,18 @@ with the reason the same way.
 
 The package script creates `~/repos` and `~/dev` on every machine
 (`run_once_before_00-packages.sh.tmpl`, the "standard directories" line). It
-now creates `~/repos` when `.has_work` and `~/dev` when `.has_personal`, so a
-work-only distribution does not get an empty `~/dev`.
+now creates the work folder when `.has_work` and the personal folder when
+`.has_personal` (section 4.13), so a work-only distribution does not get an
+empty personal folder.
 
 The Windows Terminal WSL profile and the PowerShell profile start in
 `~/repos` on every machine (`run_before_00-packages-windows.sh.tmpl`: the
 `wsl.exe -d … --cd ~/repos` command line, the `startingDirectory` fallback
 and `$wslRepos`). With the folders following the role, a personal-only
 machine would open into a folder that does not exist, so the start folder
-follows the role in the same change: `~/repos` when `.has_work` (so `work`
-and `both` are unchanged), otherwise `~/dev`. The Ubuntu distribution on
-this PC already has no `~/repos`.
+follows the role in the same change: the work folder when `.has_work` (so
+`work` and `both` keep today's start folder with the default answer),
+otherwise the personal folder.
 
 ### 4.5 Plan text names the package manager
 
@@ -230,18 +292,20 @@ The `linux-packages` effect (`internal/machine/effects.go`, around line 183)
 says "apt" in its Description, Summary, What and Undo. It names both:
 packages come from apt on Ubuntu and from dnf on AlmaLinux. Undo names `apt`
 or `dnf remove`. EPEL is its own step (section 4.3) and is not mentioned
-here. The text is static (the effect is shared by both distributions),
-so it names both rather than reading the host. `docs/usage.md` and `docs/linux.md` say the same.
+here. The text is static (the effect is shared by both distributions), so it
+names both rather than reading the host, and it says "the work and personal
+folders" rather than naming `~/repos` and `~/dev`. `docs/usage.md` and
+`docs/linux.md` say the same.
 
 ### 4.6 bash reads the system file on AlmaLinux
 
 The managed `.bashrc` (`home/private_dot_bashrc.tmpl`) sources `/etc/bashrc`
 near the top, after the not-interactive return and before anything that sets
-`PROMPT_COMMAND` (oh-my-posh), guarded by `[ -f /etc/bashrc ]`. Ubuntu has no
-`/etc/bashrc`, so nothing changes there. On AlmaLinux this keeps
-`/etc/profile.d` working in non-login shells, as the stock file does. The
-Debian-only lines (`lesspipe`, `debian_chroot`) already test for their files
-and stay.
+`PROMPT_COMMAND` (oh-my-posh, then the folder hook of section 4.11), guarded
+by `[ -f /etc/bashrc ]`. Ubuntu has no `/etc/bashrc`, so nothing changes
+there. On AlmaLinux this keeps `/etc/profile.d` working in non-login shells,
+as the stock file does. The Debian-only lines (`lesspipe`, `debian_chroot`)
+already test for their files and stay.
 
 ### 4.7 One Windows side, any number of distributions
 
@@ -271,9 +335,9 @@ distribution that writes each "yes" step. The rules, the same in every
 distribution and naming none:
 
 1. **Nobody recorded, or the recorded distribution is no longer installed**
-   (checked against `wsl.exe --list --quiet`, which the deploy script already
-   asks): a distribution with the step ticked writes, and records itself.
-   A PC with one distribution always lands here.
+   (checked against `wsl.exe --list --quiet`): a distribution with the step
+   ticked writes, and records itself. A PC with one distribution always
+   lands here.
 2. **This distribution is recorded**: it writes, as today.
 3. **Another installed distribution is recorded**: the step changes nothing
    and its plan line says so, for example
@@ -288,11 +352,21 @@ distribution and naming none:
    agent is already refused `--choose`, so an agent never moves it.
 
 So a step has one writer: the first distribution that ticked it, or the last
-one a person moved it to. The record holds only distribution names, never answers or
-secrets. Removing it is safe: rule 1 applies again. `revert` and the effects'
-Undo text name it. Workbench reads and writes it from Linux through the
-Windows paths it already resolves, with the same 60-second cap and blocked
-result as its other Windows calls.
+one a person moved it to. The record holds only distribution names, never
+answers or secrets. Removing it is safe: rule 1 applies again. `revert` and
+the effects' Undo text name it. Workbench reads and writes it from Linux
+through the Windows paths it already resolves, with the same 60-second cap
+and blocked result as its other Windows calls.
+
+Both Windows scripts read the record and the installed list: today only
+`run_after_10-deploy-windows-configs.sh.tmpl` asks `wsl.exe --list --quiet`,
+and `terminal-adoption` and `powershell-adoption` run in
+`run_before_00-packages-windows.sh.tmpl`, so that script asks too. The
+record's content is an input of the plan, so `--approve-plan` exits 4 when
+another distribution changed the writer since the plan was made. Each write
+of the record replaces the whole file at once (write a new file, then
+rename), so two distributions applying at the same time leave one whole
+record, and the other sees it on its next plan.
 
 Windows Terminal's theme and font sit in the managed file's
 `profiles.defaults`, so every distribution's profile gets them, including
@@ -316,56 +390,132 @@ profile are decided and off, the default distribution was never decided and
 is off until ticked, and WSL networking is skipped. The Ubuntu
 distribution's own choices are the same, so neither distribution writes the
 Terminal settings or PowerShell profile today, and no writer is recorded yet
-(section 4.7, rule 1). After the owner switches the role to `work` and
-installs a release with this change, the first `apply` at a terminal asks,
-because `linux-packages` and `work-tools` are not in `decided` (the editor
-extension step is never planned on WSL, `internal/machine/effects_linux.go`). It plans
-the managed `.bashrc` and `.gitconfig` in place of the hand-written ones; the
-lines added there by hand (the promptctl hook, `clear-cache`) are already in
-the managed `.bashrc` for a work WSL machine. Commands already in
-`~/.local/bin` that Workbench did not make are left alone, as now; `uv`
-already being there means the Runtime managers step finds it and does not
-install its own. The system `golang` package stays; the user-local Go comes
-first on `PATH`.
+(section 4.7, rule 1).
+
+After the owner switches the role to `work` and installs a release with this
+change, the first `apply` must run at a terminal: it asks the new work folder
+question (section 4.13), and it asks about the steps that are new or not
+decided and have something to do: `epel` (installed by hand, so nothing to
+do, but new), `linux-packages`, `env-files` and `claude-mcp` (section 4.11).
+`work-tools` is not planned on WSL (section 4.12). It plans the managed
+`.bashrc` and `.gitconfig` in place of the hand-written ones; the lines added
+there by hand (the promptctl hook, `clear-cache`) are already in the managed
+`.bashrc` for a work WSL machine. Commands already in `~/.local/bin` that
+Workbench did not make are left alone, as now; `uv` already being there means
+the Runtime managers step finds it and does not install its own. The system
+`golang` package stays; the user-local Go comes first on `PATH`.
 
 None of this is run by the builder: it is the owner's step on the live
 distribution, after the disposable checks in section 4.10.
 
 ### 4.9 Decision record and docs
 
-- A new ADR (next free number) records that AlmaLinux 10 joins the Linux
-  targets, why the major-version check, why EPEL is its own step, why
-  the writer of the shared Windows files is recorded on Windows, why work
-  credentials live in one `work.env` read by name, and why Bitwarden goes. It names the Ubuntu-only
-  decision in `docs/linux.md` as replaced.
-- `docs/linux.md`: targets, the dnf path, EPEL, the bash note.
-- `docs/superpowers/specs/workbench-contracts.md`: an AlmaLinux 10 row in the
-  targets table and dnf/EPEL in the prerequisites paragraph.
-- `README.md` targets line, `docs/usage.md` the `epel` step and the
-  take-over line, `docs/wsl.md` the section 4.7 rules, `docs/acceptance.md` the checks actually run.
+- A new ADR, 0015, records that AlmaLinux 10 joins the Linux targets, why the
+  major-version check, why EPEL is its own step, why the writer of the shared
+  Windows files is recorded on Windows, why each role has a folder answer,
+  why credentials live in per-folder env files read by name, why the work MCP
+  servers start through a launch gate, and why Bitwarden goes. It names the
+  Ubuntu-only decision in `docs/linux.md` as replaced.
+- `AGENTS.md`:
+  - The numbered-migration exception gains one case: migration 0005 may move
+    the two token answers from `machine.toml` into a new `work.env` under
+    the rules in section 4.11.
+  - The Ownership table gains rows for the env files and the `env-files`
+    effect (`internal/machine/`), and for the hidden `mcp-gate` command
+    (`internal/cli/`).
+  - The paragraph on optional steps names `epel` as on by default.
+- The `internal/migrate` package comment, `migrate.Plan`'s recovery limits and
+  the `migrations` effect's Description, What and Undo
+  (`internal/machine/effects.go`) say what 0005 does.
+- `docs/superpowers/specs/workbench-contracts.md`:
+  - An AlmaLinux 10 row in the targets table, and dnf and EPEL in the
+    prerequisites paragraph.
+  - What Config holds (line 39): no tokens; the env files.
+  - The MCP credentials row (line 135).
+  - The packages rows (lines 142–143): no Bitwarden, apt or dnf, and the role
+    folders.
+- `README.md` targets line.
+- `docs/usage.md`:
+  - The `epel`, `env-files` and `claude-mcp` steps, and the take-over line.
+  - The folder questions.
+  - That answers no longer hold tokens (line 139) and that a role change no
+    longer asks for them (line 468).
+- `docs/wsl.md`: the section 4.7 rules.
+- `docs/linux.md`: targets, the dnf path, EPEL and the bash note.
+- `docs/acceptance.md`: a new entry for the checks actually run. Earlier
+  entries are records of past runs and stay as written.
 
 ### 4.10 Checks
 
 - Routine gates: `golangci-lint fmt`, `golangci-lint config verify`,
   `golangci-lint run ./...`, `go build ./...`, `go test ./...`.
-- `scripts/render-check.sh` for each role and mode, with and without `wsl`:
-  the rendered files must be unchanged apart from the edited scripts and
-  `.bashrc`.
+- `scripts/render-check.sh` for each role and mode, with and without `wsl`,
+  after `scripts/scratch-init.sh` learns the new prompts (section 4.13).
+  Expected rendered changes, and no others:
+  - The two package scripts and the Windows script.
+  - `.bashrc` and `.zshrc`: `/etc/bashrc`, the folder hook, a `codex()`
+    wrapper, no Bitwarden.
+  - `.gitconfig` and its includes: folder answers.
+  - `~/.codex/config.toml`: gate entries, `enabled = true`, no `env`
+    credentials, folder answers in trust.
+  - Codex `AGENTS.md`: folder answers.
+  - Claude Code `settings.json`: the env-file deny rules.
+
+  The personal-role leak check stays and must pass.
+- Safeguard tests, each with its risk written beside it, as `AGENTS.md`
+  allows for credential exposure and loss:
+  - Migration 0005 never loses a token. A conflict leaves both files
+    byte for byte, a run after a crash finishes the job, and no value appears
+    in its output.
+  - The gate's folder test, for both agents' inputs, never counts a folder
+    outside the work folder as inside, for example `~/repos-old` against
+    `~/repos`, or a symlink pointing out of it.
 - A disposable `almalinux:10` container with a new non-root user and sudo,
-  from a local bundle: `apply --local-build --dry-run --json`, then
-  `--approve-plan`. It must install EPEL, the base packages, bat, fd, tmux,
-  podman, the font (with `fc-cache`), and end with every chosen step complete.
-  The same in an Ubuntu 24.04 container shows the apt path unchanged.
+  from a local bundle: `init --answers-from FILE` (with the folder answers),
+  then `apply --local-build --dry-run --json`, then `--approve-plan`. It must
+  install EPEL, the base packages, bat, fd, tmux, podman, the font (with
+  `fc-cache`), and end with every chosen step complete. The same in an Ubuntu
+  24.04 container shows the apt path unchanged.
 - For the WSL path, a second AlmaLinux 10 distribution imported under another
   name with a disposable home, never the live one. If that is not done, the
   acceptance notes say the WSL path on AlmaLinux was not run.
-- In the disposable container with role `work`: `work.env` is created 0600
-  with empty names and the plan lists them as empty; with values filled in, a
-  new login shell has them, `codex` sees them through `env_vars` (a stub
-  stdio server that prints its environment's names), and Claude Code's
-  `claude mcp get` shows the `${VAR}` references; no value appears in the
-  plan, `--json` or Workbench's logs. Switching the role to `personal` removes
-  both agents' dispatch entries and loads no `work.env`.
+- In a disposable home, with synthetic credentials only, on role `both` with
+  non-default folder answers:
+  - **Env files.** Both files are created 0600; the plan lists empty names
+    and never a value (plan, `--json`, logs).
+  - **Shell hook.**
+    - A new shell in the work folder has the work names. `cd` to the
+      personal folder swaps them for the personal ones. Elsewhere it has
+      neither, even when a parent shell passed them down.
+    - `cd <personal folder>/x && claude`, and the same with `codex`, starts
+      without the work names.
+  - **Gate.**
+    - Claude Code and Codex, each started in a work repository, list the
+      dispatch tools from a stub server.
+    - Started in the personal folder and in `~`, they list none, start no
+      stub server, and show no error or warning (`/mcp`, `claude mcp list`,
+      Codex's startup line).
+    - Each agent started from a plain environment (no shell hook) in a work
+      repository still gives the stub server the work names.
+  - **Migration.**
+    - A `machine.toml` with synthetic tokens on role `both` ends with
+      `work.env` holding all nine names at 0600 and the token keys gone.
+    - A re-ask of the folder questions before the migration keeps the
+      tokens.
+    - Running it twice changes nothing.
+    - An existing `work.env` is a reported conflict with both files
+      unchanged.
+  - **Stale Codex keys.** A `~/.codex/config.toml` holding synthetic literal
+    tokens in the dispatch `env` tables ends without them, with the values
+    redacted in the plan diff.
+  - **Claude Code entries.** A hand-added user-scope entry with synthetic
+    literal tokens is replaced by the gate entry. A same-named local-scope
+    entry is reported, not touched.
+  - **Role switch.**
+    - Switching to `personal` removes both agents' dispatch entries, loads no
+      `work.env` and warns that the file is still there.
+    - Non-default folders reach git, Codex trust, the costs report and the
+      Windows start folder.
 - arm64 is implemented but recorded as unqualified, as for Ubuntu, unless an
   arm64 run is made.
 - The writer record (section 4.7) lives on the real Windows user, so its
@@ -374,18 +524,19 @@ distribution, after the disposable checks in section 4.10.
   on a real host. The rules' plan lines can still be checked in a probe with
   a record file placed by hand in a disposable folder.
 
-### 4.11 Work credentials live in one file, `work.env`
+### 4.11 Credentials live in per-folder env files
 
 **Today** the Jira token alone has copies in Workbench's `machine.toml`, in
 the dispatch servers' `env` in `~/.codex/config.toml` (Workbench writes
 both), in the dispatch servers' `env` in `~/.claude.json` (added by hand),
 and in the owner's atlassian-cli `~/.config/atlassian-cli/.env`; the GitLab
-token is in the first three. Each consumer keeps its own copy.
+token is in the first three. Each consumer keeps its own copy. The Jira and
+GitLab addresses and the Jira email are rendered into the Codex template.
 
-**The design:** one file per work machine,
-`~/.config/workbench/work.env`, mode 0600, holds the work credentials and
-addresses as environment variables, under the names the owner's tools
-already use:
+**The design:** one file per role, in Workbench's config folder:
+`work.env` and `personal.env`, mode 0600, holding credentials and addresses
+as environment variables under the names the owner's tools already use.
+`work.env` starts as:
 
 ```bash
 JIRA_BASE_URL=
@@ -399,93 +550,180 @@ GITLAB_URL=
 GITLAB_TOKEN=
 ```
 
-**Loaded by folder, not everywhere** (owner's decision). The managed
-`.bashrc` (and `.zshrc` on macOS) loads `work.env` only while the shell's
-current folder is the work folder or below it (section 4.13), and
-`personal.env` only inside the personal folder, the way git already switches
-identity per folder with `includeIf`. Leaving the folder unsets exactly the
-names that file set. So work credentials never reach a shell, agent or
-command started in the personal folder or elsewhere, and both files may use
-the same name (a `GITLAB_TOKEN` for work and another for personal) without
-colliding. An agent takes the environment of the folder it was started in:
-`claude` or `codex` started in the work folder has the work values for its
-whole session.
+`personal.env` starts with no names, since Workbench saves no personal
+credential today. The format is `NAME=value` lines, `#` comments and blank
+lines, nothing else (no `export`, no quotes or expansion), so the shell hook
+and the gate read it the same way.
 
-The mechanism is a small hook in the managed shells (bash `PROMPT_COMMAND`,
-zsh `chpwd`) that compares the current folder with the two folders and loads
-or unloads the matching file. Considered: direnv, which does this generally
-with an `.envrc` per folder and a `direnv allow` approval per file
-([direnv guide](https://www.deployhq.com/guides/direnv)); for exactly two
+**Who writes them.** A new effect, `env-files`, on by default, listed when
+the role has work or personal, creates each file its role uses when it is
+missing (0600, through the operation layer's private write, as for
+`machine.toml`; chezmoi cannot, since Workbench refuses chezmoi targets inside
+its own folders). After that the file is the owner's: Workbench never writes
+it again. The one other writer is migration 0005, which only creates
+`work.env`. The step's plan lines:
+
+- `env-files: create work.env` when it is missing.
+- `env-files: work.env: JIRA_API_TOKEN is empty`, and the same for each
+  listed name that is empty or missing. Values are read only to tell empty
+  from not; they are never kept, shown, logged or put in `--json`.
+- `env-files: work.env holds work credentials on a machine without the work
+  role; delete it` (and the same for `personal.env` on a machine without the
+  personal role). Workbench does not delete it.
+
+Undo: delete the file by hand; it is not checkpointed.
+
+**Loaded by folder, not everywhere** (owner's decision). The managed
+`.bashrc` and `.zshrc` load `work.env` only while the shell's current folder
+is the work folder or below it, and `personal.env` only inside the personal
+folder, the way git already switches identity per folder with `includeIf`.
+The two folders never overlap (section 4.13), so both files may use the same
+name (a `GITLAB_TOKEN` for work and another for personal) without colliding.
+
+The hook is one shell function:
+
+- **Where it runs.** bash appends it to `PROMPT_COMMAND` after
+  `oh-my-posh init`, never replacing it. zsh adds it to `precmd`, which also
+  runs before the first prompt.
+- **What it does.** It compares the current folder (symlinks resolved) with
+  the two folder answers. It unsets every name listed in the file of a role
+  folder the shell is not in, whoever set it, so a child shell or tmux pane
+  that inherited work names drops them in the personal folder. Then it loads
+  the file of the folder it is in.
+- **Agents started on the same line.** The existing `claude()` wrapper and a
+  new `codex()` wrapper run the hook for the current folder just before
+  starting the agent, so `cd ~/dev/site && claude` typed in the work folder
+  starts without the work names.
+
+An agent takes the environment of the shell that started it for its whole
+session. Two limits are accepted:
+
+- **Commands on the same line as a `cd`.** Any other command typed after
+  `cd` on the same line still has the previous folder's names until the next
+  prompt.
+- **IDE-started agents.** An agent started by an IDE extension gets no shell
+  hook. Its dispatch servers still work, because the gate reads the file
+  itself (section 4.14), but commands it runs do not see the names.
+
+Considered: direnv, which does this generally with an `.envrc` per folder and
+a `direnv allow` approval per file
+([direnv guide](https://www.deployhq.com/guides/direnv)). For exactly two
 fixed folders the hook needs no new tool and no files in the owner's folders.
 
 Every consumer reads the values by name:
 
 | Consumer | Claude Code | Codex |
 | --- | --- | --- |
-| The dispatch MCP servers | Each entry's `env` maps `"JIRA_API_TOKEN": "${JIRA_API_TOKEN}"` and so on. Claude Code documents `${VAR}` expansion in a server's `command`, `args` and `env` ([MCP docs](https://code.claude.com/docs/en/mcp)). | Each entry lists `env_vars = ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"]` (GitLab: `GITLAB_URL`, `GITLAB_TOKEN`). Required: Codex starts a local MCP server with only a core environment plus the names `env_vars` forwards (`codex-rs/rmcp-client/src/stdio_server_launcher.rs`). |
-| Commands the agent runs (atlassian-cli to write tickets, glab, curl) | The Bash tool inherits the environment. | Commands inherit it too: the filter on names containing KEY, SECRET or TOKEN is off unless configured (`ignore_default_excludes` defaults to true, `codex-rs/config/src/shell_environment_policy.rs`). |
-| Reading `work.env` itself | Denied: `Read(~/.config/workbench/work.env)` joins the enforced deny list beside `Read(./.env)`, so the tokens do not land in a transcript. | No equivalent: Codex runs with full access and no sandbox by the owner's earlier decision; its instructions say to use the variables, never to open the file. |
+| The dispatch MCP servers | No credential in the entry. The gate reads `work.env` and passes its names to the server it starts (section 4.14). | The same: no `env` credentials and no `env_vars`. The gate reads `work.env`, which also gets past Codex starting servers with only a core environment. |
+| Commands the agent runs (atlassian-cli to write tickets, glab, curl) | The Bash tool inherits the session's environment. | Commands inherit it too: the filter on names containing KEY, SECRET or TOKEN is off unless configured (`ignore_default_excludes` defaults to true, `codex-rs/config/src/shell_environment_policy.rs`). |
+| Reading the files themselves | Denied: `Read(<config folder>/work.env)` and `Read(<config folder>/personal.env)` join the enforced deny list beside `Read(./.env)`, with the config folder resolved at apply time, so `cat` and the Read tool cannot put the tokens in a transcript. `env` or `printenv` in the Bash tool still can, as with any credential in the environment. | No equivalent: Codex runs with full access and no sandbox by the owner's earlier decision. Its instructions say to use the variables, never to open the files or print them. |
 
 atlassian-cli needs no change: it loads settings with pydantic-settings,
 where "environment variables will always take priority over values loaded
 from a dotenv file" ([pydantic-settings](https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/)).
 Its own `~/.config/atlassian-cli/.env` becomes a redundant copy the owner may
-delete.
+delete, as are any other copies made by hand; Workbench does not look for
+them.
 
-What Workbench does:
+What changes in each agent's config:
 
-1. **Creates `work.env` when it is missing** on a work machine (0600, the
-   names above with empty values) and never writes it again; after that the
-   file is the owner's. On a personal machine it creates nothing and the
-   shells load nothing.
-2. **Reports empty names in the plan**, for example
-   `work.env: JIRA_API_TOKEN is empty`, by reading names and emptiness only.
-   No value is read into Workbench, shown, logged or put in `--json`.
-3. **Codex:** the dispatch entries in
-   `home/.chezmoitemplates/codex-config.toml.tmpl` lose their literal `env`
-   tokens and URLs and gain `env_vars`. Their command is the launch gate
-   (section 4.14), whose arguments name the checkout under the work folder
-   answer: Codex documents no `${VAR}` expansion in `args`.
-4. **Claude Code:** Workbench registers the two dispatch servers at user
-   scope with Claude Code's own command, `claude mcp add-json --scope user`,
-   with the launch gate as the command (section 4.14) and `${VAR}` references, replacing same-named hand-added entries. Claude
-   Code rewrites `~/.claude.json` constantly, so Workbench does not edit that
-   file itself, as it already leaves agent updates to the agents' own
-   installers (ADR 0009). On a personal machine it removes those two entries
-   with `claude mcp remove --scope user`, so a role change takes them away,
-   as the Codex template already does with `INACTIVE_TABLES`.
-5. **Drops the `jira_api_token` and `gitlab_token` questions** from
-   `home/.chezmoi.toml.tmpl` and `internal/machine/answers.go`
-   (`answerKeys`, the `work` validation and `secrets()`), so no token is in
-   `machine.toml`.
-6. **A numbered migration moves the saved tokens** (owner's decision):
-   `internal/migrate/0005_*` writes `jira_api_token` and `gitlab_token` from
-   `machine.toml` into `work.env` as `JIRA_API_TOKEN` and `GITLAB_TOKEN`,
-   then removes the two keys from `machine.toml`. Rules, in the package's
-   style: idempotent; when `work.env` already holds a different non-empty
-   value for a name, it is a conflict and both files stay as they are; the
-   files keep mode 0600; no value is printed or logged. It must run before
-   `validateAnswers` (`internal/machine/answers.go`), which today stops on
-   answer keys Workbench no longer asks for; the builder places it where the
-   answers are read, not only in the apply's migrations step.
+1. **Codex:** the dispatch entries in
+   `home/.chezmoitemplates/codex-config.toml.tmpl` lose their literal tokens,
+   addresses and email, keep `NODE_VERSION = "default"` in `env`, and use the
+   gate as their command (section 4.14). `enabled` becomes `true`, because
+   the gate is now what limits them to the work folder. The modify script
+   (`home/private_dot_codex/modify_private_config.toml.tmpl`) keeps every
+   key it does not set, so it gains a `RETIRED_KEYS` list, applied like
+   `INACTIVE_TABLES`, that removes `JIRA_BASE_URL`, `JIRA_EMAIL`,
+   `JIRA_API_TOKEN`, `GITLAB_URL` and `GITLAB_TOKEN` from the two dispatch
+   `env` tables of an existing file. Otherwise the old literal token stays on
+   disk, and Codex applies the `env` table last, so it would win. The plan's
+   diff shows those lines removed, values redacted (`secretLine` matches
+   `TOKEN =`). On a machine without the work role, `INACTIVE_TABLES` removes
+   the two entries, as today.
+2. **Claude Code:** a new effect, `claude-mcp`, on by default and listed when
+   the role has work or when an entry it manages exists. It runs after the
+   agent updates step (`45-agent-updates`), so `claude` is installed.
+   - **Work role.** It registers the two servers at user scope with Claude
+     Code's own commands, `claude mcp remove --scope user NAME`, then
+     `claude mcp add-json --scope user NAME JSON`. The JSON holds the gate
+     command and `NODE_VERSION`, no credential.
+   - **Without the work role.** It removes them with
+     `claude mcp remove --scope user`, so a role change takes them away.
+   - **Probe.** It compares the user-scope entries in `~/.claude.json` with
+     the wanted ones, reading only names, scopes and the command, never
+     printing `env` values. Claude Code rewrites that file constantly, so
+     Workbench changes it only through `claude`, as it already leaves agent
+     updates to the agents' own installers (ADR 0009).
+   - **Same-named entries elsewhere.** A same-named entry at local or
+     project scope outranks user scope, so the plan warns and names the
+     `claude mcp remove --scope local NAME` command. Workbench does not
+     remove it.
+   - **`claude` missing.** The part is blocked with the reason.
+   - **Undo.** `claude mcp remove --scope user NAME`.
+3. **The token questions go.** `jira_api_token` and `gitlab_token` leave
+   `home/.chezmoi.toml.tmpl` and the questions, and the `work` validation in
+   `internal/machine/answers.go`. Until migration 0005 has moved them, they
+   stay known: `answerKeys` accepts them as retired keys that are never
+   asked, `secrets()` keeps redacting them, and a re-ask that saves the
+   answers (for example the new folder questions) carries them through
+   unchanged, so nothing drops them before the migration runs.
 
-**`personal.env`, the same for personal.** A personal machine gets
-`~/.config/workbench/personal.env` with the same rules: created 0600 when
-missing, never written again, loaded by the managed shells, empty names
-reported in the plan, reading it denied to Claude Code, loaded only inside
-the personal folder. It starts with no names, since Workbench saves no
-personal credential today, so its migration has nothing to move. A `both`
-machine gets both files, each loaded only inside its own folder.
+**Migration 0005 moves the saved tokens** (owner's decision).
+`internal/migrate/0005_work_tokens.go` runs in the `migrations` step of an
+approved apply, or `workbench migrate --apply`, never in a preview. The plan
+lists it under that step when the retired keys are present. It reads
+`machine.toml` with go-toml itself, since `internal/migrate` cannot import
+`internal/machine`.
+
+- **Role has work, no `work.env`.** It writes `work.env` (0600, one write of
+  a new file then a rename) with all nine names:
+  - The two tokens.
+  - `JIRA_EMAIL` from the saved work email (`work_email` on `both`,
+    otherwise `email`).
+  - `JIRA_BASE_URL` and `GITLAB_URL` set to the addresses the Codex template
+    renders today. Those literals move from the template into the migration,
+    so they are not copied.
+  - The rest empty.
+
+  Then it rewrites `machine.toml` (private, same mode) without the two keys.
+- **A later run, or one after a crash between the two writes.** When
+  `work.env` holds the same two token values, it only removes the keys.
+  That is idempotent, and nothing is lost.
+- **`work.env` exists with anything else.** It changes neither file and the
+  plan says to copy the tokens by hand and delete the two keys. It never
+  merges, following the migration rules in `AGENTS.md`.
+- **Role has no work.** It does nothing, and the plan says the keys are
+  there and should be removed.
+- No value is printed, logged or put in `--json`.
+- While 0005 still has work to do, `env-files` does not create `work.env`,
+  and the plan says it is waiting for the migration. If the owner unticks
+  the `migrations` step, the tokens stay in `machine.toml`, still redacted,
+  until a later apply runs it.
 
 ### 4.12 Bitwarden is removed
 
-The Bitwarden CLI install (the `work-tools` part of both platforms' package
-scripts), the `bw` wrapper (`home/.chezmoitemplates/bw-wrapper.sh`, included
-by `.bashrc` and `.zshrc`), the `bitwarden-session-cache` effect and its
-test, its `packages.toml` mentions, `render-check.sh`'s Bitwarden check and
-the docs go. The `work-tools` effect keeps only the work VS Code extension.
-A `bw` already installed on a machine stays until the owner deletes it; the
-Undo text says so.
+What goes:
+
+- The Bitwarden CLI install: the `work-tools` part of the linux and darwin
+  `run_once_before_00-packages.sh.tmpl` scripts, with their probe lines and
+  header comments.
+- The `bw` wrapper `home/.chezmoitemplates/bw-wrapper.sh`, and its includes
+  in `home/private_dot_bashrc.tmpl` and `home/dot_zshrc.tmpl`.
+- The words "bw login" in the `.bashrc` comment about browser opens.
+- In `internal/machine/effects.go`: the `bitwarden-session-cache` effect, its
+  `effectSources` entry and the comment above `workToolsEffect`.
+- The Bitwarden comment in `effects_test.go`.
+- The `packages.toml` comment.
+- The `bitwarden` word in `render-check.sh`'s personal leak pattern.
+- The docs listed in section 4.9.
+
+The `work-tools` effect keeps only the work VS Code extension, and its text
+says so. On Linux it loses `00-packages` from its `effectSources` (the
+`35-vscode-extensions` script renders nothing on WSL), so it is not planned
+on WSL, and the shared-script test's list of owners of `00-packages` drops
+it. A `bw` already installed on a machine stays until the owner deletes it;
+the Undo text says so.
 
 ### 4.13 The role and its folders are asked on every machine
 
@@ -498,35 +736,66 @@ also asks the folder for each role it has, once, with a default:
 | `work`, `both` | Work folder | `~/repos` |
 | `personal`, `both` | Personal folder | `~/dev` |
 
-Saved as `work_folder` and `personal_folder` in `machine.toml`, validated in
-`internal/machine/answers.go` (a folder under the home folder, no control
-characters, no `..`). Every place that names `~/repos` or `~/dev` today reads
-the answer instead:
+They are saved as `work_folder` and `personal_folder` in `machine.toml`, as
+home-relative text such as `~/repos`. Validation, in
+`internal/machine/answers.go` and again in the template with `fail`:
 
-- `dot_gitconfig.tmpl`: the `includeIf "gitdir:…"` lines; the comments in
-  `dot_gitconfig-work.tmpl` and `dot_gitconfig-personal.tmpl`.
-- `codex-config.toml.tmpl` (the trusted projects and the dispatch servers'
-  `args`), `modify_private_config.toml.tmpl` (`INACTIVE_TABLES`) and
+- Below the home folder, not the home folder itself.
+- Segments of letters, digits, `.`, `_` and `-` only, and no `.` or `..`
+  segment. This rules out spaces and quoting trouble in every place below.
+- On `both`, the two differ and neither contains the other. Otherwise both
+  env files would load in one place, both git identities would match, and
+  the gate would start the work servers in a personal folder.
+
+Each consumer expands the answer its own way:
+
+- git: `gitdir:~/repos/`.
+- Codex: an absolute trust key.
+- Windows Terminal and PowerShell: `\\wsl.localhost\<distribution>` plus the
+  absolute path.
+- The shell hook and the gate: the absolute path.
+
+Every place that names `~/repos` or `~/dev` today reads the answer instead:
+
+- `dot_gitconfig.tmpl`: the `includeIf "gitdir:…"` lines and its header
+  comment; the comments in `dot_gitconfig-work.tmpl` and
+  `dot_gitconfig-personal.tmpl`.
+- `codex-config.toml.tmpl` (the trusted projects and the gate arguments),
+  `modify_private_config.toml.tmpl` (`INACTIVE_TABLES`) and
   `private_dot_codex/AGENTS.md.tmpl`.
+- The `claude-mcp` gate arguments (section 4.11).
 - The package script's folder creation (section 4.4).
 - The Windows Terminal and PowerShell start folder (section 4.4).
 - The `linux-packages` effect text in `internal/machine/effects.go`.
-- The question text in `home/.chezmoi.toml.tmpl` itself.
+- `internal/costs/report.go` `projectRoots` and `internal/cli/costs.go`
+  `scopeNames`, so the default costs view covers the chosen folders. They
+  read the saved answers, and fall back to `~/dev` and `~/repos` when none
+  are saved.
+- `home/.chezmoi.toml.tmpl`: the question text and its header comment.
+- `scripts/scratch-init.sh`, which answers prompts by their exact text: drop
+  the two token prompts, answer the two folder prompts, and match the new
+  email prompt text. Without this, `render-check.sh` stops at a prompt.
 
 A machine that already has saved answers is asked the new folder questions
-once, with the defaults, which are today's folders, so nothing moves.
+on its first apply after upgrading, with the defaults, which are today's
+folders, so nothing moves. That apply needs a terminal. An unattended run
+(`--approve-plan`, `--yes`, a coding agent) is refused before any change,
+with the message to run `apply` at a terminal or `init --answers-from FILE`,
+as for any missing answer (`validateAnswers` never fills in a missing
+answer on its own).
 
 ### 4.14 Work MCP servers start only inside the work folder
 
 On a `both` machine (or any machine, if the role changes later), the dispatch
-servers must run only for agent sessions started inside the work folder,
-and never start, cost memory or add tools in the personal folder.
+servers must run only for agent sessions started inside the work folder, and
+never start, cost memory or add tools elsewhere.
 
-**What exists today is only an instruction.** On `both` machines Codex's
-`AGENTS.md` gets a "Path-scoped tool policy" telling the model not to call
-the dispatch or CodeRabbit tools under the personal folder
-(`home/private_dot_codex/AGENTS.md.tmpl`). The servers still start in every
-session, and Claude Code gets no such text.
+**What exists today.** Claude Code starts its hand-added entries in every
+session, wherever it was started. Codex never starts its entries
+(`enabled = false`). On `both` machines Codex's `AGENTS.md` adds a
+"Path-scoped tool policy" telling the model not to call the dispatch or
+CodeRabbit tools under the personal folder
+(`home/private_dot_codex/AGENTS.md.tmpl`); Claude Code gets no such text.
 
 **Neither agent can scope a server to a folder and everything below it:**
 
@@ -548,31 +817,62 @@ repositories and miss every repository cloned after an apply, so they are
 rejected.
 
 **The design: Workbench gates the launch itself.** Both agents register each
-dispatch server with Workbench as its command:
+dispatch server with the resolved Workbench executable as its command:
 
 ```
-workbench mcp-gate work -- node <work folder>/<checkout>/dispatch-gitlab/dist/index.js
+<workbench> mcp-gate --folder <work folder> --env-file <config folder>/work.env -- <home>/.nvm/nvm-exec node <work folder>/<checkout>/dispatch-gitlab/dist/index.js
 ```
 
-- **Inside the work folder** (the agent's working folder is the work folder
-  or below it), the gate replaces itself with the server (`exec`), so no
-  extra process stays and the server runs exactly as today.
-- **Anywhere else**, the server is never started. The gate answers the MCP
-  handshake with no tools and exits when the agent closes it, so the agent
-  shows no error, gets no tools (no context cost) and holds no server
-  memory. The builder confirms in both agents that a server with no tools
-  stays quiet; if one of them reports it as failed, the gate exits at once
-  instead and the plan text says the server shows as unavailable outside
-  the work folder.
-- A `work`-only machine uses the same gate, so changing its role to `both`
-  later needs nothing new. A `personal`-only machine registers no dispatch
-  servers (section 4.11).
-- The gate is a hidden subcommand in `internal/cli/`, like
-  `workbench vscode-settings`; folder answers come from `machine.toml`
-  (section 4.13).
+`<workbench>` is the path Workbench already renders for its hooks
+(`workbench_bin`), and `<checkout>` is the checkout the Codex template names
+today. Every path is absolute and rendered at apply time, so the gate reads
+no `machine.toml` and needs nothing from an environment Codex trims. A
+changed folder answer re-renders the Codex entry and re-registers the Claude
+Code entry on the next apply.
 
-The "Path-scoped tool policy" text stays for what the gate cannot cover:
-the CodeRabbit plugin in Codex, which is not a server Workbench launches.
+How the gate decides:
+
+- **Which folder.** It takes `CLAUDE_PROJECT_DIR` when it is set (Claude Code
+  sets it to the project root), otherwise its own working folder (Codex
+  starts it in the session's folder). It resolves symlinks and compares by
+  whole path segments, so `~/repos-old` is not inside `~/repos`.
+- **For the whole session.** Neither agent restarts a user-scope server when
+  the session changes folder (Claude Code's `/cd`), so a session started in
+  the work folder keeps the servers and one started elsewhere never gets
+  them.
+- **Inside the work folder.** It reads `work.env` (it must be a regular file
+  owned by the user and not readable by others), adds each name with a value
+  to the environment, overriding an inherited one, and replaces itself with
+  the server (`exec`). No extra process stays, and the server runs through
+  `nvm-exec` with `NODE_VERSION=default`, as today. When the file is missing
+  or unsafe, it exits with an error naming the file, so the agent shows the
+  server as failed, which is the true state.
+- **Anywhere else.** It never starts the server and reads no file. It answers
+  the MCP `initialize` request with no capabilities (no `tools`, so Claude
+  Code's `/mcp` does not flag it), answers `ping`, replies "method not found"
+  to anything else, and exits when the agent closes its input. The agent
+  shows no error and gets no tools (no context cost). What stays is one small
+  Workbench process per session, with no Node; the builder measures it and
+  the plan text states it. The builder confirms in both agents that this
+  server stays quiet; if one reports it as failed, the gate exits at once
+  instead and the plan text says the server shows as unavailable outside the
+  work folder.
+
+Cost inside the work folder: every Claude Code session there starts the two
+servers, as every Claude Code session anywhere does today. Every Codex
+session there now starts them too, where today Codex never does; the builder
+records whether Codex sub-agent threads start their own copies.
+
+A `work`-only machine uses the same gate, so changing its role to `both`
+later needs nothing new. A machine without the work role registers no
+dispatch servers (section 4.11).
+
+The gate is a hidden subcommand in `internal/cli/`, like
+`workbench vscode-settings`.
+
+The "Path-scoped tool policy" text stays for what the gate cannot cover: the
+CodeRabbit plugin in Codex, which is not a server Workbench launches. It
+names the folder answers.
 
 ## 5. Left to the builder
 
@@ -583,6 +883,9 @@ the CodeRabbit plugin in Codex, which is not a server Workbench launches.
 - How dnf waits on its lock (section 4.3).
 - Whether `zsh` is installed on AlmaLinux: the managed `.zshrc` deploys only
   on macOS, so it is not needed.
+- How the shell hook avoids reading the env files before every prompt (for
+  example only when the folder or the file's change time differs).
+- The gate's quiet-or-exit fallback, after trying both agents (section 4.14).
 
 ## 6. Decisions
 
@@ -595,10 +898,8 @@ Decided by the owner on Oct 21, 2026:
 - **The Windows side** depends on no particular distribution: any one, or the
   only one, may write it, and the record on Windows keeps two from fighting
   (section 4.7).
-- **The Ubuntu distribution** becomes `personal`. `init --ask machine_role`
-  drops the answers the new role does not use, so the Jira and GitLab tokens
-  leave that distribution, and Codex there loses the work servers and the
-  `~/repos` trust.
+- **The Ubuntu distribution** becomes `personal`, switched before this change
+  is installed there (section 4.1).
 - **Work credentials and addresses** live in one `work.env`, read by name by
   Claude Code, Codex and the owner's tools (section 4.11). Researched and
   rejected: new vendor-hosted MCP servers (the owner uses the tokens for their
@@ -611,22 +912,41 @@ Decided by the owner on Oct 21, 2026:
 - **The role and each role's folder** are asked on every machine, defaults
   `~/repos` and `~/dev` (section 4.13).
 - **Each env file loads only inside its own folder** (section 4.11).
-- **Work MCP servers start only inside the work folder**, gated by
-  Workbench at launch for both agents (section 4.14).
+- **Work MCP servers start only inside the work folder**, for both agents,
+  including on a machine that holds both roles (section 4.14).
 - **The `create-spec` alias**, which pointed at a session scratch file, was
   removed on its own (commit `0016ebb`).
 
 ## 7. Calls made in this design
 
 - Major-version check for AlmaLinux (any 10.x).
-- Pick the package manager at run time, not in templates.
+- Pick the package manager at run time, not in templates; the `epel` step is
+  listed from a package-manager fact in `internal/platform`.
 - dnf names inline beside the apt names; moving both to `packages.toml` is a
   follow-up.
 - Keep `gh` as the per-user download on every distribution.
 - Source `/etc/bashrc` from the managed `.bashrc` when present.
 - A saved tick never takes over a Windows step another installed
-  distribution writes; only `apply --choose` moves it.
+  distribution writes; only `apply --choose` moves it. The record is a plan
+  input.
 - Folders, and the Windows start folder, follow the role.
+- Folder answers are home-relative, limited to plain characters, and never
+  equal or nested.
+- A shell hook rather than direnv; it unsets the other folder's names whoever
+  set them, and the `claude()` and `codex()` wrappers run it before starting
+  an agent.
+- The gate takes its folder and env file as arguments rendered at apply time,
+  reads `work.env` itself, and passes no credential through either agent's
+  config, so there is no `${VAR}` in Claude Code and no `env_vars` in Codex.
+- Codex's dispatch entries become `enabled = true`, since the gate limits
+  them now.
+- Workbench changes Claude Code's entries only through `claude mcp`, and
+  reports, never removes, same-named local or project entries.
+- Migration 0005 also fills the email and the two addresses, so ticket work
+  keeps working after the upgrade, and it never merges into an existing
+  `work.env`.
+- Two safeguard tests: no token loss in 0005, and no work folder match
+  outside the work folder in the gate.
 
 ## 8. Follow-ups (not in this change)
 
