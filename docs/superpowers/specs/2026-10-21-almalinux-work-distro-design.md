@@ -79,8 +79,9 @@ Goals:
 - The work distribution is just a machine whose role is `work`. No new
   question, file or mode separates work from personal.
 - Work lives in `~/repos` and personal in `~/dev`, as now.
-- Two Workbench distributions on one Windows PC do not undo each other's
-  Windows-side changes when the owner follows the rule in section 4.7.
+- Any number of Workbench distributions on one Windows user, or just one,
+  without any of them undoing another's Windows-side changes, and without
+  Workbench naming or needing a particular distribution (section 4.7).
 
 Non-goals:
 
@@ -88,8 +89,8 @@ Non-goals:
   Only `ID=almalinux` is accepted.
 - A Windows Terminal settings file with a styled profile for more than one
   distribution (follow-up, section 8).
-- Making the work web addresses or tool folders configurable (open question,
-  section 6).
+- Changing where the work web addresses and tool folders are kept, until
+  the owner decides (section 6).
 - Changing the Ubuntu targets or the Ubuntu package path.
 
 Anti-goals (a change that does these is wrong even if it works):
@@ -109,8 +110,15 @@ Anti-goals (a change that does these is wrong even if it works):
 Nothing new. The saved answers live per machine in `machine.toml`, never in
 the repository, and each WSL distribution has its own. The owner sets the
 AlmaLinux distribution to `work` with `workbench init --ask machine_role`
-(which asks the tokens `work` needs) and then runs `apply`. Whether the Ubuntu
-distribution becomes `personal` is the owner's choice (section 6).
+(which asks the tokens `work` needs) and then runs `apply`. The owner will
+change the Ubuntu distribution to `personal` the same way; nothing in this
+design depends on Ubuntu being there, and a PC with only the AlmaLinux
+distribution works the same.
+
+The owner installs Workbench on the AlmaLinux distribution from a release,
+not a checkout. Per `AGENTS.md`, unreleased code reaches a real machine only
+as a pre-release the owner tags, so this change reaches that distribution
+through a pre-release or the next release.
 
 With role `work`: `~/.gitconfig` uses the single `email` answer and has no
 per-folder override; Codex gets the work MCP servers and trusts `~/repos`;
@@ -141,13 +149,22 @@ files as before.
 
 On dnf, as root through `sudo`, like the apt lines:
 
-1. **EPEL.** How EPEL gets turned on is open question 1 (section 6). In
-   every option Workbench runs no `dnf config-manager` and no `crb`: CRB is
-   on by default, and Workbench does not change a repository the owner set.
+1. **EPEL** is its own step, `epel`, beside `linux-packages`, and on by
+   default like it (not under Optional). It is listed only on a host whose
+   package manager is dnf. Its part runs first in the same packages script,
+   behind its own `WORKBENCH_EFFECT_EPEL` switch, the way `work-tools` already
+   shares that script: when `rpm -q epel-release` fails it runs
+   `sudo dnf install -y epel-release` (from AlmaLinux's `extras`
+   repository). Its probe line is `epel: = EPEL is on` when the package is
+   installed, otherwise `epel: turn on EPEL (uses sudo)`. If the owner turns
+   the step off, the bat and fd parts fail saying EPEL is off. It runs no
+   `dnf config-manager` and no `crb`: CRB is on by default, and Workbench
+   does not change a repository the owner set. Why a step of its own:
    `workbench-contracts.md` (the paragraph on ordinary apply) asks that
    changes outside the user's files, such as Homebrew tap removal, appear as
-   individually named effects; a system-wide third-party repository is the
-   same kind of change.
+   individually named effects, and a system-wide package source is that kind
+   of change. On the owner's AlmaLinux distribution EPEL is already on, so
+   the step has nothing to do there.
 2. **Base packages**, replacing `build-essential curl unzip git
    ca-certificates fontconfig`: `dnf install -y gcc gcc-c++ make curl unzip
    git ca-certificates fontconfig`. Today the base part is skipped without a
@@ -206,8 +223,8 @@ this PC already has no `~/repos`.
 The `linux-packages` effect (`internal/machine/effects.go`, around line 183)
 says "apt" in its Description, Summary, What and Undo. It names both:
 packages come from apt on Ubuntu and from dnf on AlmaLinux. Undo names `apt`
-or `dnf remove`. How EPEL appears in the plan follows the answer to open
-question 1. The text is static (the effect is shared by both distributions),
+or `dnf remove`. EPEL is its own step (section 4.3) and is not mentioned
+here. The text is static (the effect is shared by both distributions),
 so it names both rather than reading the host. `docs/usage.md` and `docs/linux.md` say the same.
 
 ### 4.6 bash reads the system file on AlmaLinux
@@ -220,31 +237,62 @@ near the top, after the not-interactive return and before anything that sets
 Debian-only lines (`lesspipe`, `debian_chroot`) already test for their files
 and stay.
 
-### 4.7 One Windows side, two distributions
+### 4.7 One Windows side, any number of distributions
 
-Both distributions see the same `%USERPROFILE%`. Who may write what:
+Every Windows-side step already works from whichever distribution runs it:
+the scripts use `WSL_DISTRO_NAME`, and nothing names Ubuntu. A PC with only
+the AlmaLinux distribution needs no change. The problem is two or more
+Workbench distributions on one Windows user. Each keeps its choices in its
+own Linux home (`~/.config/workbench/machine.toml`), so each decides about
+the same Windows files without knowing about the others.
 
-| Effect | Shared result | Rule |
+Which steps that matters for:
+
+| Effect | Shared result | Needs one writer? |
 | --- | --- | --- |
-| `windows-files` | oh-my-posh, themes, fonts, `rg.exe` | Same bytes from either distribution; either may tick it. |
-| `wsl-preferences` | `%USERPROFILE%\.wslconfig` (one VM for all distributions) | On by default. Its sizing comes from each distribution's own answers, so both must answer the same, or the second skips it. |
-| `terminal-adoption` | Windows Terminal `settings.json`, with one WSL profile named after the distribution running the apply, and set as default | One distribution only. Ticking it on both makes each apply replace the other's file. |
-| `powershell-adoption` | The PowerShell profile, which starts in `\\wsl.localhost\<that distribution>\home\<user>\repos` | One distribution only. |
-| `default-distro` | Which distribution plain `wsl` opens | One distribution only. |
-| `windows-path`, `font-registry` | User PATH, font registry | Same result from either; one is enough. |
-| `sysctl` | `/etc/sysctl.d/99-dev.conf` in that distribution; the setting itself is the shared VM kernel's | Either or both; the value is the same. |
+| `windows-files` | oh-my-posh, themes, fonts, `rg.exe` | No: same bytes from any distribution. |
+| `font-registry`, `windows-path` | Font registry, user PATH | No: same result from any distribution. |
+| `sysctl` | `/etc/sysctl.d/99-dev.conf` inside that distribution | No: per distribution, same value. |
+| `wsl-preferences` | `%USERPROFILE%\.wslconfig`, one VM for all distributions | Yes: its sizing comes from each distribution's own answers. |
+| `terminal-adoption` | Windows Terminal `settings.json`: one WSL profile, named after the distribution that wrote it, set as default | Yes: each write replaces the file. |
+| `powershell-adoption` | The PowerShell profile, which starts in that distribution's home | Yes. |
+| `default-distro` | Which distribution plain `wsl` opens | Yes. |
 
-Every row except `wsl-preferences` is an optional step, off until ticked,
-each its own choice. `wsl-preferences` is the one Windows step that starts
-on; unticking it is saved like any other choice. So the rule needs no code:
-`docs/wsl.md` states it. The owner picks the distribution that owns the
-Windows side (section 6).
+**The record of who writes them lives on Windows.** Workbench keeps one small
+file in a Workbench folder in the Windows user's local app data
+(`%LOCALAPPDATA%`), next to the Windows files it writes, naming the
+distribution that writes each "yes" step. The rules, the same in every
+distribution and naming none:
 
-Windows Terminal's theme and font sit in the managed file's `profiles.defaults`,
-so every profile gets them, including the profile WSL generates for the
-distribution that does not own the file. What that distribution misses is
-the tab colour, the `~/repos` start folder (WSL's own profile starts in `~`)
-and being the default.
+1. **Nobody recorded, or the recorded distribution is no longer installed**
+   (checked against `wsl.exe --list --quiet`, which the deploy script already
+   asks): a distribution with the step ticked writes, and records itself.
+   A PC with one distribution always lands here.
+2. **This distribution is recorded**: it writes, as today.
+3. **Another installed distribution is recorded**: the step changes nothing
+   and its plan line says so, for example
+   `terminal-adoption: = written by AlmaLinux-10`, whatever this
+   distribution's saved choice. A saved tick never takes over, so two
+   distributions that both have the step ticked do not take the file back
+   and forth on every apply.
+4. **Moving it is a person's act**: `workbench apply --choose` in the
+   distribution that should write offers the step as, for example,
+   `terminal-adoption: take over from Ubuntu-26.04 and replace settings.json`.
+   Ticking it there is the consent; that apply moves the record. A coding
+   agent is already refused `--choose`, so an agent never moves it.
+
+So a step has one writer: the first distribution that ticked it, or the last
+one a person moved it to. The record holds only distribution names, never answers or
+secrets. Removing it is safe: rule 1 applies again. `revert` and the effects'
+Undo text name it. Workbench reads and writes it from Linux through the
+Windows paths it already resolves, with the same 60-second cap and blocked
+result as its other Windows calls.
+
+Windows Terminal's theme and font sit in the managed file's
+`profiles.defaults`, so every distribution's profile gets them, including
+those of distributions that do not write the file. What those miss is the
+tab colour, the start folder (WSL's own profile starts in `~`) and being the
+default.
 
 Both distributions on this PC are modern WSL distributions: each ships
 `/etc/wsl-distribution.conf` with a `[windowsterminal]` `ProfileTemplate`,
@@ -259,8 +307,10 @@ Workbench v0.1.27 is there with role `both` and choices copied from Ubuntu:
 `windows-files` and `wsl-preferences`; `select` holds only `windows-files`;
 `skip` holds `wsl-preferences`. So Terminal settings and the PowerShell
 profile are decided and off, the default distribution was never decided and
-is off until ticked, and WSL networking is skipped: the copied choices
-already follow section 4.7. After the owner switches the role to `work` and
+is off until ticked, and WSL networking is skipped. The Ubuntu
+distribution's own choices are the same, so neither distribution writes the
+Terminal settings or PowerShell profile today, and no writer is recorded yet
+(section 4.7, rule 1). After the owner switches the role to `work` and
 installs a release with this change, the first `apply` at a terminal asks,
 because `linux-packages` and `work-tools` are not in `decided` (the editor
 extension step is never planned on WSL, `internal/machine/effects_linux.go`). It plans
@@ -278,14 +328,14 @@ distribution, after the disposable checks in section 4.10.
 ### 4.9 Decision record and docs
 
 - A new ADR (next free number) records that AlmaLinux 10 joins the Linux
-  targets, why the major-version check, why EPEL is installed by the System
-  packages step, and the shared-Windows rule. It names the Ubuntu-only
+  targets, why the major-version check, why EPEL is its own step, and why
+  the writer of the shared Windows files is recorded on Windows. It names the Ubuntu-only
   decision in `docs/linux.md` as replaced.
 - `docs/linux.md`: targets, the dnf path, EPEL, the bash note.
 - `docs/superpowers/specs/workbench-contracts.md`: an AlmaLinux 10 row in the
   targets table and dnf/EPEL in the prerequisites paragraph.
-- `README.md` targets line, `docs/usage.md` step text, `docs/wsl.md` the
-  section 4.7 rule, `docs/acceptance.md` the checks actually run.
+- `README.md` targets line, `docs/usage.md` the `epel` step and the
+  take-over line, `docs/wsl.md` the section 4.7 rules, `docs/acceptance.md` the checks actually run.
 
 ### 4.10 Checks
 
@@ -304,59 +354,48 @@ distribution, after the disposable checks in section 4.10.
   acceptance notes say the WSL path on AlmaLinux was not run.
 - arm64 is implemented but recorded as unqualified, as for Ubuntu, unless an
   arm64 run is made.
+- The writer record (section 4.7) lives on the real Windows user, so its
+  four rules are checked only with a disposable Windows user, or by the
+  owner after release; otherwise the acceptance notes say they were not run
+  on a real host. The rules' plan lines can still be checked in a probe with
+  a record file placed by hand in a disposable folder.
 
 ## 5. Left to the builder
 
 - Whether the `/etc/os-release` read moves into `internal/platform`.
-- The helper's name and shape, and the exact plan wording.
+- The exact plan wording.
+- The record's file name and format, and whether one record file holds all
+  four steps or each step has its own.
 - How dnf waits on its lock (section 4.3).
 - Whether `zsh` is installed on AlmaLinux: the managed `.zshrc` deploys only
   on macOS, so it is not needed.
 
-## 6. Open questions for the owner
+## 6. Decisions and the one open question
 
-Each has options and a recommendation; the answers go here once given.
+Decided by the owner on Oct 21, 2026:
 
-1. **How EPEL is turned on.** (a) Its own named step, `epel`, planned only on
-   a dnf host where `epel-release` is missing, on by default like the System
-   packages step; unticked, the bat and fd parts fail saying EPEL is off.
-   (b) A part of System packages, named in its text. (c) Never installed:
-   the parts fail and print `sudo dnf install -y epel-release`. (d) No EPEL:
-   per-user downloads of bat and fd from GitHub into `~/.local/bin`, as gh is
-   today. Recommended: (a). It is the contract's rule for changes outside
-   the user's files, it shows in the plan as its own line, and it uses the
-   signed EPEL packages that `dnf update` keeps current. (d) changes no
-   repository, but bat's releases publish no checksum file to verify against
-   (its latest release lists only archives and `.deb` files), and Workbench
-   would have to track their updates itself.
-2. **Which distribution owns the Windows side** (Terminal settings,
-   PowerShell profile, default distribution). (a) Ubuntu keeps it and the
-   AlmaLinux distribution leaves those steps off, which its copied choices
-   already do. (b) The AlmaLinux distribution takes it over: Ubuntu unticks
-   them and AlmaLinux ticks them. Recommended: (a) now. Nothing on Windows
-   changes, both profiles keep the theme and font, and moving ownership later
-   is a matter of ticking and unticking. Choose (b) if the work distribution
-   is the one opened most, since only the owner gets the managed profile
-   (default, tab colour, start folder).
-3. **The Ubuntu distribution's role.** (a) `personal`. (b) Keep `both`.
-   Recommended: (a). Its `~/repos` is gone; `init --ask machine_role` drops
-   the answers the new role does not use, so the Jira and GitLab tokens leave
-   that distribution, and Codex there loses the work servers and the
-   `~/repos` trust. WSL distributions share the Windows user's files, so two
-   distributions are not a security boundary, but keeping the work tokens in
-   one place is still less exposure.
-4. **The fixed work settings**: the Jira and GitLab addresses and the
-   work-tools checkout paths under `~/repos` in
-   `home/.chezmoitemplates/codex-config.toml.tmpl`, and the `create-spec`
-   alias pointing at a dated file in that checkout. (a) Keep them
-   in the templates. (b) Move them to static data in `home/.chezmoidata/`,
-   same values, one place. (c) Make them machine answers. Recommended: (a)
-   for the addresses and paths: chezmoi keeps per-machine values in the
-   machine's config data and fixed values in templates or `.chezmoidata`,
-   and these are the same on every work machine, so a question would only
-   ever have one right answer. The `create-spec` alias is a separate call:
-   keep it, or move it to the unmanaged `~/.bash_aliases` the managed
-   `.bashrc` already sources.
+- **EPEL** is its own step, on by default (section 4.3). Researched options
+  were: its own step; a part of System packages; never installed, printing
+  the command; or per-user GitHub downloads of bat and fd, which bat's
+  releases cannot back with a checksum file.
+- **The Windows side** depends on no particular distribution: any one, or the
+  only one, may write it, and the record on Windows keeps two from fighting
+  (section 4.7).
+- **The Ubuntu distribution** becomes `personal`. `init --ask machine_role`
+  drops the answers the new role does not use, so the Jira and GitLab tokens
+  leave that distribution, and Codex there loses the work servers and the
+  `~/repos` trust.
+
+Open: **where the fixed work values are kept**: the Jira and GitLab
+addresses and the work-tools checkout paths under `~/repos` in
+`home/.chezmoitemplates/codex-config.toml.tmpl`. (a) In the template, as now.
+(b) In a static data file under `home/.chezmoidata/`, same values. (c) As
+machine answers asked by `init`. (a) and (b) produce the same file on every
+work machine and change only through a new release; (c) changes on one
+machine through `workbench init --ask KEY`, with no release. The
+`create-spec` alias pointing at a dated file in that checkout is a separate
+call: keep it, or move it to the unmanaged `~/.bash_aliases` the managed
+`.bashrc` already sources.
 
 ## 7. Calls made in this design
 
@@ -366,7 +405,8 @@ Each has options and a recommendation; the answers go here once given.
   follow-up.
 - Keep `gh` as the per-user download on every distribution.
 - Source `/etc/bashrc` from the managed `.bashrc` when present.
-- The shared-Windows rule is documentation, not code.
+- A saved tick never takes over a Windows step another installed
+  distribution writes; only `apply --choose` moves it.
 - Folders, and the Windows start folder, follow the role.
 
 ## 8. Follow-ups (not in this change)
