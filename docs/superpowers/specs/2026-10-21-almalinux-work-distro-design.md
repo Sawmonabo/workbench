@@ -440,15 +440,24 @@ What Workbench does:
    `home/.chezmoi.toml.tmpl` and `internal/machine/answers.go`
    (`answerKeys`, the `work` validation and `secrets()`), so no token is in
    `machine.toml`.
-6. **The token answers already saved** (proposed; owner to confirm, section
-   6): the first apply that creates `work.env` on a machine whose
-   `machine.toml` still holds them writes them into `work.env` as
-   `JIRA_API_TOKEN` and `GITLAB_TOKEN` and removes the two keys from
-   `machine.toml`, so the owner moves nothing by hand. Without this,
-   Workbench stops with "Machine answers have keys Workbench does not ask
-   for: gitlab_token, jira_api_token; remove them from the [data] table"
-   (`validateAnswers`), and the owner copies them across and deletes the
-   lines.
+6. **A numbered migration moves the saved tokens** (owner's decision):
+   `internal/migrate/0005_*` writes `jira_api_token` and `gitlab_token` from
+   `machine.toml` into `work.env` as `JIRA_API_TOKEN` and `GITLAB_TOKEN`,
+   then removes the two keys from `machine.toml`. Rules, in the package's
+   style: idempotent; when `work.env` already holds a different non-empty
+   value for a name, it is a conflict and both files stay as they are; the
+   files keep mode 0600; no value is printed or logged. It must run before
+   `validateAnswers` (`internal/machine/answers.go`), which today stops on
+   answer keys Workbench no longer asks for; the builder places it where the
+   answers are read, not only in the apply's migrations step.
+
+**`personal.env`, the same for personal.** A personal machine gets
+`~/.config/workbench/personal.env` with the same rules: created 0600 when
+missing, never written again, loaded by the managed shells, empty names
+reported in the plan, reading it denied to Claude Code. It starts with no
+names, since Workbench saves no personal credential today, so its migration
+has nothing to move. A `both` machine gets both files (open question,
+section 6).
 
 ### 4.12 Bitwarden is removed
 
@@ -459,6 +468,35 @@ test, its `packages.toml` mentions, `render-check.sh`'s Bitwarden check and
 the docs go. The `work-tools` effect keeps only the work VS Code extension.
 A `bw` already installed on a machine stays until the owner deletes it; the
 Undo text says so.
+
+### 4.13 The role and its folders are asked on every machine
+
+Every install, on any platform or distribution, asks the role as it does
+today (`personal`, `work` or `both`, in `home/.chezmoi.toml.tmpl`). New: it
+also asks the folder for each role it has, once, with a default:
+
+| Role | Question | Default |
+| --- | --- | --- |
+| `work`, `both` | Work folder | `~/repos` |
+| `personal`, `both` | Personal folder | `~/dev` |
+
+Saved as `work_folder` and `personal_folder` in `machine.toml`, validated in
+`internal/machine/answers.go` (a folder under the home folder, no control
+characters, no `..`). Every place that names `~/repos` or `~/dev` today reads
+the answer instead:
+
+- `dot_gitconfig.tmpl`: the `includeIf "gitdir:…"` lines; the comments in
+  `dot_gitconfig-work.tmpl` and `dot_gitconfig-personal.tmpl`.
+- `codex-config.toml.tmpl` (the trusted projects and the dispatch servers'
+  `args`), `modify_private_config.toml.tmpl` (`INACTIVE_TABLES`) and
+  `private_dot_codex/AGENTS.md.tmpl`.
+- The package script's folder creation (section 4.4).
+- The Windows Terminal and PowerShell start folder (section 4.4).
+- The `linux-packages` effect text in `internal/machine/effects.go`.
+- The question text in `home/.chezmoi.toml.tmpl` itself.
+
+A machine that already has saved answers is asked the new folder questions
+once, with the defaults, which are today's folders, so nothing moves.
 
 ## 5. Left to the builder
 
@@ -494,11 +532,15 @@ Decided by the owner on Oct 21, 2026:
   tokens at launch.
 - **Bitwarden** is removed (section 4.12).
 
+- **Saved tokens** move into `work.env` through a numbered migration, and
+  personal machines get a matching `personal.env` (section 4.11).
+- **The role and each role's folder** are asked on every machine, defaults
+  `~/repos` and `~/dev` (section 4.13).
+
 Open:
 
-1. Should the first apply move the saved token answers into `work.env` by
-   itself (section 4.11, item 6)? Recommended: yes, so no secret has to be
-   copied by hand.
+1. On a `both` machine, are `work.env` and `personal.env` both loaded into
+   every shell, or does each load only inside its own folder?
 2. The `create-spec` alias points at a dated file in the work-tools
    checkout: keep it in the managed `.bashrc`, or move it to the owner's
    unmanaged `~/.bash_aliases`. Recommended: move it.
