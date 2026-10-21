@@ -443,11 +443,12 @@ What Workbench does:
    No value is read into Workbench, shown, logged or put in `--json`.
 3. **Codex:** the dispatch entries in
    `home/.chezmoitemplates/codex-config.toml.tmpl` lose their literal `env`
-   tokens and URLs and gain `env_vars`. Their `args` keep the checkout path
-   under `~/repos`: Codex documents no `${VAR}` expansion in `args`.
+   tokens and URLs and gain `env_vars`. Their command is the launch gate
+   (section 4.14), whose arguments name the checkout under the work folder
+   answer: Codex documents no `${VAR}` expansion in `args`.
 4. **Claude Code:** Workbench registers the two dispatch servers at user
    scope with Claude Code's own command, `claude mcp add-json --scope user`,
-   with `${VAR}` references, replacing same-named hand-added entries. Claude
+   with the launch gate as the command (section 4.14) and `${VAR}` references, replacing same-named hand-added entries. Claude
    Code rewrites `~/.claude.json` constantly, so Workbench does not edit that
    file itself, as it already leaves agent updates to the agents' own
    installers (ADR 0009). On a personal machine it removes those two entries
