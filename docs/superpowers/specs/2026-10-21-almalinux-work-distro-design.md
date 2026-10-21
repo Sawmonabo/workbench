@@ -515,6 +515,64 @@ the answer instead:
 A machine that already has saved answers is asked the new folder questions
 once, with the defaults, which are today's folders, so nothing moves.
 
+### 4.14 Work MCP servers start only inside the work folder
+
+On a `both` machine (or any machine, if the role changes later), the dispatch
+servers must run only for agent sessions started inside the work folder,
+and never start, cost memory or add tools in the personal folder.
+
+**What exists today is only an instruction.** On `both` machines Codex's
+`AGENTS.md` gets a "Path-scoped tool policy" telling the model not to call
+the dispatch or CodeRabbit tools under the personal folder
+(`home/private_dot_codex/AGENTS.md.tmpl`). The servers still start in every
+session, and Claude Code gets no such text.
+
+**Neither agent can scope a server to a folder and everything below it:**
+
+- Codex reads project config (`.codex/config.toml`) only from folders between
+  the repository root (the nearest `.git`, `project_root_markers`) and the
+  working folder (`discover_project_layers` in
+  `codex-rs/config/src/loader/mod.rs`), so a file in the work folder itself is
+  never read from inside a repository there. Its `[projects."<path>"]` table
+  holds only `trust_level` (`ProjectConfig` in
+  `codex-rs/config/src/config_toml.rs`).
+- Claude Code reads shared project settings only from the session's working
+  folder ([settings](https://code.claude.com/docs/en/settings)); local-scope
+  MCP servers belong to one project path, and `.mcp.json` is per project
+  ([MCP scopes](https://code.claude.com/docs/en/mcp)).
+
+Per-repository entries (a `.codex/config.toml` or `.mcp.json` written into
+every work repository) would gate correctly but write into the owner's
+repositories and miss every repository cloned after an apply, so they are
+rejected.
+
+**The design: Workbench gates the launch itself.** Both agents register each
+dispatch server with Workbench as its command:
+
+```
+workbench mcp-gate work -- node <work folder>/<checkout>/dispatch-gitlab/dist/index.js
+```
+
+- **Inside the work folder** (the agent's working folder is the work folder
+  or below it), the gate replaces itself with the server (`exec`), so no
+  extra process stays and the server runs exactly as today.
+- **Anywhere else**, the server is never started. The gate answers the MCP
+  handshake with no tools and exits when the agent closes it, so the agent
+  shows no error, gets no tools (no context cost) and holds no server
+  memory. The builder confirms in both agents that a server with no tools
+  stays quiet; if one of them reports it as failed, the gate exits at once
+  instead and the plan text says the server shows as unavailable outside
+  the work folder.
+- A `work`-only machine uses the same gate, so changing its role to `both`
+  later needs nothing new. A `personal`-only machine registers no dispatch
+  servers (section 4.11).
+- The gate is a hidden subcommand in `internal/cli/`, like
+  `workbench vscode-settings`; folder answers come from `machine.toml`
+  (section 4.13).
+
+The "Path-scoped tool policy" text stays for what the gate cannot cover:
+the CodeRabbit plugin in Codex, which is not a server Workbench launches.
+
 ## 5. Left to the builder
 
 - Whether the `/etc/os-release` read moves into `internal/platform`.
@@ -552,6 +610,8 @@ Decided by the owner on Oct 21, 2026:
 - **The role and each role's folder** are asked on every machine, defaults
   `~/repos` and `~/dev` (section 4.13).
 - **Each env file loads only inside its own folder** (section 4.11).
+- **Work MCP servers start only inside the work folder**, gated by
+  Workbench at launch for both agents (section 4.14).
 - **The `create-spec` alias**, which pointed at a session scratch file, was
   removed on its own (commit `0016ebb`).
 
@@ -575,10 +635,5 @@ Decided by the owner on Oct 21, 2026:
   ([Microsoft Learn](https://learn.microsoft.com/en-us/windows/terminal/json-fragment-extensions)).
   Whether a fragment in Workbench's own folder can update the profile WSL
   wrote in `Fragments\Microsoft.WSL` is not documented; a spike settles it.
-- On a `both` machine the dispatch servers are registered for every folder
-  (Claude Code user scope, Codex's global config), so an agent started in
-  the personal folder still starts them, without credentials. Neither agent
-  has a scope for "this folder and below"; a project-level entry per work
-  repository is the alternative.
 - Install names for both apt and dnf in `home/.chezmoidata/packages.toml`,
   the owner `AGENTS.md` names, in place of the inline names.
