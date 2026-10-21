@@ -399,9 +399,26 @@ GITLAB_URL=
 GITLAB_TOKEN=
 ```
 
-The managed `.bashrc` (and `.zshrc` on macOS) loads it on a work machine
-(`set -a; . file; set +a`, guarded by the file existing), so every process
-started from the shell has the values. Every consumer reads them by name:
+**Loaded by folder, not everywhere** (owner's decision). The managed
+`.bashrc` (and `.zshrc` on macOS) loads `work.env` only while the shell's
+current folder is the work folder or below it (section 4.13), and
+`personal.env` only inside the personal folder, the way git already switches
+identity per folder with `includeIf`. Leaving the folder unsets exactly the
+names that file set. So work credentials never reach a shell, agent or
+command started in the personal folder or elsewhere, and both files may use
+the same name (a `GITLAB_TOKEN` for work and another for personal) without
+colliding. An agent takes the environment of the folder it was started in:
+`claude` or `codex` started in the work folder has the work values for its
+whole session.
+
+The mechanism is a small hook in the managed shells (bash `PROMPT_COMMAND`,
+zsh `chpwd`) that compares the current folder with the two folders and loads
+or unloads the matching file. Considered: direnv, which does this generally
+with an `.envrc` per folder and a `direnv allow` approval per file
+([direnv guide](https://www.deployhq.com/guides/direnv)); for exactly two
+fixed folders the hook needs no new tool and no files in the owner's folders.
+
+Every consumer reads the values by name:
 
 | Consumer | Claude Code | Codex |
 | --- | --- | --- |
@@ -454,10 +471,10 @@ What Workbench does:
 **`personal.env`, the same for personal.** A personal machine gets
 `~/.config/workbench/personal.env` with the same rules: created 0600 when
 missing, never written again, loaded by the managed shells, empty names
-reported in the plan, reading it denied to Claude Code. It starts with no
-names, since Workbench saves no personal credential today, so its migration
-has nothing to move. A `both` machine gets both files (open question,
-section 6).
+reported in the plan, reading it denied to Claude Code, loaded only inside
+the personal folder. It starts with no names, since Workbench saves no
+personal credential today, so its migration has nothing to move. A `both`
+machine gets both files, each loaded only inside its own folder.
 
 ### 4.12 Bitwarden is removed
 
@@ -508,7 +525,7 @@ once, with the defaults, which are today's folders, so nothing moves.
 - Whether `zsh` is installed on AlmaLinux: the managed `.zshrc` deploys only
   on macOS, so it is not needed.
 
-## 6. Decisions and the one open question
+## 6. Decisions
 
 Decided by the owner on Oct 21, 2026:
 
@@ -523,7 +540,6 @@ Decided by the owner on Oct 21, 2026:
   drops the answers the new role does not use, so the Jira and GitLab tokens
   leave that distribution, and Codex there loses the work servers and the
   `~/repos` trust.
-
 - **Work credentials and addresses** live in one `work.env`, read by name by
   Claude Code, Codex and the owner's tools (section 4.11). Researched and
   rejected: new vendor-hosted MCP servers (the owner uses the tokens for their
@@ -531,19 +547,13 @@ Decided by the owner on Oct 21, 2026:
   per agent process costs memory and context), and shell wrappers that fetch
   tokens at launch.
 - **Bitwarden** is removed (section 4.12).
-
 - **Saved tokens** move into `work.env` through a numbered migration, and
   personal machines get a matching `personal.env` (section 4.11).
 - **The role and each role's folder** are asked on every machine, defaults
   `~/repos` and `~/dev` (section 4.13).
-
-Open:
-
-1. On a `both` machine, are `work.env` and `personal.env` both loaded into
-   every shell, or does each load only inside its own folder?
-2. The `create-spec` alias points at a dated file in the work-tools
-   checkout: keep it in the managed `.bashrc`, or move it to the owner's
-   unmanaged `~/.bash_aliases`. Recommended: move it.
+- **Each env file loads only inside its own folder** (section 4.11).
+- **The `create-spec` alias**, which pointed at a session scratch file, was
+  removed on its own (commit `0016ebb`).
 
 ## 7. Calls made in this design
 
@@ -565,5 +575,10 @@ Open:
   ([Microsoft Learn](https://learn.microsoft.com/en-us/windows/terminal/json-fragment-extensions)).
   Whether a fragment in Workbench's own folder can update the profile WSL
   wrote in `Fragments\Microsoft.WSL` is not documented; a spike settles it.
+- On a `both` machine the dispatch servers are registered for every folder
+  (Claude Code user scope, Codex's global config), so an agent started in
+  the personal folder still starts them, without credentials. Neither agent
+  has a scope for "this folder and below"; a project-level entry per work
+  repository is the alternative.
 - Install names for both apt and dnf in `home/.chezmoidata/packages.toml`,
   the owner `AGENTS.md` names, in place of the inline names.
