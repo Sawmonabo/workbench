@@ -6,7 +6,9 @@ personal work and an AlmaLinux 10 one for work. Each keeps its own machine
 answers. The work setup itself needs no new mechanism: the existing
 `machine_role` answer already separates it. What stops it today is that
 Workbench refuses every distribution but Ubuntu, and its package step only
-knows apt.
+knows apt. It also gives the work credentials one home, `work.env`, that
+Claude Code, Codex and the owner's own command-line tools all read by name,
+in place of the token copies Workbench writes today, and removes Bitwarden.
 
 ## 1. Why
 
@@ -77,7 +79,8 @@ Goals:
   arm64, natively and on WSL, with the same steps, questions and consent as
   Ubuntu.
 - The work distribution is just a machine whose role is `work`. No new
-  question, file or mode separates work from personal.
+  question or mode separates work from personal; the one new file,
+  `work.env`, exists only on work machines.
 - Work lives in `~/repos` and personal in `~/dev`, as now.
 - Any number of Workbench distributions on one Windows user, or just one,
   without any of them undoing another's Windows-side changes, and without
@@ -89,8 +92,11 @@ Non-goals:
   Only `ID=almalinux` is accepted.
 - A Windows Terminal settings file with a styled profile for more than one
   distribution (follow-up, section 8).
-- Changing where the work web addresses and tool folders are kept, until
-  the owner decides (section 6).
+- New MCP servers. The owner's own dispatch servers stay; only how they
+  get their credentials changes (section 4.11).
+- An OS keyring. The AlmaLinux distribution has no `secret-tool` or
+  `gnome-keyring-daemon`; a private env file referenced by name is what both
+  agents document.
 - Changing the Ubuntu targets or the Ubuntu package path.
 
 Anti-goals (a change that does these is wrong even if it works):
@@ -110,7 +116,7 @@ Anti-goals (a change that does these is wrong even if it works):
 Nothing new. The saved answers live per machine in `machine.toml`, never in
 the repository, and each WSL distribution has its own. The owner sets the
 AlmaLinux distribution to `work` with `workbench init --ask machine_role`
-(which asks the tokens `work` needs) and then runs `apply`. The owner will
+and then runs `apply`. The owner will
 change the Ubuntu distribution to `personal` the same way; nothing in this
 design depends on Ubuntu being there, and a PC with only the AlmaLinux
 distribution works the same.
@@ -122,8 +128,8 @@ through a pre-release or the next release.
 
 With role `work`: `~/.gitconfig` uses the single `email` answer and has no
 per-folder override; Codex gets the work MCP servers and trusts `~/repos`;
-`~/dev` trust is removed; the shells get the work block and the `bw` wrapper;
-the work tools step installs the Bitwarden CLI.
+`~/dev` trust is removed; the shells get the work block and load `work.env`
+(section 4.11); the work tools step installs the work VS Code extension.
 
 ### 4.2 The platform check accepts AlmaLinux 10
 
@@ -177,7 +183,7 @@ On dnf, as root through `sudo`, like the apt lines:
    3.3a; the managed `tmux.conf` uses TPM and the Dracula theme and sets no
    option newer than 3.3. The builder confirms the theme loads in the
    disposable check.
-5. **gh, oh-my-posh, the Nerd Font, the Bitwarden CLI**: unchanged. They are
+5. **gh, oh-my-posh, the Nerd Font**: unchanged. They are
    per-user downloads into `~/.local/bin` or `~/.local/share/fonts`.
    EPEL's `gh` is current, but the per-user copy keeps one install shape and
    one probe on every distribution.
@@ -328,8 +334,9 @@ distribution, after the disposable checks in section 4.10.
 ### 4.9 Decision record and docs
 
 - A new ADR (next free number) records that AlmaLinux 10 joins the Linux
-  targets, why the major-version check, why EPEL is its own step, and why
-  the writer of the shared Windows files is recorded on Windows. It names the Ubuntu-only
+  targets, why the major-version check, why EPEL is its own step, why
+  the writer of the shared Windows files is recorded on Windows, why work
+  credentials live in one `work.env` read by name, and why Bitwarden goes. It names the Ubuntu-only
   decision in `docs/linux.md` as replaced.
 - `docs/linux.md`: targets, the dnf path, EPEL, the bash note.
 - `docs/superpowers/specs/workbench-contracts.md`: an AlmaLinux 10 row in the
@@ -352,6 +359,13 @@ distribution, after the disposable checks in section 4.10.
 - For the WSL path, a second AlmaLinux 10 distribution imported under another
   name with a disposable home, never the live one. If that is not done, the
   acceptance notes say the WSL path on AlmaLinux was not run.
+- In the disposable container with role `work`: `work.env` is created 0600
+  with empty names and the plan lists them as empty; with values filled in, a
+  new login shell has them, `codex` sees them through `env_vars` (a stub
+  stdio server that prints its environment's names), and Claude Code's
+  `claude mcp get` shows the `${VAR}` references; no value appears in the
+  plan, `--json` or Workbench's logs. Switching the role to `personal` removes
+  both agents' dispatch entries and loads no `work.env`.
 - arm64 is implemented but recorded as unqualified, as for Ubuntu, unless an
   arm64 run is made.
 - The writer record (section 4.7) lives on the real Windows user, so its
@@ -359,6 +373,92 @@ distribution, after the disposable checks in section 4.10.
   owner after release; otherwise the acceptance notes say they were not run
   on a real host. The rules' plan lines can still be checked in a probe with
   a record file placed by hand in a disposable folder.
+
+### 4.11 Work credentials live in one file, `work.env`
+
+**Today** the Jira token alone has copies in Workbench's `machine.toml`, in
+the dispatch servers' `env` in `~/.codex/config.toml` (Workbench writes
+both), in the dispatch servers' `env` in `~/.claude.json` (added by hand),
+and in the owner's atlassian-cli `~/.config/atlassian-cli/.env`; the GitLab
+token is in the first three. Each consumer keeps its own copy.
+
+**The design:** one file per work machine,
+`~/.config/workbench/work.env`, mode 0600, holds the work credentials and
+addresses as environment variables, under the names the owner's tools
+already use:
+
+```bash
+JIRA_BASE_URL=
+JIRA_EMAIL=
+JIRA_API_TOKEN=
+CONFLUENCE_BASE_URL=
+CONFLUENCE_EMAIL=
+CONFLUENCE_API_TOKEN=
+TEMPO_API_TOKEN=
+GITLAB_URL=
+GITLAB_TOKEN=
+```
+
+The managed `.bashrc` (and `.zshrc` on macOS) loads it on a work machine
+(`set -a; . file; set +a`, guarded by the file existing), so every process
+started from the shell has the values. Every consumer reads them by name:
+
+| Consumer | Claude Code | Codex |
+| --- | --- | --- |
+| The dispatch MCP servers | Each entry's `env` maps `"JIRA_API_TOKEN": "${JIRA_API_TOKEN}"` and so on. Claude Code documents `${VAR}` expansion in a server's `command`, `args` and `env` ([MCP docs](https://code.claude.com/docs/en/mcp)). | Each entry lists `env_vars = ["JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN"]` (GitLab: `GITLAB_URL`, `GITLAB_TOKEN`). Required: Codex starts a local MCP server with only a core environment plus the names `env_vars` forwards (`codex-rs/rmcp-client/src/stdio_server_launcher.rs`). |
+| Commands the agent runs (atlassian-cli to write tickets, glab, curl) | The Bash tool inherits the environment. | Commands inherit it too: the filter on names containing KEY, SECRET or TOKEN is off unless configured (`ignore_default_excludes` defaults to true, `codex-rs/config/src/shell_environment_policy.rs`). |
+| Reading `work.env` itself | Denied: `Read(~/.config/workbench/work.env)` joins the enforced deny list beside `Read(./.env)`, so the tokens do not land in a transcript. | No equivalent: Codex runs with full access and no sandbox by the owner's earlier decision; its instructions say to use the variables, never to open the file. |
+
+atlassian-cli needs no change: it loads settings with pydantic-settings,
+where "environment variables will always take priority over values loaded
+from a dotenv file" ([pydantic-settings](https://pydantic.dev/docs/validation/latest/concepts/pydantic_settings/)).
+Its own `~/.config/atlassian-cli/.env` becomes a redundant copy the owner may
+delete.
+
+What Workbench does:
+
+1. **Creates `work.env` when it is missing** on a work machine (0600, the
+   names above with empty values) and never writes it again; after that the
+   file is the owner's. On a personal machine it creates nothing and the
+   shells load nothing.
+2. **Reports empty names in the plan**, for example
+   `work.env: JIRA_API_TOKEN is empty`, by reading names and emptiness only.
+   No value is read into Workbench, shown, logged or put in `--json`.
+3. **Codex:** the dispatch entries in
+   `home/.chezmoitemplates/codex-config.toml.tmpl` lose their literal `env`
+   tokens and URLs and gain `env_vars`. Their `args` keep the checkout path
+   under `~/repos`: Codex documents no `${VAR}` expansion in `args`.
+4. **Claude Code:** Workbench registers the two dispatch servers at user
+   scope with Claude Code's own command, `claude mcp add-json --scope user`,
+   with `${VAR}` references, replacing same-named hand-added entries. Claude
+   Code rewrites `~/.claude.json` constantly, so Workbench does not edit that
+   file itself, as it already leaves agent updates to the agents' own
+   installers (ADR 0009). On a personal machine it removes those two entries
+   with `claude mcp remove --scope user`, so a role change takes them away,
+   as the Codex template already does with `INACTIVE_TABLES`.
+5. **Drops the `jira_api_token` and `gitlab_token` questions** from
+   `home/.chezmoi.toml.tmpl` and `internal/machine/answers.go`
+   (`answerKeys`, the `work` validation and `secrets()`), so no token is in
+   `machine.toml`.
+6. **The token answers already saved** (proposed; owner to confirm, section
+   6): the first apply that creates `work.env` on a machine whose
+   `machine.toml` still holds them writes them into `work.env` as
+   `JIRA_API_TOKEN` and `GITLAB_TOKEN` and removes the two keys from
+   `machine.toml`, so the owner moves nothing by hand. Without this,
+   Workbench stops with "Machine answers have keys Workbench does not ask
+   for: gitlab_token, jira_api_token; remove them from the [data] table"
+   (`validateAnswers`), and the owner copies them across and deletes the
+   lines.
+
+### 4.12 Bitwarden is removed
+
+The Bitwarden CLI install (the `work-tools` part of both platforms' package
+scripts), the `bw` wrapper (`home/.chezmoitemplates/bw-wrapper.sh`, included
+by `.bashrc` and `.zshrc`), the `bitwarden-session-cache` effect and its
+test, its `packages.toml` mentions, `render-check.sh`'s Bitwarden check and
+the docs go. The `work-tools` effect keeps only the work VS Code extension.
+A `bw` already installed on a machine stays until the owner deletes it; the
+Undo text says so.
 
 ## 5. Left to the builder
 
@@ -386,16 +486,22 @@ Decided by the owner on Oct 21, 2026:
   leave that distribution, and Codex there loses the work servers and the
   `~/repos` trust.
 
-Open: **where the fixed work values are kept**: the Jira and GitLab
-addresses and the work-tools checkout paths under `~/repos` in
-`home/.chezmoitemplates/codex-config.toml.tmpl`. (a) In the template, as now.
-(b) In a static data file under `home/.chezmoidata/`, same values. (c) As
-machine answers asked by `init`. (a) and (b) produce the same file on every
-work machine and change only through a new release; (c) changes on one
-machine through `workbench init --ask KEY`, with no release. The
-`create-spec` alias pointing at a dated file in that checkout is a separate
-call: keep it, or move it to the unmanaged `~/.bash_aliases` the managed
-`.bashrc` already sources.
+- **Work credentials and addresses** live in one `work.env`, read by name by
+  Claude Code, Codex and the owner's tools (section 4.11). Researched and
+  rejected: new vendor-hosted MCP servers (the owner uses the tokens for their
+  own dispatch servers and for direct ticket work, and an extra MCP server
+  per agent process costs memory and context), and shell wrappers that fetch
+  tokens at launch.
+- **Bitwarden** is removed (section 4.12).
+
+Open:
+
+1. Should the first apply move the saved token answers into `work.env` by
+   itself (section 4.11, item 6)? Recommended: yes, so no secret has to be
+   copied by hand.
+2. The `create-spec` alias points at a dated file in the work-tools
+   checkout: keep it in the managed `.bashrc`, or move it to the owner's
+   unmanaged `~/.bash_aliases`. Recommended: move it.
 
 ## 7. Calls made in this design
 
