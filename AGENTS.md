@@ -30,8 +30,8 @@ Distinguish implemented code, observed checks and unqualified release targets.
   because usage left unread could be lost (ADR 0008). A third exception: a
   saved `restart_wsl_path` answer (the folder of the RestartWSL helpers
   Workbench no longer writes) is left out whenever the answers are read, so
-  it never blocks a run, and dropped the next time Workbench saves the answers
-  (migration 0005's own rewrite keeps it); `init --answers-from` still
+  it never blocks a run, and dropped the next time Workbench saves a change to
+  the answers or choices (migration 0005's own rewrite keeps it); `init --answers-from` still
   refuses it in its file.
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.

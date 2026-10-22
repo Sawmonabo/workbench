@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"time"
@@ -159,7 +160,9 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 // answersFile encodes answers for the machine.toml at config beside any saved
 // selection, keeping the retired answers saved there and not the dropped
 // ones, and reports whether the file already holds the same; saved answers it
-// can't read are refused, never replaced.
+// can't read are refused, never replaced. A dropped answer alone is no change,
+// so it goes with the next real one and setup never rewrites the file between
+// an approved plan and its apply.
 func answersFile(config string, answers Answers) (encoded []byte, unchanged bool, err error) {
 	previous, err := ReadSelection(config)
 	if err != nil {
@@ -176,7 +179,11 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 		return nil, false, err
 	}
 	if saved != nil {
-		if current, encodeErr := encodeMachineConfig(saved, previous); encodeErr == nil &&
+		kept := maps.Clone(saved)
+		for _, key := range droppedAnswers {
+			delete(kept, key)
+		}
+		if current, encodeErr := encodeMachineConfig(kept, previous); encodeErr == nil &&
 			bytes.Equal(current, encoded) {
 			return encoded, true, nil
 		}

@@ -41,15 +41,16 @@ var (
 // ParseEnvFile reads an env file's NAME=value lines with a value, in file
 // order: the names to set. Blank lines, # comments and a NAME= line with an
 // empty value are skipped, so a name the owner has not filled in never hides
-// a tool's own setting. bad holds the number, from 1, of every other line
-// that is not NAME=value with a valid name that is not reserved, and a value
-// that is unquoted, has no space or tab at either end and no carriage return
-// at its end: the file is never sourced, so `export NAME=value`, a quoted or
-// padded value or a Windows line ending would load wrong, and a reserved name
-// would break the shell or the hook. A value is everything after the first =,
-// as written. The shell hooks in home/private_dot_bashrc.tmpl and
-// home/dot_zshrc.tmpl read the same way.
-func ParseEnvFile(data []byte) (pairs [][2]string, bad []int) {
+// a tool's own setting. bad holds every other line, by number from 1 and why
+// it is skipped: one that is not NAME=value with a valid name that is not
+// reserved, and a value that is unquoted, has no space or tab at either end
+// and no carriage return at its end. The file is never sourced, so `export
+// NAME=value`, a quoted or padded value or a Windows line ending would load
+// wrong, and a reserved name would break the shell or the hook. A value is
+// everything after the first =, as written, and never part of a reason. The
+// shell hooks in home/private_dot_bashrc.tmpl and home/dot_zshrc.tmpl read the
+// same way.
+func ParseEnvFile(data []byte) (pairs [][2]string, bad []BadEnvLine) {
 	number := 0
 	for line := range strings.Lines(string(data)) {
 		number++
@@ -58,10 +59,8 @@ func ParseEnvFile(data []byte) (pairs [][2]string, bad []int) {
 			continue
 		}
 		name, value, ok := strings.Cut(line, "=")
-		if !ok || !envName.MatchString(name) || envReserved.MatchString(name) ||
-			strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'") ||
-			strings.HasSuffix(value, "\r") || strings.Trim(value, " \t") != value {
-			bad = append(bad, number)
+		if reason := badEnvReason(name, value, ok); reason != "" {
+			bad = append(bad, BadEnvLine{number, reason})
 			continue
 		}
 		if value != "" {
@@ -69,6 +68,31 @@ func ParseEnvFile(data []byte) (pairs [][2]string, bad []int) {
 		}
 	}
 	return pairs, bad
+}
+
+// BadEnvLine is an env file line ParseEnvFile skips: its number, from 1, and
+// why, in words that never hold its value.
+type BadEnvLine struct {
+	Number int
+	Reason string
+}
+
+// badEnvReason is why a NAME=value line split at its first = (ok false when
+// it has none) is skipped, or "" when it loads.
+func badEnvReason(name, value string, ok bool) string {
+	switch {
+	case !ok || !envName.MatchString(name):
+		return "is not NAME=value"
+	case envReserved.MatchString(name):
+		return "sets " + name + ", which the shell hook needs"
+	case strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'"):
+		return "has a quoted value; write it without quotes"
+	case strings.HasSuffix(value, "\r"):
+		return "ends in a Windows line ending"
+	case strings.Trim(value, " \t") != value:
+		return "has a space or tab at the start or end of its value"
+	}
+	return ""
 }
 
 // EnvFilesProbe is the env-files step's probe lines. The step only creates a
@@ -125,10 +149,10 @@ func envFileLines(path, file string, names []string) []string {
 		line += ", empty: " + strings.Join(empty, ", ")
 	}
 	lines := []string{line}
-	for _, number := range bad {
+	for _, line := range bad {
 		lines = append(
 			lines,
-			fmt.Sprintf("= %s line %d is not NAME=value and is skipped", file, number),
+			fmt.Sprintf("= %s line %d %s and is skipped", file, line.Number, line.Reason),
 		)
 	}
 	return lines

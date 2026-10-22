@@ -45,10 +45,10 @@ func mcpGateCommand(o *options) *cobra.Command {
 			), "mcp-gate: ")
 		}
 		pairs, bad := machine.ParseEnvFile(data)
-		for _, number := range bad {
+		for _, line := range bad {
 			_, _ = fmt.Fprintf(
 				cmd.ErrOrStderr(),
-				"mcp-gate: %s line %d is not NAME=value and is skipped\n", envFile, number,
+				"mcp-gate: %s line %d %s and is skipped\n", envFile, line.Number, line.Reason,
 			)
 		}
 		environment := os.Environ()
