@@ -31,15 +31,16 @@ job_max_runtime_seconds = 3600
 
 # Full access on every machine (user decision 2026-09-06): no sandbox, no approval prompts.
 # Trust is granted per root, not per repository:
-# everything under ~/dev is personal, everything under ~/repos is work.
+# everything under the personal folder is personal, everything under the work
+# folder is work.
 {{- if .has_personal }}
 
-[projects.{{ printf "%s/dev" .chezmoi.homeDir | toJson }}]
+[projects.{{ joinPath .chezmoi.homeDir (trimPrefix "~/" .personal_folder) | toJson }}]
 trust_level = "trusted"
 {{- end }}
 {{- if .has_work }}
 
-[projects.{{ printf "%s/repos" .chezmoi.homeDir | toJson }}]
+[projects.{{ joinPath .chezmoi.homeDir (trimPrefix "~/" .work_folder) | toJson }}]
 trust_level = "trusted"
 {{- end }}
 

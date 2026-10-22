@@ -226,6 +226,7 @@ type ReportOptions struct {
 	By           string    // project (default), model, account or month
 	Since, Until time.Time // the response's time is at or after Since and before Until; zero for no bound
 	All          bool      // include projects outside the project folders (Statement.Scope)
+	Roots        []string  // the role folders, absolute; empty for the default project folders (see projectRoots)
 	Top          int       // show only the first N rows; totals still cover all
 	Sort         string    // cost (default), name or calls
 	Detail       bool      // project view: a model table per project
@@ -293,7 +294,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	if err != nil {
 		return report, err
 	}
-	report.Scope, report.Hidden = ScopeRoots(paths.Home), hidden
+	report.Scope, report.Hidden = ScopeRoots(paths.Home, opts.Roots), hidden
 	if report.Coverage, err = tally.coverage(ledger, card.Fetched[opts.Tool]); err != nil {
 		return report, err
 	}
@@ -352,10 +353,10 @@ func span(groups []group) (first, last string) {
 }
 
 // rollup folds a session's working directory into its repository: the first
-// directory below a scope root, else the path before `/.worktrees/`.
-func rollup(project, home string) string {
+// directory below a project root, else the path before `/.worktrees/`.
+func rollup(project string, roots []string) string {
 	clean := filepath.Clean(project)
-	for _, root := range projectRoots(home) {
+	for _, root := range roots {
 		if rel, ok := strings.CutPrefix(clean, root+string(filepath.Separator)); ok {
 			first, _, _ := strings.Cut(rel, string(filepath.Separator))
 			return filepath.Join(root, first)
@@ -365,25 +366,30 @@ func rollup(project, home string) string {
 	return before
 }
 
-// projectRoots are the project folders: ~/dev for personal projects and
-// ~/repos for work ones, the folders the machine roles use.
-func projectRoots(home string) []string {
+// projectRoots are the project folders: the role folders, else, when the
+// machine has none saved, ~/dev for personal projects and ~/repos for work
+// ones. This is the one default list.
+func projectRoots(home string, roots []string) []string {
+	if len(roots) > 0 {
+		return roots
+	}
 	return []string{filepath.Join(home, "dev"), filepath.Join(home, "repos")}
 }
 
 // ScopeRoots are the project folders that exist on this machine, which the
-// default view covers and the report names; both when neither exists.
-func ScopeRoots(home string) []string {
-	var roots []string
-	for _, root := range projectRoots(home) {
+// default view covers and the report names; all of them when none exists.
+func ScopeRoots(home string, roots []string) []string {
+	all := projectRoots(home, roots)
+	var existing []string
+	for _, root := range all {
 		if info, err := os.Stat(root); err == nil && info.IsDir() {
-			roots = append(roots, root)
+			existing = append(existing, root)
 		}
 	}
-	if len(roots) == 0 {
-		return projectRoots(home)
+	if len(existing) == 0 {
+		return all
 	}
-	return roots
+	return existing
 }
 
 func inScope(project string, roots []string) bool {
@@ -453,10 +459,11 @@ func loadGroups(
 		) < 0
 	})
 	var groups []group
-	hidden, roots := map[string]bool{}, ScopeRoots(home)
+	hidden, roots := map[string]bool{}, ScopeRoots(home, opts.Roots)
+	projects := projectRoots(home, opts.Roots)
 	for _, g := range sorted {
 		if !opts.NoRollup {
-			g.project = rollup(g.project, home)
+			g.project = rollup(g.project, projects)
 		}
 		if !opts.All && !inScope(g.project, roots) {
 			hidden[g.project] = true

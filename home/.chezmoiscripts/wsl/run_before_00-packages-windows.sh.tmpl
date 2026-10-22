@@ -108,13 +108,16 @@ OMP_WIN_THEME="$OMP_WIN_THEMES/catppuccin_mocha.omp.json"
 WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
 WT_PACKAGE_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe"
 WT_SETTINGS_DIR="$WT_PACKAGE_DIR/LocalState"
+{{- /* The folder Windows Terminal and PowerShell open in: the work folder, else the personal one. */ -}}
+{{- $start := get . "personal_folder" }}
+{{- if .has_work }}{{ $start = .work_folder }}{{ end }}
 
 # The PowerShell profile Workbench manages, as text.
 ps_profile_text() {
 cat << 'PSPROFILE'
-# Start in the WSL repos directory when it is reachable (WSL may not be running yet)
-$wslRepos = '{{ printf "\\\\wsl.localhost\\%s\\home\\%s\\repos" (env "WSL_DISTRO_NAME") .chezmoi.username | replace "'" "''" }}'
-if (Test-Path -LiteralPath $wslRepos) { Set-Location -LiteralPath $wslRepos }
+# Start in the WSL start folder when it is reachable (WSL may not be running yet)
+$wslStart = '{{ printf "\\\\wsl.localhost\\%s\\home\\%s\\%s" (env "WSL_DISTRO_NAME") .chezmoi.username (trimPrefix "~/" $start | replace "/" "\\") | replace "'" "''" }}'
+if (Test-Path -LiteralPath $wslStart) { Set-Location -LiteralPath $wslStart }
 
 # Oh My Posh prompt
 & "$env:LOCALAPPDATA\Programs\oh-my-posh\bin\oh-my-posh.exe" init pwsh --config "$env:LOCALAPPDATA\Programs\oh-my-posh\themes\catppuccin_mocha.omp.json" | Invoke-Expression
@@ -137,7 +140,7 @@ terminal_settings_render() {
 import glob, json, os, re, sys
 wt, distro, *frag_dirs = sys.argv[1:]
 import subprocess
-cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", "~/repos"])
+cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", {{ $start | toJson }}])
 def load(path):
     try:
         with open(path, encoding='utf-8-sig') as fh:
@@ -164,7 +167,7 @@ for fn in ('settings.json', 'settings.json.before-dotfiles'):
         if p.get('source') and p.get('guid') and (p.get('name') == distro or (p['guid'] in generated and mentions(p))):
             d = {"guid": p["guid"], "source": p["source"]}
             if p.get('commandline'): d["commandline"] = cmdline
-            else: d["startingDirectory"] = "~/repos"
+            else: d["startingDirectory"] = {{ $start | toJson }}
             emit(d, "bound to generated profile in " + fn)
 # 3. nothing to bind to: standalone profile
 emit({"guid": "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}", "commandline": cmdline,

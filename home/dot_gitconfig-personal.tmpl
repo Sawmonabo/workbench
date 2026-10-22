@@ -1,6 +1,6 @@
 {{ if eq .machine_role "both" -}}
 # Personal git overrides
-# Applied automatically for repos under ~/dev/ via includeIf
+# Applied automatically for repos under {{ .personal_folder }}/ via includeIf
 [user]
     email = {{ includeTemplate "git-quote" .personal_email }}
 {{ end -}}

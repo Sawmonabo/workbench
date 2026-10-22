@@ -43,7 +43,8 @@ NO_MATCHER_EVENTS = {"UserPromptSubmit", "Stop", "Interrupt"}
 
 # Tables the managed body writes only for some machine roles. When this
 # machine's role leaves one out, it is removed rather than kept as Codex-owned,
-# so a role change takes work credentials and trust roots with it.
+# so a role change takes work credentials and trust roots with it. A role the
+# machine lacks has no saved folder, so its trust root is the default folder.
 INACTIVE_TABLES = [
 {{- if not .has_work }}
     ("mcp_servers", "dispatch-atlassian"),

@@ -95,9 +95,13 @@ if [ "$base_missing" -eq 1 ]; then
     part linux-packages "the C toolchain, curl, unzip, git and fontconfig were not installed" install_base
 fi
 
-# --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
-mkdir -p "$HOME/repos" "$HOME/dev"
-
+# --- role folders (Windows Terminal's WSL profile opens in the work folder, else the personal one) ---
+{{ if .has_work -}}
+mkdir -p "$HOME/{{ trimPrefix "~/" .work_folder }}"
+{{ end -}}
+{{ if .has_personal -}}
+mkdir -p "$HOME/{{ trimPrefix "~/" .personal_folder }}"
+{{ end }}
 # cargo, for bat and fd where neither apt nor dnf is available.
 install_cargo() {
     command -v cargo &>/dev/null && return 0

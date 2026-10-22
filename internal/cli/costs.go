@@ -17,6 +17,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -28,6 +29,7 @@ type costsFlags struct {
 	all, detail, tokens          bool
 	noRollup, csv                bool
 	from, to                     time.Time // since and until as read by validate
+	roots                        []string  // the role folders, read once the ledger is open
 }
 
 // costsCommand reports what AI coding tools cost from the durable ledger, and
@@ -69,13 +71,7 @@ func costsCommand(o *options) *cobra.Command {
 		"",
 		"Last time to include, the same forms; a day counts to its end",
 	)
-	home, _ := os.UserHomeDir()
-	flags.BoolVar(
-		&f.all,
-		"all",
-		false,
-		"Include projects outside "+scopeNames(costs.ScopeRoots(home)),
-	)
+	flags.BoolVar(&f.all, "all", false, "Include projects outside your role folders")
 	flags.IntVar(&f.top, "top", 0, "Show the first N rows; totals still cover all")
 	flags.StringVar(&f.sort, "sort", "cost", "Row order: cost, name or calls")
 	flags.BoolVar(&f.detail, "detail", false, "With --by project, a model table per project")
@@ -157,8 +153,17 @@ func (f *costsFlags) validate() (costs.Tool, error) {
 
 func (f *costsFlags) options(tool costs.Tool) costs.ReportOptions {
 	return costs.ReportOptions{
-		Tool: tool.Name, By: f.by, Since: f.from, Until: f.to, All: f.all, Top: f.top,
-		Sort: f.sort, Detail: f.detail, NoRollup: f.noRollup, Tokens: f.tokens,
+		Tool:     tool.Name,
+		By:       f.by,
+		Since:    f.from,
+		Until:    f.to,
+		All:      f.all,
+		Roots:    f.roots,
+		Top:      f.top,
+		Sort:     f.sort,
+		Detail:   f.detail,
+		NoRollup: f.noRollup,
+		Tokens:   f.tokens,
 	}
 }
 
@@ -187,11 +192,12 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 		}
 		return nil
 	}
-	ledger, err := openIngested(cmd, o)
+	ledger, paths, err := openIngested(cmd, o)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = ledger.Close() }()
+	f.roots = machine.RoleFolders(paths.Home, paths.Runtime.Config)
 	// The tabs need every tool's report; each reads its own rows, so they are
 	// read side by side.
 	var group errgroup.Group
@@ -314,15 +320,16 @@ func runCostsView(
 
 // openIngested opens the ledger for a report or the status, and reads a
 // tool's transcripts inline before its first report, so the command works
-// before the hooks are applied. The caller closes the ledger.
-func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, error) {
+// before the hooks are applied. It also returns the paths it resolved. The
+// caller closes the ledger.
+func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, costs.Paths, error) {
 	paths, err := costs.Locations()
 	if err != nil {
-		return nil, err
+		return nil, costs.Paths{}, err
 	}
 	ledger, err := paths.Open(cmd.Context())
 	if err != nil {
-		return nil, err
+		return nil, costs.Paths{}, err
 	}
 	// A tool with transcripts but no rows has never been read: the ledger is
 	// new, or Workbench learned the tool after its hooks were installed.
@@ -334,7 +341,7 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, error) {
 		empty, err := ledger.Empty(tool.Name)
 		if err != nil {
 			_ = ledger.Close()
-			return nil, err
+			return nil, costs.Paths{}, err
 		}
 		if !empty {
 			continue
@@ -344,7 +351,7 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, error) {
 		}
 	}
 	if len(missing) == 0 {
-		return ledger, nil
+		return ledger, paths, nil
 	}
 	_, _ = fmt.Fprintln(
 		cmd.ErrOrStderr(),
@@ -364,9 +371,9 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, error) {
 		costs.IngestOptions{Progress: progress, Wait: true},
 	); err != nil {
 		_ = ledger.Close()
-		return nil, err
+		return nil, costs.Paths{}, err
 	}
-	return ledger, nil
+	return ledger, paths, nil
 }
 
 // ingestProgress is the one live status line at a terminal, and nothing
@@ -571,7 +578,7 @@ func costsStatusCommand(o *options) *cobra.Command {
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(result *operation.Result) error {
-				ledger, err := openIngested(cmd, o)
+				ledger, _, err := openIngested(cmd, o)
 				if err != nil {
 					return err
 				}
@@ -740,8 +747,8 @@ func rowName(tool costs.Tool, name string) string {
 	return showPath(name)
 }
 
-// scopeNames names the folders a report's default view covers, "~/dev" or
-// "~/dev and ~/repos".
+// scopeNames names the role folders a report's default view covers, such as
+// "~/work" or "~/work and ~/play".
 func scopeNames(roots []string) string {
 	names := make([]string, len(roots))
 	for i, root := range roots {

@@ -181,13 +181,13 @@ var sharedEffects = []operation.Effect{
 // linuxPackagesEffect is the apt or dnf bootstrap of Linux and WSL.
 var linuxPackagesEffect = operation.Effect{
 	Name:        "linux-packages",
-	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and dev/repos directories",
+	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and your work and personal folders",
 	Privilege:   "sudo; network and font-cache effects",
 	Recovery:    "packages external; written files/links require checkpoints",
 	Title:       "System packages",
-	Summary:     "apt or dnf tools, fonts and your dev folders",
-	What:        "Installs a C toolchain, bat, fd and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, the oh-my-posh prompt and its themes and the Nerd Font, and creates your ~/dev and ~/repos folders.",
-	Touches:     "system packages, ~/.local/bin, ~/.local/share/fonts, ~/dev and ~/repos",
+	Summary:     "apt or dnf tools, fonts and your work and personal folders",
+	What:        "Installs a C toolchain, bat, fd and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, the oh-my-posh prompt and its themes and the Nerd Font, and creates your work and personal folders.",
+	Touches:     "system packages, ~/.local/bin, ~/.local/share/fonts, your work and personal folders",
 	RunsAs:      "you, with sudo; downloads packages",
 	Undo:        "Not reverted automatically: remove packages with apt or dnf",
 }

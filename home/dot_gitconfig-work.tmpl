@@ -1,6 +1,6 @@
 {{ if eq .machine_role "both" -}}
 # Work git overrides
-# Applied automatically for repos under ~/repos/ via includeIf
+# Applied automatically for repos under {{ .work_folder }}/ via includeIf
 [user]
     email = {{ includeTemplate "git-quote" .work_email }}
 {{ end -}}

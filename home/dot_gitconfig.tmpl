@@ -11,11 +11,11 @@
 {{- if eq .machine_role "both" }}
 
 # Directory-based identity overrides (machine_role = both).
-# ~/dev/ is personal, ~/repos/ is work. Single-role machines
+# {{ .personal_folder }}/ is personal, {{ .work_folder }}/ is work. Single-role machines
 # use [user] email everywhere and deploy neither override file.
-[includeIf "gitdir:~/dev/"]
+[includeIf "gitdir:{{ .personal_folder }}/"]
     path = ~/.gitconfig-personal
-[includeIf "gitdir:~/repos/"]
+[includeIf "gitdir:{{ .work_folder }}/"]
     path = ~/.gitconfig-work
 {{- end }}
 [alias]

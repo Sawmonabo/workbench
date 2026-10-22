@@ -29,13 +29,13 @@
 ## Path-scoped tool policy
 
 For any task whose effective working directory, repository, or write scope is
-under `{{ .chezmoi.homeDir }}/dev/`:
+under `{{ joinPath .chezmoi.homeDir (trimPrefix "~/" .personal_folder) }}/`:
 
 - Never invoke CodeRabbit or any CodeRabbit-backed skill, tool, review, autofix,
   or autonomous review workflow.
 - Do not invoke `dispatch-atlassian`, `dispatch-gitlab`, Atlassian, Jira, or
   GitLab MCP tools.
 
-This prohibition is scoped to `{{ .chezmoi.homeDir }}/dev/` and its descendants.
-It does not prohibit those tools for work under `{{ .chezmoi.homeDir }}/repos/`.
+This prohibition is scoped to `{{ joinPath .chezmoi.homeDir (trimPrefix "~/" .personal_folder) }}/` and its descendants.
+It does not prohibit those tools for work under `{{ joinPath .chezmoi.homeDir (trimPrefix "~/" .work_folder) }}/`.
 {{- end }}
