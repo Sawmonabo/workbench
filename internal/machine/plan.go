@@ -328,6 +328,9 @@ func (p *preparation) stageNative(
 	// do. Templates cannot read the caller's environment (the preview renders
 	// with a fixed one), so the path reaches them as an answer.
 	nativeAnswers["workbench_bin"] = filepath.Join(c.Paths.Bin, "workbench")
+	// The env files live in the config folder this apply resolved, which the
+	// templates cannot derive from the environment either.
+	nativeAnswers["workbench_config"] = c.Paths.Config
 	// The Claude Code settings get the floor of the copy installed now, so the
 	// preview and the apply render the same one. An isolated destination
 	// provisions nothing, so it has no agents to update or set a floor for.

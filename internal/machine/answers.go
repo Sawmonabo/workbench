@@ -160,6 +160,8 @@ var answerKeys = []string{
 	"versions_mode",
 	"personal_email",
 	"work_email",
+	"work_folder",
+	"personal_folder",
 	"jira_api_token",
 	"gitlab_token",
 	"wsl_memory",
@@ -215,6 +217,9 @@ func (a Answers) invalidKey() string {
 			return key
 		}
 	}
+	if key := a.invalidFolderKey(work, personal); key != "" {
+		return key
+	}
 	if work {
 		for _, key := range []string{"jira_api_token", "gitlab_token"} {
 			if _, ok := a[key].(string); !ok {
@@ -226,6 +231,69 @@ func (a Answers) invalidKey() string {
 		return a.invalidWSLKey()
 	}
 	return ""
+}
+
+// folderPattern is a role folder as saved: home-relative text such as ~/name,
+// below the home folder and never the home folder itself.
+var folderPattern = regexp.MustCompile(`^~(/[A-Za-z0-9._-]+)+$`)
+
+// validFolder reports whether value is a role folder: the pattern with no "."
+// or ".." part. A trailing "/" is not valid; the questionnaire drops it first.
+func validFolder(value string) bool {
+	return folderPattern.MatchString(value) &&
+		!slices.ContainsFunc(strings.Split(value, "/"), func(part string) bool {
+			return part == "." || part == ".."
+		})
+}
+
+// invalidFolderKey is the first folder, work then personal, that a role this
+// machine has leaves missing or invalid; on both roles, personal_folder when
+// the two are equal or one contains the other; otherwise "".
+func (a Answers) invalidFolderKey(work, personal bool) string {
+	workFolder, personalFolder := a.text("work_folder"), a.text("personal_folder")
+	switch {
+	case work && !validFolder(workFolder):
+		return "work_folder"
+	case personal && !validFolder(personalFolder):
+		return "personal_folder"
+	case work && personal && (workFolder == personalFolder ||
+		strings.HasPrefix(personalFolder, workFolder+"/") ||
+		strings.HasPrefix(workFolder, personalFolder+"/")):
+		return "personal_folder"
+	}
+	return ""
+}
+
+// folder is the absolute path of the role folder saved under key, below home,
+// or "" when the key is absent or not a valid folder.
+func (a Answers) folder(home, key string) string {
+	value := a.text(key)
+	if !validFolder(value) {
+		return ""
+	}
+	return filepath.Join(home, strings.TrimPrefix(value, "~/"))
+}
+
+// RoleFolders are the role folders saved in <config>/machine.toml as absolute
+// paths under home, personal first. It is nil when none is saved or the file
+// cannot be read, and never names a default: the one fallback is the costs
+// report's.
+func RoleFolders(home, config string) []string {
+	raw, err := operation.ReadPrivateInput(filepath.Join(config, "machine.toml"), 1<<20)
+	if err != nil {
+		return nil
+	}
+	answers, err := readAnswers(raw)
+	if err != nil {
+		return nil
+	}
+	var folders []string
+	for _, key := range []string{"personal_folder", "work_folder"} {
+		if folder := answers.folder(home, key); folder != "" {
+			folders = append(folders, folder)
+		}
+	}
+	return folders
 }
 
 // invalidWSLKey is the first WSL sizing or restart answer that is missing or

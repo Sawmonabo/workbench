@@ -1,0 +1,9 @@
+{{- /* Workbench's config folder, where machine.toml and the env files live: the
+       workbench_config answer (this apply's config folder, WORKBENCH_CONFIG_DIR
+       or XDG_CONFIG_HOME), as an absolute path. Include it with the root
+       context; without the answer it is the default folder under the home. */ -}}
+{{- $default := joinPath .chezmoi.homeDir ".config/workbench" -}}
+{{- if eq .chezmoi.os "darwin" -}}
+{{-   $default = joinPath .chezmoi.homeDir "Library/Application Support/workbench/config" -}}
+{{- end -}}
+{{- get . "workbench_config" | default $default -}}

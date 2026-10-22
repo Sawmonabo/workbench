@@ -36,8 +36,10 @@ chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/de
     --promptChoice "Install pinned or latest tool versions=$mode" \
     --promptString "Git user name=CI User" \
     --promptString "Git default email (every repo without an override)=ci@example.invalid" \
-    --promptString "Git personal email (repos under ~/dev/)=ci-personal@example.invalid" \
-    --promptString "Git work email (repos under ~/repos/)=ci-work@example.invalid" \
+    --promptString "Git personal email (repos in your personal folder)=ci-personal@example.invalid" \
+    --promptString "Git work email (repos in your work folder)=ci-work@example.invalid" \
+    --promptString "Work folder (under your home)=~/repos" \
+    --promptString "Personal folder (under your home)=~/dev" \
     --promptString "Jira API token (for Codex MCP; stored locally only)=ci-placeholder" \
     --promptString "GitLab token (for Codex MCP; stored locally only)=ci-placeholder" \
     >/dev/null

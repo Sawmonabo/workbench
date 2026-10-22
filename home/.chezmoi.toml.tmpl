@@ -1,8 +1,9 @@
 {{- /*
 Machine role decides which identity, secrets, and tool configuration deploy.
-  personal: home projects only (~/dev). No employer tooling, no work tokens.
-  work:     employer projects only (~/repos). Work MCP servers and hooks.
-  both:     one machine for both; git identity switches per directory.
+  personal: home projects only (the personal folder). No employer tooling, no work tokens.
+  work:     employer projects only (the work folder). Work MCP servers and hooks.
+  both:     one machine for both; git identity switches per folder.
+Each role's folder is asked once and saved relative to the home folder.
 Answers persist in the local chezmoi.toml, never in the repo.
 */ -}}
 {{- $role := promptChoiceOnce . "machine_role" "Machine role" (list "personal" "work" "both") "personal" -}}
@@ -24,13 +25,30 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{- $_ := set $data "name" (promptStringOnce . "name" "Git user name") -}}
 {{- $_ := set $data "email" (promptStringOnce . "email" "Git default email (every repo without an override)") -}}
 {{- if eq $role "both" -}}
-{{- $_ := set $data "personal_email" (promptStringOnce . "personal_email" "Git personal email (repos under ~/dev/)") -}}
-{{- $_ := set $data "work_email" (promptStringOnce . "work_email" "Git work email (repos under ~/repos/)") -}}
+{{- $_ := set $data "personal_email" (promptStringOnce . "personal_email" "Git personal email (repos in your personal folder)") -}}
+{{- $_ := set $data "work_email" (promptStringOnce . "work_email" "Git work email (repos in your work folder)") -}}
 {{- end -}}
 {{- range $key := list "name" "email" "personal_email" "work_email" -}}
 {{- if hasKey $data $key -}}
 {{- if or (empty (get $data $key)) (regexMatch "[[:cntrl:]]" (get $data $key)) }}{{ fail "Identity answers must be nonempty and contain no control characters" }}{{ end -}}
 {{- end -}}
+{{- end -}}
+{{- /* A role's folder is saved as home-relative text such as ~/name; one trailing / is dropped first. */ -}}
+{{- if $hasWork -}}
+{{- $_ := set $data "work_folder" (promptStringOnce . "work_folder" "Work folder (under your home)" "~/repos" | trimSuffix "/") -}}
+{{- end -}}
+{{- if $hasPersonal -}}
+{{- $_ := set $data "personal_folder" (promptStringOnce . "personal_folder" "Personal folder (under your home)" "~/dev" | trimSuffix "/") -}}
+{{- end -}}
+{{- range $key := list "work_folder" "personal_folder" -}}
+{{- if hasKey $data $key -}}
+{{- if or (not (regexMatch "^~(/[A-Za-z0-9._-]+)+$" (get $data $key))) (regexMatch "(^|/)\\.{1,2}(/|$)" (get $data $key)) }}{{ fail (printf "Invalid %s: use ~/name, a folder under your home, with only letters, digits, . _ - in each part, and no . or .. part" $key) }}{{ end -}}
+{{- end -}}
+{{- end -}}
+{{- if eq $role "both" -}}
+{{- $work := get $data "work_folder" -}}
+{{- $personal := get $data "personal_folder" -}}
+{{- if or (eq $work $personal) (hasPrefix (printf "%s/" $work) $personal) (hasPrefix (printf "%s/" $personal) $work) }}{{ fail "The work and personal folders must differ, and neither may be inside the other" }}{{ end -}}
 {{- end -}}
 {{- $mode := promptChoiceOnce . "versions_mode" "Install pinned or latest tool versions" (list "pinned" "latest") "pinned" -}}
 {{- if not (has $mode (list "pinned" "latest")) }}{{ fail "Invalid versions_mode" }}{{ end -}}
