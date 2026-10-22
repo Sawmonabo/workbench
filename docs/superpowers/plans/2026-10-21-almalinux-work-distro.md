@@ -68,7 +68,7 @@ point into it.
     `both`), the derived `has_work`, `has_personal` and `is_wsl = true`,
     the folder answers, and, because this host is WSL, `wsl_memory`,
     `wsl_swap` and `wsl_processors` (`invalidKey`,
-    `internal/machine/answers.go:187-230`). From the checkout, run
+    `internal/machine/answers.go:233-276`). From the checkout, run
     `isolated "$WB" init --answers-from FILE --dry-run --json`, then the
     same with `--approve-plan DIGEST` (`init` takes no `--local-build`).
     Then run `isolated "$WB" update --local-build`, which puts the pinned
@@ -1287,15 +1287,9 @@ fixes what the owner reports.
 
 ## Found while planning (follow-ups, not in this change)
 
-- **The RestartWSL helpers.** They are part of the ticked Windows setup
-  step on both distributions. They include a `.bat` running
-  `powershell -ExecutionPolicy Bypass -File restart-wsl.ps1`, and a
-  `#Requires -RunAsAdministrator` script that registers a scheduled task
-  restarting `vmcompute`
-  (`home/.chezmoiscripts/wsl/run_after_10-deploy-windows-configs.sh.tmpl:142-171`).
-  - Workbench writes them but never runs them.
-  - Without admin they cannot work, and a monitored laptop may flag them.
-  - Suggestion: make them their own optional step, off by default.
+- **The RestartWSL helpers.** Removed on this branch at the owner's request:
+  Workbench no longer writes them, ignores a saved `restart_wsl_path` and
+  leaves copies already on Windows for the owner to delete.
 - **PowerShell probes on every plan.** Every WSL plan already runs
   `powershell.exe -NoProfile -Command` and `reg.exe query` probes: the
   profile path, the user PATH and the font registry

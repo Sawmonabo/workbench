@@ -162,7 +162,9 @@ eval "$(oh-my-posh init bash --config ~/.config/oh-my-posh/catppuccin_mocha.omp.
 # name and an unquoted value, that ends in a carriage return, whose value
 # starts or ends with a space or tab (in any locale, only those two), or that
 # names a variable the bash or zsh hook runs through (PATH, path, HOME, PWD,
-# PROMPT_COMMAND, precmd_functions, chpwd_functions, __workbench_*, _wb_*) is
+# PROMPT_COMMAND, precmd_functions, chpwd_functions, the regex match results
+# BASH_REMATCH, MATCH, MBEGIN, MEND, match, mbegin and mend, __workbench_*,
+# _wb_*) is
 # skipped, as workbench apply reports, and so is a name with an empty value,
 # which would hide a tool's own setting. A file open to group or others is not
 # loaded (chmod 600 or 400 loads it). It runs on every cd, pushd and popd and
@@ -189,7 +191,7 @@ __workbench_env_read() {
     while IFS= read -r line || [ -n "$line" ]; do
         name=${line%%=*} value=${line#*=}
         [[ $line == *=* && $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
-        [[ ! $name =~ ^(PATH|path|HOME|PWD|PROMPT_COMMAND|precmd_functions|chpwd_functions|__workbench_.*|_wb_.*)$ ]] ||
+        [[ ! $name =~ ^(PATH|path|HOME|PWD|PROMPT_COMMAND|precmd_functions|chpwd_functions|BASH_REMATCH|MATCH|MBEGIN|MEND|match|mbegin|mend|__workbench_.*|_wb_.*)$ ]] ||
             continue
         [[ -n $value && $value != [\"\']* && $value != *$'\r' &&
             $value != [$' \t']* && $value != *[$' \t'] ]] || continue

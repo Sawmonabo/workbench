@@ -599,7 +599,9 @@ credential today. The format is `NAME=value` lines, `#` comments and blank
 lines, nothing else (no `export`, no quotes or expansion, no space or tab at
 either end of a value, other blanks being part of it, no carriage return at
 a line's end, and not a name the hooks run through: `PATH`, `path`, `HOME`,
-`PWD`, `PROMPT_COMMAND`, `precmd_functions`, `chpwd_functions` or the hooks'
+`PWD`, `PROMPT_COMMAND`, `precmd_functions`, `chpwd_functions`, the regex
+match results `BASH_REMATCH`, `MATCH`, `MBEGIN`, `MEND`, `match`, `mbegin`
+and `mend`, or the hooks'
 own `__workbench_*` and `_wb_*` names), so the shell hook
 and the gate read it the same way. A
 `NAME=` line with an empty value sets nothing, in the hook and the gate
