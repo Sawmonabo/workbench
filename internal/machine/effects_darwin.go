@@ -10,7 +10,7 @@ func platformOptionalEffects() []operation.Effect { return macOSOptionalEffects 
 
 // macOSOptionalEffects are the Mac steps that run only when selected by name,
 // like [optionalEffects] on WSL. The owning script checks WORKBENCH_EFFECT_<NAME>;
-// see [effectVariable]. Touch ID for sudo changes how every sudo on the Mac asks,
+// see [EffectVariable]. Touch ID for sudo changes how every sudo on the Mac asks,
 // and writes a system file outside the checkpoint, so it is never on by default.
 var macOSOptionalEffects = []operation.Effect{
 	{

@@ -282,6 +282,22 @@ func ReplacePrivateFile(path string, data []byte) error {
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return Fail(ExitInvalid, "state", "Cannot inspect private metadata target")
 	}
+	return writePrivateFile(path, data, false)
+}
+
+// CreatePrivateFile is [ReplacePrivateFile] for a path that must not exist:
+// it puts the temporary file in place with [RenameNoReplace], so an existing
+// path fails it with an error matching fs.ErrExist and keeps its content.
+// Where the filesystem lacks the no-replace flag, a crash between its link and
+// unlink leaves the temporary file as a second link, which
+// [RemoveStaleWrites] deletes.
+func CreatePrivateFile(path string, data []byte) error {
+	return writePrivateFile(path, data, true)
+}
+
+// writePrivateFile writes data through a same-folder temporary file and puts
+// it in place at path, never replacing a file there when create is set.
+func writePrivateFile(path string, data []byte, create bool) error {
 	root, err := os.OpenRoot(filepath.Dir(path))
 	if err != nil {
 		return err
@@ -308,7 +324,12 @@ func ReplacePrivateFile(path string, data []byte) error {
 	if closeErr != nil {
 		return closeErr
 	}
-	if err := root.Rename(temporary, filepath.Base(path)); err != nil {
+	if create {
+		err = RenameNoReplace(filepath.Join(filepath.Dir(path), temporary), path)
+	} else {
+		err = root.Rename(temporary, filepath.Base(path))
+	}
+	if err != nil {
 		return err
 	}
 	directory, err := root.Open(".")
@@ -319,10 +340,11 @@ func ReplacePrivateFile(path string, data []byte) error {
 	return syncDirectory(directory)
 }
 
-// RemoveStaleWrites deletes the temporary files [ReplacePrivateFile] left in
-// folder when its process was killed before the rename: those starting
-// ".write-" and over a minute old, so a write still in progress keeps its
-// file. It is best effort; a folder it can't read has nothing it deletes.
+// RemoveStaleWrites deletes the temporary files [ReplacePrivateFile] and
+// [CreatePrivateFile] left in folder when their process was killed before the
+// rename finished: those starting ".write-" and over a minute old, so a write
+// still in progress keeps its file. It is best effort; a folder it can't read
+// has nothing it deletes.
 func RemoveStaleWrites(folder string) {
 	entries, _ := os.ReadDir(folder)
 	for _, entry := range entries {

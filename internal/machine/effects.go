@@ -276,7 +276,7 @@ func provisioningEffects(c operation.Context, answers Answers) []operation.Effec
 }
 
 // optionalEffects are the WSL host steps, which run only when selected by name.
-// The owning script checks WORKBENCH_EFFECT_<NAME>; see [effectVariable].
+// The owning script checks WORKBENCH_EFFECT_<NAME>; see [EffectVariable].
 var optionalEffects = []operation.Effect{
 	{
 		Name:        "terminal-adoption",
@@ -528,8 +528,8 @@ func scriptEffects(script string) []string {
 	return names
 }
 
-// effectVariable is the script switch for an optional effect, for example
+// EffectVariable is the script switch for an optional effect, for example
 // WORKBENCH_EFFECT_DEFAULT_DISTRO for default-distro.
-func effectVariable(name string) string {
+func EffectVariable(name string) string {
 	return "WORKBENCH_EFFECT_" + strings.ToUpper(strings.ReplaceAll(name, "-", "_"))
 }

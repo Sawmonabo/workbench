@@ -9,18 +9,10 @@
 set -euo pipefail
 {{ template "installed-workbench.sh" }}
 {{ template "old-locations.sh" }}
-# knows_migrations: the installed workbench has the migrate command. An older
-# one answers `migrate --help` with its general help, which has no migrate
-# usage line, and exits 0.
-knows_migrations() {
-    local usage
-    usage=$("$workbench" migrate --help 2>/dev/null || true)
-    [[ $usage == *"workbench migrate ["* ]]
-}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ ! -x "$workbench" ]; then
         echo "migrations: = Workbench is not installed here yet, so there is nothing to move"
-    elif ! knows_migrations; then
+    elif ! knows_command migrate; then
         echo "migrations: ? the installed workbench predates migrations, so run workbench update"
     else
         # A failed check fails the probe, so the plan says it couldn't check.
@@ -37,7 +29,7 @@ if [ ! -x "$workbench" ]; then
     echo "==> migrations: no installed workbench at $workbench, so nothing was moved"
     exit 0
 fi
-if ! knows_migrations; then
+if ! knows_command migrate; then
     part_blocked migrations "the installed workbench predates migrations, so run workbench update and apply again"
     exit 0
 fi

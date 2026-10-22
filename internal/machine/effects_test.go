@@ -78,14 +78,14 @@ func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 					fallback = "0?"
 				}
 				gate := regexp.MustCompile(
-					`\$\{` + effectVariable(owner.Name) + `:-` + fallback + `\}`,
+					`\$\{` + EffectVariable(owner.Name) + `:-` + fallback + `\}`,
 				)
 				if !gate.MatchString(code) {
 					t.Errorf(
 						"%s runs a section of %s without checking %s",
 						base,
 						owner.Name,
-						effectVariable(owner.Name),
+						EffectVariable(owner.Name),
 					)
 				}
 			}

@@ -19,7 +19,7 @@ import (
 // and run are the apply's migrations step: they run inside an apply that
 // holds the locks, so they resolve paths only and print their own lines.
 func migrateCommand(o *options) *cobra.Command {
-	var apply, dryRun, probe bool
+	var apply, dryRun bool
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Move or clean up files earlier Workbench releases left behind",
@@ -33,11 +33,6 @@ func migrateCommand(o *options) *cobra.Command {
 	}
 	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
 		switch {
-		case probe:
-			return o.runPrinted(
-				cmd,
-				func(*operation.Result) error { return migrateProbe(cmd.OutOrStdout()) },
-			)
 		case !apply && (dryRun || o.yes || o.approvePlan != ""):
 			return o.runPrinted(cmd, func(*operation.Result) error {
 				return operation.Fail(
@@ -68,46 +63,26 @@ func migrateCommand(o *options) *cobra.Command {
 		false,
 		"With --apply, run without asking (refused for coding agents)",
 	)
-	flags.BoolVar(&probe, "probe", false, "Print the apply's probe lines")
-	_ = flags.MarkHidden("probe")
 	o.approveFlag(cmd)
-	cmd.AddCommand(migrateRunCommand(o))
-	return cmd
-}
-
-// migrateRunCommand is the apply's migrations step: run every migration with
-// something to do and print what happens. Ticking the step is the approval, so
-// it runs only as that step: with the WORKBENCH_EFFECT_MIGRATIONS=1 the apply
-// gives its scripts, and never in a coding agent's session, whose variables
-// the apply doesn't pass on. That stops a run by mistake, not a caller that
-// sets the variable itself. WORKBENCH_MIGRATIONS names the planning binary's
-// migrations, so one this binary doesn't know is named, not passed over.
-func migrateRunCommand(o *options) *cobra.Command {
-	return &cobra.Command{
-		Use:    "run",
-		Short:  "Apply step: run every migration that has something to do",
-		Hidden: true,
-		Args:   cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.runPrinted(cmd, func(*operation.Result) error {
-				if os.Getenv("WORKBENCH_EFFECT_MIGRATIONS") != "1" || operation.AgentSession() {
-					return operation.Fail(operation.ExitBlocked, "consent",
-						"migrate run is the apply's migrations step; run workbench migrate --apply")
-				}
-				locations, err := migrate.Locate()
-				if err != nil {
-					return err
-				}
-				wanted := strings.Fields(os.Getenv("WORKBENCH_MIGRATIONS"))
-				return migrate.Run(
-					cmd.Context(),
-					locations,
-					wanted,
-					sayMigration(cmd.OutOrStdout()),
-				)
-			})
+	// The step runs every migration with something to do. WORKBENCH_MIGRATIONS
+	// names the planning binary's migrations, so one this binary doesn't know
+	// is named, not passed over.
+	applyStep(
+		o,
+		cmd,
+		"migrations",
+		"migrate run is the apply's migrations step; run workbench migrate --apply",
+		migrateProbe,
+		func(cmd *cobra.Command) error {
+			locations, err := migrate.Locate()
+			if err != nil {
+				return err
+			}
+			wanted := strings.Fields(os.Getenv("WORKBENCH_MIGRATIONS"))
+			return migrate.Run(cmd.Context(), locations, wanted, sayMigration(cmd.OutOrStdout()))
 		},
-	}
+	)
+	return cmd
 }
 
 // sayMigration prints a migration line in the style of the apply's scripts.

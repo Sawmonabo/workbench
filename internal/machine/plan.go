@@ -1023,7 +1023,7 @@ func (p *preparation) scriptsEnvironment(
 		if effect.Checked {
 			value = "1"
 		}
-		environment = append(environment, effectVariable(effect.Name)+"="+value)
+		environment = append(environment, EffectVariable(effect.Name)+"="+value)
 	}
 	environment = append(environment, p.updateEnvironment()...)
 	agents, err := p.agentEnvironment(ctx, c, report)
