@@ -2,8 +2,6 @@ package machine
 
 import (
 	"context"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,9 +32,11 @@ const takeOverPrefix = "take-over-"
 
 // windowsWriters is the plan input for the writer record: the SHA-256 of
 // <LocalAppData>/Workbench/writers.json, "absent" without one, and "unknown"
-// when Windows could not be asked or the file read. The scripts follow the
-// record as they run, so an approved plan is refused (exit 4) once another
-// distribution changed it. Its caller asks only on WSL, for the real home.
+// when Windows could not be asked or the file read. Each of the three calls
+// has a minute, so a stalled /mnt/c never holds up the plan for longer. The
+// scripts follow the record as they run, so an approved plan is refused (exit
+// 4) once another distribution changed it. Its caller asks only on WSL, for
+// the real home.
 // cmd.exe gets what the scripts' Windows steps get from [scriptEnvironment]:
 // a PATH of the system and Windows system folders, and the WSL variables
 // interop needs.
@@ -81,12 +81,22 @@ func windowsWriters(ctx context.Context, c operation.Context) operation.Input {
 	if err != nil || !filepath.IsAbs(folder) {
 		return input
 	}
-	data, err := os.ReadFile(filepath.Join(folder, "Workbench", "writers.json"))
+	// A read on /mnt/c can stall like a Windows call, so cat reads the record
+	// under the same cap. Its environment sets no locale, so cat names a
+	// missing file in English.
+	record, err := operation.Run(ctx, c, nil, operation.Process{
+		Executable:  "/usr/bin/cat",
+		Args:        []string{"--", filepath.Join(folder, "Workbench", "writers.json")},
+		Directory:   "/",
+		Environment: environment,
+		Timeout:     time.Minute,
+		OutputLimit: 64 << 10,
+	})
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		input.Digest = "absent"
 	case err == nil:
-		input.Digest = operation.SHA256Hex(data)
+		input.Digest = operation.SHA256Hex([]byte(record.Stdout))
+	case strings.HasSuffix(err.Error(), ": No such file or directory"):
+		input.Digest = "absent"
 	}
 	return input
 }
