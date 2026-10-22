@@ -89,5 +89,8 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{- if not (regexMatch "^[1-9][0-9]{0,6}(MB|GB)$" $data.wsl_memory) }}{{ fail "Invalid WSL memory" }}{{ end -}}
 {{- if not (regexMatch "^(0|[1-9][0-9]{0,6}(MB|GB))$" $data.wsl_swap) }}{{ fail "Invalid WSL swap" }}{{ end -}}
 {{- if or (lt (int $data.wsl_processors) 1) (gt (int $data.wsl_processors) 1024) }}{{ fail "Invalid WSL processor count" }}{{ end -}}
+{{- /* Windows Terminal's color scheme, for every profile; the distribution that writes Terminal's settings sets it. */ -}}
+{{- $_ := set $data "terminal_theme" (promptChoiceOnce . "terminal_theme" "Windows Terminal color scheme" (list "kanagawa-dragon" "catppuccin-mocha") "kanagawa-dragon") -}}
+{{- if not (has $data.terminal_theme (list "kanagawa-dragon" "catppuccin-mocha")) }}{{ fail "Invalid terminal_theme" }}{{ end -}}
 {{- end }}
 {{ dict "sourceDir" .chezmoi.sourceDir "data" $data | toToml }}

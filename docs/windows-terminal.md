@@ -2,8 +2,10 @@
 
 Windows Terminal configuration lives in the canonical WSL script
 `home/.chezmoiscripts/wsl/run_before_00-packages-windows.sh.tmpl`.
-Its policy uses Catppuccin Mocha and JetBrainsMono Nerd Font, with tab/pane
-shortcuts and profile presentation settings. The source is the authority for
+Its policy uses JetBrainsMono Nerd Font, with tab/pane shortcuts and profile
+presentation settings. The color scheme, for every profile, is the WSL
+`terminal_theme` answer: Kanagawa Dragon (`kanagawa-dragon`, the default) or
+Catppuccin Mocha (`catppuccin-mocha`); the file carries both schemes. The source is the authority for
 exact values; do not maintain a duplicate settings document.
 
 Windows-host application remains subject to the [WSL qualification gate](wsl.md).

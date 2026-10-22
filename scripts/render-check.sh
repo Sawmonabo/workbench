@@ -48,13 +48,14 @@ if [ "$role" != personal ]; then
     grep -qF 'sample-server' "$config" || { echo "DISPATCH FAIL: could not set dispatch_servers in $config"; exit 1; }
 fi
 if [ "$extra" = wsl ]; then
-    # The WSL sizing answers are already there on a real WSL host.
+    # The WSL answers are already there on a real WSL host.
     sed -i.bak 's/^\( *\)is_wsl = false$/\1is_wsl = true/' "$config" && rm -f "$config.bak"
     grep -q '^ *wsl_memory = ' "$config" || cat >> "$config" <<'WSLDATA'
     wsl_memory = "8GB"
     wsl_processors = 4
     wsl_swap = "2GB"
 WSLDATA
+    grep -q '^ *terminal_theme = ' "$config" || echo '    terminal_theme = "kanagawa-dragon"' >> "$config"
     grep -q 'is_wsl = true' "$config" || { echo "WSL FAIL: could not force is_wsl in $config"; exit 1; }
 fi
 chez=(chezmoi --config "$config" --source "$repo" --destination "$dest"

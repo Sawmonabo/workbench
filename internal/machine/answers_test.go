@@ -98,5 +98,6 @@ func workAnswers() Answers {
 		"wsl_memory":      "8GB",
 		"wsl_swap":        "2GB",
 		"wsl_processors":  int64(4),
+		"terminal_theme":  "kanagawa-dragon",
 	}
 }

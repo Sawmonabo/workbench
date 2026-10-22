@@ -33,6 +33,7 @@ chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/de
     --promptChoice "Machine role=$role" \
     --promptChoice "Preferred editor=code" \
     --promptChoice "Install pinned or latest tool versions=$mode" \
+    --promptChoice "Windows Terminal color scheme=kanagawa-dragon" \
     --promptString "Git user name=CI User" \
     --promptString "Git default email (every repo without an override)=ci@example.invalid" \
     --promptString "Git personal email (repos in your personal folder)=ci-personal@example.invalid" \

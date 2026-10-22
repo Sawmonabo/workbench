@@ -52,7 +52,12 @@ nothing during apply: the WSL networking row lists each setting it will change
 beforehand (for example `networkingMode is virtioproxy, will be mirrored`), keeps
 the other settings, and a recovery copy is written when it changes anything. The
 Terminal step rewrites `settings.json` only when it differs from the managed one,
-keeping a copy of the old file, and registers the font it uses. Windows
+keeping a copy of the old file, and registers the font it uses. Its color
+scheme, for every profile, is the `terminal_theme` answer, asked once on WSL:
+`kanagawa-dragon` (Kanagawa Dragon, the default: a near-black background with
+grey text) or `catppuccin-mocha` (Catppuccin Mocha). A machine saved before
+the question existed is asked it at its next apply at a terminal, and
+`init --ask terminal_theme` changes it later. Windows
 Terminal and PowerShell open in the work folder on a machine with the work
 role, else in the personal folder.
 
@@ -64,7 +69,8 @@ asked the Jira, GitLab and dispatch-checkout questions; see
 [roles and folders](usage.md#roles-folders-and-credentials)). Most Windows steps give the same result
 from any of them. Four do not, because each distribution would write its own
 version of one shared thing: `terminal-adoption` (the Terminal settings, whose
-WSL profile names the distribution that wrote it), `powershell-adoption` (the
+WSL profile names the distribution that wrote it and whose color scheme is its
+answer), `powershell-adoption` (the
 profile starts in that distribution's home), `wsl-preferences` (one
 `.wslconfig` sized from that distribution's answers) and `default-distro` (which
 distribution `wsl` and new Terminal tabs open).

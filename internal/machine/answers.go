@@ -214,6 +214,7 @@ var answerKeys = []string{
 	"wsl_memory",
 	"wsl_processors",
 	"wsl_swap",
+	"terminal_theme",
 }
 
 // unknownKeys are the keys the questionnaire never saves, sorted.
@@ -373,8 +374,8 @@ func RoleFolders(home, config string) ([]string, error) {
 	return folders, nil
 }
 
-// invalidWSLKey is the first WSL sizing answer that is missing or invalid, or
-// "".
+// invalidWSLKey is the first WSL answer, the sizing then Windows Terminal's
+// color scheme, that is missing or invalid, or "".
 func (a Answers) invalidWSLKey() string {
 	if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(a.text("wsl_memory")) {
 		return "wsl_memory"
@@ -385,6 +386,9 @@ func (a Answers) invalidWSLKey() string {
 	processors, ok := a["wsl_processors"].(int64)
 	if !ok || processors < 1 || processors > 1024 {
 		return "wsl_processors"
+	}
+	if !slices.Contains([]string{"kanagawa-dragon", "catppuccin-mocha"}, a.text("terminal_theme")) {
+		return "terminal_theme"
 	}
 	return ""
 }
