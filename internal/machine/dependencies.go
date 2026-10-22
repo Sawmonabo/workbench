@@ -212,7 +212,11 @@ func dependency(dependencies []operation.Dependency, name string) string {
 }
 
 // scriptEnvironment keeps privately selected tools ahead of package-manager PATH
-// edits. Only the apply owner may add individually approved effect selectors.
+// edits. A tool in a system folder (python3 in /usr/bin) is found there at the
+// end of PATH and puts no system folder ahead: the scripts put the user's tool
+// folders (~/.local/bin, ~/.cargo/bin) ahead of the system ones, and a system
+// go, cargo or uv must not hide the one an earlier step installed. Only the
+// apply owner may add individually approved effect selectors.
 // Native and the scripts keep their temporary files in scratch, the run's
 // private folder, which is also where native stages its atomic writes (see
 // operation.CheckStagedGroup).
@@ -228,9 +232,10 @@ func scriptEnvironment(
 		"PYTHONDONTWRITEBYTECODE=1",
 		"TMPDIR=" + scratch,
 	}
+	system := []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 	for _, selected := range dependencies {
 		directory := filepath.Dir(selected.Path)
-		if !slices.Contains(directories, directory) {
+		if !slices.Contains(directories, directory) && !slices.Contains(system, directory) {
 			directories = append(directories, directory)
 		}
 		if selected.Name == "chezmoi" || selected.Name == "uv" {
@@ -241,7 +246,6 @@ func scriptEnvironment(
 		}
 	}
 	path := strings.Join(directories, string(os.PathListSeparator))
-	system := []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 	if platform.WSL() {
 		environment = append(environment, wslInteropEnvironment()...)
 		system = append(system, windowsSystemDirectories(os.Getenv("PATH"))...)

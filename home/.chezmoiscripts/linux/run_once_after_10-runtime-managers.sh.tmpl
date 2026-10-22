@@ -28,7 +28,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if go_bin=$(go_command); then
         go_root=$(dirname "$(dirname "$(readlink -f "$go_bin")")")
         [ -r "$go_root/VERSION" ] && go_have=$(head -n1 "$go_root/VERSION")
-        go_have=${go_have#go}
+        go_have=${go_have#go}; go_have=${go_have%% *}
     fi
     if [ -z "$go_target" ]; then
         parts+=("Go is ${go_have:-missing}; the latest version could not be looked up")

@@ -21,9 +21,15 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     user_bin_refused linux-packages
     missing=()
-    for tool in bat fd oh-my-posh gh tmux; do
+    for tool in cc c++ curl unzip git fc-cache; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
+    for tool in bat fd oh-my-posh tmux; do
+        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    done
+    # gh is Workbench's own copy in ~/.local/bin, which apply installs even
+    # when a package's gh is on PATH.
+    [ -x "$HOME/.local/bin/gh" ] || missing+=("gh")
     compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
     if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
         rpm -q --whatprovides libatomic >/dev/null 2>&1 || missing+=("libatomic")

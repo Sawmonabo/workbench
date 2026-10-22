@@ -25,8 +25,8 @@ export PATH="$HOME/.local/bin:$PATH"
 export PATH={{ . | replace "'" "'\"'\"'" | printf "'%s'" }}:"$PATH"
 {{ end -}}
 
-# Go
-export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
+# Go: Workbench's Go is ~/.local/bin/go; a Go in /usr/local/go comes after it.
+export PATH="$HOME/go/bin:$PATH:/usr/local/go/bin"
 
 # Cargo (Rust)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
