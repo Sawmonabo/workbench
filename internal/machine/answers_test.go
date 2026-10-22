@@ -19,9 +19,12 @@ import (
 func TestRetiredTokensSurviveEveryAnswerWrite(t *testing.T) {
 	saved := Answers{"jira_api_token": "synthetic-jira", "gitlab_token": "synthetic-gitlab"}
 
-	// An earlier release's machine.toml: the tokens and no folder answer.
+	// An earlier release's machine.toml: the tokens and no folder or work
+	// answer.
 	upgraded := workAnswers()
-	delete(upgraded, "work_folder")
+	for _, key := range []string{"work_folder", "jira_url", "gitlab_url", "dispatch_folder"} {
+		delete(upgraded, key)
+	}
 	maps.Copy(upgraded, saved)
 	before, err := encodeMachineConfig(upgraded, Selection{})
 	if err != nil {

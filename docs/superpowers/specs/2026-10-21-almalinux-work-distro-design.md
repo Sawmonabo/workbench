@@ -591,6 +591,9 @@ GITLAB_URL=
 GITLAB_TOKEN=
 ```
 
+with `JIRA_BASE_URL` and `GITLAB_URL` filled from the `jira_url` and
+`gitlab_url` answers and `JIRA_EMAIL` from the work email (`work_email` on
+`both`), as migration 0005 fills them (section 4.13); the tokens stay empty.
 `personal.env` starts with no names, since Workbench saves no personal
 credential today. The format is `NAME=value` lines, `#` comments and blank
 lines, nothing else (no `export`, no quotes or expansion, no space or tab at
