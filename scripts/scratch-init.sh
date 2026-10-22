@@ -40,8 +40,6 @@ chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/de
     --promptString "Git work email (repos in your work folder)=ci-work@example.invalid" \
     --promptString "Work folder (under your home)=~/repos" \
     --promptString "Personal folder (under your home)=~/dev" \
-    --promptString "Jira API token (for Codex MCP; stored locally only)=ci-placeholder" \
-    --promptString "GitLab token (for Codex MCP; stored locally only)=ci-placeholder" \
     >/dev/null
 
 trap - EXIT

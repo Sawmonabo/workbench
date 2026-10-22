@@ -71,6 +71,23 @@ func readAnswers(raw []byte) (Answers, error) {
 // than asks.
 var derivedAnswers = []string{"has_work", "has_personal", "is_wsl"}
 
+// retiredAnswers are the work tokens the questionnaire once asked. Migration
+// 0005 moves them into work.env; until it has, they stay accepted and redacted
+// but are never asked, and every write of the answers keeps them.
+var retiredAnswers = []string{"jira_api_token", "gitlab_token"}
+
+// carryRetired copies into answers each retired answer saved holds and
+// answers lacks.
+func carryRetired(answers, saved Answers) {
+	for _, key := range retiredAnswers {
+		if value, ok := saved[key]; ok {
+			if _, has := answers[key]; !has {
+				answers[key] = value
+			}
+		}
+	}
+}
+
 // CheckAsk reports whether every key in ask is a saved answer that the
 // questionnaire asks, so setup can drop it from the seed and ask it again.
 func CheckAsk(c operation.Context, ask []string) error {
@@ -98,7 +115,7 @@ func CheckAsk(c operation.Context, ask []string) error {
 }
 
 // Askable lists, sorted, the saved answers --ask can ask again: every saved
-// answer except the derived ones.
+// answer except the derived and retired ones.
 func Askable(c operation.Context) ([]string, error) {
 	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
 	if err != nil {
@@ -115,7 +132,7 @@ func Askable(c operation.Context) ([]string, error) {
 	}
 	var askable []string
 	for key := range answers {
-		if !slices.Contains(derivedAnswers, key) {
+		if !slices.Contains(derivedAnswers, key) && !slices.Contains(retiredAnswers, key) {
 			askable = append(askable, key)
 		}
 	}
@@ -148,7 +165,7 @@ func validateAnswers(c operation.Context, a Answers) error {
 	return nil
 }
 
-// answerKeys are every key the questionnaire can save.
+// answerKeys are every key the questionnaire can save, and the retired ones.
 var answerKeys = []string{
 	"name",
 	"email",
@@ -219,13 +236,6 @@ func (a Answers) invalidKey() string {
 	}
 	if key := a.invalidFolderKey(work, personal); key != "" {
 		return key
-	}
-	if work {
-		for _, key := range []string{"jira_api_token", "gitlab_token"} {
-			if _, ok := a[key].(string); !ok {
-				return key
-			}
-		}
 	}
 	if platform.WSL() {
 		return a.invalidWSLKey()
@@ -322,7 +332,7 @@ func (a Answers) invalidWSLKey() string {
 
 func (a Answers) secrets() []string {
 	var values []string
-	for _, key := range []string{"jira_api_token", "gitlab_token"} {
+	for _, key := range retiredAnswers {
 		if value, ok := a[key].(string); ok && value != "" {
 			values = append(values, value)
 		}
@@ -370,26 +380,31 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		return plan, nil, err
 	}
 	target := filepath.Join(c.Paths.Config, "machine.toml")
-	existing, err := ReadSelection(target)
+	selection, err := ReadSelection(target)
 	if err != nil {
 		return plan, nil, err
 	}
-	encoded, err := encodeMachineConfig(answers, existing)
+	var existing []byte
+	if _, statErr := os.Lstat(target); statErr == nil {
+		if existing, err = operation.ReadPrivateInput(target, 1<<20); err != nil {
+			return plan, nil, err
+		}
+		if saved, readErr := readAnswers(existing); readErr == nil {
+			carryRetired(answers, saved)
+		}
+	} else if !errors.Is(statErr, fs.ErrNotExist) {
+		return plan, nil, statErr
+	}
+	encoded, err := encodeMachineConfig(answers, selection)
 	if err != nil {
 		return plan, nil, err
 	}
 	previous, action := "absent", "create"
-	if _, statErr := os.Lstat(target); statErr == nil {
-		existing, readErr := operation.ReadPrivateInput(target, 1<<20)
-		if readErr != nil {
-			return plan, nil, readErr
-		}
+	if existing != nil {
 		previous, action = operation.SHA256Hex(existing), "modify"
 		if bytes.Equal(existing, encoded) {
 			action = ""
 		}
-	} else if !errors.Is(statErr, fs.ErrNotExist) {
-		return plan, nil, statErr
 	}
 	plan.Inputs = []operation.Input{
 		{Name: "adopted-answers", Digest: operation.SHA256Hex(encoded)},

@@ -2,9 +2,10 @@
 // files Workbench itself wrote outside its runtime folders into them, and
 // deletes of the caches, logs (or a log's lines in an old format), locks and
 // empty files it wrote and of an old copy whose new copy holds the same
-// bytes. A move of another
-// package's files is done by that package; this package holds the list, the
-// check and run loop, and the run record.
+// bytes, and 0005's move of the work tokens saved as machine answers into a
+// new work.env, deleting them from machine.toml only once work.env holds
+// them. A move of another package's files is done by that package; this
+// package holds the list, the check and run loop, and the run record.
 package migrate
 
 import (
@@ -75,7 +76,7 @@ type Migration struct {
 
 // Registry lists every migration in number order. A released migration is
 // never renumbered or removed; adding one is a numbered file and a line here.
-var Registry = []Migration{costsFolders, completionCache, oldCostsCache, oldGuardLog}
+var Registry = []Migration{costsFolders, completionCache, oldCostsCache, oldGuardLog, workTokens}
 
 // OldLocationVariables are the variables the old locations were read from.
 // The apply passes their names to its scripts as WORKBENCH_OLD_NAMES and each
@@ -336,6 +337,8 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 			"Migrations are not checkpointed; their moves keep every ledger row and every other file's bytes, and they delete only " +
 				"caches, logs or a log's old-format lines, locks and empty files Workbench wrote, and old copies whose new " +
 				"copy holds the same bytes",
+			"Migration 0005 deletes the work tokens from machine.toml only once work.env holds them, and never " +
+				"replaces an existing work.env",
 		},
 		Complete: true,
 	}

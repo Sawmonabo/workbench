@@ -19,7 +19,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   process keeps open, only the lines of an older format), and an old copy
   whose new copy holds the same bytes; they are idempotent, never touch other tools'
   files, never merge, and leave a file where it is when old and new data both
-  exist. The costs import worker runs the costs move itself, without asking,
+  exist. Migration 0005 may also move the two work-token answers
+  (`jira_api_token`, `gitlab_token`) from `machine.toml` into a new
+  `work.env`: it never replaces an existing `work.env`, deletes the two keys
+  only once `work.env` holds the same tokens, and changes neither file when
+  `work.env` holds anything else; until it has run, the answers keep the two
+  keys as retired ones, never asked and carried through every write. The
+  costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008).
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.

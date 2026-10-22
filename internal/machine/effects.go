@@ -107,15 +107,15 @@ var aiSecurityEffect = operation.Effect{
 var sharedEffects = []operation.Effect{
 	{
 		Name:        "migrations",
-		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders, deletes the old caches and removes the guard log's old-format lines; never other tools' files",
+		Description: "The installed workbench moves files earlier Workbench releases wrote into Workbench's own folders, moves the work tokens saved in machine.toml into a new work.env, deletes the old caches and removes the guard log's old-format lines; never other tools' files",
 		Privilege:   "user",
-		Recovery:    "external; moves keep every ledger row and every other file's bytes, so moving a file back by hand restores the old layout",
+		Recovery:    "external; moves keep every ledger row, every saved token and every other file's bytes, so moving a file or token back by hand restores the old layout",
 		Title:       "Move Workbench's files",
-		Summary:     "files earlier releases left outside Workbench's folders move into them",
-		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, deletes the old caches they left, and removes the free-text lines earlier builds of the agent command guard wrote to its log. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist. Unticking it skips the cache clean-ups and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
-		Touches:     "the old claude-costs folders and completion cache, the agent command guard's log, and Workbench's own folders",
+		Summary:     "files earlier releases left outside Workbench's folders move into them, and saved work tokens into work.env",
+		What:        "Moves the files earlier Workbench releases wrote outside Workbench's own folders, such as the costs ledger, into them, deletes the old caches they left, and removes the free-text lines earlier builds of the agent command guard wrote to its log. It moves the Jira and GitLab tokens earlier releases saved in machine.toml into a new work.env in Workbench's config folder, with the work email and the Jira and GitLab addresses, and deletes them from machine.toml only once work.env holds them. It never touches other tools' files, merges nothing, and leaves a file where it is when old and new data both exist, so a work.env that already holds anything else stays as it is and the tokens stay in machine.toml. Unticking it skips the cache clean-ups, leaves the tokens in machine.toml until a later apply moves them, and only delays the costs move: the next time Claude Code or Codex reports usage, Workbench moves the costs files itself, so no usage is lost when session files are deleted.",
+		Touches:     "the old claude-costs folders and completion cache, the agent command guard's log, machine.toml and work.env in Workbench's config folder, and Workbench's own folders",
 		RunsAs:      "you",
-		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, the old import log, lock and copies identical to the moved ones, and the guard log's old-format lines",
+		Undo:        "Not reverted automatically: moved files keep every ledger row and every other file's bytes, so moving them back by hand restores the old layout; the deleted files are caches, rebuilt when needed, the old import log, lock and copies identical to the moved ones, and the guard log's old-format lines; work.env keeps the moved tokens, so copying them back into machine.toml by hand restores the old answers",
 	},
 	{
 		Name:        "runtime-managers",

@@ -53,10 +53,6 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{- $mode := promptChoiceOnce . "versions_mode" "Install pinned or latest tool versions" (list "pinned" "latest") "pinned" -}}
 {{- if not (has $mode (list "pinned" "latest")) }}{{ fail "Invalid versions_mode" }}{{ end -}}
 {{- $_ := set $data "versions_mode" $mode -}}
-{{- if $hasWork -}}
-{{- $_ := set $data "jira_api_token" (promptStringOnce . "jira_api_token" "Jira API token (for Codex MCP; stored locally only)") -}}
-{{- $_ := set $data "gitlab_token" (promptStringOnce . "gitlab_token" "GitLab token (for Codex MCP; stored locally only)") -}}
-{{- end -}}
 {{- if $isWsl }}
 {{/*
     WSL VM sizing defaults are derived from the *Windows host* (inside WSL,
