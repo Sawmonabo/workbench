@@ -115,8 +115,13 @@ Goals:
   `~/dev` for personal.
 - Work credentials never reach a shell, command, editor or agent session
   started outside the work folder, and the work MCP servers never start
-  there. The one exception is a command typed in the work folder that acts
-  on another folder without changing to it (`git -C`, section 4.11).
+  there. Two exceptions, for Claude Code and Codex alike (sections 4.11
+  and 4.14):
+  - A command that acts on another folder without the shell changing to it
+    (`git -C`, or a script that changes folder itself).
+  - An agent session started in the work folder. It keeps its environment
+    and servers for the whole session, even if it later works in another
+    folder.
 - Any number of Workbench distributions on one Windows user, or just one,
   without any of them undoing another's Windows-side changes, and without
   Workbench naming or needing a particular distribution (section 4.7).
@@ -398,9 +403,9 @@ After the owner switches the role to `work` and installs a release with this
 change, the first `apply` must run at a terminal: it asks the new work folder
 question (section 4.13), and it asks about the steps that are new or not
 decided and have something to do: `migrations` (0005 has the tokens to
-move), `linux-packages`, `env-files` and `claude-mcp` (section 4.11). `epel`
-has nothing to do there (EPEL was installed by hand), so it sits under
-Already set and is not asked. `work-tools` is not planned on WSL
+move), `linux-packages` and `claude-mcp` (section 4.11). `epel` (EPEL was
+installed by hand) and `env-files` (migration 0005 creates `work.env`) have
+nothing to do there, so they sit under Already set and are not asked. `work-tools` is not planned on WSL
 (section 4.12). It plans the managed
 `.bashrc` and `.gitconfig` in place of the hand-written ones; the lines added
 there by hand (the promptctl hook, `clear-cache`) are already in the managed
@@ -472,8 +477,9 @@ distribution, after the disposable checks in section 4.10.
   - **`.gitconfig` and its includes.** The folder answers.
   - **`~/.codex/config.toml`.** The gate entries, `enabled = true`, no `env`
     credentials, and the folder answers in trust.
-  - **Codex `AGENTS.md`.** The folder answers, and the text to use the
-    variables and never open or print the env files.
+  - **Codex `AGENTS.md` and Claude Code `CLAUDE.md`.** The text to use the
+    variables and never open or print the env files, for roles with an env
+    file. The folder answers in Codex's.
   - **Claude Code `settings.json`.** The env-file deny rules.
 
   The personal-role leak check stays and must pass.
@@ -507,6 +513,9 @@ distribution, after the disposable checks in section 4.10.
       neither, even when a parent shell passed them down.
     - Typed in the work folder, `cd <personal folder>/x && env` shows no
       work name. So do `claude`, `codex` and `code` started the same way.
+    - In a Claude Code and a Codex session started in the personal folder,
+      a command `cd <work folder>/x && env` shows no work name (bash, and
+      zsh on macOS).
   - **Gate.**
     - Claude Code and Codex, each started in a work repository, list the
       dispatch tools from a stub server.
@@ -527,6 +536,9 @@ distribution, after the disposable checks in section 4.10.
   - **Stale Codex keys.** A `~/.codex/config.toml` holding synthetic literal
     tokens in the dispatch `env` tables ends without them, with the values
     redacted in the plan diff.
+  - **One definition.** The rendered Codex dispatch entries and the Claude
+    Code entries `claude-mcp` registers name the same command, arguments and
+    `NODE_VERSION`.
   - **Claude Code entries.** A hand-added user-scope entry with synthetic
     literal tokens is replaced by the gate entry. A same-named local-scope
     entry is reported, not touched.
@@ -593,6 +605,15 @@ folders.
 - **Names stay in Go.** The entry names and env file names live in Go, not
   in the rendered scripts, so render-check's personal leak check still
   passes.
+- **Inputs.** Each subcommand runs as a child of the locked apply, as
+  `migrate run` does. It reads the role and the folder answers from
+  `machine.toml`, its own executable path for the gate command, and the
+  config folder from Workbench's usual path rules.
+- **One definition of the dispatch entries.** The Codex template and the
+  `claude-mcp` subcommand both describe the two entries: names, checkout
+  path, `NODE_VERSION` and gate arguments. A check in 4.10 compares the
+  rendered Codex entries with the Claude Code entries, so the two cannot
+  drift.
 
 **Who writes the files.** `env-files`, on by default, creates each file its
 role uses when it is missing (0600). After that the file is the owner's:
@@ -605,9 +626,14 @@ which only creates `work.env`. The step's plan lines:
   line, so a name the owner leaves empty on purpose does not keep the step
   asking. Values are read only to tell empty from not; they are never kept,
   shown, logged or put in `--json`.
-- `env-files: work.env holds work credentials on a machine without the work
-  role; delete it` (and the same for `personal.env` on a machine without the
-  personal role). Workbench does not delete it.
+- `env-files: = work.env holds work credentials on a machine without the
+  work role; delete it` (and the same for `personal.env` on a machine without
+  the personal role). Workbench does not delete it.
+- `env-files: = waiting for migration 0005 to create work.env` while 0005
+  still has work to do.
+
+Every line but `create` is a nothing-to-do line (`=`), so the step is asked
+only when it will create a file.
 
 Undo: delete the file by hand; it is not checkpointed.
 
@@ -623,8 +649,16 @@ The hook is one shell function:
 - **Where it runs.** On every change of folder and before every prompt:
   - **bash:** from `cd`, `pushd` and `popd` wrappers, and appended to
     `PROMPT_COMMAND` after `oh-my-posh init` (never replacing it).
-  - **zsh:** from `chpwd`, and from `precmd`, which also runs before the
-    first prompt.
+  - **zsh:** registered with `add-zsh-hook chpwd` and `add-zsh-hook precmd`
+    (`precmd` also runs before the first prompt), never as functions named
+    `chpwd` or `cd`.
+
+  In both shells the hook does nothing unless the shell is interactive.
+  Both agents load the user's shell file to snapshot its functions for the
+  commands they run. bash's managed `.bashrc` already returns early when not
+  interactive, and the zsh guard does the same job, so an agent session
+  started in the personal folder never loads work names through a captured
+  hook.
 
   So `cd ~/dev/site && npm install`, typed in the work folder, already runs
   without the work names.
@@ -662,7 +696,7 @@ Every consumer reads the values by name:
 | --- | --- | --- |
 | The dispatch MCP servers | No credential in the entry. The gate reads `work.env` and passes its names to the server it starts (section 4.14). | The same: no `env` credentials and no `env_vars`. The gate reads `work.env`, which also gets past Codex starting servers with only a core environment. |
 | Commands the agent runs (atlassian-cli to write tickets, glab, curl) | The Bash tool inherits the session's environment. | Commands inherit it too: the filter on names containing KEY, SECRET or TOKEN is off unless configured (`ignore_default_excludes` defaults to true, `codex-rs/config/src/shell_environment_policy.rs`). |
-| Reading the files themselves | Denied: `Read(//<absolute config folder>/work.env)` and the same for `personal.env` join the enforced deny list beside `Read(./.env)`. Two leading slashes, because in Claude Code one slash anchors at `~/.claude/`, not the filesystem root ([permissions](https://code.claude.com/docs/en/permissions)). The settings modify template adds them with the folder resolved at apply time, since `claude.json`'s list is static. Then `cat` and the Read tool cannot put the tokens in a transcript. `env` or `printenv` in the Bash tool still can, as with any credential in the environment. | No equivalent: Codex runs with full access and no sandbox by the owner's earlier decision. Its instructions say to use the variables, never to open the files or print them. |
+| Reading the files themselves | Denied: `Read(//<absolute config folder>/work.env)` and the same for `personal.env` join the enforced deny list beside `Read(./.env)`. Two leading slashes, because in Claude Code one slash anchors at `~/.claude/`, not the filesystem root ([permissions](https://code.claude.com/docs/en/permissions)). The settings modify template adds them with the folder resolved at apply time, since `claude.json`'s list is static. Then `cat` and the Read tool cannot put the tokens in a transcript. `env` or `printenv` in the Bash tool still can, as with any credential in the environment, so `home/private_dot_claude/CLAUDE.md.tmpl` says to use the variables and never open or print the files. | No deny rule: Codex runs with full access and no sandbox by the owner's earlier decision. Its `AGENTS.md` says the same as Claude Code's `CLAUDE.md`: use the variables, never open or print the files. |
 
 atlassian-cli needs no change: it loads settings with pydantic-settings,
 where "environment variables will always take priority over values loaded
@@ -786,8 +820,13 @@ drop it.
 A `bw` already installed on a machine stays until the owner deletes it. So
 does the vault session key the wrapper cached in
 `~/.config/Bitwarden CLI/session`: that folder is Bitwarden's, and Workbench
-does not touch other tools' files. The `work-tools` Undo text and the release
-notes say to run `bw lock`, or delete that file, before the wrapper goes.
+does not touch other tools' files. The notice to run `bw lock` (or delete
+that file) goes where the owner sees it on every platform, WSL included:
+
+- The subject of the commit that removes Bitwarden, which becomes the
+  changelog and release notes.
+- `docs/usage.md` and `docs/linux.md`.
+- The `work-tools` Undo text, on the platforms that still plan that step.
 
 ### 4.13 The role and its folders are asked on every machine
 
@@ -1024,7 +1063,8 @@ Decided by the owner on Oct 21, 2026:
 - Codex's dispatch entries become `enabled = true`, since the gate limits
   them now.
 - Workbench changes Claude Code's entries only through `claude mcp`, and
-  reports, never removes, same-named local or project entries.
+  reports, never removes, same-named local-scope entries; project-scope
+  `.mcp.json` entries are not looked for.
 - Migration 0005 also fills the email and the two addresses, so ticket work
   keeps working after the upgrade, and it never merges into an existing
   `work.env`.
