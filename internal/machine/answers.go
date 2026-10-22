@@ -179,17 +179,38 @@ func validateAnswers(c operation.Context, a Answers) error {
 				"; remove them from the [data] table",
 		)
 	}
-	if key := a.invalidKey(); key != "" {
-		command := c.WorkbenchCommand()
-		return operation.Fail(
-			operation.ExitInvalid,
-			"answers",
-			"Machine answer "+key+" is missing or invalid; "+command+" apply at a terminal, "+
-				"without --local-build, asks the missing ones, or save them with "+command+
-				" init --answers-from FILE",
-		)
+	return answerMissing(c, a.invalidKey())
+}
+
+// answerMissing refuses the answer key, missing or invalid, saying how to
+// give it, or is nil when key is "".
+func answerMissing(c operation.Context, key string) error {
+	if key == "" {
+		return nil
 	}
-	return nil
+	command := c.WorkbenchCommand()
+	return operation.Fail(
+		operation.ExitInvalid,
+		"answers",
+		"Machine answer "+key+" is missing or invalid; "+command+" apply at a terminal, "+
+			"without --local-build, asks the missing ones, or save them with "+command+
+			" init --answers-from FILE",
+	)
+}
+
+// unasked refuses the saved answers in seed when the questionnaire would
+// still have to ask one, naming the first in question order. The derived
+// answers are set first, as the questionnaire derives them.
+func unasked(c operation.Context, seed []byte) error {
+	answers, err := readAnswers(seed)
+	if err != nil {
+		return err
+	}
+	role := answers.text("machine_role")
+	answers["has_work"] = role == "work" || role == "both"
+	answers["has_personal"] = role == "personal" || role == "both"
+	answers["is_wsl"] = platform.WSL()
+	return answerMissing(c, answers.invalidKey())
 }
 
 // answerKeys are every key the questionnaire can save, and the retired ones.

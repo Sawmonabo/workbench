@@ -56,8 +56,10 @@ keeping a copy of the old file, and registers the font it uses. Its color
 scheme, for every profile, is the `terminal_theme` answer, asked once on WSL:
 `kanagawa-dragon` (Kanagawa Dragon, the default: a near-black background with
 grey text) or `catppuccin-mocha` (Catppuccin Mocha). A machine saved before
-the question existed is asked it at its next apply at a terminal, and
-`init --ask terminal_theme` changes it later. Windows
+the question existed is asked it at its next `apply` at a terminal (not with
+`--local-build`); until then an unattended apply, or a coding agent's, is
+refused naming `terminal_theme`, and `init --answers-from FILE` with the key
+added saves it. Once saved, `init --ask terminal_theme` changes it. Windows
 Terminal and PowerShell open in the work folder on a machine with the work
 role, else in the personal folder.
 

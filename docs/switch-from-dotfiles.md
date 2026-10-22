@@ -31,6 +31,7 @@ over the same files.
    `personal_folder = "~/dev"` (personal and both), or the folders you use,
    and on the work roles `jira_url`, `gitlab_url` (each an `https://`
    address) and `dispatch_folder = "ai-devtools"` (or the checkout you use),
+   and on WSL `terminal_theme = "kanagawa-dragon"` (or `"catppuccin-mocha"`),
    to its `[data]` table first, and remove `restart_wsl_path` if it has one
    (Workbench no longer asks it), or skip this step and let `workbench apply`
    ask every question at a terminal.

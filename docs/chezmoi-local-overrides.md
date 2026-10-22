@@ -23,7 +23,8 @@ Roles derive `has_personal` and `has_work`; native host detection derives
 Mixed role asks for both emails, each role for its folder (`work_folder`,
 `personal_folder`), the work role for its Jira and GitLab addresses and the
 dispatch servers' checkout (`jira_url`, `gitlab_url`, `dispatch_folder`), and
-WSL for its sizing inputs. Answers hold
+WSL for its sizing inputs and Windows Terminal's color scheme
+(`terminal_theme`: `kanagawa-dragon` or `catppuccin-mocha`). Answers hold
 no credentials: those go in the role env files (see
 [usage](usage.md#roles-folders-and-credentials)). Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with
