@@ -27,7 +27,7 @@ func Plan(
 	defer operation.Annotate(&err, "plan machine configuration")
 	defer c.ShowProgress("Planning")()
 	// prepare cleans up after itself when it fails.
-	prepared, err := prepare(ctx, c, selection, true)
+	prepared, err := prepare(ctx, c, selection, nil)
 	if err == nil {
 		prepared.Close()
 	}
@@ -74,11 +74,14 @@ func (p *preparation) Close() {
 	}
 }
 
+// prepare plans the machine configuration. shown is nil for a plan, which
+// probes the scripts, and for apply's recheck the plan shown for approval,
+// whose probe findings stand in for a probe.
 func prepare(
 	ctx context.Context,
 	c operation.Context,
 	selection Selection,
-	probe bool,
+	shown *operation.Plan,
 ) (prepared *preparation, err error) {
 	prepared = &preparation{selection: selection}
 	plan := &prepared.Plan
@@ -159,7 +162,7 @@ func prepare(
 		prepared.planAgentUpdates(ctx, c, files, answers["versions_mode"] == "latest")
 		prepared.planUpdates(ctx, c, files)
 	}
-	if err = prepared.selectEffects(ctx, c, selection, probe); err != nil {
+	if err = prepared.selectEffects(ctx, c, selection, shown); err != nil {
 		return prepared, err
 	}
 	plan.Inputs = append(
@@ -182,20 +185,31 @@ func prepare(
 	return prepared, nil
 }
 
-// selectEffects probes the active scripts for their deltas, then checks each
-// effect as the selection and the saved skips say. An isolated destination
-// gets files only: scripts provision the real home.
+// selectEffects probes the active scripts for their deltas, unless shown has
+// them already, lists the take-overs they call for, then checks each effect as
+// the selection and the saved skips say. On WSL the writer record the scripts
+// follow is an input. An isolated destination gets files only: scripts
+// provision the real home.
 func (p *preparation) selectEffects(
 	ctx context.Context,
 	c operation.Context,
 	selection Selection,
-	probe bool,
+	shown *operation.Plan,
 ) error {
-	if probe {
+	if platform.WSL() && c.Native.Destination == c.Home {
+		writers := windowsWriters(ctx, c)
+		p.Plan.Inputs = append(p.Plan.Inputs, writers)
+		if writers.Digest == "unknown" {
+			p.Plan.Warnings = append(p.Plan.Warnings, "Couldn't read the Windows writer record")
+		}
+	}
+	if shown == nil {
 		if err := p.probeEffects(ctx, c); err != nil {
 			return err
 		}
+		shown = &p.Plan
 	}
+	p.Plan.Effects = append(p.Plan.Effects, takeOverEffects(shown.Effects)...)
 	saved, err := ReadSelection(c.Native.Config)
 	if err != nil {
 		return err
@@ -219,7 +233,7 @@ func (p *preparation) selectEffects(
 }
 
 func recoveryLimits() []string {
-	return []string{
+	limits := []string{
 		"Restores exact checkpointed files, modes and links only; packages, extensions, registry, services and uncheckpointed script writes are not reverted",
 		fmt.Sprintf(
 			"Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; at the checkpoint limit the plan lists removal of the oldest settled one",
@@ -230,6 +244,14 @@ func recoveryLimits() []string {
 			operation.MaxScopeCheckpointBytes>>30,
 		),
 	}
+	if platform.WSL() {
+		limits = append(
+			limits,
+			"Revert leaves the Windows Terminal settings, PowerShell profile, .wslconfig and default distribution as they are, and "+
+				writerRecord+", which records which WSL distribution writes each of them; deleting that file is safe",
+		)
+	}
+	return limits
 }
 
 // checkPrerequisites resolves management tools, the platform and answers, and
@@ -1145,7 +1167,8 @@ func (p *preparation) runScriptsThroughStepRunner() error {
 // readBlocked reads the file in which a script names each effect it could not
 // do, one "effect, tab, reason" line each, keeping the effects of this plan. An
 // effect that more than one part of its script could not do has a line for each,
-// and its reason is all of theirs, so none is lost.
+// and its reason is all of theirs, so none is lost. A take-over runs its step,
+// so what blocks the step blocks its take-over too.
 func readBlocked(path string, effects []operation.Effect) map[string]string {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -1153,17 +1176,22 @@ func readBlocked(path string, effects []operation.Effect) map[string]string {
 	}
 	reasons := map[string][]string{}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		name, reason, ok := strings.Cut(line, "\t")
-		if !ok || !slices.ContainsFunc(effects, func(effect operation.Effect) bool {
-			return effect.Name == name
-		}) {
+		step, reason, ok := strings.Cut(line, "\t")
+		if !ok {
 			continue
 		}
-		list := reasons[name]
-		if reason != "" && !slices.Contains(list, reason) {
-			list = append(list, reason)
+		for _, name := range []string{step, takeOverPrefix + step} {
+			if !slices.ContainsFunc(effects, func(effect operation.Effect) bool {
+				return effect.Name == name
+			}) {
+				continue
+			}
+			list := reasons[name]
+			if reason != "" && !slices.Contains(list, reason) {
+				list = append(list, reason)
+			}
+			reasons[name] = list
 		}
-		reasons[name] = list
 	}
 	blocked := map[string]string{}
 	for name, list := range reasons {

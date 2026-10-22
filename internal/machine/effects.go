@@ -77,6 +77,11 @@ var effectSources = map[string][]string{
 	"font-registry":           {"00-packages-windows"},
 	"default-distro":          {"10-deploy-windows-configs"},
 	"windows-path":            {"10-deploy-windows-configs"},
+	// A take-over runs its step's script even with the step itself unticked.
+	takeOverPrefix + "terminal-adoption":   {"00-packages-windows"},
+	takeOverPrefix + "powershell-adoption": {"00-packages-windows"},
+	takeOverPrefix + "wsl-preferences":     {"10-deploy-windows-configs"},
+	takeOverPrefix + "default-distro":      {"10-deploy-windows-configs"},
 }
 
 // activeEffects keeps the effects with an active source; see [effectSources].
@@ -268,7 +273,7 @@ var windowsHostEffects = []operation.Effect{
 		What:        "Sets WSL networking to mirrored, so a server started in WSL is reachable from Windows at localhost and the other way round, and applies your memory, swap and processor sizing. Your other .wslconfig settings are kept and a copy of the file is saved first. Takes effect the next time WSL starts.",
 		Touches:     "%USERPROFILE%\\.wslconfig",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy next to .wslconfig; nothing restarts on its own",
+		Undo:        "Restore the copy next to .wslconfig; nothing restarts on its own. " + writerRecordNote,
 	},
 }
 
@@ -306,7 +311,7 @@ var optionalEffects = []operation.Effect{
 		What:        "Replaces your Windows Terminal settings.json with the managed one, when it differs. A copy of yours is kept next to it. Installs and registers the font it uses, if that is not done yet.",
 		Touches:     "Windows Terminal settings.json and your Windows font registry",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy by hand",
+		Undo:        "Restore the copy by hand. " + writerRecordNote,
 	},
 	{
 		Name:        "powershell-adoption",
@@ -319,7 +324,7 @@ var optionalEffects = []operation.Effect{
 		What:        "Replaces your PowerShell profile with the managed one. A copy of yours is kept next to it. Installs oh-my-posh, which the profile starts, if it is missing.",
 		Touches:     "your PowerShell profile",
 		RunsAs:      "you, on Windows",
-		Undo:        "Restore the copy by hand",
+		Undo:        "Restore the copy by hand. " + writerRecordNote,
 	},
 	{
 		Name:        "font-registry",
@@ -345,7 +350,7 @@ var optionalEffects = []operation.Effect{
 		What:        "Makes this distribution the one `wsl` and new Windows Terminal tabs open by default.",
 		Touches:     "WSL settings",
 		RunsAs:      "you, on Windows",
-		Undo:        "wsl --set-default <name>",
+		Undo:        "wsl --set-default <name>. " + writerRecordNote,
 	},
 	{
 		Name:        "windows-path",
@@ -496,6 +501,8 @@ func SelectionOf(effects []operation.Effect) Selection {
 // effects listed, and so are saved selects for effects this host does not offer,
 // which the plan warns about; unlisted skips and decisions are kept. The decided
 // list is always non-nil: once saved, the owner has decided.
+// A take-over is never saved as selected: a tick takes over once, and a later
+// one is apply --choose. Decided keeps it, so a declined one is not asked again.
 func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
 	selection := SelectionOf(effects)
 	plan := operation.Plan{Effects: effects}
@@ -504,6 +511,8 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 			return effect.Name == name
 		})
 	}
+	takeOver := func(name string) bool { return strings.HasPrefix(name, takeOverPrefix) }
+	selection.Select = slices.DeleteFunc(selection.Select, takeOver)
 	selection.Decided = []string{}
 	for _, effect := range effects {
 		if !effect.Fixed &&
@@ -517,7 +526,7 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 		}
 	}
 	for _, name := range saved.Select {
-		if !listed(name) && !chosen.Forget {
+		if !listed(name) && !chosen.Forget && !takeOver(name) {
 			selection.Select = append(selection.Select, name)
 		}
 	}

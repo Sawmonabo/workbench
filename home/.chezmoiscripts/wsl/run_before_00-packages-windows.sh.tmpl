@@ -11,10 +11,24 @@
 #                        copy is kept); needs oh-my-posh
 #   font-registry        the fonts in the Windows registry and loaded; needs the
 #                        font files
+# Only one WSL distribution writes the Terminal settings and the PowerShell
+# profile: the one windows-writers.sh's record names (take-over-<effect> moves
+# it).
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
 {{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+{{ template "windows-writers.sh" }}
+
+# Whether the apply asks for the Terminal or PowerShell part: ticked, or its
+# take-over is. Which of them then runs is the writer record's (writer_runs).
+asked_terminal=0 asked_profile=0
+if [ "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" = 1 ] || [ "${WORKBENCH_EFFECT_TAKE_OVER_TERMINAL_ADOPTION:-0}" = 1 ]; then
+    asked_terminal=1
+fi
+if [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ] || [ "${WORKBENCH_EFFECT_TAKE_OVER_POWERSHELL_ADOPTION:-0}" = 1 ]; then
+    asked_profile=1
+fi
 
 # Everything the probe or the apply says about a Windows host that cannot be
 # used: one line per effect, since each of them is affected. An apply names each
@@ -29,8 +43,8 @@ blocked() {
         exit 0
     fi
     [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ] || part_blocked windows-files "$1"
-    [ "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" != 1 ] || part_blocked terminal-adoption "$1"
-    [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" != 1 ] || part_blocked powershell-adoption "$1"
+    [ "$asked_terminal" != 1 ] || part_blocked terminal-adoption "$1"
+    [ "$asked_profile" != 1 ] || part_blocked powershell-adoption "$1"
     [ "${WORKBENCH_EFFECT_FONT_REGISTRY:-0}" != 1 ] || part_blocked font-registry "$1"
     exit 0
 }
@@ -59,11 +73,13 @@ command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on th
 #             the probe says it could not check on that line, and an apply that
 #             selects the part stops before changing anything.
 #   registry  the fonts already registered, for the font and Terminal parts
+#   distros   the installed distributions, for the writer record
 win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%'
-if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ]; then
+win_start distros wsl.exe --list --quiet
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "$asked_profile" = 1 ]; then
     win_start profile powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost'
 fi
-if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_FONT_REGISTRY:-0}" = 1 ] || [ "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" = 1 ]; then
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_FONT_REGISTRY:-0}" = 1 ] || [ "$asked_terminal" = 1 ]; then
     win_start registry reg.exe query 'HKCU\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Fonts'
 fi
 win_wait
@@ -86,7 +102,7 @@ WIN_PROGRAMDATA=
 PS_PROFILE=""
 ps_profile_problem=""
 ps_why=""
-if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" = 1 ]; then
+if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "$asked_profile" = 1 ]; then
     PS_PROFILE_W=
     [ "${WIN_RC[profile]:-}" != 0 ] || PS_PROFILE_W=${WIN_OUT[profile]:-}
     [ -z "$PS_PROFILE_W" ] || PS_PROFILE=$(wslpath -u "$PS_PROFILE_W") || PS_PROFILE=
@@ -98,6 +114,9 @@ fi
 if [[ ! -d "$WIN_HOME" || ! -d "$WIN_APPDATA" || -z "${WSL_DISTRO_NAME:-}" ]]; then
     blocked "the Windows home, AppData or WSL_DISTRO_NAME is unavailable"
 fi
+WRITERS="$WIN_APPDATA/Workbench/writers.json"
+INSTALLED=
+[ "${WIN_RC[distros]:-}" != 0 ] || INSTALLED=${WIN_OUT[distros]:-}
 
 OMP_WIN_DIR="$WIN_APPDATA/Programs/oh-my-posh"
 OMP_WIN_BIN="$OMP_WIN_DIR/bin"
@@ -418,7 +437,13 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     elif [ "$fonts_reg" != 1 ]; then
         needs="register the JetBrainsMono fonts it uses"
     fi
-    if [ ! -d "$WT_PACKAGE_DIR" ]; then
+    # A file another distribution writes is that distribution's: the writer
+    # line alone stands for it.
+    writer=$(writer_line terminal-adoption "$WRITERS" "$INSTALLED" "$WSL_DISTRO_NAME")
+    [ -z "$writer" ] || echo "$writer"
+    if [[ $writer == "terminal-adoption: = "* ]]; then
+        :
+    elif [ ! -d "$WT_PACKAGE_DIR" ]; then
         echo "terminal-adoption: = Windows Terminal isn't installed, so there is nothing to replace"
     elif [ -n "$reg_why" ]; then
         echo "terminal-adoption: ? $reg_why"
@@ -442,7 +467,11 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     fi
     needs=
     [ "$omp_have" = 1 ] || needs="install oh-my-posh, which the profile starts"
-    if [ -n "$ps_profile_problem" ]; then
+    writer=$(writer_line powershell-adoption "$WRITERS" "$INSTALLED" "$WSL_DISTRO_NAME")
+    [ -z "$writer" ] || echo "$writer"
+    if [[ $writer == "powershell-adoption: = "* ]]; then
+        :
+    elif [ -n "$ps_profile_problem" ]; then
         echo "powershell-adoption: ? $ps_why"
     elif [ -e "$PS_PROFILE" ] && ps_profile_text | cmp -s - "$PS_PROFILE"; then
         if [ -z "$needs" ]; then
@@ -470,10 +499,18 @@ fi
 {{ includeTemplate ".chezmoitemplates/place-file.sh" . }}
 
 # What each effect asks for. Unset means "not selected" for the parts, and
-# windows-files defaults to on when the script is run directly.
+# windows-files defaults to on when the script is run directly. A ticked
+# take-over runs its part; a part another installed distribution writes is left
+# to it.
 files=${WORKBENCH_EFFECT_WINDOWS_FILES:-1}
-adopt_terminal=${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}
-adopt_profile=${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}
+adopt_terminal=0
+if writer_runs terminal-adoption "${WORKBENCH_EFFECT_TERMINAL_ADOPTION:-0}" "$WRITERS" "$INSTALLED" "$WSL_DISTRO_NAME"; then
+    adopt_terminal=1
+fi
+adopt_profile=0
+if writer_runs powershell-adoption "${WORKBENCH_EFFECT_POWERSHELL_ADOPTION:-0}" "$WRITERS" "$INSTALLED" "$WSL_DISTRO_NAME"; then
+    adopt_profile=1
+fi
 register_fonts=${WORKBENCH_EFFECT_FONT_REGISTRY:-0}
 if [ "$files" != 1 ] && [ "$adopt_terminal" != 1 ] && [ "$adopt_profile" != 1 ] && [ "$register_fonts" != 1 ]; then
     echo "==> No Windows part selected; Windows bootstrap skipped." >&2
@@ -674,6 +711,8 @@ if [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; then
         cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
         echo "    Windows Terminal settings written."
     fi
+    writer_record terminal-adoption "$WRITERS" "$WSL_DISTRO_NAME" ||
+        part_blocked terminal-adoption "the settings are in place, but $WRITERS could not record this distribution as their writer"
 elif [ "$manage_terminal" = 1 ]; then
     echo "==> Windows Terminal not found, skipping settings."
 fi
@@ -694,6 +733,8 @@ else
     ps_profile_text > "$PS_PROFILE"
     echo "    PowerShell profile written."
 fi
+writer_record powershell-adoption "$WRITERS" "$WSL_DISTRO_NAME" ||
+    part_blocked powershell-adoption "the profile is in place, but $WRITERS could not record this distribution as its writer"
 fi
 
 echo "==> WSL → Windows bootstrap complete."

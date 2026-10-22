@@ -6,10 +6,24 @@
 #
 # .wslconfig: a new file is written fresh; an existing one gets the managed keys
 # merged into it, everything else kept, after a dated recovery copy is saved.
+# Only one WSL distribution writes .wslconfig and the default distribution: the
+# one windows-writers.sh's record names (take-over-<effect> moves it).
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
 {{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
+{{ template "windows-writers.sh" }}
+
+# Whether the apply asks for WSL networking or the default distribution: ticked,
+# or its take-over is. Which of them then runs is the writer record's
+# (writer_runs).
+asked_preferences=0 asked_default=0
+if [ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" = 1 ] || [ "${WORKBENCH_EFFECT_TAKE_OVER_WSL_PREFERENCES:-0}" = 1 ]; then
+    asked_preferences=1
+fi
+if [ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" = 1 ] || [ "${WORKBENCH_EFFECT_TAKE_OVER_DEFAULT_DISTRO:-0}" = 1 ]; then
+    asked_default=1
+fi
 
 # What the probe or the apply says about a Windows host that cannot be used: one
 # line per effect this script carries, since each of them is affected. An apply
@@ -24,8 +38,8 @@ blocked() {
         exit 0
     fi
     [ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" != 1 ] || part_blocked windows-files "$1"
-    [ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" != 1 ] || part_blocked wsl-preferences "$1"
-    [ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" != 1 ] || part_blocked default-distro "$1"
+    [ "$asked_preferences" != 1 ] || part_blocked wsl-preferences "$1"
+    [ "$asked_default" != 1 ] || part_blocked default-distro "$1"
     [ "${WORKBENCH_EFFECT_WINDOWS_PATH:-0}" != 1 ] || part_blocked windows-path "$1"
     exit 0
 }
@@ -48,13 +62,14 @@ WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
-# a call that fails leaves them empty, which is reported below. The probe asks
-# Windows for the default distro and the user PATH in the same breath, since a
-# probe has 15 s and the calls do not depend on each other.
-win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%'
+# a call that fails leaves them empty, which is reported below. The installed
+# distributions, for the writer record, are asked in the same breath, and so are,
+# by the probe, the user PATH; a probe has 15 s and the calls do not depend on
+# each other. The default distribution is listed first by `wsl --list`, so it
+# is the first line of the quiet listing.
+win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%^|%LOCALAPPDATA%'
+win_start distros wsl.exe --list --quiet
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    # Listed first by `wsl --list`, so it is the first line of the quiet listing.
-    win_start distros wsl.exe --list --quiet
     win_start user-path powershell.exe -NoProfile -Command '
         $want = @("$env:USERPROFILE\bin", "$env:USERPROFILE\.local\bin")
         $have = @([Environment]::GetEnvironmentVariable("Path", "User") -split ";")
@@ -64,7 +79,7 @@ fi
 win_wait
 
 mapfile -d '|' -t fields < <(printf '%s' "${WIN_OUT[variables]:-}")
-WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_ROAMING_W=${fields[2]:-} WIN_PROGRAMFILES_W=${fields[3]:-} WIN_ARCH=${fields[4]:-}
+WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_ROAMING_W=${fields[2]:-} WIN_PROGRAMFILES_W=${fields[3]:-} WIN_ARCH=${fields[4]:-} WIN_LOCAL_W=${fields[5]:-}
 if [ -z "$WIN_HOME_W" ] || [ -z "$WIN_ROAMING_W" ]; then
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         unchecked "$(win_unanswered variables || echo "Couldn't check the Windows side")"
@@ -77,6 +92,12 @@ WIN_ROAMING=$(wslpath -u "$WIN_ROAMING_W")
 WIN_PROGRAMFILES=
 [ -z "$WIN_PROGRAMFILES_W" ] || WIN_PROGRAMFILES=$(wslpath -u "$WIN_PROGRAMFILES_W")
 [[ -d "$WIN_HOME" && -d "$WIN_ROAMING" ]] || blocked "the Windows home or AppData folder is unavailable"
+# Without the local app data folder there is no record path, which writer_line
+# reports as a record it couldn't read.
+WRITERS=
+[ -z "$WIN_LOCAL_W" ] || WRITERS="$(wslpath -u "$WIN_LOCAL_W")/Workbench/writers.json" || WRITERS=
+INSTALLED=
+[ "${WIN_RC[distros]:-}" != 0 ] || INSTALLED=${WIN_OUT[distros]:-}
 
 # ---------- Helpers ----------
 
@@ -255,7 +276,13 @@ wslconfig_merged() {
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     WSLCONFIG="$WIN_HOME/.wslconfig"
-    if [[ ! -f "$WSLCONFIG" ]]; then
+    # A file another distribution writes is that distribution's: the writer
+    # line alone stands for it.
+    writer=$(writer_line wsl-preferences "$WRITERS" "$INSTALLED" "${WSL_DISTRO_NAME:-}")
+    [ -z "$writer" ] || echo "$writer"
+    if [[ $writer == "wsl-preferences: = "* ]]; then
+        :
+    elif [[ ! -f "$WSLCONFIG" ]]; then
         echo "wsl-preferences: create .wslconfig with your sizing and mirrored networking"
     else
         probe_tmp=$(mktemp)
@@ -320,7 +347,11 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 
     # The calls to Windows were made above, together, under the probe's cap; a
     # call that did not answer is said so, never read as a change.
-    if why=$(win_unanswered distros); then
+    writer=$(writer_line default-distro "$WRITERS" "$INSTALLED" "${WSL_DISTRO_NAME:-}")
+    [ -z "$writer" ] || echo "$writer"
+    if [[ $writer == "default-distro: = "* ]]; then
+        :
+    elif why=$(win_unanswered distros); then
         echo "default-distro: ? $why"
     elif [ -z "${WIN_OUT[distros]}" ]; then
         echo "default-distro: ? Couldn't check the Windows side"
@@ -352,7 +383,7 @@ echo "==> Deploying WSL Windows configs..."
 echo "    Windows user: $WIN_USER"
 
 # ---------- .wslconfig ----------
-if [[ "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" == 1 ]]; then
+if writer_runs wsl-preferences "${WORKBENCH_EFFECT_WSL_PREFERENCES:-1}" "$WRITERS" "$INSTALLED" "${WSL_DISTRO_NAME:-}"; then
 WSLCONFIG="$WIN_HOME/.wslconfig"
 
 if [[ ! -f "$WSLCONFIG" ]]; then
@@ -411,6 +442,8 @@ PY
         echo "    Merged."
     fi
 fi
+writer_record wsl-preferences "$WRITERS" "${WSL_DISTRO_NAME:-}" ||
+    part_blocked wsl-preferences ".wslconfig is in place, but ${WRITERS:-the Windows writer record} could not record this distribution as its writer"
 fi
 
 # ---------- RestartWSL scripts ----------
@@ -437,7 +470,7 @@ fi
 # targets it too - opening the wrong distro with none of your toolchain. When
 # the default-distro effect is selected, the distro running this apply (named
 # in the approved plan) becomes the default.
-if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
+if writer_runs default-distro "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" "$WRITERS" "$INSTALLED" "${WSL_DISTRO_NAME:-}"; then
     if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
         part_blocked default-distro "WSL_DISTRO_NAME is not set in this session, so the distribution is unknown"
     else
@@ -446,6 +479,8 @@ if [[ "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-}" == 1 ]]; then
             part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro)"
         else
             [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
+            writer_record default-distro "$WRITERS" "$WSL_DISTRO_NAME" ||
+                part_blocked default-distro "$WSL_DISTRO_NAME is the default, but ${WRITERS:-the Windows writer record} could not record it as the distribution that sets it"
         fi
     fi
 fi

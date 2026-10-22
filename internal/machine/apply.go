@@ -72,7 +72,7 @@ func Apply(
 	planner := func(ctx context.Context, preview operation.Context) (operation.Plan, error) {
 		defer preview.ShowProgress("Rechecking the plan")()
 		var err error
-		prepared, err = prepare(ctx, preview, selection, false)
+		prepared, err = prepare(ctx, preview, selection, &displayed)
 		if err == nil {
 			prepared.brewRefreshed = brewRefreshed
 			// The recheck does not probe; carry the shown deltas so the
