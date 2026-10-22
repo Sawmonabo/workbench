@@ -66,7 +66,7 @@ user_bin_refused linux-packages
 if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- base toolchain (a fresh WSL image has no C compiler; cargo/uv/node-gyp all need one) ---
 base_missing=0
-for tool in cc curl unzip git fc-cache; do
+for tool in cc c++ curl unzip git fc-cache; do
     command -v "$tool" >/dev/null || base_missing=1
 done
 # Every apt-get here waits up to ten minutes for the package lock: on a new
