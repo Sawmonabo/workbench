@@ -15,8 +15,8 @@ import (
 )
 
 // claudeMCPEntry is what the claude-mcp step compares of a Claude Code MCP
-// server entry: its command, its arguments and the names its env sets. The
-// env values are never decoded.
+// server entry: its command, its arguments and its env. Only the values of the
+// names a dispatch server sets are ever decoded.
 type claudeMCPEntry struct {
 	Command string                     `json:"command"`
 	Args    []string                   `json:"args"`
@@ -47,88 +47,116 @@ func readClaudeMCPServers(home string) (claudeMCPServers, error) {
 	return servers, json.Unmarshal(raw, &servers)
 }
 
-// claudeMCPWanted are the dispatch servers as the claude-mcp step registers
-// them: the ones Codex renders, with the workbench in the bin folder this
-// apply resolved as their command.
-func claudeMCPWanted(c operation.Context, a Answers) []dispatchServer {
-	return dispatchServers(a, filepath.Join(c.Paths.Bin, "workbench"), c.Paths.Config, c.Home)
-}
-
-// dispatchNames are the dispatch servers' names, which a machine without the
-// work role removes.
-func dispatchNames() []string {
-	var names []string
-	for _, server := range dispatchServers(Answers{"has_work": true}, "", "", "") {
-		names = append(names, server.Name)
-	}
-	return names
-}
-
 // registered reports whether a user-scope entry starts server: the same
-// command and arguments, and an env that sets NODE_VERSION alone.
+// command, arguments and env, which sets NODE_VERSION alone.
 func registered(raw json.RawMessage, server dispatchServer) bool {
 	var entry claudeMCPEntry
-	return json.Unmarshal(raw, &entry) == nil && entry.Command == server.Command &&
-		slices.Equal(entry.Args, server.Args) &&
-		slices.Equal(slices.Sorted(maps.Keys(entry.Env)), []string{"NODE_VERSION"})
+	if json.Unmarshal(raw, &entry) != nil || entry.Command != server.Command ||
+		!slices.Equal(entry.Args, server.Args) ||
+		!slices.Equal(slices.Sorted(maps.Keys(entry.Env)), slices.Sorted(maps.Keys(server.Env))) {
+		return false
+	}
+	for name, want := range server.Env {
+		var value string
+		if json.Unmarshal(entry.Env[name], &value) != nil || value != want {
+			return false
+		}
+	}
+	return true
 }
 
-// ClaudeMCPProbe is the claude-mcp step's probe lines. With the work role it
-// registers each dispatch server Claude Code's user scope doesn't start as
-// wanted, warns of a same-named local entry, which outranks the user one, and
-// of tokens a replaced entry held that work.env doesn't get. Without it, it
-// removes the user-scope entries. It names files, entries and projects, never
-// a value.
-func ClaudeMCPProbe(c operation.Context, a Answers) []string {
+// claudeMCPChanges is what the claude-mcp step changes in Claude Code's user
+// scope, from one read of its .claude.json, so the probe and the run agree:
+// the user entries to remove, then the wanted servers to add. With the work
+// role a server is added only when no user entry starts it as wanted, and an
+// entry of its name is removed first; without it, every dispatch entry there
+// is removed. tokens says a replaced entry's env names a token.
+type claudeMCPChanges struct {
+	servers  claudeMCPServers
+	wanted   []dispatchServer
+	remove   []string
+	register []dispatchServer
+	tokens   bool
+}
+
+func claudeMCPPending(c operation.Context, a Answers) (claudeMCPChanges, error) {
 	servers, err := readClaudeMCPServers(c.Home)
+	if err != nil {
+		return claudeMCPChanges{}, err
+	}
+	// The servers Codex renders, with the workbench in the bin folder this
+	// apply resolved as their command.
+	changes := claudeMCPChanges{
+		servers: servers,
+		wanted: dispatchServers(
+			a,
+			filepath.Join(c.Paths.Bin, "workbench"),
+			c.Paths.Config,
+			c.Home,
+		),
+	}
+	if changes.wanted == nil {
+		for _, server := range dispatchTools {
+			if _, ok := servers.User[server.Name]; ok {
+				changes.remove = append(changes.remove, server.Name)
+			}
+		}
+		return changes, nil
+	}
+	for _, server := range changes.wanted {
+		raw, ok := servers.User[server.Name]
+		if ok && registered(raw, server) {
+			continue
+		}
+		changes.register = append(changes.register, server)
+		var entry claudeMCPEntry
+		if ok {
+			changes.remove = append(changes.remove, server.Name)
+			_ = json.Unmarshal(raw, &entry)
+		}
+		for name := range entry.Env {
+			changes.tokens = changes.tokens || strings.Contains(name, "TOKEN")
+		}
+	}
+	return changes, nil
+}
+
+// ClaudeMCPProbe is the claude-mcp step's probe lines: what it registers or
+// removes, a same-named local entry, which outranks the user one, and tokens a
+// replaced entry held that work.env doesn't get. It names files, entries and
+// projects, never a value.
+func ClaudeMCPProbe(c operation.Context, a Answers) []string {
+	changes, err := claudeMCPPending(c, a)
 	if err != nil {
 		return []string{
 			"claude-mcp: ? " + c.ShowPath(costs.ClaudeJSON(c.Home)) +
 				" can't be read, so which servers are registered is unknown",
 		}
 	}
-	wanted := claudeMCPWanted(c, a)
-	if wanted == nil {
-		var present []string
-		for _, name := range dispatchNames() {
-			if _, ok := servers.User[name]; ok {
-				present = append(present, name)
-			}
-		}
-		if len(present) == 0 {
+	if changes.wanted == nil {
+		if len(changes.remove) == 0 {
 			return []string{"claude-mcp: = nothing to do"}
 		}
-		return []string{"claude-mcp: remove " + strings.Join(present, ", ")}
-	}
-	var register []string
-	tokens := false
-	for _, server := range wanted {
-		raw, ok := servers.User[server.Name]
-		if ok && registered(raw, server) {
-			continue
-		}
-		register = append(register, server.Name)
-		var entry claudeMCPEntry
-		if ok && json.Unmarshal(raw, &entry) == nil {
-			for name := range entry.Env {
-				tokens = tokens || strings.Contains(name, "TOKEN")
-			}
-		}
+		return []string{"claude-mcp: remove " + strings.Join(changes.remove, ", ")}
 	}
 	lines := []string{"claude-mcp: = registered"}
-	if len(register) > 0 {
-		lines = []string{"claude-mcp: register " + strings.Join(register, ", ")}
+	if len(changes.register) > 0 {
+		var names []string
+		for _, server := range changes.register {
+			names = append(names, server.Name)
+		}
+		lines = []string{"claude-mcp: register " + strings.Join(names, ", ")}
 	}
-	for _, project := range slices.Sorted(maps.Keys(servers.Projects)) {
-		for _, server := range wanted {
-			if _, ok := servers.Projects[project].Local[server.Name]; ok {
+	for _, project := range slices.Sorted(maps.Keys(changes.servers.Projects)) {
+		for _, server := range changes.wanted {
+			if _, ok := changes.servers.Projects[project].Local[server.Name]; ok {
 				lines = append(lines, "claude-mcp: = a local entry for "+server.Name+" in "+
 					c.ShowPath(project)+" outranks this one: run claude mcp remove --scope local "+
 					server.Name)
 			}
 		}
 	}
-	if tokens && !workTokensWaiting() {
+	if changes.tokens && !workTokensWaiting() {
 		lines = append(
 			lines,
 			"claude-mcp: = the old entry's credentials are not carried into work.env",
@@ -140,27 +168,32 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 // ClaudeMCPCommands are what the claude-mcp step's script runs: the claude
 // the shell runs ("" when Claude Code is not installed), the bin folder of
 // nvm's default Node ("" when it has none), which an npm copy of claude needs
-// on PATH, and the claude arguments, in order. With the work role each
-// dispatch server is removed from user scope, which fails harmlessly when it
-// is not there, then added back as wanted; without it, each is only removed.
+// on PATH, and the claude arguments, in order: the removes, then the adds. It
+// lists none when nothing needs changing, and fails when Claude Code's file
+// can't be read rather than guess.
 func ClaudeMCPCommands(
 	c operation.Context,
 	a Answers,
-) (claude, nodeBin string, commands [][]string) {
+) (claude, nodeBin string, commands [][]string, err error) {
+	changes, err := claudeMCPPending(c, a)
+	if err != nil {
+		return "", "", nil, operation.Fail(
+			operation.ExitBlocked,
+			"claude-mcp",
+			c.ShowPath(costs.ClaudeJSON(c.Home))+" can't be read, so no server was changed",
+		)
+	}
 	nodeBin = nvmDefaultBin(c.Home)
 	at := slices.IndexFunc(agents, func(agent agent) bool { return agent.command == "claude" })
-	if install, ok := findAgent(c.Home, nodeBin, agents[at]); ok {
-		claude = install.path
-	}
-	remove := func(name string) []string { return []string{"mcp", "remove", "--scope", "user", name} }
-	wanted := claudeMCPWanted(c, a)
-	if wanted == nil {
-		for _, name := range dispatchNames() {
-			commands = append(commands, remove(name))
+	if at >= 0 {
+		if install, ok := findAgent(c.Home, nodeBin, agents[at]); ok {
+			claude = install.path
 		}
-		return claude, nodeBin, commands
 	}
-	for _, server := range wanted {
+	for _, name := range changes.remove {
+		commands = append(commands, []string{"mcp", "remove", "--scope", "user", name})
+	}
+	for _, server := range changes.register {
 		entry, _ := json.Marshal(struct {
 			Type    string            `json:"type"`
 			Command string            `json:"command"`
@@ -169,9 +202,8 @@ func ClaudeMCPCommands(
 		}{"stdio", server.Command, server.Args, server.Env})
 		commands = append(
 			commands,
-			remove(server.Name),
 			[]string{"mcp", "add-json", "--scope", "user", server.Name, string(entry)},
 		)
 	}
-	return claude, nodeBin, commands
+	return claude, nodeBin, commands, nil
 }

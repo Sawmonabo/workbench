@@ -36,7 +36,10 @@ func claudeMCPCommand(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			claude, nodeBin, commands := machine.ClaudeMCPCommands(c, answers)
+			claude, nodeBin, commands, err := machine.ClaudeMCPCommands(c, answers)
+			if err != nil {
+				return err
+			}
 			var fields strings.Builder
 			fields.WriteString(claude + "\x00" + nodeBin + "\x00")
 			for _, command := range commands {

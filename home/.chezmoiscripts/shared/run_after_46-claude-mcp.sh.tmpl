@@ -3,9 +3,10 @@
 # them without the work role, with Claude Code's own claude mcp commands:
 # Claude Code rewrites its .claude.json all the time, so only claude writes it.
 # The installed workbench reads the role and folders from Workbench's saved
-# answers and prints the commands, so no server is named here. chezmoi runs
-# scripts in the order of their full source paths, so this runs after
-# shared/run_after_45-agent-updates and the global tools, which install claude.
+# answers and prints the commands for the entries that need a change, so no
+# server is named here. chezmoi runs scripts in the order of their full source
+# paths, so this runs after shared/run_after_45-agent-updates and the global
+# tools, which install claude.
 set -euo pipefail
 {{ template "installed-workbench.sh" }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
@@ -44,27 +45,30 @@ if ! reason=$("$workbench" claude-mcp run 2>&1 >"$fields"); then
     part_blocked claude-mcp "${reason:-workbench claude-mcp run failed}"
     exit 0
 fi
+# With nothing to change there is no command, and claude is not needed.
 {
     IFS= read -r -d '' claude
     IFS= read -r -d '' node_bin
-    if [ -z "$claude" ]; then
-        part_blocked claude-mcp "Claude Code is not installed"
-        exit 0
-    fi
+    ran=0
     args=()
     while IFS= read -r -d '' field; do
         if [ -n "$field" ]; then
             args+=("$field")
             continue
         fi
+        if [ -z "$claude" ]; then
+            part_blocked claude-mcp "Claude Code is not installed"
+            exit 0
+        fi
+        ran=1
         echo "==> claude-mcp: claude ${args[*]:0:5}"
         # An npm copy of claude is a node script: its launcher needs node.
-        if [ "${args[1]}" = remove ]; then
-            # Removing a server that is not there is not a failure.
-            PATH="$(dirname "$claude")${node_bin:+:$node_bin}:$PATH" "$claude" "${args[@]}" 2>/dev/null || true
-        elif ! PATH="$(dirname "$claude")${node_bin:+:$node_bin}:$PATH" "$claude" "${args[@]}"; then
+        if ! PATH="$(dirname "$claude")${node_bin:+:$node_bin}:$PATH" "$claude" "${args[@]}"; then
             part_blocked claude-mcp "claude mcp ${args[1]} ${args[4]} failed (the output above says why)"
         fi
         args=()
     done
+    if [ "$ran" = 0 ]; then
+        echo "==> claude-mcp: nothing to change"
+    fi
 } <"$fields"
