@@ -20,8 +20,8 @@ requested work instead of counting as success.
 
 On AlmaLinux, System packages installs `gcc gcc-c++ make curl unzip git
 ca-certificates fontconfig` with dnf, only those `rpm -q --whatprovides` does
-not find, so an image's `curl-minimal` counts as curl; then `bat`, `fd-find`,
-tmux and, in Command-line tools, podman. `bat` and `fd` come only from EPEL:
+not find, so a name an installed package already provides is not installed
+again; then `bat`, `fd-find`, tmux and, in Command-line tools, podman. `bat` and `fd` come only from EPEL:
 the EPEL step (`epel`), listed only where the package manager is dnf and on by
 default, runs `sudo dnf install -y epel-release` from AlmaLinux's own `extras`
 repository when `rpm -q epel-release` fails (`epel: turn on EPEL (uses

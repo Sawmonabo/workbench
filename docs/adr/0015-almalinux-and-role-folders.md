@@ -87,14 +87,16 @@ rewrite the shared Windows Terminal settings, PowerShell profile,
 - AlmaLinux 10 is implemented on amd64 and arm64, natively and on WSL, with
   the same steps and consent as Ubuntu plus `epel`. No native AlmaLinux run is
   recorded yet; `docs/acceptance.md` records one when it is run.
-- A machine with saved answers is asked its folder questions on the first
-  apply after upgrading, with today's folders as defaults; that apply needs a
+- A machine with saved answers is asked its folder questions, and on the work
+  role the Jira, GitLab and dispatch-checkout questions, on the first apply
+  after upgrading, with today's folders as defaults; that apply needs a
   terminal, or `init --answers-from FILE`.
 - Work names never reach a shell, command or agent started outside the work
   folder through Workbench's shell files, except a command that acts on
   another folder without changing to it (`git -C`) and an agent session
-  started in the work folder, which keeps its environment and servers for
-  the whole session.
+  started in the work folder, which keeps its environment for the whole
+  session; Claude Code keeps its servers too, while Codex restarts them when
+  the session changes folder, so the gate decides again there.
 - Outside the work folder each agent session keeps one idle `mcp-gate`
   process per dispatch server, with no Node and no tools: about 19 MB of
   memory each (18.3 to 18.8 MB resident, measured on Linux), so about 38 MB

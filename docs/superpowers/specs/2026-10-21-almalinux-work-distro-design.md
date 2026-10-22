@@ -120,8 +120,9 @@ Goals:
   - A command that acts on another folder without the shell changing to it
     (`git -C`, or a script that changes folder itself).
   - An agent session started in the work folder. It keeps its environment
-    and servers for the whole session, even if it later works in another
-    folder.
+    for the whole session, even if it later works in another folder, and in
+    Claude Code its servers too; Codex restarts its servers when the session
+    changes folder, so the gate decides again (section 4.14).
 - Any number of Workbench distributions on one Windows user, or just one,
   without any of them undoing another's Windows-side changes, and without
   Workbench naming or needing a particular distribution (section 4.7).
@@ -236,8 +237,9 @@ On dnf, as root through `sudo`, like the apt lines:
 2. **Base packages**, replacing `build-essential curl unzip git
    ca-certificates fontconfig`: `gcc gcc-c++ make curl unzip git
    ca-certificates fontconfig`, installing only the ones `rpm -q` does not
-   find, so an image that ships `curl-minimal` keeps it rather than hitting
-   a package conflict. Today the base part is skipped without a word when
+   find, so a name an installed package already provides is not installed
+   again. (AlmaLinux 10's repositories have no `curl-minimal` package, only
+   `curl` and `libcurl-minimal`.) Today the base part is skipped without a word when
    `apt-get` is missing, so the font part later fails on the missing
    `fc-cache`; on AlmaLinux it now runs.
 3. **bat and fd**: `dnf install -y bat fd-find`. The commands are already
@@ -247,8 +249,8 @@ On dnf, as root through `sudo`, like the apt lines:
    off. The packages script is `run_once`, so a failed part makes chezmoi run
    it again on the next apply; that is intended. The cargo fallback stays
    only for a system with neither apt nor dnf, where it already exists.
-4. **tmux**: unchanged (it already has the dnf branch). AppStream's tmux is
-   3.3a; the managed `tmux.conf` uses TPM and the Dracula theme and sets no
+4. **tmux**: unchanged (it already has the dnf branch). AlmaLinux 10's
+   tmux, from BaseOS, is 3.3a; the managed `tmux.conf` uses TPM and the Dracula theme and sets no
    option newer than 3.3. The builder confirms the theme loads in the
    disposable check.
 5. **gh, oh-my-posh, the Nerd Font**: unchanged. They are
@@ -713,7 +715,7 @@ Every consumer reads the values by name:
 | --- | --- | --- |
 | The dispatch MCP servers | No credential in the entry. The gate reads `work.env` and passes its names to the server it starts (section 4.14). | The same: no `env` credentials and no `env_vars`. The gate reads `work.env`, which also gets past Codex starting servers with only a core environment. |
 | Commands the agent runs (atlassian-cli to write tickets, glab, curl) | The Bash tool inherits the session's environment. | Commands inherit it too: the filter on names containing KEY, SECRET or TOKEN is off unless configured (`ignore_default_excludes` defaults to true, `codex-rs/config/src/shell_environment_policy.rs`). |
-| Reading the files themselves | Denied: `Read(//<absolute config folder>/work.env)` and the same for `personal.env` join the enforced deny list beside `Read(./.env)`. Two leading slashes, because in Claude Code one slash anchors at `~/.claude/`, not the filesystem root ([permissions](https://code.claude.com/docs/en/permissions)). The settings modify template adds them with the folder resolved at apply time, since `claude.json`'s list is static. Then `cat` and the Read tool cannot put the tokens in a transcript. `env` or `printenv` in the Bash tool still can, as with any credential in the environment, so `home/private_dot_claude/CLAUDE.md.tmpl` says to use the variables and never open or print the files. | No deny rule: Codex runs with full access and no sandbox by the owner's earlier decision. Its `AGENTS.md` says the same as Claude Code's `CLAUDE.md`: use the variables, never open or print the files. |
+| Reading the files themselves | Denied: `Read(//<absolute config folder>/work.env)` and the same for `personal.env` join the enforced deny list beside `Read(./.env)`. Two leading slashes, because in Claude Code one slash anchors at `~/.claude/`, not the filesystem root ([permissions](https://code.claude.com/docs/en/permissions)). The settings modify template adds them with the folder resolved at apply time, since `claude.json`'s list is static. They cover Claude Code's built-in file tools (Read, Grep, Glob, @-mentions), the file commands it recognizes in Bash (`cat`, `head`, `tail`, `sed`, `tee`) and the targets of Bash redirections, in every mode. They do not cover `grep -r` or another command that reads files without naming them, a script that reads the file, a command inside `sh -c` or a program called by its path ([permissions](https://code.claude.com/docs/en/permissions)), so they guard against a casual read and are not a boundary. `env` or `printenv` in the Bash tool can also print the values, as with any credential in the environment, so `home/private_dot_claude/CLAUDE.md.tmpl` says to use the variables and never open or print the files. | No deny rule: Codex runs with full access and no sandbox by the owner's earlier decision. Its `AGENTS.md` says the same as Claude Code's `CLAUDE.md`: use the variables, never open or print the files. |
 
 atlassian-cli needs no change: it loads settings with pydantic-settings,
 where "environment variables will always take priority over values loaded
@@ -743,7 +745,16 @@ What changes in each agent's config:
    - **Work role.** It registers the two servers at user scope with Claude
      Code's own commands, `claude mcp remove --scope user NAME`, then
      `claude mcp add-json --scope user NAME JSON`. The JSON holds the gate
-     command and `NODE_VERSION`, no credential.
+     command and `NODE_VERSION`, no credential. It changes only a server that
+     is not registered as wanted: a server already registered that way is
+     left alone, and only a same-named entry that differs is removed first.
+   - **First run.** On a machine where Claude Code has never run (its config
+     folder is `~/.claude` and there is no `~/.claude.json`), the step's
+     first `claude` command is Claude Code's first run, which rewrites
+     `~/.claude/settings.json` once. The step keeps a copy of the settings
+     the apply just wrote, `settings.json.workbench-first-run`, and puts it
+     back after its last command; a copy an interrupted apply left is
+     deleted by the next run of the step.
    - **Without the work role.** It removes them with
      `claude mcp remove --scope user`, so a role change takes them away.
    - **Probe.** It compares the user-scope entries in `~/.claude.json` with
@@ -979,10 +990,11 @@ How the gate decides:
   sets it to the project root), otherwise its own working folder (Codex
   starts it in the session's folder). It resolves symlinks and compares by
   whole path segments, so `~/repos-old` is not inside `~/repos`.
-- **For the whole session.** Neither agent restarts a user-scope server when
-  the session changes folder (Claude Code's `/cd`), so a session started in
-  the work folder keeps the servers and one started elsewhere never gets
-  them.
+- **When the session changes folder.** Claude Code does not restart a
+  user-scope server on `/cd`, so its session keeps what it started with.
+  Codex restarts its MCP servers when the session's folder changes (its
+  launch key holds the folder a server without `cwd` starts in), so there the
+  gate decides again for the new folder.
 - **Inside the work folder.** It reads `work.env` (it must be a regular file
   owned by the user with no group or other permission bits), adds each name
   with a value

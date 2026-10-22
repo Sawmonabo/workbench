@@ -77,8 +77,8 @@ install_base() {
         sudo apt-get -o DPkg::Lock::Timeout=600 update -qq || return 1
         sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig || return 1
     elif command -v dnf &>/dev/null; then
-        # rpm -q --whatprovides also finds a package that provides the name, so
-        # an image's curl-minimal counts as curl instead of conflicting with it.
+        # Only the names rpm -q --whatprovides does not find are installed, so a
+        # name an installed package already provides is not installed again.
         local pkg missing=()
         for pkg in gcc gcc-c++ make curl unzip git ca-certificates fontconfig; do
             rpm -q --whatprovides "$pkg" &>/dev/null || missing+=("$pkg")
