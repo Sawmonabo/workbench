@@ -40,8 +40,19 @@ func ReadAnswers(c operation.Context) (Answers, error) {
 }
 
 // readAnswers reads a [data]-only machine config without checking that it
-// answers every question; the questionnaire can complete it.
+// answers every question; the questionnaire can complete it. It leaves out
+// the dropped answers, so they never block a run.
 func readAnswers(raw []byte) (Answers, error) {
+	answers, err := decodeAnswers(raw)
+	for _, key := range droppedAnswers {
+		delete(answers, key)
+	}
+	return answers, err
+}
+
+// decodeAnswers is readAnswers keeping the dropped answers, for the writer
+// that has to see them to drop them.
+func decodeAnswers(raw []byte) (Answers, error) {
 	var config map[string]any
 	if err := toml.Unmarshal(raw, &config); err != nil {
 		return nil, operation.Fail(
@@ -85,6 +96,12 @@ var derivedAnswers = []string{"has_work", "has_personal", "is_wsl"}
 // 0005 moves them into work.env; until it has, they stay accepted and redacted
 // but are never asked, and every write of the answers keeps them.
 var retiredAnswers = []string{"jira_api_token", "gitlab_token"}
+
+// droppedAnswers are answers an earlier release saved that nothing uses now:
+// restart_wsl_path, the folder of the RestartWSL helpers Workbench no longer
+// writes. Never asked or carried, they are dropped the next time the answers
+// are written.
+var droppedAnswers = []string{"restart_wsl_path"}
 
 // carryRetired copies into answers each retired answer saved holds and
 // answers lacks.

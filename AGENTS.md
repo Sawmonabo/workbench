@@ -25,7 +25,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
   answers (empty when they are missing): it never replaces an existing `work.env`, deletes the two keys
   only once `work.env` holds the same tokens, and changes neither file when
   an existing `work.env` does not hold those same tokens; until it has run, the answers keep the two
-  keys as retired ones, never asked and carried through every write. The
+  keys as retired ones, never asked and carried through every write. A third
+  exception: a saved `restart_wsl_path` answer (the folder of the RestartWSL
+  helpers Workbench no longer writes) is left out whenever the answers are
+  read, so it never blocks a run, and dropped the next time they are written;
+  `init --answers-from` still refuses it in its file. The
   costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008).
 - Preserve user data and native tool interoperability. Reject unsupported state

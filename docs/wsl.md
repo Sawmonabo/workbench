@@ -13,7 +13,9 @@ tick. WSL networking (`.wslconfig`) is the one Windows step that is on by
 default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep,
 editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
 remembered. Workbench no longer writes the RestartWSL helpers (`restart-wsl.ps1`,
-`Restart WSL.bat`, `setup-task.ps1`) or asks for their folder; copies an earlier
+`Restart WSL.bat`, `setup-task.ps1`) or asks for their folder: a saved
+`restart_wsl_path` answer is ignored and dropped the next time your answers
+are saved, and `init --answers-from` refuses a file that still has it. Copies an earlier
 release wrote are yours and stay where they are, so delete them by hand if you
 no longer want them (and the scheduled task, if you created one). Existing Terminal settings and PowerShell profiles are left
 unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)

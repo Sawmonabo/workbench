@@ -31,7 +31,8 @@ over the same files.
    `personal_folder = "~/dev"` (personal and both), or the folders you use,
    and on the work roles `jira_url`, `gitlab_url` (each an `https://`
    address) and `dispatch_folder = "ai-devtools"` (or the checkout you use),
-   to its `[data]` table first, or skip this step and let `workbench apply`
+   to its `[data]` table first, and remove `restart_wsl_path` if it has one
+   (Workbench no longer asks it), or skip this step and let `workbench apply`
    ask every question at a terminal.
 
 3. **Review the plan, then apply.**

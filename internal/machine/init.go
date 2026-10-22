@@ -157,9 +157,9 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 }
 
 // answersFile encodes answers for the machine.toml at config beside any saved
-// selection, keeping the retired answers saved there, and reports whether the
-// file already holds the same; saved answers it can't read are refused, never
-// replaced.
+// selection, keeping the retired answers saved there and not the dropped
+// ones, and reports whether the file already holds the same; saved answers it
+// can't read are refused, never replaced.
 func answersFile(config string, answers Answers) (encoded []byte, unchanged bool, err error) {
 	previous, err := ReadSelection(config)
 	if err != nil {
@@ -167,7 +167,7 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 	}
 	var saved Answers
 	if raw, readErr := operation.ReadPrivateInput(config, 1<<20); readErr == nil {
-		if saved, err = readAnswers(raw); err != nil {
+		if saved, err = decodeAnswers(raw); err != nil {
 			return nil, false, err
 		}
 	}
