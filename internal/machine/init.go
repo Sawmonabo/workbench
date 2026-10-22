@@ -145,7 +145,8 @@ func initialize(
 }
 
 // saveAnswers writes answers to machine.toml beside any saved selection,
-// keeping the retired answers saved there. A file that already holds the same
+// keeping the retired answers saved there; saved answers it can't read are
+// refused, never replaced. A file that already holds the same
 // answers and selection is left as it is, so an apply that changes nothing,
 // or is refused, does not rewrite it.
 func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) error {
@@ -156,7 +157,9 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 	}
 	var saved Answers
 	if raw, readErr := operation.ReadPrivateInput(config, 1<<20); readErr == nil {
-		saved, _ = readAnswers(raw)
+		if saved, err = readAnswers(raw); err != nil {
+			return err
+		}
 	}
 	carryRetired(answers, saved)
 	encoded, err := encodeMachineConfig(answers, previous)

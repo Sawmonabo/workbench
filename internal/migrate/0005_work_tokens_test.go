@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -107,7 +108,11 @@ decided = ['migrations']
 		if status != Done || !strings.Contains(text, "delete them") {
 			t.Fatalf("Check = %v %q, want done naming the keys to delete", status, text)
 		}
-		said := runAll(t, l)
+		probe := Probe(l, nil)
+		if !slices.Contains(probe, "migrations: = "+workTokens.ID+": "+text) {
+			t.Errorf("the plan lines %q don't name the keys to delete", probe)
+		}
+		said := append(runAll(t, l), probe...)
 		if _, err := os.Lstat(workEnvPath(l)); err == nil {
 			t.Error("work.env was written without the work role")
 		}

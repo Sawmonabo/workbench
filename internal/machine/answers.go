@@ -347,7 +347,8 @@ func (a Answers) label() string { return fmt.Sprintf("%s/%s", a["machine_role"],
 // machine answers. Other keys (sourceDir, hooks, commands) are ignored and
 // never run. This is the design's one-time answer adoption, not a
 // compatibility reader: apply reads only machine.toml. It returns the
-// encoded answers to write.
+// encoded answers to write, with the retired answers machine.toml holds; a
+// machine.toml whose answers can't be read is refused, never replaced.
 func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, error) {
 	plan := operation.Plan{
 		Scope: c.Scope,
@@ -389,9 +390,11 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		if existing, err = operation.ReadPrivateInput(target, 1<<20); err != nil {
 			return plan, nil, err
 		}
-		if saved, readErr := readAnswers(existing); readErr == nil {
-			carryRetired(answers, saved)
+		saved, readErr := readAnswers(existing)
+		if readErr != nil {
+			return plan, nil, readErr
 		}
+		carryRetired(answers, saved)
 	} else if !errors.Is(statErr, fs.ErrNotExist) {
 		return plan, nil, statErr
 	}

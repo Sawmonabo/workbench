@@ -293,17 +293,19 @@ func keeps(names []string) string {
 // "migrations: <ID>: <paths>" line per migration with something to do,
 // "migrations: ? …" for one that conflicts or that this binary doesn't know
 // (wanted names the planning binary's migrations, from WORKBENCH_MIGRATIONS),
-// or the one line "migrations: = none to run". No line holds "; ", which the
-// plan uses to join one step's lines.
+// "migrations: = 0005-work-tokens: …" when 0005 has nothing to run but asks
+// the owner to delete the tokens, or the one line "migrations: = none to run".
+// No line holds "; ", which the plan uses to join one step's lines.
 func Probe(l Locations, wanted []string) []string {
 	var lines []string
 	for _, f := range Check(l) {
-		switch f.Status {
-		case Pending, Unfinished:
+		switch {
+		case due(f):
 			lines = append(lines, "migrations: "+f.ID+": "+f.Detail)
-		case Conflict:
+		case f.Status == Conflict:
 			lines = append(lines, "migrations: ? "+f.ID+": "+f.Detail)
-		default:
+		case f.ID == workTokens.ID && f.Detail != "":
+			lines = append(lines, "migrations: = "+f.ID+": "+f.Detail)
 		}
 	}
 	for _, id := range Unknown(wanted) {
