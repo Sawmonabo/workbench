@@ -533,6 +533,62 @@ synthetic answers.
   and `revert --checkpoint` with `--approve-plan` restored 0755. An attended
   apply then applied the saved choices (exit 0), tightened `~/.config` again
   and left the terminal echoing.
+- On October 21, 2026, in throwaway podman containers on a WSL2 host, from a
+  local `v0.1.28-dev.1` linux-amd64 bundle with synthetic answers and
+  credentials. The containers see the WSL kernel, so Workbench treated them as
+  WSL; with no `cmd.exe` every Windows step said there is no Windows interop,
+  and WSL networking was turned off by hand.
+  - AlmaLinux 10.2, role work: while another process held dnf's RPMDB lock,
+    the first `sudo dnf` (dnf 4.20.0, installing EPEL) printed `Waiting for
+    process with pid N to finish.` and went on once the lock was released, and
+    no part reported a lock failure. The apply installed `epel-release`, the
+    base packages except curl (the image ships `curl`), bat and fd from EPEL,
+    tmux, podman and the Nerd Font (`fc-cache` succeeded); TPM installed the
+    plugins and the Dracula theme loaded. The first apply stopped Command-line
+    tools on an npm registry HTTP 503 for yarn; the next completed every chosen
+    step.
+  - AlmaLinux 10.2, role both, with CRB turned off and non-default folders
+    (the work folder a symlink): bat and fd still came from EPEL. From a
+    `machine.toml` with saved tokens and no folder answers, an unattended
+    `apply --dry-run` refused, and an apply at a pseudo-terminal asked only
+    the two folder questions, dropped a trailing `/` and kept the tokens. The
+    approved apply ran migration 0005 (`work.env` 0600 with all nine names,
+    the token keys gone), removed the literal tokens from an old Codex config
+    (the plan's settings view showed them as `[REDACTED]  removed`), created
+    `personal.env`, and registered both dispatch servers with Claude Code
+    2.1.301 at user scope through `mcp-gate`, with the same command, arguments
+    and `NODE_VERSION` as the Codex entries. No synthetic value appeared in a
+    plan, `--json` or apply log. That apply exited 5, `Native output differs
+    from the approved images`: Claude Code's first run, in the Claude Code
+    work servers step, rewrote `~/.claude/settings.json` without
+    `minimumVersion` and `skipAutoPermissionPrompt`, and the next apply put
+    them back (exit 0).
+  - The env-files plan lines named the empty names, each line that is not
+    `NAME=value`, and a `work.env` left without the work role. A hand-added
+    user entry with literal tokens was replaced, and a same-named local entry
+    was reported and left alone. Switching to `personal` removed both agents'
+    dispatch entries and warned that `work.env` is still there.
+  - The folder hook, under `bash -i` and, with the rendered `.zshrc` (`zsh -n`
+    clean), under zsh 5.9 on Linux: inside the work folder, through the symlink
+    or by its real path, it exported the work names, and never an `export`
+    line, a quoted value, an empty value or a name another file set; `cd
+    <personal>/x && env` typed in the work folder showed no work name; `chmod
+    640` stopped the load and `chmod 400` restored it; a last line without a
+    newline loaded; leaving after deleting a line, moving the file or `chmod
+    000` unset every loaded name and kept a function of the same name; names a
+    parent shell passed down were dropped in the personal folder and the home
+    folder; a non-interactive `bash -c` loaded nothing.
+  - The non-default folders reached git's `includeIf`, Codex trust and the
+    costs report's scope (`2 projects outside ~/per and ~/wrk hidden`). With
+    the work folder a symlink, a repository under it got the default git
+    email, and a transcript recorded under its real path counted as outside.
+  - Ubuntu 24.04, role personal: the apt path installed build-essential,
+    curl, unzip, git, bat, fd, tmux and podman (exit 0), with no EPEL step and
+    no `work.env`, Claude Code entry or dispatch entry.
+  - Not run: arm64; zsh on macOS; real agent sessions (the gate with a stub
+    server, the deny rules); the real Windows writes and the writer record; the
+    WSL apply path on AlmaLinux in an imported distribution; an image with
+    `curl-minimal`, which AlmaLinux 10's repositories do not offer.
 
 ### Projects
 

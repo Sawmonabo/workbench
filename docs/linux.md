@@ -6,7 +6,9 @@ Stream and Fedora included: AlmaLinux is accepted by `ID=almalinux` alone,
 never by `ID_LIKE`. [ADR 0015](adr/0015-almalinux-and-role-folders.md)
 replaces the earlier Ubuntu-only decision. Native release and provisioning
 qualification remains open for both; builds and template rendering alone do
-not establish it. Use the shared [installation and commands](usage.md).
+not establish it. AlmaLinux 10.2 amd64 has run only in throwaway containers on
+a WSL2 host (see [acceptance](acceptance.md#linux)). Use the shared
+[installation and commands](usage.md).
 
 The existing Linux scripts own base prerequisites, shell tools, fonts, tmux,
 runtime managers and global tools. They pick the package manager when they
