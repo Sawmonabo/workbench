@@ -27,13 +27,23 @@
 #       and rule 3 does not hold. A rule it cannot tell blocks the step
 #       (part_blocked, from effect-report.sh).
 #
+# The record is read and written through win_call (windows-calls.sh, included
+# first), so a Windows drive that hangs costs the cap every Windows call has:
+# 60 s in an apply, the probe's shorter one in a probe. A read that did not
+# finish is a rule that cannot be told, never leave to write, and a write that
+# did not finish fails.
+#
 # Plain bash, with no template directive, so a check can source it.
 
 writer_line() {
     local step=$1 record=$2 installed=$3 this=$4 writer
     # An empty path is no record that could be missing: Windows did not say
     # where its local app data is.
-    if [ -z "$record" ] || ! writer=$(python3 -I -c '
+    if [ -z "$record" ]; then
+        echo "$step: ? Couldn't read the Windows writer record"
+        return
+    fi
+    win_call writer-read python3 -I -c '
 import json, sys
 path, step = sys.argv[1:]
 try:
@@ -45,10 +55,18 @@ writer = record.get(step, "") if isinstance(record, dict) else None
 if not isinstance(writer, str):
     sys.exit(1)
 print(writer)
-' "$record" "$step" 2>/dev/null); then
+' "$record" "$step"
+    case ${WIN_RC[writer-read]} in
+    0) writer=${WIN_OUT[writer-read]} ;;
+    124 | 137)
+        echo "$step: ? Windows didn't answer in time when the writer record was read"
+        return
+        ;;
+    *)
         echo "$step: ? Couldn't read the Windows writer record"
         return
-    fi
+        ;;
+    esac
     if [ -z "$writer" ] || [ "$writer" = "$this" ]; then
         return
     fi
@@ -67,7 +85,7 @@ print(writer)
 
 writer_record() {
     [ -n "$2" ] && [ -n "$3" ] || return 1
-    python3 -I -c '
+    win_call writer-write python3 -I -c '
 import json, os, sys, tempfile
 path, step, distro = sys.argv[1:]
 try:
@@ -90,6 +108,7 @@ except BaseException:
     os.unlink(staged)
     raise
 ' "$2" "$1" "$3"
+    [ "${WIN_RC[writer-write]}" = 0 ]
 }
 
 writer_runs() {
