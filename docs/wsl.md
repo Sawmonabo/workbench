@@ -40,11 +40,12 @@ differs, for example `default-distro: make AlmaLinux-10 the default for new
 Terminal tabs (wsl already opens it)`. The profile is the one named after the
 distribution; only when none is, a single profile that names it or its version
 as a whole word (a renamed one) is taken, never a guess between several, and
-`Ubuntu` inside `Ubuntu-24.04` does not count. Without Windows Terminal, its `settings.json` or a profile for
+`Ubuntu` inside `Ubuntu-24.04` does not count. So a distribution with no
+profile of its own takes another distribution's profile when that is the one
+renamed to hold its name as a word (`Ubuntu 24.04 LTS (work)` for `Ubuntu`). Without Windows Terminal, its `settings.json` or a profile for
 this distribution, only `wsl`'s default is set and the apply says why; a
 `settings.json` that is a symbolic link is never replaced, and blocks the step
-with that reason. A tick you saved when this step set only `wsl`'s default
-now sets Terminal's default too from the next apply, which the plan shows. A Terminal that restores your last window's tabs
+with that reason. A Terminal that restores your last window's tabs
 at start (`firstWindowPreference: persistedWindowLayout`) still restores them;
 the default decides new tabs and a window with nothing to restore. The `.wslconfig` merge asks
 nothing during apply: the WSL networking row lists each setting it will change
