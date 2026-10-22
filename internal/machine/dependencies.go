@@ -278,7 +278,13 @@ func scriptEnvironment(
 	return append(
 		environment,
 		"WORKBENCH_TOOL_PATH="+path,
-		"PATH="+path+":"+strings.Join(system, ":"),
+		// An empty part would make PATH name the current folder.
+		"PATH="+strings.Join(
+			slices.DeleteFunc([]string{path, strings.Join(system, ":")}, func(part string) bool {
+				return part == ""
+			}),
+			":",
+		),
 	)
 }
 

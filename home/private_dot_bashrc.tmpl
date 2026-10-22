@@ -79,14 +79,14 @@ if ! shopt -oq posix; then
 fi
 
 # --- PATH ---
+# Go: a Go in /usr/local/go comes ahead of a system one, and Workbench's
+# ~/.local/bin/go, added next, ahead of both.
+export PATH="/usr/local/go/bin:$HOME/go/bin:$PATH"
 export PATH="$HOME/.local/bin:$PATH"
 {{ with get . "workbench_uv_dir" -}}
 # Reuse Workbench's selected private uv owner in new interactive shells.
 export PATH={{ . | replace "'" "'\"'\"'" | printf "'%s'" }}:"$PATH"
 {{ end -}}
-
-# Go: Workbench's Go is ~/.local/bin/go; a Go in /usr/local/go comes after it.
-export PATH="$HOME/go/bin:$PATH:/usr/local/go/bin"
 
 # Cargo (Rust)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
