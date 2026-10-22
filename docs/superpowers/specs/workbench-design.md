@@ -19,7 +19,7 @@ This does not authorize overwriting user-owned files or dropping platform suppor
 ### Required outcomes
 
 - One Go/Cobra executable, one command tree, and shared lifecycle operations across supported platforms.
-- Preserve macOS, Linux/Ubuntu, and WSL with Windows integration; platform-specific behavior must remain explicit and tested.
+- Preserve macOS, Linux (Ubuntu and AlmaLinux), and WSL with Windows integration; platform-specific behavior must remain explicit and tested.
 - Reuse the existing chezmoi deployment boundary, questionnaire, configuration merges, platform scripts, package data, and validation entry point.
 - Preview before approved changes, preserve unrelated data, and report incomplete work truthfully.
 - Configure existing projects, including supported components of mixed-language monorepos, without imposing an application layout.
@@ -219,7 +219,7 @@ The same operation functions serve initial setup, later apply and update. Activa
 | Required environment | Shared execution | Platform-specific responsibilities |
 | --- | --- | --- |
 | macOS, Apple Silicon and Intel | One CLI source, corresponding compiled artifact, existing chezmoi context | Homebrew discovery, native paths, application/extension handling, shell startup, permissions and manual terminal-font completion. |
-| Linux/Ubuntu | Same CLI and command contract, existing Linux provisioning | Supported distribution/architecture detection, package-manager access, runtime installs, desktop availability and shell startup. |
+| Linux (Ubuntu, AlmaLinux) | Same CLI and command contract, existing Linux provisioning | Supported distribution/architecture detection, package-manager access, runtime installs, desktop availability and shell startup. |
 | WSL with Windows integration | Linux artifact inside WSL and the same operations | Windows interoperability, path translation, Terminal/PowerShell configuration, fonts, VM preferences and editor-host boundaries. |
 
 Specify tested minimum OS/WSL versions and CPU targets before release. Linux ARM coverage cannot be inferred from the CLI: native acquisition must select the matching architecture, and Windows integration remains x64-only until qualified. Reject unsupported combinations before target writes. Native Windows without WSL and arbitrary Linux distributions are separate expansions.
@@ -429,7 +429,7 @@ These are behavioral acceptance requirements, not a mandate for an automated tes
 | Read-only behavior | Doctor, inspection and previews do not install, repair, execute project code, modify targets or resolve project dependencies. Missing prerequisites are reported. |
 | Application | Preview and execution bind to the same release/scope/input state; repeated apply/configure converges; changed inputs conflict; failed/skipped requested work is not called success. |
 | Recovery | A minimal destructive-change regression check protects user data and later edits; manual review/checks verify remaining checkpoint behavior and explicit external-effect limits. |
-| Platforms | Record a short native release smoke check on declared macOS architectures, supported Ubuntu targets and real WSL/Windows integration; do not build a full automated lifecycle matrix. Existing role/mode rendering remains available. |
+| Platforms | Record a short native release smoke check on declared macOS architectures, supported Ubuntu and AlmaLinux targets and real WSL/Windows integration; do not build a full automated lifecycle matrix. Existing role/mode rendering remains available. |
 | Editor | One global source and merge; unrelated settings/custom rules survive; correct profile/host is targeted; Python has one type-language server plus native Ruff. |
 | Projects | Existing metadata/source/tests survive; supported mixed-language workspaces use one deduplicated plan; unsupported scopes fail safely; no application scaffolding appears. |
 | Privacy/resources | Bundles exclude host data, output is redacted, recovery storage is private/bounded, scans/processes are bounded, and no background service is required. |

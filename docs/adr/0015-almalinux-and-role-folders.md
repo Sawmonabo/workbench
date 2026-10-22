@@ -1,4 +1,4 @@
-# 15. AlmaLinux 10, role folders, env files and the MCP launch gate
+# 15. AlmaLinux 10 joins the targets, each role gets a folder and its own env file, and the work MCP servers start through a gate
 
 - Status: Accepted, October 21, 2026
 
@@ -79,13 +79,14 @@ rewrite the shared Windows Terminal settings, PowerShell profile,
   that fetch tokens at launch were considered and rejected, so the CLI
   install, the `bw` wrapper and the session-caching step are removed. A `bw` already installed
   stays, and so does the session key the wrapper cached in Bitwarden's own
-  folder, which Workbench does not touch: `bw lock` clears it.
+  folder, which Workbench does not touch: `bw lock` makes it useless, and
+  deleting the file removes it.
 
 ## Consequences
 
 - AlmaLinux 10 is implemented on amd64 and arm64, natively and on WSL, with
-  the same steps and consent as Ubuntu plus `epel`; its native qualification
-  is recorded, or still open, in the acceptance record, as for Ubuntu.
+  the same steps and consent as Ubuntu plus `epel`. No native AlmaLinux run is
+  recorded yet; `docs/acceptance.md` records one when it is run.
 - A machine with saved answers is asked its folder questions on the first
   apply after upgrading, with today's folders as defaults; that apply needs a
   terminal, or `init --answers-from FILE`.
@@ -97,8 +98,8 @@ rewrite the shared Windows Terminal settings, PowerShell profile,
 - Outside the work folder each agent session keeps one small idle `mcp-gate`
   process per dispatch server, with no Node and no tools.
 - A PC with one distribution behaves as before: it is always the writer.
-- `env-files` creates each missing file once; after that the file is the
-  owner's and Workbench never writes it.
+- `env-files` creates a missing file and never writes one that is there; the
+  file is the owner's.
 
 ## Sources
 

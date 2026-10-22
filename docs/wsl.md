@@ -54,14 +54,15 @@ distribution follows the same rules:
    step and then only in `apply --choose`, which a coding agent is refused,
    so an agent never moves it.
 
-When the record or the installed list cannot be read, a ticked step is
-blocked with the reason rather than guessed. Each write replaces the whole
+When the record cannot be read, or another distribution is recorded and the
+installed list cannot be read, a ticked step is blocked with the reason rather
+than guessed. Each write replaces the whole
 file at once (a new file, then a rename), so two distributions applying
 together leave one whole record. The record's content is an input of the
-plan, so `--approve-plan` exits 4 once another distribution changed it. Its
-reads and writes from the scripts have the same 60-second cap as every other
-Windows call in an apply, and fall within the probe's shared 8-second limit
-in a probe. Deleting it is safe: rule 1 applies
+plan, so `--approve-plan` exits 4 once another distribution changed it. The scripts
+read and write it each as a call of its own, after the group of Windows calls
+they make together, with the same cap as any other Windows call: 60 seconds in
+an apply and 8 seconds in a probe. Deleting it is safe: rule 1 applies
 again. The four steps' Undo text names it. Windows Terminal's theme and font
 sit in the settings' profile defaults, so a distribution that does not write
 the file still gets them; it misses the tab color, the start folder and being
