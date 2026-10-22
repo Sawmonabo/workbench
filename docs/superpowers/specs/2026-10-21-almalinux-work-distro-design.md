@@ -341,9 +341,9 @@ Which steps that matters for:
 | `font-registry`, `windows-path` | Font registry, user PATH | No: same result from any distribution. |
 | `sysctl` | `/etc/sysctl.d/99-dev.conf` inside that distribution | No: per distribution, same value. |
 | `wsl-preferences` | `%USERPROFILE%\.wslconfig`, one VM for all distributions | Yes: its sizing comes from each distribution's own answers. |
-| `terminal-adoption` | Windows Terminal `settings.json`: one WSL profile, named after the distribution that wrote it, set as default | Yes: each write replaces the file. |
+| `terminal-adoption` | Windows Terminal `settings.json`: one WSL profile, named after the distribution that wrote it, set as default unless a distribution writes `default-distro` | Yes: each write replaces the file. |
 | `powershell-adoption` | The PowerShell profile, which starts in that distribution's home | Yes. |
-| `default-distro` | Which distribution plain `wsl` opens | Yes. |
+| `default-distro` | Which distribution plain `wsl` and new Windows Terminal tabs open (Terminal's `defaultProfile`, the one key it writes there) | Yes. |
 
 **The record of who writes them lives on Windows.** Workbench keeps one small
 file in a Workbench folder in the Windows user's local app data
@@ -1129,7 +1129,10 @@ Decided by the owner on Oct 21, 2026:
   Terminal's JSON fragments can add profiles and schemes and update existing
   profiles by GUID, but cannot set global settings such as `defaultProfile`
   ([Microsoft Learn](https://learn.microsoft.com/en-us/windows/terminal/json-fragment-extensions)).
-  Whether a fragment in Workbench's own folder can update the profile WSL
-  wrote in `Fragments\Microsoft.WSL` is not documented; a spike settles it.
+  `default-distro` now sets `defaultProfile` itself, as the one key it edits
+  in `settings.json`, so only the styling is left (the owner declined it for
+  now). Whether a fragment in Workbench's own folder can update the profile
+  WSL wrote in `Fragments\Microsoft.WSL` is not documented; a spike settles
+  it.
 - Install names for both apt and dnf in `home/.chezmoidata/packages.toml`,
   the owner `AGENTS.md` names, in place of the inline names.

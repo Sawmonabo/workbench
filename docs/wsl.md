@@ -22,7 +22,23 @@ unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)
 is on. Those two and `font-registry` are optional steps of their own: off until
 you tick them, whether or not Windows setup is on, and each installs what it
 needs itself. `default-distro`, `windows-path` and `sysctl` are optional too, and
-your choice for each is remembered like any other. The `.wslconfig` merge asks
+your choice for each is remembered like any other. `default-distro` ("Open new
+terminals in NAME") decides which distribution opens by default, for both:
+it makes this distribution the one plain `wsl` opens and, when Windows
+Terminal has more than one WSL profile, sets `defaultProfile` in Terminal's
+`settings.json` to this distribution's profile, changing that one key only,
+keeping your comments and layout, and keeping a copy of the file beside it
+(`settings.json.before-workbench.*`). It is asked only when there is a choice:
+with one distribution (Docker Desktop's `docker-desktop` does not count), or
+`wsl` and new Terminal tabs already opening this one, its line starts `= `
+(for example `default-distro: = AlmaLinux-10 is your only distribution`) and
+Terminal's own default, such as PowerShell, stays. Otherwise the line names
+what differs, for example `default-distro: make AlmaLinux-10 the default for
+new Terminal tabs (wsl already opens it)`. Without Windows Terminal, its
+`settings.json` or a profile for this distribution, only `wsl`'s default is
+set and the apply says why. A Terminal that restores your last window's tabs
+at start (`firstWindowPreference: persistedWindowLayout`) still restores them;
+the default decides new tabs and a window with nothing to restore. The `.wslconfig` merge asks
 nothing during apply: the WSL networking row lists each setting it will change
 beforehand (for example `networkingMode is virtioproxy, will be mirrored`), keeps
 the other settings, and a recovery copy is written when it changes anything. The
@@ -41,7 +57,8 @@ from any of them. Four do not, because each distribution would write its own
 version of one shared thing: `terminal-adoption` (the Terminal settings, whose
 WSL profile names the distribution that wrote it), `powershell-adoption` (the
 profile starts in that distribution's home), `wsl-preferences` (one
-`.wslconfig` sized from that distribution's answers) and `default-distro`.
+`.wslconfig` sized from that distribution's answers) and `default-distro` (which
+distribution `wsl` and new Terminal tabs open).
 For those Workbench keeps `%LOCALAPPDATA%\Workbench\writers.json`, which
 names the distribution that writes each step and nothing else, and every
 distribution follows the same rules:
@@ -72,8 +89,11 @@ they make together, with the same cap as any other Windows call: 60 seconds in
 an apply and 8 seconds in a probe. Deleting it is safe: rule 1 applies
 again. The four steps' Undo text names it. Windows Terminal's theme and font
 sit in the settings' profile defaults, so a distribution that does not write
-the file still gets them; it misses the tab color, the start folder and being
-the default.
+the file still gets them; it misses the tab color and the start folder. Which
+profile new tabs open is `default-distro`'s: while a distribution is recorded
+for it (or the record cannot be read), `terminal-adoption` keeps the
+`defaultProfile` the file has, so writing the Terminal settings never undoes
+the default another distribution chose.
 
 A Windows side that cannot be used at all (no interop, not x64) blocks every
 Windows step you ticked, and a failed Windows download (oh-my-posh, fonts,
@@ -88,7 +108,7 @@ The canonical WSL scripts describe these effects:
 
 | Target/effect | Boundary |
 | --- | --- |
-| Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the whole file and keeps a copy beside it. |
+| Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the whole file and keeps a copy beside it. `default-distro` changes only Terminal's `defaultProfile`, and keeps a copy. |
 | Prompt engine, themes and font files | Windows user paths, not guessed drive/username paths. |
 | Font registration/loading | Registry/process effects; file recovery does not undo them. |
 | VM preferences | A file change, distinct from restarting WSL. |
