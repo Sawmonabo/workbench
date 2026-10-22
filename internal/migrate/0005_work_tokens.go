@@ -42,9 +42,10 @@ var tokenKeys = [][2]string{{"jira_api_token", "JIRA_API_TOKEN"}, {"gitlab_token
 // answers into work.env, which the work tools read by name. It writes
 // work.env only where none exists, as a new file, and deletes the two answers
 // only once work.env holds the same tokens, so a run stopped between the two
-// writes loses nothing and the next run only deletes them. A work.env holding
-// anything else is the owner's, and both files stay as they are. It reads
-// machine.toml itself: this package can't import internal/machine.
+// writes loses nothing and the next run only deletes them. A work.env that
+// does not hold those same tokens is the owner's, and both files stay as they
+// are. It reads machine.toml itself: this package can't import
+// internal/machine.
 var workTokens = Migration{
 	ID:    "0005-work-tokens",
 	Title: "Move the saved work tokens into work.env",
@@ -53,9 +54,9 @@ var workTokens = Migration{
 		"GitLab tokens saved in machine.toml beside it, the work email as JIRA_EMAIL, the " +
 		"Jira and GitLab addresses the Codex settings held, and the other work names empty, " +
 		"then deletes jira_api_token and gitlab_token from machine.toml. When work.env " +
-		"already holds the same tokens it only deletes them. A work.env holding anything " +
-		"else, or a token that isn't one line of text, leaves both files as they are. " +
-		"Without the work role it changes nothing.",
+		"already holds the same tokens it only deletes them. A work.env that does not hold " +
+		"those same tokens, or a token that isn't one line of text, leaves both files as " +
+		"they are. Without the work role it changes nothing.",
 	Recovery: "nothing is lost: work.env holds the tokens, so copying them back into " +
 		"machine.toml by hand restores the old answers",
 	Check: func(l Locations) (Status, string) {
