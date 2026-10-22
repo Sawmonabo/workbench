@@ -39,7 +39,8 @@ const takeOverPrefix = "take-over-"
 // the real home.
 // cmd.exe gets what the scripts' Windows steps get from [scriptEnvironment]:
 // a PATH of the system and Windows system folders, and the WSL variables
-// interop needs.
+// interop needs. It runs with /d, as the scripts run it, so no AutoRun command
+// adds to its answer.
 func windowsWriters(ctx context.Context, c operation.Context) operation.Input {
 	input := operation.Input{Name: "windows-writers", Digest: "unknown"}
 	windows := windowsSystemDirectories(os.Getenv("PATH"))
@@ -57,7 +58,7 @@ func windowsWriters(ctx context.Context, c operation.Context) operation.Input {
 	}
 	answer, err := operation.Run(ctx, c, nil, operation.Process{
 		Executable:  cmd,
-		Args:        []string{"/c", "echo %LOCALAPPDATA%"},
+		Args:        []string{"/d", "/c", "echo %LOCALAPPDATA%"},
 		Directory:   filepath.Dir(cmd),
 		Environment: environment,
 		Timeout:     time.Minute,

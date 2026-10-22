@@ -63,7 +63,9 @@ unchecked() {
 command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on this host"
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
-# a call that fails leaves them empty, which is reported below. The other calls
+# a call that fails leaves them empty, which is reported below. /d skips the
+# Command Processor AutoRun command a machine may set, whose output would land
+# in the answer. The other calls
 # to Windows do not depend on it, so they are made together with it: a probe has
 # 15 s in all, and Windows can be slow to answer the first call after a quiet
 # spell.
@@ -74,7 +76,7 @@ command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on th
 #             selects the part stops before changing anything.
 #   registry  the fonts already registered, for the font and Terminal parts
 #   distros   the installed distributions, for the writer record
-win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%'
+win_start variables cmd.exe /d /c 'echo %USERNAME%^|%USERPROFILE%^|%LOCALAPPDATA%^|%PROGRAMDATA%^|%PROCESSOR_ARCHITECTURE%'
 win_start distros wsl.exe --list --quiet
 if [ "${WORKBENCH_PROBE:-}" = 1 ] || [ "$asked_profile" = 1 ]; then
     win_start profile powershell.exe -NoProfile -Command '$PROFILE.CurrentUserCurrentHost'

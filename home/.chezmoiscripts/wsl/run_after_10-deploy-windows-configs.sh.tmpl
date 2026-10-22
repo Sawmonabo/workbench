@@ -62,12 +62,14 @@ WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
-# a call that fails leaves them empty, which is reported below. The installed
+# a call that fails leaves them empty, which is reported below. /d skips the
+# Command Processor AutoRun command a machine may set, whose output would land
+# in the answer. The installed
 # distributions, for the writer record, are asked in the same breath, and so are,
 # by the probe, the user PATH; a probe has 15 s and the calls do not depend on
 # each other. The default distribution is listed first by `wsl --list`, so it
 # is the first line of the quiet listing.
-win_start variables cmd.exe /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%^|%LOCALAPPDATA%'
+win_start variables cmd.exe /d /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%^|%LOCALAPPDATA%'
 win_start distros wsl.exe --list --quiet
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     win_start user-path powershell.exe -NoProfile -Command '
