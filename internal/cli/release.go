@@ -657,13 +657,19 @@ func setUp(
 				"--ask needs a terminal to ask at",
 			)
 		}
-		if _, err := operation.ReadPrivateInput(c.Native.Config, 1<<20); err != nil {
+		saved, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+		if err != nil {
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"answers",
 				"Without a terminal, setup needs saved answers; save them with "+
 					c.WorkbenchCommand()+" init --answers-from FILE",
 			)
+		}
+		// Native init cannot ask here, and a question it reaches fails with
+		// a bare EOF, so a missing answer is refused now, by name.
+		if err = machine.Unasked(c, saved); err != nil {
+			return c, err
 		}
 	}
 	setup, err := planner(cmd.Context(), c)

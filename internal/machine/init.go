@@ -88,13 +88,6 @@ func initialize(
 	if err != nil {
 		return nil, err
 	}
-	if terminal == nil {
-		// Without a terminal native init cannot ask, and a question it
-		// reaches fails with a bare EOF, so refuse first and name the answer.
-		if err = unasked(c, seed); err != nil {
-			return nil, err
-		}
-	}
 	scratch, err := os.MkdirTemp("", "workbench-init-")
 	if err != nil {
 		return nil, err
