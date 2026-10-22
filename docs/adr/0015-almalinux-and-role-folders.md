@@ -95,8 +95,10 @@ rewrite the shared Windows Terminal settings, PowerShell profile,
   another folder without changing to it (`git -C`) and an agent session
   started in the work folder, which keeps its environment and servers for
   the whole session.
-- Outside the work folder each agent session keeps one small idle `mcp-gate`
-  process per dispatch server, with no Node and no tools.
+- Outside the work folder each agent session keeps one idle `mcp-gate`
+  process per dispatch server, with no Node and no tools: about 19 MB of
+  memory each (18.3 to 18.8 MB resident, measured on Linux), so about 38 MB
+  per session.
 - A PC with one distribution behaves as before: it is always the writer.
 - `env-files` creates a missing file and never writes one that is there; the
   file is the owner's.
