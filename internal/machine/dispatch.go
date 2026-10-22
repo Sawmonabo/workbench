@@ -5,10 +5,6 @@ import (
 	"slices"
 )
 
-// dispatchCheckout is the checkout in the work folder that builds the dispatch
-// servers, each in a folder of its own name.
-const dispatchCheckout = "ai-devtools"
-
 // dispatchServer is one dispatch MCP server as Codex and Claude Code both
 // register it. The JSON names are the keys of the dispatch_servers answer.
 type dispatchServer struct {
@@ -32,15 +28,18 @@ var dispatchTools = []dispatchServer{
 
 // dispatchServers are the dispatch servers of a machine with the work role, or
 // none. Each runs `bin mcp-gate`, which starts the server only for a session
-// inside the work folder, with the names in config's work.env. The server is
-// launched through nvm-exec so it follows `nvm alias default` in either
-// versions_mode; a ~/.nvm/versions/node/vX path exists only in pinned mode.
+// inside the work folder, with the names in config's work.env. They are built
+// in the work folder's dispatch_folder checkout, each in a folder of its own
+// name. The server is launched through nvm-exec so it follows `nvm alias
+// default` in either versions_mode; a ~/.nvm/versions/node/vX path exists
+// only in pinned mode.
 // Approve holds the tools the agent runs without asking.
 func dispatchServers(a Answers, bin, config, home string) []dispatchServer {
 	if a["has_work"] != true {
 		return nil
 	}
 	work := a.folder(home, "work_folder")
+	checkout := filepath.Join(work, a.text("dispatch_folder"))
 	servers := slices.Clone(dispatchTools)
 	for i := range servers {
 		server := &servers[i]
@@ -48,7 +47,7 @@ func dispatchServers(a Answers, bin, config, home string) []dispatchServer {
 		server.Args = []string{
 			"mcp-gate", "--folder", work, "--env-file", filepath.Join(config, "work.env"), "--",
 			filepath.Join(home, ".nvm", "nvm-exec"), "node",
-			filepath.Join(work, dispatchCheckout, server.Name, "dist", "index.js"),
+			filepath.Join(checkout, server.Name, "dist", "index.js"),
 		}
 		server.Env = map[string]string{"NODE_VERSION": "default"}
 	}

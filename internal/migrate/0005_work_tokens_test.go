@@ -22,7 +22,9 @@ func TestWorkTokensNeverLost(t *testing.T) {
 	const machine = `[data]
 email = 'user@example.invalid'
 gitlab_token = 'synthetic-gitlab-token'
+gitlab_url = 'https://gitlab.example.invalid/group'
 jira_api_token = 'synthetic-jira-token'
+jira_url = 'https://jira.example.invalid'
 machine_role = 'both'
 work_email = 'work@example.invalid'
 
@@ -47,8 +49,8 @@ decided = ['migrations']
 			"JIRA_API_TOKEN": "synthetic-jira-token",
 			"GITLAB_TOKEN":   "synthetic-gitlab-token",
 			"JIRA_EMAIL":     "work@example.invalid",
-			"JIRA_BASE_URL":  jiraBaseURL,
-			"GITLAB_URL":     gitlabURL,
+			"JIRA_BASE_URL":  "https://jira.example.invalid",
+			"GITLAB_URL":     "https://gitlab.example.invalid/group",
 		}
 		for name, value := range want {
 			if values[name] != value {

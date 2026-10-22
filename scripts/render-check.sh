@@ -109,7 +109,7 @@ while IFS= read -r -d '' script; do
             ;;
         esac
         # Comment lines are not behaviour; only executable lines count as a leak.
-        if [ "$role" = personal ] && grep -vE '^[[:space:]]*#' "$out" | grep -qiE 'gitlab|fortressinfosec|dispatch-|coderabbit|promptctl'; then
+        if [ "$role" = personal ] && grep -vE '^[[:space:]]*#' "$out" | grep -qiE 'gitlab|atlassian\.net|dispatch-|coderabbit|promptctl'; then
             echo "LEAK: work-only content in rendered script $script (personal)"; fail=1
         fi
     fi
@@ -234,7 +234,7 @@ if grep -rIln -e '/home/sabossedgh' -e '/Users/sawmonabo' "$repo/home"; then
     echo "LEAK: hardcoded home directory in a source template"; fail=1
 fi
 if [ "$role" = personal ]; then
-    if grep -rIl -e fortressinfosec -e dispatch-atlassian -e gitlab -e coderabbit -e promptctl "$dest"; then
+    if grep -rIl -e 'atlassian\.net' -e dispatch-atlassian -e gitlab -e coderabbit -e promptctl "$dest"; then
         echo "LEAK: work-only content rendered for machine_role=personal"; fail=1
     fi
     [ -e "$dest/.gitconfig-work" ] && { echo "LEAK: .gitconfig-work deployed on personal"; fail=1; }

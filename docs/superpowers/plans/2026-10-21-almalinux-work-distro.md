@@ -112,7 +112,9 @@ point into it.
     (`app`, `site`).
   - The two company addresses and the checkout name already in
     `home/.chezmoitemplates/codex-config.toml.tmpl` move into Go (Tasks 6
-    and 9) and are never copied into a second file, tests included.
+    and 9) and are never copied into a second file, tests included. (Fix
+    pass 2 replaced them with the `jira_url`, `gitlab_url` and
+    `dispatch_folder` work answers.)
 - **Commits.**
   - Subjects are conventional; they become the changelog.
   - Each message ends with

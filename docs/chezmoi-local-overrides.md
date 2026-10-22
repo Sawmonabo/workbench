@@ -21,7 +21,9 @@ role, editor, version mode, derived role/platform flags and conditional fields.
 Roles derive `has_personal` and `has_work`; native host detection derives
 `is_wsl`. Editor choices are `code`/`vim`; version mode is `pinned`/`latest`.
 Mixed role asks for both emails, each role for its folder (`work_folder`,
-`personal_folder`), and WSL for its sizing/restart-path inputs. Answers hold
+`personal_folder`), the work role for its Jira and GitLab addresses and the
+dispatch servers' checkout (`jira_url`, `gitlab_url`, `dispatch_folder`), and
+WSL for its sizing/restart-path inputs. Answers hold
 no credentials: those go in the role env files (see
 [usage](usage.md#roles-folders-and-credentials)). Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with

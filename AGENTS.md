@@ -21,7 +21,8 @@ Distinguish implemented code, observed checks and unqualified release targets.
   files, never merge, and leave a file where it is when old and new data both
   exist. Migration 0005 may also move the two work-token answers
   (`jira_api_token`, `gitlab_token`) from `machine.toml` into a new
-  `work.env`: it never replaces an existing `work.env`, deletes the two keys
+  `work.env`, whose addresses come from the `jira_url` and `gitlab_url`
+  answers (empty when they are missing): it never replaces an existing `work.env`, deletes the two keys
   only once `work.env` holds the same tokens, and changes neither file when
   an existing `work.env` does not hold those same tokens; until it has run, the answers keep the two
   keys as retired ones, never asked and carried through every write. The
@@ -130,7 +131,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
 not home deployment targets. Keep chezmoi naming and platform selection in
 `home/.chezmoiignore`. Use derived `has_work`, `has_personal`, `is_wsl` flags;
-do not duplicate the questionnaire or role logic. Provisioning stays in the
+do not duplicate the questionnaire or role logic. Employer values (the Jira and
+GitLab addresses, the dispatch servers' checkout) are asked as work-role
+answers (`jira_url`, `gitlab_url`, `dispatch_folder`), never written into code
+or tests. Provisioning stays in the
 existing platform scripts, consuming shared management dependency choices.
 
 The Go operation layer owns writes and consent. TOML Kit is a bounded private

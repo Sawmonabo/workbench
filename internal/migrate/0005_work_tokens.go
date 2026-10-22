@@ -27,13 +27,6 @@ var WorkEnvNames = []string{
 	"GITLAB_TOKEN",
 }
 
-// The Jira and GitLab addresses the Codex settings rendered for the dispatch
-// servers before they read work.env.
-const (
-	jiraBaseURL = "https://fortressinfosec.atlassian.net"
-	gitlabURL   = "https://gitlab.com/fortressinfosec"
-)
-
 // tokenKeys are the retired machine answers 0005 moves, each with the
 // work.env name it moves to.
 var tokenKeys = [][2]string{{"jira_api_token", "JIRA_API_TOKEN"}, {"gitlab_token", "GITLAB_TOKEN"}}
@@ -52,8 +45,8 @@ var workTokens = Migration{
 	Doing: "moving the saved work tokens into work.env",
 	What: "Creates work.env (mode 600) in Workbench's config folder with the Jira and " +
 		"GitLab tokens saved in machine.toml beside it, the work email as JIRA_EMAIL, the " +
-		"Jira and GitLab addresses the Codex settings held, and the other work names empty, " +
-		"then deletes jira_api_token and gitlab_token from machine.toml. When work.env " +
+		"Jira and GitLab addresses from the jira_url and gitlab_url answers, and the other " +
+		"work names empty, then deletes jira_api_token and gitlab_token from machine.toml. When work.env " +
 		"already holds the same tokens it only deletes them. A work.env that does not hold " +
 		"those same tokens, or a token that isn't one line of text, leaves both files as " +
 		"they are. Without the work role it changes nothing.",
@@ -138,7 +131,7 @@ func findWorkTokens(l Locations) tokensFound {
 	}
 	byHand := ", so copy " + named + " from " + machine + " into " + env +
 		" by hand and delete them from " + machine
-	values, bad := workValues(data)
+	values, bad := WorkValues(data)
 	if bad != "" {
 		return tokensFound{
 			status: Conflict,
@@ -177,16 +170,22 @@ func readMachine(path string) (map[string]any, error) {
 	return config, toml.Unmarshal(raw, &config)
 }
 
-// workValues are the work.env values the answers in data give: the tokens
-// they hold, the work email (work_email on both roles) as JIRA_EMAIL and the
-// two addresses. bad is the first answer that isn't one line of text.
-func workValues(data map[string]any) (values map[string]string, bad string) {
+// WorkValues are the work.env values the answers in data give: the tokens
+// they hold, the work email (work_email on both roles) as JIRA_EMAIL, and the
+// jira_url and gitlab_url addresses. An answer data lacks gives no value. bad
+// is the first answer that isn't one line of text.
+func WorkValues(data map[string]any) (values map[string]string, bad string) {
 	email := "email"
 	if data["machine_role"] == "both" {
 		email = "work_email"
 	}
-	values = map[string]string{"JIRA_BASE_URL": jiraBaseURL, "GITLAB_URL": gitlabURL}
-	for _, key := range append(tokenKeys, [2]string{email, "JIRA_EMAIL"}) {
+	values = map[string]string{}
+	for _, key := range append(
+		tokenKeys,
+		[2]string{email, "JIRA_EMAIL"},
+		[2]string{"jira_url", "JIRA_BASE_URL"},
+		[2]string{"gitlab_url", "GITLAB_URL"},
+	) {
 		value, present := data[key[0]]
 		if !present {
 			continue

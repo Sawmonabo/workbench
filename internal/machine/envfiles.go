@@ -136,10 +136,15 @@ func workTokensWaiting() bool {
 }
 
 // EnvFilesRun creates each env file the machine's roles use that is missing,
-// mode 600, with its listed names empty, and says what it did through say.
-// It never writes a file that is there: after it is created it is the owner's.
+// mode 600, with its listed names, and says what it did through say. A name
+// the answers give (work.env's addresses and JIRA_EMAIL, as migration 0005
+// writes them) holds that value, and every other name is empty. It never
+// writes a file that is there: after it is created it is the owner's.
 func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(string)) error {
 	operation.RemoveStaleWrites(c.Paths.Config)
+	// The answers are checked, so each is one line of text, and they hold no
+	// token once 0005 has nothing left to move.
+	values, _ := migrate.WorkValues(a)
 	said := false
 	for _, env := range envRoles {
 		file := env.role + ".env"
@@ -154,7 +159,7 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 		}
 		var content strings.Builder
 		for _, name := range env.names {
-			content.WriteString(name + "=\n")
+			content.WriteString(name + "=" + values[name] + "\n")
 		}
 		if err := operation.CreatePrivateFile(path, []byte(content.String())); err != nil {
 			return err

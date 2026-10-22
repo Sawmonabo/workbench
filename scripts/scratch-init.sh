@@ -40,6 +40,9 @@ chezmoi --config "$config" --source "$scratch/source" --destination "$scratch/de
     --promptString "Git work email (repos in your work folder)=ci-work@example.invalid" \
     --promptString "Work folder (under your home)=~/repos" \
     --promptString "Personal folder (under your home)=~/dev" \
+    --promptString "Jira site URL (e.g. https://yourcompany.atlassian.net)=https://jira.example.invalid" \
+    --promptString "GitLab URL (e.g. https://gitlab.com/yourgroup)=https://gitlab.example.invalid/group" \
+    --promptString "Folder in your work folder that holds the dispatch servers=dispatch" \
     >/dev/null
 
 trap - EXIT

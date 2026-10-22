@@ -29,7 +29,9 @@ role, else in the personal folder.
 Workbench names no distribution, so one PC can run it in several WSL
 distributions, for example an Ubuntu one with the `personal` role and an
 AlmaLinux one with `work`, each with its own answers and choices in its own
-`~/.config/workbench/machine.toml`. Most Windows steps give the same result
+`~/.config/workbench/machine.toml` (only a distribution with the work role is
+asked the Jira, GitLab and dispatch-checkout questions; see
+[roles and folders](usage.md#roles-folders-and-credentials)). Most Windows steps give the same result
 from any of them. Four do not, because each distribution would write its own
 version of one shared thing: `terminal-adoption` (the Terminal settings, whose
 WSL profile names the distribution that wrote it), `powershell-adoption` (the

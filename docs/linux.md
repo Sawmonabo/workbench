@@ -32,7 +32,8 @@ them again. dnf waits for another dnf's package lock by itself and says so, so
 the scripts add no limit of their own; apt-get waits up to ten minutes.
 Undo EPEL with `sudo dnf remove epel-release`. The package step creates the
 work folder on a machine with the work role and the personal folder on one
-with the personal role (see [roles and folders](usage.md#roles-folders-and-credentials)). Codex and Claude Code
+with the personal role (see [roles and folders](usage.md#roles-folders-and-credentials), which also covers the
+work role's Jira, GitLab and dispatch-checkout questions). Codex and Claude Code
 are installed through npm only when missing; an installed copy, from npm in
 nvm's default Node or from its own installer, is updated through that
 installer (see [usage](usage.md)), on WSL too.

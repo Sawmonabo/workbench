@@ -3,7 +3,8 @@ Machine role decides which identity, secrets, and tool configuration deploy.
   personal: home projects only (the personal folder). No employer tooling, no work tokens.
   work:     employer projects only (the work folder). Work MCP servers and hooks.
   both:     one machine for both; git identity switches per folder.
-Each role's folder is asked once and saved relative to the home folder.
+Each role's folder is asked once and saved relative to the home folder. The
+work role also asks the Jira and GitLab addresses and the dispatch servers' checkout.
 Answers persist in the local chezmoi.toml, never in the repo.
 */ -}}
 {{- $role := promptChoiceOnce . "machine_role" "Machine role" (list "personal" "work" "both") "personal" -}}
@@ -49,6 +50,16 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{- $work := get $data "work_folder" -}}
 {{- $personal := get $data "personal_folder" -}}
 {{- if or (eq $work $personal) (hasPrefix (printf "%s/" $work) $personal) (hasPrefix (printf "%s/" $personal) $work) }}{{ fail "The work and personal folders must differ, and neither may be inside the other" }}{{ end -}}
+{{- end -}}
+{{- /* The work tools' addresses and the work-folder checkout that builds the dispatch servers. One trailing / is dropped from an address first. */ -}}
+{{- if $hasWork -}}
+{{- $_ := set $data "jira_url" (promptStringOnce . "jira_url" "Jira site URL (e.g. https://yourcompany.atlassian.net)" | trimSuffix "/") -}}
+{{- $_ := set $data "gitlab_url" (promptStringOnce . "gitlab_url" "GitLab URL (e.g. https://gitlab.com/yourgroup)" | trimSuffix "/") -}}
+{{- $_ := set $data "dispatch_folder" (promptStringOnce . "dispatch_folder" "Folder in your work folder that holds the dispatch servers" "ai-devtools") -}}
+{{- range $key := list "jira_url" "gitlab_url" -}}
+{{- if not (regexMatch "^https://[^/[:space:][:cntrl:]]+(/[^/[:space:][:cntrl:]]+)*$" (get $data $key)) }}{{ fail (printf "Invalid %s: use an https:// address with no spaces" $key) }}{{ end -}}
+{{- end -}}
+{{- if or (not (regexMatch "^[A-Za-z0-9._-]+$" $data.dispatch_folder)) (regexMatch "^\\.{1,2}$" $data.dispatch_folder) }}{{ fail "Invalid dispatch_folder: use one folder name with only letters, digits, . _ -, not . or .." }}{{ end -}}
 {{- end -}}
 {{- $mode := promptChoiceOnce . "versions_mode" "Install pinned or latest tool versions" (list "pinned" "latest") "pinned" -}}
 {{- if not (has $mode (list "pinned" "latest")) }}{{ fail "Invalid versions_mode" }}{{ end -}}

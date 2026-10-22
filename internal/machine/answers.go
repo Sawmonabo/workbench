@@ -189,6 +189,9 @@ var answerKeys = []string{
 	"work_email",
 	"work_folder",
 	"personal_folder",
+	"jira_url",
+	"gitlab_url",
+	"dispatch_folder",
 	"jira_api_token",
 	"gitlab_token",
 	"wsl_memory",
@@ -247,6 +250,9 @@ func (a Answers) invalidKey() string {
 	if key := a.invalidFolderKey(work, personal); key != "" {
 		return key
 	}
+	if key := a.invalidWorkKey(work); key != "" {
+		return key
+	}
 	if platform.WSL() {
 		return a.invalidWSLKey()
 	}
@@ -280,6 +286,36 @@ func (a Answers) invalidFolderKey(work, personal bool) string {
 		strings.HasPrefix(personalFolder, workFolder+"/") ||
 		strings.HasPrefix(workFolder, personalFolder+"/")):
 		return "personal_folder"
+	}
+	return ""
+}
+
+// workURLPattern is a work tool's address as saved: https, no space or
+// control character, and no empty part or trailing "/", which the
+// questionnaire drops first.
+var workURLPattern = regexp.MustCompile(
+	`^https://[^/[:space:][:cntrl:]]+(/[^/[:space:][:cntrl:]]+)*$`,
+)
+
+// invalidWorkKey is the first work answer, the Jira and GitLab addresses then
+// the dispatch servers' checkout, that a machine with the work role leaves
+// missing or invalid; otherwise "". The checkout is one folder name in the
+// work folder.
+func (a Answers) invalidWorkKey(work bool) string {
+	if !work {
+		return ""
+	}
+	for _, key := range []string{"jira_url", "gitlab_url"} {
+		if !workURLPattern.MatchString(a.text(key)) {
+			return key
+		}
+	}
+	if checkout := a.text(
+		"dispatch_folder",
+	); !regexp.MustCompile(`^[A-Za-z0-9._-]+$`).MatchString(checkout) ||
+		checkout == "." ||
+		checkout == ".." {
+		return "dispatch_folder"
 	}
 	return ""
 }

@@ -789,9 +789,9 @@ lists it under that step when the retired keys are present. It reads
   - The two tokens.
   - `JIRA_EMAIL` from the saved work email (`work_email` on `both`,
     otherwise `email`).
-  - `JIRA_BASE_URL` and `GITLAB_URL` set to the addresses the Codex template
-    renders today. Those literals move from the template into the migration,
-    so they are not copied.
+  - `JIRA_BASE_URL` and `GITLAB_URL` from the `jira_url` and `gitlab_url`
+    answers (section 4.13), empty when the machine has not answered them;
+    the migration never invents an address.
   - The rest empty.
 
   Then it rewrites `machine.toml` (private, same mode) without the two keys.
@@ -866,7 +866,22 @@ home-relative text such as `~/repos`. Validation, in
   env files would load in one place, both git identities would match, and
   the gate would start the work servers in a personal folder.
 
-Each consumer expands the answer its own way:
+A machine with the work role is also asked, once, the employer values that
+no file may hard-code:
+
+| Question | Saved as | Default |
+| --- | --- | --- |
+| Jira site URL (e.g. https://yourcompany.atlassian.net) | `jira_url` | none |
+| GitLab URL (e.g. https://gitlab.com/yourgroup) | `gitlab_url` | none |
+| Folder in your work folder that holds the dispatch servers | `dispatch_folder` | `ai-devtools` |
+
+The two addresses must be `https://` with no space, control character or
+empty part (one trailing `/` is dropped first); the checkout is one folder
+name of letters, digits, `.`, `_` and `-`, not `.` or `..`. They are not
+secrets and stay with the other answers. `env-files` writes the addresses
+into a new `work.env`, and the gate's server path names the checkout.
+
+Each consumer expands a folder answer its own way:
 
 - git: `gitdir:~/repos/`.
 - Codex: an absolute trust key.
@@ -901,9 +916,10 @@ and `INACTIVE_TABLES` knows only the current answers. That entry trusts a
 path and holds no credential, so it is accepted and stays until the owner
 removes it.
 
-A machine that already has saved answers is asked the new folder questions
-on its first apply after upgrading, with the defaults, which are today's
-folders, so nothing moves. That apply needs a terminal. An unattended run
+A machine that already has saved answers is asked the new folder questions,
+and on the work role the work questions, on its first apply after upgrading;
+the folders come with the defaults, which are today's folders, so nothing
+moves. That apply needs a terminal. An unattended run
 (`--approve-plan`, `--yes`, a coding agent) is refused before any change,
 with the message to run `apply` at a terminal or `init --answers-from FILE`,
 as for any missing answer (`validateAnswers` never fills in a missing
@@ -949,8 +965,8 @@ dispatch server with the resolved Workbench executable as its command:
 ```
 
 `<workbench>` is the path Workbench already renders for its hooks
-(`workbench_bin`), and `<checkout>` is the checkout the Codex template names
-today. Every path is absolute and rendered at apply time, so the gate reads
+(`workbench_bin`), and `<checkout>` is the `dispatch_folder` answer
+(section 4.13). Every path is absolute and rendered at apply time, so the gate reads
 no `machine.toml` and needs nothing from an environment Codex trims. A
 changed folder answer re-renders the Codex entry and re-registers the Claude
 Code entry on the next apply.

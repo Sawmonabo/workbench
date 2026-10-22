@@ -25,9 +25,12 @@ over the same files.
    ```
 
    `apply` reads only `machine.toml`. A dotfiles config has no role folder
-   answers, which Workbench needs, so `init --answers-from` refuses it naming
-   the missing one: add `work_folder = "~/repos"` (work and both roles) and
+   answers, and on the work roles no work answers, which Workbench needs, so
+   `init --answers-from` refuses it naming the missing one: add
+   `work_folder = "~/repos"` (work and both roles) and
    `personal_folder = "~/dev"` (personal and both), or the folders you use,
+   and on the work roles `jira_url`, `gitlab_url` (each an `https://`
+   address) and `dispatch_folder = "ai-devtools"` (or the checkout you use),
    to its `[data]` table first, or skip this step and let `workbench apply`
    ask every question at a terminal.
 

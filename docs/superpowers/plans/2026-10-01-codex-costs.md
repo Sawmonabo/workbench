@@ -1949,7 +1949,7 @@ Expected: `match 2026/09`. For `2026/05`, a match or only differences explained 
 
 - [ ] **Step 5: Gates, personal-data scan and commit.**
 
-Run the Go gates, then `git diff main --stat` and `git diff main | grep -nE '/home/[a-z]|@gmail|fortressinfosec|\$[0-9]+\.[0-9]{2}'` → no matches outside fixture-free docs.
+Run the Go gates, then `git diff main --stat` and `git diff main | grep -nE '/home/[a-z]|@gmail|<employer-domain>|\$[0-9]+\.[0-9]{2}'` → no matches outside fixture-free docs.
 
 ```bash
 git add README.md docs/acceptance.md docs/superpowers/specs/2026-10-01-codex-costs-design.md
