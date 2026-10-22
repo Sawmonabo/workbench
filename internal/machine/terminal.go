@@ -123,15 +123,17 @@ func readTerminalSettings(existing []byte) (hujson.Value, map[string]any, error)
 }
 
 // opensProfile reports that the defaultProfile in settings opens the profile
-// guid, called name: it is that guid, in any case, that name, or the name of
-// a profile in the settings' own list with that guid. Terminal accepts a guid
-// or a name.
+// guid, which its fragment calls name. Terminal accepts a guid or a name, and
+// a name means what the settings' own list calls it: the default is that
+// guid, in any case; or the list has profiles of that name, every one of them
+// with that guid; or the list has none of that name and does not give this
+// profile another one, and it is name, which only the fragment holds.
 func opensProfile(settings map[string]any, guid, name string) bool {
 	current, isString := settings["defaultProfile"].(string)
 	if !isString {
 		return false
 	}
-	if strings.EqualFold(current, guid) || (name != "" && current == name) {
+	if strings.EqualFold(current, guid) {
 		return true
 	}
 	// "profiles" is an object with a "list", or the list itself.
@@ -140,12 +142,21 @@ func opensProfile(settings map[string]any, guid, name string) bool {
 		profiles = object["list"]
 	}
 	list, _ := profiles.([]any)
-	return slices.ContainsFunc(list, func(entry any) bool {
+	named, renamed := 0, false
+	for _, entry := range list {
 		profile, _ := entry.(map[string]any)
-		name, _ := profile["name"].(string)
+		listed, _ := profile["name"].(string)
 		id, _ := profile["guid"].(string)
-		return name == current && strings.EqualFold(id, guid)
-	})
+		switch {
+		case listed == current && !strings.EqualFold(id, guid):
+			return false
+		case listed == current:
+			named++
+		case listed != "" && strings.EqualFold(id, guid):
+			renamed = true
+		}
+	}
+	return named > 0 || (name != "" && current == name && !renamed)
 }
 
 // refuseTerminal is a Terminal settings file Workbench leaves as it is, with

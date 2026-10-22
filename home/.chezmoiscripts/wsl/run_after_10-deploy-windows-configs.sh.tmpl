@@ -208,8 +208,10 @@ terminal_default_check() {
     real=$(grep -cv '^docker-desktop' <<<"$INSTALLED") || real=0
     if [ -z "${WSL_DISTRO_NAME:-}" ]; then
         TD_STATE=unknown TD_WHY="WSL_DISTRO_NAME is not set, so this distribution's Windows Terminal profile is unknown"
-    elif [ "${WIN_RC[distros]:-}" != 0 ] || [ -z "$INSTALLED" ]; then
+    elif [ "${WIN_RC[distros]:-}" != 0 ]; then
         TD_STATE=unknown TD_WHY="wsl.exe didn't list the installed distributions ($(win_failed distros))"
+    elif [ -z "$INSTALLED" ]; then
+        TD_STATE=unknown TD_WHY="wsl.exe listed no installed distributions"
     elif [ "$real" -le 1 ]; then
         TD_STATE=one TD_WHY="$WSL_DISTRO_NAME is your only distribution"
     elif [ -z "$WT_PACKAGE_DIR" ] || [ ! -d "$WT_PACKAGE_DIR" ]; then
@@ -235,7 +237,7 @@ terminal_default_check() {
             TD_STATE=one TD_WHY="Windows Terminal has no other WSL profile to choose"
         elif ! command -v workbench >/dev/null 2>&1; then
             TD_STATE=unknown TD_WHY="workbench is not on PATH, so Windows Terminal's settings.json couldn't be checked"
-        elif ! TD_WHY=$(workbench terminal-default "$WT_PROFILE_GUID" "$WT_PROFILE_NAME" \
+        elif ! TD_WHY=$(workbench terminal-default -- "$WT_PROFILE_GUID" "$WT_PROFILE_NAME" \
             <"$win_work/terminal-settings.json" 2>&1 >"$win_work/terminal-default.json"); then
             TD_STATE=unknown TD_WHY="Windows Terminal's settings.json can't be edited: ${TD_WHY#*: }"
         elif cmp -s "$win_work/terminal-settings.json" "$win_work/terminal-default.json"; then
@@ -443,24 +445,28 @@ if writer_runs default-distro "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" "$WRITERS"
         part_blocked default-distro "WSL_DISTRO_NAME is not set in this session, so the distribution is unknown"
     else
         win_call default-distro wsl.exe --set-default "$WSL_DISTRO_NAME"
+        # A part that cannot be done blocks the step, which runs again next
+        # time, and the Terminal part waits for it: without the record,
+        # another distribution's Terminal settings step would write its own
+        # default over this one. So one step never reports both blocked and
+        # done. Once wsl's default is set, a blocked line says so.
         if [ "${WIN_RC[default-distro]}" != 0 ]; then
-            # The step is blocked and runs again next time, the Terminal part
-            # with it, so one step never reports both blocked and done.
             part_blocked default-distro "wsl.exe could not make $WSL_DISTRO_NAME the default: $(win_failed default-distro), so new Windows Terminal tabs were not changed either"
         else
             [ -z "${WIN_OUT[default-distro]}" ] || printf '%s\n' "${WIN_OUT[default-distro]}"
-            writer_record default-distro "$WRITERS" "$WSL_DISTRO_NAME" ||
-                part_blocked default-distro "$WSL_DISTRO_NAME is the default, but ${WRITERS:-the Windows writer record} could not record it as the distribution that sets it"
-            terminal_default_check
-            case $TD_STATE in
-            change)
-                # The checked copy is put back only if the file is still that
-                # copy: Terminal saving it in between keeps its save, and this
-                # step runs again next time. A copy of the file is kept beside
-                # it and the new one is renamed into place whole; when that
-                # fails, neither is left behind. A link is never replaced by a
-                # plain file. A refusal says why on standard output, exit 3.
-                win_call terminal-write python3 -I -c '
+            if ! writer_record default-distro "$WRITERS" "$WSL_DISTRO_NAME"; then
+                part_blocked default-distro "wsl opens $WSL_DISTRO_NAME now, but ${WRITERS:-the Windows writer record} could not record it as the distribution that sets it, so new Windows Terminal tabs were not changed"
+            else
+                terminal_default_check
+                case $TD_STATE in
+                change)
+                    # The checked copy is put back only if the file is still that
+                    # copy: Terminal saving it in between keeps its save, and this
+                    # step runs again next time. A copy of the file is kept beside
+                    # it and the new one is renamed into place whole; when that
+                    # fails, neither is left behind. A link is never replaced by a
+                    # plain file. A refusal says why on standard output, exit 3.
+                    win_call terminal-write python3 -I -c '
 import os, sys, tempfile
 path, edited, checked = sys.argv[1:]
 if os.path.islink(path):
@@ -491,20 +497,21 @@ except BaseException:
     raise
 print(backup)
 ' "$WT_SETTINGS_DIR/settings.json" "$win_work/terminal-default.json" "$win_work/terminal-settings.json"
-                case ${WIN_RC[terminal-write]} in
-                0)
-                    echo "    Recovery copy: ${WIN_OUT[terminal-write]}"
-                    echo "==> New Windows Terminal tabs open $WSL_DISTRO_NAME."
+                    case ${WIN_RC[terminal-write]} in
+                    0)
+                        echo "    Recovery copy: ${WIN_OUT[terminal-write]}"
+                        echo "==> New Windows Terminal tabs open $WSL_DISTRO_NAME."
+                        ;;
+                    3) part_blocked default-distro "wsl opens $WSL_DISTRO_NAME now, but Windows Terminal's settings.json was not changed: ${WIN_OUT[terminal-write]}" ;;
+                    *) part_blocked default-distro "wsl opens $WSL_DISTRO_NAME now, but Windows Terminal's settings.json could not be changed ($(win_failed terminal-write)), so new tabs open what they did" ;;
+                    esac
                     ;;
-                3) part_blocked default-distro "Windows Terminal's settings.json was not changed: ${WIN_OUT[terminal-write]}" ;;
-                *) part_blocked default-distro "Windows Terminal's settings.json could not be changed ($(win_failed terminal-write)), so new tabs open what they did" ;;
+                set) echo "==> New Windows Terminal tabs already open $WSL_DISTRO_NAME." ;;
+                one) echo "==> $TD_WHY, so Windows Terminal's default was left as it is." ;;
+                none) echo "==> ${TD_WHY^}, so only wsl's default was set." ;;
+                *) part_blocked default-distro "wsl opens $WSL_DISTRO_NAME now, but $TD_WHY, so new Windows Terminal tabs open what they did" ;;
                 esac
-                ;;
-            set) echo "==> New Windows Terminal tabs already open $WSL_DISTRO_NAME." ;;
-            one) echo "==> $TD_WHY, so Windows Terminal's default was left as it is." ;;
-            none) echo "==> ${TD_WHY^}, so only wsl's default was set." ;;
-            *) part_blocked default-distro "$TD_WHY, so new Windows Terminal tabs open what they did" ;;
-            esac
+            fi
         fi
     fi
 fi
