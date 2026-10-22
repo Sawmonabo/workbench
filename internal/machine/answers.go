@@ -179,23 +179,29 @@ func validateAnswers(c operation.Context, a Answers) error {
 				"; remove them from the [data] table",
 		)
 	}
-	return answerMissing(c, operation.ExitInvalid, a.invalidKey())
+	return answerMissing(c, operation.ExitInvalid, a, a.invalidKey())
 }
 
-// answerMissing refuses, with code, the answer key, missing or invalid,
-// saying how to give it, or is nil when key is "".
-func answerMissing(c operation.Context, code operation.Exit, key string) error {
+// answerMissing refuses, with code, the answer key of a, missing or invalid,
+// saying how to give it, or is nil when key is "". An apply at a terminal asks
+// only a missing answer; an invalid one is asked again with --ask, except a
+// derived one, which follows the role and the host.
+func answerMissing(c operation.Context, code operation.Exit, a Answers, key string) error {
 	if key == "" {
 		return nil
 	}
 	command := c.WorkbenchCommand()
-	return operation.Fail(
-		code,
-		"answers",
-		"Machine answer "+key+" is missing or invalid; "+command+" apply at a terminal, "+
-			"without --local-build, asks the missing ones, or save them with "+command+
-			" init --answers-from FILE",
-	)
+	message := "Machine answer " + key + " is missing; " + command + " apply at a terminal, " +
+		"without --local-build, asks it, or save it with " + command + " init --answers-from FILE"
+	if _, saved := a[key]; saved && slices.Contains(derivedAnswers, key) {
+		message = "Machine answer " + key + " does not match machine_role or this host; " +
+			"save the answers again with " + command + " init --answers-from FILE"
+	} else if saved {
+		message = "Machine answer " + key + " is invalid; " + command + " init --ask " + key +
+			" asks it again at a terminal, or save a valid one with " + command +
+			" init --answers-from FILE"
+	}
+	return operation.Fail(code, "answers", message)
 }
 
 // Unasked refuses (exit 3) the saved answers in seed when the questionnaire
@@ -216,7 +222,7 @@ func Unasked(c operation.Context, seed []byte) error {
 			answers[key] = strings.TrimSuffix(value, "/")
 		}
 	}
-	return answerMissing(c, operation.ExitBlocked, answers.invalidKey())
+	return answerMissing(c, operation.ExitBlocked, answers, answers.invalidKey())
 }
 
 // answerKeys are every key the questionnaire can save, and the retired ones.
