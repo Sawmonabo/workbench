@@ -135,10 +135,12 @@ Distinguish implemented code, observed checks and unqualified release targets.
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
 not home deployment targets. Keep chezmoi naming and platform selection in
 `home/.chezmoiignore`. Use derived `has_work`, `has_personal`, `is_wsl` flags;
-do not duplicate the questionnaire or role logic. Employer values (the Jira and
-GitLab addresses, the dispatch servers' checkout) are asked as work-role
-answers (`jira_url`, `gitlab_url`, `dispatch_folder`), never written into code
-or tests. Provisioning stays in the
+do not duplicate the questionnaire or role logic. Employer values are
+work-role answers: the Jira and GitLab addresses (`jira_url`, `gitlab_url`, no
+default) and the folder in the work folder that holds the dispatch servers
+(`dispatch_folder`, whose question offers `ai-devtools` as its default). Beyond
+that one default, none is hard-coded in Go, templates or tests. Provisioning
+stays in the
 existing platform scripts, consuming shared management dependency choices.
 
 The Go operation layer owns writes and consent. TOML Kit is a bounded private

@@ -67,7 +67,7 @@ point into it.
     `versions_mode`, `name`, `email` (plus `personal_email`/`work_email` on
     `both`), the derived `has_work`, `has_personal` and `is_wsl = true`,
     the folder answers, and, because this host is WSL, `wsl_memory`,
-    `wsl_swap`, `wsl_processors` and `restart_wsl_path` (`invalidKey`,
+    `wsl_swap` and `wsl_processors` (`invalidKey`,
     `internal/machine/answers.go:187-230`). From the checkout, run
     `isolated "$WB" init --answers-from FILE --dry-run --json`, then the
     same with `--approve-plan DIGEST` (`init` takes no `--local-build`).
