@@ -111,6 +111,7 @@ func newRoot(o *options) *cobra.Command {
 		costsCommand(o),
 		migrateCommand(o),
 		envFilesCommand(o),
+		mcpGateCommand(o),
 		guardCommand(o),
 	)
 	registerCompletions(root)

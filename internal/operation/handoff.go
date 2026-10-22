@@ -82,6 +82,15 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	return nil
 }
 
+// Exec replaces this process with command, which gets args and exactly
+// environment, and returns only when command could not start. mcp-gate starts
+// a work MCP server through it, so no Workbench process stays between the
+// agent and the server.
+func Exec(command string, args, environment []string) error {
+	err := syscall.Exec(command, append([]string{command}, args...), environment)
+	return Fail(ExitFailed, "exec", command+" could not start: "+err.Error())
+}
+
 // networkVariables are the proxy and CA settings of the tools that download
 // for Workbench: Go's HTTP transport, uv and curl read the proxy variables and
 // SSL_CERT_FILE, SSL_CERT_DIR or CURL_CA_BUNDLE; the setup scripts' npm and

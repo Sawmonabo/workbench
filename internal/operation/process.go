@@ -387,10 +387,10 @@ func ReadHookInput(stdin *os.File) []byte {
 // ProcessOutput is a captured run's redacted output.
 type ProcessOutput struct{ Stdout, Stderr string }
 
-// Run is the subprocess owner; [StartDetached], the sudo password check of
-// [WithAdmin] (made by the password helper's process too, which holds no
-// [Mutation]) and the sudo -v it runs on the terminal where sudo uses Touch ID
-// are the documented exceptions. Read-only requests are reviewed
+// Run is the subprocess owner; [StartDetached], [Exec], the sudo password
+// check of [WithAdmin] (made by the password helper's process too, which holds
+// no [Mutation]) and the sudo -v it runs on the terminal where sudo uses Touch
+// ID are the documented exceptions. Read-only requests are reviewed
 // native probes, not a sandbox for arbitrary tools; never label a modifying
 // command read-only.
 func Run(
