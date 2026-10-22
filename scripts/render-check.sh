@@ -100,7 +100,7 @@ while IFS= read -r -d '' script; do
             ;;
         esac
         # Comment lines are not behaviour; only executable lines count as a leak.
-        if [ "$role" = personal ] && grep -vE '^[[:space:]]*#' "$out" | grep -qiE 'gitlab|bitwarden|fortressinfosec|dispatch-|coderabbit|promptctl'; then
+        if [ "$role" = personal ] && grep -vE '^[[:space:]]*#' "$out" | grep -qiE 'gitlab|fortressinfosec|dispatch-|coderabbit|promptctl'; then
             echo "LEAK: work-only content in rendered script $script (personal)"; fail=1
         fi
     fi

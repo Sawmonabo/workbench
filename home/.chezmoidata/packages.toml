@@ -3,8 +3,8 @@
 # vscode_extensions is the canonical set for every platform.
 #
 # Every list here is role-neutral, so role gating lives in the scripts, never in
-# this file: bitwarden-cli (00-packages) and the jasonn-porch.gitlab-mr
-# extension (50-apps-and-extensions) are added only when .has_work.
+# this file: the jasonn-porch.gitlab-mr extension (50-apps-and-extensions) is
+# added only when .has_work.
 [packages]
 apt = [
   "aardvark-dns",

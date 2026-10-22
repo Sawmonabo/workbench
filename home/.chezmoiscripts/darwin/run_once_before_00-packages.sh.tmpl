@@ -9,17 +9,11 @@
 # (casks) and VS Code extensions are installed afterwards by
 # 50-apps-and-extensions.
 #
-{{- if .has_work }}
-# Two effects share this script, and each section runs only when its own effect
-# is ticked (WORKBENCH_EFFECT_<NAME>, 1 when run without Workbench): macos-packages
-# for Homebrew and the formulae, work-tools for the Bitwarden CLI.
-{{- else }}
 # The macos-packages section runs only when that effect is ticked
 # (WORKBENCH_EFFECT_MACOS_PACKAGES, 1 when run without Workbench).
-{{- end }}
 set -euo pipefail
 # One trap for every temporary file below; a later trap would replace an earlier one.
-trap 'rm -f "${installer:-}" "${brewfile:-}"{{ if .has_work }} "${bw_brewfile:-}"{{ end }}' EXIT
+trap 'rm -f "${installer:-}" "${brewfile:-}"' EXIT
 
 # A bootstrap should not be the thing that updates Homebrew or nags. Homebrew's
 # own cleanup of superseded versions stays on, as it is by default.
@@ -49,13 +43,6 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     else
         echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
     fi
-{{- if .has_work }}
-    if [ -x /opt/homebrew/bin/bw ] || [ -x /usr/local/bin/bw ]; then
-        echo "work-tools: = Bitwarden CLI is installed"
-    else
-        echo "work-tools: install Bitwarden CLI"
-    fi
-{{- end }}
     exit 0
 fi
 echo "==> macOS bootstrap starting..."
@@ -114,25 +101,6 @@ fi
 # --- Oh My Posh config directory ---
 mkdir -p "$HOME/.config/oh-my-posh"
 fi
-{{- if .has_work }}
-
-if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
-# --- Bitwarden CLI (work machines only; the bw wrapper in .zshrc expects it) ---
-# Role-gated here so bitwarden-cli stays out of the role-neutral data lists.
-# This never installs Homebrew: when it is missing the step is reported blocked,
-# the rest of the apply goes on, and the step runs once Homebrew is there.
-if command -v brew >/dev/null 2>&1; then
-    echo "==> Installing Bitwarden CLI..."
-    bw_brewfile="$(mktemp)"
-    echo 'brew "bitwarden-cli"' > "$bw_brewfile"
-    if ! brew bundle install --file="$bw_brewfile" --no-upgrade; then
-        part_failed work-tools "Homebrew could not install the Bitwarden CLI (the output above says why)" || status=1
-    fi
-else
-    part_failed work-tools "Homebrew is not installed, so the Bitwarden CLI was not installed" || status=1
-fi
-fi
-{{- end }}
 
 if [ "$status" -ne 0 ]; then
     echo "==> macOS bootstrap finished with a step that could not be done (named above)."

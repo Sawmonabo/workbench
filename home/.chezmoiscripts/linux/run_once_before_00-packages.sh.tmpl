@@ -1,13 +1,13 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
-# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh
-# (and bitwarden-cli on work machines). Each tool is a part of its own: one that
-# fails is reported on its step (linux-packages or work-tools) and the others
-# still install; the script then ends nonzero, so the next apply runs it again.
+# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh.
+# Each tool is a part of its own: one that fails is reported on its step
+# (linux-packages) and the others still install; the script then ends nonzero,
+# so the next apply runs it again.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    user_bin_refused linux-packages{{ if .has_work }} work-tools{{ end }}
+    user_bin_refused linux-packages
     missing=()
     for tool in bat fd oh-my-posh gh tmux; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
@@ -18,17 +18,10 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     else
         printf -v joined '%s, ' "${missing[@]}"; echo "linux-packages: install ${joined%, }"
     fi
-{{- if .has_work }}
-    if command -v bw >/dev/null 2>&1 || [ -x "$HOME/.local/bin/bw" ]; then
-        echo "work-tools: = Bitwarden CLI is installed"
-    else
-        echo "work-tools: install Bitwarden CLI"
-    fi
-{{- end }}
     exit 0
 fi
 {{ template "effect-report.sh" }}
-user_bin_refused linux-packages{{ if .has_work }} work-tools{{ end }}
+user_bin_refused linux-packages
 status=0
 why=
 # part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
@@ -231,31 +224,6 @@ else
 fi
 fi
 
-{{ if .has_work -}}
-if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
-# --- Bitwarden CLI (work machines only; the bw wrapper in .bashrc expects it) ---
-# Same per-user, no-sudo shape as gh above; unzip comes from the apt line at the top.
-install_bw() {
-    require_unused_command bw || return 1
-    command -v unzip >/dev/null || { why="unzip is not installed (the System packages step installs it)"; return 1; }
-    echo "==> Installing Bitwarden CLI to ~/.local/bin..."
-    BW_TMP="$download_dir/bw"
-    mkdir -p "$BW_TMP" || return 1
-    curl -fsSL "https://bitwarden.com/download/?app=cli&platform=linux" -o "$BW_TMP/bw.zip" ||
-        { why="it could not be downloaded"; return 1; }
-    unzip -oq "$BW_TMP/bw.zip" -d "$BW_TMP" || return 1
-    mkdir -p "$HOME/.local/bin" || return 1
-    install -m 0755 "$BW_TMP/bw" "$HOME/.local/bin/bw" || return 1
-    echo "    bw installed: $("$HOME/.local/bin/bw" --version)"
-}
-if ! command -v bw &>/dev/null && [ ! -x "$HOME/.local/bin/bw" ]; then
-    part work-tools "the Bitwarden CLI was not installed" install_bw
-else
-    echo "==> Bitwarden CLI already installed, skipping."
-fi
-fi
-
-{{ end -}}
 if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- tmux ---
 install_tmux() {

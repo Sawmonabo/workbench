@@ -144,7 +144,7 @@ export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 # pulls / clones you may want it back immediately.
 alias clear-cache="sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' && free -h"
 
-# WSL: route browser opens (bw login SSO/Duo, gh auth, xdg-open) to Windows
+# WSL: route browser opens (gh auth, xdg-open) to Windows
 # via ~/.local/bin/win-browser (Chrome -> wslview -> Windows default). A
 # wrapper rather than chrome.exe directly because some tools (gh) split
 # $BROWSER on spaces, and wslview alone is unavailable on Ubuntu 26.04 —
@@ -156,8 +156,3 @@ fi
 
 # Added by remote-dev-workstation install
 export PATH="$HOME/bin:$PATH"
-
-{{- if .has_work }}
-
-{{ includeTemplate "bw-wrapper.sh" . | trim }}
-{{- end }}

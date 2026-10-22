@@ -66,10 +66,7 @@ var effectSources = map[string][]string{
 	"brew-maintenance":        {"60-cleanup"},
 	"linux-packages":          {"00-packages"},
 	"linux-editor-extensions": {"35-vscode-extensions"},
-	"work-tools": {
-		"00-packages", "50-apps-and-extensions", "35-vscode-extensions",
-	},
-	"bitwarden-session-cache": {".zshrc", ".bashrc"},
+	"work-tools":              {"50-apps-and-extensions", "35-vscode-extensions"},
 	"windows-files":           {"00-packages-windows", "10-deploy-windows-configs"},
 	"wsl-preferences":         {"10-deploy-windows-configs"},
 	"sysctl":                  {"20-sysctl"},
@@ -210,38 +207,18 @@ var linuxEditorEffect = operation.Effect{
 	Undo:        "Not reverted automatically: uninstall an extension in VS Code",
 }
 
-// workToolsEffect is the role-gated work tooling. It carries only what its
-// scripts can switch off: the shell setup for Bitwarden is a file, which always
-// applies, and has its own fixed effect.
+// workToolsEffect is the role-gated work editor extension.
 var workToolsEffect = operation.Effect{
 	Name:        "work-tools",
-	Description: "Bitwarden CLI and work editor extension",
-	Privilege:   "user; network",
-	Recovery:    "external; no package rollback",
+	Description: "Work editor extension",
+	Privilege:   "user; marketplace network and extension code",
+	Recovery:    "external; extensions are not reverted",
 	Title:       "Work tools",
-	Summary:     "Bitwarden CLI and the work editor extension",
-	What:        "Installs the Bitwarden command-line tool and the work VS Code extension.",
-	Touches:     "the Bitwarden CLI and your VS Code extensions",
-	RunsAs:      "you; downloads from the vendor",
-	Undo:        "Not reverted automatically: uninstall the tools by hand",
-}
-
-// bitwardenSessionEffect is the fixed, role-gated disclosure of the Bitwarden
-// shell policy. The policy is text in the shell startup files, which apply with
-// every other file and cannot be switched off by a step, so it is listed like
-// the AI safety settings: always, with no box to untick.
-var bitwardenSessionEffect = operation.Effect{
-	Name:        "bitwarden-session-cache",
-	Description: "Shell startup files define a bw wrapper that caches the Bitwarden session key in a 0600 file every new shell reads; review policy before apply",
-	Privilege:   "user",
-	Recovery:    "configuration files only",
-	Fixed:       true,
-	Title:       "Bitwarden session caching",
-	Summary:     "bw unlock keeps your vault open for new shells",
-	What:        "Keeps a bw command in your shell startup files that, after bw unlock, saves the Bitwarden session key in a private file (mode 0600) every new shell reads, until bw lock removes it. While it is saved, anyone using your account can read the vault. Always runs.",
-	Touches:     "~/.zshrc, ~/.bashrc, ~/.config/Bitwarden CLI/session",
-	RunsAs:      "you",
-	Undo:        "Restored from the checkpoint Workbench takes before applying",
+	Summary:     "the work editor extension",
+	What:        "Installs the work VS Code extension.",
+	Touches:     "your VS Code extensions",
+	RunsAs:      "you; downloads from the marketplace and runs extension code",
+	Undo:        "Not reverted automatically: uninstall the extension in VS Code. A Bitwarden CLI installed earlier stays: run bw lock (or delete ~/.config/Bitwarden CLI/session) and remove bw by hand",
 }
 
 // windowsHostEffects are the Windows-side owners a WSL host lists. Windows
@@ -290,7 +267,7 @@ func provisioningEffects(c operation.Context, answers Answers) []operation.Effec
 	}
 	effects = append(effects, platformEffects(answers)...)
 	if answers["has_work"] == true {
-		effects = append(effects, workToolsEffect, bitwardenSessionEffect)
+		effects = append(effects, workToolsEffect)
 	}
 	if answers["is_wsl"] == true {
 		effects = append(effects, windowsHostEffects...)

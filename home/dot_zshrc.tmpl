@@ -128,11 +128,6 @@ eval "$(oh-my-posh init zsh --config ~/.config/oh-my-posh/catppuccin_mocha.omp.j
 # --- Editor ---
 export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 
-{{- if .has_work }}
-
-{{ includeTemplate "bw-wrapper.sh" . | trim }}
-{{- end }}
-
 # --- Local overrides (not managed by chezmoi) ---
 # Machine-specific aliases and installer blocks belong here so chezmoi apply
 # never removes them.

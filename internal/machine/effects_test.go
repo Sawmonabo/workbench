@@ -36,8 +36,8 @@ func TestSavedSelectionNeverChecksASkippedEffect(t *testing.T) {
 // Native keeps a script that several effects share while any one of them is
 // checked, so the script itself has to skip the sections of the ones that are
 // not. Unticking Homebrew packages must not run the sudo Homebrew installer,
-// unticking Mac apps or Work tools must not install apps, the work extension or
-// the Bitwarden CLI, and a Windows part left off must not replace Windows files:
+// unticking Mac apps or Work tools must not install apps or the work extension,
+// and a Windows part left off must not replace Windows files:
 // with an approved plan there is no prompt left to stop them. The flag above is
 // not enough, because the script is what runs. Every shared script, with the
 // shared templates it includes, must read each owner's switch: with the default
