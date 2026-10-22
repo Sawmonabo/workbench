@@ -58,6 +58,43 @@ point into it.
 - **Env file format** is `NAME=value` lines, `#` comments and blank lines.
   Files are mode 0600, owned by the user, with no group or other bits.
 - **Retired answer keys** are `jira_api_token` and `gitlab_token`.
+- **Release path (owner's rule).** This change ships first as a pre-release
+  (the next `vX.Y.Z-rc.N` tag after the latest one). The owner installs it
+  by name on each distribution (`workbench update vX.Y.Z-rc.N`) and checks
+  it (Task 13). Fixes go out as the next `-rc.N`. Only after the owner
+  signs off does the owner tag the release itself. Only the owner pushes
+  tags; no task pushes a tag.
+- **Windows calls must look like ordinary user activity.** The work laptop
+  has no PowerShell admin, and its IT monitors PowerShell commands. New
+  code adds:
+  - **No PowerShell calls at all.** The Windows side is reached the way the
+    scripts already do it: `cmd.exe /c echo %LOCALAPPDATA%` and plain file
+    reads and writes through the `/mnt/c` path.
+  - **Nothing elevated.** No `-ExecutionPolicy Bypass`, no
+    `-EncodedCommand`, no `Invoke-Expression`, no download-and-run, no
+    scheduled task, no `HKLM`, no security-tool setting, no hidden window.
+  - **No Windows program during checks.** No check in this plan runs a
+    Windows program, not even a dry run on WSL, whose probes call
+    `powershell.exe` and `reg.exe`. Windows plan lines are checked by
+    running the scripts' probe sections with stub `cmd.exe`, `wsl.exe`,
+    `wslpath`, `powershell.exe` and `reg.exe` on `PATH` (Task 10 step 7).
+- **Clean up everything throwaway.** Every check works only under the
+  session's scratch folder, or in containers labelled
+  `workbench-check=almalinux-work`.
+  - **Before.** Note the container images present before Task 12.
+  - **After.** Delete every throwaway thing:
+    - the labelled containers;
+    - any image the checks pulled that was not there before
+      (`almalinux:10` and `ubuntu:24.04` are not there now);
+    - throwaway homes and folders;
+    - fake record folders;
+    - stub servers;
+    - local bundles built for the checks.
+  - **Prove it.** Show the listing that proves nothing is left
+    (Task 12, last step).
+  - **Branch and worktree.** Removing the work branch or worktree is
+    destructive cleanup, which `AGENTS.md` leaves to the owner's explicit
+    go-ahead.
 
 ## Review Focus
 
@@ -662,8 +699,10 @@ git commit -am "feat: register the Claude Code dispatch servers through mcp-gate
 **Interfaces:**
 - Produces:
   - `platform.WindowsLocalAppData(ctx context.Context) (string, error)`:
-    runs `cmd.exe /c echo %LOCALAPPDATA%` and `wslpath -u`, capped at 60
-    seconds.
+    runs `cmd.exe /c echo %LOCALAPPDATA%` (the call the WSL scripts already
+    make) and `wslpath -u`, capped at 60 seconds. No PowerShell. The record
+    is read and written as a plain file through the resulting `/mnt/c`
+    path.
   - Record path `<LocalAppData>/Workbench/writers.json`, holding
     `{"terminal-adoption": "<distro>", ...}` with keys from
     `wsl-preferences`, `terminal-adoption`, `powershell-adoption` and
@@ -698,9 +737,17 @@ git commit -am "feat: register the Claude Code dispatch servers through mcp-gate
 - [ ] **Step 6: Undo text.** The four steps' Undo text names the record
   and says deleting it is safe.
 - [ ] **Step 7: Run the gates**, including the `wsl` render-checks. Then
-  smoke the probe: place a record naming another distribution in a
-  disposable LocalAppData folder, and check that the plan line reads
-  `= written by …`.
+  smoke the probe without calling Windows at all.
+  - Render the two WSL scripts with `scripts/render-check.sh`'s scratch
+    config.
+  - Run only their probe sections (`WORKBENCH_PROBE=1`), with a scratch
+    folder first on `PATH` holding stub `cmd.exe`, `wsl.exe`, `wslpath`,
+    `powershell.exe` and `reg.exe` scripts. The stubs print canned answers:
+    `cmd.exe` prints a scratch LocalAppData folder, `wsl.exe` prints two
+    distribution names.
+  - Place a record naming the other distribution in that folder, and check
+    that the plan line reads `= written by …`.
+  - No real Windows program runs. Delete the scratch folder afterwards.
 - [ ] **Step 8: Commit**
 
 ```bash
@@ -747,32 +794,123 @@ git commit -am "docs: AlmaLinux 10, role folders, env files and the MCP gate"
 **Files:**
 - Modify: `docs/acceptance.md` (a new entry only)
 
-- [ ] **Step 1: Build a local bundle** per `AGENTS.md`
-  (`scripts/package-release.py`, `-dev.N` name).
-- [ ] **Step 2: AlmaLinux container.** In a disposable `almalinux:10`
-  container, with a new non-root user and sudo, run:
+- [ ] **Step 1: Record the starting state.** Save
+  `podman images --format '{{.Repository}}:{{.Tag}}'` and
+  `podman ps -a --format '{{.Names}}'` to the scratch folder.
+- [ ] **Step 2: Build a local bundle** per `AGENTS.md`
+  (`scripts/package-release.py`, `-dev.N` name), into the scratch folder.
+- [ ] **Step 3: AlmaLinux container.** In a disposable `almalinux:10`
+  container labelled `workbench-check=almalinux-work`, with a new non-root
+  user and sudo, run:
   1. `init --answers-from FILE` (role `work`, folder answers);
   2. `apply --local-build --dry-run --json`;
   3. `apply --local-build --approve-plan DIGEST`.
 
   Expected: EPEL, the base packages, bat, fd, tmux, podman and the font
   (`fc-cache`) are installed, and every chosen step is complete.
-- [ ] **Step 3: Ubuntu container.** The same in `ubuntu:24.04` with role
-  `personal`. Expected: the apt path is unchanged, and there is no
-  `work.env`, `claude-mcp` registration or dispatch entry.
-- [ ] **Step 4: Both agents.** In a disposable home on role `both`, with
-  non-default folders, synthetic credentials and stub stdio servers in
-  place of the dispatch checkouts, run every bullet of spec §4.10's
-  disposable-home list for Claude Code and Codex. Record each pass or
-  fail.
-- [ ] **Step 5: WSL path.** A second AlmaLinux 10 WSL distribution under
-  another name with a disposable home, if available. Otherwise record that
-  it was not run.
-- [ ] **Step 6: Acceptance entry.** Add a new `docs/acceptance.md` entry
-  listing exactly what ran and what did not (arm64 and the real Windows
-  writer record, unless run).
-- [ ] **Step 7: Commit**
+- [ ] **Step 4: Ubuntu container.** The same in a labelled `ubuntu:24.04`
+  container with role `personal`. Expected: the apt path is unchanged, and
+  there is no `work.env`, `claude-mcp` registration or dispatch entry.
+- [ ] **Step 5: Throwaway home checks.** In a disposable home (`--destination`
+  under the scratch folder) on role `both`, with non-default folders,
+  synthetic credentials and stub stdio servers in place of the dispatch
+  checkouts, run every bullet of spec §4.10's disposable-home list.
+  - **The agents.** Use the owner's installed, logged-in Claude Code and
+    Codex with per-run settings only, so no agent config file changes:
+    - Claude Code: `claude --mcp-config FILE --strict-mcp-config`.
+    - Codex: `codex -c mcp_servers.NAME.command=… -c mcp_servers.NAME.args=[…]`.
+
+    Each FILE and value holds the gate entry that Task 8 and Task 9 would
+    render.
+  - **Start folders.** Each agent is started in a throwaway work folder and
+    a throwaway personal folder under the scratch area.
+  - **Record** each pass or fail.
+- [ ] **Step 6: WSL plan lines.** Repeat Task 10 step 7's stubbed probe
+  for all four rules:
+  - nobody recorded;
+  - this distribution recorded;
+  - another installed distribution recorded;
+  - a recorded distribution that is no longer installed.
+
+  No real Windows program runs (a real dry run on WSL would call
+  `powershell.exe` and `reg.exe` in its probes, so it is not used here).
+- [ ] **Step 7: Clean up and prove it.** Delete what the checks created:
+  - the labelled containers (`podman rm -f`);
+  - each image not in step 1's list (`podman rmi`);
+  - the scratch homes, folders, fake record folders, stub servers and
+    local bundles.
+
+  Then show, and paste into the task report:
+  - `podman ps -a --filter label=workbench-check=almalinux-work`, which
+    prints nothing;
+  - the image list, which equals step 1's;
+  - a listing of the scratch folder, which is empty.
+- [ ] **Step 8: Acceptance entry.** Add a new `docs/acceptance.md` entry
+  listing exactly what ran and what did not:
+  - arm64;
+  - the real Windows writes, which wait for Task 13;
+  - the WSL apply path on AlmaLinux, which waits for Task 13.
+- [ ] **Step 9: Commit**
 
 ```bash
 git commit -am "docs(acceptance): record the AlmaLinux 10 and role-folder checks"
 ```
+
+### Task 13: Pre-release, owner checks, sign-off (owner)
+
+Nothing in this task is run by an agent. The agent prepares the checklist
+and fixes what the owner reports.
+
+- [ ] **Step 1: The owner tags the pre-release** (the next `vX.Y.Z-rc.N`
+  after the latest tag) and pushes it. The release workflow publishes it as
+  a GitHub pre-release.
+- [ ] **Step 2: AlmaLinux distribution (owner).**
+  1. `workbench update vX.Y.Z-rc.N`.
+  2. `workbench init --ask machine_role`, choosing `work` and keeping the
+     work folder default.
+  3. `workbench apply --dry-run`; read the plan.
+  4. `workbench apply` at a terminal.
+
+  Expected:
+  - migration 0005 moves the tokens into `work.env`;
+  - `epel` sits under Already set;
+  - Claude Code and Codex in `~/repos/<repo>` list the dispatch tools;
+  - in `~` they list none and show no error.
+- [ ] **Step 3: Ubuntu distribution (owner).**
+  1. Switch the role to `personal` *before* updating (spec §4.1):
+     `workbench init --ask machine_role` with the installed release.
+  2. Run the same update, dry run and apply as in step 2.
+
+  Expected: no dispatch entries in either agent, no `work.env`, and no
+  work names in `env` anywhere.
+- [ ] **Step 4: Windows Terminal, one writer (owner, optional).**
+  1. In AlmaLinux, `workbench apply --choose`, tick **Replace Windows
+     Terminal settings**, and apply. A copy of the old `settings.json` is
+     kept.
+  2. In Ubuntu, `workbench apply --dry-run`. It shows
+     `terminal-adoption: = written by AlmaLinux-10`, and a real apply leaves
+     `settings.json` unchanged.
+
+  If anything looks wrong, restore the kept copy and report the plan text.
+- [ ] **Step 5: Fixes.** Each problem the owner reports is fixed on the
+  branch, and the owner tags the next `-rc.N`. Repeat from step 2.
+- [ ] **Step 6: Sign-off.** When the owner says it looks good and works,
+  the owner tags `vX.Y.Z` (no `-rc`). The release workflow publishes it and
+  regenerates `CHANGELOG.md`.
+
+## Found while planning (follow-ups, not in this change)
+
+- **The RestartWSL helpers.** They are part of the Windows setup step,
+  which is ticked on both distributions. The step writes a `.bat` that runs
+  `powershell -ExecutionPolicy Bypass -File restart-wsl.ps1`, and a script
+  marked `#Requires -RunAsAdministrator` that registers a scheduled task
+  restarting `vmcompute`
+  (`home/.chezmoiscripts/wsl/run_after_10-deploy-windows-configs.sh.tmpl:142-171`).
+  - Workbench writes these files but never runs them.
+  - On a laptop without admin they cannot work, and a monitored laptop may
+    flag their content.
+  - Suggested follow-up: make them their own optional step, off by default.
+- **Windows VS Code settings and extensions.** Nothing manages them from
+  WSL. Workbench's `~/.config/Code/User/settings.json` is not read by
+  Windows VS Code. A Windows-side step would need the same one-writer
+  record.
