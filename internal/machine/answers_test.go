@@ -1,6 +1,7 @@
 package machine
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,27 +12,36 @@ import (
 
 // TestRetiredTokensSurviveEveryAnswerWrite guards the owner's saved work
 // tokens until migration 0005 moves them into work.env: the questionnaire no
-// longer asks for them, so a re-ask or an adopted answers file that lacks them
-// would drop the only copy Workbench holds, and nothing could recover it. A
-// saved file the answers check rejects is refused, never rewritten without
-// them.
+// longer asks for them, so a re-ask of the folder questions on the first apply
+// after upgrading, or an adopted answers file, that lacks them would drop the
+// only copy Workbench holds, and nothing could recover it. A saved file the
+// answers check rejects is refused, never rewritten without them.
 func TestRetiredTokensSurviveEveryAnswerWrite(t *testing.T) {
 	saved := Answers{"jira_api_token": "synthetic-jira", "gitlab_token": "synthetic-gitlab"}
-	answers := workAnswers()
 
-	carryRetired(answers, saved)
-	encoded, err := encodeMachineConfig(answers, Selection{})
+	// An earlier release's machine.toml: the tokens and no folder answer.
+	upgraded := workAnswers()
+	delete(upgraded, "work_folder")
+	maps.Copy(upgraded, saved)
+	before, err := encodeMachineConfig(upgraded, Selection{})
 	if err != nil {
 		t.Fatal(err)
 	}
-
+	machine := filepath.Join(t.TempDir(), "machine.toml")
+	if err = os.WriteFile(machine, before, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	encoded, _, err := answersFile(machine, workAnswers())
+	if err != nil {
+		t.Fatal(err)
+	}
 	decoded, err := readAnswers(encoded)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for key, want := range saved {
 		if decoded[key] != want {
-			t.Errorf("%s was not carried into the written answers", key)
+			t.Errorf("saving the re-asked answers drops %s", key)
 		}
 	}
 	if key := decoded.invalidKey(); key != "" {
