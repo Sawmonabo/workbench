@@ -406,25 +406,18 @@ var optionalEffects = []operation.Effect{
 	},
 }
 
-// optionalNames lists this host's optional effects.
-func optionalNames() []string {
-	var names []string
-	for _, effect := range platformOptionalEffects() {
-		names = append(names, effect.Name)
-	}
-	return names
-}
-
-// staleSelectionWarnings names each saved select this host does not offer: a
-// choice saved before an optional step was renamed or removed, or on another
-// platform. It is ignored, not refused, so one stale name never blocks a plan.
-// The warnings follow the saved file, not the selection being planned, so a
-// plan and its recheck under the locks read them alike.
-func staleSelectionWarnings(saved Selection) []string {
-	available := optionalNames()
+// staleSelectionWarnings names each saved select that is none of the plan's
+// effects: a choice saved before an optional step was renamed or removed, or
+// on another platform. It is ignored, not refused, so one stale name never
+// blocks a plan. The warnings follow the saved file, not the selection being
+// planned, so a plan and its recheck under the locks read them alike.
+func staleSelectionWarnings(saved Selection, effects []operation.Effect) []string {
 	var warnings []string
 	for _, name := range saved.Select {
-		if !slices.Contains(available, name) {
+		if !slices.ContainsFunc(
+			effects,
+			func(effect operation.Effect) bool { return effect.Name == name },
+		) {
 			warnings = append(warnings, "Saved choice "+name+" is not offered here and is "+
 				"ignored; workbench apply --reset forgets it")
 		}

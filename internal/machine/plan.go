@@ -215,7 +215,7 @@ func (p *preparation) selectEffects(
 		return err
 	}
 	if !selection.Forget {
-		p.Plan.Warnings = append(p.Plan.Warnings, staleSelectionWarnings(saved)...)
+		p.Plan.Warnings = append(p.Plan.Warnings, staleSelectionWarnings(saved, p.Plan.Effects)...)
 	}
 	p.Plan.Effects = applySelection(p.Plan.Effects, selection, saved)
 	if c.Native.Destination != c.Home {
