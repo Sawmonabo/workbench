@@ -378,11 +378,14 @@ var optionalEffects = []operation.Effect{
 		What: "Makes this distribution the one plain `wsl` opens (Docker Desktop can leave its own as the " +
 			"default) and, when Windows Terminal has more than one WSL profile, the profile new Terminal tabs " +
 			"open: it sets only defaultProfile in Terminal's settings.json, keeping everything else in the " +
-			"file, and keeps a copy of the file next to it. With one distribution, or one WSL profile in " +
-			"Terminal, there is nothing to choose, so it is not asked and Terminal's own default, such as " +
-			"PowerShell, stays. Terminal set to restore your last window's tabs at start " +
-			"(firstWindowPreference persistedWindowLayout) still restores them; the default decides new tabs " +
-			"and a window with nothing to restore.",
+			"file, and keeps a copy of the file next to it. With one distribution that wsl already opens, or " +
+			"one WSL profile in Terminal, there is nothing to choose, so it is not asked and Terminal's own " +
+			"default, such as PowerShell, stays; Docker Desktop left as wsl's default is asked about even with " +
+			"one distribution of your own. A tick you saved when this step set only wsl's default now sets " +
+			"Terminal's default too from the next apply, which the plan shows. Terminal set to restore your " +
+			"last window's tabs " +
+			"at start (firstWindowPreference persistedWindowLayout) still restores them; the default decides " +
+			"new tabs and a window with nothing to restore.",
 		Touches: "WSL settings and Windows Terminal settings.json (defaultProfile only)",
 		RunsAs:  "you, on Windows",
 		Undo: "wsl --set-default <name>, and choose the default profile in Terminal's settings, or restore " +

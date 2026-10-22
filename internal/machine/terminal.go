@@ -22,13 +22,14 @@ var terminalProfileGUID = regexp.MustCompile(
 // SetTerminalDefault returns existing, the text of a Windows Terminal
 // settings.json, with its defaultProfile set to guid and nothing else changed:
 // comments, key order, indentation, a byte order mark and line endings stay.
-// A defaultProfile that already opens that profile, by its guid in any case
-// or by the name of the profile in the file's own list that has it, counts as
-// set, and existing itself is returned. Text that is blank, is not a JSON
-// object with comments, repeats a key, or whose edit cannot be proven to
-// change that one value is refused with a reason, and the caller leaves the
-// file as it is.
-func SetTerminalDefault(existing []byte, guid string) ([]byte, error) {
+// A defaultProfile that already opens that profile counts as set, and
+// existing itself is returned: its guid in any case, the name of the profile
+// in the file's own list that has it, or name, the profile's name where it
+// lives only in a fragment the file does not list ("" for none). Text that
+// is blank, is not a JSON object with comments, repeats a key, or whose edit
+// cannot be proven to change that one value is refused with a reason, and the
+// caller leaves the file as it is.
+func SetTerminalDefault(existing []byte, guid, name string) ([]byte, error) {
 	if !terminalProfileGUID.MatchString(guid) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
@@ -40,7 +41,7 @@ func SetTerminalDefault(existing []byte, guid string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if opensProfile(have, guid) {
+	if opensProfile(have, guid, name) {
 		return existing, nil
 	}
 	body := bytes.TrimPrefix(existing, byteOrderMark)
@@ -122,14 +123,15 @@ func readTerminalSettings(existing []byte) (hujson.Value, map[string]any, error)
 }
 
 // opensProfile reports that the defaultProfile in settings opens the profile
-// guid: it is that guid, in any case, or the name of a profile in the
-// settings' own list with that guid. Terminal accepts either form.
-func opensProfile(settings map[string]any, guid string) bool {
+// guid, called name: it is that guid, in any case, that name, or the name of
+// a profile in the settings' own list with that guid. Terminal accepts a guid
+// or a name.
+func opensProfile(settings map[string]any, guid, name string) bool {
 	current, isString := settings["defaultProfile"].(string)
 	if !isString {
 		return false
 	}
-	if strings.EqualFold(current, guid) {
+	if strings.EqualFold(current, guid) || (name != "" && current == name) {
 		return true
 	}
 	// "profiles" is an object with a "list", or the list itself.

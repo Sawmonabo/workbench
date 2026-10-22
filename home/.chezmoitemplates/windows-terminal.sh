@@ -10,11 +10,17 @@
 #   terminal_profile_start DISTRO
 #       start reading which profile Terminal has for DISTRO (win_start); after
 #       win_wait, terminal_profile_read sets WT_PROFILE_GUID, its guid ("" when
-#       Terminal has none), WT_WSL_PROFILES, how many WSL profiles Terminal
-#       has, and WT_PROFILE, one JSON object with the guid, the profile's
-#       "source", "commandline" true when it starts by a command line (a
-#       fragment's does, which overrides startingDirectory), and "how" it was
-#       found. It fails when the read did not finish.
+#       none is found), WT_PROFILE_NAME, its name, WT_PROFILE_MISSING, why
+#       none was found ("" when one was: "none", or which profiles could each
+#       be it), WT_WSL_PROFILES, how many WSL profiles Terminal has, and
+#       WT_PROFILE, one JSON object with the guid, the profile's "source",
+#       "commandline" true when it starts by a command line (a fragment's does,
+#       which overrides startingDirectory), and "how" it was found. It fails
+#       when the read did not finish.
+#       The profile named DISTRO wins. Only when none is, a profile that
+#       mentions DISTRO or its version (a renamed one, say) is taken, and only
+#       when it is the one such profile: "Ubuntu" is part of "Ubuntu-24.04",
+#       so a guess between several could bind another distribution's.
 #   terminal_settings_start COPY
 #       start copying settings.json to COPY, a local file (win_start), so what
 #       reads it after win_wait reads the Windows drive once, under the cap;
@@ -65,8 +71,15 @@ version = version.group(0) if version else distro
 def mentions(profile):
     blob = json.dumps(profile)
     return distro in blob or version in blob
-found = {"guid": "", "how": "no generated WSL profile found"}
+def one_line(text):
+    return " ".join(str(text).split())
 wsl, hidden = set(), set()
+exact, loose = [], {}
+def consider(p, candidate, loosely):
+    if p.get("name") == distro:
+        exact.append(candidate)
+    elif loosely and mentions(p):
+        loose.setdefault(p["guid"].lower(), candidate)
 # 1. fragments: the source is the fragment folder name
 for folder in fragment_dirs:
     for path in sorted(glob.glob(os.path.join(folder, "*", "*.json"))):
@@ -74,9 +87,8 @@ for folder in fragment_dirs:
         for p in listed(load(path)):
             if source == "Microsoft.WSL":
                 wsl.add(p["guid"].lower())
-            if not found["guid"] and mentions(p):
-                found = {"guid": p["guid"], "source": source, "commandline": True,
-                         "how": "bound to fragment " + path}
+            consider(p, {"guid": p["guid"], "source": source, "commandline": True,
+                         "name": p.get("name"), "how": "bound to fragment " + path}, True)
 # 2. profiles Terminal already merged into settings.json (its generator or a fragment)
 state = load(os.path.join(wt, "state.json")) if wt else {}
 generated = set(state.get("generatedProfiles", [])) if isinstance(state, dict) else set()
@@ -87,14 +99,29 @@ for name in ("settings.json", "settings.json.before-dotfiles") if wt else ():
                 wsl.add(p["guid"].lower())
             if p.get("hidden") is True:
                 hidden.add(p["guid"].lower())
-        if not found["guid"] and p.get("source") and (
-                p.get("name") == distro or (p["guid"] in generated and mentions(p))):
-            found = {"guid": p["guid"], "source": p["source"], "commandline": bool(p.get("commandline")),
-                     "how": "bound to generated profile in " + name}
+        if p.get("source"):
+            consider(p, {"guid": p["guid"], "source": p["source"], "commandline": bool(p.get("commandline")),
+                         "name": p.get("name"), "how": "bound to generated profile in " + name},
+                     p["guid"] in generated)
+missing = ""
+if exact:
+    found = exact[0]
+elif len(loose) == 1:
+    found = next(iter(loose.values()))
+else:
+    found = {"guid": "", "how": "no generated WSL profile found"}
+    missing = "none"
+    if loose:
+        names = sorted(one_line(c.get("name") or c["guid"]) for c in loose.values())
+        missing = "more than one profile could be it (" + ", ".join(names) + ")"
+        found["how"] = "not bound: " + missing
 if found["guid"]:
     wsl.add(found["guid"].lower())
+name = found.get("name")
 print(len(wsl - hidden))
 print(found["guid"])
+print(one_line(name) if isinstance(name, str) else "")
+print(missing)
 print(json.dumps(found))
 ' "${WT_SETTINGS_DIR:-}" "$1" "${WT_FRAGMENT_DIRS[@]}"
 }
@@ -103,11 +130,12 @@ print(json.dumps(found))
 # shellcheck disable=SC2034
 terminal_profile_read() {
     local lines
-    WT_WSL_PROFILES=0 WT_PROFILE_GUID="" WT_PROFILE=""
+    WT_WSL_PROFILES=0 WT_PROFILE_GUID="" WT_PROFILE_NAME="" WT_PROFILE_MISSING="" WT_PROFILE=""
     [ "${WIN_RC[terminal-profile]:-}" = 0 ] || return 1
     mapfile -t lines <<<"${WIN_OUT[terminal-profile]}"
-    [ "${#lines[@]}" = 3 ] && [[ ${lines[0]} =~ ^[0-9]+$ ]] || return 1
-    WT_WSL_PROFILES=${lines[0]} WT_PROFILE_GUID=${lines[1]} WT_PROFILE=${lines[2]}
+    [ "${#lines[@]}" = 5 ] && [[ ${lines[0]} =~ ^[0-9]+$ ]] || return 1
+    WT_WSL_PROFILES=${lines[0]} WT_PROFILE_GUID=${lines[1]} WT_PROFILE_NAME=${lines[2]}
+    WT_PROFILE_MISSING=${lines[3]} WT_PROFILE=${lines[4]}
 }
 
 terminal_settings_start() {

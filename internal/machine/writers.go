@@ -119,9 +119,9 @@ func takeOverEffects(probed []operation.Effect) []operation.Effect {
 				distribution + ", and record this distribution as its writer",
 			Privilege: step.Privilege,
 			Recovery:  step.Recovery,
-			Title:     "Take over " + step.Title + " from " + distribution,
+			Title:     step.Title + " (take over from " + distribution + ")",
 			Summary:   distribution + " writes it now; this distribution writes it from this apply on",
-			What: "Runs the " + step.Title + " step from this distribution, although " +
+			What: "Runs the " + step.Name + " step from this distribution, although " +
 				distribution + " is recorded as the one that writes it, and records this distribution instead. " +
 				distribution + " then leaves it alone; moving it back is workbench apply --choose there.",
 			Touches: step.Touches + ", and " + writerRecord,
