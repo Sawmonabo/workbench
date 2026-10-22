@@ -100,9 +100,9 @@ func (claude) ConfigMove(home string) (ConfigMove, bool) {
 	return move, move.Source != "" || len(relative) > 0
 }
 
-// claudeJSON is Claude Code's account and usage file: inside CLAUDE_CONFIG_DIR
-// when that is set, directly in the home directory otherwise.
-func claudeJSON(home string) string {
+// ClaudeJSON is Claude Code's account, usage and MCP server file: inside
+// CLAUDE_CONFIG_DIR when that is set, directly in the home directory otherwise.
+func ClaudeJSON(home string) string {
 	if dir, source, _ := claudeConfigDir(home); source != "" {
 		return filepath.Join(dir, ".claude.json")
 	}
@@ -185,7 +185,7 @@ func readClaudeOAuth(path string) (claudeOAuth, bool) {
 // organizationUuid also leaves the subscription empty, since "claude:" would
 // merge unrelated sign-ins.
 func (claude) SignIn(home string) SignIn {
-	acct, ok := readClaudeOAuth(claudeJSON(home))
+	acct, ok := readClaudeOAuth(ClaudeJSON(home))
 	if !ok {
 		return SignIn{Account: "unknown"}
 	}
@@ -211,7 +211,7 @@ func claudeSignIns(home string) []claudeOAuth {
 	}
 	sort.Slice(backups, func(i, j int) bool { return stamp(backups[i]) < stamp(backups[j]) })
 	var out []claudeOAuth
-	for _, path := range append(backups, claudeJSON(home)) {
+	for _, path := range append(backups, ClaudeJSON(home)) {
 		if acct, ok := readClaudeOAuth(path); ok && acct.OrganizationUUID != "" {
 			out = append(out, acct)
 		}
@@ -648,7 +648,7 @@ func (claude) Observations(home string) []Observation {
 			} `json:"lastModelUsage"`
 		} `json:"projects"`
 	}
-	raw, err := os.ReadFile(claudeJSON(home))
+	raw, err := os.ReadFile(ClaudeJSON(home))
 	if err != nil || !decode(raw, &data) {
 		return nil
 	}
