@@ -10,9 +10,12 @@ Linux guest configuration and Windows-host effects are distinct.
 Turn every step off in the `apply` plan to apply files only. Full
 provisioning runs the Linux scripts and the Windows host steps you leave on or
 tick. WSL networking (`.wslconfig`) is the one Windows step that is on by
-default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep, RestartWSL
-helpers, editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
-remembered. Existing Terminal settings and PowerShell profiles are left
+default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep,
+editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
+remembered. Workbench no longer writes the RestartWSL helpers (`restart-wsl.ps1`,
+`Restart WSL.bat`, `setup-task.ps1`) or asks for their folder; copies an earlier
+release wrote are yours and stay where they are, so delete them by hand if you
+no longer want them (and the scheduled task, if you created one). Existing Terminal settings and PowerShell profiles are left
 unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)
 is on. Those two and `font-registry` are optional steps of their own: off until
 you tick them, whether or not Windows setup is on, and each installs what it
@@ -86,7 +89,7 @@ The canonical WSL scripts describe these effects:
 | Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the whole file and keeps a copy beside it. |
 | Prompt engine, themes and font files | Windows user paths, not guessed drive/username paths. |
 | Font registration/loading | Registry/process effects; file recovery does not undo them. |
-| VM preferences and RestartWSL helper files | File changes are distinct from executing a restart or scheduled task. |
+| VM preferences | A file change, distinct from restarting WSL. |
 | User PATH/default distribution | Separate external-effect selection; never choose a distribution implicitly. |
 | Guest sysctl | Privileged file and live kernel effect, not ordinary user configuration. |
 | Editor settings | Windows desktop and Linux remote extension hosts are different owners. |

@@ -1,7 +1,8 @@
 {{ if .is_wsl -}}
 #!/bin/bash
-# Deploy .wslconfig and the RestartWSL helpers to the Windows filesystem, and the
-# other Windows-side pieces of the setup.
+# Deploy .wslconfig to the Windows filesystem, and the other Windows-side pieces
+# of the setup. Earlier releases also wrote RestartWSL helper scripts; copies
+# left on the Windows drive are the owner's, and nothing here touches them.
 # Re-runs whenever this template's content changes
 #
 # .wslconfig: a new file is written fresh; an existing one gets the managed keys
@@ -59,7 +60,6 @@ command -v cmd.exe >/dev/null 2>&1 || blocked "there is no Windows interop on th
 WSL_MEMORY={{ .wsl_memory | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_PROCESSORS={{ .wsl_processors | toString | replace "'" "'\"'\"'" | printf "'%s'" }}
 WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
-RESTART_WSL_PATH={{ .restart_wsl_path | replace "'" "'\"'\"'" | printf "'%s'" }}
 
 # Every Windows variable in one call. "|" cannot be part of a Windows path, and
 # a call that fails leaves them empty, which is reported below. The installed
@@ -98,108 +98,6 @@ WRITERS=
 [ -z "$WIN_LOCAL_W" ] || WRITERS="$(wslpath -u "$WIN_LOCAL_W")/Workbench/writers.json" || WRITERS=
 INSTALLED=
 [ "${WIN_RC[distros]:-}" != 0 ] || INSTALLED=${WIN_OUT[distros]:-}
-
-# ---------- Helpers ----------
-
-# Resolve a path: absolute Unix, Windows absolute (via wslpath), or relative to Windows home
-resolve_path() {
-    local path="$1" win_home="$2"
-    if [[ "$path" == /* ]]; then
-        echo "$path"
-    elif [[ "$path" =~ ^[A-Za-z]:[/\\] ]]; then
-        local converted
-        if converted=$(wslpath -u "$path" 2>/dev/null); then
-            echo "$converted"
-        else
-            echo 'WORKBENCH_EFFECT restart-path blocked: wslpath could not resolve the selected path' >&2
-            return 3
-        fi
-    else
-        echo "$win_home/$path"
-    fi
-}
-
-# The RestartWSL helpers Workbench manages, written into the directory $1.
-write_restart_helpers() {
-    local dir="$1"
-    cat > "$dir/restart-wsl.ps1" << 'PS1SCRIPT'
-# Restart WSL via the pre-configured elevated scheduled task
-# No admin permissions required - the task itself runs elevated
-#
-# WARNING: Restarting VMCompute while WSL is running can cause a BSOD.
-# This script checks for running distros and aborts if any are found.
-
-# Check if any WSL distros are currently running
-$wslList = wsl -l -v 2>&1
-$running = $wslList | Select-String "Running"
-
-if ($running) {
-    Write-Host "ERROR: WSL distros are currently running:" -ForegroundColor Red
-    Write-Host ""
-    $wslList | ForEach-Object { Write-Host "  $_" }
-    Write-Host ""
-
-    $response = Read-Host "Shut down WSL first, then restart VMCompute? (y/N)"
-    if ($response -ne 'y') {
-        Write-Host "Aborted." -ForegroundColor Yellow
-        exit 1
-    }
-
-    Write-Host "Shutting down WSL..."
-    wsl --shutdown
-
-    # Verify it actually stopped
-    Start-Sleep -Seconds 3
-    $wslCheck = wsl -l -v 2>&1
-    $stillRunning = $wslCheck | Select-String "Running"
-    if ($stillRunning) {
-        Write-Host "ERROR: WSL is still running after shutdown. Aborting to avoid BSOD." -ForegroundColor Red
-        exit 1
-    }
-    Write-Host "WSL stopped." -ForegroundColor Green
-}
-
-Write-Host "Restarting VMCompute service via scheduled task..."
-schtasks /run /tn "RestartVMCompute"
-
-Write-Host "Waiting for VMCompute to restart..."
-Start-Sleep -Seconds 5
-
-Write-Host "Done. WSL will start fresh on next use."
-PS1SCRIPT
-
-    cat > "$dir/Restart WSL.bat" << 'BATSCRIPT'
-@echo off
-powershell -ExecutionPolicy Bypass -File "%~dp0restart-wsl.ps1"
-pause
-BATSCRIPT
-
-    cat > "$dir/setup-task.ps1" << 'SETUPSCRIPT'
-# One-time setup: creates the "RestartVMCompute" scheduled task
-# MUST be run as Administrator (right-click > Run as Administrator)
-
-#Requires -RunAsAdministrator
-
-$taskName = "RestartVMCompute"
-
-# Check if task already exists
-$existing = Get-ScheduledTask -TaskName $taskName -ErrorAction SilentlyContinue
-if ($existing) {
-    Write-Host "Task '$taskName' already exists. Removing and recreating..." -ForegroundColor Yellow
-    Unregister-ScheduledTask -TaskName $taskName -Confirm:$false
-}
-
-$action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument "-Command Restart-Service vmcompute -Force"
-$principal = New-ScheduledTaskPrincipal -UserId "SYSTEM" -LogonType ServiceAccount -RunLevel Highest
-$settings = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries
-
-Register-ScheduledTask -TaskName $taskName -Action $action -Principal $principal -Settings $settings -Description "Restarts the VMCompute (Hyper-V) service for WSL recovery"
-
-Write-Host ""
-Write-Host "Scheduled task '$taskName' created successfully." -ForegroundColor Green
-Write-Host "You can now use 'Restart WSL.bat' without admin rights." -ForegroundColor Green
-SETUPSCRIPT
-}
 
 # Merge a key=value into a specific INI section, preserving all other content.
 # WSL reads section and key names case-insensitively, so an existing line is
@@ -323,16 +221,6 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # What the Windows-side pieces would do.
     RG_EXE="$WIN_HOME/bin/rg.exe"
     changes=()
-    RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME" 2>/dev/null) || RESTART_DIR=
-    helpers_tmp=$(mktemp -d)
-    write_restart_helpers "$helpers_tmp"
-    helpers_current=1
-    [ -n "$RESTART_DIR" ] || helpers_current=0
-    for name in restart-wsl.ps1 "Restart WSL.bat" setup-task.ps1; do
-        cmp -s "$helpers_tmp/$name" "$RESTART_DIR/$name" || helpers_current=0
-    done
-    rm -rf "$helpers_tmp"
-    [ "$helpers_current" = 1 ] || changes+=("rewrite the RestartWSL helpers")
     [ -f "$RG_EXE" ] || changes+=("install ripgrep for Windows")
     if [ -d "$WIN_ROAMING/Notepad++" ] || [ -d "$WIN_PROGRAMFILES/Notepad++" ]; then
         for theme in Dracula Alucard; do
@@ -340,7 +228,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         done
     fi
     if [ ${#changes[@]} -eq 0 ]; then
-        echo "windows-files: = the RestartWSL helpers, ripgrep and the Notepad++ themes are in place"
+        echo "windows-files: = ripgrep and the Notepad++ themes are in place"
     else
         printf -v joined '%s; ' "${changes[@]}"; echo "windows-files: ${joined%; }"
     fi
@@ -445,24 +333,6 @@ fi
 writer_record wsl-preferences "$WRITERS" "${WSL_DISTRO_NAME:-}" ||
     part_blocked wsl-preferences ".wslconfig is in place, but ${WRITERS:-the Windows writer record} could not record this distribution as its writer"
 fi
-
-# ---------- RestartWSL scripts ----------
-if [[ "${WORKBENCH_EFFECT_WINDOWS_FILES:-1}" == 1 ]]; then
-RESTART_DIR=$(resolve_path "$RESTART_WSL_PATH" "$WIN_HOME") || RESTART_DIR=
-
-if [[ -z "$RESTART_DIR" ]]; then
-    part_blocked windows-files "the RestartWSL folder path is empty or cannot be resolved, so the RestartWSL helpers were not written"
-else
-    echo "==> Writing RestartWSL scripts to $RESTART_DIR..."
-    mkdir -p "$RESTART_DIR"
-
-    write_restart_helpers "$RESTART_DIR"
-
-    echo "    RestartWSL scripts written."
-    echo "    NOTE: Run setup-task.ps1 as Administrator once to create the scheduled task."
-fi
-fi
-
 
 # ---------- Default WSL distro ----------
 # Docker Desktop registers its own distro and often leaves it as the default.

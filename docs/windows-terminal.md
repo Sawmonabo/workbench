@@ -15,5 +15,5 @@ Terminal JSON ownership, through `powershell-adoption`.
 To change policy, edit the canonical source and use a qualified Workbench
 preview/approval flow. Never delete all
 chezmoi script state or bypass Workbench to force a Windows rewrite. Installing
-helper files does not authorize executing restart helpers, scheduled tasks or
+files does not authorize restarting WSL, scheduled tasks or
 registry/environment changes.

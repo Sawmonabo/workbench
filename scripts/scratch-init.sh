@@ -23,7 +23,6 @@ cat > "$config" <<'SEED'
     wsl_memory = "8GB"
     wsl_processors = 4
     wsl_swap = "2GB"
-    restart_wsl_path = "Desktop/RestartWSL"
 SEED
 cp "$repo/.chezmoiroot" "$scratch/source/"
 cp -R "$repo/home" "$scratch/source/home"

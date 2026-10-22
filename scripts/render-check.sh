@@ -54,7 +54,6 @@ if [ "$extra" = wsl ]; then
     wsl_memory = "8GB"
     wsl_processors = 4
     wsl_swap = "2GB"
-    restart_wsl_path = "Desktop/RestartWSL"
 WSLDATA
     grep -q 'is_wsl = true' "$config" || { echo "WSL FAIL: could not force is_wsl in $config"; exit 1; }
 fi

@@ -945,6 +945,6 @@ shell/Git/editor/theme, runtime/tool outcomes, denied privilege and
 optional-effect denial. WSL requires real host paths with spaces/non-default
 drives and Windows permissions.
 
-Never execute restart helpers just to test their installation. Record OS/CPU,
+Never restart WSL just to test a `.wslconfig` change. Record OS/CPU,
 tool versions, commands, outcome and known limits here. Reuse existing render,
 lint and leak checks; do not add a new lifecycle or benchmark framework.

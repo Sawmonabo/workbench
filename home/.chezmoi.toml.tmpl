@@ -86,10 +86,8 @@ Answers persist in the local chezmoi.toml, never in the repo.
 {{- $_ := set $data "wsl_memory" (promptStringOnce . "wsl_memory" (printf "WSL memory limit (host has %dGB; default 75%%)" $hostGB) (printf "%dGB" $memGB)) -}}
 {{- $_ := set $data "wsl_processors" (promptIntOnce . "wsl_processors" (printf "WSL vCPUs (host has %d; default 2/3)" $hostCPU) (int64 $cpus)) -}}
 {{- $_ := set $data "wsl_swap" (promptStringOnce . "wsl_swap" "WSL swap size (default memory/6)" (printf "%dGB" $swapGB)) -}}
-{{- $_ := set $data "restart_wsl_path" (promptStringOnce . "restart_wsl_path" "RestartWSL scripts path (relative to Windows home or a full path e.g. Desktop/RestartWSL)") -}}
 {{- if not (regexMatch "^[1-9][0-9]{0,6}(MB|GB)$" $data.wsl_memory) }}{{ fail "Invalid WSL memory" }}{{ end -}}
 {{- if not (regexMatch "^(0|[1-9][0-9]{0,6}(MB|GB))$" $data.wsl_swap) }}{{ fail "Invalid WSL swap" }}{{ end -}}
 {{- if or (lt (int $data.wsl_processors) 1) (gt (int $data.wsl_processors) 1024) }}{{ fail "Invalid WSL processor count" }}{{ end -}}
-{{- if or (empty $data.restart_wsl_path) (regexMatch "[[:cntrl:]]|(^|[/\\\\])\\.\\.([/\\\\]|$)" $data.restart_wsl_path) }}{{ fail "Invalid RestartWSL path" }}{{ end -}}
 {{- end }}
 {{ dict "sourceDir" .chezmoi.sourceDir "data" $data | toToml }}

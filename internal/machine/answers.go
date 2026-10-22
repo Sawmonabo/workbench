@@ -197,7 +197,6 @@ var answerKeys = []string{
 	"wsl_memory",
 	"wsl_processors",
 	"wsl_swap",
-	"restart_wsl_path",
 }
 
 // unknownKeys are the keys the questionnaire never saves, sorted.
@@ -352,8 +351,8 @@ func RoleFolders(home, config string) []string {
 	return folders
 }
 
-// invalidWSLKey is the first WSL sizing or restart answer that is missing or
-// invalid, or "".
+// invalidWSLKey is the first WSL sizing answer that is missing or invalid, or
+// "".
 func (a Answers) invalidWSLKey() string {
 	if !regexp.MustCompile(`^[1-9][0-9]{0,6}(MB|GB)$`).MatchString(a.text("wsl_memory")) {
 		return "wsl_memory"
@@ -364,14 +363,6 @@ func (a Answers) invalidWSLKey() string {
 	processors, ok := a["wsl_processors"].(int64)
 	if !ok || processors < 1 || processors > 1024 {
 		return "wsl_processors"
-	}
-	path := a.text("restart_wsl_path")
-	if path == "" || strings.ContainsFunc(path, unicode.IsControl) ||
-		slices.Contains(
-			strings.FieldsFunc(path, func(r rune) bool { return r == '/' || r == '\\' }),
-			"..",
-		) {
-		return "restart_wsl_path"
 	}
 	return ""
 }
