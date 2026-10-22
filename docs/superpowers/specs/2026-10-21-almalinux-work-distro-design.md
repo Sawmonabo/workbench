@@ -597,8 +597,10 @@ with `JIRA_BASE_URL` and `GITLAB_URL` filled from the `jira_url` and
 `personal.env` starts with no names, since Workbench saves no personal
 credential today. The format is `NAME=value` lines, `#` comments and blank
 lines, nothing else (no `export`, no quotes or expansion, no space or tab at
-either end of a value, no carriage return at a line's end, and not `PATH`,
-`HOME` or the hook's own `__workbench_*` and `_wb_*` names), so the shell hook
+either end of a value, other blanks being part of it, no carriage return at
+a line's end, and not a name the hooks run through: `PATH`, `path`, `HOME`,
+`PWD`, `PROMPT_COMMAND`, `precmd_functions`, `chpwd_functions` or the hooks'
+own `__workbench_*` and `_wb_*` names), so the shell hook
 and the gate read it the same way. A
 `NAME=` line with an empty value sets nothing, in the hook and the gate
 alike, so a name the owner has not filled in never hides a tool's own

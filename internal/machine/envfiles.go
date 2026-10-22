@@ -24,10 +24,16 @@ var envRoles = []struct {
 }{{"work", migrate.WorkEnvNames}, {"personal", nil}}
 
 // envName is a name an env file may set, and envReserved the names it may
-// not: the shell's PATH and HOME, and the shell hooks' own variables.
+// not: the ones the shell hooks run through, which the hook would unset
+// outside the folder. That is PATH and HOME, zsh's path (tied to PATH) and
+// PWD (the zsh hook's folder), bash's PROMPT_COMMAND and zsh's
+// precmd_functions and chpwd_functions (what runs the hook), and the hooks'
+// own variables. Case counts: Path or http_proxy loads.
 var (
 	envName     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
-	envReserved = regexp.MustCompile(`^(PATH|HOME|__workbench_.*|_wb_.*)$`)
+	envReserved = regexp.MustCompile(
+		`^(PATH|path|HOME|PWD|PROMPT_COMMAND|precmd_functions|chpwd_functions|__workbench_.*|_wb_.*)$`,
+	)
 )
 
 // ParseEnvFile reads an env file's NAME=value lines with a value, in file
