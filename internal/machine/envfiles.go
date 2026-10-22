@@ -23,18 +23,24 @@ var envRoles = []struct {
 	names []string
 }{{"work", migrate.WorkEnvNames}, {"personal", nil}}
 
-// envName is a name an env file may set.
-var envName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+// envName is a name an env file may set, and envReserved the names it may
+// not: the shell's PATH and HOME, and the shell hooks' own variables.
+var (
+	envName     = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
+	envReserved = regexp.MustCompile(`^(PATH|HOME|__workbench_.*|_wb_.*)$`)
+)
 
 // ParseEnvFile reads an env file's NAME=value lines with a value, in file
 // order: the names to set. Blank lines, # comments and a NAME= line with an
 // empty value are skipped, so a name the owner has not filled in never hides
 // a tool's own setting. bad holds the number, from 1, of every other line
-// that is not NAME=value with a valid name, an unquoted value and no carriage
-// return at its end: the file is never sourced, so `export NAME=value`, a
-// quoted value or a Windows line ending would load wrong. A value is
-// everything after the first =, as written. The shell hooks in
-// home/private_dot_bashrc.tmpl and home/dot_zshrc.tmpl read the same way.
+// that is not NAME=value with a valid name that is not reserved, and a value
+// that is unquoted, has no space or tab at either end and no carriage return
+// at its end: the file is never sourced, so `export NAME=value`, a quoted or
+// padded value or a Windows line ending would load wrong, and a reserved name
+// would break the shell or the hook. A value is everything after the first =,
+// as written. The shell hooks in home/private_dot_bashrc.tmpl and
+// home/dot_zshrc.tmpl read the same way.
 func ParseEnvFile(data []byte) (pairs [][2]string, bad []int) {
 	number := 0
 	for line := range strings.Lines(string(data)) {
@@ -44,8 +50,9 @@ func ParseEnvFile(data []byte) (pairs [][2]string, bad []int) {
 			continue
 		}
 		name, value, ok := strings.Cut(line, "=")
-		if !ok || !envName.MatchString(name) || strings.HasPrefix(value, `"`) ||
-			strings.HasPrefix(value, "'") || strings.HasSuffix(value, "\r") {
+		if !ok || !envName.MatchString(name) || envReserved.MatchString(name) ||
+			strings.HasPrefix(value, `"`) || strings.HasPrefix(value, "'") ||
+			strings.HasSuffix(value, "\r") || strings.Trim(value, " \t") != value {
 			bad = append(bad, number)
 			continue
 		}
