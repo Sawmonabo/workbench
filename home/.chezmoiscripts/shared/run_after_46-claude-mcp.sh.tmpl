@@ -34,18 +34,21 @@ if ! knows_command claude-mcp; then
     exit 0
 fi
 # Every field ends in a NUL: the claude path, the bin folder of nvm's default
-# Node, then each command's arguments, with an empty field ending each one.
+# Node, 1 when the first command is Claude Code's first run, then each
+# command's arguments, with an empty field ending each one.
 fields=$(mktemp)
 # Claude Code's first run rewrites its settings.json once, dropping keys such
-# as skipAutoPermissionPrompt, and records in ~/.claude.json that it did. On a
-# machine where it has never run, this step's first claude command is that run,
-# after chezmoi wrote the settings this apply approved, so the apply would end
-# with the file other than approved. A copy kept beside it before that command
-# is put back after the last one: that undoes the first-run rewrite, and later
-# claude runs leave the file as it is.
+# as skipAutoPermissionPrompt, and records in its .claude.json that it did.
+# When the installed workbench says this step's first claude command is that
+# run, which comes after chezmoi wrote the settings this apply approved, a copy
+# kept beside them before that command is put back after the last one: that
+# undoes the first-run rewrite, and later claude runs leave the file as it is.
+# Only this script writes the copy, under this one name, so a copy an apply
+# killed during the commands left behind is removed here.
 settings="$HOME/.claude/settings.json"
-kept=
-trap 'rm -f "$fields" ${kept:+"$kept"}' EXIT
+kept="$settings.workbench-first-run"
+rm -f "$kept"
+trap 'rm -f "$fields" "$kept"' EXIT
 if ! reason=$("$workbench" claude-mcp run 2>&1 >"$fields"); then
     # The last line of the error, without its "Error:" mark or a tab.
     reason=${reason##*$'\n'}
@@ -58,6 +61,7 @@ fi
 {
     IFS= read -r -d '' claude
     IFS= read -r -d '' node_bin
+    IFS= read -r -d '' first_run
     ran=0
     args=()
     while IFS= read -r -d '' field; do
@@ -69,8 +73,7 @@ fi
             part_blocked claude-mcp "Claude Code is not installed"
             exit 0
         fi
-        if [ "$ran" = 0 ] && [ ! -e "$HOME/.claude.json" ] && [ -f "$settings" ] && [ ! -L "$settings" ]; then
-            kept=$(mktemp "$settings.XXXXXX")
+        if [ "$ran" = 0 ] && [ "$first_run" = 1 ] && [ -f "$settings" ] && [ ! -L "$settings" ]; then
             cp -p "$settings" "$kept"
         fi
         ran=1
@@ -85,7 +88,6 @@ fi
         echo "==> claude-mcp: nothing to change"
     fi
 } <"$fields"
-if [ -n "$kept" ]; then
+if [ -f "$kept" ]; then
     mv -f "$kept" "$settings"
-    kept=
 fi

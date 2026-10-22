@@ -14,8 +14,9 @@ import (
 // would do and run prints the claude commands the step's script runs
 // (internal/machine/claudemcp.go), so Claude Code writes its own file and the
 // script names no server. Every field run prints ends in a NUL: the claude
-// path, the nvm Node bin folder, then each command's arguments, each command
-// ended by an empty field.
+// path, the nvm Node bin folder, "1" when the first command is Claude Code's
+// first run (else empty), then each command's arguments, each command ended
+// by an empty field.
 func claudeMCPCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{Use: "claude-mcp", Hidden: true, Args: cobra.NoArgs}
 	applyStep(
@@ -36,12 +37,16 @@ func claudeMCPCommand(o *options) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			claude, nodeBin, commands, err := machine.ClaudeMCPCommands(c, answers)
+			claude, nodeBin, firstRun, commands, err := machine.ClaudeMCPCommands(c, answers)
 			if err != nil {
 				return err
 			}
+			first := ""
+			if firstRun {
+				first = "1"
+			}
 			var fields strings.Builder
-			fields.WriteString(claude + "\x00" + nodeBin + "\x00")
+			fields.WriteString(claude + "\x00" + nodeBin + "\x00" + first + "\x00")
 			for _, command := range commands {
 				fields.WriteString(strings.Join(command, "\x00") + "\x00\x00")
 			}

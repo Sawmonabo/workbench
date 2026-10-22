@@ -168,22 +168,32 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 // ClaudeMCPCommands are what the claude-mcp step's script runs: the claude
 // the shell runs ("" when Claude Code is not installed), the bin folder of
 // nvm's default Node ("" when it has none), which an npm copy of claude needs
-// on PATH, and the claude arguments, in order: the removes, then the adds. It
-// lists none when nothing needs changing, and fails when Claude Code's file
-// can't be read rather than guess.
+// on PATH, whether the first command is Claude Code's first run, and the
+// claude arguments, in order: the removes, then the adds. It lists none when
+// nothing needs changing, and fails when Claude Code's file can't be read
+// rather than guess.
+//
+// Claude Code's first run rewrites the settings.json in its config folder
+// once, then writes its .claude.json. So firstRun is set only when that folder
+// is ~/.claude, whose settings.json chezmoi wrote earlier in the apply, and
+// the .claude.json [costs.ClaudeJSON] names is not there yet.
 func ClaudeMCPCommands(
 	c operation.Context,
 	a Answers,
-) (claude, nodeBin string, commands [][]string, err error) {
+) (claude, nodeBin string, firstRun bool, commands [][]string, err error) {
 	changes, err := claudeMCPPending(c, a)
 	if err != nil {
-		return "", "", nil, operation.Fail(
+		return "", "", false, nil, operation.Fail(
 			operation.ExitBlocked,
 			"claude-mcp",
 			c.ShowPath(costs.ClaudeJSON(c.Home))+" can't be read, so no server was changed",
 		)
 	}
 	nodeBin = nvmDefaultBin(c.Home)
+	if filepath.Clean(costs.ClaudeDir(c.Home)) == filepath.Join(c.Home, ".claude") {
+		_, statErr := os.Lstat(costs.ClaudeJSON(c.Home))
+		firstRun = errors.Is(statErr, fs.ErrNotExist)
+	}
 	at := slices.IndexFunc(agents, func(agent agent) bool { return agent.command == "claude" })
 	if at >= 0 {
 		if install, ok := findAgent(c.Home, nodeBin, agents[at]); ok {
@@ -205,5 +215,5 @@ func ClaudeMCPCommands(
 			[]string{"mcp", "add-json", "--scope", "user", server.Name, string(entry)},
 		)
 	}
-	return claude, nodeBin, commands, nil
+	return claude, nodeBin, firstRun, commands, nil
 }
