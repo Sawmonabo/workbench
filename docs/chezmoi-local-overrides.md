@@ -14,19 +14,24 @@ role, editor, version mode, derived role/platform flags and conditional fields.
 
 | Role | Identity and integration |
 | --- | --- |
-| `personal` | Default Git email; personal trust root; no work tokens/hooks. |
-| `work` | Default Git email; work trust root and selected work integration. |
-| `both` | Personal email under `~/dev/`, work email under `~/repos/`; both roots. |
+| `personal` | Default Git email; personal folder as trust root; no work credentials, servers or hooks. |
+| `work` | Default Git email; work folder as trust root and selected work integration. |
+| `both` | Personal email in the personal folder, work email in the work folder (defaults `~/dev` and `~/repos`); both roots. |
 
 Roles derive `has_personal` and `has_work`; native host detection derives
 `is_wsl`. Editor choices are `code`/`vim`; version mode is `pinned`/`latest`.
-Mixed role asks for both emails, work roles for local-only service credentials,
-and WSL for its sizing/restart-path inputs. Secrets never belong in source,
+Mixed role asks for both emails, each role for its folder (`work_folder`,
+`personal_folder`), and WSL for its sizing/restart-path inputs. Answers hold
+no credentials: those go in the role env files (see
+[usage](usage.md#roles-folders-and-credentials)). Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with
 `workbench init --ask machine_role`, then `workbench apply`. Role changes remove the files and the
-Codex entries only the old role used, such as the work MCP servers and their
-tokens, and the `~/repos` trust; the checklist lists those removals and they are
+Codex entries only the old role used, such as the work MCP servers and the
+default work folder's trust; the checklist lists those removals and they are
 checkpointed like any other file change, even with every effect unchecked.
+Claude Code's work servers go through the `claude-mcp` step instead, which is
+not checkpointed, and a role env file stays until you delete it (the plan says
+so).
 
 A minimal personal answer file for macOS or native Linux is:
 
@@ -35,6 +40,7 @@ A minimal personal answer file for macOS or native Linux is:
 name = "Developer"
 email = "developer@example.invalid"
 machine_role = "personal"
+personal_folder = "~/dev"
 has_personal = true
 has_work = false
 is_wsl = false

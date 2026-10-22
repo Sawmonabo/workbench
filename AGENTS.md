@@ -85,7 +85,12 @@ Distinguish implemented code, observed checks and unqualified release targets.
   registry) are separate optional steps, and ticking Windows setup ticks none of
   its parts; only WSL networking is on by default. On macOS the one optional
   step is `touch-id-sudo`, which turns on Touch ID for sudo through
-  `/etc/pam.d/sudo_local`; Linux has none.
+  `/etc/pam.d/sudo_local`; Linux has none. `epel`, listed only where the
+  package manager is dnf (AlmaLinux), is on by default like System packages,
+  and so are `env-files` and `claude-mcp` on every platform. On WSL, a
+  `take-over-<step>` effect, listed when another installed distribution is
+  recorded as the writer of a shared Windows file (ADR 0015), is optional and
+  saved only in `decided`, never in `select`, so a tick takes over once.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
@@ -105,8 +110,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Concern | Canonical owner |
 | --- | --- |
 | CLI flags/output | `internal/cli/` |
+| The apply steps' hidden `--probe` and `run` (`applyStep`, on `migrate` and the hidden `env-files` and `claude-mcp`) and the hidden `mcp-gate` launch gate | `internal/cli/` |
 | Context, consent, locks, subprocesses, state, checkpoints | `internal/operation/` |
+| Private file writes (`ReplacePrivateFile`, and `CreatePrivateFile`, which never replaces a file) and the `Exec` that `mcp-gate` replaces itself through | `internal/operation/` |
 | Native machine planning/setup/apply | `internal/machine/` |
+| Role env files (`work.env`, `personal.env`), the `env-files` and `claude-mcp` effects and the dispatch server definition | `internal/machine/` (scripts `06-env-files` and `46-claude-mcp`; shell hook in `home/private_dot_bashrc.tmpl` and `home/dot_zshrc.tmpl`; read deny rules in `home/private_dot_claude/modify_private_settings.json`) |
 | Bundle verification/staging/activation | `internal/release/` |
 | Existing-project discovery/planning | `internal/project/` |
 | Machine questions | `home/.chezmoi.toml.tmpl` |

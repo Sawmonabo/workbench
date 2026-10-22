@@ -24,7 +24,12 @@ over the same files.
    workbench init --answers-from ~/.config/chezmoi/chezmoi.toml
    ```
 
-   `apply` reads only `machine.toml`.
+   `apply` reads only `machine.toml`. A dotfiles config has no role folder
+   answers, which Workbench needs, so `init --answers-from` refuses it naming
+   the missing one: add `work_folder = "~/repos"` (work and both roles) and
+   `personal_folder = "~/dev"` (personal and both), or the folders you use,
+   to its `[data]` table first, or skip this step and let `workbench apply`
+   ask every question at a terminal.
 
 3. **Review the plan, then apply.**
 
