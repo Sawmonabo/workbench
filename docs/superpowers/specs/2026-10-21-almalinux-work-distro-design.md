@@ -269,9 +269,17 @@ Editing these two scripts changes their content, so chezmoi runs them again
 once on every existing machine, Ubuntu included. Every part already checks
 before it installs, so on a machine that is set up the rerun changes nothing.
 
-The apt lines wait up to ten minutes for the package lock. The builder checks
-how dnf 4 behaves when another dnf holds its lock and makes dnf wait or fail
-with the reason the same way.
+The apt lines wait up to ten minutes for the package lock. AlmaLinux 10
+ships dnf 4 (`dnf-4.20`, Red Hat advisory RHBA-2025:20106), which waits for
+a held lock by itself: it checks every second and prints `Waiting for
+process with pid N to finish.` once per holder
+([dnf/lock.py](https://github.com/rpm-software-management/dnf/blob/master/dnf/lock.py)),
+and fails at once only when `exit_on_lock` is set, which is off by default
+([dnf.conf reference](https://dnf.readthedocs.io/en/latest/conf_ref.html)).
+The dnf lines therefore add no limit of their own: a `timeout` wrapper would
+keep sudo from asking for its password and would kill a slow install as if
+the lock were held. A failed dnf line fails its part with dnf's own message
+above it, as the apt lines do.
 
 `render-check.sh` treats `apt-get install` as a write in its probe check
 (line 97); `dnf install` is added there.
@@ -621,14 +629,15 @@ Workbench never writes it again. The one other writer is migration 0005,
 which only creates `work.env`. The step's plan lines:
 
 - `env-files: create work.env` when it is missing.
-- `env-files: = work.env is there; empty: JIRA_API_TOKEN, TEMPO_API_TOKEN`,
+- `env-files: = work.env is there, empty: JIRA_API_TOKEN, TEMPO_API_TOKEN`,
   naming each listed name that is empty or missing. It is a nothing-to-do
   line, so a name the owner leaves empty on purpose does not keep the step
   asking. Values are read only to tell empty from not; they are never kept,
   shown, logged or put in `--json`.
-- `env-files: = work.env holds work credentials on a machine without the
-  work role; delete it` (and the same for `personal.env` on a machine without
-  the personal role). Workbench does not delete it.
+- `env-files: = work.env holds work credentials without the work role:
+  delete it` (and the same for `personal.env` on a machine without the
+  personal role). No plan line holds `; `, which the plan view uses to join
+  lines. Workbench does not delete it.
 - `env-files: = waiting for migration 0005 to create work.env` while 0005
   still has work to do.
 
@@ -769,7 +778,8 @@ lists it under that step when the retired keys are present. It reads
 `internal/machine`.
 
 - **Role has work, no `work.env`.** It writes `work.env` (0600, one write of
-  a new file then a rename) with all nine names:
+  a new file then a rename that never replaces an existing file) with all
+  nine names:
   - The two tokens.
   - `JIRA_EMAIL` from the saved work email (`work_email` on `both`,
     otherwise `email`).
@@ -994,7 +1004,6 @@ names the folder answers.
 - The exact plan wording.
 - The record's file name and format, and whether one record file holds all
   four steps or each step has its own.
-- How dnf waits on its lock (section 4.3).
 - Whether `zsh` is installed on AlmaLinux: the managed `.zshrc` deploys only
   on macOS, so it is not needed.
 - How the shell hook avoids reading the env files before every prompt (for
