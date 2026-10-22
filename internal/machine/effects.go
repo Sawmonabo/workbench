@@ -366,17 +366,27 @@ var optionalEffects = []operation.Effect{
 		Undo:        "Not reverted automatically",
 	},
 	{
-		Name:        "default-distro",
-		Optional:    true,
-		Description: "Make this distribution the default WSL distribution",
-		Privilege:   "Windows user",
-		Recovery:    "external; previous default is not restored",
-		Title:       "Make this distribution your default",
-		Summary:     "plain wsl opens this distribution",
-		What:        "Makes this distribution the one `wsl` and new Windows Terminal tabs open by default.",
-		Touches:     "WSL settings",
-		RunsAs:      "you, on Windows",
-		Undo:        "wsl --set-default <name>. " + writerRecordNote,
+		Name:     "default-distro",
+		Optional: true,
+		Description: "Make this distribution the default WSL distribution and, where Windows Terminal has " +
+			"more than one WSL profile, the profile new Terminal tabs open (only defaultProfile in its " +
+			"settings.json, a copy kept beside it)",
+		Privilege: "Windows user",
+		Recovery:  "external; the previous defaults are not restored; a copy of Terminal's settings.json is kept",
+		Title:     "Open new terminals in this distribution",
+		Summary:   "plain wsl and new Windows Terminal tabs open it",
+		What: "Makes this distribution the one plain `wsl` opens (Docker Desktop can leave its own as the " +
+			"default) and, when Windows Terminal has more than one WSL profile, the profile new Terminal tabs " +
+			"open: it sets only defaultProfile in Terminal's settings.json, keeping everything else in the " +
+			"file, and keeps a copy of the file next to it. With one distribution, or one WSL profile in " +
+			"Terminal, there is nothing to choose, so it is not asked and Terminal's own default, such as " +
+			"PowerShell, stays. Terminal set to restore your last window's tabs at start " +
+			"(firstWindowPreference persistedWindowLayout) still restores them; the default decides new tabs " +
+			"and a window with nothing to restore.",
+		Touches: "WSL settings and Windows Terminal settings.json (defaultProfile only)",
+		RunsAs:  "you, on Windows",
+		Undo: "wsl --set-default <name>, and choose the default profile in Terminal's settings, or restore " +
+			"the settings.json copy. " + writerRecordNote,
 	},
 	{
 		Name:        "windows-path",
@@ -434,8 +444,10 @@ func hostOptionalEffects() []operation.Effect {
 	for i := range effects {
 		if effects[i].Name == "default-distro" {
 			if distribution := os.Getenv("WSL_DISTRO_NAME"); distribution != "" {
-				effects[i].Description = "Make " + distribution + " the default WSL distribution"
-				effects[i].Title = "Make " + distribution + " your default"
+				effects[i].Description = strings.Replace(
+					effects[i].Description, "this distribution", distribution, 1,
+				)
+				effects[i].Title = "Open new terminals in " + distribution
 			}
 		}
 	}

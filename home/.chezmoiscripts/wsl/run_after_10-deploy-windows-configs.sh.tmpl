@@ -8,12 +8,16 @@
 # .wslconfig: a new file is written fresh; an existing one gets the managed keys
 # merged into it, everything else kept, after a dated recovery copy is saved.
 # Only one WSL distribution writes .wslconfig and the default distribution: the
-# one windows-writers.sh's record names (take-over-<effect> moves it).
+# one windows-writers.sh's record names (take-over-<effect> moves it). The
+# default distribution is the one plain `wsl` opens and, where Windows Terminal
+# has more than one WSL profile to choose from, the one new Terminal tabs open
+# (its settings.json defaultProfile, the one key this script writes there).
 # The plan the owner approved is the consent: nothing here asks a question.
 set -euo pipefail
 
 {{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
 {{ template "windows-writers.sh" }}
+{{ template "windows-terminal.sh" }}
 
 # Whether the apply asks for WSL networking or the default distribution: ticked,
 # or its take-over is. Which of them then runs is the writer record's
@@ -69,7 +73,7 @@ WSL_SWAP={{ .wsl_swap | replace "'" "'\"'\"'" | printf "'%s'" }}
 # by the probe, the user PATH; a probe has 15 s and the calls do not depend on
 # each other. The default distribution is listed first by `wsl --list`, so it
 # is the first line of the quiet listing.
-win_start variables cmd.exe /d /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%^|%LOCALAPPDATA%'
+win_start variables cmd.exe /d /c 'echo %USERNAME%^|%USERPROFILE%^|%APPDATA%^|%PROGRAMFILES%^|%PROCESSOR_ARCHITECTURE%^|%LOCALAPPDATA%^|%PROGRAMDATA%'
 win_start distros wsl.exe --list --quiet
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     win_start user-path powershell.exe -NoProfile -Command '
@@ -81,7 +85,7 @@ fi
 win_wait
 
 mapfile -d '|' -t fields < <(printf '%s' "${WIN_OUT[variables]:-}")
-WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_ROAMING_W=${fields[2]:-} WIN_PROGRAMFILES_W=${fields[3]:-} WIN_ARCH=${fields[4]:-} WIN_LOCAL_W=${fields[5]:-}
+WIN_USER=${fields[0]:-} WIN_HOME_W=${fields[1]:-} WIN_ROAMING_W=${fields[2]:-} WIN_PROGRAMFILES_W=${fields[3]:-} WIN_ARCH=${fields[4]:-} WIN_LOCAL_W=${fields[5]:-} WIN_PROGRAMDATA_W=${fields[6]:-}
 if [ -z "$WIN_HOME_W" ] || [ -z "$WIN_ROAMING_W" ]; then
     if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         unchecked "$(win_unanswered variables || echo "Couldn't check the Windows side")"
@@ -96,8 +100,13 @@ WIN_PROGRAMFILES=
 [[ -d "$WIN_HOME" && -d "$WIN_ROAMING" ]] || blocked "the Windows home or AppData folder is unavailable"
 # Without the local app data folder there is no record path, which writer_line
 # reports as a record it couldn't read.
-WRITERS=
-[ -z "$WIN_LOCAL_W" ] || WRITERS="$(wslpath -u "$WIN_LOCAL_W")/Workbench/writers.json" || WRITERS=
+WIN_LOCAL="" WIN_PROGRAMDATA="" WRITERS=""
+[ -z "$WIN_LOCAL_W" ] || WIN_LOCAL=$(wslpath -u "$WIN_LOCAL_W") || WIN_LOCAL=
+[ -z "$WIN_PROGRAMDATA_W" ] || WIN_PROGRAMDATA=$(wslpath -u "$WIN_PROGRAMDATA_W") || WIN_PROGRAMDATA=
+[ -z "$WIN_LOCAL" ] || WRITERS="$WIN_LOCAL/Workbench/writers.json"
+# Without the local app data folder there is no Windows Terminal to find, which
+# the default distribution's Terminal part says.
+terminal_paths "$WIN_LOCAL" "$WIN_PROGRAMDATA"
 INSTALLED=
 [ "${WIN_RC[distros]:-}" != 0 ] || INSTALLED=${WIN_OUT[distros]:-}
 
@@ -174,6 +183,59 @@ wslconfig_merged() {
     ' "$2" > "$2.tmp" && cat "$2.tmp" > "$2" && rm -f "$2.tmp"
 }
 
+# What the default distribution's Windows Terminal part finds, in TD_STATE, the
+# same for the probe and the apply:
+#   change   new tabs open another profile, and Terminal has more than one WSL
+#            profile to choose from; $win_work/terminal-default.json is
+#            settings.json with this distribution's profile as defaultProfile,
+#            the only change, and $win_work/terminal-settings.json the file it
+#            was made from
+#   set      new tabs already open this distribution's profile
+#   one      one real distribution, or Terminal has one WSL profile or none:
+#            nothing to choose, so its default (PowerShell, say) stays
+#   none     there is nothing to set; TD_WHY says why
+#   unknown  it could not be checked; TD_WHY says why
+# The settings file and Terminal's profiles are read under the cap, side by
+# side, and the copy is what the filter reads (workbench terminal-default,
+# which leaves comments and layout as they are). The copies live in the
+# Windows calls' own folder, which goes when the script ends.
+terminal_default_check() {
+    local real settings="$WT_SETTINGS_DIR/settings.json"
+    TD_STATE=none TD_WHY=""
+    real=$(grep -cv '^docker-desktop' <<<"$INSTALLED") || real=0
+    if [ -z "${WSL_DISTRO_NAME:-}" ]; then
+        TD_STATE=unknown TD_WHY="WSL_DISTRO_NAME is not set, so this distribution's Windows Terminal profile is unknown"
+    elif [ "$real" -le 1 ]; then
+        TD_STATE=one
+    elif [ -z "$WT_PACKAGE_DIR" ] || [ ! -d "$WT_PACKAGE_DIR" ]; then
+        TD_WHY="Windows Terminal isn't installed"
+    elif [ ! -f "$settings" ]; then
+        TD_WHY="Windows Terminal has no settings.json yet"
+    else
+        terminal_profile_start "$WSL_DISTRO_NAME"
+        terminal_settings_start "$win_work/terminal-settings.json"
+        win_wait
+        if ! terminal_profile_read; then
+            TD_STATE=unknown TD_WHY="Windows Terminal's profiles couldn't be read ($(win_failed terminal-profile))"
+        elif [ "${WIN_RC[terminal-read]}" != 0 ]; then
+            TD_STATE=unknown TD_WHY="Windows Terminal's settings.json couldn't be read ($(win_failed terminal-read))"
+        elif [ -z "$WT_PROFILE_GUID" ]; then
+            TD_WHY="Windows Terminal has no profile for $WSL_DISTRO_NAME"
+        elif [ "$WT_WSL_PROFILES" -le 1 ]; then
+            TD_STATE=one
+        elif ! command -v workbench >/dev/null 2>&1; then
+            TD_STATE=unknown TD_WHY="workbench is not on PATH, so Windows Terminal's settings.json couldn't be checked"
+        elif ! TD_WHY=$(workbench terminal-default "$WT_PROFILE_GUID" \
+            <"$win_work/terminal-settings.json" 2>&1 >"$win_work/terminal-default.json"); then
+            TD_STATE=unknown TD_WHY="Windows Terminal's settings.json can't be edited: ${TD_WHY#*: }"
+        elif cmp -s "$win_work/terminal-settings.json" "$win_work/terminal-default.json"; then
+            TD_STATE="set"
+        else
+            TD_STATE=change
+        fi
+    fi
+}
+
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     WSLCONFIG="$WIN_HOME/.wslconfig"
     # A file another distribution writes is that distribution's: the writer
@@ -246,11 +308,33 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     elif [ -z "${WIN_OUT[distros]}" ]; then
         echo "default-distro: ? Couldn't check the Windows side"
     else
+        # Asked only when there is a choice to make: the step's line starts
+        # "= " when wsl and new Terminal tabs already open this distribution,
+        # or when nothing else could open there.
         current_default=${WIN_OUT[distros]%%$'\n'*}
-        if [ "$current_default" = "${WSL_DISTRO_NAME:-}" ]; then
-            echo "default-distro: = ${WSL_DISTRO_NAME:-this distribution} is already your default"
+        this=${WSL_DISTRO_NAME:-this distribution}
+        terminal_default_check
+        if [ "$current_default" != "${WSL_DISTRO_NAME:-}" ]; then
+            case $TD_STATE in
+            change) echo "default-distro: make $this the default for wsl and new Terminal tabs (wsl opens $current_default now)" ;;
+            set) echo "default-distro: make $this the default for wsl in place of $current_default (new Terminal tabs already open it)" ;;
+            *) echo "default-distro: make $this the default for wsl in place of $current_default" ;;
+            esac
+            [ "$TD_STATE" != unknown ] || echo "default-distro: ? $TD_WHY"
         else
-            echo "default-distro: $current_default is the default now"
+            case $TD_STATE in
+            change) echo "default-distro: make $this the default for new Terminal tabs (wsl already opens it)" ;;
+            set) echo "default-distro: = $this already opens with wsl and in new Terminal tabs" ;;
+            one)
+                if [ "$(grep -cv '^docker-desktop' <<<"$INSTALLED")" -le 1 ]; then
+                    echo "default-distro: = $this is your only distribution"
+                else
+                    echo "default-distro: = $this already opens with wsl, and Windows Terminal has no other WSL profile to choose"
+                fi
+                ;;
+            none) echo "default-distro: = $this already opens with wsl ($TD_WHY)" ;;
+            *) echo "default-distro: ? $TD_WHY" ;;
+            esac
         fi
     fi
 
@@ -341,7 +425,9 @@ fi
 # A bare `wsl` then drops you into docker-desktop, and VS Code's "Reopen in WSL"
 # targets it too - opening the wrong distro with none of your toolchain. When
 # the default-distro effect is selected, the distro running this apply (named
-# in the approved plan) becomes the default.
+# in the approved plan) becomes the default, and so does its Windows Terminal
+# profile for new tabs when Terminal has another WSL profile to choose
+# (terminal_default_check).
 if writer_runs default-distro "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" "$WRITERS" "$INSTALLED" "${WSL_DISTRO_NAME:-}"; then
     if [[ -z "${WSL_DISTRO_NAME:-}" ]]; then
         part_blocked default-distro "WSL_DISTRO_NAME is not set in this session, so the distribution is unknown"
@@ -354,6 +440,49 @@ if writer_runs default-distro "${WORKBENCH_EFFECT_DEFAULT_DISTRO:-0}" "$WRITERS"
             writer_record default-distro "$WRITERS" "$WSL_DISTRO_NAME" ||
                 part_blocked default-distro "$WSL_DISTRO_NAME is the default, but ${WRITERS:-the Windows writer record} could not record it as the distribution that sets it"
         fi
+        terminal_default_check
+        case $TD_STATE in
+        change)
+            # The checked copy is put back only if the file is still that
+            # copy: Terminal saving it in between keeps its save, and this
+            # step runs again next time. A copy of the file is kept beside it,
+            # and the new one is renamed into place whole.
+            win_call terminal-write python3 -I -c '
+import os, sys, tempfile
+path, edited, checked = sys.argv[1:]
+with open(path, "rb") as stream:
+    current = stream.read()
+with open(checked, "rb") as stream:
+    if stream.read() != current:
+        sys.exit("it changed while it was being checked")
+with open(edited, "rb") as stream:
+    text = stream.read()
+folder = os.path.dirname(path)
+descriptor, backup = tempfile.mkstemp(dir=folder, prefix="settings.json.before-workbench.")
+with os.fdopen(descriptor, "wb") as stream:
+    stream.write(current)
+descriptor, staged = tempfile.mkstemp(dir=folder, prefix=".settings.json.", suffix=".part")
+try:
+    with os.fdopen(descriptor, "wb") as stream:
+        stream.write(text)
+    os.replace(staged, path)
+except BaseException:
+    os.unlink(staged)
+    raise
+print(backup)
+' "$WT_SETTINGS_DIR/settings.json" "$win_work/terminal-default.json" "$win_work/terminal-settings.json"
+            if [ "${WIN_RC[terminal-write]}" = 0 ]; then
+                echo "    Recovery copy: ${WIN_OUT[terminal-write]}"
+                echo "==> New Windows Terminal tabs open $WSL_DISTRO_NAME."
+            else
+                part_blocked default-distro "Windows Terminal's settings.json could not be changed ($(win_failed terminal-write)), so new tabs open what they did"
+            fi
+            ;;
+        set) echo "==> New Windows Terminal tabs already open $WSL_DISTRO_NAME." ;;
+        one) echo "==> Windows Terminal has no other WSL profile to choose, so its default was left as it is." ;;
+        none) echo "==> $TD_WHY, so only wsl's default was set." ;;
+        *) part_blocked default-distro "$TD_WHY, so new Windows Terminal tabs open what they did" ;;
+        esac
     fi
 fi
 

@@ -12,6 +12,10 @@
 #      whatever this distribution's saved choice; only its take-over-<step>
 #      effect, ticked in workbench apply --choose, moves it here
 #
+#   writer_read STEP RECORD_FILE
+#       read the distribution recorded for STEP into WRITER, "" when nobody
+#       is; it fails when the record cannot be read, and WIN_RC[writer-read]
+#       then says whether Windows answered in time
 #   writer_line STEP RECORD_FILE INSTALLED_LIST THIS_DISTRO
 #       the probe line rule 3 gives ("STEP: = written by NAME"), which stands
 #       for the step's own line; a "?" line when the rule cannot be told (the
@@ -35,14 +39,9 @@
 #
 # Plain bash, with no template directive, so a check can source it.
 
-writer_line() {
-    local step=$1 record=$2 installed=$3 this=$4 writer
-    # An empty path is no record that could be missing: Windows did not say
-    # where its local app data is.
-    if [ -z "$record" ]; then
-        echo "$step: ? Couldn't read the Windows writer record"
-        return
-    fi
+writer_read() {
+    WRITER=
+    [ -n "$2" ] || return 1
     win_call writer-read python3 -I -c '
 import json, sys
 path, step = sys.argv[1:]
@@ -55,18 +54,27 @@ writer = record.get(step, "") if isinstance(record, dict) else None
 if not isinstance(writer, str):
     sys.exit(1)
 print(writer)
-' "$record" "$step"
-    case ${WIN_RC[writer-read]} in
-    0) writer=${WIN_OUT[writer-read]} ;;
-    124 | 137)
-        echo "$step: ? Windows didn't answer in time when the writer record was read"
-        return
-        ;;
-    *)
+' "$2" "$1"
+    [ "${WIN_RC[writer-read]}" = 0 ] || return 1
+    WRITER=${WIN_OUT[writer-read]}
+}
+
+writer_line() {
+    local step=$1 record=$2 installed=$3 this=$4 writer
+    # An empty path is no record that could be missing: Windows did not say
+    # where its local app data is.
+    if [ -z "$record" ]; then
         echo "$step: ? Couldn't read the Windows writer record"
         return
-        ;;
-    esac
+    fi
+    if ! writer_read "$step" "$record"; then
+        case ${WIN_RC[writer-read]} in
+        124 | 137) echo "$step: ? Windows didn't answer in time when the writer record was read" ;;
+        *) echo "$step: ? Couldn't read the Windows writer record" ;;
+        esac
+        return
+    fi
+    writer=$WRITER
     if [ -z "$writer" ] || [ "$writer" = "$this" ]; then
         return
     fi

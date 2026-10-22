@@ -6,7 +6,9 @@
 #   windows-files        oh-my-posh.exe and its themes, and the JetBrains Mono fonts
 #   terminal-adoption    Windows Terminal settings.json, replacing an existing
 #                        one when it differs (a copy is kept); needs the fonts,
-#                        installed and registered
+#                        installed and registered. Its defaultProfile stays as
+#                        it is once a distribution writes default-distro
+#                        (10-deploy-windows-configs), which owns that key
 #   powershell-adoption  the PowerShell profile, replacing an existing one (a
 #                        copy is kept); needs oh-my-posh
 #   font-registry        the fonts in the Windows registry and loaded; needs the
@@ -19,6 +21,7 @@ set -euo pipefail
 
 {{ includeTemplate ".chezmoitemplates/windows-calls.sh" . }}
 {{ template "windows-writers.sh" }}
+{{ template "windows-terminal.sh" }}
 
 # Whether the apply asks for the Terminal or PowerShell part: ticked, or its
 # take-over is. Which of them then runs is the writer record's (writer_runs).
@@ -127,8 +130,7 @@ OMP_WIN_THEMES="$OMP_WIN_DIR/themes"
 # means every theme was copied; with the program it makes oh-my-posh complete.
 OMP_WIN_THEME="$OMP_WIN_THEMES/catppuccin_mocha.omp.json"
 WIN_FONT_DIR="$WIN_APPDATA/Microsoft/Windows/Fonts"
-WT_PACKAGE_DIR="$WIN_APPDATA/Packages/Microsoft.WindowsTerminal_8wekyb3d8bbwe"
-WT_SETTINGS_DIR="$WT_PACKAGE_DIR/LocalState"
+terminal_paths "$WIN_APPDATA" "$WIN_PROGRAMDATA"
 {{- /* The folder Windows Terminal and PowerShell open in: the work folder, else the personal one. */ -}}
 {{- $start := get . "personal_folder" }}
 {{- if .has_work }}{{ $start = .work_folder }}{{ end }}
@@ -145,64 +147,52 @@ if (Test-Path -LiteralPath $wslStart) { Set-Location -LiteralPath $wslStart }
 PSPROFILE
 }
 
+# Whether Terminal's defaultProfile is the default-distro step's: an installed
+# distribution, this one included, is recorded as that step's writer, or the
+# record cannot be read, which is no proof nobody is. The rendered settings
+# then keep the defaultProfile the file has, so writing them never undoes the
+# default a distribution chose there.
+default_profile_owned() {
+    writer_read default-distro "$WRITERS" || return 0
+    [ -n "$WRITER" ] || return 1
+    [ "$WRITER" = "$WSL_DISTRO_NAME" ] || [ -z "$INSTALLED" ] || grep -qxF -- "$WRITER" <<<"$INSTALLED"
+}
+
 # The Windows Terminal settings.json Workbench manages, rendered to the file $1.
 # Rendering reads the Windows Terminal files and writes nothing to them, so the
 # probe and the apply use it alike and compare the result with what is there.
+# When it cannot, it fails and render_why says why.
 terminal_settings_render() {
-    local out="$1" WSL_PROFILE_JSON WSL_PROFILE_GUID WSL_PROFILE_EXTRA
-    # Bind to the WSL profile Windows Terminal actually has for this distro.
-    # WSL >= 2.4.4 generates it as a JSON *fragment* (source = fragment folder,
-    # e.g. Microsoft.WSL) whose commandline already carries "--cd ~", which
-    # overrides startingDirectory (microsoft/WSL#13346) — so the start dir is
-    # set by overriding commandline instead. Older distros get a profile from
-    # WT's own generator (source Windows.Terminal.Wsl). Guessing GUIDs fails
-    # across these cases, so read them. Fallback: explicit wsl.exe profile.
-    WSL_PROFILE_JSON=$(python3 - "$WT_SETTINGS_DIR" "$WSL_DISTRO_NAME" "$WIN_APPDATA/Microsoft/Windows Terminal/Fragments" "$WIN_PROGRAMDATA/Microsoft/Windows Terminal/Fragments" <<'PY'
-import glob, json, os, re, sys
-wt, distro, *frag_dirs = sys.argv[1:]
-import subprocess
-cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", {{ $start | toJson }}])
-def load(path):
-    try:
-        with open(path, encoding='utf-8-sig') as fh:
-            return json.load(fh)
-    except Exception:
-        return {}
-def emit(d, how):
-    print(json.dumps(d)); print(how, file=sys.stderr); sys.exit(0)
-ver = re.search(r'\d+\.\d+', distro); ver = ver.group(0) if ver else distro
-def mentions(p):
-    blob = json.dumps(p)
-    return distro in blob or ver in blob
-# 1. fragments (modern WSL / store apps): source is the fragment folder name
-for d in frag_dirs:
-    for path in sorted(glob.glob(os.path.join(d, '*', '*.json'))):
-        for p in load(path).get('profiles', []):
-            if p.get('guid') and mentions(p):
-                emit({"guid": p["guid"], "source": os.path.basename(os.path.dirname(path)), "commandline": cmdline},
-                     "bound to fragment " + path)
-# 2. profiles WT already merged into settings.json (classic generator or fragment)
-generated = set(load(os.path.join(wt, 'state.json')).get('generatedProfiles', []))
-for fn in ('settings.json', 'settings.json.before-dotfiles'):
-    for p in load(os.path.join(wt, fn)).get('profiles', {}).get('list', []):
-        if p.get('source') and p.get('guid') and (p.get('name') == distro or (p['guid'] in generated and mentions(p))):
-            d = {"guid": p["guid"], "source": p["source"]}
-            if p.get('commandline'): d["commandline"] = cmdline
-            else: d["startingDirectory"] = {{ $start | toJson }}
-            emit(d, "bound to generated profile in " + fn)
-# 3. nothing to bind to: standalone profile
-emit({"guid": "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}", "commandline": cmdline,
-      "icon": "ms-appx:///ProfileIcons/{9acb9455-ca41-5af7-950f-6bca1bc9722f}.png"},
-     "no generated WSL profile found; using a standalone wsl.exe profile")
-PY
-) || return 1
-    WSL_PROFILE_GUID=$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])["guid"])' "$WSL_PROFILE_JSON") || return 1
-    # Remaining keys (source, or commandline+icon) as pre-indented JSON lines.
-    WSL_PROFILE_EXTRA=$(python3 -c '
-import json,sys
-d=json.loads(sys.argv[1]); d.pop("guid")
-print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k,v in d.items()))' "$WSL_PROFILE_JSON") || return 1
-    echo "    Windows Terminal WSL profile: $WSL_PROFILE_JSON"
+    local out="$1" keep="" settings="$WT_SETTINGS_DIR/settings.json"
+    render_why=""
+    # Bind to the WSL profile Windows Terminal actually has for this distro
+    # (windows-terminal.sh). A fragment's commandline already carries
+    # "--cd ~", which overrides startingDirectory (microsoft/WSL#13346), so
+    # the start folder is set by overriding commandline instead. With no
+    # profile to bind to, the managed one is a standalone wsl.exe profile.
+    terminal_profile_start "$WSL_DISTRO_NAME"
+    win_wait
+    if ! terminal_profile_read; then
+        render_why="Windows Terminal's profiles couldn't be read ($(win_failed terminal-profile))"
+        return 1
+    fi
+    if [ -f "$settings" ] && default_profile_owned; then
+        # The file's defaultProfile, as JSON text, read from a copy taken
+        # under the cap. One the filter cannot read leaves this render's own,
+        # since the file is replaced whole anyway.
+        terminal_settings_start "$win_work/terminal-current.json"
+        win_wait
+        if [ "${WIN_RC[terminal-read]}" != 0 ]; then
+            render_why="Windows Terminal's settings.json couldn't be read ($(win_failed terminal-read))"
+            return 1
+        fi
+        if ! command -v workbench >/dev/null 2>&1; then
+            render_why="workbench is not on PATH, so the default profile in Windows Terminal's settings.json couldn't be read"
+            return 1
+        fi
+        keep=$(workbench terminal-default --current <"$win_work/terminal-current.json" 2>/dev/null) || keep=
+    fi
+    echo "    Windows Terminal WSL profile: $WT_PROFILE"
     cat > "$out" << 'WTSETTINGS' || return 1
 {
     "$help": "https://aka.ms/terminal-documentation",
@@ -241,7 +231,7 @@ print("\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k
     ],
     "copyFormatting": "none",
     "copyOnSelect": true,
-    "defaultProfile": "__WSL_PROFILE_GUID__",
+    "defaultProfile": "__WSL_DEFAULT_PROFILE__",
     "firstWindowPreference": "persistedWindowLayout",
     "initialCols": 120,
     "initialRows": 40,
@@ -372,14 +362,33 @@ __WSL_PROFILE_EXTRA__
     "themes": []
 }
 WTSETTINGS
-    python3 - "$out" "$WSL_PROFILE_GUID" "$WSL_PROFILE_EXTRA" "$WSL_DISTRO_NAME" <<'PY' || return 1
-import json, sys
-path, guid, extra = sys.argv[1:4]
-s = open(path, encoding='utf-8').read().replace('__WSL_PROFILE_GUID__', guid).replace('__WSL_PROFILE_EXTRA__', extra)
-s = s.replace('"__WSL_DISTRO_NAME__"', json.dumps(sys.argv[4]))
+    if ! python3 - "$out" "$WT_PROFILE" "$WSL_DISTRO_NAME" "$keep" <<'PY'; then
+import json, subprocess, sys
+path, found, distro, keep = sys.argv[1:]
+found = json.loads(found)
+start = {{ $start | toJson }}
+cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", start])
+if found["guid"]:
+    profile = {"guid": found["guid"], "source": found["source"]}
+    if found["commandline"]:
+        profile["commandline"] = cmdline
+    else:
+        profile["startingDirectory"] = start
+else:
+    profile = {"guid": "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}", "commandline": cmdline,
+               "icon": "ms-appx:///ProfileIcons/{9acb9455-ca41-5af7-950f-6bca1bc9722f}.png"}
+# The keys after guid, as pre-indented JSON lines.
+extra = "\n".join("                %s: %s," % (json.dumps(k), json.dumps(v)) for k, v in profile.items() if k != "guid")
+s = open(path, encoding="utf-8").read()
+s = s.replace('"__WSL_DEFAULT_PROFILE__"', keep or json.dumps(profile["guid"]))
+s = s.replace("__WSL_PROFILE_GUID__", profile["guid"]).replace("__WSL_PROFILE_EXTRA__", extra)
+s = s.replace('"__WSL_DISTRO_NAME__"', json.dumps(distro))
 json.loads(s)  # fail loudly rather than hand WT a broken file
-open(path, 'w', encoding='utf-8').write(s)
+open(path, "w", encoding="utf-8").write(s)
 PY
+        render_why="the managed settings could not be rendered"
+        return 1
+    fi
 }
 
 # Whether any JetBrainsMono font file is in the Windows user font folder.
@@ -451,13 +460,15 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         echo "terminal-adoption: ? $reg_why"
     else
         terminal_tmp=$(mktemp)
-        same=0
+        same=0 render_why=""
         if [ -f "$WT_SETTINGS_DIR/settings.json" ] && terminal_settings_render "$terminal_tmp" >/dev/null 2>&1 &&
             cmp -s "$terminal_tmp" "$WT_SETTINGS_DIR/settings.json"; then
             same=1
         fi
         rm -f "$terminal_tmp"
-        if [ "$same" = 1 ] && [ -z "$needs" ]; then
+        if [ -n "$render_why" ]; then
+            echo "terminal-adoption: ? $render_why"
+        elif [ "$same" = 1 ] && [ -z "$needs" ]; then
             echo "terminal-adoption: = your Windows Terminal settings already match and its fonts are registered"
         elif [ "$same" = 1 ]; then
             echo "terminal-adoption: $needs"
@@ -701,20 +712,23 @@ fi
 if [ "$manage_terminal" = 1 ] && [ -d "$WT_PACKAGE_DIR" ]; then
     echo "==> Checking Windows Terminal settings..."
     mkdir -p "$WT_SETTINGS_DIR"
-    terminal_settings_render "$download_dir/terminal.json"
-    if [ -f "$WT_SETTINGS_DIR/settings.json" ] && cmp -s "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"; then
-        echo "==> Windows Terminal settings already up to date."
+    if ! terminal_settings_render "$download_dir/terminal.json"; then
+        part_blocked terminal-adoption "${render_why:-the managed settings could not be rendered}, so your Windows Terminal settings were not changed"
     else
-        if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
-            terminal_backup=$(mktemp "$WT_SETTINGS_DIR/settings.json.before-workbench.XXXXXX")
-            cp -p "$WT_SETTINGS_DIR/settings.json" "$terminal_backup"
-            echo "    Recovery copy: $terminal_backup"
+        if [ -f "$WT_SETTINGS_DIR/settings.json" ] && cmp -s "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"; then
+            echo "==> Windows Terminal settings already up to date."
+        else
+            if [ -f "$WT_SETTINGS_DIR/settings.json" ]; then
+                terminal_backup=$(mktemp "$WT_SETTINGS_DIR/settings.json.before-workbench.XXXXXX")
+                cp -p "$WT_SETTINGS_DIR/settings.json" "$terminal_backup"
+                echo "    Recovery copy: $terminal_backup"
+            fi
+            cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
+            echo "    Windows Terminal settings written."
         fi
-        cp "$download_dir/terminal.json" "$WT_SETTINGS_DIR/settings.json"
-        echo "    Windows Terminal settings written."
+        writer_record terminal-adoption "$WRITERS" "$WSL_DISTRO_NAME" ||
+            part_blocked terminal-adoption "the settings are in place, but $WRITERS could not record this distribution as their writer"
     fi
-    writer_record terminal-adoption "$WRITERS" "$WSL_DISTRO_NAME" ||
-        part_blocked terminal-adoption "the settings are in place, but $WRITERS could not record this distribution as their writer"
 elif [ "$manage_terminal" = 1 ]; then
     echo "==> Windows Terminal not found, skipping settings."
 fi
