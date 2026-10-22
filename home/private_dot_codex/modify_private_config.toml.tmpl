@@ -9,8 +9,9 @@ trust, notices, TUI flags and marketplace bookkeeping there itself, and an
 apply must not delete them. Keys Codex adds to a table the managed body
 declares go under that header; tables the managed body lacks go in the
 preserved block at the end, and top-level keys before the first header. The
-only tables removed are those INACTIVE_TABLES names. When the merge changes no
-value, the existing file is emitted byte for byte.
+only tables removed are those INACTIVE_TABLES names, and the only keys removed
+are the env keys RETIRED_KEYS names. When the merge changes no value, the
+existing file is emitted byte for byte.
 """
 
 import copy
@@ -55,6 +56,14 @@ INACTIVE_TABLES = [
 {{- if not .has_personal }}
     ("projects", {{ printf "%s/dev" .chezmoi.homeDir | toJson }}),
 {{- end }}
+]
+
+# Env keys the dispatch servers no longer take from this file: the launch gate
+# gives them the credentials in work.env. A kept copy would hold a literal
+# token, and Codex applies the env table last, so it would win.
+RETIRED_KEYS = [
+    ("dispatch-atlassian", ("JIRA_BASE_URL", "JIRA_EMAIL", "JIRA_API_TOKEN")),
+    ("dispatch-gitlab", ("GITLAB_URL", "GITLAB_TOKEN")),
 ]
 
 DELIMITER = "# --- preserved from the existing file (Codex-owned) ---"
@@ -250,6 +259,13 @@ def main():
             table.pop(name, None)
             if not table:
                 del document[parent]
+    servers = document.get("mcp_servers")
+    for name, keys in RETIRED_KEYS:
+        server = servers.get(name) if isinstance(servers, dict) else None
+        env = server.get("env") if isinstance(server, dict) else None
+        if isinstance(env, dict):
+            for key in keys:
+                env.pop(key, None)
     hooks = document.get("hooks")
     state = hooks.get("state") if isinstance(hooks, dict) else None
     if isinstance(state, dict):

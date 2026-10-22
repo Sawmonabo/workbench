@@ -98,34 +98,22 @@ prevent_idle_sleep = true
 [plugins."coderabbit@openai-curated"]
 enabled = true
 
-[mcp_servers.dispatch-atlassian]
-enabled = false
-# Launched through nvm-exec so the server follows `nvm alias default` in either
-# versions_mode; a hardcoded ~/.nvm/versions/node/vX path only exists in pinned mode.
-{{ dict "command" (printf "%s/.nvm/nvm-exec" .chezmoi.homeDir) | toToml }}
-{{ dict "args" (list "node" (printf "%s/repos/ai-devtools/dispatch-atlassian/dist/index.js" .chezmoi.homeDir)) | toToml }}
+# The dispatch servers, defined in Workbench. Each runs `workbench mcp-gate`,
+# which starts the server only for a session inside the work folder, with the
+# credentials work.env holds; elsewhere it serves no tools.
+{{- range (get . "dispatch_servers" | default list) }}
+{{- $name := .name }}
 
-[mcp_servers.dispatch-atlassian.env]
-NODE_VERSION = "default"
-JIRA_BASE_URL = "https://fortressinfosec.atlassian.net"
-{{ dict "JIRA_EMAIL" (ternary (get . "work_email") .email (eq .machine_role "both")) | toToml }}
-{{ dict "JIRA_API_TOKEN" .jira_api_token | toToml }}
-{{ range list "fetch_attachments" "fetch_changelog" "fetch_comments" "fetch_confluence_page" "fetch_epic_context" "fetch_ticket" "gather_full_context" "search_confluence" "search_tickets" }}
-[mcp_servers.dispatch-atlassian.tools.{{ . }}]
+[mcp_servers.{{ $name }}]
+enabled = true
+{{ dict "command" .command | toToml }}
+{{- dict "args" .args | toToml }}
+[mcp_servers.{{ $name }}.env]
+{{ .env | toToml | trimSuffix "\n" }}
+{{- range .approve }}
+
+[mcp_servers.{{ $name }}.tools.{{ . }}]
 approval_mode = "approve"
-{{ end }}
-[mcp_servers.dispatch-gitlab]
-enabled = false
-# Launched through nvm-exec so the server follows `nvm alias default` in either
-# versions_mode; a hardcoded ~/.nvm/versions/node/vX path only exists in pinned mode.
-{{ dict "command" (printf "%s/.nvm/nvm-exec" .chezmoi.homeDir) | toToml }}
-{{ dict "args" (list "node" (printf "%s/repos/ai-devtools/dispatch-gitlab/dist/index.js" .chezmoi.homeDir)) | toToml }}
-
-[mcp_servers.dispatch-gitlab.env]
-NODE_VERSION = "default"
-GITLAB_URL = "https://gitlab.com/fortressinfosec"
-{{ dict "GITLAB_TOKEN" .gitlab_token | toToml }}
-
-[mcp_servers.dispatch-gitlab.tools.get_linked_mrs]
-approval_mode = "approve"
+{{- end }}
+{{- end }}
 {{- end }}

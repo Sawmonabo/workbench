@@ -38,6 +38,15 @@ fi
 echo "==> [$role/$mode] init: every prompt must be answerable non-interactively"
 config=$("$repo/scripts/scratch-init.sh" "$role" "$mode")
 config_dir=$(dirname "$config")
+# A real apply passes the dispatch servers as an answer. Give the work roles one
+# neutral sample, its command in a folder with a space and a quote, so the
+# Codex template's loop renders.
+if [ "$role" != personal ]; then
+    awk -v bin="$tmp/wb bin's/workbench" -v work="$tmp/work" '{ print } /^\[data\]$/ {
+        print "    dispatch_servers = [{name = \"sample-server\", command = \"" bin "\", args = [\"mcp-gate\", \"--folder\", \"" work "\", \"--\", \"node\", \"index.js\"], env = {NODE_VERSION = \"default\"}, approve = [\"sample_tool\"]}]" }' \
+        "$config" > "$config.dispatch" && mv "$config.dispatch" "$config"
+    grep -qF 'sample-server' "$config" || { echo "DISPATCH FAIL: could not set dispatch_servers in $config"; exit 1; }
+fi
 if [ "$extra" = wsl ]; then
     # The WSL sizing answers are already there on a real WSL host.
     sed -i.bak 's/^\( *\)is_wsl = false$/\1is_wsl = true/' "$config" && rm -f "$config.bak"
@@ -248,13 +257,28 @@ echo "==> [$role/$mode] codex and claude hooks are installed (codex's trusted)"
 # trusted_hash under that hook's own key, which starts with the hooks.json
 # path Codex sees: the home directory chezmoi rendered with, not $dest.
 hooks_path="$("${chez[@]}" execute-template '{{ .chezmoi.homeDir }}')/.codex/hooks.json"
-python3 - "$dest" "$hooks_path" <<'PY' || fail=1
+python3 - "$dest" "$hooks_path" "$role" "$tmp" <<'PY' || fail=1
 import json, sys, tomllib
-dest, path = sys.argv[1], sys.argv[2]
+dest, path, role, tmp = sys.argv[1:]
 codex = dest + "/.codex"
 hooks = json.load(open(codex + "/hooks.json"))["hooks"]
-state = tomllib.load(open(codex + "/config.toml", "rb")).get("hooks", {}).get("state", {})
+config = tomllib.load(open(codex + "/config.toml", "rb"))
+state = config.get("hooks", {}).get("state", {})
 bad = 0
+# The work roles' sample dispatch server renders with its command, arguments,
+# env and approved tool.
+if role != "personal":
+    server = config.get("mcp_servers", {}).get("sample-server", {})
+    want = {
+        "command": tmp + "/wb bin's/workbench",
+        "args": ["mcp-gate", "--folder", tmp + "/work", "--", "node", "index.js"],
+    }
+    if {key: server.get(key) for key in want} != want or server.get("env", {}).get("NODE_VERSION") != "default":
+        print(f"DISPATCH FAIL: codex sample-server renders as {server!r}")
+        bad = 1
+    if server.get("tools", {}).get("sample_tool", {}).get("approval_mode") != "approve":
+        print("DISPATCH FAIL: codex sample-server does not approve sample_tool")
+        bad = 1
 for event, label in (("SessionStart", "session_start"), ("SessionEnd", "session_end")):
     found = [
         (g, h) for g, group in enumerate(hooks.get(event, []))
