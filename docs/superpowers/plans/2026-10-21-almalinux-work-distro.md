@@ -132,7 +132,7 @@ point into it.
   `personal.env` starts with no names.
 - **Env file format.** Lines are `NAME=value`, `#` comments or blank, where
   NAME matches `^[A-Za-z_][A-Za-z0-9_]*$`. Any other line is skipped and
-  reported. The file is never sourced or executed. It must pass
+  reported. A `NAME=` line with an empty value sets nothing. The file is never sourced or executed. It must pass
   `operation.ReadPrivateInput`'s checks.
 - **Probe lines.** No probe line contains `; `, which the plan view uses to
   join lines.
@@ -684,7 +684,8 @@ git commit -am "feat(migrate): move the saved work tokens into work.env"
     `stat -c '%Y %a'` (mtime and mode), and does nothing when none has
     changed. `chmod` changes no mtime, so the mode is in the key: a file
     made group-readable is unloaded at the next prompt.
-  - **Unload.** It unsets every name listed in the file of a role folder the
+  - **Unload.** It unsets (`unset -v`) every name the hook loaded, kept as a
+    names-only list, then every name listed in the file of a role folder the
     shell is not in.
   - **Load.** It exports the file of the folder it is in only when the
     file has no group or other permission bits, the rule

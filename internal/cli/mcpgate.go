@@ -53,9 +53,6 @@ func mcpGateCommand(o *options) *cobra.Command {
 		}
 		environment := os.Environ()
 		for _, pair := range pairs {
-			if pair[1] == "" {
-				continue
-			}
 			environment = slices.DeleteFunc(environment, func(entry string) bool {
 				return strings.HasPrefix(entry, pair[0]+"=")
 			})

@@ -591,8 +591,11 @@ GITLAB_TOKEN=
 
 `personal.env` starts with no names, since Workbench saves no personal
 credential today. The format is `NAME=value` lines, `#` comments and blank
-lines, nothing else (no `export`, no quotes or expansion), so the shell hook
-and the gate read it the same way.
+lines, nothing else (no `export`, no quotes or expansion, no carriage return
+at a line's end), so the shell hook and the gate read it the same way. A
+`NAME=` line with an empty value sets nothing, in the hook and the gate
+alike, so a name the owner has not filled in never hides a tool's own
+setting.
 
 **How the two new steps run.** `env-files` and `claude-mcp` (item 2 below)
 run the way the `migrations` step does: a shared chezmoi script calls a
@@ -672,11 +675,14 @@ The hook is one shell function:
   So `cd ~/dev/site && npm install`, typed in the work folder, already runs
   without the work names.
 - **What it does.** It compares the current folder (symlinks resolved) with
-  the two folder answers. It unsets every name listed in the file of a role
-  folder the shell is not in, whoever set it, so a child shell or tmux pane
-  that inherited work names drops them in the personal folder. Then it
-  exports the names of the file of the folder it is in, when that file has
-  no group or other permission bits.
+  the two folder answers. It unsets every name the hook loaded, which it
+  keeps as a list of names (never values), so a name stays out even after
+  the owner deletes its line, moves the file or makes it unreadable. It also
+  unsets every name listed in the file of a role folder the shell is not in,
+  whoever set it, so a child shell or tmux pane that inherited work names
+  drops them in the personal folder. Then it exports the names of the file
+  of the folder it is in, when that file has no group or other permission
+  bits. The `code()` wrapper below removes both lists.
 - **Where the files are.** The absolute path of Workbench's config folder is
   rendered at apply time, as for the gate.
 - **Agents and the editor.** The existing `claude()` wrapper and a new

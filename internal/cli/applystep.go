@@ -64,3 +64,15 @@ func applyStep(
 		},
 	})
 }
+
+// stepAnswers resolves Workbench's paths and reads the saved answers for an
+// apply step, which runs inside the apply that holds the locks: it reads
+// paths only.
+func stepAnswers() (operation.Context, machine.Answers, error) {
+	c, err := operation.Resolve(operation.Options{ReadOnly: true})
+	if err != nil {
+		return c, nil, err
+	}
+	answers, err := machine.ReadAnswers(c)
+	return c, answers, err
+}
