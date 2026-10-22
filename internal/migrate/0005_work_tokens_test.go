@@ -71,7 +71,7 @@ decided = ['migrations']
 		if string(read(t, machinePath(l))) != machine {
 			t.Fatal("machine.toml changed before the run")
 		}
-		if status, _ := workTokens.Check(l); status != Unfinished {
+		if status, _ := WorkTokens.Check(l); status != Unfinished {
 			t.Fatalf("Check = %v, want unfinished", status)
 		}
 		said := runAll(t, l)
@@ -106,12 +106,12 @@ decided = ['migrations']
 			1,
 		)
 		l := tokenLocations(t, personal)
-		status, text := workTokens.Check(l)
+		status, text := WorkTokens.Check(l)
 		if status != Done || !strings.Contains(text, "delete them") {
 			t.Fatalf("Check = %v %q, want done naming the keys to delete", status, text)
 		}
 		probe := Probe(l, nil)
-		if !slices.Contains(probe, "migrations: = "+workTokens.ID+": "+text) {
+		if !slices.Contains(probe, "migrations: = "+WorkTokens.ID+": "+text) {
 			t.Errorf("the plan lines %q don't name the keys to delete", probe)
 		}
 		said := append(runAll(t, l), probe...)
@@ -154,7 +154,7 @@ func tokenLocations(t *testing.T, machine string) Locations {
 // Check said first and what the run said.
 func runAll(t *testing.T, l Locations) []string {
 	t.Helper()
-	_, text := workTokens.Check(l)
+	_, text := WorkTokens.Check(l)
 	said := []string{text}
 	if err := Run(
 		context.Background(),
@@ -171,7 +171,7 @@ func runAll(t *testing.T, l Locations) []string {
 // both files keep their bytes; an empty env means there is no work.env.
 func assertUntouched(t *testing.T, l Locations, machine, env string) {
 	t.Helper()
-	status, text := workTokens.Check(l)
+	status, text := WorkTokens.Check(l)
 	if status != Conflict {
 		t.Fatalf("Check = %v, want conflict", status)
 	}
@@ -184,7 +184,7 @@ func assertUntouched(t *testing.T, l Locations, machine, env string) {
 	); err == nil {
 		t.Error("Run succeeded with 0005 in conflict")
 	}
-	if _, err := workTokens.Run(context.Background(), l); err == nil {
+	if _, err := WorkTokens.Run(context.Background(), l); err == nil {
 		t.Error("0005's Run succeeded in conflict")
 	}
 	if string(read(t, machinePath(l))) != machine {
@@ -217,7 +217,7 @@ func assertKeysRemoved(t *testing.T, l Locations, original string) {
 	if !reflect.DeepEqual(got, want) {
 		t.Error("machine.toml is not the original without the two token keys")
 	}
-	if status, _ := workTokens.Check(l); status != Done {
+	if status, _ := WorkTokens.Check(l); status != Done {
 		t.Errorf("Check after the run = %v, want done", status)
 	}
 }
@@ -226,7 +226,7 @@ func assertKeysRemoved(t *testing.T, l Locations, original string) {
 // Check says.
 func assertNoToken(t *testing.T, lines []string, l Locations) {
 	t.Helper()
-	_, text := workTokens.Check(l)
+	_, text := WorkTokens.Check(l)
 	for _, line := range append(lines, text) {
 		if strings.Contains(line, "synthetic") {
 			t.Errorf("a token appears in the output: %q", line)

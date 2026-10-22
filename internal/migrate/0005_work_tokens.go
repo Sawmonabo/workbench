@@ -31,7 +31,7 @@ var WorkEnvNames = []string{
 // work.env name it moves to.
 var tokenKeys = [][2]string{{"jira_api_token", "JIRA_API_TOKEN"}, {"gitlab_token", "GITLAB_TOKEN"}}
 
-// workTokens moves the work tokens earlier questionnaires saved as machine
+// WorkTokens moves the work tokens earlier questionnaires saved as machine
 // answers into work.env, which the work tools read by name. It writes
 // work.env only where none exists, as a new file, and deletes the two answers
 // only once work.env holds the same tokens, so a run stopped between the two
@@ -39,7 +39,7 @@ var tokenKeys = [][2]string{{"jira_api_token", "JIRA_API_TOKEN"}, {"gitlab_token
 // does not hold those same tokens is the owner's, and both files stay as they
 // are. It reads machine.toml itself: this package can't import
 // internal/machine.
-var workTokens = Migration{
+var WorkTokens = Migration{
 	ID:    "0005-work-tokens",
 	Title: "Move the saved work tokens into work.env",
 	Doing: "moving the saved work tokens into work.env",

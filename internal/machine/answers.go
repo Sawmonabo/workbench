@@ -330,17 +330,22 @@ func (a Answers) folder(home, key string) string {
 }
 
 // RoleFolders are the role folders saved in <config>/machine.toml as absolute
-// paths under home, personal first. It is nil when none is saved or the file
-// cannot be read, and never names a default: the one fallback is the costs
+// paths under home, personal first. They are nil when there is no
+// machine.toml or it saves none, and err says a machine.toml that is there
+// can't be read. They never name a default: the one fallback is the costs
 // report's.
-func RoleFolders(home, config string) []string {
-	raw, err := operation.ReadPrivateInput(filepath.Join(config, "machine.toml"), 1<<20)
+func RoleFolders(home, config string) ([]string, error) {
+	path := filepath.Join(config, "machine.toml")
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	raw, err := operation.ReadPrivateInput(path, 1<<20)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	answers, err := readAnswers(raw)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var folders []string
 	for _, key := range []string{"personal_folder", "work_folder"} {
@@ -348,7 +353,7 @@ func RoleFolders(home, config string) []string {
 			folders = append(folders, folder)
 		}
 	}
-	return folders
+	return folders, nil
 }
 
 // invalidWSLKey is the first WSL sizing answer that is missing or invalid, or

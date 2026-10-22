@@ -76,7 +76,7 @@ type Migration struct {
 
 // Registry lists every migration in number order. A released migration is
 // never renumbered or removed; adding one is a numbered file and a line here.
-var Registry = []Migration{costsFolders, completionCache, oldCostsCache, oldGuardLog, workTokens}
+var Registry = []Migration{costsFolders, completionCache, oldCostsCache, oldGuardLog, WorkTokens}
 
 // OldLocationVariables are the variables the old locations were read from.
 // The apply passes their names to its scripts as WORKBENCH_OLD_NAMES and each
@@ -304,7 +304,7 @@ func Probe(l Locations, wanted []string) []string {
 			lines = append(lines, "migrations: "+f.ID+": "+f.Detail)
 		case f.Status == Conflict:
 			lines = append(lines, "migrations: ? "+f.ID+": "+f.Detail)
-		case f.ID == workTokens.ID && f.Detail != "":
+		case f.ID == WorkTokens.ID && f.Detail != "":
 			lines = append(lines, "migrations: = "+f.ID+": "+f.Detail)
 		}
 	}

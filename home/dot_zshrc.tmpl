@@ -200,7 +200,7 @@ __workbench_folder_env() {
     _wb_key=$_wb_here
     for (( _wb_i = 1; _wb_i <= ${#__workbench_env_files}; _wb_i++ )); do
         _wb_time=() _wb_size=() _wb_mode=()
-        zstat -L -A _wb_time +mtime $__workbench_env_files[_wb_i] 2>/dev/null
+        zstat -L -F '%s.%N' -A _wb_time +mtime $__workbench_env_files[_wb_i] 2>/dev/null
         zstat -L -A _wb_size +size $__workbench_env_files[_wb_i] 2>/dev/null
         zstat -L -o -A _wb_mode +mode $__workbench_env_files[_wb_i] 2>/dev/null
         _wb_modes[_wb_i]=${_wb_mode[1]-}

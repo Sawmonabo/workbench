@@ -243,13 +243,7 @@ func scriptEnvironment(
 	path := strings.Join(directories, string(os.PathListSeparator))
 	system := []string{"/usr/bin", "/bin", "/usr/sbin", "/sbin"}
 	if platform.WSL() {
-		// Windows host steps run cmd.exe, wsl.exe and powershell.exe through
-		// interop and need the name of the distribution they run in.
-		for _, name := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
-			if value := os.Getenv(name); value != "" {
-				environment = append(environment, name+"="+value)
-			}
-		}
+		environment = append(environment, wslInteropEnvironment()...)
 		system = append(system, windowsSystemDirectories(os.Getenv("PATH"))...)
 	}
 	// The scripts download packages and tools, so they need the user's proxy
@@ -282,6 +276,20 @@ func scriptEnvironment(
 		"WORKBENCH_TOOL_PATH="+path,
 		"PATH="+path+":"+strings.Join(system, ":"),
 	)
+}
+
+// wslInteropEnvironment is NAME=value for each WSL variable that is set and
+// that a Windows call through interop needs: cmd.exe, wsl.exe and
+// powershell.exe reach Windows through WSL_INTEROP and need the name of the
+// distribution they run in.
+func wslInteropEnvironment() []string {
+	var environment []string
+	for _, name := range []string{"WSL_DISTRO_NAME", "WSL_INTEROP"} {
+		if value := os.Getenv(name); value != "" {
+			environment = append(environment, name+"="+value)
+		}
+	}
+	return environment
 }
 
 // windowsSystemDirectories keeps only the Windows system directories from the

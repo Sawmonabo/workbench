@@ -134,10 +134,14 @@ func gateReply(request gateRequest) map[string]any {
 	reply := map[string]any{"jsonrpc": "2.0", "id": request.ID}
 	switch {
 	case request.Method == "initialize":
+		// The client's revision is echoed, since these replies are the same in
+		// every revision that has initialize; without one, it names the last.
 		var params struct {
-			ProtocolVersion json.RawMessage `json:"protocolVersion"`
+			ProtocolVersion string `json:"protocolVersion"`
 		}
-		_ = json.Unmarshal(request.Params, &params)
+		if json.Unmarshal(request.Params, &params) != nil || params.ProtocolVersion == "" {
+			params.ProtocolVersion = "2025-11-25"
+		}
 		reply["result"] = map[string]any{
 			"protocolVersion": params.ProtocolVersion,
 			"capabilities":    map[string]any{},

@@ -31,12 +31,13 @@ var writerSteps = []string{
 const takeOverPrefix = "take-over-"
 
 // windowsWriters is the plan input for the writer record: the SHA-256 of
-// <LocalAppData>/Workbench/writers.json, "absent" without one, and "unknown"
-// when Windows could not be asked or the file read. Each of the three calls
-// has a minute, so a stalled /mnt/c never holds up the plan for longer. The
-// scripts follow the record as they run, so an approved plan is refused (exit
-// 4) once another distribution changed it. Its caller asks only on WSL, for
-// the real home.
+// <LocalAppData>/Workbench/writers.json, "absent" without one, "no-interop"
+// when there is no cmd.exe to ask, which the scripts report themselves, and
+// "unknown" when Windows could not be asked or the file read. Each of the
+// three calls has a minute, so a stalled /mnt/c never holds up the plan for
+// longer. The scripts follow the record as they run, so an approved plan is
+// refused (exit 4) once another distribution changed it. Its caller asks only
+// on WSL, for the real home, and warns only on "unknown".
 // cmd.exe gets what the scripts' Windows steps get from [scriptEnvironment]:
 // a PATH of the system and Windows system folders, and the WSL variables
 // interop needs. It runs with /d, as the scripts run it, so no AutoRun command
@@ -44,16 +45,13 @@ const takeOverPrefix = "take-over-"
 func windowsWriters(ctx context.Context, c operation.Context) operation.Input {
 	input := operation.Input{Name: "windows-writers", Digest: "unknown"}
 	windows := windowsSystemDirectories(os.Getenv("PATH"))
-	environment := []string{
-		"PATH=" + strings.Join(append([]string{"/usr/bin", "/bin"}, windows...), ":"),
-	}
-	for _, name := range []string{"WSL_INTEROP", "WSL_DISTRO_NAME"} {
-		if value := os.Getenv(name); value != "" {
-			environment = append(environment, name+"="+value)
-		}
-	}
+	environment := append(
+		[]string{"PATH=" + strings.Join(append([]string{"/usr/bin", "/bin"}, windows...), ":")},
+		wslInteropEnvironment()...,
+	)
 	cmd, err := operation.FindExecutable("cmd.exe", strings.Join(windows, ":"), nil)
 	if err != nil {
+		input.Digest = "no-interop"
 		return input
 	}
 	answer, err := operation.Run(ctx, c, nil, operation.Process{
