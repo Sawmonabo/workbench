@@ -42,7 +42,22 @@ alias ll='ls -alF'
 alias la='ls -A'
 alias l='ls -CF'
 alias cat='bat --paging=never'
-claude() { command claude --verbose --allow-dangerously-skip-permissions "$@"; }
+# The agents keep the shell's credentials for their whole session, so each
+# starts with those of the folder it starts in (see Credentials below). The
+# editor gets none: one opened from the work folder would pass the work names
+# to every window it opens later.
+claude() { __workbench_folder_env; command claude --verbose --allow-dangerously-skip-permissions "$@"; }
+codex() { __workbench_folder_env; command codex "$@"; }
+code() {
+    local name file removed=() __workbench_env_names __workbench_env_values
+    for file in "${__workbench_env_files[@]}"; do
+        __workbench_env_read "$file"
+        for name in "${__workbench_env_names[@]}"; do
+            removed+=(-u "$name")
+        done
+    done
+    env "${removed[@]}" code "$@"
+}
 
 alias alert='notify-send --urgency=low -i "$([ $? = 0 ] && echo terminal || echo error)" "$(history|tail -n1|sed -e '\''s/^\s*[0-9]\+\s*//;s/[;&|]\s*alert$//'\'')"'
 
@@ -130,6 +145,84 @@ fi
 
 # --- Oh My Posh prompt ---
 eval "$(oh-my-posh init bash --config ~/.config/oh-my-posh/catppuccin_mocha.omp.json)"
+
+# --- Credentials ---
+# Workbench's env files hold each role's credentials as NAME=value lines.
+# __workbench_folder_env exports a role's file only while the shell is in that
+# role's folder or below it, symlinks resolved, and unsets the names of every
+# other file, so a command run in one folder never sees another role's
+# credentials, even ones a parent shell passed down. It reads the files line
+# by line and never sources them: a line that is not NAME=value with a valid
+# name and an unquoted value is skipped, as workbench apply reports. A file
+# open to group or others is not loaded (chmod 600 or 400 loads it). It runs
+# on every cd, pushd and popd and before every prompt, and does nothing while
+# the folder and the files' times and modes are unchanged.
+{{- $config := includeTemplate "workbench-config" . }}
+__workbench_env_folders=()
+__workbench_env_files=()
+{{- if .has_work }}
+__workbench_env_folders+=({{ joinPath .chezmoi.homeDir (trimPrefix "~/" .work_folder) | replace "'" "'\"'\"'" | printf "'%s'" }})
+__workbench_env_files+=({{ joinPath $config "work.env" | replace "'" "'\"'\"'" | printf "'%s'" }})
+{{- end }}
+{{- if .has_personal }}
+__workbench_env_folders+=({{ joinPath .chezmoi.homeDir (trimPrefix "~/" .personal_folder) | replace "'" "'\"'\"'" | printf "'%s'" }})
+__workbench_env_files+=({{ joinPath $config "personal.env" | replace "'" "'\"'\"'" | printf "'%s'" }})
+{{- end }}
+# __workbench_env_read FILE sets the caller's __workbench_env_names and
+# __workbench_env_values to FILE's lines that are NAME=value with a valid name.
+__workbench_env_read() {
+    local line name
+    __workbench_env_names=() __workbench_env_values=()
+    [ -r "$1" ] || return 0
+    while IFS= read -r line || [ -n "$line" ]; do
+        name=${line%%=*}
+        if [[ $line == *=* && $name =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+            __workbench_env_names+=("$name")
+            __workbench_env_values+=("${line#*=}")
+        fi
+    done < "$1"
+}
+__workbench_folder_env() {
+    case $- in
+        *i*) ;;
+        *) return 0 ;;
+    esac
+    # The locals are prefixed so that no name in a file lands on one of them.
+    local _wb_here _wb_key _wb_i _wb_j _wb_folder _wb_load=-1 __workbench_env_names __workbench_env_values
+    _wb_here=$(pwd -P 2>/dev/null)
+    _wb_key="$_wb_here
+$(stat -c '%n %Y %a' -- "${__workbench_env_files[@]}" 2>/dev/null)"
+    [ "$_wb_key" = "${__workbench_env_key-}" ] && return 0
+    __workbench_env_key=$_wb_key
+    for _wb_i in "${!__workbench_env_files[@]}"; do
+        _wb_folder=$(readlink -f -- "${__workbench_env_folders[_wb_i]}") ||
+            _wb_folder=${__workbench_env_folders[_wb_i]}
+        if [[ $_wb_here == "$_wb_folder" || $_wb_here == "$_wb_folder"/* ]] &&
+            [[ $(stat -c %a -- "${__workbench_env_files[_wb_i]}" 2>/dev/null) == *00 ]]; then
+            _wb_load=$_wb_i
+            continue
+        fi
+        __workbench_env_read "${__workbench_env_files[_wb_i]}"
+        for _wb_j in "${!__workbench_env_names[@]}"; do
+            unset "${__workbench_env_names[_wb_j]}" 2>/dev/null
+        done
+    done
+    # Loaded last, so a name both files use keeps this folder's value.
+    if [ "$_wb_load" -ge 0 ]; then
+        __workbench_env_read "${__workbench_env_files[_wb_load]}"
+        for _wb_j in "${!__workbench_env_names[@]}"; do
+            [[ ${__workbench_env_values[_wb_j]} == [\"\']* ]] ||
+                export "${__workbench_env_names[_wb_j]}=${__workbench_env_values[_wb_j]}" 2>/dev/null
+        done
+    fi
+    return 0
+}
+cd() { builtin cd "$@" || return; __workbench_folder_env; }
+pushd() { builtin pushd "$@" || return; __workbench_folder_env; }
+popd() { builtin popd "$@" || return; __workbench_folder_env; }
+# oh-my-posh makes PROMPT_COMMAND a list ending in its own hook, which reads
+# the last command's exit status, so the hook joins the list after it.
+PROMPT_COMMAND+=(__workbench_folder_env)
 
 # --- Editor ---
 export EDITOR="{{ includeTemplate "editor-command" .editor }}"

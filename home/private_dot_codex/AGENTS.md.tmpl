@@ -24,6 +24,11 @@
   file; a command's stdin may be left open, and a path-less `rg` or bare `cat`
   then waits forever.
 
+## Credentials
+
+- Credentials are in environment variables loaded from Workbench's env files.
+  Use them by name; never open, print or echo the files or their values.
+
 {{- if eq .machine_role "both" }}
 
 ## Path-scoped tool policy

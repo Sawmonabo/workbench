@@ -11,6 +11,17 @@
 {{- $live := .chezmoi.stdin | default "{}" | fromJson -}}
 {{- $unchanged := toJson $live -}}
 {{- $enforced := deepCopy .claude.enforced -}}
+{{- /* The roles' env files in Workbench's config folder, resolved at apply
+       time, are never read: their names reach the agent through the shell's
+       environment. $config is absolute, and a rule needs // to start at the
+       filesystem root (one / starts at ~/.claude). */ -}}
+{{- $config := includeTemplate "workbench-config" . -}}
+{{- if .has_work -}}
+  {{- $_ := set $enforced.permissions "deny" (append $enforced.permissions.deny (printf "Read(/%s/work.env)" $config)) -}}
+{{- end -}}
+{{- if .has_personal -}}
+  {{- $_ := set $enforced.permissions "deny" (append $enforced.permissions.deny (printf "Read(/%s/personal.env)" $config)) -}}
+{{- end -}}
 {{- range $list := list "allow" "deny" "ask" -}}
   {{- $managed := index $enforced.permissions $list -}}
   {{- $granted := dig "permissions" $list (list) $live -}}

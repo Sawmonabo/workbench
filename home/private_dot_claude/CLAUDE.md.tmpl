@@ -15,6 +15,8 @@ Search with ripgrep (`rg`) when it is available. It is recursive by default, so 
 When explaining, be concise and brief, use plain words over technical terms, and give a short example where it helps the reader picture the point. Lead with the result. Name a file only when the reader has to go there.
 
 Write times as my clock reads them: the machine's zone (`readlink /etc/localtime`, never assume), 12-hour with AM or PM, never UTC or 24-hour; convert transcript timestamps first. When the date matters, write it in words beside the time ("Sept 9 at 7:00 PM").
+
+Credentials are in environment variables loaded from Workbench's env files. Use them by name; never open, print or echo the files or their values.
 {{ if eq .chezmoi.os "darwin" }}
 The shell is zsh. After a pipeline read `${pipestatus[1]}`, never `$?`; an unmatched glob aborts the whole command; `grep` here is ugrep, so use `rg`. Print `EXIT:$?` and never write your own verdict caption.
 {{ end -}}

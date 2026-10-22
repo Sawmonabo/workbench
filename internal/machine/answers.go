@@ -29,6 +29,16 @@ func parseAnswers(c operation.Context, raw []byte) (Answers, error) {
 	return answers, validateAnswers(c, answers)
 }
 
+// ReadAnswers reads and validates the answers saved in c.Native.Config, for an
+// apply step that runs inside the apply that checked them.
+func ReadAnswers(c operation.Context) (Answers, error) {
+	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	if err != nil {
+		return nil, err
+	}
+	return parseAnswers(c, raw)
+}
+
 // readAnswers reads a [data]-only machine config without checking that it
 // answers every question; the questionnaire can complete it.
 func readAnswers(raw []byte) (Answers, error) {

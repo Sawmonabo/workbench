@@ -1,0 +1,35 @@
+#!/bin/bash
+# Create the credential files this machine's roles use, when they are missing,
+# through the installed workbench: it reads the roles from Workbench's saved
+# answers and writes each file privately, which chezmoi cannot do inside
+# Workbench's own folders. It never writes a file that is there. chezmoi runs
+# scripts in the order of their full source paths, so this runs right after
+# shared/run_after_05-migrations, which may create the work file first.
+set -euo pipefail
+{{ template "installed-workbench.sh" }}
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    if [ ! -x "$workbench" ]; then
+        echo "env-files: = Workbench is not installed here yet, so it creates no credential file"
+    elif ! knows_command env-files; then
+        echo "env-files: ? the installed workbench predates credential files, so run workbench update"
+    else
+        # A failed check fails the probe, so the plan says it couldn't check.
+        "$workbench" env-files --probe 2>/dev/null || exit 1
+    fi
+    exit 0
+fi
+if [[ "${WORKBENCH_EFFECT_ENV_FILES:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT env-files disabled (not selected)' >&2
+    exit 0
+fi
+{{ template "effect-report.sh" }}
+if [ ! -x "$workbench" ]; then
+    echo "==> env-files: no installed workbench at $workbench, so no credential file was created"
+    exit 0
+fi
+if ! knows_command env-files; then
+    part_blocked env-files "the installed workbench predates credential files, so run workbench update and apply again"
+    exit 0
+fi
+"$workbench" env-files run ||
+    part_blocked env-files "a credential file couldn't be created (the output above says why)"
