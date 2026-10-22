@@ -561,8 +561,23 @@ synthetic answers.
     plan, `--json` or apply log. That apply exited 5, `Native output differs
     from the approved images`: Claude Code's first run, in the Claude Code
     work servers step, rewrote `~/.claude/settings.json` without
-    `minimumVersion` and `skipAutoPermissionPrompt`, and the next apply put
-    them back (exit 0).
+    `skipAutoPermissionPrompt`, and the next apply added it and
+    `minimumVersion` (exit 0).
+  - On October 22, 2026, re-run after the Claude Code work servers step began
+    keeping a copy of `~/.claude/settings.json` through Claude Code's first
+    run: a fresh AlmaLinux 10.2 container, role both, from the same kind of
+    local bundle, with `~/wrk` and `~/per` (neither a symlink), CRB as the
+    image has it and no saved tokens. The first approved apply exited 0 with
+    every chosen step complete. `settings.json` kept
+    `skipAutoPermissionPrompt` and its mode 0600, no
+    `settings.json.workbench-first-run` copy was left beside it,
+    both dispatch servers were registered with Claude Code 2.1.301 through
+    `mcp-gate`, and a later `claude mcp list` left the file byte for byte the
+    same. `minimumVersion` was not in the file after that apply: the first
+    plan does not set it while Claude Code is not yet installed, so the
+    earlier run's exit 5 came from `skipAutoPermissionPrompt` alone. The
+    second apply added it (one file, exit 0), and the third plan listed no
+    file.
   - The env-files plan lines named the empty names, each line that is not
     `NAME=value`, and a `work.env` left without the work role. A hand-added
     user entry with literal tokens was replaced, and a same-named local entry
