@@ -63,6 +63,32 @@ added saves it. Once saved, `init --ask terminal_theme` changes it. Windows
 Terminal and PowerShell open in the work folder on a machine with the work
 role, else in the personal folder.
 
+VS Code extensions (`linux-editor-extensions`, on by default) installs
+Workbench's extension list into this distribution's VS Code server
+(`~/.vscode-server/extensions`), which VS Code on Windows runs workspace
+extensions from when it opens a folder here; Work tools does the same for the
+work extension. It calls a server's own command line (`code-server`, under
+`~/.vscode-server/bin` or `~/.vscode-server/cli/servers`), trying the newest
+first and using the first that lists its extensions, so a broken newer server
+does not block an older one that works; it touches or runs nothing on Windows,
+and unsets the variables the server's launcher reads to patch its own Node
+(`VSCODE_SERVER_CUSTOM_GLIBC_LINKER`, `VSCODE_SERVER_CUSTOM_GLIBC_PATH`,
+`VSCODE_SERVER_PATCHELF_PATH`). Extensions that run only on the Windows side, such as
+Remote - WSL and Remote - SSH (`vscode_extensions_windows_side` in
+`home/.chezmoidata/packages.toml`), are left out. Until VS Code has opened a
+folder in this distribution there is no server, and the step has nothing to do
+(`linux-editor-extensions: = VS Code has not opened this distribution yet; open
+a folder here in VS Code, then apply again`). When only VS Code Insiders has
+opened it (`~/.vscode-server-insiders`), the line says so: Workbench installs
+into VS Code (stable)'s server. Otherwise the line names the extensions the
+server lacks, or says it has them all, read from the server's
+`extensions.json`, which counts an extension VS Code marked for removal as
+installed, as the server's own list does. A link or a file where a folder
+belongs in the path of `~/.vscode-server/extensions` blocks the step; a server
+reached through one is left out, and the step is blocked when every server is.
+Each call to a server is stopped after ten minutes. An extension that still
+fails after a second try blocks its own step, as on Linux.
+
 Workbench names no distribution, so one PC can run it in several WSL
 distributions, for example an Ubuntu one with the `personal` role and an
 AlmaLinux one with `work`, each with its own answers and choices in its own
@@ -116,7 +142,8 @@ A Windows side that cannot be used at all (no interop, not x64) blocks every
 Windows step you ticked, and a failed Windows download (oh-my-posh, fonts,
 ripgrep, Notepad++ themes) blocks the steps that need it, never the files or the
 other steps; the apply goes on and ends blocked (exit 3). Workbench does not
-install extensions into the Windows editor or edit its settings.
+install extensions into the Windows editor or edit its settings; its extension
+step installs only into this distribution's VS Code server.
 Windows-side script writes are not checkpointed. No real Windows host run is
 recorded yet; static rendering does not qualify these scripts.
 Project inspection/configuration is not Windows-host provisioning.
@@ -132,6 +159,7 @@ The canonical WSL scripts describe these effects:
 | User PATH/default distribution | Separate external-effect selection; never choose a distribution implicitly. |
 | Guest sysctl | Privileged file and live kernel effect, not ordinary user configuration. |
 | Editor settings | Windows desktop and Linux remote extension hosts are different owners. |
+| Editor extensions | Installed only into this distribution's VS Code (stable) server, with its own command line; extensions that declare only the `ui` kind, and the remote extensions, left out; never uninstalled. |
 
 No inspection opens a remote session, restarts WSL or changes Windows settings.
 Private Workbench state stays on the Linux filesystem; chmod on a Windows mount

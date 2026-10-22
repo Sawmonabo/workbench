@@ -433,7 +433,9 @@ synthetic answers.
   counts as removed and added) or "N settings changed" for a merged JSON or
   TOML file, whose panel lists the changed key paths; steps show a plain name
   and one line; effects with nothing to change collapse into one `Already set` line of names; the `Off` heading is
-  just "Off"; the Linux editor-extension step is absent on WSL. The interactive list was
+  just "Off"; the Linux editor-extension step was not listed on WSL, since at
+  the time it installed only into a local Linux desktop. WSL now lists it and
+  installs into the distribution's VS Code server. The interactive list was
   rendered from a scratch harness at 120 and 80 columns with the cursor on a
   file (its diff, wrapped lines keeping their `+`/`−`) and on Windows setup, and
   a no-prompt view at 30 to 80 columns had no line wider than the terminal. With
@@ -486,6 +488,11 @@ synthetic answers.
   The Codex variable names were confirmed in the
   openai/codex source (`unified_exec/process_manager.rs`, `spawn.rs`,
   `shell_environment.rs`) and in the installed binary (0.159.3).
+- Target, not yet observed: the VS Code extensions and Work tools steps
+  installing into a real distribution's VS Code server
+  (`~/.vscode-server/extensions`) through its own `code-server`, the Windows-side
+  extensions left out, and VS Code on Windows then running them in that
+  distribution.
 
 ### Revert and recovery
 
@@ -927,7 +934,7 @@ synthetic answers.
 | macOS | Intel runs. Clean macOS 15.7.7 arm64 VMs (the minimum OS) installed the published v0.1.12 with `install.sh` and completed personal and both-roles provisioning; a later-edit revert conflict, a step turned off in the list, failed downloads that left the other steps running, a revert of a first apply that kept the folders other files filled, and reverts of applies stopped by ctrl+c, SIGTERM and `kill -9` were observed. |
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
-| Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked. |
+| Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked, including the WSL VS Code server install. |
 | Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, and a real session of each agent showing the stop reason. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 

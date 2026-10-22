@@ -1,15 +1,119 @@
-{{ if and (eq .chezmoi.os "linux") (not .is_wsl) -}}
+{{ if eq .chezmoi.os "linux" -}}
 #!/usr/bin/env bash
+{{- if .is_wsl }}
+# Install the canonical VS Code extension set into this distribution's VS Code
+# server (~/.vscode-server/extensions), which VS Code on Windows runs extensions
+# from when it opens a folder here. The extensions that run only on the Windows
+# side (vscode_extensions_windows_side) are left out. This never touches or
+# runs anything on Windows, and never launches the server: it calls a server's
+# own command line, as VS Code left it here, the newest that works.
+{{- else }}
 # Install the canonical local VS Code extension set. This never contacts a
-# remote extension host or selects a non-default profile. On WSL the editor is
-# the Windows desktop, which this cannot install into, so WSL renders nothing.
+# remote extension host or selects a non-default profile.
+{{- end }}
 # Runs on every apply, so an extension that failed is tried again; the failure
 # is named blocked under its effect (part_failed) and the script ends nonzero.
 # Workbench runs chezmoi with --keep-going, so the scripts after this one still
 # run.
 set -euo pipefail
 status=0
+{{- if .is_wsl }}
+# vscode_server prints the VS Code server commands in ~/.vscode-server, in
+# either layout VS Code uses, newest (by modification time) first, one a line,
+# without running any. Exit 3 means VS Code has not opened this distribution
+# yet, and exit 4 that only VS Code Insiders has (~/.vscode-server-insiders):
+# nothing to install into, not a failure. A link or a file where a folder
+# belongs is refused, as the desktop's folders are: in the extensions folder's
+# path it refuses them all, in one server's path it leaves that server out.
+vscode_server() {
+    python3 - <<'PY'
+import os, pathlib, sys
+home = pathlib.Path.home()
+root = home / '.vscode-server'
+
+def alias(path, is_file):
+    for parent in (path, *path.parents):
+        if parent == home:
+            return None
+        if parent.is_symlink() or (
+            parent.exists() and not parent.is_dir() and not (is_file and parent == path)
+        ):
+            return parent
+    return None
+
+servers = [
+    path
+    for path in (*root.glob('bin/*/bin/code-server'), *root.glob('cli/servers/*/server/bin/code-server'))
+    if path.is_file() and os.access(path, os.X_OK)
+]
+if not servers:
+    sys.exit(4 if (home / '.vscode-server-insiders').is_dir() else 3)
+refused = alias(root / 'extensions', False)
+usable = [path for path in servers if not alias(path, True)]
+if not refused and not usable:
+    refused = alias(servers[0], True)
+if refused:
+    sys.exit(f'{refused} is a link or not a folder; Workbench installs VS Code extensions only through real folders')
+for path in sorted(usable, key=lambda path: path.stat().st_mtime, reverse=True):
+    print(path)
+PY
+}
+{{- end }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+{{- if .is_wsl }}
+    # server_missing ID...: the IDs the server does not have, joined with ", ",
+    # read from its extensions.json (its folder names when there is none), the
+    # folder every server here shares, so a broken newest server does not hide
+    # what an older one would list. Like the server's own --list-extensions, it
+    # counts an extension VS Code marked for removal (.obsolete) as installed.
+    # IDs compare without case.
+    server_missing() {
+        python3 - "$@" <<'PY'
+import json, pathlib, re, sys
+folder = pathlib.Path.home() / '.vscode-server' / 'extensions'
+try:
+    entries = json.loads((folder / 'extensions.json').read_text())
+    installed = {entry['identifier']['id'].lower() for entry in entries}
+except FileNotFoundError:
+    names = [path.name for path in folder.iterdir() if path.is_dir()] if folder.is_dir() else []
+    installed = {
+        match.group(1).lower()
+        for name in names
+        if (match := re.match(r'(.+?)-\d+\.\d+\.\d+', name))
+    }
+print(', '.join(extension for extension in sys.argv[1:] if extension.lower() not in installed))
+PY
+    }
+    server_status=0
+    server_error=$(vscode_server 2>&1 >/dev/null) || server_status=$?
+    # server_plan COUNTED ID...: what installing ID... into the server would do;
+    # COUNTED names them when the server already has them all.
+    server_plan() {
+        local counted=$1 missing reason
+        shift
+        if [ "$server_status" -eq 3 ]; then
+            echo "= VS Code has not opened this distribution yet; open a folder here in VS Code, then apply again"
+        elif [ "$server_status" -eq 4 ]; then
+            echo "= only VS Code Insiders has opened this distribution, and Workbench installs into VS Code (stable)'s server; open a folder here in VS Code, then apply again"
+        elif [ "$server_status" -ne 0 ]; then
+            reason=${server_error##*$'\n'}
+            [ -n "$reason" ] || reason="VS Code's WSL server could not be checked"
+            echo "? $reason"
+        elif ! missing=$(server_missing "$@"); then
+            echo "? VS Code's WSL server's extension list could not be read"
+        elif [ -z "$missing" ]; then
+            echo "= $counted installed in VS Code's WSL server"
+        else
+            echo "install $missing into VS Code's WSL server"
+        fi
+    }
+    server_extensions=({{ range .packages.vscode_extensions }}{{ if not (has . $.packages.vscode_extensions_windows_side) }} '{{ . }}'{{ end }}{{ end }} )
+    echo "linux-editor-extensions: $(server_plan "the ${#server_extensions[@]} extensions are" "${server_extensions[@]}")"
+{{- if .has_work }}
+    # This script also installs the work editor extension, part of work-tools.
+    echo "work-tools: $(server_plan "the work extension is" jasonn-porch.gitlab-mr)"
+{{- end }}
+{{- else }}
     case "$(command -v code 2>/dev/null)" in
         /usr/share/code/bin/code|/snap/code/current/usr/share/code/bin/code) editor="install missing extensions into the local VS Code" ;;
         "") editor="= there is no local VS Code desktop to install into" ;;
@@ -19,6 +123,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{- if .has_work }}
     # This script also installs the work editor extension, part of work-tools.
     echo "work-tools: $editor"
+{{- end }}
 {{- end }}
     exit 0
 fi

@@ -9,6 +9,9 @@
 # not stop the scripts after it; every apply tries the missing ones again.
 {{- $editor := "linux-editor-extensions" }}
 {{- if eq .chezmoi.os "darwin" }}{{ $editor = "macos-apps-extensions" }}{{ end }}
+{{- /* On WSL (.is_wsl) the canonical list leaves out
+       vscode_extensions_windows_side and goes into this distribution's VS Code
+       server, found by vscode_server in the script that includes this. */}}
 editor_extensions=()
 work_extensions=()
 {{- if eq .chezmoi.os "darwin" }}
@@ -16,7 +19,7 @@ if [ "${WORKBENCH_EFFECT_MACOS_APPS_EXTENSIONS:-1}" = 1 ]; then
 {{- else }}
 if [ "${WORKBENCH_EFFECT_LINUX_EDITOR_EXTENSIONS:-1}" = 1 ]; then
 {{- end }}
-    editor_extensions+=({{ range .packages.vscode_extensions }} '{{ . }}'{{ end }} )
+    editor_extensions+=({{ range .packages.vscode_extensions }}{{ if not (and $.is_wsl (has . $.packages.vscode_extensions_windows_side)) }} '{{ . }}'{{ end }}{{ end }} )
 fi
 {{- if .has_work }}
 if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
@@ -24,6 +27,15 @@ if [ "${WORKBENCH_EFFECT_WORK_TOOLS:-1}" = 1 ]; then
 fi
 {{- end }}
 if [ $((${#editor_extensions[@]} + ${#work_extensions[@]})) -gt 0 ]; then
+{{ if .is_wsl -}}
+# Find this distribution's VS Code servers, newest first, with vscode_server,
+# from the script that includes this, without launching one. Exit 3 means VS
+# Code has not opened this distribution yet, 4 that only VS Code Insiders has:
+# nothing to do, not a failure. Any other refusal is about the server's
+# folders: its parts are blocked.
+server_status=0
+code_servers=$(vscode_server) || server_status=$?
+{{ else -}}
 # Resolve the actual desktop installation without launching an editor/server.
 # Explicit directories below select its local default profile, never a remote.
 # Exit 3 means there is no local desktop to install into (none on PATH, or the
@@ -66,6 +78,7 @@ for directory in (data, home / '.vscode/extensions'):
 print(cli)
 PY
 ) || desktop_status=$?
+{{ end -}}
 # blocked_extensions REASON: nothing could be installed, so every part that had
 # extensions to install says so.
 blocked_extensions() {
@@ -96,6 +109,46 @@ install_extensions() {
         part_failed "$effect" "VS Code could not install ${names%, } even after a second try (the output above says why), so the next apply tries again" || status=1
     fi
 }
+{{ if .is_wsl -}}
+if [ "$server_status" -eq 3 ]; then
+    echo "==> VS Code extensions skipped: VS Code has not opened this distribution yet; open a folder here in VS Code, then apply again."
+elif [ "$server_status" -eq 4 ]; then
+    echo "==> VS Code extensions skipped: only VS Code Insiders has opened this distribution, and Workbench installs into VS Code (stable)'s server; open a folder here in VS Code, then apply again."
+elif [ "$server_status" -ne 0 ]; then
+    blocked_extensions "VS Code's WSL server could not be checked (the message above says why), so no extension was installed and the next apply tries again"
+else
+    # Use the newest server that lists its extensions, so a newer one VS Code
+    # left broken does not block an older one that works. The variables the
+    # server's launcher reads to patch its own Node (VSCODE_SERVER_CUSTOM_GLIBC_*,
+    # VSCODE_SERVER_PATCHELF_PATH) are unset, so a call never rewrites it. Each
+    # call is stopped after ten minutes, so a server that hangs fails its call
+    # instead of holding the apply.
+    mapfile -t servers <<< "$code_servers"
+    listed=0
+    for index in "${!servers[@]}"; do
+        code_cli=(env -u VSCODE_IPC_HOOK_CLI -u VSCODE_PORTABLE -u VSCODE_AGENT_FOLDER -u VSCODE_SERVER_CUSTOM_GLIBC_LINKER -u VSCODE_SERVER_CUSTOM_GLIBC_PATH -u VSCODE_SERVER_PATCHELF_PATH timeout -k 10 600 "${servers[$index]}" --extensions-dir "$HOME/.vscode-server/extensions")
+        if installed=$("${code_cli[@]}" --list-extensions | tr '[:upper:]' '[:lower:]'); then
+            listed=1
+            break
+        fi
+        if [ $((index + 1)) -lt ${#servers[@]} ]; then
+            echo "    ${servers[$index]} did not list its extensions; trying an older VS Code server..." >&2
+        fi
+    done
+    if [ "$listed" = 0 ]; then
+        blocked_extensions "no VS Code server here listed its installed extensions (the output above says why), so no extension was installed and the next apply tries again"
+    else
+        tried=0
+        install_extensions {{ $editor }} ${editor_extensions[@]+"${editor_extensions[@]}"}
+{{- if .has_work }}
+        install_extensions work-tools ${work_extensions[@]+"${work_extensions[@]}"}
+{{- end }}
+        if [ "$tried" = 0 ]; then
+            echo "==> VS Code extensions already installed."
+        fi
+    fi
+fi
+{{ else -}}
 if [ "$desktop_status" -eq 3 ]; then
     echo "==> VS Code extensions skipped: no local VS Code desktop to install into."
 elif [ "$desktop_status" -ne 0 ]; then
@@ -120,4 +173,5 @@ else
         fi
     fi
 fi
+{{ end -}}
 fi

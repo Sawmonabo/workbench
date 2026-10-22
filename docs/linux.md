@@ -55,6 +55,8 @@ execution are external effects; selecting the font in a terminal is manual.
 The extension step consumes the same global VS Code extension list as macOS.
 It targets the available local default `code` profile, never opens a remote
 connection, and reports missing desktop CLI rather than claiming completion.
+On WSL it installs into the distribution's VS Code server instead, leaving out
+the extensions that run only on the Windows side (see [WSL](wsl.md)).
 An extension that still fails after a second try blocks its own step (VS Code
 extensions, or Work tools for the work extension) with the reason. No failed step
 stops the others (see [usage](usage.md)): a failed package, runtime or tool

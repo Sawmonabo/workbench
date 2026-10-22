@@ -239,9 +239,8 @@ var epelEffect = operation.Effect{
 	Undo:        "Not reverted automatically: sudo dnf remove epel-release",
 }
 
-// linuxEditorEffect installs the editor extensions on a Linux desktop. WSL does not
-// plan it: its editor is the Windows desktop, which no step here installs into,
-// so the effect could never do anything.
+// linuxEditorEffect installs the editor extensions on a Linux desktop. WSL plans
+// wslEditorEffect under the same name instead.
 var linuxEditorEffect = operation.Effect{
 	Name:        "linux-editor-extensions",
 	Description: "Canonical extensions installed only into a verified local VS Code desktop default profile; unavailable or ambiguous editor hosts block this effect",
