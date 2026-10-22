@@ -113,12 +113,13 @@ else
 fi
 
 # --- go tools ---
-if command -v go &>/dev/null; then
+{{ template "go-command.sh" }}
+if go_bin=$(go_command); then
 {{- range $mod, $ver := .go_tools }}
 {{- if eq $mode "pinned" }}
-    go install "{{ $mod }}@{{ $ver }}" || failed+=("{{ base $mod }} could not be installed")
+    "$go_bin" install "{{ $mod }}@{{ $ver }}" || failed+=("{{ base $mod }} could not be installed")
 {{- else }}
-    go install "{{ $mod }}@latest" || failed+=("{{ base $mod }} could not be installed")
+    "$go_bin" install "{{ $mod }}@latest" || failed+=("{{ base $mod }} could not be installed")
 {{- end }}
 {{- end }}
 else

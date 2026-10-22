@@ -19,7 +19,9 @@ installed. Missing apt or dnf, sudo, network or required tools blocks or fails
 requested work instead of counting as success.
 
 On AlmaLinux, System packages installs `gcc gcc-c++ make curl unzip git
-ca-certificates fontconfig` with dnf, only those `rpm -q --whatprovides` does
+ca-certificates fontconfig libatomic` with dnf (the Node builds nvm installs
+need `libatomic.so.1`, which AlmaLinux's gcc does not bring; its line lists
+`libatomic` while it is missing), only those `rpm -q --whatprovides` does
 not find, so a name an installed package already provides is not installed
 again; then `bat`, `fd-find`, tmux and, in Command-line tools, podman. `bat` and `fd` come only from EPEL:
 the EPEL step (`epel`), listed only where the package manager is dnf and on by
@@ -36,7 +38,11 @@ with the personal role (see [roles and folders](usage.md#roles-folders-and-crede
 work role's Jira, GitLab and dispatch-checkout questions). Codex and Claude Code
 are installed through npm only when missing; an installed copy, from npm in
 nvm's default Node or from its own installer, is updated through that
-installer (see [usage](usage.md)), on WSL too.
+installer (see [usage](usage.md)), on WSL too. Runtime managers installs Go
+from go.dev into `~/.local/share/go-versions` and links it as
+`~/.local/bin/go`; that step and the Go tools in Command-line tools use that
+link when it is there, so a system Go (AlmaLinux's `golang` package in
+`/usr/bin`) neither hides it nor makes each apply install Go again.
 
 The managed shell is bash and preserves the unmanaged `.bash_aliases` hook.
 It sources `/etc/bashrc` when that file exists, as AlmaLinux's stock

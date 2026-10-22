@@ -25,6 +25,9 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
     compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
+    if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
+        rpm -q --whatprovides libatomic >/dev/null 2>&1 || missing+=("libatomic")
+    fi
     if [ ${#missing[@]} -eq 0 ]; then
         echo "linux-packages: = bat, fd, tmux, gh, oh-my-posh and the Nerd Font are installed"
     else
@@ -69,6 +72,11 @@ base_missing=0
 for tool in cc c++ curl unzip git fc-cache; do
     command -v "$tool" >/dev/null || base_missing=1
 done
+# The Node builds nvm installs need libatomic.so.1, which AlmaLinux does not
+# install with gcc; on Ubuntu gcc brings it.
+if ! command -v apt-get &>/dev/null && command -v dnf &>/dev/null; then
+    rpm -q --whatprovides libatomic &>/dev/null || base_missing=1
+fi
 # Every apt-get here waits up to ten minutes for the package lock: on a new
 # Ubuntu machine unattended-upgrades often holds it while this runs.
 install_base() {
@@ -80,7 +88,7 @@ install_base() {
         # Only the names rpm -q --whatprovides does not find are installed, so a
         # name an installed package already provides is not installed again.
         local pkg missing=()
-        for pkg in gcc gcc-c++ make curl unzip git ca-certificates fontconfig; do
+        for pkg in gcc gcc-c++ make curl unzip git ca-certificates fontconfig libatomic; do
             rpm -q --whatprovides "$pkg" &>/dev/null || missing+=("$pkg")
         done
         [ ${#missing[@]} -gt 0 ] || return 0
@@ -92,7 +100,7 @@ install_base() {
     fi
 }
 if [ "$base_missing" -eq 1 ]; then
-    part linux-packages "the C toolchain, curl, unzip, git and fontconfig were not installed" install_base
+    part linux-packages "the C toolchain, curl, unzip, git and fontconfig (and on AlmaLinux libatomic) were not installed" install_base
 fi
 
 # --- role folders (Windows Terminal's WSL profile opens in the work folder, else the personal one) ---

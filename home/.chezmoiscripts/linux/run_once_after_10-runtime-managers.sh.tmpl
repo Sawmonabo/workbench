@@ -7,6 +7,7 @@
 # install; the script then ends nonzero, so the next apply runs it again.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
+{{ template "go-command.sh" }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     user_bin_refused runtime-managers
@@ -24,7 +25,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     go_target=$( (curl -fsSL --max-time 3 'https://go.dev/VERSION?m=text' 2>/dev/null || true) | head -n1); go_target=${go_target#go}
 {{- end }}
     go_have=
-    if go_bin=$(command -v go 2>/dev/null); then
+    if go_bin=$(go_command); then
         go_root=$(dirname "$(dirname "$(readlink -f "$go_bin")")")
         [ -r "$go_root/VERSION" ] && go_have=$(head -n1 "$go_root/VERSION")
         go_have=${go_have#go}
@@ -181,11 +182,11 @@ install_go() {
     ln -sfn "$install_root/$go_target/bin/go" "$HOME/.local/bin/go" || return 1
     ln -sfn "$install_root/$go_target/bin/gofmt" "$HOME/.local/bin/gofmt" || return 1
 }
-if [ -z "$go_target" ] && command -v go &>/dev/null; then
+if [ -z "$go_target" ] && go_command >/dev/null; then
     echo "    Go is installed; the latest version could not be looked up, so it was kept."
 elif [ -z "$go_target" ]; then
     part_failed runtime-managers "Go was not installed: the latest version could not be looked up on go.dev" || status=1
-elif command -v go &>/dev/null && go version | grep -q "go${go_target}"; then
+elif go_bin=$(go_command) && "$go_bin" version | grep -q "go${go_target} "; then
     echo "    Go ${go_target} already installed."
 else
     echo "==> Installing Go ${go_target}..."
