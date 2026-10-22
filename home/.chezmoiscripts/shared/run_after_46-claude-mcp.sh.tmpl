@@ -36,7 +36,16 @@ fi
 # Every field ends in a NUL: the claude path, the bin folder of nvm's default
 # Node, then each command's arguments, with an empty field ending each one.
 fields=$(mktemp)
-trap 'rm -f "$fields"' EXIT
+# Claude Code's first run rewrites its settings.json once, dropping keys such
+# as skipAutoPermissionPrompt, and records in ~/.claude.json that it did. On a
+# machine where it has never run, this step's first claude command is that run,
+# after chezmoi wrote the settings this apply approved, so the apply would end
+# with the file other than approved. A copy kept beside it before that command
+# is put back after the last one: that undoes the first-run rewrite, and later
+# claude runs leave the file as it is.
+settings="$HOME/.claude/settings.json"
+kept=
+trap 'rm -f "$fields" ${kept:+"$kept"}' EXIT
 if ! reason=$("$workbench" claude-mcp run 2>&1 >"$fields"); then
     # The last line of the error, without its "Error:" mark or a tab.
     reason=${reason##*$'\n'}
@@ -60,6 +69,10 @@ fi
             part_blocked claude-mcp "Claude Code is not installed"
             exit 0
         fi
+        if [ "$ran" = 0 ] && [ ! -e "$HOME/.claude.json" ] && [ -f "$settings" ] && [ ! -L "$settings" ]; then
+            kept=$(mktemp "$settings.XXXXXX")
+            cp -p "$settings" "$kept"
+        fi
         ran=1
         echo "==> claude-mcp: claude ${args[*]:0:5}"
         # An npm copy of claude is a node script: its launcher needs node.
@@ -72,3 +85,7 @@ fi
         echo "==> claude-mcp: nothing to change"
     fi
 } <"$fields"
+if [ -n "$kept" ]; then
+    mv -f "$kept" "$settings"
+    kept=
+fi

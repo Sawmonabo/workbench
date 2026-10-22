@@ -192,7 +192,7 @@ var sharedEffects = []operation.Effect{
 		Title:       "Claude Code work servers",
 		Summary:     "the work MCP servers, started only inside your work folder",
 		What:        "Registers the work dispatch servers with Claude Code for all your sessions, through Claude Code's own claude mcp commands, so no credential is written into its settings. Each one starts through workbench mcp-gate, which starts the server with the names in work.env only for a session started inside your work folder. Anywhere else an idle mcp-gate process stays for the session in place of each, about 19 MB of memory each and so about 38 MB per session: no server, no Node and no tools. Without the work role it removes them. A same-named entry Claude Code keeps for one project outranks these, so the plan names it with the command that removes it.",
-		Touches:     "the user-scope MCP servers in ~/.claude.json",
+		Touches:     "the user-scope MCP servers in ~/.claude.json, and ~/.claude/settings.json when this is Claude Code's first run, which rewrites it: the settings this apply wrote are put back",
 		RunsAs:      "you",
 		Undo:        "Not reverted automatically: claude mcp remove --scope user dispatch-atlassian, then the same for dispatch-gitlab",
 	},
