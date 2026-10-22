@@ -5,11 +5,15 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// platformEffects are the Linux script owners of a full apply: the apt
-// bootstrap, and the editor extensions except on WSL, whose editor runs on
-// Windows.
+// platformEffects are the Linux script owners of a full apply: EPEL where the
+// package manager is dnf, the apt or dnf bootstrap, and the editor extensions
+// except on WSL, whose editor runs on Windows.
 func platformEffects(answers Answers) []operation.Effect {
-	effects := []operation.Effect{linuxPackagesEffect}
+	var effects []operation.Effect
+	if platform.PackageManager() == "dnf" {
+		effects = append(effects, epelEffect)
+	}
+	effects = append(effects, linuxPackagesEffect)
 	if answers["is_wsl"] != true {
 		effects = append(effects, linuxEditorEffect)
 	}

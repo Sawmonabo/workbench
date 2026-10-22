@@ -2,6 +2,7 @@ package platform
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -16,6 +17,19 @@ const System = "linux"
 var WSL = sync.OnceValue(func() bool {
 	data, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	return strings.Contains(strings.ToLower(string(data)), "microsoft")
+})
+
+// PackageManager is the system package manager the Linux scripts use: "apt"
+// when apt-get is on PATH, "dnf" when dnf is and apt-get is not, otherwise
+// empty. It is looked up once, at the first call.
+var PackageManager = sync.OnceValue(func() string {
+	if _, err := exec.LookPath("apt-get"); err == nil {
+		return "apt"
+	}
+	if _, err := exec.LookPath("dnf"); err == nil {
+		return "dnf"
+	}
+	return ""
 })
 
 // RuntimeFolders are the default config, data, state, cache and bin folders,

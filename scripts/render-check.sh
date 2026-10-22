@@ -94,7 +94,7 @@ while IFS= read -r -d '' script; do
             # shellcheck disable=SC2016 # the $( ... ) in the elif pattern is matched literally
             if [ -z "$probe_end" ]; then
                 echo "PROBE FAIL: $script has no WORKBENCH_PROBE block"; fail=1
-            elif head -n "$probe_end" "$out" | grep -vE '^[[:space:]]*#' | grep -qE 'sudo |read -r|curl -f[^ ]* -o|brew install|apt-get install|npm install|cargo install|install -m|cp |mv |> "\$(WSLCONFIG|PS_PROFILE)'; then
+            elif head -n "$probe_end" "$out" | grep -vE '^[[:space:]]*#' | grep -qE 'sudo |read -r|curl -f[^ ]* -o|brew install|apt-get install|dnf install|npm install|cargo install|install -m|cp |mv |> "\$(WSLCONFIG|PS_PROFILE)'; then
                 echo "PROBE FAIL: $script has a writer or prompt above its probe block"; fail=1
             fi
             ;;

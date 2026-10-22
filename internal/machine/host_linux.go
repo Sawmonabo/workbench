@@ -12,9 +12,10 @@ import (
 )
 
 // hostVersion completes the platform check with the distribution
-// /etc/os-release names: Ubuntu 22.04, 24.04 and 26.04 are supported. On WSL
-// it adds that the Windows host steps are not yet qualified. An unreadable
-// file leaves result as it is.
+// /etc/os-release names: Ubuntu 22.04, 24.04 and 26.04 and AlmaLinux 10 are
+// supported. AlmaLinux is checked by its major version only, since it ships a
+// new 10.x minor release every six months. On WSL it adds that the Windows host
+// steps are not yet qualified. An unreadable file leaves result as it is.
 func hostVersion(_ context.Context, _ operation.Context, result *operation.Component) {
 	data, err := os.ReadFile("/etc/os-release")
 	if err != nil {
@@ -27,8 +28,11 @@ func hostVersion(_ context.Context, _ operation.Context, result *operation.Compo
 			values[key] = strings.Trim(value, `"`)
 		}
 	}
-	if values["ID"] == "ubuntu" &&
-		slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"]) {
+	major, _, _ := strings.Cut(values["VERSION_ID"], ".")
+	ubuntu := values["ID"] == "ubuntu" &&
+		slices.Contains([]string{"22.04", "24.04", "26.04"}, values["VERSION_ID"])
+	almalinux := values["ID"] == "almalinux" && major == "10"
+	if ubuntu || almalinux {
 		result.Status = operation.StatusComplete
 	}
 	result.Message = values["ID"] + " " + values["VERSION_ID"] + "/" + runtime.GOARCH

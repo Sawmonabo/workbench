@@ -47,7 +47,7 @@ func TestSharedScriptsGateEverySectionOnItsOwnEffect(t *testing.T) {
 	home := filepath.Join("..", "..", "home")
 	platforms := map[string][]operation.Effect{
 		"darwin": append(slices.Clone(macOSEffects), workToolsEffect),
-		"linux":  {linuxPackagesEffect, linuxEditorEffect, workToolsEffect},
+		"linux":  {epelEffect, linuxPackagesEffect, linuxEditorEffect, workToolsEffect},
 		"wsl":    append(slices.Clone(windowsHostEffects), optionalEffects...),
 	}
 	shared := 0

@@ -6,6 +6,10 @@ case $- in
       *) return;;
 esac
 
+# AlmaLinux's bash reads /etc/bashrc only through ~/.bashrc, and it is what
+# runs /etc/profile.d in a non-login shell. Ubuntu has no /etc/bashrc.
+[ -f /etc/bashrc ] && . /etc/bashrc
+
 # --- History ---
 HISTCONTROL=ignoreboth
 shopt -s histappend

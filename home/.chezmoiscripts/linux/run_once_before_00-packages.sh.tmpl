@@ -1,12 +1,24 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
 # Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh.
+# System packages come from apt on Ubuntu and from dnf on AlmaLinux, where EPEL
+# (the epel step) is turned on first for bat and fd.
 # Each tool is a part of its own: one that fails is reported on its step
-# (linux-packages) and the others still install; the script then ends nonzero,
-# so the next apply runs it again.
+# (epel or linux-packages) and the others still install; the script then ends
+# nonzero, so the next apply runs it again.
+# dnf waits for its package lock by itself: while another dnf holds it, dnf
+# says it is waiting and goes on when that one ends, so no limit is added here.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    # EPEL puts nothing in ~/.local/bin, so it is answered before that is checked.
+    if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
+        if rpm -q epel-release >/dev/null 2>&1; then
+            echo "epel: = EPEL is on"
+        else
+            echo "epel: turn on EPEL (uses sudo)"
+        fi
+    fi
     user_bin_refused linux-packages
     missing=()
     for tool in bat fd oh-my-posh gh tmux; do
@@ -21,7 +33,6 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     exit 0
 fi
 {{ template "effect-report.sh" }}
-user_bin_refused linux-packages
 status=0
 why=
 # part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
@@ -38,6 +49,20 @@ trap 'rm -rf "$download_dir"' EXIT
 
 echo "==> Linux/WSL bootstrap starting..."
 
+if [ "${WORKBENCH_EFFECT_EPEL:-1}" = 1 ]; then
+# --- EPEL (dnf only): where bat and fd come from on AlmaLinux ---
+# It puts nothing in ~/.local/bin, so it runs before that folder is checked.
+install_epel() {
+    rpm -q epel-release &>/dev/null && return 0
+    echo "==> Turning on EPEL (sudo)..."
+    sudo dnf install -y epel-release || return 1
+}
+if ! command -v apt-get &>/dev/null && command -v dnf &>/dev/null; then
+    part epel "dnf could not install epel-release" install_epel
+fi
+fi
+user_bin_refused linux-packages
+
 if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- base toolchain (a fresh WSL image has no C compiler; cargo/uv/node-gyp all need one) ---
 base_missing=0
@@ -47,18 +72,33 @@ done
 # Every apt-get here waits up to ten minutes for the package lock: on a new
 # Ubuntu machine unattended-upgrades often holds it while this runs.
 install_base() {
-    sudo apt-get -o DPkg::Lock::Timeout=600 update -qq || return 1
-    sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig || return 1
+    if command -v apt-get &>/dev/null; then
+        echo "==> Installing build-essential, curl, unzip, git (sudo)..."
+        sudo apt-get -o DPkg::Lock::Timeout=600 update -qq || return 1
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq build-essential curl unzip git ca-certificates fontconfig || return 1
+    elif command -v dnf &>/dev/null; then
+        # rpm -q --whatprovides also finds a package that provides the name, so
+        # an image's curl-minimal counts as curl instead of conflicting with it.
+        local pkg missing=()
+        for pkg in gcc gcc-c++ make curl unzip git ca-certificates fontconfig; do
+            rpm -q --whatprovides "$pkg" &>/dev/null || missing+=("$pkg")
+        done
+        [ ${#missing[@]} -gt 0 ] || return 0
+        echo "==> Installing ${missing[*]} (sudo)..."
+        sudo dnf install -y "${missing[@]}" || return 1
+    else
+        why="neither apt-get nor dnf was found; install them with this system's package manager"
+        return 1
+    fi
 }
-if command -v apt-get &>/dev/null && [ "$base_missing" -eq 1 ]; then
-    echo "==> Installing build-essential, curl, unzip, git (sudo)..."
-    part linux-packages "apt could not install build-essential, curl, unzip, git and fontconfig" install_base
+if [ "$base_missing" -eq 1 ]; then
+    part linux-packages "the C toolchain, curl, unzip, git and fontconfig were not installed" install_base
 fi
 
 # --- standard directories (Windows Terminal's WSL profile opens in ~/repos) ---
 mkdir -p "$HOME/repos" "$HOME/dev"
 
-# cargo, for bat and fd where apt is unavailable.
+# cargo, for bat and fd where neither apt nor dnf is available.
 install_cargo() {
     command -v cargo &>/dev/null && return 0
     echo "    Installing rustup first..."
@@ -67,10 +107,21 @@ install_cargo() {
     . "$HOME/.cargo/env" || return 1
 }
 
+# epel_enabled checks that dnf lists EPEL, where bat and fd come from, as
+# enabled, whatever the epel step's switch says.
+epel_enabled() {
+    local repos
+    repos=$(dnf repolist --enabled) || repos=
+    grep -qE '^epel([[:space:]]|$)' <<<"$repos" && return 0
+    why="EPEL is off: turn on the epel step or enable EPEL"
+    return 1
+}
+
 # --- bat ---
 # Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
-# binary as `batcat`; expose it as `bat` in ~/.local/bin. Fall back to cargo
-# only where apt is unavailable.
+# binary as `batcat`; expose it as `bat` in ~/.local/bin. AlmaLinux's, from
+# EPEL, is already `bat`. Fall back to cargo only where neither apt nor dnf is
+# available.
 install_bat() {
     if command -v apt-get &>/dev/null; then
         echo "==> Installing bat via apt..."
@@ -80,6 +131,10 @@ install_bat() {
             require_unused_command bat || return 1
             ln -s "$(command -v batcat)" "$HOME/.local/bin/bat" || return 1
         fi
+    elif command -v dnf &>/dev/null; then
+        epel_enabled || return 1
+        echo "==> Installing bat via dnf..."
+        sudo dnf install -y bat || return 1
     else
         echo "==> Installing bat via cargo..."
         install_cargo || return 1
@@ -96,7 +151,8 @@ fi
 # --- fd ---
 # Prefer the distro package (seconds, no compiler). Debian/Ubuntu ship the
 # binary as `fdfind` (name clash with fdclone); expose it as `fd` in
-# ~/.local/bin. Fall back to cargo only where apt is unavailable.
+# ~/.local/bin. AlmaLinux's, from EPEL, is already `fd`. Fall back to cargo
+# only where neither apt nor dnf is available.
 install_fd() {
     if command -v apt-get &>/dev/null; then
         echo "==> Installing fd via apt..."
@@ -106,6 +162,10 @@ install_fd() {
             require_unused_command fd || return 1
             ln -s "$(command -v fdfind)" "$HOME/.local/bin/fd" || return 1
         fi
+    elif command -v dnf &>/dev/null; then
+        epel_enabled || return 1
+        echo "==> Installing fd via dnf..."
+        sudo dnf install -y fd-find || return 1
     else
         echo "==> Installing fd via cargo..."
         install_cargo || return 1
@@ -141,7 +201,7 @@ fi
 # --- Oh My Posh themes (downloaded to cache) ---
 THEMES_DIR="$HOME/.cache/oh-my-posh/themes"
 install_themes() {
-    command -v unzip >/dev/null || { why="unzip is not installed (the apt install above provides it)"; return 1; }
+    command -v unzip >/dev/null || { why="unzip is not installed (the base install above provides it)"; return 1; }
     echo "==> Downloading oh-my-posh themes..."
     mkdir -p "$THEMES_DIR" || return 1
     THEMES_URL="https://github.com/JanDeDobbeleer/oh-my-posh/releases/latest/download/themes.zip"
@@ -172,7 +232,7 @@ font_installed() {
 }
 install_font() {
     for tool in unzip fc-cache; do
-        command -v "$tool" >/dev/null || { why="$tool is not installed (the apt install above provides it)"; return 1; }
+        command -v "$tool" >/dev/null || { why="$tool is not installed (the base install above provides it)"; return 1; }
     done
     echo "==> Installing JetBrains Mono Nerd Font..."
     mkdir -p "$FONT_DIR" || return 1
@@ -222,9 +282,7 @@ if [ ! -x "$HOME/.local/bin/gh" ]; then
 else
     echo "==> gh already installed ($("$HOME/.local/bin/gh" --version | head -1)), skipping."
 fi
-fi
 
-if [ "${WORKBENCH_EFFECT_LINUX_PACKAGES:-1}" = 1 ]; then
 # --- tmux ---
 install_tmux() {
     echo "==> Installing tmux..."

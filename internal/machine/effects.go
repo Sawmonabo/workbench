@@ -65,6 +65,7 @@ var effectSources = map[string][]string{
 	"macos-apps-extensions":   {"50-apps-and-extensions"},
 	"brew-maintenance":        {"60-cleanup"},
 	"linux-packages":          {"00-packages"},
+	"epel":                    {"00-packages"},
 	"linux-editor-extensions": {"35-vscode-extensions"},
 	"work-tools":              {"50-apps-and-extensions", "35-vscode-extensions"},
 	"windows-files":           {"00-packages-windows", "10-deploy-windows-configs"},
@@ -177,18 +178,34 @@ var sharedEffects = []operation.Effect{
 	},
 }
 
-// linuxPackagesEffect is the apt bootstrap of Linux and WSL.
+// linuxPackagesEffect is the apt or dnf bootstrap of Linux and WSL.
 var linuxPackagesEffect = operation.Effect{
 	Name:        "linux-packages",
-	Description: "apt base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and dev/repos directories",
+	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and dev/repos directories",
 	Privilege:   "sudo; network and font-cache effects",
 	Recovery:    "packages external; written files/links require checkpoints",
 	Title:       "System packages",
-	Summary:     "apt tools, fonts and your dev folders",
-	What:        "Installs a C toolchain, bat, fd and tmux with apt, the GitHub CLI, the oh-my-posh prompt and its themes and the Nerd Font, and creates your ~/dev and ~/repos folders.",
+	Summary:     "apt or dnf tools, fonts and your dev folders",
+	What:        "Installs a C toolchain, bat, fd and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, the oh-my-posh prompt and its themes and the Nerd Font, and creates your ~/dev and ~/repos folders.",
 	Touches:     "system packages, ~/.local/bin, ~/.local/share/fonts, ~/dev and ~/repos",
 	RunsAs:      "you, with sudo; downloads packages",
-	Undo:        "Not reverted automatically: remove packages with apt",
+	Undo:        "Not reverted automatically: remove packages with apt or dnf",
+}
+
+// epelEffect turns on EPEL where the package manager is dnf: bat and fd come
+// from it on AlmaLinux. It is a step of its own because it adds a package
+// source for the whole system.
+var epelEffect = operation.Effect{
+	Name:        "epel",
+	Description: "dnf epel-release from AlmaLinux extras when rpm does not find it; no other repository is changed",
+	Privilege:   "sudo; network",
+	Recovery:    "external; the package source stays on",
+	Title:       "EPEL",
+	Summary:     "Fedora's extra packages for AlmaLinux (bat, fd)",
+	What:        "Installs epel-release with dnf when it is missing, which turns on EPEL, the package source the System packages step installs bat and fd from. Other repositories, CRB included, are left as they are.",
+	Touches:     "the system's dnf repositories",
+	RunsAs:      "you, with sudo; downloads packages",
+	Undo:        "Not reverted automatically: sudo dnf remove epel-release",
 }
 
 // linuxEditorEffect installs the editor extensions on a Linux desktop. WSL does not

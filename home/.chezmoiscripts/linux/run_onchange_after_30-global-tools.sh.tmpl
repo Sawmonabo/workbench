@@ -125,12 +125,19 @@ else
     part_failed global-tools "the Go tools were not installed: Go is not installed (the Runtime managers step installs it)" || status=1
 fi
 
-# --- podman (Ubuntu repository package) ---
+# --- podman (the distribution's package) ---
 # apt-get waits up to ten minutes for the package lock, which unattended-upgrades
-# often holds on a new Ubuntu machine.
+# often holds on a new Ubuntu machine; dnf waits for its lock by itself.
 if ! command -v podman &>/dev/null; then
-    echo "==> Installing podman via apt (sudo may prompt)..."
-    sudo apt-get -o DPkg::Lock::Timeout=600 install -y podman || failed+=("podman could not be installed")
+    if command -v apt-get &>/dev/null; then
+        echo "==> Installing podman via apt (sudo may prompt)..."
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y podman || failed+=("podman could not be installed")
+    elif command -v dnf &>/dev/null; then
+        echo "==> Installing podman via dnf (sudo may prompt)..."
+        sudo dnf install -y podman || failed+=("podman could not be installed")
+    else
+        failed+=("podman could not be installed: neither apt-get nor dnf was found")
+    fi
 else
     echo "    podman already installed: $(podman --version)"
 fi

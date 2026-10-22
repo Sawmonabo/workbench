@@ -12,6 +12,11 @@ const System = "darwin"
 // it never does on macOS.
 var WSL = sync.OnceValue(func() bool { return false })
 
+// PackageManager is the system package manager the Linux scripts use: "apt"
+// when apt-get is on PATH, "dnf" when dnf is and apt-get is not, otherwise
+// empty. It is looked up once, at the first call.
+var PackageManager = sync.OnceValue(func() string { return "" })
+
 // RuntimeFolders are the default config, data, state, cache and bin folders,
 // in that order, before any WORKBENCH_*_DIR or XDG_*_HOME override. On macOS
 // the first three sit under Application Support and the cache under Caches.
