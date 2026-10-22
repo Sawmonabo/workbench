@@ -1,5 +1,13 @@
 # ~/.bashrc: executed by bash(1) for non-login shells.
 
+# A shell that is not interactive stops below, so ~/.local/bin, where workbench
+# and the tools it installs live, goes on PATH first. Ubuntu's ~/.profile adds
+# it for login shells; AlmaLinux's ~/.bash_profile only reads this file.
+case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) export PATH="$HOME/.local/bin:$PATH" ;;
+esac
+
 # If not running interactively, don't do anything
 case $- in
     *i*) ;;

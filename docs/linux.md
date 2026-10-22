@@ -47,7 +47,11 @@ link when it is there, so a system Go (AlmaLinux's `golang` package in
 The managed shell is bash and preserves the unmanaged `.bash_aliases` hook.
 It sources `/etc/bashrc` when that file exists, as AlmaLinux's stock
 `.bashrc` does, so `/etc/profile.d` still runs in a shell that is not a login
-shell, such as a tmux pane; Ubuntu has none. It loads each role's env file
+shell, such as a tmux pane; Ubuntu has none. Before it stops for a shell that
+is not interactive, it puts `~/.local/bin` on PATH when it is missing, so
+`bash -lc` and `wsl -d DISTRO -- COMMAND` find `workbench` on AlmaLinux too,
+whose `~/.bash_profile` only reads `~/.bashrc` (Ubuntu's `~/.profile` adds it
+itself). It loads each role's env file
 only inside that role's folder (see [credentials](usage.md#roles-folders-and-credentials)).
 Oh My Posh uses Catppuccin Mocha. Font installation/cache refresh and plugin
 execution are external effects; selecting the font in a terminal is manual.
