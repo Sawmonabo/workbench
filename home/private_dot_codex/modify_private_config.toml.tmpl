@@ -9,9 +9,9 @@ trust, notices, TUI flags and marketplace bookkeeping there itself, and an
 apply must not delete them. Keys Codex adds to a table the managed body
 declares go under that header; tables the managed body lacks go in the
 preserved block at the end, and top-level keys before the first header. The
-only tables removed are those INACTIVE_TABLES names, and the only keys removed
-are the env keys RETIRED_KEYS names. When the merge changes no value, the
-existing file is emitted byte for byte.
+only tables removed are those INACTIVE_TABLES names that the managed body does
+not write, and the only keys removed are the env keys RETIRED_KEYS names. When
+the merge changes no value, the existing file is emitted byte for byte.
 """
 
 import copy
@@ -46,6 +46,8 @@ NO_MATCHER_EVENTS = {"UserPromptSubmit", "Stop", "Interrupt"}
 # machine's role leaves one out, it is removed rather than kept as Codex-owned,
 # so a role change takes work credentials and trust roots with it. A role the
 # machine lacks has no saved folder, so its trust root is the default folder.
+# A table the managed body writes is never removed: when the folder the machine
+# has is the lacking role's default, its table keeps the keys Codex added.
 INACTIVE_TABLES = [
 {{- if not .has_work }}
     ("mcp_servers", "dispatch-atlassian"),
@@ -255,7 +257,7 @@ def main():
     document = copy.deepcopy(existing)
     for parent, name in INACTIVE_TABLES:
         table = document.get(parent)
-        if isinstance(table, dict):
+        if isinstance(table, dict) and name not in managed.get(parent, {}):
             table.pop(name, None)
             if not table:
                 del document[parent]
