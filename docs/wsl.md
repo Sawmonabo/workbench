@@ -38,9 +38,9 @@ with one distribution of your own (`default-distro: make AlmaLinux-10 the
 default for wsl in place of docker-desktop`). Otherwise the line names what
 differs, for example `default-distro: make AlmaLinux-10 the default for new
 Terminal tabs (wsl already opens it)`. The profile is the one named after the
-distribution; only when none is, a single profile that mentions it (a renamed
-one) is taken, never a guess between several (`Ubuntu` is part of
-`Ubuntu-24.04`). Without Windows Terminal, its `settings.json` or a profile for
+distribution; only when none is, a single profile that names it or its version
+as a whole word (a renamed one) is taken, never a guess between several, and
+`Ubuntu` inside `Ubuntu-24.04` does not count. Without Windows Terminal, its `settings.json` or a profile for
 this distribution, only `wsl`'s default is set and the apply says why; a
 `settings.json` that is a symbolic link is never replaced, and blocks the step
 with that reason. A tick you saved when this step set only `wsl`'s default

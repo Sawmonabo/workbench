@@ -18,9 +18,10 @@
 #       which overrides startingDirectory), and "how" it was found. It fails
 #       when the read did not finish.
 #       The profile named DISTRO wins. Only when none is, a profile that
-#       mentions DISTRO or its version (a renamed one, say) is taken, and only
-#       when it is the one such profile: "Ubuntu" is part of "Ubuntu-24.04",
-#       so a guess between several could bind another distribution's.
+#       mentions DISTRO or its version as a whole word (a renamed one, say) is
+#       taken, and only when it is the one such profile: a guess between
+#       several could bind another distribution's, and "Ubuntu" inside
+#       "Ubuntu-24.04" is no mention.
 #   terminal_settings_start COPY
 #       start copying settings.json to COPY, a local file (win_start), so what
 #       reads it after win_wait reads the Windows drive once, under the cap;
@@ -68,9 +69,13 @@ def listed(document):
             and guid_form.fullmatch(p["guid"])]
 version = re.search(r"\d+\.\d+", distro)
 version = version.group(0) if version else distro
+# Whole words only, so Ubuntu is not found inside Ubuntu-24.04.
+def word(text):
+    return re.compile(r"(?<![\w.-])" + re.escape(text) + r"(?![\w.-])")
+words = (word(distro), word(version))
 def mentions(profile):
     blob = json.dumps(profile)
-    return distro in blob or version in blob
+    return any(w.search(blob) for w in words)
 def one_line(text):
     return " ".join(str(text).split())
 wsl, hidden = set(), set()
