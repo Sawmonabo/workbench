@@ -29,14 +29,22 @@ Terminal has more than one WSL profile, sets `defaultProfile` in Terminal's
 `settings.json` to this distribution's profile, changing that one key only,
 keeping your comments and layout, and keeping a copy of the file beside it
 (`settings.json.before-workbench.*`). It is asked only when there is a choice:
-with one distribution (Docker Desktop's `docker-desktop` does not count), or
-`wsl` and new Terminal tabs already opening this one, its line starts `= `
-(for example `default-distro: = AlmaLinux-10 is your only distribution`) and
-Terminal's own default, such as PowerShell, stays. Otherwise the line names
-what differs, for example `default-distro: make AlmaLinux-10 the default for
-new Terminal tabs (wsl already opens it)`. Without Windows Terminal, its
-`settings.json` or a profile for this distribution, only `wsl`'s default is
-set and the apply says why. A Terminal that restores your last window's tabs
+with one distribution that `wsl` already opens (Docker Desktop's
+`docker-desktop` does not count), or `wsl` and new Terminal tabs already
+opening this one, its line starts `= ` (for example `default-distro: =
+AlmaLinux-10 is your only distribution`) and Terminal's own default, such as
+PowerShell, stays. Docker Desktop left as `wsl`'s default is asked about even
+with one distribution of your own (`default-distro: make AlmaLinux-10 the
+default for wsl in place of docker-desktop`). Otherwise the line names what
+differs, for example `default-distro: make AlmaLinux-10 the default for new
+Terminal tabs (wsl already opens it)`. The profile is the one named after the
+distribution; only when none is, a single profile that mentions it (a renamed
+one) is taken, never a guess between several (`Ubuntu` is part of
+`Ubuntu-24.04`). Without Windows Terminal, its `settings.json` or a profile for
+this distribution, only `wsl`'s default is set and the apply says why; a
+`settings.json` that is a symbolic link is never replaced, and blocks the step
+with that reason. A tick you saved when this step set only `wsl`'s default
+now sets Terminal's default too from the next apply, which the plan shows. A Terminal that restores your last window's tabs
 at start (`firstWindowPreference: persistedWindowLayout`) still restores them;
 the default decides new tabs and a window with nothing to restore. The `.wslconfig` merge asks
 nothing during apply: the WSL networking row lists each setting it will change
@@ -73,7 +81,7 @@ distribution follows the same rules:
    takes over, so two distributions with the step ticked do not take the file
    back and forth.
 4. Moving it is a person's act: while another distribution is recorded, the
-   plan offers `Take over … from NAME` under `Optional`, off. Ticking it runs
+   plan offers `… (take over from NAME)` under `Optional`, off. Ticking it runs
    the step here and records this distribution. It is asked once as a new
    step and then only in `apply --choose`, which a coding agent is refused,
    so an agent never moves it.
@@ -91,7 +99,7 @@ again. The four steps' Undo text names it. Windows Terminal's theme and font
 sit in the settings' profile defaults, so a distribution that does not write
 the file still gets them; it misses the tab color and the start folder. Which
 profile new tabs open is `default-distro`'s: while a distribution is recorded
-for it (or the record cannot be read), `terminal-adoption` keeps the
+for it (or the record or the installed list cannot be read), `terminal-adoption` keeps the
 `defaultProfile` the file has, so writing the Terminal settings never undoes
 the default another distribution chose.
 
