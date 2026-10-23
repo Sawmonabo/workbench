@@ -516,8 +516,8 @@ any tool whose update would change them; the plan does not mention them.
 
 On every platform the plan also covers Codex and Claude Code. It finds the copy
 your shell runs (on Linux and WSL `~/bin`, then bun's globals, nvm's default
-Node, Cargo's and Go's bin folders, `~/.local/bin`, then Homebrew's and the
-system's folders, the order the managed shell files put them on PATH) and reads
+Node, Cargo's bin folder, `~/.local/bin`, Go's bin folders, then Homebrew's and
+the system's folders, the order the managed shell files put them on PATH) and reads
 how it was installed and its version from the installer's own files, without
 running it. When that version is older than the target, the plan lists
 `update-codex` or `update-claude-code`, for example `Update Codex 0.162.0 →
@@ -538,8 +538,13 @@ copy installed any other way (apt, bun, Homebrew on Linux) is named in the
 plan's warnings and left alone, and so is a vendor installer's release run
 through a launcher of your own, such as a `~/bin/claude` symlink: each
 installer updates only the launcher it makes, `~/.local/bin/claude` or
-`~/.local/bin/codex`. A missing copy is installed through npm by the
-command-line tools step.
+`~/.local/bin/codex`. A tool with more than one copy in those folders (each a
+different executable, such as Claude Code from its own installer in
+`~/.local/bin` and from npm in nvm's Node) is named in a warning with every
+copy, and none is updated until only one is left: which one runs depends on how
+the shell starts, since a login shell can reorder the folders (Ubuntu's
+`~/.profile` puts `~/.local/bin` first after it reads `~/.bashrc`). A missing
+copy is installed through npm by the command-line tools step.
 
 Both tools keep their own background updates where the mode allows. In latest
 mode the standalone installer runs with `--release latest`, as `codex update`

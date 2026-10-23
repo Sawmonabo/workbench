@@ -58,9 +58,9 @@ const HasCasks = false
 
 // ToolFolders are the folders searched for an agent's launcher, in the order
 // the managed shell startup files put them on PATH: ~/bin, bun's globals, nvm
-// (the bin folder of nvm's default Node, left out when empty), Cargo's and
-// Go's bin folders, ~/.local/bin, then Homebrew's and the system's folders.
-// Each call returns a new slice.
+// (the bin folder of nvm's default Node, left out when empty), Cargo's bin
+// folder, ~/.local/bin, Go's bin folders, then Homebrew's and the system's
+// folders. Each call returns a new slice.
 func ToolFolders(home, nvm string) []string {
 	folders := []string{filepath.Join(home, "bin"), filepath.Join(home, ".bun", "bin")}
 	if nvm != "" {
@@ -69,9 +69,9 @@ func ToolFolders(home, nvm string) []string {
 	return append(
 		folders,
 		filepath.Join(home, ".cargo", "bin"),
+		filepath.Join(home, ".local", "bin"),
 		"/usr/local/go/bin",
 		filepath.Join(home, "go", "bin"),
-		filepath.Join(home, ".local", "bin"),
 		"/home/linuxbrew/.linuxbrew/bin",
 		"/usr/local/bin",
 		"/usr/bin",

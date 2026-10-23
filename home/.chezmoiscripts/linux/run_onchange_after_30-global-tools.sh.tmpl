@@ -8,6 +8,17 @@ export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
 failed=()
+# Whether Codex or Claude Code ($1) is installed already: on PATH, or in a
+# folder the shell finds it in that this script's PATH may leave out. The
+# preview and the apply both ask this, so npm never adds a second copy.
+agent_installed() {
+    local folder
+    command -v "$1" >/dev/null 2>&1 && return 0
+    for folder in "$HOME/bin" "$HOME/go/bin" /usr/local/go/bin /home/linuxbrew/.linuxbrew/bin; do
+        [ -x "$folder/$1" ] && return 0
+    done
+    return 1
+}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # The planner's PATH holds Workbench's tools and the system directories
     # only; look where the installers put things.
@@ -19,7 +30,7 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         [ -n "$node_default" ] && [ "$node_default" != N/A ] && export PATH="${NVM_DIR:-$HOME/.nvm}/versions/node/$node_default/bin:$PATH"
     fi
     missing=()
-    for tool in codex claude; do command -v "$tool" >/dev/null 2>&1 || [ -x "/home/linuxbrew/.linuxbrew/bin/$tool" ] || missing+=("$tool"); done
+    for tool in codex claude; do agent_installed "$tool" || missing+=("$tool"); done
     command -v corepack >/dev/null 2>&1 || missing+=(corepack)
 {{- range $tool, $ver := .corepack_globals }}
     command -v "{{ $tool }}" >/dev/null 2>&1 || missing+=("{{ $tool }}")
@@ -62,13 +73,14 @@ status=0
     # Codex and Claude Code are installed here only when missing: an installed
     # copy, from npm or its own installer, is updated by its own update step
     # (45-agent-updates), so npm never adds a second copy beside it, nor beside
-    # a Homebrew copy, which Workbench leaves alone.
+    # a Homebrew copy or one elsewhere the shell finds (agent_installed), which
+    # Workbench leaves alone.
 {{- if eq $mode "pinned" }}
-    command -v codex >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/codex ] || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
-    command -v claude >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/claude ] || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
+    agent_installed codex || npm install -g "@openai/codex@{{ .versions.codex }}" || failed+=("codex could not be installed")
+    agent_installed claude || npm install -g "@anthropic-ai/claude-code@{{ .versions.claude }}" || failed+=("claude could not be installed")
 {{- else }}
-    command -v codex >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/codex ] || npm install -g @openai/codex@latest || failed+=("codex could not be installed")
-    command -v claude >/dev/null 2>&1 || [ -x /home/linuxbrew/.linuxbrew/bin/claude ] || npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
+    agent_installed codex || npm install -g @openai/codex@latest || failed+=("codex could not be installed")
+    agent_installed claude || npm install -g @anthropic-ai/claude-code@latest || failed+=("claude could not be installed")
 {{- end }}
     # Node >= 25 no longer bundles corepack; install it into the default Node first.
     command -v corepack >/dev/null 2>&1 || npm install -g corepack@latest || failed+=("corepack could not be installed")

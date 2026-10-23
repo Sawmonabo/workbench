@@ -38,9 +38,14 @@ must not fight those updaters.
 
 - The plan finds the copy the shell runs, in the order the managed shell files
   put folders on PATH (on Linux and WSL `~/bin`, then bun's globals, nvm's
-  default Node, Cargo's and Go's bin folders, `~/.local/bin`, then Homebrew's
-  and the system's folders), and reads how it was installed and its version
-  from the installer's own files, without running it:
+  default Node, Cargo's bin folder, `~/.local/bin`, Go's bin folders, then
+  Homebrew's and the system's folders), and reads how it was installed and its
+  version from the installer's own files, without running it. A tool with more
+  than one copy there, each a different executable, is named in a warning with
+  every copy and not updated: a login shell can reorder those folders (Ubuntu's
+  `~/.profile` puts `~/.local/bin` first after it reads `~/.bashrc`), so the
+  first copy found is no proof of the one that runs, and updating it can leave
+  the one in use behind. For one copy, the plan reads:
   - npm in an nvm Node: `.nvm/versions/node/NODE/lib/node_modules/PACKAGE`,
     the version from that package's `package.json`; nvm's default Node is
     found by following `alias/default` through further aliases (such as
@@ -160,7 +165,8 @@ must not fight those updaters.
   digest binds it. The floor reaches the pin at the first apply after the
   update has run, and never stops Claude Code's own updates while the update
   is unticked or blocked. A higher floor already set stays; without a copy
-  whose version can be read (none, Homebrew, another installer) or in latest
+  whose version can be read (none, more than one, Homebrew, another
+  installer) or in latest
   mode no floor is set.
 - On macOS a Homebrew copy joins the Homebrew updates and is upgraded with
   `brew upgrade --cask`, at Homebrew's current version, since a cask installs

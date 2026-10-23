@@ -65,9 +65,12 @@ type agentUpdate struct {
 // its version and, for npm, the nvm Node version it is in. A Homebrew copy
 // has its cask instead of a method. A copy of a vendor installer's release
 // run through a launcher the installer did not make has no method, and
-// launcher names the one the installer makes.
+// launcher names the one the installer makes. others are the other copies on
+// the search path, each a different executable; with any, which one runs
+// depends on how the shell starts, so none is updated.
 type agentInstall struct {
 	path, method, version, node, cask, launcher string
+	others                                      []string
 }
 
 // latestTimeout bounds each lookup of an agent's newest version while
@@ -106,12 +109,13 @@ func agentPins(files map[string][]byte) (map[string]any, error) {
 // install nothing: the pin, or the version the shell's Claude Code is at while
 // that is older. So the floor rises to the pin only once the update to it has
 // run, and never stops Claude Code's own updates while it has not. Without a
-// copy whose version can be read (none, a Homebrew one or an unknown one), or
-// in latest mode, it returns "" and the settings get no floor from Workbench.
+// copy whose version can be read (none, more than one, a Homebrew one or an
+// unknown one), or in latest mode, it returns "" and the settings get no
+// floor from Workbench.
 func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) string {
 	i := slices.IndexFunc(agents, func(agent agent) bool { return agent.tool == "claude-code" })
 	if answers["versions_mode"] != "pinned" || p.agentInstalls == nil ||
-		p.agentInstalls[i].method == "" {
+		p.agentInstalls[i].method == "" || len(p.agentInstalls[i].others) > 0 {
 		return ""
 	}
 	pins, err := agentPins(files)
@@ -133,7 +137,8 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 // installed copy that is already as new is left as it is, so nothing is ever
 // downgraded, and a missing agent is the global-tools step's to install. A
 // copy Homebrew installed is handed to the Homebrew updates (agentCasks); a
-// copy from anywhere else is named in a warning and left alone. The
+// copy from anywhere else, or an agent with more than one copy, is named in a
+// warning and left alone. The
 // latest-mode lookups run side by side. It first warns about each agent whose
 // config folder a variable moved away from the one Workbench installs its
 // settings in (costs.ConfigMoves).
@@ -164,6 +169,11 @@ func (p *preparation) planAgentUpdates(
 		install := p.agentInstalls[i]
 		switch {
 		case install.path == "":
+			continue
+		case len(install.others) > 0:
+			p.Plan.Warnings = append(p.Plan.Warnings, agent.name+" has more than one copy ("+
+				strings.Join(append([]string{install.path}, install.others...), ", ")+
+				"), and which one runs depends on how the shell starts; Workbench updates none of them until only one is left, so remove the ones you don't use")
 			continue
 		case install.cask != "":
 			if platform.HasCasks {
@@ -337,20 +347,39 @@ func agentNewer(a, b string) (newer, comparable bool) {
 
 // findAgent returns the agent's copy the shell runs: the first one in the
 // order the managed shell startup files put their folders on PATH (on Linux
-// ~/bin, then bun's globals, nvm's default Node, Cargo's and Go's bin
-// folders, ~/.local/bin, then Homebrew's and the system's folders), and how it
-// was installed, read from where its executable leads. A vendor installer
-// updates only the launcher it makes, ~/.local/bin/COMMAND, so a release of
-// its reached through any other launcher keeps no method.
+// ~/bin, then bun's globals, nvm's default Node, Cargo's bin folder,
+// ~/.local/bin, Go's bin folders, then Homebrew's and the system's folders),
+// and how it was installed, read from where its executable leads. A vendor
+// installer updates only the launcher it makes, ~/.local/bin/COMMAND, so a
+// release of its reached through any other launcher keeps no method. Any
+// other copy, one that leads to a different executable, goes in others: a
+// login shell can order these folders differently (Ubuntu's ~/.profile puts
+// ~/.local/bin first after it reads ~/.bashrc), so the first one here is not
+// proof of which one runs.
 func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
+	var install agentInstall
+	seen := map[string]bool{}
 	for _, folder := range platform.ToolFolders(home, nvm) {
 		path := filepath.Join(folder, agent.command)
 		info, err := os.Stat(path)
 		if err != nil || info.IsDir() || info.Mode()&0o111 == 0 {
 			continue
 		}
-		install := agentInstall{path: path}
-		if resolved, err := filepath.EvalSymlinks(path); err == nil {
+		resolved, err := filepath.EvalSymlinks(path)
+		key := resolved
+		if err != nil {
+			key = path
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if install.path != "" {
+			install.others = append(install.others, path)
+			continue
+		}
+		install.path = path
+		if err == nil {
 			install.method, install.version, install.node, install.cask = classifyAgent(
 				home,
 				resolved,
@@ -361,9 +390,8 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 		if (install.method == "native" || install.method == "standalone") && path != launcher {
 			install = agentInstall{path: path, launcher: launcher}
 		}
-		return install, true
 	}
-	return agentInstall{}, false
+	return install, install.path != ""
 }
 
 // classifyAgent reads how the executable at resolved was installed:
