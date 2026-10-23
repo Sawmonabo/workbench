@@ -162,9 +162,13 @@ default_profile_owned() {
 # The Windows Terminal settings.json Workbench manages, rendered to the file $1.
 # Rendering reads the Windows Terminal files and writes nothing to them, so the
 # probe and the apply use it alike and compare the result with what is there.
-# When it cannot, it fails and render_why says why.
+# The profiles and color schemes of an existing file that Workbench does not
+# manage (other distributions' profiles, ones you added) are kept, after its
+# own, in the file's order: Terminal makes a profile it generates only once, so
+# one dropped here would not come back. A file whose lists cannot be read is
+# not replaced. When it cannot render, it fails and render_why says why.
 terminal_settings_render() {
-    local out="$1" keep="" settings="$WT_SETTINGS_DIR/settings.json"
+    local out="$1" keep="" lists="" settings="$WT_SETTINGS_DIR/settings.json"
     render_why=""
     # Bind to the WSL profile Windows Terminal actually has for this distro
     # (windows-terminal.sh). A fragment's commandline already carries
@@ -177,10 +181,9 @@ terminal_settings_render() {
         render_why="Windows Terminal's profiles couldn't be read ($(win_failed terminal-profile))"
         return 1
     fi
-    if [ -f "$settings" ] && default_profile_owned; then
-        # The file's defaultProfile, as JSON text, read from a copy taken
-        # under the cap. One the filter cannot read leaves this render's own,
-        # since the file is replaced whole anyway.
+    if [ -f "$settings" ]; then
+        # The file's lists and, while default-distro owns it, its
+        # defaultProfile as JSON text, read from a copy taken under the cap.
         terminal_settings_start "$win_work/terminal-current.json"
         win_wait
         if [ "${WIN_RC[terminal-read]}" != 0 ]; then
@@ -188,10 +191,19 @@ terminal_settings_render() {
             return 1
         fi
         if ! command -v workbench >/dev/null 2>&1; then
-            render_why="workbench is not on PATH, so the default profile in Windows Terminal's settings.json couldn't be read"
+            render_why="workbench is not on PATH, so the profiles in Windows Terminal's settings.json couldn't be read"
             return 1
         fi
-        keep=$(workbench terminal-default --current <"$win_work/terminal-current.json" 2>/dev/null) || keep=
+        lists="$win_work/terminal-lists.json"
+        if ! workbench terminal-default --lists <"$win_work/terminal-current.json" >"$lists" 2>"$win_work/terminal-lists.err"; then
+            render_why=$(head -n 1 "$win_work/terminal-lists.err")
+            render_why=${render_why#Windows Terminal settings.json was left unchanged: }
+            render_why="the profiles in Windows Terminal's settings.json couldn't be read (${render_why:-no reason given}), so they couldn't be kept"
+            return 1
+        fi
+        if default_profile_owned; then
+            keep=$(workbench terminal-default --current <"$win_work/terminal-current.json" 2>/dev/null) || keep=
+        fi
     fi
     echo "    Windows Terminal WSL profile: $WT_PROFILE"
     cat > "$out" << 'WTSETTINGS' || return 1
@@ -386,9 +398,9 @@ __WSL_PROFILE_EXTRA__
     "themes": []
 }
 WTSETTINGS
-    if ! python3 - "$out" "$WT_PROFILE" "$WSL_DISTRO_NAME" "$keep" <<'PY'; then
+    if ! python3 - "$out" "$WT_PROFILE" "$WSL_DISTRO_NAME" "$keep" "$lists" <<'PY'; then
 import json, subprocess, sys
-path, found, distro, keep = sys.argv[1:]
+path, found, distro, keep, lists = sys.argv[1:]
 found = json.loads(found)
 start = {{ $start | toJson }}
 cmdline = subprocess.list2cmdline(["wsl.exe", "-d", distro, "--cd", start])
@@ -407,7 +419,43 @@ s = open(path, encoding="utf-8").read()
 s = s.replace('"__WSL_DEFAULT_PROFILE__"', keep or json.dumps(profile["guid"]))
 s = s.replace("__WSL_PROFILE_GUID__", profile["guid"]).replace("__WSL_PROFILE_EXTRA__", extra)
 s = s.replace('"__WSL_DISTRO_NAME__"', json.dumps(distro))
-json.loads(s)  # fail loudly rather than hand WT a broken file
+managed = json.loads(s)  # fail loudly rather than hand WT a broken file
+# Keep the existing file's profiles and color schemes that these settings do
+# not have, after their own. A profile is matched by its guid (or, without
+# one, its name). This distribution's other WSL entries go too: the
+# standalone profile this script writes when it finds none to bind to (every
+# distribution's has the same guid, so only one that starts this distribution
+# is its own), and an older generated one beside the profile it binds to.
+have = json.load(open(lists, encoding="utf-8")) if lists else {"profiles": [], "schemes": []}
+own = managed["profiles"]["list"]
+guids = {p["guid"].lower() for p in own}
+names = {p["name"] for p in own}
+standalone = "{ddad2f1c-79f7-5b21-a2c2-0000c6c23ae0}"
+def ours(p):
+    if not isinstance(p, dict):
+        return False
+    guid = p.get("guid")
+    if not isinstance(guid, str):
+        return p.get("name") in names
+    if guid.lower() in guids:
+        return True
+    if guid.lower() == standalone:
+        command = p.get("commandline")
+        words = command.split() if isinstance(command, str) else []
+        return p.get("name") == distro or any(a == "-d" and b == distro for a, b in zip(words, words[1:]))
+    return p.get("name") == distro and p.get("source") in ("Microsoft.WSL", "Windows.Terminal.Wsl")
+schemes = {c["name"] for c in managed["schemes"]}
+kept = {
+    "profiles": [p for p in have["profiles"] if not ours(p)],
+    "schemes": [c for c in have["schemes"] if not (isinstance(c, dict) and c.get("name") in schemes)],
+}
+def entries(items, indent):
+    pad = " " * indent
+    return "".join(",\n" + pad + json.dumps(i, indent=4, ensure_ascii=False).replace("\n", "\n" + pad) for i in items)
+for anchor, key, indent in (('\n        ]\n    },\n    "schemes":', "profiles", 12), ('\n    ],\n    "theme":', "schemes", 8)):
+    assert s.count(anchor) == 1, anchor
+    s = s.replace(anchor, entries(kept[key], indent) + anchor)
+json.loads(s)
 open(path, "w", encoding="utf-8").write(s)
 PY
         render_why="the managed settings could not be rendered"

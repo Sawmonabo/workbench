@@ -52,7 +52,8 @@ nothing during apply: the WSL networking row lists each setting it will change
 beforehand (for example `networkingMode is virtioproxy, will be mirrored`), keeps
 the other settings, and a recovery copy is written when it changes anything. The
 Terminal step rewrites `settings.json` only when it differs from the managed one,
-keeping a copy of the old file, and registers the font it uses. Its color
+keeping a copy of the old file and the profiles and color schemes it does not
+manage (see [Windows Terminal](windows-terminal.md)), and registers the font it uses. Its color
 scheme, for every profile, is the `terminal_theme` answer, asked once on WSL:
 `kanagawa-dragon` (Kanagawa Dragon, the default: a near-black background with
 grey text) or `catppuccin-mocha` (Catppuccin Mocha). A machine saved before
@@ -132,7 +133,9 @@ they make together, with the same cap as any other Windows call: 60 seconds in
 an apply and 8 seconds in a probe. Deleting it is safe: rule 1 applies
 again. The four steps' Undo text names it. Windows Terminal's theme and font
 sit in the settings' profile defaults, so a distribution that does not write
-the file still gets them; it misses the tab color and the start folder. Which
+the file still gets them, and its own profile, which the writer keeps with
+every other profile it does not manage, keeps whatever tab color and start
+folder it has. Which
 profile new tabs open is `default-distro`'s: while a distribution is recorded
 for it (or the record or the installed list cannot be read), `terminal-adoption` keeps the
 `defaultProfile` the file has, so writing the Terminal settings never undoes
@@ -152,7 +155,7 @@ The canonical WSL scripts describe these effects:
 
 | Target/effect | Boundary |
 | --- | --- |
-| Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the whole file and keeps a copy beside it. `default-distro` changes only Terminal's `defaultProfile`, and keeps a copy. |
+| Windows Terminal and PowerShell profiles | Left unchanged unless adopted; an adoption effect replaces the file and keeps a copy beside it, and Terminal adoption keeps the profiles and color schemes it does not manage. `default-distro` changes only Terminal's `defaultProfile`, and keeps a copy. |
 | Prompt engine, themes and font files | Windows user paths, not guessed drive/username paths. |
 | Font registration/loading | Registry/process effects; file recovery does not undo them. |
 | VM preferences | A file change, distinct from restarting WSL. |

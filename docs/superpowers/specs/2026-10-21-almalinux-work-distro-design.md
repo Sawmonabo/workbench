@@ -341,7 +341,7 @@ Which steps that matters for:
 | `font-registry`, `windows-path` | Font registry, user PATH | No: same result from any distribution. |
 | `sysctl` | `/etc/sysctl.d/99-dev.conf` inside that distribution | No: per distribution, same value. |
 | `wsl-preferences` | `%USERPROFILE%\.wslconfig`, one VM for all distributions | Yes: its sizing comes from each distribution's own answers. |
-| `terminal-adoption` | Windows Terminal `settings.json`: one WSL profile, named after the distribution that wrote it, set as default unless a distribution writes `default-distro` | Yes: each write replaces the file. |
+| `terminal-adoption` | Windows Terminal `settings.json`: the writer's own WSL profile, set as default unless a distribution writes `default-distro`, with the other profiles and color schemes in the file kept | Yes: each write replaces the file's managed settings. |
 | `powershell-adoption` | The PowerShell profile, which starts in that distribution's home | Yes. |
 | `default-distro` | Which distribution plain `wsl` and new Windows Terminal tabs open (Terminal's `defaultProfile`, the one key it writes there) | Yes. |
 

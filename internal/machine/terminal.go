@@ -89,6 +89,48 @@ func TerminalDefault(existing []byte) (string, error) {
 	return strings.TrimSpace(text.String()), err
 }
 
+// TerminalLists is the profiles and color schemes of existing, a Windows
+// Terminal settings.json, as standard JSON: {"profiles": [...], "schemes":
+// [...]}, each entry as the file has it, in its order and with its own key
+// order, without comments. A list the file does not have is empty. It
+// refuses what [SetTerminalDefault] refuses, and a "profiles" (or its
+// "list") or "schemes" that is not a list, which leaves nothing to carry
+// over without a guess.
+func TerminalLists(existing []byte) ([]byte, error) {
+	doc, _, err := readTerminalSettings(existing)
+	if err != nil {
+		return nil, err
+	}
+	doc.Standardize()
+	root, _ := doc.Value.(*hujson.Object)
+	// "profiles" is an object with a "list", or the list itself.
+	profiles, name := root, "profiles"
+	if index := jsonc.Index(root, "profiles"); index >= 0 {
+		if object, isObject := root.Members[index].Value.Value.(*hujson.Object); isObject {
+			profiles, name = object, "list"
+		}
+	}
+	lists := []byte(`{"profiles":`)
+	for i, list := range []struct {
+		in         *hujson.Object
+		name, what string
+	}{{profiles, name, "profiles"}, {root, "schemes", "color schemes"}} {
+		if i > 0 {
+			lists = append(lists, `,"schemes":`...)
+		}
+		entries := jsonc.Entries(list.in, list.name)
+		switch {
+		case entries != nil:
+			lists = append(lists, hujson.Value{Value: entries}.Pack()...)
+		case jsonc.Index(list.in, list.name) >= 0:
+			return nil, refuseTerminal("its " + list.what + " are not a list")
+		default:
+			lists = append(lists, "[]"...)
+		}
+	}
+	return append(lists, '}'), nil
+}
+
 // readTerminalSettings parses a Windows Terminal settings.json, which is
 // JSON with comments, into its document and its plain settings.
 func readTerminalSettings(existing []byte) (hujson.Value, map[string]any, error) {
