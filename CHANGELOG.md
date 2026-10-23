@@ -3,6 +3,101 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.28](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.28) - 2026-10-23
+
+### Features
+
+- Warn in the plan when a dispatch server is registered but not built
+- Install the VS Code extensions into the distribution's VS Code server
+- Ask for Windows Terminal's color scheme, Kanagawa Dragon by default
+- Default-distro also sets Windows Terminal's default profile, asked only when there is a choice
+- Register the Claude Code dispatch servers through mcp-gate
+- Mcp-gate starts a server only inside the work folder
+- Per-folder credential files with a shell hook and deny rules
+- Record which distribution writes each shared Windows file
+- Move the saved work tokens into work.env
+- Start the dispatch servers through mcp-gate
+- Read the role folders everywhere instead of ~/repos and ~/dev
+- Support AlmaLinux 10 with dnf and an EPEL step
+- Ask a folder for each role
+- Remove Bitwarden; run bw lock first to clear its cached session
+
+### Fixes
+
+- Update no copy of Codex or Claude Code while more than one is installed
+- Keep the Windows Terminal profiles and color schemes Workbench does not manage
+- Put ~/.local/bin on PATH before .bashrc stops for a non-interactive shell
+- Never start the scripts' PATH with an empty entry, and keep /usr/local/go ahead of a system Go
+- Keep system folders behind the user's tool folders in apply scripts
+- Install libatomic on AlmaLinux and use Workbench's own Go over a system one
+- Say whether a refused answer is missing, invalid or derived, and how to give each
+- Check for an unasked answer before setup downloads anything, as the questions read it
+- Refuse an unattended run missing an answer before native init, naming it
+- Resolve a name-form Terminal default against the file's own list, and say what the blocked default-distro step already did
+- Match a renamed Terminal profile only by whole word
+- Bind default-distro to this distribution's own Terminal profile and never report a skipped Terminal change as done
+- Warn about a saved choice only when the plan has no such step
+- Keep an approved apply from tripping on the dropped answer, and say why an env line is skipped
+- Refuse the regex match variables the hooks overwrite
+- Ignore a saved restart_wsl_path and drop it on the next write
+- Refuse every name the shell hooks run through and pad only with space and tab
+- Refuse padded values and reserved names
+- Run cmd.exe with /d
+- Ask the Jira, GitLab and dispatch folder instead of hard-coding them
+- Decide Claude Code's first run from its real config file
+- Keep the approved settings through Claude Code's first run
+- Install the C++ compiler when only gcc is present
+- Cap the Go read of the writer record
+- Say what 0005 really checks before leaving work.env alone
+- Change only servers that need it and block only when there is work
+- Unset exactly what the hook loaded and skip empty values
+- Cap the writer record's Windows reads and writes at 60 seconds
+- Show the token note in the plan and never drop tokens on a rejected file
+- Keep a trust table the active role writes
+- Drop the create-spec alias, which pointed at a session scratch file
+- Turn on application cursor keys so Terminal.app sends the wheel as arrows
+- Restore the terminal's alternate scroll state at exit instead of resetting it
+- Leave the mouse to the terminal on every screen of the memory view
+
+### Documentation
+
+- State the default-distro name rule, drop release history, and name the renamed-profile residual
+- Say when default-distro is asked, how it finds the profile, and the new take-over titles
+- Describe default-distro setting Terminal's default profile
+- Say an approved apply that drops restart_wsl_path exits 4 once
+- Drop the last RestartWSL mentions and state the employer-value rule truly
+- Say a new work.env starts with the answered addresses
+- State the deny rules' limits, Codex relaunching the gate and symlinked folders
+- Record the first-apply re-run
+- State the gate's measured idle cost
+- Record the AlmaLinux 10 and role-folder checks
+- Correct the WSL probe timing and review wording
+- Claude-mcp changes only the servers that need it
+- AlmaLinux 10, role folders, env files and the MCP gate
+- Resolve the final verification's findings
+- Resolve the plan review's findings
+- Pre-release sign-off, Windows-safe checks and cleanup
+- Implementation plan for the AlmaLinux work distribution
+- Resolve the final review's notes in the AlmaLinux work design
+- Fix the second review's gaps in the AlmaLinux work design
+- Close review gaps in the AlmaLinux work design
+- Route both agents' dispatch entries through the launch gate
+- Start work MCP servers only inside the work folder
+- Load each env file only inside its own folder
+- Token migration, personal.env and configurable role folders
+- Work credentials in one work.env read by both agents; remove Bitwarden
+- Record EPEL step, distro-neutral Windows writer and Ubuntu role
+- Design AlmaLinux 10 as a separate work distribution
+- Say what the Terminal.app probe showed and no more
+- Name only sourced terminals for alternate scroll and reflow the mouse paragraphs
+
+### Maintenance
+
+- Tidy the WSL environment, the 0005 lookup and edge cases
+- Remove the RestartWSL helpers
+- Cover the answer save in the token safeguard test
+- Share the apply-step command, script check and private create
+
 ## [v0.1.27](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.27) - 2026-10-18
 
 ### Features
