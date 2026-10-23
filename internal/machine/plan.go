@@ -358,6 +358,20 @@ func (p *preparation) stageNative(
 	// them from this answer.
 	if servers := dispatchServers(answers, workbench, c.Paths.Config, c.Home); servers != nil {
 		nativeAnswers["dispatch_servers"] = servers
+		// Workbench registers the servers but does not build them; one not
+		// built yet fails in every work-folder session until it is. An
+		// isolated destination registers none.
+		for _, server := range servers {
+			if c.Native.Destination != c.Home {
+				break
+			}
+			entry := server.Args[len(server.Args)-1]
+			if _, err := os.Stat(entry); errors.Is(err, fs.ErrNotExist) {
+				p.Plan.Warnings = append(p.Plan.Warnings, server.Name+
+					" is registered for Claude Code and Codex but not built yet ("+c.ShowPath(entry)+
+					" is missing), so it fails in sessions in the work folder; build it in its checkout")
+			}
+		}
 	}
 	// The Claude Code settings get the floor of the copy installed now, so the
 	// preview and the apply render the same one. An isolated destination
