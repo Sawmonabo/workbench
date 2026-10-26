@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.29](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.29) - 2026-10-26
+
+### Features
+
+- Set the TUI mouse scroll speed to 3
+
 ## [v0.1.28](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.28) - 2026-10-23
 
 ### Features
