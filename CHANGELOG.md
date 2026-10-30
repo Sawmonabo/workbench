@@ -3,6 +3,12 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.30](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.30) - 2026-10-30
+
+### Features
+
+- Compact memory in clear-cache so Windows can take it back
+
 ## [v0.1.29](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.29) - 2026-10-26
 
 ### Features
