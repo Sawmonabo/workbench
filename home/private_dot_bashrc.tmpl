@@ -269,8 +269,9 @@ export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 # WSL: hand the VM's file cache back to Windows on demand. Linux keeps
 # everything it reads cached (shows up as vmmemWSL in Task Manager); this is
 # reclaimable and autoMemoryReclaim trims it when idle, but after big image
-# pulls / clones you may want it back immediately.
-alias clear-cache="sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches' && free -h"
+# pulls / clones you may want it back immediately. Compacting afterwards packs
+# the freed pages into the large blocks Windows can take back.
+alias clear-cache="sudo sh -c 'sync; echo 3 > /proc/sys/vm/drop_caches; echo 1 > /proc/sys/vm/compact_memory' && free -h"
 
 # WSL: route browser opens (gh auth, xdg-open) to Windows
 # via ~/.local/bin/win-browser (Chrome -> wslview -> Windows default). A
