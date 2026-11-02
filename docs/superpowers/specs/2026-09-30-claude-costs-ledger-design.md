@@ -416,7 +416,8 @@ holds the lock, rate card age, and whether both hooks are present in the live
 - Unreadable, locked-beyond-timeout or wrong-version ledger: `report`, `status`
   and `rates` fail with the path and reason. Nothing is deleted or rebuilt.
 - Rates: any failure keeps the previous card; a model with no rate is counted
-  in tokens and shown with cost zero and an `(unpriced)` flag.
+  in tokens, shown with a dash for its cost and named in a note under the
+  report.
 - Concurrency: the lock serializes workers; WAL lets a report read the last
   committed state during an ingest.
 

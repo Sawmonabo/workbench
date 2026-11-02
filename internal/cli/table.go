@@ -24,7 +24,9 @@ import (
 // clips with an ellipsis: from the left for paths (ClipLeft), so the part that
 // tells them apart survives, otherwise from the right. Faint columns are
 // secondary detail and print dimmed. A Mark column, first, holds a one-cell
-// marker that a stacked row prints before its first line.
+// marker that a stacked row prints before its first line. Min is the least
+// natural width of the column, so tables laid out together take one
+// geometry; a narrow terminal still shortens the Clip column below it.
 type column struct {
 	Head     string
 	Right    bool
@@ -34,6 +36,7 @@ type column struct {
 	Keep     int
 	Faint    bool
 	Mark     bool
+	Min      int
 }
 
 // tableSpec is one table: its columns, its rows, whether a bold, underlined
@@ -270,7 +273,8 @@ func tableWidth(indent int, t tableSpec) int {
 	return sum
 }
 
-// naturalWidths is each column's widest cell in display cells.
+// naturalWidths is each column's widest cell in display cells, or its Min
+// when that is wider.
 func naturalWidths(t tableSpec) []int {
 	widths := make([]int, len(t.Cols))
 	measure := func(row []string) {
@@ -289,11 +293,15 @@ func naturalWidths(t tableSpec) []int {
 		measure(row)
 	}
 	measure(t.Total)
+	for i, c := range t.Cols {
+		widths[i] = max(widths[i], c.Min)
+	}
 	return widths
 }
 
-// renderTable hands the surviving columns, clipped to widths, to lipgloss. Cells
-// are clipped first so lipgloss's natural width is the fitted width; the
+// renderTable hands the surviving columns, clipped and padded to widths, to
+// lipgloss. Cells are fitted first so lipgloss's natural width is the fitted
+// width, and padded so a column measured at its Min is that wide; the
 // table's own Width is never set because it would spread narrow tables. rows
 // is fitRows' row of each line.
 func renderTable(indent int, t tableSpec, active, widths []int) (lines []string, rows []int) {
@@ -304,7 +312,8 @@ func renderTable(indent int, t tableSpec, active, widths []int) (lines []string,
 		out := make([]string, len(active))
 		for n, i := range active {
 			if i < len(row) && row[i] != "" {
-				out[n] = fit(row[i], widths[i], t.Cols[i].ClipLeft && !head && !total)
+				out[n] = padCell(fit(row[i], widths[i], t.Cols[i].ClipLeft && !head && !total),
+					widths[i], t.Cols[i].Right)
 				if t.Cols[i].Faint && !head {
 					out[n] = faint.Render(out[n])
 				}
@@ -452,6 +461,16 @@ func stacked(width, indent int, t tableSpec, active []int) (lines []string, at [
 		}
 	}
 	return lines, at
+}
+
+// padCell widens s to width display cells, on the left of a right-aligned
+// cell, so a column measured at its Min renders that wide.
+func padCell(s string, width int, right bool) string {
+	fill := strings.Repeat(" ", max(width-ansi.StringWidth(s), 0))
+	if right {
+		return fill + s
+	}
+	return s + fill
 }
 
 // fit shortens s to width display cells with the ellipsis glyph, from the

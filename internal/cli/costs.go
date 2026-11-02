@@ -933,19 +933,38 @@ func costsPage(
 	return b.String(), targets, hits
 }
 
-// writeSections writes report tables with one bar width for all of them, so
-// bars compare across tables: all the width the widest table leaves. hits
+// writeSections writes report tables as one grid: each column is as wide as
+// its widest cell in any of the tables, and one bar width serves all of them,
+// all the width that leaves, so names, costs and numbers line up from table
+// to table and bars compare across them. hits
 // holds, for each line of b, the row on it, or -1: the rows of the sections
 // with a kind are numbered in order across them, as costsPage's targets are.
 func writeSections(b *strings.Builder, width int, sections []reportSpec) (hits []int) {
-	bar := width
+	sections = slices.Clone(sections)
+	var mins []int
 	for _, section := range sections {
-		spec := reportTable(section)
+		widths := naturalWidths(reportTable(section).plain())
+		if mins == nil {
+			mins = widths
+			continue
+		}
+		for i := range min(len(mins), len(widths)) {
+			mins[i] = max(mins[i], widths[i])
+		}
+	}
+	bar := width
+	for i := range sections {
+		sections[i].mins = mins
+		spec := reportTable(sections[i])
 		need := tableWidth(2, spec) + 1 // the bar and the space after it
-		if !section.tokens {
+		if !sections[i].tokens {
 			// addShareBars pads every percentage to 6 cells, wider than a share
 			// column whose widest cell is "share" or "68.5%".
-			need += max(6-naturalWidths(spec.plain())[2], 0)
+			share := 2 // name, cost, share
+			if spec.Cols[0].Mark {
+				share++
+			}
+			need += max(6-naturalWidths(spec.plain())[share], 0)
 		}
 		bar = min(bar, width-need)
 	}
@@ -1130,6 +1149,9 @@ type reportSpec struct {
 	label      string
 	width      int
 	pal        palette
+	// mins is the least width of each column, the widest cell of that column
+	// in any table of the page (writeSections), so the page's tables align.
+	mins []int
 }
 
 // The mark of a reportSpec: noMarks prints no marker column (a pipe, or a
@@ -1192,8 +1214,11 @@ func reportTable(r reportSpec) tableSpec {
 	if !r.tokens && r.bar > 0 && r.grand > 0 {
 		addShareBars(&spec, r)
 	}
-	if r.mark != noMarks && r.kind != "" {
+	if r.mark != noMarks {
 		addMarker(&spec, r)
+	}
+	for i := range min(len(spec.Cols), len(r.mins)) {
+		spec.Cols[i].Min = r.mins[i]
 	}
 	return spec
 }
@@ -1255,7 +1280,9 @@ func addShareBars(spec *tableSpec, r reportSpec) {
 }
 
 // addMarker puts a column in front for the tab view's cursor: the selected
-// row's marker, a space elsewhere, so stacked rows line up too.
+// row's marker, a space elsewhere, so stacked rows line up too. Every table
+// of the page gets it, a table the cursor cannot enter included, so their
+// names start in the same cell.
 func addMarker(spec *tableSpec, r reportSpec) {
 	spec.Cols = slices.Insert(spec.Cols, 0, column{Mark: true})
 	for i, row := range spec.Rows {
@@ -1271,8 +1298,8 @@ func addMarker(spec *tableSpec, r reportSpec) {
 }
 
 // writeFooter writes only the notes that report something: the --tokens key,
-// the --top cut and the projects the scope hid, on one line when they fit,
-// then a warning for models without a rate.
+// the --top cut, the projects the scope hid, what the tool never recorded
+// and the models without a rate, on one line when they fit.
 func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.Statement) {
 	var notes []string
 	if report.Options.Tokens {
@@ -1299,22 +1326,38 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 		))
 	}
 	notes = append(notes, unrecordedNotes(tool, report)...)
+	notes = append(notes, unpricedNotes(tool, report)...)
 	if len(notes) > 0 {
 		b.WriteString("\n")
 		writeNotes(b, width, 2, notes)
 	}
-	if len(report.Unpriced) > 0 {
-		b.WriteString("\n")
-		writeText(b, width, 0, yellow.Render("warning:")+
-			" no rate for these models; their tokens count, their cost counts as 0 in the totals:")
-		for _, u := range report.Unpriced {
-			writeText(b, width, 2, rowName(tool, u.Model)+" — "+u.Reason)
+}
+
+// unpricedNotes name the models no rate prices, whose rows show a dash for
+// their cost: one note naming them and the overrides file to add a rate to,
+// and one for responses that name no model, which no rate could price. Why
+// each is unpriced is in the JSON and the ingest summary.
+func unpricedNotes(tool costs.Tool, report costs.Statement) []string {
+	var models []string
+	unnamed := false
+	for _, u := range report.Unpriced {
+		if u.Model == "unknown" {
+			unnamed = true
+			continue
 		}
-		writeText(b, width, 0, fmt.Sprintf(
-			"Add a rate for each to the rates overrides file (%s).",
-			showPath(report.Overrides),
-		))
+		models = append(models, rowName(tool, u.Model))
 	}
+	var notes []string
+	if len(models) > 0 {
+		notes = append(
+			notes,
+			"no rate for "+strings.Join(models, ", ")+" (add one to costs/rates.json)",
+		)
+	}
+	if unnamed {
+		notes = append(notes, "responses that name no model are unpriced")
+	}
+	return notes
 }
 
 // unrecordedNotes say, for an account table that shows "not recorded", since

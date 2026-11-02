@@ -364,10 +364,12 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` on 2026-10-01) is reported unpriced, as
-  for Claude. The report's warning and the ingest summary name each unpriced
-  model with why (not on the tool's price page, no price at its tier, or no
-  model named in the transcript) and the rates overrides file a rate for it
-  goes in; the report's JSON `unpriced` lists `{model, reason}`.
+  for Claude. A note under the report names each unpriced model and the
+  overrides file a rate for it goes in (`no rate for gpt-5.3-codex-spark (add
+  one to costs/rates.json)`; responses that name no model get a note of their
+  own); the ingest summary and the report's JSON `unpriced` (`{model,
+  reason}`) say why (not on the tool's price page, no price at its tier, or
+  no model named in the transcript).
 
 ## 6. Hooks
 
@@ -669,8 +671,12 @@ sign-in that names the id, so a renamed organization relabels its history.
 - A model row no rate prices shows a dash for its cost, as share and cached
   show one when they cannot be computed, never `$0.00`, which a cheap model
   really rounds to; a project, account or total that includes an unpriced
-  model counts its cost as 0 and the warning under the report names the
-  model.
+  model counts its cost as 0 and a note under the report names the model.
+- The tables of one page are laid out as one grid: each column is as wide as
+  its widest cell in any table of the page, every table of the tab view has
+  the cursor's marker column, and one bar width fills what is left, so names,
+  costs and numbers line up from table to table and bars compare across
+  them.
 - `costs status` shows each tool's current sign-in, for example
   `Claude Code  you@example.com · Max`, and, on separate lines, how many
   rows each evidence level gave their email and their subscription; the
