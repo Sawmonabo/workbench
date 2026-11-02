@@ -1326,17 +1326,24 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 		))
 	}
 	notes = append(notes, unrecordedNotes(tool, report)...)
-	notes = append(notes, unpricedNotes(tool, report)...)
-	if len(notes) > 0 {
+	unpriced := unpricedNotes(tool, report)
+	if len(notes)+len(unpriced) > 0 {
 		b.WriteString("\n")
 		writeNotes(b, width, 2, notes)
+		// Each unpriced note is its own line under the others, a yellow
+		// "warning:" before the faint text, so the one note that asks for
+		// something stands out of the ones that only inform.
+		for _, note := range unpriced {
+			writeText(b, width, 2, yellow.Render("warning:")+" "+faint.Render(note))
+		}
 	}
 }
 
 // unpricedNotes name the models no rate prices, whose rows show a dash for
 // their cost: one note naming them and the overrides file to add a rate to,
 // and one for responses that name no model, which no rate could price. Why
-// each is unpriced is in the JSON and the ingest summary.
+// each is unpriced is in the JSON and the ingest summary. writeFooter prints
+// each under a yellow "warning:" label.
 func unpricedNotes(tool costs.Tool, report costs.Statement) []string {
 	var models []string
 	unnamed := false

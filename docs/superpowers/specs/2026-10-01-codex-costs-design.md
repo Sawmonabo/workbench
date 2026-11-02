@@ -364,9 +364,10 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 - `Builtin` is the standard table read on 2026-10-01, longest prefix wins, used
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` on 2026-10-01) is reported unpriced, as
-  for Claude. A note under the report names each unpriced model and the
-  overrides file a rate for it goes in (`no rate for gpt-5.3-codex-spark (add
-  one to costs/rates.json)`; responses that name no model get a note of their
+  for Claude. A note under the report, after the other notes and labelled
+  `warning:` in yellow, names each unpriced model and the overrides file a
+  rate for it goes in (`warning: no rate for gpt-5.3-codex-spark (add one to
+  costs/rates.json)`; responses that name no model get a note of their
   own); the ingest summary and the report's JSON `unpriced` (`{model,
   reason}`) say why (not on the tool's price page, no price at its tier, or
   no model named in the transcript).
