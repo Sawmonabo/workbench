@@ -3,6 +3,19 @@
 Every Workbench release, newest first, generated from its commit messages when
 the release is tagged.
 
+## [v0.1.31](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.31) - 2026-11-02
+
+### Features
+
+- Label a Claude plan by its display name, so Max 20x reads Ultra
+
+### Fixes
+
+- Label the unpriced note "warning:" in yellow
+- Lay a report's tables out as one grid and name unpriced models in one note
+- Add the organization name only to Team and Enterprise plan labels
+- Show a dash, not $0.00 and an unpriced flag, for a model without a rate
+
 ## [v0.1.30](https://github.com/Sawmonabo/workbench/releases/tag/v0.1.30) - 2026-10-30
 
 ### Features
