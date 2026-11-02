@@ -664,9 +664,11 @@ sign-in that names the id, so a renamed organization relabels its history.
   did so from the first row, how many responses come from conversations that
   never named it. The JSON `coverage` has `account_named_since` and
   `subscription_named_since`.
-- Only a model row carries the `unpriced` flag; a project, account or total
-  that includes an unpriced model counts its cost as 0 and the warning under
-  the report names the model.
+- A model row no rate prices shows a dash for its cost, as share and cached
+  show one when they cannot be computed, never `$0.00`, which a cheap model
+  really rounds to; a project, account or total that includes an unpriced
+  model counts its cost as 0 and the warning under the report names the
+  model.
 - `costs status` shows each tool's current sign-in, for example
   `Claude Code  you@example.com · Max`, and, on separate lines, how many
   rows each evidence level gave their email and their subscription; the

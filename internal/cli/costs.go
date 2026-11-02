@@ -1173,16 +1173,6 @@ func reportTable(r reportSpec) tableSpec {
 			column{Head: "cached", Right: true, Drop: 4},
 		)
 	}
-	// Only a model row is flagged: a project, account or total that includes
-	// an unpriced model is otherwise priced, and the warning under the report
-	// names the model.
-	flagged := false
-	for _, row := range r.rows {
-		flagged = flagged || r.head == "model" && !row.Priced
-	}
-	if flagged {
-		spec.Cols = append(spec.Cols, column{Drop: 5}) // the unpriced flag
-	}
 	for i, row := range r.rows {
 		name := rowName(r.tool, row.Name)
 		if row.Subscription != "" {
@@ -1191,12 +1181,10 @@ func reportTable(r reportSpec) tableSpec {
 		if r.kind != "" && i == r.mark {
 			name = r.pal.accent.Bold(true).Render(name)
 		}
-		spec.Rows = append(spec.Rows, reportCells(r, name, row, flagged, false))
+		spec.Rows = append(spec.Rows, reportCells(r, name, row, false))
 	}
 	if r.total != nil {
-		total := *r.total
-		total.Priced = true
-		spec.Total = reportCells(r, r.label, total, flagged, true)
+		spec.Total = reportCells(r, r.label, *r.total, true)
 	}
 	for i := range spec.Cols {
 		spec.Cols[i].Head = r.pal.accent.Render(spec.Cols[i].Head)
@@ -1210,11 +1198,19 @@ func reportTable(r reportSpec) tableSpec {
 	return spec
 }
 
-// reportCells is one row's cells: name, cost, then the number columns.
-func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) []string {
+// reportCells is one row's cells: name, cost, then the number columns. A
+// model row no rate prices has no cost to show, so its cost cell is a dash,
+// as share and cached are when they cannot be computed: "$0.00" would read
+// as a price, and a cheap model really does round to that. A project, account
+// or total that includes an unpriced model is otherwise priced and shows the
+// sum of what is; the warning under the report names the model.
+func reportCells(r reportSpec, name string, row costs.Row, total bool) []string {
 	cost := costStyle.Render(money(row))
-	if total {
+	switch {
+	case total:
 		cost = r.pal.accent.Render(money(row))
+	case r.head == "model" && !row.Priced:
+		cost = "-"
 	}
 	out := []string{name, cost}
 	if r.tokens {
@@ -1238,13 +1234,7 @@ func reportCells(r reportSpec, name string, row costs.Row, flagged, total bool) 
 		out = append(out, share, faint.Render(commas(row.Calls)),
 			faint.Render(human(float64(row.Total()))), faint.Render(cached))
 	}
-	switch {
-	case !flagged:
-		return out
-	case row.Priced:
-		return append(out, "")
-	}
-	return append(out, yellow.Render("unpriced"))
+	return out
 }
 
 // addShareBars puts a bar of each row's share of the total in front of its
@@ -1316,7 +1306,7 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 	if len(report.Unpriced) > 0 {
 		b.WriteString("\n")
 		writeText(b, width, 0, yellow.Render("warning:")+
-			" no rate for these models; their tokens count, their cost shows as 0:")
+			" no rate for these models; their tokens count, their cost counts as 0 in the totals:")
 		for _, u := range report.Unpriced {
 			writeText(b, width, 2, rowName(tool, u.Model)+" — "+u.Reason)
 		}
