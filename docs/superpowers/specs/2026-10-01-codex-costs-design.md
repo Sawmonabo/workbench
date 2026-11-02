@@ -587,8 +587,10 @@ Subscription ids and labels: Claude `claude:<organizationUuid>`, label from
 `planDisplayName` when the sign-in has one (`Ultra`, `Max`), else from
 `organizationType` with the `claude_` prefix removed and the first letter
 capitalised (`claude_max` → Max, `claude_pro` → Pro, `claude_team` → Team),
-plus ` (organizationName)` whenever the type is not a personal plan (`claude_max`
-or `claude_pro`), for example `Team (Example Org)`. Codex `codex:<plan_type>`,
+plus ` (organizationName)` when the type is an organization plan (`claude_team`
+or `claude_enterprise`), for example `Team (Example Org)`; any other type is a
+personal plan named by its label alone, so a consumer tier the code does not
+know yet still reads by its name. Codex `codex:<plan_type>`,
 label from `plan_type` (`prolite` → Pro Lite, otherwise the capitalized value);
 the account id only resolves the email, so one plan is one group whichever
 evidence named it. A Codex API-key sign-in is `api-key`. A Claude Code

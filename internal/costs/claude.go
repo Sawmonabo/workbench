@@ -321,10 +321,12 @@ func (claude) Labels(home string) map[string]string {
 // and checks before it writes it), else its organizationType without the
 // "claude_" prefix and with the first letter capitalised, so claude_max is
 // "Max" and claude_team is "Team". The two tiers sold as Max and Ultra are
-// both claude_max, so only the display name tells them apart. A personal plan
-// (claude_max, claude_pro) is named by that alone; any other type adds the
-// organization, "Team (Example Org)", because many organizations share one
-// type.
+// both claude_max, so only the display name tells them apart. An
+// organization plan (claude_team, claude_enterprise) adds its organization,
+// "Team (Example Org)", because many organizations share one type; any other
+// type is a personal plan named by its label alone, so a consumer tier this
+// code does not know yet still reads by its name. A sign-in with neither a
+// type nor a display name is named by its organization.
 func claudePlanLabel(acct claudeOAuth) string {
 	orgType, orgName := acct.OrganizationType, acct.OrganizationName
 	label := acct.PlanDisplayName
@@ -334,13 +336,15 @@ func claudePlanLabel(acct claudeOAuth) string {
 			label = strings.ToUpper(label[:1]) + label[1:]
 		}
 	}
-	if orgType == "claude_max" || orgType == "claude_pro" || orgName == "" {
+	switch {
+	case orgName == "":
 		return label
-	}
-	if label == "" {
+	case orgType == "claude_team" || orgType == "claude_enterprise":
+		return label + " (" + orgName + ")"
+	case label == "":
 		return orgName
 	}
-	return label + " (" + orgName + ")"
+	return label
 }
 
 // projectFromPath is the last-resort project for records without a cwd: the
