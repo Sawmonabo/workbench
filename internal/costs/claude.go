@@ -163,6 +163,7 @@ type claudeOAuth struct {
 	OrganizationUUID string `json:"organizationUuid"`
 	OrganizationName string `json:"organizationName"`
 	OrganizationType string `json:"organizationType"`
+	PlanDisplayName  string `json:"planDisplayName"`
 }
 
 // readClaudeOAuth is the oauthAccount of one .claude.json; false when the
@@ -194,7 +195,7 @@ func (claude) SignIn(home string) SignIn {
 		return out
 	}
 	out.Subscription = "claude:" + acct.OrganizationUUID
-	out.Label = claudePlanLabel(acct.OrganizationType, acct.OrganizationName)
+	out.Label = claudePlanLabel(acct)
 	return out
 }
 
@@ -250,7 +251,7 @@ func (claude) SignIns(home string) []SignIn {
 		out = append(out, SignIn{
 			Account:      firstNonEmpty(acct.EmailAddress, "unknown"),
 			Subscription: "claude:" + acct.OrganizationUUID,
-			Label:        claudePlanLabel(acct.OrganizationType, acct.OrganizationName),
+			Label:        claudePlanLabel(acct),
 		})
 	}
 	return out
@@ -307,22 +308,31 @@ func (claude) Marks(home string) []AccountMark {
 func (claude) Labels(home string) map[string]string {
 	labels := map[string]string{}
 	for _, acct := range claudeSignIns(home) {
-		if label := claudePlanLabel(acct.OrganizationType, acct.OrganizationName); label != "" {
+		if label := claudePlanLabel(acct); label != "" {
 			labels["claude:"+acct.OrganizationUUID] = label
 		}
 	}
 	return labels
 }
 
-// claudePlanLabel is the report label of an organizationType: the type without
-// its "claude_" prefix and with the first letter capitalised, so claude_max is
-// "Max" and claude_team is "Team". A personal plan (claude_max, claude_pro) is
-// named by that alone; any other type adds the organization, "Team (Example
-// Org)", because many organizations share one type.
-func claudePlanLabel(orgType, orgName string) string {
-	label := strings.TrimPrefix(orgType, "claude_")
-	if label != "" {
-		label = strings.ToUpper(label[:1]) + label[1:]
+// claudePlanLabel is the report label of a sign-in's plan: its
+// planDisplayName when Claude Code recorded one (the name the plan is sold
+// under, "Ultra" or "Max", which Claude Code reads from the account profile
+// and checks before it writes it), else its organizationType without the
+// "claude_" prefix and with the first letter capitalised, so claude_max is
+// "Max" and claude_team is "Team". The two tiers sold as Max and Ultra are
+// both claude_max, so only the display name tells them apart. A personal plan
+// (claude_max, claude_pro) is named by that alone; any other type adds the
+// organization, "Team (Example Org)", because many organizations share one
+// type.
+func claudePlanLabel(acct claudeOAuth) string {
+	orgType, orgName := acct.OrganizationType, acct.OrganizationName
+	label := acct.PlanDisplayName
+	if label == "" {
+		label = strings.TrimPrefix(orgType, "claude_")
+		if label != "" {
+			label = strings.ToUpper(label[:1]) + label[1:]
+		}
 	}
 	if orgType == "claude_max" || orgType == "claude_pro" || orgName == "" {
 		return label

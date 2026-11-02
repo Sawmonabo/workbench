@@ -468,7 +468,10 @@ email and subscription, for example `you@example.com · Max` and
   none, so their history names no organization anywhere on disk. The current
   sign-in is `~/.claude.json` `oauthAccount`: `emailAddress`,
   `organizationUuid`, `organizationName`, `organizationType` (`claude_max` and
-  `claude_team` observed; other values are shown as written). Claude Code
+  `claude_team` observed; other values are shown as written) and, since the
+  plans were renamed (Max 5x to Max, Max 20x to Ultra, both still
+  `claude_max`), `planDisplayName` (`Ultra` observed), the name Claude Code
+  reads from the account profile and checks before it writes it. Claude Code
   copies `.claude.json` to `backups/.claude.json.backup.<milliseconds>` before
   it changes it, so an organization signed out of keeps its email and type
   there. The
@@ -581,6 +584,7 @@ is `unknown` is no evidence and never raises a field.
    `not recorded`.
 
 Subscription ids and labels: Claude `claude:<organizationUuid>`, label from
+`planDisplayName` when the sign-in has one (`Ultra`, `Max`), else from
 `organizationType` with the `claude_` prefix removed and the first letter
 capitalised (`claude_max` → Max, `claude_pro` → Pro, `claude_team` → Team),
 plus ` (organizationName)` whenever the type is not a personal plan (`claude_max`
