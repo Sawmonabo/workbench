@@ -57,13 +57,17 @@ type Event struct {
 	Agent    string    `json:"agent"`
 	Subagent string    `json:"subagent"`
 	Project  string    `json:"project"`
-	Cwd      string    `json:"cwd"`
-	Command  string    `json:"command"`
-	By       string    `json:"by"`
-	Took     float64   `json:"took"`
-	Size     uint64    `json:"size"`
-	Peak     uint64    `json:"peak"`
-	Floor    uint64    `json:"floor"`
+	// Kind is detached on a record about a program that detached from a
+	// command, and LaunchedBy the ID of the call that started it, when known.
+	Kind       string  `json:"kind"`
+	LaunchedBy string  `json:"launched_by"`
+	Cwd        string  `json:"cwd"`
+	Command    string  `json:"command"`
+	By         string  `json:"by"`
+	Took       float64 `json:"took"`
+	Size       uint64  `json:"size"`
+	Peak       uint64  `json:"peak"`
+	Floor      uint64  `json:"floor"`
 	// Memory is the reading of a stop or memory record: macOS's level, or
 	// Linux's available and total bytes.
 	Memory struct {

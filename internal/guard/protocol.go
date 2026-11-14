@@ -47,12 +47,27 @@ type message struct {
 // Snapshot is what the watcher sees at one tick: the machine's memory, the
 // largest peak any command reached since the watcher started, and the
 // commands it tracks, newest first, then those that finished within the last
-// minute, the latest first.
+// minute, the latest first, and the memory in use split by the kind of row
+// that holds it.
 type Snapshot struct {
 	At          time.Time     `json:"at"`
 	Memory      MemoryView    `json:"memory"`
 	LargestPeak uint64        `json:"largest_peak"`
 	Commands    []CommandView `json:"commands"`
+	Sums        MemorySums    `json:"sums"`
+}
+
+// MemorySums split the memory in use, in bytes, each part by the sizes its
+// rows show: commands (unmatched ones included), detached programs, agents
+// and helpers, and Other, the memory in use less the four, which a container
+// engine's virtual machine or a system job holds without any agent starting
+// it.
+type MemorySums struct {
+	Commands uint64 `json:"commands"`
+	Detached uint64 `json:"detached"`
+	Agents   uint64 `json:"agents"`
+	Helpers  uint64 `json:"helpers"`
+	Other    uint64 `json:"other"`
 }
 
 // MemoryView is the machine's memory, in bytes, as the guard reads it. Level
@@ -76,23 +91,30 @@ type MemoryView struct {
 // unmatched or stopped), who stopped it (guard or you), whether its note is a
 // dry run, when it was noted and when it ended, its memory now and at its
 // peak in bytes, its latest sizes, oldest first, and its process tree with
-// each process's memory.
+// each process's memory. Kind is empty for a command, else detached for a
+// program that detached from a command, agent for the agent process itself or
+// helper for a long-lived program the agent started; PID is the row's root
+// process, and LaunchedBy the ID of the call that started a detached
+// program, empty when unknown.
 type CommandView struct {
-	ID       string        `json:"id"`
-	Agent    string        `json:"agent"`
-	Subagent string        `json:"subagent"`
-	Project  string        `json:"project"`
-	Cwd      string        `json:"cwd"`
-	Command  string        `json:"cmd"`
-	State    string        `json:"state"`
-	By       string        `json:"by"`
-	DryRun   bool          `json:"dry_run"`
-	Started  time.Time     `json:"started"`
-	Ended    time.Time     `json:"ended"`
-	Memory   uint64        `json:"memory"`
-	Peak     uint64        `json:"peak"`
-	History  []uint64      `json:"history"`
-	Tree     []ProcessView `json:"tree"`
+	ID         string        `json:"id"`
+	Kind       string        `json:"kind"`
+	PID        int           `json:"pid"`
+	LaunchedBy string        `json:"launched_by"`
+	Agent      string        `json:"agent"`
+	Subagent   string        `json:"subagent"`
+	Project    string        `json:"project"`
+	Cwd        string        `json:"cwd"`
+	Command    string        `json:"cmd"`
+	State      string        `json:"state"`
+	By         string        `json:"by"`
+	DryRun     bool          `json:"dry_run"`
+	Started    time.Time     `json:"started"`
+	Ended      time.Time     `json:"ended"`
+	Memory     uint64        `json:"memory"`
+	Peak       uint64        `json:"peak"`
+	History    []uint64      `json:"history"`
+	Tree       []ProcessView `json:"tree"`
 }
 
 // ProcessView is one process of a command's tree and its resident memory.
