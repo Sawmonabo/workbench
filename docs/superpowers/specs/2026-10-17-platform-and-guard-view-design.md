@@ -308,7 +308,7 @@ A full-screen Bubble Tea program in the alternate screen.
 ```
 [WorkBench] Guard memory  ● watching · 11:33:32 PM
 
-3 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
+4 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · helpers 1.39 GB · other 2.31 GB
 
    ID        STATUS      AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND

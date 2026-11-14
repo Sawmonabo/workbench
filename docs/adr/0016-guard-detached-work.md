@@ -41,7 +41,8 @@ How to tie work to a call:
 - **A. Inherited stamps, checked against the kernel's record of the original
   parent.** Chosen. GitHub's Actions runner uses the same method where a
   tool cannot control how processes are grouped; it needs no privileges and
-  costs one read per new process.
+  costs one version read per tracked process per tick and one environment
+  read per program.
 - **B. Guess by start time and working folder.** It would stop programs a
   person started themselves in the same folder.
 - **C. Kernel process events to know a fork's child.** Endpoint Security
@@ -80,10 +81,11 @@ How to keep a nested session's work from the outer call:
 - **A call that started an agent proves nothing by stamp alone.** Chosen.
   A nested session's own processes carry the outer call's stamps, so a
   stamp that resolves to such a call proves nothing.
-- **Agent stamps read inside tracked trees.** Chosen. A session started
-  without the hooks is known from the first readable program that carries
-  its own `CLAUDE_PID`. It lets a command keep the guard off its own tree,
-  which only makes the guard miss.
+- **Agent stamps read inside tracked trees.** Chosen, on macOS. A session
+  started without the hooks is protected from the first readable program
+  that carries its own `CLAUDE_PID`, though not known: it gets no agent row.
+  It lets a command keep the guard off its own tree, which only makes the
+  guard miss. On Linux and WSL no stamp is read inside a tracked tree.
 - **A longer or adaptive wait.** Not chosen: no wait changes who the work
   belongs to, so it only delays a wrong stop, and nothing tells a session
   from another program before it registers.
@@ -125,7 +127,11 @@ How to see a call that ends within a tick:
   everything that came from it, and every unit root tied through it leaves
   its unit for good. A "no" that rests on evidence is final for the life of
   the process. `off` is one: the process said so itself, and a program it
-  runs may drop the variable without bringing it back.
+  runs may drop the variable without bringing it back. A program that
+  rewrites its title keeps it: on macOS `WORKBENCH_GUARD` and `CLAUDE_PID`
+  are also read from trailing `NAME=value` strings among its arguments,
+  which can only make the guard do less; the stamps that tie are read from
+  the environment only.
 - **A root is settled, or the guard does not choose it.** The guard's own
   stop takes a root only when its call is proved, it has been tracked for
   ten seconds since it was found or started its present program, and it is
@@ -135,10 +141,11 @@ How to see a call that ends within a tick:
   title rewrite changes nothing and an exec of the same program counts.
 - **The shell learned at its start.** On macOS the watcher follows every
   known agent's forks, between its calls too, and the forks, execs and exit
-  of each shell it matches to a note (one shell per note), and records that
-  shell and its direct children at once. A shell that wakes it more than
-  250 times in a second loses its fork watch, and an agent more than 100
-  times is not followed for 5 seconds. The tick still tracks, measures,
+  of each shell it matches to a note, and records that shell and its direct
+  children at once. It gives a note only where the tick would give the same
+  one, and stops following a shell once it is protected. A shell that wakes
+  it more than 250 times in a second, by forks and execs, loses its fork
+  watch, and an agent more than 100 times is not followed for 5 seconds. The tick still tracks, measures,
   logs and decides every stop.
 - **Agents and helpers are rows the guard never stops.** Each agent the
   guard knows is a row with its own size, each long-lived helper it starts
@@ -153,7 +160,8 @@ How to see a call that ends within a tick:
   unread). Its ID column shows the PID of its first root that runs; the log
   keeps one label for it. A command line is shown only in a form that never
   holds an environment string, marked when shortened. The log, the reason
-  and the kill record name a program by the kernel's process name only.
+  and the kill record name a program by the kernel's process name only,
+  that of a root the stop signals and that still runs.
 - **A Monitor command's note is cleared.** Claude Code's post hooks also
   match `Monitor`, whose post hook runs when the monitor starts.
 
@@ -166,27 +174,32 @@ How to see a call that ends within a tick:
   started and ended before a watcher followed its agent, which is shown with
   no call and never chosen; work handed to a service; other users'
   processes; a tree whose command named one of its own processes as an
-  agent; and any detached work while the kernel does not answer where
+  agent; a sub-second call whose note is left to the tick at a fork
+  wake-up; and any detached work while the kernel does not answer where
   processes come from.
-- The guard may still stop what it must not: work run with the variable
-  removed by a program that set `off`; a nested
-  session that never runs a readable program carrying its own agent stamp,
-  or has not registered yet, after its first ten seconds; and a Codex
-  session whose required MCP servers take longer than ten seconds to start,
-  between the tenth second and its registration.
+- The guard never stops an agent it knows or protects, but it may still
+  stop what it must not: work run with the variable removed by a program
+  that set `off`; a nested session it does not know yet that never runs a
+  readable program carrying its own agent stamp (any session without the
+  hooks on Linux and WSL), or has not registered yet, after its first ten
+  seconds; and a Codex session whose required MCP servers take longer than
+  ten seconds to start, between the tenth second and its registration. The
+  design's section 5.4 lists them.
 - Claude Code before 2.1.214 sets no `CLAUDE_PID`: its commands carry no
-  valid stamp, and its hook-less nested sessions are never known by one.
+  valid stamp, and its hook-less nested sessions are never protected by
+  one.
 - On Linux and WSL there is no original-parent record, no stamp tie and no
   fork events: detached work is found only when the guard recorded it under
   the command at a tick before it detached. None of it was run there.
 - The store holds between 14,336 and 16,384 versions under a busy build.
   Stamps inside tracked trees are read from a process's second recorded
-  tick, so a session without the hooks is known one tick later; with that,
+  tick, so a session without the hooks is protected one tick later; with that,
   the watcher costs what it did without detached work, about 10 ms a tick
   under a churn of short processes.
 - The ten seconds start again at a handover, so detached work is not chosen
-  for ten seconds after an update; the store (3.66 MB at its bound) and the
-  call records pass to the next watcher.
+  for ten seconds after an update; the store (3.66 MB at its bound), the
+  call records and the processes stamps named as agents pass to the next
+  watcher.
 - The original-parent record and the versions come from a kernel call that
   is not in Apple's public SDK. If the kernel stops answering it, the guard
   makes no new detached rows, chooses none, and logs that once.

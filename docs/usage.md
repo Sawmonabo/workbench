@@ -195,9 +195,11 @@ result. Commands sent to the background, and `Monitor` commands, whose post
 hook runs when the monitor starts, are guarded too: the watcher keeps
 their note until the command ends, or drops it about a second after the tool
 result when no command matched it, and a stop after the tool result has
-returned is reported only in the log. The guard itself never stops an agent,
-the helpers it starts (a language server, an MCP server), its hooks or
-anything else; a person may stop a helper from `guard memory`. The only change
+returned is reported only in the log. The guard itself never stops an agent
+it knows (one whose session hook ran or that left a note), the helpers it
+starts (a language server, an MCP server), its hooks or anything else; a
+person may stop a helper from `guard memory`. A session it does not know yet
+is a program like any other: see the last paragraph on detached work. The only change
 to how a command runs is one variable in its environment, and a guard fault
 leaves a command unguarded and never blocks it.
 
@@ -216,8 +218,8 @@ program that was among them, or on macOS one that a recorded process forked
 command's variable, counts as that command's work once it detaches. On macOS
 the guard also learns a command's shell the moment it starts, so work left
 behind by a command that ends within a second is seen too, with its call;
-an agent that forks more than 100 times in a second is not followed for 5
-seconds, and its calls are found at the ticks meanwhile. An
+an agent that wakes the guard more than 100 times in a second by forking is
+not followed for 5 seconds, and its calls are found at the ticks meanwhile. An
 app opened with `open` is never detached work: the system started it.
 
 The guard itself stops detached work only when it can prove which call
@@ -225,24 +227,30 @@ started it, the program has run ten seconds, and its setting was read. The
 row's details say why it will not, on a "Note" line: no call is proved to
 have started it (work a command you typed with `!` left, or a call the guard
 could not see start); it was found, or started its program, less than ten
-seconds ago (a session a command started needs that long to say it is an
-agent; one that does is an agent row and never stopped); or its setting
-cannot be read. You can stop any of them from the view. The ten seconds start
-again when the program runs another one and after an update, and a session's
-work stops being the command's once the session is known.
+seconds ago (a Claude Code session a command started says it is an agent well
+within that, and plain Codex within a few seconds, and is then an agent row,
+never stopped; a Codex session whose required MCP servers start slowly can
+take longer); or its setting cannot be read. While the kernel does not answer
+where processes come from, the guard stops no detached work itself. You can
+stop any of them from the view. The ten seconds start again when the program
+runs another one and after an update, and a session's work stops being the
+command's once the session is known or protected.
 
 `WORKBENCH_GUARD=off` in a detached program's own environment keeps it out of
 the guard for the life of that process, even if a program it later runs in
 its place drops the variable, and the programs it starts stay out as long as
-they keep the variable; `dry-run` keeps the guard's stops of it to the log. On macOS, many programs hide their environment from other
+they keep the variable; `dry-run` keeps the guard's stops of it to the log. A
+program that rewrites its title keeps its setting. On macOS, many programs
+hide their environment from other
 programs: the system's own, such as `/bin/zsh`, `/bin/bash`, `/bin/sleep`,
 `/usr/bin/perl` and `/usr/bin/ruby`. For such a program the guard reads the
 setting from the first programs below it that show their environment. When
 none does, the guard never stops that work itself; it is shown and you can
 stop it from the view, which sends the stop unless the agent's own setting is
 `dry-run` or `off` or the call's is `dry-run`. The setting must reach every
-program that should stay out: a program run with it removed (`env -u`,
-`env -i`, a build tool that filters variables) counts as not opted out.
+program that should stay out: a program run with it removed (`env -u`, a build
+tool that filters variables) counts as not opted out. A program run with an
+empty environment (`env -i`) reads as unreadable, like a hidden one.
 
 A detached row lasts while any of its processes runs and its agent does; when
 the agent exits it is forgotten, not stopped. Not seen: work a program below
@@ -252,7 +260,12 @@ systemd job), and another user's process. A command that names one of its own
 processes as an agent (`CLAUDE_PID=$$ …`) keeps the guard off its tree. On
 Linux and WSL, which keep no record of which process forked another, detached
 work is found only when the guard recorded it under the command at a tick
-before it detached, so a program that detaches at once is unseen there. See
+before it detached, so a program that detaches at once is unseen there. The
+guard may still stop, as the command's detached work: a session the command
+started that has not said it is an agent after ten seconds (such as Codex
+waiting on a slow required MCP server), and one started without the hooks
+that the guard cannot recognize (on macOS, one whose programs all hide their
+environment; on Linux and WSL, any). See
 [ADR 0016](adr/0016-guard-detached-work.md).
 
 `WORKBENCH_GUARD=off` in the agent's environment turns it off;
