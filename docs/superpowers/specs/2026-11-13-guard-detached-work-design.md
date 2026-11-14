@@ -48,8 +48,9 @@ Each fact says how it is known. Sources are in section 15.
 
 ### 2.1 Measured
 
-On macOS 27 with System Integrity Protection on, Claude Code 2.1.325 and zsh
-as the agent's shell, in throwaway sessions and with throwaway processes:
+On macOS 27 with System Integrity Protection on, Claude Code 2.1.325, Codex
+0.169.0 and zsh as the agent's shell unless a fact says otherwise, in
+throwaway sessions and with throwaway processes:
 
 1. A process started from a Bash tool command through a double fork and
    `setsid` becomes a child of launchd in its own session and still carries
@@ -95,6 +96,22 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
     what its hooks start: a daemon one of its hooks left carried that
     session's own `CLAUDE_PID` beside the inherited value, which named
     another agent.
+13. With bash 3.2 as the agent's shell the env file line gives each command
+    the same stamp as under zsh.
+14. An MCP server Claude Code starts never carries its own agent's
+    `CLAUDE_PID`: the variable is unset when a person started the session,
+    and is the outer agent's when an agent's command started it. It carries
+    `CLAUDECODE` and no call stamp.
+15. With the hooks matched on `Bash|Monitor`, a Monitor call's pre and post
+    hooks name the tool `Monitor`, carry the same `tool_use_id` and the
+    command, and the post hook fires when the monitor starts, not when it
+    ends.
+16. A command a person types with `!` runs in the same shell form as a tool
+    command and carries the same variables, the call stamp included, agreeing
+    with its agent. No pre or post hook fires for it, so it leaves no note.
+17. A process a Codex command detached carries `CODEX_TOOL_CALL_ID` equal to
+    the `tool_use_id` its hooks received. A Codex session an agent's command
+    started also carries that agent's `CLAUDE_PID`.
 
 ### 2.2 Documented
 
@@ -147,20 +164,10 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
    its environment is readable, how the memory cap's cgroup looks from
    outside, and whether a command run in a sandbox sees its shell's process
    ID as the watcher does or one of its own namespace.
-2. That a detached process started by a Codex command carries
-   `CODEX_TOOL_CALL_ID` where the guard can read it.
-3. When a PostToolUse hook matched on `Bash|Monitor` fires for a Monitor call
-   and what input it carries.
-4. The env file line with bash as the agent's shell.
-5. That an MCP server Claude Code starts carries no `CLAUDE_PID`, as its
-   documentation implies and a language server showed.
-6. Whether a command a person types with `!` in Claude Code carries the call
-   stamp. If it does, its detached work would count as the agent's, and that
-   goes back to the owner before the part is built.
 
-Each is proved in a disposable home or container before the part that needs
-it is built. A part whose check fails is brought back to the owner, not
-built on a guess.
+It is proved in a Linux container before the release, and what cannot be run
+there is recorded as unqualified. A part whose check fails is brought back to
+the owner, not built on a guess.
 
 ## 3. Approaches considered
 
@@ -231,8 +238,11 @@ found only through its original parent (5.3).
 
 A Codex command's processes carry `CODEX_TOOL_CALL_ID`, which is the note's
 own `tool_use_id`. It is both the agent stamp and the call stamp: it resolves
-to the note or to the record kept of it (5.5), which names the agent. When it
-resolves to neither, no row is made.
+to the note or to the record kept of it (5.5), which names the agent. A
+Codex session that a Claude Code command started also carries that outer
+agent's stamps (2.1 fact 17): a Codex stamp that resolves wins, because the
+Codex agent is the nearer one. When it resolves to neither, the outer stamps
+decide as for any other process.
 
 ### 4.4 The guard's own setting
 
@@ -273,8 +283,10 @@ A process R is the root of a unit when all of these hold:
    resolves (5.5), by the kernel's start times.
 5. R is not a Workbench process and not a protected process.
 
-By either tie, R is no unit of an agent when a stamp read for it names
-another agent: it is that agent's, to be judged by that agent's stamps.
+By either tie, R is no unit of a Claude Code agent when the `CLAUDE_PID`
+read for it names another process, or when a Codex stamp read for it
+resolves to another agent: it is that agent's, to be judged by that agent's
+stamps.
 
 The unit is R and everything below it, with protected processes and what is
 under them left out, as for a command's tree.
@@ -337,8 +349,9 @@ The first of these that applies:
    that parent.
 2. A Codex call stamp resolves to its note or record.
 3. A Claude Code call stamp resolves to the record of its agent with its
-   shell ID whose shell started before R. When more than one such record
-   exists, because the ID was reused, it does not resolve.
+   shell ID whose shell was running when R started: it started before R,
+   and it had not ended by then. Only one live process holds a process ID,
+   so a reused ID never resolves to an earlier call.
 4. Otherwise the row has the agent from the agent stamp, the project from
    R's working folder, and a blank subagent.
 
@@ -346,6 +359,12 @@ A Claude Code call that ended within one tick was never tracked (2.1 fact
 9), so its record holds no shell and detached work found only by its stamps
 takes case 4. A Codex call's record resolves by its ID whether or not the
 call was tracked.
+
+A unit in case 4 is shown, and a person may stop it, but the guard never
+chooses it. A command a person types with `!` carries the same stamp as an
+agent's command and leaves no note (2.1 fact 16), so a stamp that resolves to
+no call does not prove an agent's command forked the process, and the guard
+stops only what it can prove.
 
 ### 5.6 Lifetime
 
@@ -358,8 +377,9 @@ the unit is forgotten, not stopped, as a command is today.
 
 - A unit is measured each tick like a command, and its sizes are read the
   same way.
-- Units compete with commands for the largest. The floor, the cooldown, the
-  refusal count and the dry run apply to them unchanged.
+- Units whose call resolved compete with commands for the largest. The
+  floor, the cooldown, the refusal count and the dry run apply to them
+  unchanged. A unit whose call did not resolve is never chosen (5.5).
 - The same target choice signals a unit: its root usually leads its own
   process group, which is signalled as a group when every member is in the
   unit.
@@ -374,17 +394,18 @@ the unit is forgotten, not stopped, as a command is today.
 - Each agent the guard knows is a row with its own size, not its tree's.
 - A helper is a direct child of such an agent that no note claims, that the
   guard has seen alive for several seconds, that is not a shell running a
-  command script, and in whose tree no readable process carries `CLAUDE_PID`:
-  a language server, an MCP server (2.1 fact 10, 2.3 item 5). It is a row
-  with its tree's size.
+  command script, and in whose tree no readable process carries a
+  `CLAUDE_PID` naming that agent: a language server, an MCP server (2.1
+  facts 10 and 14). It is a row with its tree's size.
 - A direct child that no note claims is a command the guard could not match
   when a readable process in its tree carries a call stamp naming that child
   as its shell, and the guard has seen it alive for several seconds. Today
   it is unseen while it runs. It is a row with the status `unmatched` and its
   tree's size while it runs, counted with the commands in the memory line,
-  and is logged when it ends as today. A hook or a status line command
-  carries `CLAUDE_PID` but no such stamp, so it is neither this nor a helper
-  and has no row.
+  and is logged when it ends as today. A command a person typed with `!` is
+  such a row too (2.1 fact 16). A hook or a status line command carries
+  `CLAUDE_PID` but no such stamp, so it is neither this nor a helper and has
+  no row.
 - Parent links decide these rows, so they hold on every platform.
 - They show while the watcher runs, and the watcher's lifetime does not
   change. It still exits after ten minutes with no note, no tracked command
@@ -441,8 +462,8 @@ A Monitor command is tracked, but no post hook clears its note (2.1 fact 8),
 so the note lingers until the guard abandons it with a warning, and a stop's
 reason cannot reach the agent. Claude Code's post hooks are matched on
 `Bash|Monitor`, and the post hook marks a Monitor call's note the way it
-marks a background call's. The Codex hooks do not change. This is built once
-2.3 item 3 is known.
+marks a background call's: the post hook fires when the monitor starts (2.1
+fact 15). The Codex hooks do not change.
 
 ## 10. What stays unseen
 
@@ -455,8 +476,10 @@ marks a background call's. The Codex hooks do not change. This is built once
 3. **Work handed to a service.** A container engine, a launchd or systemd
    job, or a build server a person started was never the command's
    descendant. Its memory is in "other".
-4. **Fast calls.** Detached work found only by its stamp, from a call that
-   ended within a tick, shows no subagent.
+4. **Fast calls.** Detached work found only by its stamp, from a Claude Code
+   call that ended within a tick or from a command a person typed with `!`,
+   shows no subagent and is never chosen by the guard. A person can stop it
+   from the view.
 5. **Other users' processes.** A root-owned process can be neither sized nor
    signalled.
 
@@ -494,8 +517,8 @@ process, for a process the init process started that carries a stamp, for a
 process that carries the agent stamp without the call stamp as a hook's child
 does, for one whose call stamp names another agent than its own `CLAUDE_PID`
 as a nested session's does, for a Workbench process, for a protected process, and when the kernel
-does not answer; and no agent, helper or unmatched row is ever a stop the
-guard chooses. The risk
+does not answer; and no agent, helper or unmatched row, and no unit whose
+call did not resolve, is ever a stop the guard chooses. The risk
 it guards is the guard stopping a program no agent command forked.
 
 Before release, in a disposable home on macOS and in a Linux container:
@@ -507,7 +530,8 @@ Before release, in a disposable home on macOS and in a Linux container:
   `detached` row with its call.
 - An app started with `open` from a command gives no row.
 - A sub-second Claude Code command that leaves a sleeper gives a row with a
-  blank subagent; the same under Codex gives a row with its call.
+  blank subagent that the guard does not choose; the same under Codex gives
+  a row with its call.
 - A daemon a hook starts gives no row.
 - An agent with a language server shows an agent row and a helper row, and
   the five sums add up to the memory in use.
