@@ -366,9 +366,8 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 				"can read where processes come from again; detached work is tracked")
 		}
 	}
-	self := os.Getuid()
-	f := facts{
-		self:      self,
+	w.judgeUnits(s, facts{
+		self:      os.Getuid(),
 		lineage:   platform.KnowsOriginalParent,
 		read:      platform.ProcessLineage,
 		stamp:     func(pid int) stamp { return w.stampOf(s, pid, protected) },
@@ -378,7 +377,13 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 		origins:   w.ancestry,
 		records:   w.records,
 		below:     below,
-	}
+	})
+}
+
+// judgeUnits is findUnits once lineage answers, with what the rules read in
+// f: it judges the tracked units' roots again (see rejudgeRoots), then each
+// child of an init process findUnits says, and tracks, joins or drops it.
+func (w *watcher) judgeUnits(s snapshot, f facts) {
 	w.rejudgeRoots(s, f, true)
 	type orphan struct {
 		p    proc
@@ -386,7 +391,7 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 	}
 	var roots []orphan
 	for _, p := range s {
-		if p.UID != self || p.Zombie || !childOfInit(s, p, protected) {
+		if p.UID != f.self || p.Zombie || !childOfInit(s, p, f.protected) {
 			continue
 		}
 		j, judgedBefore := w.classified[procKey{p.PID, p.Start}]

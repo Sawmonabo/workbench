@@ -31,7 +31,7 @@ type unitWorld struct {
 	known     map[procKey]kind
 	protected map[int]uint64
 	versions  map[uint32]owner
-	seenUnder map[procKey]owner
+	entries   map[procKey]owner
 	notes     []note
 }
 
@@ -44,7 +44,7 @@ func (w *unitWorld) facts() (snapshot, proc, facts) {
 	// The store holds each process seen in a tracked tree, and each recorded
 	// version as that of a forker of its own, PID 900 and up.
 	origins := newAncestry(true)
-	for key, o := range w.seenUnder {
+	for key, o := range w.entries {
 		origins.record(key, o, procKey{}, 0, time.Now())
 	}
 	forker := 900
@@ -111,7 +111,7 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 			known:     map[procKey]kind{agent: claude, nested: claude, codexAgent: codex},
 			protected: map[int]uint64{100: agent.start, 150: nested.start, 200: codexAgent.start},
 			versions:  map[uint32]owner{},
-			seenUnder: map[procKey]owner{},
+			entries:   map[procKey]owner{},
 		}
 	}
 	// byParent makes the base a unit by its recorded original parent alone:
@@ -151,11 +151,18 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		}, tie{
 			Agent: agent, Kind: claude, Owner: "toolu_1", Parent: forker, Version: 5000, Hidden: true,
 		}, isUnit, false},
-		{"bySeenUnderWithoutLineage", func(w *unitWorld) {
+		// The same for a tie by its own entry, which is how a hidden program
+		// started with WORKBENCH_GUARD=off in the call's tree is tied once
+		// the init process adopts it.
+		{"byOwnEntryWithNothingReadable", func(w *unitWorld) {
+			w.stamps[500] = stamp{}
+			w.entries[rootKey] = byCall
+		}, tie{Agent: agent, Kind: claude, Owner: "toolu_1", Version: 5000, Hidden: true}, isUnit, false},
+		{"byOwnEntryWithoutLineage", func(w *unitWorld) {
 			w.lineage = false
 			w.lineages = nil
 			w.stamps[500] = stamp{Readable: true}
-			w.seenUnder[rootKey] = byCall
+			w.entries[rootKey] = byCall
 		}, tie{Agent: agent, Kind: claude, Owner: "toolu_1"}, isUnit, false},
 		// A Codex session a Claude Code command started: its command's
 		// processes carry the outer agent's stamps and the Codex call's ID,
@@ -209,7 +216,7 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		}, tie{}, notUnit, false},
 		// On Linux a service the init process starts can carry a command's
 		// variables, so a stamp ties nothing there.
-		{"validStampWithoutLineageNorSeenUnder", func(w *unitWorld) {
+		{"validStampWithoutLineageNorEntry", func(w *unitWorld) {
 			w.lineage = false
 		}, tie{}, notUnit, false},
 		{"rootIsAKnownAgentTiedByStamp", func(w *unitWorld) {
