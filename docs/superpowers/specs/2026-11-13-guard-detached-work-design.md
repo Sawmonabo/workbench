@@ -212,18 +212,22 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
 32. A Go map model of the versions kept took 13.0 MiB of heap at 65,536
     versions, about 208 bytes each; at the bound of 16,384 that is about
     3.3 MiB (computed, not measured). The watcher's soft memory limit is
-    32 MiB. With 1,400 processes held under one command the watcher spent
-    8.4 ms a tick, and under a churn of about 650 new processes a tick
-    10.2 ms, as much as a watcher without detached work (11.4 and 10.0 ms in
-    the same session). Under that churn, with the store at its bound
-    (inferred from the churn rate; the watcher does not report the store's
-    size), its
-    live heap was 11 to 13 MiB, of which the store took 5.1 to 6.8 MiB; the
-    memory its limit counts stayed near 30 MiB, the collector used under
-    0.1 % of the CPU, and it was resident at 37 to 41 MiB, the rest being
-    the program's code and C library. Every run ticked once a second; the
-    cost at the 100 ms pressure tick is ten times the per-tick cost, not
-    measured.
+    32 MiB. The watcher as built was measured against one built from the
+    release before this design, on macOS, ticking once a second, under two
+    loads: a command holding 1,400 `sleep` processes, and a command running
+    650 shell loops of `/bin/sleep 1` (about 650 new processes a second) for
+    75 s. Memory was read every 5 s over a 60-second window and counted as
+    the limit counts it (`Sys` less `HeapReleased`); CPU is the watcher's CPU
+    time over the window. CPU a tick was 0.4 to 2.3 ms higher in six pairs
+    of runs (7.9 to 10.4 ms against 6.1 to 9.0 ms), inside the run-to-run
+    spread of one build, about 2 ms, so it is given as a range. Under the
+    churn the watcher counted up to 23.1 MiB against the limit where the
+    earlier release counted 16.1 to 18.0 MiB; the difference is the store,
+    5 to 7 MiB of live heap at its bound (inferred from the churn rate; the
+    watcher does not report the store's size). Under the held processes it
+    counted slightly less, 15.2 MiB at most against up to 17.9 MiB. The
+    collector used 0.03 % of the CPU or less. The cost at the 100 ms pressure
+    tick is not measured.
 33. At a handover with the store at its bound (14,468 entries), the old
     watcher wrote 3.66 MB to the next one in 6.9 ms; marshalling, writing
     and reading took about 31 ms in all.
@@ -909,6 +913,18 @@ not read it in time is cancelled and the old watcher carries on.
   launcher or the program itself may rewrite them. The command line is in
   the view only, in the shown form of section 8.
 - A person stops a unit from the view the same way as a command.
+- The watcher's own memory stays under its 32 MiB limit with room to spare
+  (2.1 fact 32). Its collector runs at 50 GC percent, so the heap grows to
+  one and a half times its live heap before each collection instead of
+  twice: Go's GC guide gives the heap target as "Live heap + (Live heap + GC
+  roots) * GOGC / 100" and, for a program close to its memory limit, says
+  that to "decrease GOGC … provides a much cleaner trade-off than
+  thrashing-mitigation does". It keeps its process list, snapshot and parent
+  index from one tick to the next and builds each tick's in them, cleared
+  first, so a busy build does not make them anew at every tick. On macOS it
+  lets go, at start, of the tables of network services and protocols that
+  the SQLite driver's C library builds in every Workbench process; the
+  watcher never opens a database.
 
 ## 7. Agent and helper rows
 
@@ -1353,3 +1369,6 @@ Nothing is run on Linux, WSL or Windows for this release (2.3).
   <https://elixir.bootlin.com/linux/v6.12/source/fs/proc/base.c>
 - Go's `time` package, a time's JSON form drops the monotonic clock reading:
   <https://pkg.go.dev/time>
+- Go's GC guide, the heap target and GOGC under a memory limit:
+  <https://go.dev/doc/gc-guide>; `runtime/debug.SetMemoryLimit`, what the
+  limit counts: <https://pkg.go.dev/runtime/debug#SetMemoryLimit>

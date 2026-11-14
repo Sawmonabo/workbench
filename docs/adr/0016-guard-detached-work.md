@@ -193,9 +193,14 @@ How to see a call that ends within a tick:
   the command at a tick before it detached. None of it was run there.
 - The store holds between 14,336 and 16,384 versions under a busy build.
   Stamps inside tracked trees are read from a process's second recorded
-  tick, so a session without the hooks is protected one tick later; with that,
-  the watcher costs what it did without detached work, about 10 ms a tick
-  under a churn of short processes.
+  tick, so a session without the hooks is protected one tick later.
+  Measured against a watcher built from the release before this work, at
+  one tick a second, the watcher spends 0.4 to 2.3 ms more CPU a tick
+  (inside the run-to-run spread), and under a build starting about 650
+  processes a second counts up to 23.1 MiB against its 32 MiB limit where
+  the earlier one counted 16.1 to 18.0 MiB, the difference being the store;
+  under 1,400 held processes it counts slightly less (15.2 against up to
+  17.9 MiB). The limit is unchanged; the collector runs at 50 GC percent.
 - The ten seconds start again at a handover, so detached work is not chosen
   for ten seconds after an update; the store (3.66 MB at its bound), the
   call records and the processes stamps named as agents pass to the next
