@@ -83,9 +83,10 @@ type handover struct {
 // the new one reads itself: the tracked commands' roots, notes and memory,
 // the calls whose command ended or that are passed over, the largest peak,
 // the commands that finished within finishedShown, who stopped each tracked
-// command that was signalled, the call records and the agents the guard
-// knows, which live only in memory. The notes let the new watcher end a
-// command whose note was deleted, ended, while the watch passed. A unit is
+// command that was signalled, the call records, the agents the guard knows
+// and the processes stamps named as agents, which live only in memory. The
+// notes let the new watcher end a command whose note was deleted, ended,
+// while the watch passed. A unit is
 // carried with its made-up note, its roots and call (Detached) and its
 // command line (Shown), which passes only through the pipe. Final are the
 // processes judged no unit for good, which adopt keeps final. Ancestry is
@@ -103,6 +104,10 @@ type carried struct {
 	StoppedBy   map[string]string   `json:"stopped_by"`
 	Records     []callRecord        `json:"records"`
 	Known       []agentFile         `json:"known"`
+	// StampAgents are the processes a stamp named as their agent (see
+	// stampOf), protected like a known agent, so the new watcher protects
+	// them from its first tick on, before any stamp is read again.
+	StampAgents []procRef `json:"stamp_agents,omitempty"`
 	// Final are the children of the init process judged no unit for good
 	// (see judged), so a new watcher cannot tie one of them to a unit by
 	// parent again.
@@ -356,6 +361,9 @@ func (w *watcher) carried() carried {
 	for key, k := range w.known {
 		c.Known = append(c.Known, agentFile{PID: key.pid, Start: key.start, Kind: k})
 	}
+	for key := range w.stampAgents {
+		c.StampAgents = append(c.StampAgents, procRef{PID: key.pid, Start: key.start})
+	}
 	for id, cmd := range w.tracked {
 		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
 		c.Notes[id] = cmd.Note
@@ -462,8 +470,10 @@ func takeListener() *net.UnixListener {
 // finished commands, which buildView drops finishedShown after they ended as
 // it does its own, who stopped each tracked command, the call records, each in
 // place of the one this watcher made from the note on disk, which holds no
-// shell, the known agents that run, the ancestry store, merged before this
-// tick records the trees (see ancestry.adopt), and each tracked command
+// shell, the known agents and the processes stamps named as agents that are
+// still in the process table, before this tick builds its protected set, the
+// ancestry store, merged before this tick records the trees (see
+// ancestry.adopt), and each tracked command
 // with its note, the one on disk or else the one carried. A command whose
 // root still runs, with its start time, as the note's agent's child is
 // tracked again with its memory, whether it is passed over, and logged. One
@@ -489,9 +499,16 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 			w.classified[procKey{r.PID, r.Start}] = finalNo()
 		}
 	}
+	// Both are protected while they are in the process table, a zombie not
+	// yet reaped included (see agents), so both are taken on while present.
 	for _, a := range c.Known {
-		if s.alive(a.PID, a.Start) {
+		if s.present(a.PID, a.Start) {
 			w.known[procKey{a.PID, a.Start}] = a.Kind
+		}
+	}
+	for _, a := range c.StampAgents {
+		if s.present(a.PID, a.Start) {
+			w.stampAgents[procKey{a.PID, a.Start}] = true
 		}
 	}
 	onDisk := map[string]note{}
