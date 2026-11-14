@@ -43,7 +43,8 @@ var bootTime = sync.OnceValue(func() time.Time {
 // StartTime is a Process.Start as a wall-clock time: the boot time plus the
 // clock ticks since boot. It is the zero time when the boot time cannot be
 // read. The boot time is whole seconds, so the result can be up to a second
-// early.
+// early, and it is read once, so a later step of the wall clock shifts every
+// result by the size of that step.
 func StartTime(start uint64) time.Time {
 	boot := bootTime()
 	if boot.IsZero() {
@@ -56,7 +57,9 @@ func StartTime(start uint64) time.Time {
 // and the last ")", so a name holding either cannot shift the fields after
 // it: state (field 3), ppid (4), pgrp (5) and starttime (22). UID is the
 // owner of /proc/<pid>, which the kernel sets to the process's effective
-// user.
+// user, except that a process whose dumpable attribute is not 1 (after a
+// set-user-ID exec, or prctl(PR_SET_DUMPABLE, 0)) has its /proc/<pid> owned
+// by root, so UID reads 0 for it.
 func ProcessInfo(pid int) (Process, error) {
 	dir := "/proc/" + strconv.Itoa(pid)
 	var owner unix.Stat_t
@@ -142,12 +145,14 @@ func Environ(pid int, name string) string {
 
 // Environment is the named variables in /proc/<pid>/environ, the environment
 // the process started with, read once. A name that is absent has no entry.
-// readable is false when the file cannot be read, as for another user's
-// process.
+// readable is false when the kernel gives no environment at all: the file
+// cannot be read, as for another user's process, or it reads empty with no
+// error, as for a zombie, a process that exited but is not yet reaped, or a
+// kernel thread.
 func Environment(pid int, names ...string) (values map[string]string, readable bool) {
 	values = map[string]string{}
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
-	if err != nil {
+	if err != nil || len(data) == 0 {
 		return values, false
 	}
 	for entry := range strings.SplitSeq(string(data), "\x00") {

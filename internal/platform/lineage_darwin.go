@@ -10,8 +10,9 @@ import (
 // headers that answers for another process without privileges. It
 // fills struct proc_uniqidentifierinfo, whose p_idversion, the int32 at byte
 // 32, is the process's own version and p_orig_ppidversion, the int32 at byte
-// 36, the version of the process that forked it; the kernel keeps that one
-// when launchd adopts the child. The version is one counter for the whole
+// 36, the version the process that forked it had when it forked; the kernel
+// keeps that one when launchd adopts the child, and it no longer equals the
+// parent's Version once that parent execs. The version is one counter for the whole
 // system, raised at each fork and exec, so a version names one process image
 // and never a later one that reuses its PID. proc_pidinfo returns the bytes
 // it wrote (56) as a C int; fewer than the 40 the two fields need, as for a
