@@ -99,3 +99,44 @@ func digits(text string) bool {
 	}
 	return true
 }
+
+// cachedStamp is a stamp kept for a process with the program it was read
+// for: once the process runs another program, with an environment of its
+// own, the stamp is read again.
+type cachedStamp struct {
+	stamp
+	program program
+}
+
+// stampOf is pid's stamp in s, read once per program a process runs (see
+// readStamp, programOf) and kept in stamps while it runs, a hidden one too:
+// a process forked but not yet exec'd shows its parent's environment, and
+// shows its own once it execs, which is another program. A stamp whose agent
+// stamp names a live process that started before pid makes that process
+// protected while it lives (see agents), and at once in protected when it is
+// not nil.
+func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
+	p, ok := s[pid]
+	if !ok {
+		return stamp{}
+	}
+	return w.stampFor(s, p, programOf(p), protected)
+}
+
+// stampFor is stampOf for p, a process of s, whose program now was just read.
+func (w *watcher) stampFor(s snapshot, p proc, now program, protected map[int]uint64) stamp {
+	key := procKey{p.PID, p.Start}
+	cached, ok := w.stamps[key]
+	st := cached.stamp
+	if !ok || !cached.program.known() || cached.program.replaced(now) {
+		st = readStamp(p.PID)
+		w.stamps[key] = cachedStamp{st, now}
+	}
+	if a, ok := s[st.Agent]; ok && st.Agent > 1 && !a.Zombie && a.Start < p.Start {
+		w.stampAgents[procKey{a.PID, a.Start}] = true
+		if protected != nil {
+			protected[a.PID] = a.Start
+		}
+	}
+	return st
+}
