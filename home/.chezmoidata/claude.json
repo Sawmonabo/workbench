@@ -86,7 +86,7 @@
         ],
         "PostToolUse": [
           {
-            "matcher": "Bash",
+            "matcher": "Bash|Monitor",
             "hooks": [
               { "type": "command", "command": "workbench guard post || true", "timeout": 5 }
             ]
@@ -94,7 +94,7 @@
         ],
         "PostToolUseFailure": [
           {
-            "matcher": "Bash",
+            "matcher": "Bash|Monitor",
             "hooks": [
               { "type": "command", "command": "workbench guard post || true", "timeout": 5 }
             ]

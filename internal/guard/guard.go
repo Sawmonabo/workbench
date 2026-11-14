@@ -23,8 +23,8 @@ const (
 // note is what the pre hook leaves for one shell call. NotedStart is the pre
 // hook process's own kernel start time, in the units of proc.Start, so the
 // matcher compares kernel start times with each other and never with the
-// wall clock. Posted marks a background call's note after its post hook,
-// which runs while the command goes on; Ended marks any other call's note
+// wall clock. Posted marks a background or Monitor call's note after its post
+// hook, which runs while the command goes on; Ended marks any other call's note
 // after its post hook, which runs once the command has returned, and the
 // watcher deletes an ended note once it has kept the call's record (see
 // watcher.notes). Cwd is the agent's working folder for

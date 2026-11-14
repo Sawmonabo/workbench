@@ -299,10 +299,13 @@ for event, label, verb in (("PreToolUse", "pre_tool_use", "pre"), ("PostToolUse"
     if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
         print(f"HOOKS FAIL: codex {event} guard hook or its trust missing")
         bad = 1
+# Claude Code's post hooks also run on Monitor calls, whose commands the pre
+# hook on Bash notes too.
 claude = json.load(open(dest + "/.claude/settings.json"))["hooks"]
-for event, verb in (("PreToolUse", "pre"), ("PostToolUse", "post"), ("PostToolUseFailure", "post")):
+for event, verb, matcher in (("PreToolUse", "pre", "Bash"), ("PostToolUse", "post", "Bash|Monitor"),
+                             ("PostToolUseFailure", "post", "Bash|Monitor")):
     if not any(
-        group.get("matcher") == "Bash" and any(
+        group.get("matcher") == matcher and any(
             hook.get("type") == "command" and hook.get("command", "").endswith(f" guard {verb} || true")
             for hook in group.get("hooks", []))
         for group in claude.get(event, [])

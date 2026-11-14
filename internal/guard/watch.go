@@ -458,8 +458,8 @@ func (w *watcher) demand(m memory, now time.Time) action {
 // start time) is gone (see gone). Every other note read makes its agent known
 // and keeps its call's record. An ended note, one whose post hook ran, is then
 // deleted and taken as a note that went away: it is not given, so it is never
-// matched, nor abandoned. A posted note, a background call's that its
-// post hook kept, is deleted once its command has ended or, when no command
+// matched, nor abandoned. A posted note, a background or Monitor call's that
+// its post hook kept, is deleted once its command has ended or, when no command
 // matched it, childLinger after it was first read posted and once match has
 // looked for it in two rounds: its command started before the post hook, so a
 // later process is never its command. A note that
