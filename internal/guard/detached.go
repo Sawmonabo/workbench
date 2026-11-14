@@ -397,11 +397,11 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 		below:     below,
 	}
 	w.rejudgeRoots(s, f, true)
-	type candidate struct {
+	type orphan struct {
 		p    proc
 		prog program
 	}
-	var roots []candidate
+	var roots []orphan
 	for _, p := range s {
 		if p.UID != self || p.Zombie || !childOfInit(s, p, protected) {
 			continue
@@ -414,10 +414,10 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 		if judgedBefore && j.v == notUnit && !j.program.replaced(prog) {
 			continue
 		}
-		roots = append(roots, candidate{p, prog})
+		roots = append(roots, orphan{p, prog})
 	}
 	// The earlier root first, so a unit is named by its first root.
-	slices.SortFunc(roots, func(a, b candidate) int { return olderFirst(a.p, b.p) })
+	slices.SortFunc(roots, func(a, b orphan) int { return olderFirst(a.p, b.p) })
 	for _, r := range roots {
 		key := procKey{r.p.PID, r.p.Start}
 		if j, ok := w.classified[key]; ok && j.fixed {
