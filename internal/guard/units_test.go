@@ -277,20 +277,25 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 // stop a person's program or an agent session. A person may still stop them.
 func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 	const gb = uint64(1) << 30
-	unit := func(pid int, call string) command {
-		return command{
-			Root:     process(pid, 1, pid, float64(pid), "node"),
-			Detached: &detached{Roots: []procRef{{pid, start(float64(pid))}}, Call: call},
-		}
+	now := time.Now()
+	// A unit's candidate is made as stopLargest makes it, through ownStop.
+	unit := func(pid int, call string, size uint64, tracked time.Duration) candidate {
+		c, age := ownStop(command{
+			Root: process(pid, 1, pid, float64(pid), "node"),
+			Detached: &detached{Roots: []detachedRoot{{
+				procRef: procRef{pid, start(float64(pid))}, Since: now.Add(-tracked),
+			}}, Call: call},
+		}, now)
+		return candidate{c: c, size: size, tracked: age}
 	}
 	noted := candidate{
 		c:       command{Root: process(10, 100, 10, 10, "zsh")},
 		size:    gb,
 		tracked: time.Second,
 	}
-	withCall := candidate{c: unit(20, "toolu_1"), size: 2 * gb, tracked: time.Minute}
-	withoutCall := candidate{c: unit(30, ""), size: 8 * gb, tracked: time.Minute}
-	young := candidate{c: unit(40, "toolu_2"), size: 9 * gb, tracked: 3 * time.Second}
+	withCall := unit(20, "toolu_1", 2*gb, time.Minute)
+	withoutCall := unit(30, "", 8*gb, time.Minute)
+	young := unit(40, "toolu_2", 9*gb, 3*time.Second)
 
 	chosen, total, ok := choose([]candidate{noted, withCall, withoutCall, young})
 	if !ok || chosen.c.Root.PID != 20 || total != 3*gb {

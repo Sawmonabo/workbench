@@ -510,18 +510,25 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 // adoptUnit takes on a carried unit with its made-up note, which is never on
 // disk, its roots, call, command line and memory, and whether it is passed
 // over. Its roots are children of the init process, not of its agent, so
-// none is asked to be the agent's child. Each root is marked classified, so
-// it is not found again as a unit of its own, and each process of the roots'
-// trees is marked seen under the unit, so one the init process adopts later
-// joins it (see findUnits), as it would have under the old watcher; its
-// roots' stamps are read again, so an agent they name stays protected. One
-// none of whose roots runs is tracked without a log, and forget ends it.
+// none is asked to be the agent's child. Each root keeps the time it was
+// first tracked, so its wait before the guard may stop it (see ownStop) goes
+// on where it was; a root carried without one starts it again. Each live
+// root is marked judged, so it is not found again as a unit of its own, and
+// its stamps are read again, so an agent they name stays protected; the
+// roots' trees are recorded by recordLineage in this same tick, before units
+// are found. One none of whose roots runs is tracked without a log, and
+// forget ends it.
 func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	n, ok := c.Notes[id]
 	if !ok {
 		return
 	}
 	unit.Roots = slices.Clone(unit.Roots)
+	for i := range unit.Roots {
+		if unit.Roots[i].Since.IsZero() {
+			unit.Roots[i].Since = time.Now()
+		}
+	}
 	cmd := command{Note: n, Detached: &unit, Shown: c.Shown[id]}
 	if len(unit.Roots) > 0 {
 		cmd.Root = firstRoot(s, cmd)
@@ -533,22 +540,11 @@ func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	}
 	w.usage[id] = &u
 	w.passed[id] = slices.Contains(c.Passed, id)
-	o := owner{ID: id, Agent: procKey{n.AgentPID, n.AgentStart}, Kind: n.Kind}
 	for _, r := range unit.Roots {
 		if s.alive(r.PID, r.Start) {
-			w.classified[procKey{r.PID, r.Start}] = isUnit
+			w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit, name: r.Name}
 			w.stampOf(s, r.PID, nil)
 		}
-	}
-	// Without the agents the guard knows, as recordLineage leaves out
-	// protected processes, so work under a nested agent is not the unit's.
-	agent := func(p proc) bool {
-		key := procKey{p.PID, p.Start}
-		_, known := w.known[key]
-		return known || w.stampAgents[key] || p.PID <= 1
-	}
-	for _, p := range s.commandTree(cmd, agent) {
-		w.seenUnder[procKey{p.PID, p.Start}] = o
 	}
 	if live(s, cmd) {
 		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(cmd)...)

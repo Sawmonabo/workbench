@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -73,10 +72,16 @@ func live(s snapshot, c command) bool {
 	if c.Detached == nil {
 		return s.alive(c.Root.PID, c.Root.Start)
 	}
-	return slices.ContainsFunc(c.Detached.Roots, func(r procRef) bool {
+	return slices.ContainsFunc(c.Detached.Roots, func(r detachedRoot) bool {
 		return s.alive(r.PID, r.Start)
 	})
 }
+
+// programName is a program's name as the log, the reason and a kill record
+// may name it: the kernel's process name, never anything from its arguments,
+// which its launcher sets (exec -a) or the program itself rewrites, and which
+// may hold users, hosts, paths or a token.
+func programName(p proc) string { return p.Name }
 
 // firstRoot is the first of a unit's roots that runs in s, else its first
 // root, else c.Root as it is.
@@ -99,9 +104,12 @@ func firstRoot(s snapshot, c command) proc {
 // its version, so a child the init process adopts later is tied to the call
 // or unit that forked it. Only the tree a stop would signal is recorded,
 // without protected processes, so work under a nested agent is never tied to
-// the outer call. A process that is gone is dropped from seenUnder; a version
-// is kept versionsKept after it was last seen, at most versionsLimit of them.
+// the outer call, and what was recorded of a process before it came under a
+// protected one is forgotten at every tick (see unrecordProtected). A process
+// that is gone is dropped from seenUnder; a version is kept versionsKept
+// after it was last seen, at most versionsLimit of them.
 func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uint64) {
+	w.unrecordProtected(s, protected)
 	now := time.Now()
 	if now.Sub(w.lineageAt) < lineageEvery {
 		return
@@ -110,6 +118,7 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 	for key := range w.seenUnder {
 		if !s.alive(key.pid, key.start) {
 			delete(w.seenUnder, key)
+			delete(w.versionOf, key)
 		}
 	}
 	skip := outside(protected)
@@ -126,6 +135,7 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 			if l, ok := platform.ProcessLineage(p.PID); ok {
 				w.versions[l.Version] = o
 				w.versionSeen[l.Version] = now
+				w.versionOf[procKey{p.PID, p.Start}] = l.Version
 			}
 		}
 	}
@@ -155,24 +165,73 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 	}
 }
 
-// stampOf is pid's stamp in s, read once per process (see readStamp) and
-// kept in stamps while the process runs; one the kernel hides is read again
-// next time. A stamp whose agent stamp names a
-// live process that started before pid makes that process protected while it
-// lives (see agents), and at once in protected when it is not nil.
+// unrecordProtected forgets where each process now under a protected process
+// (a nested session that registered, a process a stamp names as its agent)
+// was seen, and its version: it was recorded under the outer call or unit
+// before that process was known, and work it leaves later must be that
+// process's, never the outer call's. Only a protected process between the
+// recorded one and its owner's agent counts, since every command runs under
+// its own agent.
+func (w *watcher) unrecordProtected(s snapshot, protected map[int]uint64) {
+	for key, o := range w.seenUnder {
+		p, ok := s[key.pid]
+		if !ok || p.Start != key.start || !underOther(s, p, o.Agent, protected) {
+			continue
+		}
+		delete(w.seenUnder, key)
+		if v, ok := w.versionOf[key]; ok {
+			delete(w.versions, v)
+			delete(w.versionSeen, v)
+			delete(w.versionOf, key)
+		}
+	}
+}
+
+// underOther reports whether p, or a process above it before agent, is
+// protected, each named by PID and start time. The walk ends at agent, at
+// PID 1 and at a parent loop from a non-atomic scan.
+func underOther(s snapshot, p proc, agent procKey, protected map[int]uint64) bool {
+	seen := map[int]bool{}
+	for q, ok := p, true; ok && q.PID > 1 && !seen[q.PID]; q, ok = s[q.PPID] {
+		seen[q.PID] = true
+		if q.PID == agent.pid && q.Start == agent.start {
+			return false
+		}
+		if start, found := protected[q.PID]; found && start == q.Start {
+			return true
+		}
+	}
+	return false
+}
+
+// cachedStamp is a readable stamp kept for a process with its process name
+// when it was read: once the name changes the process runs another program,
+// with an environment of its own, so the stamp is read again.
+type cachedStamp struct {
+	stamp
+	name string
+}
+
+// stampOf is pid's stamp in s, read once per program a process runs (see
+// readStamp) and kept in stamps while it runs; one the kernel hides is read
+// again next time. A stamp whose agent stamp names a live process that
+// started before pid makes that process protected while it lives (see
+// agents), and at once in protected when it is not nil.
 func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	p, ok := s[pid]
 	if !ok {
 		return stamp{}
 	}
 	key := procKey{pid, p.Start}
-	st, ok := w.stamps[key]
-	if !ok {
+	cached, ok := w.stamps[key]
+	st := cached.stamp
+	if !ok || cached.name != p.Name {
+		delete(w.stamps, key)
 		// Only a readable stamp is kept: a process forked but not yet exec'd
 		// shows its parent's environment, which a restricted shell hides, and
 		// shows its own once it execs.
 		if st = readStamp(pid); st.Readable {
-			w.stamps[key] = st
+			w.stamps[key] = cachedStamp{st, p.Name}
 		}
 	}
 	if a, ok := s[st.Agent]; ok && st.Agent > 1 && !a.Zombie && a.Start < p.Start {
@@ -184,13 +243,25 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	return st
 }
 
-// findUnits finds new units, after matching and recordLineage: each child of
-// an init process that is the watcher's user's, not a zombie and not yet
-// classified, by PID and start time, goes through unitRoot once, or each tick
-// while its verdict is unread. A root tied by parent to a tracked unit joins
-// it; any other becomes a tracked unit, logged tracking. Where the kernel
-// keeps the original parent but does not answer for the init process, it
-// finds none and logs that once.
+// judged is unitRoot's verdict on a child of the init process, with the
+// process name it was judged under. fixed marks a verdict on facts that never
+// change for a process (another user's, started by the init process).
+type judged struct {
+	v     verdict
+	name  string
+	fixed bool
+}
+
+// findUnits finds and judges again the units of this tick, after matching
+// and recordLineage. The roots of the tracked units are judged again first
+// (see rejudgeRoots). Then each child of an init process that is the
+// watcher's user's and not a zombie goes through unitRoot: once, each tick
+// while its verdict is unread, and again once a no that rests on what it ran
+// is followed by another program (its process name changed). A root tied by
+// parent to a tracked unit joins it; any other becomes a tracked unit, logged
+// tracking. Where the kernel keeps the original parent but does not answer
+// for the init process, it judges nothing and logs that once, and once more
+// when it answers again.
 func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 	for key := range w.classified {
 		if !s.alive(key.pid, key.start) {
@@ -211,6 +282,11 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 			}
 			return
 		}
+		if w.lineageLost {
+			w.lineageLost = false
+			w.f.event(slog.LevelInfo, EventError,
+				"can read where processes come from again; detached work is tracked")
+		}
 	}
 	self := os.Getuid()
 	f := facts{
@@ -225,12 +301,14 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 		seenUnder: w.seenUnder,
 		records:   w.records,
 	}
+	w.rejudgeRoots(s, f)
 	var roots []proc
 	for _, p := range s {
 		if p.UID != self || p.Zombie || !childOfInit(s, p) {
 			continue
 		}
-		if v, ok := w.classified[procKey{p.PID, p.Start}]; ok && v != unread {
+		if j, ok := w.classified[procKey{p.PID, p.Start}]; ok &&
+			(j.v == isUnit || j.fixed || j.v == notUnit && j.name == p.Name) {
 			continue
 		}
 		roots = append(roots, p)
@@ -238,39 +316,127 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 	// The earlier root first, so a unit is named by its first root.
 	slices.SortFunc(roots, olderFirst)
 	for _, r := range roots {
-		// Its stamps first, so an agent they name is protected before the rule
-		// asks whether r is under a protected process.
-		stampsFor(s, r, f.stamp)
-		t, v := unitRoot(s, r, f)
-		w.classified[procKey{r.PID, r.Start}] = v
+		t, v, why := unitRootWhy(s, r, f)
+		w.classified[procKey{r.PID, r.Start}] = judged{
+			v: v, name: r.Name, fixed: why == whyOtherUser || why == whyStartedByInit,
+		}
 		if v == isUnit {
 			w.addRoot(s, r, t)
 		}
 	}
 }
 
+// rejudgeRoots judges each live root of every tracked unit again. A root
+// that has become an agent the guard knows leaves its unit at once. One
+// whose process name or command line changed since it was judged runs
+// another program than the one it was judged on, such as a fork caught
+// before it started its own: it goes through unitRoot again with fresh
+// stamps, so one that is now off, Workbench or another agent's leaves its
+// unit, and one whose stamps now say dry-run makes its unit a dry run. A
+// unit left with no root is forgotten with one ended record naming why. A
+// root whose lineage cannot be read this tick, or that has nothing readable,
+// keeps its place and is judged again next tick. The unit's command follows
+// its first live root.
+func (w *watcher) rejudgeRoots(s snapshot, f facts) {
+	for id, c := range w.tracked {
+		if c.Detached == nil {
+			continue
+		}
+		changed, why := false, ""
+		roots := make([]detachedRoot, 0, len(c.Detached.Roots))
+		for _, r := range c.Detached.Roots {
+			key := procKey{r.PID, r.Start}
+			if !s.alive(r.PID, r.Start) {
+				roots = append(roots, r) // forget drops it once gone
+				continue
+			}
+			p := s[r.PID]
+			if _, known := f.known[key]; known {
+				changed, why = true, whyAgent
+				w.classified[key] = judged{v: notUnit, name: p.Name}
+				continue
+			}
+			args := strings.Join(platform.Args(r.PID), " ")
+			if p.Name == r.Name && args == r.Args {
+				roots = append(roots, r)
+				continue
+			}
+			// Fresh stamps, for the root and what is below it.
+			for _, q := range s.tree(r.PID, nil) {
+				delete(w.stamps, procKey{q.PID, q.Start})
+			}
+			t, v, rootWhy := unitRootWhy(s, p, f)
+			switch {
+			case v == isUnit:
+				if t.Mode == "dry-run" {
+					c.Note.DryRun = true
+				}
+				r.Name, r.Args = p.Name, args
+				changed = true
+			case v == notUnit && rootWhy != whyNoLineage:
+				changed, why = true, rootWhy
+				w.classified[key] = judged{v: notUnit, name: p.Name}
+				continue
+			}
+			roots = append(roots, r)
+		}
+		if !changed {
+			continue
+		}
+		c.Detached.Roots = roots
+		if len(roots) == 0 {
+			w.f.event(slog.LevelInfo, EventEnded, "ended", append(w.endAttrs(c), "reason", why)...)
+			w.untrack(id)
+			continue
+		}
+		followFirstRoot(s, &c)
+		w.tracked[id] = c
+	}
+}
+
+// followFirstRoot makes a unit's Root its first live root, and its command
+// that root's program as it was last judged: its process name in the note,
+// which may be logged, and its command line in Shown, which only the view
+// shows.
+func followFirstRoot(s snapshot, c *command) {
+	c.Root = firstRoot(s, *c)
+	for _, r := range c.Detached.Roots {
+		if s.alive(r.PID, r.Start) {
+			c.Note.Command = cmp.Or(r.Name, programName(s[r.PID]))
+			c.Shown = r.Args
+			return
+		}
+	}
+}
+
 // addRoot tracks r, a unit's root tied by t: in the unit that forked it when
-// that unit is tracked, else as a new unit, whose call it resolves once.
+// that unit is tracked, else as a new unit, whose call it resolves once. A
+// root that joins a unit and whose stamps say dry-run makes that unit a dry
+// run.
 func (w *watcher) addRoot(s snapshot, r proc, t tie) {
-	ref := procRef{PID: r.PID, Start: r.Start}
+	root := detachedRoot{
+		procRef: procRef{PID: r.PID, Start: r.Start},
+		Since:   time.Now(),
+		Name:    r.Name,
+		Args:    strings.Join(platform.Args(r.PID), " "),
+	}
 	if u, ok := w.tracked[t.Owner]; ok && u.Detached != nil {
-		u.Detached.Roots = append(u.Detached.Roots, ref)
+		u.Detached.Roots = append(u.Detached.Roots, root)
+		if t.Mode == "dry-run" {
+			u.Note.DryRun = true
+			w.tracked[t.Owner] = u
+		}
 		return
 	}
 	call, rec := w.resolveCall(r, t)
-	args := platform.Args(r.PID)
-	name := r.Name
-	if len(args) > 0 {
-		name = filepath.Base(args[0])
-	}
 	cwd, _ := platform.Folder(r.PID)
-	id := unitID(ref)
+	id := unitID(root.procRef)
 	n := note{
 		ToolUseID:  id,
 		AgentPID:   t.Agent.pid,
 		AgentStart: t.Agent.start,
 		Kind:       t.Kind,
-		Command:    name,
+		Command:    programName(r),
 		Cwd:        cwd,
 		Project:    projectName("", cwd),
 		NotedAt:    platform.StartTime(r.Start),
@@ -280,8 +446,8 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 		n.Subagent = rec.Subagent
 	}
 	c := command{
-		Note: n, Root: s[r.PID], Shown: strings.Join(args, " "),
-		Detached: &detached{Roots: []procRef{ref}, Call: call},
+		Note: n, Root: s[r.PID], Shown: root.Args,
+		Detached: &detached{Roots: []detachedRoot{root}, Call: call},
 	}
 	w.tracked[id] = c
 	w.usage[id] = &usage{Since: time.Now()}
@@ -303,9 +469,14 @@ func (w *watcher) resolveCall(r proc, t tie) (string, callRecord) {
 		return "", callRecord{}
 	case t.Owner != "":
 		// The call's tree forked r: that proves the call, with or without
-		// its record, which the newest few thousand bound.
+		// its record, which the newest few thousand bound. Without one, the
+		// call's tracked command still says its subagent and dry run.
 		if rec, ok = w.records.byID(t.Owner); !ok {
-			return t.Owner, callRecord{}
+			rec = callRecord{ID: t.Owner, Agent: t.Agent}
+			if owner, tracked := w.tracked[t.Owner]; tracked {
+				rec.Subagent, rec.DryRun = owner.Note.Subagent, owner.Note.DryRun
+			}
+			return t.Owner, rec
 		}
 	case t.Codex != "":
 		rec, ok = w.records.byID(t.Codex)
@@ -318,33 +489,6 @@ func (w *watcher) resolveCall(r proc, t tie) (string, callRecord) {
 	return rec.ID, rec
 }
 
-// dropAgentRoots drops from each unit the roots that are agents the guard
-// knows: a session a command started and left detached is an agent, never a
-// unit. A unit left with no root is forgotten with one ended record.
-func (w *watcher) dropAgentRoots(s snapshot) {
-	for id, c := range w.tracked {
-		if c.Detached == nil {
-			continue
-		}
-		before := len(c.Detached.Roots)
-		c.Detached.Roots = slices.DeleteFunc(c.Detached.Roots, func(r procRef) bool {
-			_, known := w.known[procKey{r.PID, r.Start}]
-			return known
-		})
-		if len(c.Detached.Roots) == before {
-			continue
-		}
-		if len(c.Detached.Roots) > 0 {
-			c.Root = firstRoot(s, c)
-			w.tracked[id] = c
-			continue
-		}
-		w.f.event(slog.LevelInfo, EventEnded, "ended",
-			append(w.endAttrs(c), "reason", "its root is an agent")...)
-		w.untrack(id)
-	}
-}
-
 // forgetUnit is forget for a unit: a root gone for two rounds (see gone)
 // leaves it, and the unit ends once no root is left or its agent is gone.
 // Members the init process adopts after a root exits join the unit as roots
@@ -352,11 +496,11 @@ func (w *watcher) dropAgentRoots(s snapshot) {
 // it has no note to be matched again.
 func (w *watcher) forgetUnit(s snapshot, id string, c command) {
 	agentGone := w.gone(s, c.Note.AgentPID, c.Note.AgentStart)
-	c.Detached.Roots = slices.DeleteFunc(c.Detached.Roots, func(r procRef) bool {
+	c.Detached.Roots = slices.DeleteFunc(c.Detached.Roots, func(r detachedRoot) bool {
 		return w.gone(s, r.PID, r.Start)
 	})
 	if !agentGone && len(c.Detached.Roots) > 0 {
-		c.Root = firstRoot(s, c)
+		followFirstRoot(s, &c)
 		w.tracked[id] = c
 		return
 	}

@@ -172,8 +172,20 @@ type command struct {
 // not resolve (see watcher.resolveCall), in which case the guard never
 // chooses it.
 type detached struct {
-	Roots []procRef `json:"roots"`
-	Call  string    `json:"call"`
+	Roots []detachedRoot `json:"roots"`
+	Call  string         `json:"call"`
+}
+
+// detachedRoot is one root of a unit: the process, when the guard first
+// tracked it (Since, carried across a handover), and what it was last judged
+// on, its process name and its command line, so that the guard judges it
+// again once it starts another program (see watcher.rejudgeRoots). Args is
+// shown in the view only, never logged.
+type detachedRoot struct {
+	procRef
+	Since time.Time `json:"since"`
+	Name  string    `json:"name"`
+	Args  string    `json:"args"`
 }
 
 // target is one signal: to the process PID, or with Group to the process

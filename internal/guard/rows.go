@@ -164,16 +164,14 @@ func (w *watcher) addRow(
 		if args == nil {
 			args = platform.Args(p.PID)
 		}
-		name := p.Name
-		if len(args) > 0 {
-			name = filepath.Base(args[0])
-		}
 		cwd, _ := platform.Folder(p.PID)
+		// The kernel's name only reaches the log; the command line, which
+		// may hold a token, only the view (see programName).
 		c = command{
 			Row: row, Shown: strings.Join(args, " "),
 			Note: note{
 				ToolUseID: id, AgentPID: agent.pid, AgentStart: agent.start, Kind: k,
-				Command: name, Cwd: cwd, Project: projectName("", cwd),
+				Command: programName(p), Cwd: cwd, Project: projectName("", cwd),
 				NotedAt: platform.StartTime(p.Start),
 			},
 		}

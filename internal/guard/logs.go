@@ -17,18 +17,20 @@ import (
 // agent, command (clipped as in the stop reason), root_pid and, when the note
 // has them, cwd, project and subagent. A record about a detached unit adds
 // kind (detached) and, when known, launched_by, the call that started it;
-// its call is the unit's ID, its command the root program's name, never its
-// arguments, and its root_pid its first root that runs. An ended record of
-// a unit whose only root turned out to be an agent adds reason (its root is
-// an agent). Ended, unmatched and stopping add took, the seconds since the
-// call's note, and ended and stopping add peak, the command's largest size in
-// bytes. A stop adds by (guard), size in bytes, reason, the text the agent is
-// told, and memory, the reading that called for it; a failure adds error. A
-// log that was cut starts with a record of event cut (see
-// [operation.RewriteLog]), which [ReadLog] never gives. The
-// watcher's own stdout and stderr, such as a crash's trace, go to its output
-// file (see outputFile), which each watcher starts with a record of event
-// output; [ReadLog] gives each other line there as a raw event. Logs of
+// its call is the unit's ID, its command the root program's process name,
+// never its arguments, and its root_pid its first root that runs. An ended
+// record of a unit whose last root left it adds reason, why (its root is an
+// agent, turned the guard off, and so on). A person's stop of a helper or an
+// unmatched row adds kind (helper or unmatched), with the row's ID as call
+// and its program's process name as command. Ended, unmatched and stopping
+// add took, the seconds since the call's note, and ended and stopping add
+// peak, the command's largest size in bytes. A stop adds by (guard), size in
+// bytes, reason, the text the agent is told, and memory, the reading that
+// called for it; a failure adds error. A log that was cut starts with a
+// record of event cut (see [operation.RewriteLog]), which [ReadLog] never
+// gives. The watcher's own stdout and stderr, such as a crash's trace, go to
+// its output file (see outputFile), which each watcher starts with a record
+// of event output; [ReadLog] gives each other line there as a raw event. Logs of
 // earlier builds can hold such lines too.
 const (
 	EventStarted   = "started"   // a watcher started
@@ -63,7 +65,8 @@ type Event struct {
 	Subagent string    `json:"subagent"`
 	Project  string    `json:"project"`
 	// Kind is detached on a record about a program that detached from a
-	// command, and LaunchedBy the ID of the call that started it, when known.
+	// command, and LaunchedBy the ID of the call that started it, when known;
+	// helper or unmatched on a person's stop of such a row.
 	Kind       string  `json:"kind"`
 	LaunchedBy string  `json:"launched_by"`
 	Cwd        string  `json:"cwd"`

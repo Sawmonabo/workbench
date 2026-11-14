@@ -2,6 +2,7 @@ package guard
 
 import (
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -48,26 +49,57 @@ const (
 	unread // no unit yet, but nothing readable was found: ask again while it lives
 )
 
+// The reasons unitRootWhy gives for a root that is no unit, as an ended
+// record of a unit whose last root is dropped names them. whyOtherUser and
+// whyStartedByInit rest on facts that never change for a process, so a root
+// judged on them is never judged again.
+const (
+	whyOtherUser     = "its root is another user's"
+	whyStartedByInit = "its root was started by the init process"
+	whyNotDetached   = "its root is no longer a child of the init process"
+	whyProtected     = "its root is protected or under a protected process"
+	whyAgent         = "its root is an agent"
+	whyWorkbench     = "its root is Workbench"
+	whyNoLineage     = "where its root comes from cannot be read"
+	whyUntied        = "its root is tied to no agent's command"
+	whyOtherAgent    = "its root belongs to another agent"
+	whyAgentUnknown  = "its root's agent is not one the guard knows that started before it"
+	whyOff           = "its root turned the guard off"
+)
+
 // unitRoot decides whether r, a child of the init process, is the root of a
-// detached unit: work an agent's command forked and left behind. A wrong yes
-// lets the guard stop a program no agent command started, so every doubt is
-// a no. r is a unit only when it is the watcher's user's, not a zombie, not
-// protected or under a protected process, not an agent the guard knows and
-// not Workbench; when, where the kernel keeps the original parent, it was
-// forked rather than started by init; and when it is tied to a known agent
-// that runs and started before it, by the process that forked it or, where
-// the kernel keeps the original parent, by its stamps. A stamp naming another
-// agent, or WORKBENCH_GUARD=off, makes it none.
+// detached unit (see unitRootWhy).
 func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
+	t, v, _ := unitRootWhy(s, r, f)
+	return t, v
+}
+
+// unitRootWhy decides whether r, a child of the init process, is the root of
+// a detached unit: work an agent's command forked and left behind, and, when
+// it is none, why. A wrong yes lets the guard stop a program no agent command
+// started, so every doubt is a no. r is a unit only when it is the watcher's
+// user's, not a zombie, not protected or under a protected process, not an
+// agent the guard knows and not Workbench; when, where the kernel keeps the
+// original parent, it was forked rather than started by init; and when it is
+// tied to a known agent that runs and started before it, by the process that
+// forked it or, where the kernel keeps the original parent, by its stamps. A
+// stamp naming another agent, or WORKBENCH_GUARD=off, makes it none. No
+// environment is read for a root these rules reject before its stamps.
+func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 	rKey := procKey{r.PID, r.Start}
-	if r.UID != f.self || r.Zombie || !childOfInit(s, r) || underProtected(s, r, f.protected) {
-		return tie{}, notUnit
+	switch {
+	case r.UID != f.self:
+		return tie{}, notUnit, whyOtherUser
+	case r.Zombie || !childOfInit(s, r):
+		return tie{}, notUnit, whyNotDetached
+	case underProtected(s, r, f.protected):
+		return tie{}, notUnit, whyProtected
 	}
 	if _, ok := f.known[rKey]; ok {
-		return tie{}, notUnit
+		return tie{}, notUnit, whyAgent
 	}
 	if args := f.args(r.PID); len(args) > 0 && filepath.Base(args[0]) == "workbench" {
-		return tie{}, notUnit
+		return tie{}, notUnit, whyWorkbench
 	}
 
 	// Where the kernel keeps the original parent, a process init itself
@@ -77,10 +109,13 @@ func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 		var parent platform.Lineage
 		var ok bool
 		if mine, ok = f.read(r.PID); !ok {
-			return tie{}, notUnit
+			return tie{}, notUnit, whyNoLineage
 		}
-		if parent, ok = f.read(r.PPID); !ok || mine.ParentVersion == parent.Version {
-			return tie{}, notUnit
+		if parent, ok = f.read(r.PPID); !ok {
+			return tie{}, notUnit, whyNoLineage
+		}
+		if mine.ParentVersion == parent.Version {
+			return tie{}, notUnit, whyStartedByInit
 		}
 	}
 
@@ -95,14 +130,14 @@ func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 		// variables, and nothing there tells it from a process the command
 		// forked, so a stamp ties nothing without the original parent.
 		if !f.lineage {
-			return tie{}, notUnit
+			return tie{}, notUnit, whyUntied
 		}
 		if len(stamps) == 0 {
-			return tie{}, unread
+			return tie{}, unread, ""
 		}
 		var ok bool
 		if t, ok = stampTie(s, stamps, f); !ok {
-			return tie{}, notUnit
+			return tie{}, notUnit, whyUntied
 		}
 	}
 
@@ -110,16 +145,16 @@ func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 	// be judged by that agent's stamps.
 	for _, st := range stamps {
 		if t.Kind == claude && st.Agent != 0 && st.Agent != t.Agent.pid {
-			return tie{}, notUnit
+			return tie{}, notUnit, whyOtherAgent
 		}
 		if rec, ok := resolve(f.records, st.Codex); ok && rec.Agent != t.Agent {
-			return tie{}, notUnit
+			return tie{}, notUnit, whyOtherAgent
 		}
 	}
 
 	if _, ok := f.known[t.Agent]; !ok || !s.alive(t.Agent.pid, t.Agent.start) ||
 		t.Agent.start >= r.Start {
-		return tie{}, notUnit
+		return tie{}, notUnit, whyAgentUnknown
 	}
 	for _, st := range stamps {
 		if st.Mode != "" {
@@ -128,9 +163,9 @@ func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 		}
 	}
 	if t.Mode == "off" {
-		return tie{}, notUnit
+		return tie{}, notUnit, whyOff
 	}
-	return t, isUnit
+	return t, isUnit, ""
 }
 
 // childOfInit reports whether r's parent is the init process: PID 1, or a
@@ -246,6 +281,37 @@ type candidate struct {
 // typed with ! carries the same stamp), so such a unit is left to a person.
 func (cand candidate) mayChoose() bool {
 	return cand.c.Detached == nil || cand.c.Detached.Call != "" && cand.tracked >= unitGrace
+}
+
+// ownStop is c as the guard's own stop may take it at now, and how long the
+// youngest root it keeps has been tracked: a noted command whole (0); a unit
+// with only the roots tracked for unitGrace, since a session a unit's process
+// starts and leaves detached joins that unit and needs that long to be known
+// as an agent. A unit with no such root keeps none and gives 0, which choose
+// never takes. A person's stop takes every live root instead.
+func ownStop(c command, now time.Time) (command, time.Duration) {
+	if c.Detached == nil {
+		return c, 0
+	}
+	own := *c.Detached
+	own.Roots = nil
+	var youngest time.Duration
+	for _, r := range c.Detached.Roots {
+		if age := now.Sub(r.Since); age >= unitGrace {
+			if own.Roots == nil || age < youngest {
+				youngest = age
+			}
+			own.Roots = append(own.Roots, r)
+		}
+	}
+	c.Detached = &own
+	if len(own.Roots) > 0 && !slices.ContainsFunc(own.Roots, func(r detachedRoot) bool {
+		return r.PID == c.Root.PID && r.Start == c.Root.Start
+	}) {
+		first := own.Roots[0]
+		c.Root = proc{Process: platform.Process{PID: first.PID, PPID: 1, Start: first.Start}}
+	}
+	return c, youngest
 }
 
 // choose is the guard's choice of what to stop: the largest candidate it may

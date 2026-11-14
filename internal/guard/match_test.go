@@ -4,6 +4,7 @@ import (
 	"maps"
 	"slices"
 	"testing"
+	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -462,14 +463,20 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 // a unit's trees, would be a signal to a program no agent command started;
 // one inside a protected process's tree, to an agent or what it runs; one for
 // a unit's root that has exited, to whatever process reuses its PID. Each is
-// unauthorized execution.
+// unauthorized execution. So is the guard's own stop signalling a root that
+// joined a unit less than unitGrace ago, which may be a session that has not
+// yet said it is an agent; a unit's rows go through ownStop for that reason.
 func TestTargetsStayInsideTheCommandTree(t *testing.T) {
+	now := time.Now()
+	root := func(pid int, seconds float64, tracked time.Duration) detachedRoot {
+		return detachedRoot{procRef: procRef{pid, start(seconds)}, Since: now.Add(-tracked)}
+	}
 	cases := []struct {
 		name      string
 		procs     []proc
 		root      int
 		start     uint64
-		unit      []procRef // the unit's roots, nil for a noted command
+		unit      []detachedRoot // the unit's roots, nil for a noted command
 		protected map[int]uint64
 		want      []target
 	}{
@@ -526,7 +533,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				process(1200, 1, 1200, 2, "node", "server.js"),
 				process(1201, 1200, 1200, 3, "node", "worker.js"),
 			},
-			unit:      []procRef{{1100, start(1)}, {1200, start(2)}},
+			unit:      []detachedRoot{root(1100, 1, time.Minute), root(1200, 2, time.Minute)},
 			protected: map[int]uint64{100: start(-3600)},
 			want:      []target{{1200, start(2), true}},
 		},
@@ -538,9 +545,22 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				process(1302, 1301, 1301, 3, "node", "mcp-server.js"),
 				process(1303, 1300, 1300, 4, "node", "build.js"),
 			},
-			unit:      []procRef{{1300, start(1)}},
+			unit:      []detachedRoot{root(1300, 1, time.Minute)},
 			protected: map[int]uint64{100: start(-3600), 1301: start(2)},
 			want:      []target{{1300, start(1), true}},
+		},
+		{
+			// Root 1500 joined 3 seconds ago: it may be a session not yet known.
+			name: "a unit's root that joined less than unitGrace ago",
+			procs: []proc{
+				process(1400, 1, 1400, 1, "node", "server.js"),
+				process(1401, 1400, 1400, 2, "node", "worker.js"),
+				process(1500, 1, 1500, 3, "node", "cli.js"),
+				process(1501, 1500, 1500, 4, "node", "worker.js"),
+			},
+			unit:      []detachedRoot{root(1400, 1, time.Minute), root(1500, 3, 3*time.Second)},
+			protected: map[int]uint64{100: start(-3600)},
+			want:      []target{{1400, start(1), true}},
 		},
 	}
 	for _, c := range cases {
@@ -549,6 +569,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		if c.unit != nil {
 			cmd.Detached = &detached{Roots: c.unit, Call: "toolu_1"}
 			cmd.Root = proc{Process: platform.Process{PID: c.unit[0].PID, Start: c.unit[0].Start}}
+			cmd, _ = ownStop(cmd, now)
 		}
 		got := targets(s, cmd, c.protected)
 		if !slices.Equal(got, c.want) {

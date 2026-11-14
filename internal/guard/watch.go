@@ -120,19 +120,21 @@ type watcher struct {
 	// agent files (see readAgentFiles) and their notes, until they are gone:
 	// every one that runs is protected, with or without a note.
 	known map[procKey]kind
-	// stamps are each process's readable stamp, read once and dropped when
-	// the process is gone; stampAgents are the live processes a stamp read names
-	// as its agent that started before the stamped process, protected while
-	// they live (see stampOf). classified is each child of the init process
-	// unitRoot has judged, with its verdict, while it runs. seenUnder names
-	// the owner each process of a tracked tree was seen under, while it
-	// runs; versions names the owner of each version recorded, kept as
-	// versionSeen says (see recordLineage), last at lineageAt. lineageLost is
-	// set once the kernel's original-parent record was found unreadable.
-	stamps      map[procKey]stamp
+	// stamps are each process's readable stamp, read once per program it runs
+	// and dropped when the process is gone; stampAgents are the live
+	// processes a stamp read names as its agent that started before the
+	// stamped process, protected while they live (see stampOf). classified is
+	// each child of the init process unitRoot has judged, with its verdict,
+	// while it runs (see judged). seenUnder names the owner each process of a
+	// tracked tree was seen under, while it runs, and versionOf its version;
+	// versions names the owner of each version recorded, kept as versionSeen
+	// says (see recordLineage), last at lineageAt. lineageLost is set while
+	// the kernel's original-parent record is found unreadable.
+	stamps      map[procKey]cachedStamp
 	stampAgents map[procKey]bool
-	classified  map[procKey]verdict
+	classified  map[procKey]judged
 	seenUnder   map[procKey]owner
+	versionOf   map[procKey]uint32
 	versions    map[uint32]owner
 	versionSeen map[uint32]time.Time
 	lineageAt   time.Time
@@ -220,10 +222,11 @@ func Watch(ctx context.Context, version string) {
 		setsCallIDs: map[procKey]bool{},
 		records:     &records{},
 		known:       map[procKey]kind{},
-		stamps:      map[procKey]stamp{},
+		stamps:      map[procKey]cachedStamp{},
 		stampAgents: map[procKey]bool{},
-		classified:  map[procKey]verdict{},
+		classified:  map[procKey]judged{},
 		seenUnder:   map[procKey]owner{},
+		versionOf:   map[procKey]uint32{},
 		versions:    map[uint32]owner{},
 		versionSeen: map[uint32]time.Time{},
 		unsized:     map[procKey]bool{},
@@ -394,14 +397,13 @@ func (w *watcher) tick() time.Duration {
 		w.seen[c.Note.ToolUseID] = seen
 		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
 	}
-	// One parent index for the tick's trees. Units are found after matching,
-	// so a command's tree is recorded before its work detaches, and an
-	// agent a stamp names is protected, in protected too, before anything
-	// is measured or stopped.
+	// One parent index for the tick's trees. Units are found and judged
+	// again after matching, so a command's tree is recorded before its work
+	// detaches, and an agent a stamp names is protected, in protected too,
+	// before anything is measured or stopped.
 	below := s.below()
 	w.recordLineage(s, below, protected)
 	w.findUnits(s, protected)
-	w.dropAgentRoots(s)
 	trees := w.measure(s, below, protected)
 	w.markChildSeen(s, notes, taken)
 	w.buildRows(s, notes, taken, protected)
@@ -949,9 +951,10 @@ func (w *watcher) coolingDown(s snapshot) bool {
 // dry-run one already logged, one a stop gave up on, or one whose stops
 // signalled nothing three times in a row. So is one that no longer runs in
 // this snapshot, one a person is stopping, a unit whose call did not resolve
-// and a unit tracked for less than unitGrace. A polite stop leaves the
-// commands running when together they hold less than the memory floor, and
-// logs that once a pressure episode.
+// and a unit none of whose roots has been tracked for unitGrace; a unit is
+// sized and stopped over only its roots tracked that long (see ownStop). A
+// polite stop leaves the commands running when together they hold less than
+// the memory floor, and logs that once a pressure episode.
 func (w *watcher) stopLargest(
 	s snapshot,
 	below parents,
@@ -966,15 +969,14 @@ func (w *watcher) stopLargest(
 		if w.passed[id] || w.manual[id] != nil || !live(s, c) {
 			continue
 		}
-		cand := candidate{c: c}
-		if u := w.usage[id]; u != nil {
-			cand.tracked = time.Since(u.Since)
-		}
+		// A unit only with its roots tracked for unitGrace (see ownStop).
+		own, tracked := ownStop(c, time.Now())
+		cand := candidate{c: own, tracked: tracked}
 		// One the guard may not choose is not sized: choose leaves it out.
 		if !cand.mayChoose() {
 			continue
 		}
-		trees[id] = s.commandTreeIn(below, c, skip)
+		trees[id] = s.commandTreeIn(below, own, skip)
 		cand.size = w.size(trees[id], platform.Footprint)
 		cands = append(cands, cand)
 	}
