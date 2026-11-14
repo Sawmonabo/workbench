@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"cmp"
 	"testing"
 	"time"
 
@@ -206,6 +207,17 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		// A daemon a hook started carries CLAUDE_PID but no call stamp.
 		{"agentStampWithoutTheCallStamp", func(w *unitWorld) {
 			w.stamps[500] = stamp{Readable: true, Agent: 100, Mode: "dry-run"}
+		}, tie{}, notUnit, false},
+		// The call stamp of agent 100's shell is in the environment, but
+		// CLAUDE_PID=100 only among the arguments, where anything can put
+		// it: a value read there may narrow what the guard does, never tie
+		// work to a call.
+		{"callStampWithCLAUDE_PIDOnlyInTheArguments", func(w *unitWorld) {
+			environment := map[string]string{callStamp: "100:300:1000005"}
+			arguments := map[string]string{agentStamp: "100"}
+			w.stamps[500] = stampFrom(true,
+				func(name string) string { return environment[name] },
+				func(name string) string { return cmp.Or(environment[name], arguments[name]) })
 		}, tie{}, notUnit, false},
 		// A nested session's processes carry their own CLAUDE_PID beside the
 		// outer command's call stamp.

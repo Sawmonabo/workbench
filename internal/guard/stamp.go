@@ -33,8 +33,9 @@ const stampLine = `export WORKBENCH_GUARD_CALL="$CLAUDE_PID:$$:${EPOCHSECONDS:-$
 // is false when the kernel gives no environment for the process, so the rest
 // tells nothing. Agent is CLAUDE_PID; CallAgent, CallShell and CallSecond are
 // the three numbers of the call stamp, all 0 when it is absent or not
-// digits:digits:digits. Codex is CODEX_TOOL_CALL_ID and Mode is
-// WORKBENCH_GUARD, each as read.
+// digits:digits:digits, and CallAgent also 0 unless CLAUDE_PID in the
+// environment proper is that same agent. Codex is CODEX_TOOL_CALL_ID and Mode
+// is WORKBENCH_GUARD, each as read.
 type stamp struct {
 	Readable                    bool
 	Agent, CallAgent, CallShell int
@@ -51,15 +52,26 @@ type stamp struct {
 // work to a call, so they come from the environment proper only.
 func readStamp(pid int) stamp {
 	env := platform.ReadEnvironment(pid, agentStamp, callStamp, codexStamp, modeVariable)
+	return stampFrom(env.Readable, env.Value, env.Narrowing)
+}
+
+// stampFrom is the stamp of an environment that is readable or not, whose
+// variables value gives as the environment proper holds them and narrowing
+// also as a rewritten title left them among the arguments (see readStamp).
+// The call stamp ties only when CLAUDE_PID in the environment proper names
+// its agent (see call): one read from an argument narrows, never ties.
+func stampFrom(readable bool, value, narrowing func(name string) string) stamp {
 	st := stamp{
-		Readable: env.Readable,
-		Agent:    int(stampNumber(env.Narrowing(agentStamp))),
-		Codex:    env.Value(codexStamp),
-		Mode:     env.Narrowing(modeVariable),
+		Readable: readable,
+		Agent:    int(stampNumber(narrowing(agentStamp))),
+		Codex:    value(codexStamp),
+		Mode:     narrowing(modeVariable),
 	}
-	if parts := strings.Split(env.Value(callStamp), ":"); len(parts) == 3 &&
+	if parts := strings.Split(value(callStamp), ":"); len(parts) == 3 &&
 		digits(parts[0]) && digits(parts[1]) && digits(parts[2]) {
-		st.CallAgent = int(stampNumber(parts[0]))
+		if parts[0] == value(agentStamp) {
+			st.CallAgent = int(stampNumber(parts[0]))
+		}
 		st.CallShell = int(stampNumber(parts[1]))
 		st.CallSecond = stampNumber(parts[2])
 	}
