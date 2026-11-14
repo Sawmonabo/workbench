@@ -69,9 +69,17 @@ func newAncestry(keepsVersions bool) *ancestry {
 // recorded; zero, or a parent never recorded, gives it none, as the shell of
 // a noted command has, so no chain leads from a call into its agent. A
 // process already recorded keeps the parent it was first given. It takes one
-// process at a time, so a caller may record a process outside a tick.
-func (a *ancestry) record(key procKey, o owner, parent procKey, version uint32, now time.Time) {
+// process at a time, so a caller may record a process outside a tick. It
+// reports whether key was recorded before.
+func (a *ancestry) record(
+	key procKey,
+	o owner,
+	parent procKey,
+	version uint32,
+	now time.Time,
+) bool {
 	e := a.entries[key]
+	before := e != nil
 	if e == nil {
 		e = &origin{}
 		if p := a.entries[parent]; p != nil && parent != key {
@@ -82,7 +90,7 @@ func (a *ancestry) record(key procKey, o owner, parent procKey, version uint32, 
 	}
 	e.owner = o
 	if version == 0 || !a.keepsVersions {
-		return
+		return before
 	}
 	if seen, ok := a.versions[version]; !ok || seen.key != key {
 		// A version names one process image for good, so another entry can
@@ -91,6 +99,7 @@ func (a *ancestry) record(key procKey, o owner, parent procKey, version uint32, 
 		e.versions = append(e.versions, version)
 	}
 	a.versions[version] = seenVersion{key: key, at: now}
+	return before
 }
 
 // ownerOf is the owner key was recorded under, when it is recorded.

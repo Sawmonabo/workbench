@@ -97,7 +97,9 @@ func firstRoot(s snapshot, c command) proc {
 // stamp names as its agent) is dropped with what was recorded below it (see
 // dropAndLeave), so what a nested session left before it was known is no
 // longer the outer call's. Each member's stamp is read in the walk, through
-// the cache (see stampOf), so a live process a member names as its agent,
+// the cache (see stampOf), from the second tick the member is recorded at
+// (its versions are recorded from the first), so a live process a member
+// names as its agent,
 // older than the member, is protected from this tick, and is dropped with
 // the rest: a session started without the guard's hooks is known from the
 // first readable program that carries its CLAUDE_PID. A call whose tree
@@ -135,8 +137,13 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 			} else {
 				prog = programOf(p)
 			}
-			w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now)
-			w.stampFor(s, p, prog, protected)
+			// A member's stamp is read from the second tick it is seen on:
+			// most processes of a busy build live less than a tick, and work a
+			// session leaves in its first tick is tied to it only through the
+			// store, which drops it once the session is known.
+			if w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now) {
+				w.stampFor(s, p, prog, protected)
+			}
 		}
 	}
 	for pid, start := range protected {
