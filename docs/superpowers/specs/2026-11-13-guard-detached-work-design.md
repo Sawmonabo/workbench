@@ -291,6 +291,10 @@ returns and a fork made in the same tick as the parent's exit all resolve
 this way (2.1 fact 6, measured for a single fork and for a fork after an
 exec).
 
+A process the guard itself saw in a tracked command's tree or in a unit, and
+that the init process later adopts, is tied the same way on every system:
+the guard saw where it came from and needs no kernel record for it.
+
 A new child of init forked by a process of an existing unit joins that unit.
 
 It does not see through a double fork whose middle process lived and died
