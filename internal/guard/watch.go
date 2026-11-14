@@ -346,7 +346,6 @@ func (w *watcher) tick() time.Duration {
 		w.adopt(s, notes)
 		w.inherited = nil
 	}
-	w.readAgentFiles(s)
 	agents, protected := w.agents(s, notes)
 	w.followManual(s, protected)
 	w.drainStops(s, protected)
@@ -762,8 +761,12 @@ func (w *watcher) forget(s snapshot) {
 // agents are the live agents of the notes and tracked commands, whose
 // arguments readAgents reads. protected is them, every other known agent that
 // runs and the watcher, each PID with its start time: never signalled, nor
-// anything under them.
+// anything under them. It reads the agents folder first (see
+// readAgentFiles), so every path that decides what is protected sees a
+// session that registered since the last read, and the known agents are
+// filled before anything later in the tick reads them.
 func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
+	w.readAgentFiles(s)
 	protected := map[int]uint64{}
 	if self, ok := s[os.Getpid()]; ok {
 		protected[self.PID] = self.Start
@@ -790,11 +793,13 @@ func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	return agents, protected
 }
 
-// readAgentFiles reads the agents folder (see Session). A file whose agent
-// runs, with that start time, makes it known; one whose agent is gone (see
-// gone) is removed, as is one that does not parse or does not match its name,
-// which never heals. A file that cannot be read is left for a later tick, and
-// a folder that cannot be read leaves the agents known from their notes only.
+// readAgentFiles reads the agents folder (see Session), each time agents
+// builds the protected set. A file whose agent runs, with that start time,
+// makes it known; one whose agent is gone (see gone) is removed, as is one
+// that does not parse, does not match its name or names a kind other than
+// claude or codex, which never heals. A file that cannot be read is left for
+// a later read, and a folder that cannot be read leaves the agents known from
+// their notes only.
 func (w *watcher) readAgentFiles(s snapshot) {
 	entries, err := listFolder(w.f.agents)
 	if err != nil {
@@ -809,7 +814,7 @@ func (w *watcher) readAgentFiles(s snapshot) {
 		var a agentFile
 		pid, start, named := agentFileName(entry.Name())
 		if !named || json.Unmarshal(data, &a) != nil || a.PID != pid || a.Start != start ||
-			w.gone(s, a.PID, a.Start) {
+			a.Kind != claude && a.Kind != codex || w.gone(s, a.PID, a.Start) {
 			_ = os.Remove(path)
 			continue
 		}
@@ -907,8 +912,9 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 }
 
 // stop re-checks memory, snapshots the command again, records the reason and
-// signals it. It reads the notes again first, so an agent that left its first
-// note since the tick is protected. The record is written before any signal,
+// signals it. It reads the notes and the agents folder again first (see
+// agents), so an agent that left its first note or registered its session
+// since the tick is protected. The record is written before any signal,
 // because the agent's post hook may run the moment the command dies; it is
 // deleted when nothing was signalled. With WORKBENCH_GUARD=dry-run on the
 // note it only logs.

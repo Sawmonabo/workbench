@@ -12,14 +12,14 @@ import (
 )
 
 // The guard log is JSON Lines from [slog.JSONHandler]: each record has time,
-// level, msg and event, one of these, with part (pre, post, session or watch) and pid,
-// the process that wrote it. Records about a call add call, agent, command
-// (clipped as in the stop reason), root_pid and, when the note has them, cwd,
-// project and subagent; ended, unmatched and stopping add took, the seconds
-// since the call's note, and ended and stopping add peak, the command's
-// largest size in bytes. A stop adds by (guard), size in bytes, reason, the
-// text the agent is told, and memory, the reading that called for it; a
-// failure adds error. A log that was cut starts with a record of event
+// level, msg and event, one of these, with part (pre, post, session or
+// watch) and pid, the process that wrote it. Records about a call add call,
+// agent, command (clipped as in the stop reason), root_pid and, when the note
+// has them, cwd, project and subagent; ended, unmatched and stopping add
+// took, the seconds since the call's note, and ended and stopping add peak,
+// the command's largest size in bytes. A stop adds by (guard), size in bytes,
+// reason, the text the agent is told, and memory, the reading that called for
+// it; a failure adds error. A log that was cut starts with a record of event
 // cut (see [operation.RewriteLog]), which [ReadLog] never gives. The
 // watcher's own stdout and stderr, such as a crash's trace, go to its output
 // file (see outputFile), which each watcher starts with a record of event

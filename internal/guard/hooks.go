@@ -314,17 +314,17 @@ func startWatcher(f folders) {
 	}
 }
 
-// Post is the PostToolUse hook on Bash, and Claude Code's PostToolUse and
-// PostToolUseFailure on Bash and Monitor. It marks the call's note ended, or,
-// for a call whose command runs on after this hook, posted: one sent to the
-// background (run_in_background), and a Monitor call, whose post hook runs
-// when the monitor starts (the pre hook on Bash noted it as a Bash call). It
-// deletes no note: the watcher deletes it once it has kept the call's record
-// (see watcher.notes), so every call leaves one. It takes no lock to ask
-// whether a watcher runs: an ended note waits for the next watcher, which the
-// next pre hook starts. When the watcher stopped this call, it prints the
-// reason as additionalContext, which the agent sees beside the tool result.
-// Otherwise it prints nothing. It never fails.
+// Post is Codex's PostToolUse hook on Bash, and Claude Code's PostToolUse and
+// PostToolUseFailure hooks on Bash and Monitor. It marks the call's note
+// ended, or, for a call whose command runs on after this hook, posted: one
+// sent to the background (run_in_background), and a Monitor call, whose post
+// hook runs when the monitor starts (the pre hook on Bash noted it as a Bash
+// call). It deletes no note: the watcher deletes it once it has kept the
+// call's record (see watcher.notes), so every call leaves one. It takes no
+// lock to ask whether a watcher runs: an ended note waits for the next
+// watcher, which the next pre hook starts. When the watcher stopped this
+// call, it prints the reason as additionalContext, which the agent sees
+// beside the tool result. Otherwise it prints nothing. It never fails.
 func Post(stdin *os.File, stdout io.Writer) {
 	var f folders
 	defer func() {
