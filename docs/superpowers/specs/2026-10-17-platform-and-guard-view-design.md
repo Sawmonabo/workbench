@@ -330,14 +330,17 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   `(dry)` (`● run (dry)`), in the list and in its details. Beside them, in
   the same columns
   ([detached work design](2026-11-13-guard-detached-work-design.md),
-  section 8), each with its root's process ID as its ID: detached work
-  (`● detached`), timed from its root's start, its command the root's own
-  command line; each agent the guard knows (`● agent`), sized by the agent
+  section 8), each with `p` and a process ID as its ID: detached work
+  (`● detached`), timed from its first root's start, its command that
+  root's command line, its ID the PID of its first root that still runs,
+  which changes when that root exits; each agent the guard knows (`● agent`), sized by the agent
   process alone; each helper an agent started itself (`● helper`, never a
   shell or a sandbox launcher), sized by
   its tree; and a running command no note matched (`? unmatched`), sized by
   its tree. A stopped helper or unmatched row leaves the list once its
-  processes are gone, with no finished entry.
+  processes are gone, with no finished entry. A command line read from a
+  running process is shown in a form that never holds what may be an
+  environment string; one shortened that way ends with ` …`.
 - **Memory line**, faint, under the count line: the memory in use split
   into commands (unmatched ones included), detached work, agents, helpers
   and `other`, each part the sum of the sizes its rows show, `other` being
@@ -403,9 +406,14 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`. `k` on an agent row,
   with no running row tagged, opens no menu, sends nothing and says `agents are never stopped`.
 - **Details**, in this order: the full command, folder, agent, subagent,
-  full ID, for detached work the call that started it when that call is
-  proven, status and run time, memory now and peak, the number of
-  processes and the process tree with each process's memory, and last a
+  full ID, for detached work its label in the log ("In the log", `p` and the
+  PID of its first root, which never changes) and the call that started it
+  when that call is proven ("Started by"), status and run time, a "Note"
+  line while the guard itself will not stop detached work ("The guard will
+  not stop this itself: … You can stop it here.", with why: no call is
+  proved to have started it; it was found, or started its program, less
+  than ten seconds ago; or its setting cannot be read), memory now and
+  peak, the number of processes and the process tree with each process's memory, and last a
   one-line graph of the command's memory over the last 120 readings. The
   command is laid out one step per line, as the Google Shell Style Guide
   lays out a long pipeline
@@ -574,8 +582,10 @@ and whose processes are gone.
   `started`, `ended`, `memory`, `peak`, `history` (the last readings),
   `tree` (`pid`, `name`, `memory` per process) for running ones, and the
   row's `kind` (empty for a command, else `detached`, `agent` or `helper`),
-  its root's `pid` and, for detached work, `launched_by`, the call that
-  started it when that call is proven. The commands include the detached,
+  its first live root's `pid` and, for detached work, `launched_by`, the
+  call that started it when that call is proven, and, on a running unit,
+  `held`: why the guard itself will not choose it now (`no call`, `young`,
+  `unread`, the first that applies), left out when it may. The commands include the detached,
   agent, helper and running unmatched rows
   ([detached work design](2026-11-13-guard-detached-work-design.md),
   section 8), and the snapshot carries `sums`, the five parts of the memory
