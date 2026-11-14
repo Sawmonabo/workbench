@@ -17,11 +17,15 @@ const (
 	// seen: a child the init process adopts is found within a tick or two, so
 	// a minute covers a loaded machine without keeping versions without end.
 	versionsKept = time.Minute
-	// versionsLimit is the most versions kept, the oldest dropped first: at
-	// about 200 bytes each, 16,384 of them take about 3 MiB of the watcher's
-	// 32 MiB limit, and at 1,400 processes recorded each tick they still hold
-	// several seconds of history, more than an adoption needs.
+	// versionsLimit is the most versions kept, the oldest dropped first: with
+	// their entries, 16,384 of them took under 8 MiB of the watcher's 32 MiB
+	// limit under a busy build, and at 1,400 processes recorded each tick they
+	// still hold several seconds of history, more than an adoption needs.
 	versionsLimit = 1 << 14
+	// versionsAfterBound is how many versions are left once the bound is
+	// passed, so the oldest are sorted out once every few ticks of a busy
+	// build, not at each one.
+	versionsAfterBound = versionsLimit - versionsLimit/8
 )
 
 // origin is what the store keeps of one recorded process: the call or unit
@@ -51,6 +55,14 @@ type ancestry struct {
 	keepsVersions bool
 	entries       map[procKey]*origin
 	versions      map[uint32]seenVersion
+	// byAge is prune's buffer for sorting versions, kept between ticks.
+	byAge []agedVersion
+}
+
+// agedVersion is a version and when it was last seen, as prune sorts them.
+type agedVersion struct {
+	v  uint32
+	at time.Time
 }
 
 // newAncestry is an empty store; keepsVersions is whether the kernel keeps
@@ -125,28 +137,24 @@ func (a *ancestry) forker(version uint32) (procKey, owner, bool) {
 }
 
 // prune forgets, at now, the versions last seen more than versionsKept ago,
-// then the oldest beyond versionsLimit, then every entry whose process is
-// gone (runs reports false) and keeps no version.
+// then, once more than versionsLimit are kept, the oldest down to
+// versionsAfterBound, then every entry whose process is gone (runs reports
+// false) and keeps no version.
 func (a *ancestry) prune(runs func(procKey) bool, now time.Time) {
 	for v, seen := range a.versions {
 		if now.Sub(seen.at) > versionsKept {
 			a.forgetVersion(v)
 		}
 	}
-	if extra := len(a.versions) - versionsLimit; extra > 0 {
-		type kept struct {
-			v  uint32
-			at time.Time
-		}
-		all := make([]kept, 0, len(a.versions))
+	if len(a.versions) > versionsLimit {
+		a.byAge = a.byAge[:0]
 		for v, seen := range a.versions {
-			all = append(all, kept{v, seen.at})
+			a.byAge = append(a.byAge, agedVersion{v, seen.at})
 		}
-		slices.SortFunc(
-			all,
-			func(x, y kept) int { return cmp.Or(x.at.Compare(y.at), cmp.Compare(x.v, y.v)) },
-		)
-		for _, old := range all[:extra] {
+		slices.SortFunc(a.byAge, func(x, y agedVersion) int {
+			return cmp.Or(x.at.Compare(y.at), cmp.Compare(x.v, y.v))
+		})
+		for _, old := range a.byAge[:len(a.byAge)-versionsAfterBound] {
 			a.forgetVersion(old.v)
 		}
 	}
