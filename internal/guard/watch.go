@@ -217,6 +217,9 @@ func Watch(ctx context.Context, version string) {
 	// ancestry store full.
 	debug.SetMemoryLimit(32 << 20)
 	debug.SetGCPercent(50)
+	// The watcher never opens a database, so it lets go of what the SQLite
+	// driver's C library built at start-up for one (see platform).
+	platform.ReleaseServiceTables()
 	f, err := openFolders("watch")
 	if err != nil {
 		return
