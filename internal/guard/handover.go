@@ -88,7 +88,8 @@ type handover struct {
 // command whose note was deleted, ended, while the watch passed. A unit is
 // carried with its made-up note, its roots and call (Detached) and its
 // command line (Shown), which passes only through the pipe. Final are the
-// processes judged no unit for good, which adopt keeps final.
+// processes judged no unit for good, which adopt keeps final. Ancestry is
+// the ancestry store, which adopt merges with what the new watcher records.
 type carried struct {
 	Tracked     map[string]procRef  `json:"tracked"`
 	Notes       map[string]note     `json:"notes"`
@@ -103,9 +104,15 @@ type carried struct {
 	Records     []callRecord        `json:"records"`
 	Known       []agentFile         `json:"known"`
 	// Final are the children of the init process judged no unit for good
-	// (see judged), so a new watcher, which records the trees of the units
-	// it takes on afresh, cannot tie one of them to a unit by parent again.
+	// (see judged), so a new watcher cannot tie one of them to a unit by
+	// parent again.
 	Final []procRef `json:"final"`
+	// Ancestry is the ancestry store (see ancestry.carry), so a process that
+	// is found not to be a call's work after the handover still takes with
+	// it what it started before, through processes that exited meanwhile.
+	// A watcher from before it carries none, and one that does not know it
+	// ignores it.
+	Ancestry []carriedOrigin `json:"ancestry,omitempty"`
 }
 
 type procRef struct {
@@ -339,6 +346,7 @@ func (w *watcher) carried() carried {
 		Finished:    w.finished,
 		StoppedBy:   map[string]string{},
 		Records:     w.records.all(),
+		Ancestry:    w.ancestry.carry(time.Now()),
 	}
 	for key, j := range w.classified {
 		if j.v == notUnit && j.fixed {
@@ -454,7 +462,8 @@ func takeListener() *net.UnixListener {
 // finished commands, which buildView drops finishedShown after they ended as
 // it does its own, who stopped each tracked command, the call records, each in
 // place of the one this watcher made from the note on disk, which holds no
-// shell, the known agents that run, and each tracked command
+// shell, the known agents that run, the ancestry store, merged before this
+// tick records the trees (see ancestry.adopt), and each tracked command
 // with its note, the one on disk or else the one carried. A command whose
 // root still runs, with its start time, as the note's agent's child is
 // tracked again with its memory, whether it is passed over, and logged. One
@@ -472,6 +481,9 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 	for _, rec := range c.Records {
 		w.records.keep(rec)
 	}
+	// Before this tick records the trees, which then merge into it.
+	w.ancestry.adopt(c.Ancestry, time.Now())
+	w.ancestry.prune(func(k procKey) bool { return s.alive(k.pid, k.start) }, time.Now())
 	for _, r := range c.Final {
 		if s.alive(r.PID, r.Start) {
 			w.classified[procKey{r.PID, r.Start}] = finalNo()
@@ -539,7 +551,8 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 // its wait before the guard may stop it (see ownStop) again. Each live
 // root is marked judged, so it is not found again as a unit of its own, and
 // its stamps are read again, so an agent they name stays protected; the
-// roots' trees are recorded by recordLineage in this same tick, before units
+// roots carry the entries the ancestry store held for them, and their trees
+// are recorded by recordLineage in this same tick, before units
 // are found. One none of whose roots runs is tracked without a log, and
 // forget ends it.
 func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {

@@ -11,9 +11,9 @@ import (
 
 // owner is the call or unit in whose tree a process was seen.
 type owner struct {
-	ID    string // a call's ID or a unit's
-	Agent procKey
-	Kind  kind
+	ID    string  `json:"id"` // a call's ID or a unit's
+	Agent procKey `json:"agent"`
+	Kind  kind    `json:"kind"`
 }
 
 // facts is what the unit rule reads beyond the snapshot. The watcher fills it

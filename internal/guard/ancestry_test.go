@@ -13,7 +13,8 @@ import (
 // call's work, which is unauthorized execution against an agent session. The
 // tie runs through processes that exit (the middle of a double fork) and
 // through versions recorded before a process exec'd, so the drop must follow
-// both. A nested session's own calls are its own: dropping them with it
+// both, also after a watcher handed the store over to the next one. A nested
+// session's own calls are its own: dropping them with it
 // would leave its work tied to nothing, so they must stay.
 func TestDropTakesWhatAProcessStarted(t *testing.T) {
 	t0 := time.Now()
@@ -41,6 +42,12 @@ func TestDropTakesWhatAProcessStarted(t *testing.T) {
 		// The session's own call: its shell has no parent entry.
 		a.record(nestedShell, byNested, procKey{}, 20, t0.Add(55*time.Second))
 		a.record(nestedChild, byNested, nestedShell, 21, t0.Add(55*time.Second))
+		// A handover carries the store to the next watcher, which must keep
+		// every chain: what follows runs on the store it adopted.
+		handedOver := t0.Add(56 * time.Second)
+		next := newAncestry(keepsVersions)
+		next.adopt(a.carry(handedOver), handedOver)
+		a = next
 		// The middle is gone and its version too old, so it leaves the store.
 		a.prune(func(k procKey) bool { return k != middle }, t0.Add(61*time.Second))
 		if _, ok := a.ownerOf(middle); ok {

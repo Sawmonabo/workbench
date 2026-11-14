@@ -214,3 +214,98 @@ func (a *ancestry) drop(key procKey) []procKey {
 	}
 	return dropped
 }
+
+// carriedOrigin is one entry of the store as a handover carries it to the
+// next watcher (see carried): its process, owner and parent, and each of its
+// versions with how long ago it was last seen, not when, so a clock set
+// between the two watchers neither keeps a version longer nor drops it sooner.
+type carriedOrigin struct {
+	Process  procRef          `json:"process"`
+	Owner    owner            `json:"owner"`
+	Parent   *procRef         `json:"parent,omitempty"`
+	Versions []carriedVersion `json:"versions,omitempty"`
+}
+
+// carriedVersion is a version and the milliseconds since it was last seen.
+type carriedVersion struct {
+	Version uint32 `json:"v"`
+	AgeMS   int64  `json:"age_ms"`
+}
+
+// carry is every entry of the store as a handover carries it at now: no more
+// than the store holds, which versionsLimit and the processes that run bound.
+func (a *ancestry) carry(now time.Time) []carriedOrigin {
+	out := make([]carriedOrigin, 0, len(a.entries))
+	for key, e := range a.entries {
+		c := carriedOrigin{Process: procRef{PID: key.pid, Start: key.start}, Owner: e.owner}
+		if _, ok := a.entries[e.parent]; ok {
+			c.Parent = &procRef{PID: e.parent.pid, Start: e.parent.start}
+		}
+		for _, v := range e.versions {
+			age := now.Sub(a.versions[v].at).Milliseconds()
+			c.Versions = append(c.Versions, carriedVersion{Version: v, AgeMS: age})
+		}
+		out = append(out, c)
+	}
+	return out
+}
+
+// adopt merges what a watcher handing over carried into the store at now. An
+// entry the store does not hold is added with its owner; one it holds keeps
+// its own. A parent is set only on an entry that has none, so a parent, once
+// set, never changes, and never where it would close a loop. A version the
+// store does not hold is added as last seen as long ago as was carried, one
+// it holds for the same process keeps the later sighting, and one older than
+// versionsKept is left out. A watcher that carries no store carries nothing,
+// which changes nothing.
+func (a *ancestry) adopt(carried []carriedOrigin, now time.Time) {
+	for _, c := range carried {
+		key := procKey{c.Process.PID, c.Process.Start}
+		if _, ok := a.entries[key]; !ok {
+			a.entries[key] = &origin{owner: c.Owner}
+		}
+	}
+	for _, c := range carried {
+		key := procKey{c.Process.PID, c.Process.Start}
+		e := a.entries[key]
+		if c.Parent != nil && e.parent == (procKey{}) {
+			parent := procKey{c.Parent.PID, c.Parent.Start}
+			if p := a.entries[parent]; p != nil && !a.reaches(parent, key) {
+				e.parent = parent
+				p.kids = append(p.kids, key)
+			}
+		}
+		if !a.keepsVersions {
+			continue
+		}
+		for _, v := range c.Versions {
+			at := now.Add(-time.Duration(v.AgeMS) * time.Millisecond)
+			if v.Version == 0 || now.Sub(at) > versionsKept {
+				continue
+			}
+			switch seen, ok := a.versions[v.Version]; {
+			case !ok:
+				e.versions = append(e.versions, v.Version)
+				a.versions[v.Version] = seenVersion{key: key, at: at}
+			case seen.key == key && at.After(seen.at):
+				a.versions[v.Version] = seenVersion{key: key, at: at}
+			}
+		}
+	}
+}
+
+// reaches reports whether from, or a process on its chain of parents, is to.
+func (a *ancestry) reaches(from, to procKey) bool {
+	for seen := map[procKey]bool{}; from != (procKey{}) && !seen[from]; {
+		if from == to {
+			return true
+		}
+		seen[from] = true
+		e := a.entries[from]
+		if e == nil {
+			return false
+		}
+		from = e.parent
+	}
+	return false
+}
