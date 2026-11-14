@@ -18,12 +18,13 @@ import (
 )
 
 // guardCommand groups the agent command guard's entries. Claude Code and
-// Codex run pre and post as hooks, and pre starts watch with fixed arguments;
-// those three are hidden. Like askpass they are plain commands, not actions,
-// and print no result envelope. pre and post take any arguments, flags
-// included (flag parsing is off, so even the root's --json is just an
-// argument), so nothing an agent passes makes them exit non-zero, and print
-// only what the hook protocol reads. logs and memory are for people.
+// Codex run pre, post and session as hooks, and pre starts watch with fixed
+// arguments; those four are hidden. Like askpass they are plain commands, not
+// actions, and print no result envelope. pre, post and session take any
+// arguments, flags included (flag parsing is off, so even the root's --json
+// is just an argument), so nothing an agent passes makes them exit non-zero,
+// and print only what the hook protocol reads. logs and memory are for
+// people.
 func guardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
@@ -58,6 +59,20 @@ func guardCommand(o *options) *cobra.Command {
 			Args:               cobra.ArbitraryArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
 				guard.Post(stdinFile(cmd), cmd.OutOrStdout())
+				return nil
+			},
+		},
+		&cobra.Command{
+			Use:                "session AGENT",
+			Hidden:             true,
+			DisableFlagParsing: true,
+			Args:               cobra.ArbitraryArgs,
+			RunE: func(cmd *cobra.Command, args []string) error {
+				agent := ""
+				if len(args) > 0 {
+					agent = args[0]
+				}
+				guard.Session(stdinFile(cmd), agent)
 				return nil
 			},
 		},

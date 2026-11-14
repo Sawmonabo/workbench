@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,7 +103,7 @@ func Pre(stdin *os.File) {
 			f.event(slog.LevelError, EventError, "panic", "error", fmt.Sprint(p))
 		}
 	}()
-	mode := os.Getenv("WORKBENCH_GUARD")
+	mode := os.Getenv(modeVariable)
 	input, ok := readInput(stdin)
 	if mode == "off" || !ok || input.Event != "PreToolUse" || input.Tool != "Bash" ||
 		input.Input.Command == "" {
@@ -150,6 +152,116 @@ func Pre(stdin *os.File) {
 		return
 	}
 	startWatcher(f)
+}
+
+// Session is the SessionStart hook of Claude Code (agent "claude") and Codex
+// ("codex"). It leaves a file saying its agent runs, so the guard knows the
+// agent from its start, and removes the files of agents that are gone, so
+// they never pile up while no watcher runs. Under Claude Code it also adds
+// stampLine to $CLAUDE_ENV_FILE, once, so every later Bash command of the
+// session carries its call stamp. Each of the three goes ahead when another
+// fails: a later note makes the agent known too, and a stamp of an agent the
+// guard does not know counts for nothing. It never starts the watcher, prints
+// nothing and never fails. WORKBENCH_GUARD=off turns it off.
+func Session(stdin *os.File, agent string) {
+	var f folders
+	defer func() {
+		if p := recover(); p != nil && f.root != "" {
+			f.event(slog.LevelError, EventError, "panic", "error", fmt.Sprint(p))
+		}
+	}()
+	agentType := kind(agent)
+	var input hookInput
+	if os.Getenv(modeVariable) == "off" || agentType != claude && agentType != codex ||
+		json.Unmarshal(operation.ReadHookInput(stdin), &input) != nil ||
+		input.Event != "SessionStart" {
+		return
+	}
+	var err error
+	if f, err = openFolders("session"); err != nil {
+		return
+	}
+	if found, err := findAgent(os.Getppid()); err != nil {
+		f.event(
+			slog.LevelError,
+			EventError,
+			"cannot find the agent; it is known from its notes only",
+			"error",
+			err,
+		)
+	} else if err = writeJSON(f.agent(found.PID, found.Start), agentFile{
+		PID: found.PID, Start: found.Start, Kind: agentType, At: time.Now(),
+	}); err != nil {
+		f.event(
+			slog.LevelError,
+			EventError,
+			"cannot write the agent file; it is known from its notes only",
+			"error",
+			err,
+		)
+	}
+	f.removeGoneAgents()
+	if path := os.Getenv("CLAUDE_ENV_FILE"); agentType == claude && path != "" {
+		if err = appendStampLine(path); err != nil {
+			f.event(
+				slog.LevelError,
+				EventError,
+				"cannot add the call stamp to the session's env file",
+				"error",
+				err,
+			)
+		}
+	}
+}
+
+// removeGoneAgents removes each agent file whose process has exited or is
+// another process reusing its PID. A file whose process cannot be read for
+// any other reason stays.
+func (f folders) removeGoneAgents() {
+	entries, err := listFolder(f.agents)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		name, ok := strings.CutSuffix(entry.Name(), ".json")
+		pidText, startText, cut := strings.Cut(name, "-")
+		pid, pidErr := strconv.Atoi(pidText)
+		start, startErr := strconv.ParseUint(startText, 10, 64)
+		if !ok || !cut || pidErr != nil || startErr != nil {
+			continue
+		}
+		p, err := platform.ProcessInfo(pid)
+		if err != nil && platform.Exited(err) || err == nil && (p.Start != start || p.Zombie) {
+			_ = os.Remove(filepath.Join(f.agents, entry.Name()))
+		}
+	}
+}
+
+// appendStampLine appends stampLine to the env file at path, created private
+// when missing, unless a line of the file already is stampLine: the file
+// gains the hook's lines again each time the session resumes, is cleared or
+// compacted, and the line is to run once. It starts a new line first when the
+// file does not end in one, so it never runs on with another hook's line.
+func appendStampLine(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if line == stampLine {
+			return nil
+		}
+	}
+	text := stampLine + "\n"
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		text = "\n" + text
+	}
+	file, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = file.WriteString(text)
+	return errors.Join(err, file.Close())
 }
 
 // callFolders are the call's working folder and its command's leading cd

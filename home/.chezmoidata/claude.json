@@ -64,7 +64,8 @@
         "SessionStart": [
           {
             "hooks": [
-              { "type": "command", "command": "workbench costs ingest", "timeout": 5 }
+              { "type": "command", "command": "workbench costs ingest", "timeout": 5 },
+              { "type": "command", "command": "workbench guard session claude || true", "timeout": 5 }
             ]
           }
         ],

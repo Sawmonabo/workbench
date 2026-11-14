@@ -97,10 +97,6 @@ func shellScript(args []string) (string, bool) {
 	return "", false
 }
 
-// callIDVariable is the environment variable Codex 0.163.0 and later set on
-// each command to its call's tool_use_id.
-const callIDVariable = "CODEX_TOOL_CALL_ID"
-
 // runs reports whether p is exactly what an agent of the note's kind runs for
 // the note's text. Claude Code: a shell script that evaluates the text as it
 // quotes it. Codex: a shell whose script is the text or, because zsh and bash

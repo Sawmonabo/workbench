@@ -5,7 +5,8 @@
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 10 }
+          { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 10 },
+          { "type": "command", "command": {{ printf "%s guard session codex || true" $workbench | toJson }}, "timeout": 5 }
         ]
       }
     ],

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"os"
@@ -29,11 +30,22 @@ type kill struct {
 	At        time.Time `json:"at"`
 }
 
-// folders is <state>/guard and its notes and killed folders, each private,
-// with the part (pre, post or watch) that opened them and its logger.
+// agentFile is what the SessionStart hook leaves to say that its agent runs,
+// named by its PID and start time so a later process reusing the PID is not
+// taken for it. At is only for a person reading the file.
+type agentFile struct {
+	PID   int       `json:"pid"`
+	Start uint64    `json:"start"`
+	Kind  kind      `json:"kind"`
+	At    time.Time `json:"at"`
+}
+
+// folders is <state>/guard and its notes, killed and agents folders, each
+// private, with the part (pre, post, session or watch) that opened them and
+// its logger.
 type folders struct {
-	root, notes, killed, part string
-	logger                    *slog.Logger
+	root, notes, killed, agents, part string
+	logger                            *slog.Logger
 }
 
 func openFolders(part string) (folders, error) {
@@ -48,6 +60,9 @@ func openFolders(part string) (folders, error) {
 	if f.killed, err = operation.PrivateDirectory(c.Paths.State, "guard/killed"); err != nil {
 		return folders{}, err
 	}
+	if f.agents, err = operation.PrivateDirectory(c.Paths.State, "guard/agents"); err != nil {
+		return folders{}, err
+	}
 	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
 	return f, nil
 }
@@ -58,6 +73,10 @@ func (f folders) output() string          { return outputFile(f.log()) }
 func (f folders) socket() string          { return socketFile(f.root) }
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
+
+func (f folders) agent(pid int, start uint64) string {
+	return filepath.Join(f.agents, fmt.Sprintf("%d-%d.json", pid, start))
+}
 
 // noteIDs are the IDs of the notes on disk.
 func (f folders) noteIDs() ([]string, error) {

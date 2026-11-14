@@ -1090,7 +1090,7 @@ func loadArgs(s snapshot, agent int, callIDs, folders bool) {
 		seen[pid] = true
 		p.Args = platform.Args(pid)
 		if callIDs && (pid == agent || p.PPID == agent) {
-			p.CallID = platform.Environ(pid, callIDVariable)
+			p.CallID = platform.Environ(pid, codexStamp)
 		}
 		if folders {
 			p.Folder, _ = platform.Folder(pid)

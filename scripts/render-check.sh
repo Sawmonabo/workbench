@@ -343,7 +343,7 @@ for name, hooks in (("claude", claude), ("codex", codex)):
         if not command.startswith(prefix) or ".local/bin/workbench" in command:
             print(f"BIN FAIL: {name} hook runs {command!r}")
             bad = 1
-    if len(commands) != (5 if name == "claude" else 4):
+    if len(commands) != (6 if name == "claude" else 5):
         print(f"BIN FAIL: {name} has {len(commands)} workbench hooks")
         bad = 1
 # Codex's trust hash (discovery.rs hook_hash, as modify_private_config.toml.tmpl
