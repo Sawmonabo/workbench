@@ -11,6 +11,7 @@ package guard
 // measures, logs and stops nothing; the tick stays the one place that does.
 
 import (
+	"cmp"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -21,26 +22,24 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// shellWakesCap is the most wakes a call's shell may cause in a second
-// before it loses its fork watch for the rest of its life, keeping only its
-// exit watch, and is left to the ticks. A shell that forks this often runs a
-// loop of programs, and each wake costs a listing of its children and a
-// version read: measured, about 86 µs of CPU per wake (25.9 ms for 303 wakes
-// at 500 forks a second), so 250 a second costs about 2 % of a core, under
-// research R1's uncapped worst case of 6.8 %. Calls that leave work behind in
+// shellWakesCap is the most wakes, by its forks and its execs, a call's shell
+// may cause in a second before it loses its fork watch for the rest of its
+// life, keeping only its exit watch, and is left to the ticks. A shell that
+// forks or execs this often runs a loop of programs. A shell forking 500
+// times a second cost a follower about 4.3 % of a core (design 2.1 fact 25),
+// so 250 wakes a second cost about 2 %; calls that leave work behind in
 // their first moments wake it a few times, far below this.
 const shellWakesCap = 250
 
 // agentWakesCap is the most fork wakes an agent may cause in a second before
 // it is not followed for its forks for agentPause, after which a tick follows
 // it again; its exit stays watched as before, and its calls meanwhile are
-// found at the ticks, as without the glimpse. Research R1 saw 85 events in a
-// whole real Claude Code session, so a hundred in one second is far beyond
+// found at the ticks, as without the glimpse. A real Claude Code session
+// woke a follower 85 times in all, so a hundred in one second is far beyond
 // what an agent does when it runs commands, and bounds what an agent that
-// forks in a loop can cost: a wake on an agent lists its children and reads
-// each new one, which a fake agent measured at well under a millisecond (see
-// the wiring report), so at most about a tenth of a core for one second in
-// every agentPause.
+// forks in a loop can cost: following costs the watcher about 4 ms of CPU a
+// call, for the three children a call makes (design 2.1 fact 34), so this is
+// at most about a tenth of a core for one second in every agentPause.
 const (
 	agentWakesCap = 100
 	agentPause    = 5 * time.Second
@@ -66,7 +65,9 @@ func (c *wakes) add(now time.Time) int {
 // their exit, the agents' children it has looked at (seen), those it still
 // follows because they had not exec'd yet when it looked (waiting, to their
 // agent), the matched shells (shells, by PID) and the notes it gave a shell
-// (given, by call ID, while the note is on disk). Nothing of it is carried
+// (given, by call ID, while the note is on disk). Each is pruned against the
+// tick's snapshot in followAgents, so none holds more than the processes
+// that ran at the last tick and what arrived since. Nothing of it is carried
 // at a handover: the next watcher follows the known agents itself.
 type glimpse struct {
 	agents  map[int]procKey
@@ -196,9 +197,43 @@ func (w *watcher) followAgents(s snapshot, agents []int) {
 			delete(g.agentWakes, pid)
 		}
 	}
+	g.prune(s)
+}
+
+// prune forgets what the glimpse keeps of processes that are gone from s:
+// the children looked at, the waiting children and the shells by their own
+// process; the notes given by their agent (a note is also forgotten at the
+// agent's next glimpse once it is gone from disk, see glimpseNotes); the
+// exit watches by PID; and the wake counts of agents no longer followed.
+func (g *glimpse) prune(s snapshot) {
 	for key := range g.seen {
 		if !s.present(key.pid, key.start) {
 			delete(g.seen, key)
+		}
+	}
+	for pid, c := range g.waiting {
+		if !s.present(c.key.pid, c.key.start) {
+			delete(g.waiting, pid)
+		}
+	}
+	for pid, sh := range g.shells {
+		if !s.present(sh.key.pid, sh.key.start) {
+			delete(g.shells, pid)
+		}
+	}
+	for id, given := range g.given {
+		if !s.present(given.agent.pid, given.agent.start) {
+			delete(g.given, id)
+		}
+	}
+	for pid := range g.watched {
+		if _, ok := s[pid]; !ok {
+			delete(g.watched, pid)
+		}
+	}
+	for pid := range g.agentWakes {
+		if _, ok := g.agents[pid]; !ok {
+			delete(g.agentWakes, pid)
 		}
 	}
 }
@@ -262,11 +297,8 @@ func (w *watcher) glimpseEvent(e platform.Event) bool {
 		// The kernel folds what happened since the last wait into one event,
 		// so a shell that forked and exited at once reports both: its
 		// children are read before it is forgotten.
-		if e.Exec && !e.Exit {
-			w.recordGlimpsed(sh.key, sh.owner, procKey{})
-		}
-		if e.Fork && !sh.capped {
-			w.shellForked(sh)
+		if (e.Exec || e.Fork) && !sh.capped {
+			w.shellChanged(sh, e.Exec && !e.Exit, e.Fork)
 		}
 		if e.Exit {
 			delete(g.shells, e.PID)
@@ -315,17 +347,26 @@ func (w *watcher) agentForked(agent procKey) {
 // and matches it (see glimpseChild).
 func (w *watcher) glimpseAgent(agent procKey) {
 	g := w.glimpse
+	// The kernel lists children newest first; the tick gives the oldest
+	// matching child the oldest note (see match), so the glimpse looks at
+	// them oldest first too.
+	var kids []platform.Process
 	for _, pid := range platform.Children(agent.pid) {
 		p, err := platform.ProcessInfo(pid)
-		if err != nil || p.Zombie || p.PPID != agent.pid {
-			continue
+		if err == nil && !p.Zombie && p.PPID == agent.pid {
+			kids = append(kids, p)
 		}
-		key := procKey{pid, p.Start}
+	}
+	slices.SortFunc(kids, func(a, b platform.Process) int {
+		return cmp.Or(cmp.Compare(a.Start, b.Start), cmp.Compare(a.PID, b.PID))
+	})
+	for _, p := range kids {
+		key := procKey{p.PID, p.Start}
 		if g.seen[key] || w.protectedNow(key) {
 			continue
 		}
 		g.seen[key] = true
-		if !w.waiter.Follow(pid) {
+		if !w.waiter.Follow(p.PID) {
 			continue // it exited meanwhile
 		}
 		w.glimpseChild(agent, key)
@@ -364,13 +405,45 @@ func (w *watcher) glimpseChild(agent, child procKey) {
 	}
 	matched := match(s, notes, taken, w.setsCallIDs)
 	switch {
-	case len(matched) == 1:
+	case len(matched) == 1 && ticksAnswer(s, matched[0], notes, w.glimpse.olderWaiting(agent, child)):
 		w.glimpseShell(matched[0], child)
-	case slices.Equal(s[child.pid].Args, s[agent.pid].Args):
+	case len(matched) == 0 && p.NotExeced:
+		// Still its agent's program image: looked at again at its exec.
 		w.glimpse.waiting[child.pid] = waitingChild{key: child, agent: agent}
 	default:
 		unfollow()
 	}
+}
+
+// ticksAnswer reports whether the tick, seeing every child of the agent,
+// would give c's note to c's root as the glimpse, seeing that child alone,
+// does. It would when no other note the child may match has the same text.
+// Else the tick gives each note the oldest child that runs in the best
+// folder its note's folders allow (see match, folderRank), so it would when
+// the root runs in that folder and no older child of the agent may still
+// match: none is waiting for its exec (olderWaiting). Else the glimpse leaves
+// the note to the tick, which finds the command as it did before the glimpse
+// existed.
+func ticksAnswer(s snapshot, c command, notes []note, olderWaiting bool) bool {
+	if !slices.ContainsFunc(notes, func(n note) bool {
+		return n.ToolUseID != c.Note.ToolUseID && n.Command == c.Note.Command
+	}) {
+		return true
+	}
+	dirs := noteFolders(c.Note)
+	return !olderWaiting && s.folderRank(c.Root, dirs) == len(dirs)-1
+}
+
+// olderWaiting reports whether a child of agent older than child is still
+// waiting for its exec, so it may yet match one of the agent's notes.
+func (g *glimpse) olderWaiting(agent, child procKey) bool {
+	for _, c := range g.waiting {
+		if c.agent == agent && c.key != child &&
+			(c.key.start < child.start || c.key.start == child.start && c.key.pid < child.pid) {
+			return true
+		}
+	}
+	return false
 }
 
 // glimpseShell records shell, the matched command c's root, as its call's
@@ -379,6 +452,10 @@ func (w *watcher) glimpseChild(agent, child procKey) {
 // recordLineage); then its children now. It stays followed, for its exec
 // and its forks.
 func (w *watcher) glimpseShell(c command, shell procKey) {
+	if w.protectedNow(shell) {
+		w.waiter.Unfollow(shell.pid)
+		return
+	}
 	o := owner{
 		ID:    c.Note.ToolUseID,
 		Agent: procKey{c.Note.AgentPID, c.Note.AgentStart},
@@ -393,22 +470,49 @@ func (w *watcher) glimpseShell(c command, shell procKey) {
 	w.recordChildren(sh)
 }
 
-// shellForked handles a fork of a followed shell: its children are recorded,
-// unless it has woken the watcher more than shellWakesCap times this second,
-// which takes its fork watch for the rest of its life (its exit stays
-// watched).
-func (w *watcher) shellForked(sh *shellWatch) {
+// shellChanged handles an exec or a fork of a followed shell, one wake: at
+// an exec its version is recorded again, at a fork its children. A shell
+// that has woken the watcher more than shellWakesCap times this second loses
+// its fork watch for the rest of its life (its exit stays watched), and one
+// that is no longer its call's (see stillTheCalls) is no longer followed;
+// nothing is recorded for either.
+func (w *watcher) shellChanged(sh *shellWatch, execed, forked bool) {
 	if sh.wakes.add(time.Now()) > shellWakesCap {
 		sh.capped = true
 		w.waiter.Watch(sh.key.pid)
 		w.waiter.Unfollow(sh.key.pid)
 		return
 	}
-	w.recordChildren(sh)
+	if !w.stillTheCalls(sh) {
+		return
+	}
+	if execed {
+		w.recordGlimpsed(sh.key, sh.owner, procKey{})
+	}
+	if forked {
+		w.recordChildren(sh)
+	}
+}
+
+// stillTheCalls reports whether sh is still its call's shell, as the tick
+// would record it: not protected now (a stamp may name it as an agent, or it
+// may have exec'd into one), and recorded in the store as the call's. When it
+// is not, the tick has left it out of the call's tree, with everything under
+// it, and dropped its entry (see recordLineage), so the glimpse stops
+// following it and forgets it, and records nothing more under it.
+func (w *watcher) stillTheCalls(sh *shellWatch) bool {
+	if o, ok := w.ancestry.ownerOf(sh.key); ok && o.ID == sh.owner.ID && !w.protectedNow(sh.key) {
+		return true
+	}
+	w.waiter.Unfollow(sh.key.pid)
+	delete(w.glimpse.shells, sh.key.pid)
+	return false
 }
 
 // recordChildren records each direct child of sh's shell, with the shell as
-// its parent and the shell's call as owner. Nothing below is followed.
+// its parent and the shell's call as owner, leaving out a protected child as
+// the tick does. Nothing below is recorded or followed. The caller has made
+// sure the shell is still its call's.
 func (w *watcher) recordChildren(sh *shellWatch) {
 	for _, pid := range platform.Children(sh.key.pid) {
 		p, err := platform.ProcessInfo(pid)
