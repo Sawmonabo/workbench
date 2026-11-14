@@ -978,7 +978,11 @@ func (w *watcher) stopLargest(
 			continue
 		}
 		// A unit only with the roots its own stop may take (see ownStop).
-		own, tracked := ownStop(c, time.Now())
+		own, tracked := ownStop(
+			c,
+			time.Now(),
+			func(r detachedRoot) bool { return s.alive(r.PID, r.Start) },
+		)
 		cand := candidate{c: own, tracked: tracked}
 		// One the guard may not choose is not sized: choose leaves it out.
 		if !cand.mayChoose() {

@@ -331,8 +331,10 @@ func (cand candidate) mayChoose() bool {
 // process starts and leaves detached joins that unit and needs unitGrace to
 // be known as an agent, and a root not settled may be one that opted out. A
 // unit with no such root keeps none and gives 0, which choose never takes. A
-// person's stop takes every live root instead.
-func ownStop(c command, now time.Time) (command, time.Duration) {
+// person's stop takes every live root instead. runs reports whether a root
+// still runs: the stop is named after the first kept root that does, so the
+// reason, the log and the kill record name a program the stop signals.
+func ownStop(c command, now time.Time, runs func(detachedRoot) bool) (command, time.Duration) {
 	if c.Detached == nil {
 		return c, 0
 	}
@@ -349,12 +351,9 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 		own.Roots = append(own.Roots, r)
 	}
 	c.Detached = &own
-	if len(own.Roots) > 0 && !slices.ContainsFunc(own.Roots, func(r detachedRoot) bool {
-		return r.PID == c.Root.PID && r.Start == c.Root.Start
-	}) {
-		// The reason, the log and the kill record name the program of a root
-		// this stop signals, not the one it left out.
-		first := own.Roots[0]
+	isRoot := func(r detachedRoot) bool { return r.PID == c.Root.PID && r.Start == c.Root.Start }
+	if i := slices.IndexFunc(own.Roots, runs); i >= 0 && !isRoot(own.Roots[i]) {
+		first := own.Roots[i]
 		c.Root = proc{Process: platform.Process{PID: first.PID, PPID: 1, Start: first.Start}}
 		c.Note.Command, c.Shown = cmp.Or(first.Name, c.Note.Command), first.Shown
 	}

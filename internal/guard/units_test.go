@@ -336,7 +336,9 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 	const gb = uint64(1) << 30
 	now := time.Now()
-	// A unit's candidate is made as stopLargest makes it, through ownStop.
+	// A unit's candidate is made as stopLargest makes it, through ownStop;
+	// every root here runs.
+	runs := func(detachedRoot) bool { return true }
 	unit := func(pid int, call string, size uint64, tracked time.Duration, pending bool) candidate {
 		c, age := ownStop(command{
 			Root: process(pid, 1, pid, float64(pid), "node"),
@@ -350,7 +352,7 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 					Pending: pending,
 				},
 			}, Call: call},
-		}, now)
+		}, now, runs)
 		return candidate{c: c, size: size, tracked: age}
 	}
 	noted := candidate{
@@ -392,7 +394,7 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 		}}, Call: "call_s", ByStamp: true},
 	}
 	w.loseStampCall(&made)
-	c, age := ownStop(made, now)
+	c, age := ownStop(made, now, runs)
 	if chosen, _, ok := choose([]candidate{{c: c, size: gb, tracked: age}}); ok {
 		t.Fatalf("chose %d, tied by stamp alone to a call that started an agent", chosen.c.Root.PID)
 	}
