@@ -37,11 +37,14 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
 			"commands that ended in the last minute, dimmed. Beside the commands are rows of " +
 			"other kinds, by status: detached, a program that detached from a command and still " +
-			"runs, with the call that started it in its details when known; agent, the agent " +
+			"runs, with the call that started it in its details when known and, when the " +
+			"guard will not stop it itself, why; agent, the agent " +
 			"process itself, by its own size; helper, a long-lived program the agent started, " +
 			"such as a language server or an MCP server, never a shell or a sandbox launcher; " +
-			"and unmatched, a running command no note matched. Their ID is p and the process " +
-			"ID. The header counts the running and finished commands, detached programs and " +
+			"and unmatched, a running command no note matched. Their ID is p and a process ID: " +
+			"for a detached program, that of its first program that still runs, which changes " +
+			"when it exits. A command line that might hold an environment string is shown " +
+			"shortened, on macOS to its program, and ends with …. The header counts the running and finished commands, detached programs and " +
 			"unmatched commands, not agent or helper rows, and shows the memory in use of the " +
 			"installed memory, the largest peak and the swap in use, and under it the memory " +
 			"in use split into commands, detached programs, agents, helpers and the rest. " +
@@ -55,8 +58,10 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"cannot be tagged, and k on it sends nothing. The watcher signals the row and logs " +
 			"the stop as by=you. It tells a command's call; a detached program's call only " +
 			"when it is known and its command still runs in the foreground; a helper's or " +
-			"unmatched command's stop is in the log only. With WORKBENCH_GUARD=dry-run, and " +
-			"for a helper or unmatched row also with off, it only logs. While no watcher runs, the view says so and reconnects on its own. It needs " +
+			"unmatched command's stop is in the log only. With WORKBENCH_GUARD=dry-run it only " +
+			"logs; it also only logs for a helper, an unmatched row, or a detached program " +
+			"whose setting cannot be read, when the agent's setting is dry-run or off. " +
+			"While no watcher runs, the view says so and reconnects on its own. It needs " +
 			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
 			"workbench guard logs --follow prints the same events.",
 		Args: cobra.NoArgs,
