@@ -32,8 +32,9 @@ type manualStop struct {
 // followed at each tick by followManual. A stop that signals nothing removes
 // its record and answers already finished. A person's stop was asked for,
 // not chosen, so it sets no cooldown and counts toward no refusal or pass. A
-// person may stop a unit whose call did not resolve; notes, read at the same
-// tick, say whether a unit's call is told (see killRecordFor).
+// person may stop a unit whose call did not resolve, a helper or an
+// unmatched command, never an agent (see chooseStops); notes, read at the
+// same tick, say whether a unit's call is told (see killRecordFor).
 func (w *watcher) manualStop(
 	req stopRequest,
 	s snapshot,
@@ -47,7 +48,7 @@ func (w *watcher) manualStop(
 		}
 		return results
 	}
-	stop, results := chooseStops(req.ids, w.tracked, s)
+	stop, results := chooseStops(req.ids, w.tracked, w.rows, s)
 	index := map[string]int{}
 	for i, r := range results {
 		index[r.ID] = i
@@ -64,7 +65,8 @@ func (w *watcher) manualStop(
 // could not, or "". A command already being stopped for a person is not
 // signalled again, but a forced stop of one stopped politely sends SIGKILL
 // now. A unit's kill record goes to the call that started it, as for the
-// guard's own stop (see killRecordFor).
+// guard's own stop (see killRecordFor). A row gets no kill record: no call
+// waits on it. An agent's row is refused here too, whatever chose it.
 func (w *watcher) stopFor(
 	c command,
 	s snapshot,
@@ -73,6 +75,9 @@ func (w *watcher) stopFor(
 	force bool,
 ) string {
 	id := c.Note.ToolUseID
+	if c.Row == rowAgent {
+		return "not allowed"
+	}
 	if m := w.manual[id]; m != nil {
 		if force && !m.forced {
 			kill, wait := escalation(s, m.procs, protected)
@@ -99,7 +104,10 @@ func (w *watcher) stopFor(
 	if len(chosen) == 0 {
 		return "already finished"
 	}
-	record := w.writeKill(c, notes, manualReason)
+	record := ""
+	if c.Row == "" {
+		record = w.writeKill(c, notes, manualReason)
+	}
 	w.f.event(slog.LevelWarn, EventStopping, "stopping", stopping...)
 	sig := unix.SIGTERM
 	if force {

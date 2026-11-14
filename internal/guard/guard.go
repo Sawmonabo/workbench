@@ -1,7 +1,10 @@
 // Package guard stops the largest shell command an AI coding agent started
-// when the machine is about to run out of memory, and tells the agent why. It
-// never stops the agent, its harness, MCP servers, hooks or any other
-// program.
+// when the machine is about to run out of memory, and tells the agent why. On
+// its own it stops only a command an agent started, or work such a command
+// provably forked and left behind; never an agent, its helpers (language and
+// MCP servers), hooks, a command it could not match or any other program. A
+// person may stop a helper, an unmatched command or detached work from the
+// view.
 package guard
 
 import (
@@ -153,12 +156,15 @@ func outside(protected map[int]uint64) func(proc) bool {
 // program's name only, because a running program's arguments may hold a
 // token the shell expanded and the note's Command reaches the log and the
 // reason. Root is then its first root that runs, and Shown its command line,
-// which only the view shows.
+// which only the view shows. Or, with Row (agent, helper or unmatched), a row
+// of the view (see buildRows), whose Note is made up the same way; a row is
+// never tracked. Row is "" for a command or a unit.
 type command struct {
 	Note     note
 	Root     proc
 	Detached *detached
 	Shown    string
+	Row      string
 }
 
 // detached is what makes a command a unit: its roots, each a child of the

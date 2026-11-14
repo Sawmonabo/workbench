@@ -46,9 +46,10 @@ type message struct {
 
 // Snapshot is what the watcher sees at one tick: the machine's memory, the
 // largest peak any command reached since the watcher started, and the
-// commands it tracks, newest first, then those that finished within the last
-// minute, the latest first, and the memory in use split by the kind of row
-// that holds it.
+// commands it tracks, newest first, then the rows of the agents, their
+// helpers and the commands no note matched, newest first, then the commands
+// that finished within the last minute, the latest first, and the memory in
+// use split by the kind of row that holds it.
 type Snapshot struct {
 	At          time.Time     `json:"at"`
 	Memory      MemoryView    `json:"memory"`

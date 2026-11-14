@@ -175,6 +175,11 @@ type watcher struct {
 	manual    map[string]*manualStop
 	stoppedBy map[string]string
 	finished  []CommandView
+	// rows are the rows of the last tick by ID, and rowTrees their trees with
+	// the sizes read (see buildRows). They are never in tracked, so they never
+	// keep the watcher from exiting idle and never pass to another watcher.
+	rows     map[string]command
+	rowTrees map[string][]ProcessView
 	handoff
 }
 
@@ -345,7 +350,8 @@ func (w *watcher) carryOn() bool {
 // list or the notes folder cannot be read, it does nothing else this round.
 // It follows the stops people asked for and takes new ones with the same
 // snapshot, finds and tracks detached units beside the noted commands (see
-// findUnits), and keeps what it saw in view.
+// findUnits), builds the rows of the agents, their helpers and the commands
+// no note matched (see buildRows), and keeps what it saw in view.
 func (w *watcher) tick() time.Duration {
 	w.round++
 	w.calm = false
@@ -398,6 +404,7 @@ func (w *watcher) tick() time.Duration {
 	w.dropAgentRoots(s)
 	trees := w.measure(s, below, protected)
 	w.markChildSeen(s, notes, taken)
+	w.buildRows(s, notes, taken, protected)
 	if len(notes) > 0 || len(w.tracked) > 0 {
 		w.idleSince = time.Now()
 	}
@@ -655,8 +662,16 @@ func (w *watcher) snapshot() (snapshot, error) {
 // project and subagent only when the note has them. A unit's add its kind,
 // detached, and launched_by, the call that started it, when that resolved;
 // its call is the unit's ID and its command the root program's name, never
-// its arguments.
+// its arguments. A row's are its ID, its agent's kind, its kind, its root and
+// its program's name only: its folder and project are not a call's, and its
+// command line may hold what its owner did not mean to keep on disk.
 func callAttrs(c command) []any {
+	if c.Row != "" {
+		return []any{
+			"call", c.Note.ToolUseID, "agent", c.Note.Kind, "kind", c.Row,
+			"root_pid", c.Root.PID, "command", clip(c.Note.Command),
+		}
+	}
 	attrs := append([]any{"call", c.Note.ToolUseID, "agent", c.Note.Kind},
 		placeAttrs(c.Note.Cwd, c.Note.Project, c.Note.Subagent)...)
 	if c.Detached != nil {
