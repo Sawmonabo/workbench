@@ -434,7 +434,7 @@ func (w *watcher) judgeUnits(s snapshot, f facts) {
 // programOf), such as a fork caught before it started its own, starts its
 // time before the guard's own stop may take it again (Since, see ownStop)
 // and is Pending: not settled, so never chosen by the guard itself, until it
-// is judged in its new program. So is one whose program cannot be read, as
+// is judged in its new program, with its stamp read again for it. So is one whose program cannot be read, as
 // while the kernel does not answer, since it may run another. Its Name and
 // Args follow the process whenever they differ, which alone resets nothing.
 //
@@ -483,7 +483,13 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 				leaves = append(leaves, leaving{key, whyProtected})
 				continue
 			}
-			followProgram(p, r)
+			if followProgram(p, r) {
+				// Its stamp is read again for the program it runs now: the
+				// cache tells programs apart by name alone where the kernel
+				// keeps no versions, and a program of the same name can set
+				// WORKBENCH_GUARD=off, dry-run or another agent.
+				delete(w.stamps, key)
+			}
 			if !whole {
 				// Where processes come from cannot be read: no root is
 				// settled, whatever it ran, until it is judged again.
@@ -529,8 +535,9 @@ func (w *watcher) loseStampCall(c *command) {
 // line decides nothing, so only the shown form is read again, at each call:
 // a program that rewrites its title keeps its version. Elsewhere the command
 // line just read is what changes, so the shown form is read again only when
-// it did, and no read is added to each tick there.
-func followProgram(p proc, r *detachedRoot) {
+// it did, and no read is added to each tick there. It reports whether the
+// root runs another program.
+func followProgram(p proc, r *detachedRoot) (replaced bool) {
 	now := programOf(p)
 	judgedIn := program{version: r.Version, name: r.Name, args: r.Args}
 	switch {
@@ -538,6 +545,7 @@ func followProgram(p proc, r *detachedRoot) {
 		r.Pending = true
 	case judgedIn.replaced(now) || !judgedIn.known():
 		r.Version, r.Since, r.Pending = now.version, time.Now(), true
+		replaced = true
 	}
 	if p.Name != "" {
 		r.Name = p.Name
@@ -547,11 +555,12 @@ func followProgram(p proc, r *detachedRoot) {
 		r.Args = now.args
 	}
 	if !platform.KnowsOriginalParent && !changed && r.Shown != "" {
-		return
+		return replaced
 	}
 	if shown := shownCommand(p.PID, p.Name); shown != "" {
 		r.Shown = shown
 	}
+	return replaced
 }
 
 // agentDry reports whether agent's own stamp says dry-run or off (see

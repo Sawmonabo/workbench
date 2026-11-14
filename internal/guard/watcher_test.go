@@ -284,3 +284,48 @@ func fixtureUnit(w *watcher, agent procKey, call string, now time.Time, rs ...pr
 	w.usage[id] = &usage{Since: now}
 	return id
 }
+
+// A root that execs a program of the same name may set WORKBENCH_GUARD=off in
+// it: judged on the stamp kept for the program before, it settles again and
+// the guard may stop work that turned it off. Where the kernel keeps no
+// versions the stamp cache tells programs apart by name alone, so a root's
+// stamp must be read again whenever it runs another program. The root is this
+// test's own process, so its program reads.
+func TestWatcherReadsTheStampOfARootThatRunsAnotherProgram(t *testing.T) {
+	now := time.Now()
+	agent := procKey{1<<30 + 1, start(-3600)}
+	w, _ := fixtureWatcher(t, agent)
+	self := os.Getpid()
+	root := proc{Process: platform.Process{PID: self, PPID: 1, Start: start(10), Name: "test"}}
+	s := snapshotOf(
+		process(1, 0, 1, -99999, "launchd"),
+		process(agent.pid, 1<<30, agent.pid, -3600, "claude"),
+		root,
+	)
+	id := fixtureUnit(w, agent, "toolu_1", now, root)
+	key := procKey{root.PID, root.Start}
+	r := &w.tracked[id].Detached.Roots[0]
+	// It was judged in an earlier program of the same name, and its stamp
+	// kept for that program as the cache names it.
+	before := program{name: "test"}
+	r.Args = "test --before"
+	if platform.KnowsOriginalParent {
+		r.Version = programOf(root).version + 1
+		before = program{version: r.Version}
+	}
+	stale := stamp{Readable: true, Agent: agent.pid, CallShell: 424242}
+	w.stamps[key] = cachedStamp{stale, before}
+	w.ancestry.record(key, owner{ID: id, Agent: agent, Kind: claude}, procKey{}, 0, now)
+	w.rejudgeRoots(s, facts{
+		stamp:     func(pid int) stamp { return w.stampOf(s, pid, nil) },
+		args:      func(int) []string { return nil },
+		known:     w.known,
+		protected: map[int]uint64{agent.pid: agent.start},
+		origins:   w.ancestry,
+		records:   w.records,
+		below:     s.below(),
+	}, true)
+	if w.stamps[key].stamp == stale {
+		t.Fatal("the root was judged in its new program on the stamp kept for the old one")
+	}
+}
