@@ -174,7 +174,8 @@ holds them, so the ledger keeps them as it reads them. See the
 
 Claude Code and Codex shell commands are guarded against running the machine
 out of memory. A `Bash` hook notes each command (a Claude Code `Monitor`
-command too) and starts one watcher per user. When memory is nearly gone, the
+command too, from Claude Code 2.1.314, the first whose `Bash` hook runs for
+`Monitor`) and starts one watcher per user. When memory is nearly gone, the
 watcher stops the largest command an agent started, with everything it
 started, or the largest program such a command started that then detached
 (see below): `SIGTERM` first, `SIGKILL` after 5
