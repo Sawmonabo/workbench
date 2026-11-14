@@ -299,9 +299,25 @@ for event, label, verb in (("PreToolUse", "pre_tool_use", "pre"), ("PostToolUse"
     if not any(state.get(f"{path}:{label}:{g}:{h}", {}).get("trusted_hash") for g, h in found):
         print(f"HOOKS FAIL: codex {event} guard hook or its trust missing")
         bad = 1
+# The guard's SessionStart hook names its agent and ends in `|| true`, so it
+# can never fail the session it starts in; Codex trusts it like the others.
+found = [
+    (g, h) for g, group in enumerate(hooks.get("SessionStart", []))
+    for h, hook in enumerate(group.get("hooks", []))
+    if hook.get("type") == "command" and hook.get("command", "").endswith(" guard session codex || true")
+]
+if not any(state.get(f"{path}:session_start:{g}:{h}", {}).get("trusted_hash") for g, h in found):
+    print("HOOKS FAIL: codex SessionStart guard hook or its trust missing")
+    bad = 1
+claude = json.load(open(dest + "/.claude/settings.json"))["hooks"]
+if not any(
+    hook.get("type") == "command" and hook.get("command", "").endswith(" guard session claude || true")
+    for group in claude.get("SessionStart", []) for hook in group.get("hooks", [])
+):
+    print("HOOKS FAIL: claude SessionStart guard hook missing")
+    bad = 1
 # Claude Code's post hooks also run on Monitor calls, whose commands the pre
 # hook on Bash notes too.
-claude = json.load(open(dest + "/.claude/settings.json"))["hooks"]
 for event, verb, matcher in (("PreToolUse", "pre", "Bash"), ("PostToolUse", "post", "Bash|Monitor"),
                              ("PostToolUseFailure", "post", "Bash|Monitor")):
     if not any(
