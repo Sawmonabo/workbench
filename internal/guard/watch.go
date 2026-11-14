@@ -125,19 +125,13 @@ type watcher struct {
 	// processes a stamp read names as its agent that started before the
 	// stamped process, protected while they live (see stampOf). classified is
 	// each child of the init process unitRootWhy has judged, with its verdict,
-	// while it runs (see judged). seenUnder names the owner each process of a
-	// tracked tree was seen under, while it runs, and versionOf its version;
-	// versions names the owner of each version recorded, kept as versionSeen
-	// says (see recordLineage), last at lineageAt. lineageLost is set while
-	// the kernel's original-parent record is found unreadable.
+	// while it runs (see judged). ancestry is where each process of a tracked
+	// tree was seen and what it came from (see recordLineage). lineageLost is
+	// set while the kernel's original-parent record is found unreadable.
 	stamps      map[procKey]cachedStamp
 	stampAgents map[procKey]bool
 	classified  map[procKey]judged
-	seenUnder   map[procKey]owner
-	versionOf   map[procKey]uint32
-	versions    map[uint32]owner
-	versionSeen map[uint32]time.Time
-	lineageAt   time.Time
+	ancestry    *ancestry
 	lineageLost bool
 	idleSince   time.Time
 	expired     time.Time
@@ -225,10 +219,7 @@ func Watch(ctx context.Context, version string) {
 		stamps:      map[procKey]cachedStamp{},
 		stampAgents: map[procKey]bool{},
 		classified:  map[procKey]judged{},
-		seenUnder:   map[procKey]owner{},
-		versionOf:   map[procKey]uint32{},
-		versions:    map[uint32]owner{},
-		versionSeen: map[uint32]time.Time{},
+		ancestry:    newAncestry(platform.KnowsOriginalParent),
 		unsized:     map[procKey]bool{},
 		idleSince:   time.Now(),
 		waiter:      platform.NewWaiter(),

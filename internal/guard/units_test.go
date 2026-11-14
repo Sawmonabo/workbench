@@ -41,6 +41,17 @@ func (w *unitWorld) facts() (snapshot, proc, facts) {
 	for _, n := range w.notes {
 		recs.add(n)
 	}
+	// The store holds each process seen in a tracked tree, and each recorded
+	// version as that of a forker of its own, PID 900 and up.
+	origins := newAncestry(true)
+	for key, o := range w.seenUnder {
+		origins.record(key, o, procKey{}, 0, time.Now())
+	}
+	forker := 900
+	for v, o := range w.versions {
+		origins.record(procKey{forker, start(-60)}, o, procKey{}, v, time.Now())
+		forker++
+	}
 	return s, s[w.root], facts{
 		self:    0,
 		lineage: w.lineage,
@@ -52,8 +63,7 @@ func (w *unitWorld) facts() (snapshot, proc, facts) {
 		args:      func(pid int) []string { return s[pid].Args },
 		known:     w.known,
 		protected: w.protected,
-		versions:  w.versions,
-		seenUnder: w.seenUnder,
+		origins:   origins,
 		records:   recs,
 	}
 }
@@ -110,7 +120,16 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		w.versions[4000] = byCall
 	}
 
-	byStamp := tie{Agent: agent, Kind: claude, Shell: 300, Second: 1_000_005, Mode: "dry-run"}
+	byStamp := tie{
+		Agent:   agent,
+		Kind:    claude,
+		Version: 5000,
+		Shell:   300,
+		Second:  1_000_005,
+		Mode:    "dry-run",
+	}
+	// The forker the base's one recorded version is given (see facts).
+	forker := procKey{900, start(-60)}
 	for _, tc := range []struct {
 		name    string
 		change  func(*unitWorld)
@@ -119,7 +138,9 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		final   bool // a no unit that is final for the life of the process (finalWhy)
 	}{
 		{"byStamp", func(*unitWorld) {}, byStamp, isUnit, false},
-		{"byRecordedParentVersion", byParent, tie{Agent: agent, Kind: claude, Owner: "toolu_1"}, isUnit, false},
+		{"byRecordedParentVersion", byParent, tie{
+			Agent: agent, Kind: claude, Owner: "toolu_1", Parent: forker, Version: 5000,
+		}, isUnit, false},
 		{"bySeenUnderWithoutLineage", func(w *unitWorld) {
 			w.lineage = false
 			w.lineages = nil
@@ -134,7 +155,7 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 			st := w.stamps[500]
 			st.Codex = "call_abc"
 			w.stamps[500] = st
-		}, tie{Agent: codexAgent, Kind: codex, Codex: "call_abc", Mode: "dry-run"}, isUnit, false},
+		}, tie{Agent: codexAgent, Kind: codex, Version: 5000, Codex: "call_abc", Mode: "dry-run"}, isUnit, false},
 		// A root whose environment is hidden is read through the first
 		// readable process below it.
 		{"byStampBelowAnUnreadableRoot", func(w *unitWorld) {

@@ -25,20 +25,21 @@ type facts struct {
 	args      func(pid int) []string // nil when unreadable
 	known     map[procKey]kind       // agents the guard knows
 	protected map[int]uint64
-	versions  map[uint32]owner  // a recorded version's owner
-	seenUnder map[procKey]owner // a process seen in a tracked tree
+	origins   *ancestry // where the processes of tracked trees were seen
 	records   *records
 }
 
 // tie is how a unit's root is tied to an agent.
 type tie struct {
-	Agent  procKey
-	Kind   kind
-	Owner  string // the call or unit whose tree forked it, "" for a tie by stamp
-	Shell  int    // the call stamp's shell, 0 without one
-	Second int64  // the call stamp's second
-	Codex  string // Codex's call ID, "" without one
-	Mode   string // WORKBENCH_GUARD as read, "" when unread
+	Agent   procKey
+	Kind    kind
+	Owner   string  // the call or unit whose tree forked it, "" for a tie by stamp
+	Parent  procKey // the recorded process that forked it, for a tie by its version
+	Version uint32  // the root's own version as read, 0 where none is kept
+	Shell   int     // the call stamp's shell, 0 without one
+	Second  int64   // the call stamp's second
+	Codex   string  // Codex's call ID, "" without one
+	Mode    string  // WORKBENCH_GUARD as read, "" when unread
 }
 
 type verdict int
@@ -64,6 +65,7 @@ const (
 	whyOtherAgent    = "its root belongs to another agent"
 	whyAgentUnknown  = "its root's agent is not one the guard knows that started before it"
 	whyOff           = "its root turned the guard off"
+	whyTiedDropped   = "what started its root is not this call's work"
 )
 
 // finalWhy reports whether a "no unit" verdict for why is final for the life
@@ -80,6 +82,7 @@ func finalWhy(why string) bool {
 		whyAgent,         // an agent the guard knows is never a unit
 		whyWorkbench,     // Workbench's own process, whatever it runs next
 		whyOtherAgent,    // its stamps name another agent: that agent's work
+		whyTiedDropped,   // what tied it was found not to be this call's work
 		whyOff:           // a program it execs inherits WORKBENCH_GUARD=off
 		return true
 	case whyNotDetached, // not (yet) a child of the init process, or a zombie
@@ -138,10 +141,10 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 
 	stamps := stampsFor(s, r, f.stamp)
 	var t tie
-	if o, ok := f.seenUnder[rKey]; ok {
+	if o, ok := f.origins.ownerOf(rKey); ok {
 		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID}
-	} else if o, ok := f.versions[mine.ParentVersion]; f.lineage && ok {
-		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID}
+	} else if forker, o, ok := f.origins.forker(mine.ParentVersion); f.lineage && ok {
+		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID, Parent: forker}
 	} else {
 		// On Linux a service the init process starts can carry a command's
 		// variables, and nothing there tells it from a process the command
@@ -182,6 +185,7 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 	if t.Mode == "off" {
 		return tie{}, notUnit, whyOff
 	}
+	t.Version = mine.Version
 	return t, isUnit, ""
 }
 
