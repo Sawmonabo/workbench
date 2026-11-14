@@ -103,13 +103,30 @@ type parents map[int][]proc
 
 // below indexes s by parent.
 func (s snapshot) below() parents {
-	below := parents{}
+	return s.belowInto(parents{})
+}
+
+// belowInto is below built in below, an index of an earlier snapshot of the
+// tick's own (see watcher.tickBelow), so that its map and its slices are
+// used again rather than made anew at every tick: each slice is cleared and
+// emptied first, and a parent left with no child is deleted, so the index
+// holds exactly what below gives for s. Nothing may keep below or one of its
+// slices past the tick it was built for.
+func (s snapshot) belowInto(below parents) parents {
+	for ppid, children := range below {
+		clear(children)
+		below[ppid] = children[:0]
+	}
 	for _, p := range s {
 		if p.PPID != p.PID {
 			below[p.PPID] = append(below[p.PPID], p)
 		}
 	}
-	for _, children := range below {
+	for ppid, children := range below {
+		if len(children) == 0 {
+			delete(below, ppid)
+			continue
+		}
 		slices.SortFunc(children, olderFirst)
 	}
 	return below

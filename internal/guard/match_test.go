@@ -767,3 +767,60 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		t.Fatalf("results %v, want %v", results, want)
 	}
 }
+
+// The tick builds its snapshot and parent index in the maps of the tick
+// before (see watcher.tickSnapshot, snapshot.belowInto). A process, a parent
+// link or a read argument carried over from that tick would put into a
+// command's tree, which the guard signals, a process that left it, such as
+// a PID reused since by an unrelated program. Each tick's must hold exactly
+// what new ones built from the same list hold.
+func TestTickBuffersHoldOnlyThisTick(t *testing.T) {
+	list := func(procs ...[3]int) []platform.Process {
+		var out []platform.Process
+		for _, p := range procs {
+			out = append(out, platform.Process{
+				PID: p[0], PPID: p[1], PGID: p[0], Start: start(float64(p[2])), Name: "p",
+			})
+		}
+		return out
+	}
+	ticks := [][]platform.Process{
+		// The agent 100, its command 200 with 300 and 301 under it, and an
+		// unrelated program 400 with 401.
+		list([3]int{1, 0, 0}, [3]int{100, 1, 1}, [3]int{200, 100, 2}, [3]int{300, 200, 3},
+			[3]int{301, 300, 4}, [3]int{400, 1, 5}, [3]int{401, 400, 6}),
+		// 300 and 401 exited; 301 is now the unrelated program's, and the
+		// command started 302.
+		list([3]int{1, 0, 0}, [3]int{100, 1, 1}, [3]int{200, 100, 2}, [3]int{301, 400, 9},
+			[3]int{302, 200, 9}, [3]int{400, 1, 5}),
+		list([3]int{1, 0, 0}),
+	}
+	samePID := func(p, q proc) bool { return p.PID == q.PID && p.Start == q.Start }
+	s, below := snapshot{}, parents{}
+	for i, all := range ticks {
+		s = fill(s, all)
+		fresh := fill(snapshot{}, all)
+		if !maps.EqualFunc(s, fresh, func(a, b proc) bool {
+			return a.Process == b.Process && a.Args == nil && a.CallID == "" && a.Folder == ""
+		}) {
+			t.Fatalf("tick %d: snapshot %v, want %v", i, s, fresh)
+		}
+		// What the tick reads into its snapshot (see loadArgs).
+		for pid, p := range s {
+			p.Args, p.CallID, p.Folder = []string{"read"}, "call", "/"
+			s[pid] = p
+		}
+		fresh = maps.Clone(s)
+		below = s.belowInto(below)
+		want := fresh.below()
+		if !maps.EqualFunc(below, want, func(a, b []proc) bool {
+			return slices.EqualFunc(a, b, samePID)
+		}) {
+			t.Fatalf("tick %d: parent index %v, want %v", i, below, want)
+		}
+		got, wantTree := below.tree(s, []int{200}, nil), want.tree(fresh, []int{200}, nil)
+		if !slices.EqualFunc(got, wantTree, samePID) {
+			t.Fatalf("tick %d: command tree %v, want %v", i, got, wantTree)
+		}
+	}
+}

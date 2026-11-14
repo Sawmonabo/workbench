@@ -179,6 +179,15 @@ type watcher struct {
 	// keep the watcher from exiting idle and never pass to another watcher.
 	rows     map[string]command
 	rowTrees map[string][]ProcessView
+	// list, tickSnap and tickBelow are the process list, snapshot and parent
+	// index each tick builds again in the last tick's (see tickSnapshot,
+	// snapshot.belowInto). Only tick builds them, and nothing keeps them, or
+	// a slice of the index, past the tick: what is kept of a process, such as
+	// a tracked command's root or a stopped tree, is a copy of it, and every
+	// tree is a new slice.
+	list      platform.ProcessList
+	tickSnap  snapshot
+	tickBelow parents
 	handoff
 }
 
@@ -360,7 +369,7 @@ func (w *watcher) tick() time.Duration {
 			delete(w.missing, key)
 		}
 	}
-	s, err := w.snapshot()
+	s, err := w.tickSnapshot()
 	if err != nil {
 		w.f.event(slog.LevelError, EventError, "cannot list processes", "error", err)
 		return time.Second
@@ -397,7 +406,10 @@ func (w *watcher) tick() time.Duration {
 	// again after matching, so a command's tree is recorded before its work
 	// detaches, and an agent a stamp names is protected, in protected too,
 	// before anything is measured or stopped.
-	below := s.below()
+	if w.tickBelow == nil {
+		w.tickBelow = parents{}
+	}
+	below := s.belowInto(w.tickBelow)
 	w.recordLineage(s, below, protected)
 	w.findUnits(s, below, protected)
 	trees := w.measure(s, below, protected)
@@ -645,21 +657,49 @@ func (w *watcher) gone(s snapshot, pid int, start uint64) bool {
 // snapshot is every process by PID, logging once each process left out for
 // a reason other than its exit.
 func (w *watcher) snapshot() (snapshot, error) {
-	all, err := platform.Processes(func(pid int, err error) {
-		if !w.unreadPIDs[pid] {
-			w.unreadPIDs[pid] = true
-			w.f.event(slog.LevelError, EventError, "cannot read a process",
-				"process", pid, "error", err)
-		}
-	})
+	all, err := platform.Processes(w.unreadable)
 	if err != nil {
 		return nil, err
 	}
-	s := make(snapshot, len(all))
+	return fill(make(snapshot, len(all)), all), nil
+}
+
+// tickSnapshot is snapshot for tick alone, built in the map of the tick
+// before and from the process list kept on the watcher (see tickSnap), so a
+// busy machine's list is not made anew at every tick. Every other snapshot,
+// such as the ones a stop takes while the tick's own is still in use, is a
+// new one.
+func (w *watcher) tickSnapshot() (snapshot, error) {
+	all, err := w.list.Read(w.unreadable)
+	if err != nil {
+		return nil, err
+	}
+	if w.tickSnap == nil {
+		w.tickSnap = make(snapshot, len(all))
+	}
+	return fill(w.tickSnap, all), nil
+}
+
+// unreadable logs once each process left out of a list for a reason other
+// than its exit.
+func (w *watcher) unreadable(pid int, err error) {
+	if !w.unreadPIDs[pid] {
+		w.unreadPIDs[pid] = true
+		w.f.event(slog.LevelError, EventError, "cannot read a process",
+			"process", pid, "error", err)
+	}
+}
+
+// fill makes s hold exactly the processes of all, by PID, each with nothing
+// read beyond the list: whatever s held before is cleared first, so a process
+// that left, or the arguments, call ID or folder read for one, never carries
+// into the new snapshot.
+func fill(s snapshot, all []platform.Process) snapshot {
+	clear(s)
 	for _, p := range all {
 		s[p.PID] = proc{Process: p}
 	}
-	return s, nil
+	return s
 }
 
 // callAttrs are the log attributes of a tracked call: its note's folder,
