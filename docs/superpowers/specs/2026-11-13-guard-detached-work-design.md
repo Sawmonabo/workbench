@@ -202,12 +202,27 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
 32. A Go map model of the versions kept took 13.0 MiB of heap at 65,536
     versions, about 208 bytes each; at the bound of 16,384 that is about
     3.3 MiB (computed, not measured). The watcher's soft memory limit is
-    32 MiB. With 1,400 processes held under one command the watcher peaked
-    at 32.6 MiB resident and spent 7.7 ms a tick; under a churn of about 650
-    new process images a tick it reached 37.8 to 38.8 MiB and 22 to 26 ms a
-    tick, with the store at its bound (inferred from the churn rate: the watcher does not report the
-    store's size). Every run ticked once a second; the cost at the 100 ms
-    pressure tick is that per-tick cost ten times over, not measured.
+    32 MiB. With 1,400 processes held under one command the watcher spent
+    8.4 ms a tick, and under a churn of about 650 new processes a tick
+    10.2 ms, as much as a watcher without detached work (11.4 and 10.0 ms in
+    the same session). Under that churn, with the store at its bound, its
+    live heap was 11 to 13 MiB, of which the store took 5.1 to 6.8 MiB; the
+    memory its limit counts stayed near 30 MiB, the collector used under
+    0.1 % of the CPU, and it was resident at 37 to 41 MiB, the rest being
+    the program's code and C library. Every run ticked once a second; the
+    cost at the 100 ms pressure tick is ten times the per-tick cost, not
+    measured.
+33. At a handover with the store at its bound (14,468 entries), the old
+    watcher wrote 3.66 MB to the next one in 6.9 ms; marshalling, writing
+    and reading took about 31 ms in all.
+34. Woken at each agent's fork, a watcher tied the work of sub-second calls
+    that left a never-exec'ing subshell under Homebrew bash to the call, with
+    its subagent, in 30 of 30 runs (no time, 20 and 200 ms), and in a real
+    Claude Code 2.1.325 session tied `( sleep 300 & ) ; true` to its call. A
+    call's shell forking 300 times and an agent forking 300 times were capped
+    after 251 and 101 wakes in their second. Following cost about 4 ms of
+    the watcher's CPU per call, each call making three children of the
+    agent (the pre hook, the shell, the post hook).
 
 ### 2.2 Documented
 
@@ -516,9 +531,10 @@ one. On Linux and WSL, which keep no version, a process runs another program
 when its process name or command line changed; a failed or empty read never
 counts as a change. The same rule decides when a root is judged again, when
 a child of the init process whose "no" was not final is judged again, and
-when a process's stamp is read again (5.4). A root's name and command line,
-which the log and the view show, follow the process whenever they differ;
-that alone resets nothing.
+when a process's stamp is read again (5.4). A root's name, which the log
+shows, and the command line the view shows (section 8) follow the process
+whenever they differ; that alone resets nothing. On macOS a root's whole
+command line is not kept: only the shown form is.
 
 **Settled roots.** A unit's root carries the program it was judged in, when
 that program was first seen, and whether it is settled. It is not settled
@@ -583,8 +599,8 @@ process of an existing unit joins that unit.
 
 An entry stays while its process runs. Once the process is gone, its entry
 stays while one of its versions is kept: 60 seconds after the version was
-last seen, at most 16,384 versions in all, the oldest dropped first (2.1
-fact 32). On Linux, which keeps no versions, the entry of a process that is
+last seen, at most 16,384 versions in all: past that bound the oldest are
+dropped down to 14,336 (2.1 fact 32). On Linux, which keeps no versions, the entry of a process that is
 gone is removed at once. When an entry is removed for age or for the bound,
 the entries that named it as their parent take its parent instead, so a
 process that exits never breaks the chain from what it started to what
@@ -604,23 +620,36 @@ out takes with it what it started. A nested agent's own calls stay tied to
 it: their shells have no parent entry, so forgetting the nested agent never
 reaches them.
 
-**The shell learned at its start.** On macOS the watcher follows each known
-agent's forks and exit through the kernel's event queue (2.1 fact 23). On an
-agent's fork it lists the agent's children; it follows each new child first,
-then reads it, so an exec is never missed, and matches it against that
-agent's notes that have no tracked command and are not ended, by the same
-matching rules as a tick. A matched shell's call record gets the shell (its
-PID and start time), and the store records the shell and its direct children
-with the call as owner, each with its versions read then; the shell is then
-followed for its forks, execs and exit, and nothing deeper. A child that
-matched no note is no longer followed. A shell that wakes the watcher more
-than a few hundred times in a second loses its fork watch for the rest of
-its life (2.1 fact 25); its exit stays watched and the tick still tracks it.
-The tick stays the one place that tracks, measures, logs and decides stops:
-these records only make ties earlier, never a new kind. Where the kernel
-cannot follow forks (Linux and WSL, or a refusal), the tick alone records.
-So work a sub-second call leaves detached is tied to the call by its
-original parent (5.5), as it is for a longer call.
+**The shell learned at its start.** On macOS the watcher follows the forks,
+execs and exit of every known agent that runs, between its calls too,
+through the kernel's event queue (2.1 fact 23). On an agent's fork it lists
+the agent's children; it follows each new child that is not protected
+first, then reads it, so an exec is never missed, and matches it against
+that agent's notes that have no tracked command, are not ended and have not
+yet been given a shell, by the same matching rules as a tick, so each note
+goes to one shell. A matched shell's call record gets the shell (its PID and
+start time), and the store records the shell, with no parent, and its
+direct children, with the call as owner, each with its version read then;
+no stamp is read. The shell is then followed for its forks (whose children
+are recorded), its execs (whose version is recorded) and its exit, and
+nothing deeper. A child still in its agent's image waits, followed, for its
+exec; any other child that matched no note is no longer followed. These
+records only make ties earlier, never a new kind: the tick stays the one
+place that tracks, measures, logs and decides stops, and a wake neither
+hurries nor delays it.
+
+Two bounds keep the cost down, and neither is logged. A call's shell that
+wakes the watcher more than 250 times in one second loses its fork watch for
+the rest of its life; its exit stays watched and the tick still tracks it.
+An agent that wakes it more than 100 times in one second is not followed for
+its forks for 5 seconds, and a later tick follows it again; its calls are
+found at the ticks meanwhile (2.1 fact 34). When the kernel refuses to
+follow an agent that still runs, the guard logs that once and finds that
+agent's calls at the ticks. Where the kernel cannot follow forks (Linux and
+WSL), the tick alone records. So work a sub-second call leaves detached is
+tied to the call by its original parent (5.5), as it is for a longer call.
+The watcher handles wakes between ticks only: a waiting child whose exec and
+exit both arrive while a tick runs is dropped (section 10).
 
 It does not see through a double fork made by a program below the shell
 whose middle process lived and died between two ticks: nothing below the
@@ -628,10 +657,19 @@ shell is followed, that middle process was never recorded, and the kernel
 keeps nothing of a process that has exited. Such work is found by its stamp
 or not at all (section 10).
 
-The store passes to the next watcher at a handover, each version with its
-age, so a chain through a process that exited before the handover still
-holds after it. The follow state does not pass: the next watcher follows the
-known agents itself.
+The store passes to the next watcher at a handover: each recorded process
+with its owner, the recorded process it came from, and each version with
+how long ago it was last seen, not a wall time, so a clock change between
+the two watchers neither stretches nor shortens the minute a version is
+kept. The next watcher merges it into its own store before its first tick
+records the trees: an entry it already holds keeps its own owner and parent,
+a version keeps its later sighting, a version older than a minute is left
+out, and the bound applies as before. So a process found after a handover
+not to be a call's work still takes with it everything it started before,
+also through processes that exited before the handover. A watcher of an
+earlier release carries no store, and one that does not know it ignores it;
+either way the handover works as before. The follow state does not pass:
+the next watcher follows the known agents itself.
 
 The kernel call the store's versions come from is the one condition 2 of
 5.2 already depends on, which is not in the public SDK (2.1 fact 7).
@@ -655,14 +693,17 @@ exiting session is never shown inside the tree of the command that started
 it.
 
 **Stamps inside tracked trees.** While it records a tracked tree, the
-watcher reads the stamp of each member it has seen at two ticks in a row,
-once per program (5.2). A live process a member names as its agent, older
+watcher reads each member's stamp from the second tick at which it records
+it, once per program (5.2); its versions are recorded from the first. A live process a member names as its agent, older
 than that member, is protected from that tick, with everything under it, and
 forgotten from the store with what was recorded below it (5.3), as it
 already is for a detached root. So a Claude Code session started without
 the guard's hooks is known from the first readable program that carries its
-own `CLAUDE_PID`, with no name hard-coded; one whose programs are all hidden
-is never known (section 10). Stamps are read once per program a process
+own `CLAUDE_PID`, one tick after that program is first recorded (one second
+at the normal pace, 100 ms under pressure), with no name hard-coded; work it
+leaves detached in that tick is tied to the outer call only through the
+store, which drops it once the session is known (5.3). One whose programs
+are all hidden is never known (section 10). Stamps are read once per program a process
 runs, a hidden result included (2.1 fact 31).
 
 ### 5.5 Which call started it
@@ -737,7 +778,8 @@ roots. The watcher does not exit idle while a unit is tracked. When the agent
 exits, the unit is forgotten, not stopped, as a command is.
 
 At a handover the next watcher takes each unit with its roots (each with the
-program it was judged in, whether it is settled, its name and command line),
+program it was judged in, whether it is settled, its name and the command
+line it shows, and on Linux the command line it was judged in),
 its call and whether it was tied by stamp alone; the call records, with
 whether each started an agent; the final verdicts; and the store (5.3). No
 root's time passes: a wall clock that steps would make a root look older
@@ -781,8 +823,8 @@ not read it in time is cancelled and the old watcher carries on.
   out, and never by its arguments: a call's text is
   logged as the agent wrote it, but a running program's arguments hold what
   the shell put there, a token read from a variable included, and its
-  launcher or the program itself may rewrite them. The full command line is
-  in the view only, as a process list would show it.
+  launcher or the program itself may rewrite them. The command line is in
+  the view only, in the shown form of section 8.
 - A person stops a unit from the view the same way as a command.
 
 ## 7. Agent and helper rows
@@ -860,8 +902,9 @@ on macOS, trailing strings shaped like `NAME=value` are dropped, and when any
 were, only the program is kept; on Linux the read stops at the end of the
 argument area where the kernel shows it, and a line it had to cut is marked
 the same way. A line shortened this way ends with ` …`, so `make CC=clang`
-shows as `make …`. Matching and judging use the whole command
-line; only the screen and the snapshot get the shortened one.
+shows as `make …`, and one with nothing left shows the process name and
+` …`. Matching and judging read the whole command line; only the shown form
+is kept for the screen, sent in the snapshot and carried at a handover.
 
 Under the count line, one faint line splits the memory in use, each part by
 the size its rows show. It is left out in a window of the shortest height
@@ -974,7 +1017,13 @@ stop what it must not (a fault).
     is work whose environment was wiped. Misses. Whether more can be found
     safely is decided with the checks of 2.3 and section 11. None of this was
     run on Linux or WSL.
-13. **A program the agent opened for a person.** An editor or a browser a
+13. **A child that execs and exits while a tick runs.** The watcher handles
+    wakes only between ticks, and the kernel folds a process's events that
+    arrive meanwhile into one. A child of an agent still waiting for its
+    exec, whose exec and exit come together that way, is dropped unmatched, so its shell is not
+    learned and work it left is found only as for a call before any watcher
+    ran (item 5). Misses.
+14. **A program the agent opened for a person.** An editor or a browser a
     command starts is that command's work wherever the system does not hand
     it to the init process to start. On macOS apps go through `open` and are
     left out (5.2); on Linux an app a command forked and left running is a
@@ -1061,7 +1110,12 @@ is not forced, so the guard's own stop is shown by the facts it rests on
 - A command that leaves a background job of a system program behind gives a
   `detached` row with its call, held as `unread`.
 - A sub-second command that leaves a subshell, or double-forks from its
-  shell, gives a row with its call and subagent.
+  shell, gives a row with its call and subagent, also in a real session; two
+  subagents starting the same command at once each get their own call. A
+  call's shell and an agent that fork in a loop are capped, and their calls
+  are still tracked at the ticks; a refused follow is logged once and the
+  ticks keep their pace. A retitled `/usr/bin/perl` shows no environment
+  name in its row.
 - An app started with `open` from a command gives no row. A daemon a hook
   starts gives no row.
 - A program given `WORKBENCH_GUARD=off`: readable, no row; hidden, a row held

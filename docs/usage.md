@@ -215,7 +215,9 @@ program that was among them, or on macOS one that a recorded process forked
 (by the kernel's record of which process forked it) or that carries the
 command's variable, counts as that command's work once it detaches. On macOS
 the guard also learns a command's shell the moment it starts, so work left
-behind by a command that ends within a second is seen too, with its call. An
+behind by a command that ends within a second is seen too, with its call;
+an agent that forks more than 100 times in a second is not followed for 5
+seconds, and its calls are found at the ticks meanwhile. An
 app opened with `open` is never detached work: the system started it.
 
 The guard itself stops detached work only when it can prove which call
@@ -371,13 +373,14 @@ started itself (`● helper`, a language server or an MCP server), sized with
 everything under it (a shell or a sandbox launcher is never shown as a
 helper); and a command still
 running that no note matched (`? unmatched`), such as one you typed with `!`.
-A command line read from a running program never shows what might be an
-environment string: when its last words look like `NAME=value`, only the
-program is shown, and the line ends with ` …` (`make CC=clang` shows as
-`make …`). The guard never chooses an agent, a helper or an unmatched command; you may
+A command line that might hold an environment string is shown shortened, on
+macOS to its program, and ends with ` …` (`make CC=clang` shows as `make …`).
+The guard never chooses an agent, a helper or an unmatched command; you may
 stop a helper, an unmatched command or detached work, and a stop of an agent
-row is refused. When `WORKBENCH_GUARD` is `dry-run` or `off` for the agent or
-the row, your stop of a helper or unmatched row is logged, not sent. A stopped
+row is refused. With `WORKBENCH_GUARD=dry-run` your stop only logs; it also
+only logs for a helper, an unmatched row, or a detached program whose setting
+cannot be read, when the agent's setting is `dry-run` or `off`. A helper's or
+unmatched row's own `dry-run` or `off` does the same. A stopped
 helper or unmatched row simply leaves the view, with no finished entry. Rows
 are not logged while they run, and agent and helper rows show only while a
 watcher runs.

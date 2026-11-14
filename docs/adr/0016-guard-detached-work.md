@@ -92,8 +92,9 @@ How to see a call that ends within a tick:
 - **Fork events as a wake-up.** Chosen. The watcher follows each known
   agent's forks; on one it lists the agent's children and learns the new
   shell at once, then follows that shell only. Measured, it held the
-  shell's version 100 of 100 times for commands from no time to 500 ms, at
-  about 1 to 2 ms of CPU a call.
+  shell's version 100 of 100 times for commands from no time to 500 ms; as
+  built it tied 30 of 30 sub-second calls' work to the call at about 4 ms
+  of the watcher's CPU a call.
 - **The pre hook tells the watcher, which samples.** Not chosen: it misses
   by timing (85 of 100 at a 10 ms period) and misses most double forks (10
   to 68 of 100), costs about 40 ms of CPU a call, and needs a new message in
@@ -132,10 +133,13 @@ How to see a call that ends within a tick:
   whose setting cannot be read stays unsettled until something readable
   appears below it. On macOS "another program" means a new version, so a
   title rewrite changes nothing and an exec of the same program counts.
-- **The shell learned at its start.** On macOS the watcher follows each
-  known agent's forks, and the forks, execs and exit of each shell it
-  matches to a note, and records that shell and its direct children at
-  once. The tick still tracks, measures, logs and decides every stop.
+- **The shell learned at its start.** On macOS the watcher follows every
+  known agent's forks, between its calls too, and the forks, execs and exit
+  of each shell it matches to a note (one shell per note), and records that
+  shell and its direct children at once. A shell that wakes it more than
+  250 times in a second loses its fork watch, and an agent more than 100
+  times is not followed for 5 seconds. The tick still tracks, measures,
+  logs and decides every stop.
 - **Agents and helpers are rows the guard never stops.** Each agent the
   guard knows is a row with its own size, each long-lived helper it starts
   itself (never a shell or a sandbox launcher) a row with its tree's size,
@@ -157,7 +161,8 @@ How to see a call that ends within a tick:
 
 - The guard misses, and so never stops, on macOS: work double-forked by a
   program below the shell, through a middle that lived less than a tick,
-  with nothing readable; detached work of a `!` command or of a call that
+  with nothing readable; a child whose exec and exit both come while a tick
+  runs; detached work of a `!` command or of a call that
   started and ended before a watcher followed its agent, which is shown with
   no call and never chosen; work handed to a service; other users'
   processes; a tree whose command named one of its own processes as an
@@ -174,12 +179,14 @@ How to see a call that ends within a tick:
 - On Linux and WSL there is no original-parent record, no stamp tie and no
   fork events: detached work is found only when the guard recorded it under
   the command at a tick before it detached. None of it was run there.
-- The store costs about 3 MiB at its bound of 16,384 versions. Reading
-  stamps inside tracked trees costs the watcher CPU under a churn of short
-  processes, so they are read only for a process seen at two ticks in a row.
+- The store holds between 14,336 and 16,384 versions under a busy build.
+  Stamps inside tracked trees are read from a process's second recorded
+  tick, so a session without the hooks is known one tick later; with that,
+  the watcher costs what it did without detached work, about 10 ms a tick
+  under a churn of short processes.
 - The ten seconds start again at a handover, so detached work is not chosen
-  for ten seconds after an update; the store and the call records pass to
-  the next watcher.
+  for ten seconds after an update; the store (3.66 MB at its bound) and the
+  call records pass to the next watcher.
 - The original-parent record and the versions come from a kernel call that
   is not in Apple's public SDK. If the kernel stops answering it, the guard
   makes no new detached rows, chooses none, and logs that once.
