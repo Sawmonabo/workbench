@@ -440,7 +440,9 @@ func (w *watcher) judgeUnits(s snapshot, f facts) {
 // Args follow the process whenever they differ, which alone resets nothing.
 //
 // A Pending root is judged through every rule of unitRootWhy at each tick
-// the kernel answers. One that is a unit is settled, unless nothing readable
+// the kernel answers while its unit's agent runs; once that agent has exited
+// the root is left Pending and the unit ends with its agent, as every unit
+// does (see forgetUnit). One that is a unit is settled, unless nothing readable
 // was found for its setting (see tie.Hidden): then it stays Pending and is
 // judged again next tick. One still a unit whose stamps say dry-run, or
 // whose setting is unread while its agent's own stamp says dry-run or off,
@@ -504,6 +506,14 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 				continue
 			}
 			if !r.Pending {
+				continue
+			}
+			if !s.alive(agent.pid, agent.start) {
+				// Its agent has exited (gone, or a zombie not yet reaped):
+				// judged now, it would only find that agent unknown. The unit
+				// ends with its agent instead, as every unit does, and stays
+				// Pending, so the guard's own stop never takes it meanwhile
+				// (see forgetUnit).
 				continue
 			}
 			t, v, why := unitRootWhy(s, p, judging)
