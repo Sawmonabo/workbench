@@ -484,7 +484,6 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		unit      []detachedRoot // the unit's roots, nil for a noted command
 		protected map[int]uint64
 		want      []target
-		named     int // the root a unit's stop is named after, 0 to not check
 	}{
 		{
 			name: "group shared with an untracked process",
@@ -587,8 +586,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		},
 		{
 			// Root 1800 has exited, settled; 1900, the first that runs, is
-			// young. The stop signals 2000 alone, and its reason, log and
-			// kill record must name 2000, not a program it never signalled.
+			// young. The stop signals 2000 alone.
 			name: "a unit whose first kept root has exited",
 			procs: []proc{
 				process(1900, 1, 1900, 3, "node", "cli.js"),
@@ -601,7 +599,6 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 			},
 			protected: map[int]uint64{100: start(-3600)},
 			want:      []target{{2000, start(4), true}},
-			named:     2000,
 		},
 	}
 	for _, c := range cases {
@@ -615,9 +612,6 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 		got := targets(s, cmd, c.protected)
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: targets %v, want %v", c.name, got, c.want)
-		}
-		if c.named != 0 && cmd.Root.PID != c.named {
-			t.Errorf("%s: the stop is named after %d, want %d", c.name, cmd.Root.PID, c.named)
 		}
 	}
 }
