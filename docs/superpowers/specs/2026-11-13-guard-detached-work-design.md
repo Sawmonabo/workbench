@@ -79,13 +79,17 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
    `sys/proc_info.h` or `libproc.h`.
 8. A Monitor tool command runs in the same shell form as a Bash command, as a
    direct child of the agent, with the env file's lines. The pre hook matched
-   on `Bash` fires for it, so the guard notes and tracks it. No post hook
-   fires, so its note stays on disk after the command ends.
+   on `Bash` fires for it with an input the guard accepts as a Bash call, so
+   the guard notes and tracks it. No post hook fires, so its note stays on
+   disk after the command ends.
 9. A Bash command that ends within one watcher tick is never tracked, so the
    guard never learns its shell's process ID.
 10. A language server that Claude Code started itself is a direct child of
-    the agent and carries neither `CLAUDE_PID` nor `CLAUDECODE`. The watcher,
-    which a hook starts, carries both.
+    the agent and carries neither `CLAUDE_PID` nor `CLAUDECODE`.
+11. A process a hook starts carries `CLAUDE_PID` and `CLAUDECODE` but none of
+    the variables the env file exports: the watcher, which the pre hook
+    starts, is one. A session's env file gains the same lines again each time
+    a SessionStart hook that appends to it runs.
 
 ### 2.2 Documented
 
@@ -142,6 +146,11 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
 3. When a PostToolUse hook matched on `Bash|Monitor` fires for a Monitor call
    and what input it carries.
 4. The env file line with bash as the agent's shell.
+5. That an MCP server Claude Code starts carries no `CLAUDE_PID`, as its
+   documentation implies and a language server showed.
+6. Whether a command a person types with `!` in Claude Code carries the call
+   stamp. If it does, its detached work would count as the agent's, and that
+   goes back to the owner before the part is built.
 
 Each is proved in a disposable home or container before the part that needs
 it is built. A part whose check fails is brought back to the owner, not
@@ -184,6 +193,10 @@ agent the guard knows (5.4): one it has read a note from, alive, with the
 start time that note recorded, and started before the stamped process.
 Sessions of a Claude Code older than v2.1.214 have no agent stamp.
 
+Claude Code gives `CLAUDE_PID` to hook commands too (2.1 fact 11), so on its
+own it does not show that a command forked a process. A Claude Code process
+is tied by its stamps only when it carries the call stamp as well.
+
 ### 4.2 Call stamp
 
 A new hidden command, run as a SessionStart hook beside the costs hook,
@@ -195,10 +208,12 @@ export WORKBENCH_GUARD_SHELL="$$"
 
 Every Bash and Monitor command of the session then carries the process ID of
 its own shell, which is the process the guard tracks as the command's root.
-The hook prints nothing and never fails; with `WORKBENCH_GUARD=off`, or
-without `CLAUDE_ENV_FILE`, it writes nothing. A session already running when
-this ships has no call stamp until it restarts, and falls back to the agent
-stamp.
+A process a hook starts never carries it (2.1 fact 11), which is what keeps a
+daemon some hook started from being taken for a command's work. The hook
+prints nothing and never fails; with `WORKBENCH_GUARD=off`, or without
+`CLAUDE_ENV_FILE`, it writes nothing. A session already running when this
+ships has no call stamp until it restarts; until then its detached work is
+found only through its original parent (5.3).
 
 ### 4.3 Codex
 
@@ -237,10 +252,10 @@ A process R is the root of a unit when all of these hold:
    condition, pending 2.3 item 1.
 3. R is tied to an agent the guard knows, by a stamp or by its original
    parent (5.3).
-   - By a stamp: R carries one. When R's environment is hidden, the stamp is
-     read from the first readable processes below it, reached through hidden
-     ones only: at least one carries the stamp and none carries another
-     agent's.
+   - By a stamp: R carries the call stamp and the agent stamp, or Codex's
+     one stamp. When R's environment is hidden, they are read from the first
+     readable processes below it, reached through hidden ones only: at least
+     one carries them and none carries another agent's.
    - By its original parent: 5.3.
 4. R started after that agent, and after the call's shell when the call
    resolves (5.5), by the kernel's start times.
@@ -284,11 +299,14 @@ started before the stamped process.
 
 ### 5.5 Which call started it
 
-The guard keeps a record of each call it tracked: its ID, its shell's process
-ID and start time, the agent, subagent, project and folder, and whether its
-note was a dry run. Records outlive their calls while the agent runs, the
-newest few thousand per agent, and pass to the next watcher at a handover
-with the tracked commands. A watcher that starts fresh has none.
+The guard keeps a record of each call whose note it read: its ID, the agent,
+subagent, project and folder, whether its note was a dry run, and, once the
+call was tracked, its shell's process ID and start time. So that every call
+leaves one, the post hook marks a call's note ended where it deletes it
+today, and the watcher deletes the note once it has the record. Records
+outlive their calls while the agent runs, the newest few thousand per agent,
+and pass to the next watcher at a handover with the tracked commands. A
+watcher that starts fresh has none.
 
 The first of these that applies:
 
@@ -301,8 +319,10 @@ The first of these that applies:
 4. Otherwise the row has the agent from the agent stamp, the project from
    R's working folder, and a blank subagent.
 
-A call that ended within one tick was never tracked (2.1 fact 9) and has no
-record, so detached work found only by its stamp takes case 4.
+A Claude Code call that ended within one tick was never tracked (2.1 fact
+9), so its record holds no shell and detached work found only by its stamps
+takes case 4. A Codex call's record resolves by its ID whether or not the
+call was tracked.
 
 ### 5.6 Lifetime
 
@@ -329,14 +349,23 @@ the unit is forgotten, not stopped, as a command is today.
 ## 7. Agent and helper rows
 
 - Each agent the guard knows is a row with its own size, not its tree's.
-- Each direct child of such an agent that no note claims, and that the guard
-  has seen alive for several seconds, is a helper row with its tree's size: a
-  language server, an MCP server. Hooks and commands still waiting to be
-  matched are too short-lived or are claimed by a note.
-- Parent links alone decide these rows, so they hold on every platform.
-- The guard never chooses an agent or a helper for a stop. A person may stop
-  a helper from the view, through the watcher like any stop. A stop of an
-  agent row is refused.
+- A helper is a direct child of such an agent that no note claims, that the
+  guard has seen alive for several seconds, that is not a shell running a
+  command script, and in whose tree no readable process carries `CLAUDE_PID`:
+  a language server, an MCP server (2.1 fact 10, 2.3 item 5). It is a row
+  with its tree's size.
+- A direct child that is a shell running a command script, or whose tree
+  carries `CLAUDE_PID`, and that no note claims is a command the guard could
+  not match. Today it is unseen while it runs. It is a row with the status
+  `unmatched` and its tree's size while it runs, and is logged when it ends
+  as today.
+- Parent links decide these rows, so they hold on every platform.
+- They show while the watcher runs. The watcher's lifetime does not change:
+  it still exits after ten minutes with no note, no tracked command and no
+  unit, and the rows go with it until the next command.
+- The guard never chooses an agent, a helper or an unmatched command for a
+  stop. A person may stop a helper or an unmatched command from the view,
+  through the watcher like any stop. A stop of an agent row is refused.
 - Agent and helper rows are not written to the guard log: a helper's command
   line is not a call's text and may hold what its owner did not mean to keep
   on disk. The view shows it, as a process list would.
@@ -349,7 +378,8 @@ guard tracks.
 Every row uses the view's own columns. A detached unit's ID is its root's
 process ID, its status reads `detached`, its time counts from the root's
 start, and its command is the root's own command line. An agent's and a
-helper's status read `agent` and `helper`:
+helper's status read `agent` and `helper`, and a running command no note
+claims reads `unmatched`, as it does today once it has ended:
 
 ```
    ID        STATUS      AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND
@@ -432,8 +462,10 @@ One test, for unauthorized execution: the unit rule yields no root for a
 process without a stamp and without a recorded original parent, for a stamp
 naming a dead process, an unknown one or one younger than the stamped
 process, for a process the init process started that carries a stamp, for a
-Workbench process, for a protected process, and when the kernel does not
-answer; and no agent or helper row is ever a stop the guard chooses. The risk
+process that carries the agent stamp without the call stamp as a hook's child
+does, for a Workbench process, for a protected process, and when the kernel
+does not answer; and no agent, helper or unmatched row is ever a stop the
+guard chooses. The risk
 it guards is the guard stopping a program no agent command forked.
 
 Before release, in a disposable home on macOS and in a Linux container:
@@ -444,8 +476,9 @@ Before release, in a disposable home on macOS and in a Linux container:
 - A command that leaves a background job of a system program behind gives a
   `detached` row with its call.
 - An app started with `open` from a command gives no row.
-- A sub-second command that leaves a sleeper gives a row with a blank
-  subagent.
+- A sub-second Claude Code command that leaves a sleeper gives a row with a
+  blank subagent; the same under Codex gives a row with its call.
+- A daemon a hook starts gives no row.
 - An agent with a language server shows an agent row and a helper row, and
   the five sums add up to the memory in use.
 - A Monitor command's note is gone once it ends, with no `abandoned` warning.
