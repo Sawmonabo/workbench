@@ -242,7 +242,9 @@ func Watch(ctx context.Context, version string) {
 	unlink := true
 	defer func() {
 		w.dropHandover()
-		w.closeServer(unlink)
+		// Checked again now, not only at the last tick: a state folder
+		// replaced since then holds another watcher's socket at this path.
+		w.closeServer(unlink && w.ownsLock())
 		w.release()
 	}()
 	detached, err := operation.RotateOutput(f.output(), logLimit)
