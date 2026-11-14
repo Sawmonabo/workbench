@@ -356,10 +356,13 @@ func TestWatcherReadsTheStampOfARootThatRunsAnotherProgram(t *testing.T) {
 	})
 
 	// The root's environment is hidden (a made-up process, which no read
-	// finds), and it is judged by its readable child's stamp, kept from the
+	// finds), so it is judged by its readable child's stamp, kept from the
 	// child's earlier program; the child now runs one of the same name that
-	// turned the guard off. The root runs a program that cannot be read, so it
-	// is judged again: it must leave.
+	// turned the guard off. The root is Pending, as a root is once it has
+	// run another program (or, as addRoot leaves it, when nothing readable
+	// was found for it): a made-up process gives no command line to tell its
+	// programs apart by, so the row sets that state rather than relying on a
+	// read that fails. Judged again, the root must leave.
 	t.Run("theStampsBelowIt", func(t *testing.T) {
 		w, log := fixtureWatcher(t, agent)
 		root := process(1<<30+50, 1, 1<<30+50, 10, "sh")
@@ -377,6 +380,7 @@ func TestWatcherReadsTheStampOfARootThatRunsAnotherProgram(t *testing.T) {
 		}}
 		s := snapshotOf(launchd, agentProc, root, child)
 		id := fixtureUnit(w, agent, "toolu_1", now, root)
+		w.tracked[id].Detached.Roots[0].Pending = true
 		stale(w, child)
 		w.ancestry.record(
 			procKey{root.PID, root.Start},
@@ -393,8 +397,13 @@ func TestWatcherReadsTheStampOfARootThatRunsAnotherProgram(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 		judge(w, s)
-		if _, ok := w.tracked[id]; ok || !strings.Contains(log.String(), whyOff) {
-			t.Fatal("the root was judged on the stamp kept for its child's old program and stayed")
+		if u, ok := w.tracked[id]; ok || !strings.Contains(log.String(), whyOff) {
+			pending := ok && len(u.Detached.Roots) > 0 && u.Detached.Roots[0].Pending
+			kept := w.stamps[procKey{child.PID, child.Start}]
+			t.Fatalf("the root stayed in its unit, Pending %v (false: judged again and settled; "+
+				"true: not judged again, or nothing readable found); "+
+				"the child's stamp is kept for %+v, it runs %+v now (by programOf), its mode %q",
+				pending, kept.program, programOf(child), kept.Mode)
 		}
 	})
 }
