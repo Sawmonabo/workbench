@@ -173,9 +173,11 @@ holds them, so the ledger keeps them as it reads them. See the
 [subscriptions](superpowers/specs/2026-10-01-codex-costs-design.md).
 
 Claude Code and Codex shell commands are guarded against running the machine
-out of memory. A `Bash` hook notes each command and starts one watcher per
-user. When memory is nearly gone, the watcher stops the largest command an
-agent started, with everything it started: `SIGTERM` first, `SIGKILL` after 5
+out of memory. A `Bash` hook notes each command (a Claude Code `Monitor`
+command too) and starts one watcher per user. When memory is nearly gone, the
+watcher stops the largest command an agent started, with everything it
+started, or the largest program such a command started that then detached
+(see below): `SIGTERM` first, `SIGKILL` after 5
 seconds or when memory is nearly exhausted. Nearly gone means macOS's
 critical memory pressure (its warning level never stops anything); on Linux
 and WSL2, at most a tenth of usable memory left with at most a tenth of swap
@@ -188,18 +190,50 @@ with at most a tenth of swap free; on Linux and WSL2 at most 5 % of usable
 memory left and 5 % of swap free) the largest is stopped whatever its size.
 On Linux and WSL2, inside a memory-limited container or unit (cgroup v2),
 the limit counts as the machine's memory. The agent is told why in the tool
-result. Commands sent to the background are guarded too: the watcher keeps
+result. Commands sent to the background, and `Monitor` commands, whose post
+hook runs when the monitor starts, are guarded too: the watcher keeps
 their note until the command ends, or drops it about a second after the tool
 result when no command matched it, and a stop after the tool result has
-returned is reported only in the log. It never
-stops the agent, its MCP servers, hooks or anything else, never changes how a
-command runs, and a guard fault leaves a command unguarded and never blocks it.
-Programs a command detaches from itself (`nohup` with `setsid`) are not
-tracked. `WORKBENCH_GUARD=off` in the agent's environment turns it off;
+returned is reported only in the log. The guard itself never stops an agent,
+the helpers it starts (a language server, an MCP server), its hooks or
+anything else; a person may stop a helper from `guard memory`. The only change
+to how a command runs is one variable in its environment, and a guard fault
+leaves a command unguarded and never blocks it.
+
+A program a command started that then left it (a double fork, `setsid`,
+`nohup … &`, or a background job left running when the call returns) is
+detached work: the guard shows it as its own `detached` row, measures it each
+tick and can stop it. It names no script or tool to find it. A SessionStart
+hook (`workbench guard session`, for Claude Code and Codex) leaves a small file
+in the guard's state folder that says the agent runs, so the guard knows the
+agent from its start, and under Claude Code adds one line to the session's env
+file, which gives every later command a variable naming its agent and its own
+shell. The hook never starts the watcher, prints nothing and never fails. On
+macOS a detached program counts as an agent's work when it was forked by another
+process (not started by the system, as an app opened with `open` is), and
+either carries that variable, agreeing with its agent, or was forked by a
+process the guard saw in a command's tree, by the kernel's record of which
+process forked it. The guard itself stops only what it can prove an agent's
+call started: detached work it cannot tie to a call, such as work a command
+you typed with `!` left behind or work from a call that ended within one tick
+(about a second), is shown with a blank subagent and can be stopped by you
+from the view, but the guard never chooses it. No detached row is chosen in
+its first ten seconds, since a session a command started needs that long to
+say it is an agent; a session that does say so is an agent row and never
+stopped. A detached row lasts while any of its processes runs and its agent
+does; when the agent exits it is forgotten, not stopped. On Linux and WSL,
+which keep no record of which process forked another, detached work is found
+only when the guard saw it under the command for at least one tick before it
+detached, so a program that detaches at once, through a double fork, is
+unseen there. Everywhere, work handed to a service (a container engine, a
+launchd or systemd job) or another user's process stays unseen. See
+[ADR 0016](adr/0016-guard-detached-work.md).
+
+`WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
 (`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
-once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks and
-the watcher are hidden `workbench guard` commands. After `workbench update` (or
+once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks
+(pre, post and session) and the watcher are hidden `workbench guard` commands. After `workbench update` (or
 an apply) installs another release, the running watcher hands over to that
 release's watcher within about a second, once no stop is under way or
 settling: the new one keeps watching the same commands, and the log shows the
@@ -212,11 +246,16 @@ starts the installed release's.
 `workbench guard logs` shows what the guard did, oldest first, one line per
 event: the time in the machine's time zone, the level, the event, then
 `key=value` fields in this order, each left out when it has no value:
-`id agent subagent project by dry_run took size peak floor level available
-total still_running release old_release new_release new_pid msg error process
-cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
+`id agent subagent project kind launched_by by dry_run took size peak floor
+level available total still_running release old_release new_release new_pid msg
+error process cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
 `call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
-is the folder the command ran in; `cmd` is the command as the log records it,
+is the folder the command ran in; `kind` says what was tracked or stopped when
+it is not a noted command (`detached` for detached work); `launched_by` is the
+short ID of the call that started detached work, left out when that call is
+not proven; detached work, and a helper or unmatched command you stopped, is
+logged by its program's name, never its arguments, which may hold a token the
+shell expanded; `cmd` is the command as the log records it,
 on one line (backticks as `'`, blanks and newlines collapsed to one space) and
 cut at 120 characters with `…`, without a leading `cd PATH &&` or `cd PATH;`,
 last because it is the longest; `guard memory`'s details show it whole. Sizes are binary
@@ -229,7 +268,7 @@ and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
 `gave-up`, `error` and `raw`, where the event alone does not say what
 happened. A value holding a space, `"`, `=`, `\` or a control character is
 written in Go's double quotes, so each value stays on one line and logfmt
-readers split the fields. The events are each command that ended, matched
+readers split the fields. The events are each command or detached work that ended, matched
 no known shape (`unmatched`) or was stopped (`stopping`, then `forced` or
 `gave-up` if it comes to that), low memory that stopped nothing, calls dropped
 without their post hook, the watcher starting, handing over to a new release,
@@ -279,7 +318,7 @@ JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
 `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
 `pid` (a log that was cut starts with a `cut` record, which the viewer never
 shows), and, by event, `call`, `agent`, `subagent`, `cwd`, `project`,
-`command`, `root_pid`, `by`, `took`, `size`, `peak`, `children`, `reason`,
+`command`, `root_pid`, `kind`, `launched_by`, `by`, `took`, `size`, `peak`, `children`, `reason`,
 `memory`, `floor`, `dry_run`, `still_running`, `release`, `old_release`,
 `new_release`, `new_pid`, `process` and `error`; `--json` prints the matching
 records unchanged, one per line, `tracking` records and full call IDs
@@ -293,18 +332,34 @@ section 4.1.
 tracks, newest first: its short ID, status (`● run`, `◌ stopping`), agent,
 subagent, run time, memory now and at its peak, project and command, then,
 dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
+Beside them are rows of four other kinds, each with `p` and its process ID as
+its ID: detached work (`● detached`), timed from its first program's start
+and showing that program's command line; each agent the guard knows (`●
+agent`), sized by the agent process alone; each long-lived helper an agent
+started itself (`● helper`, a language server or an MCP server), sized with
+everything under it; and a command still running that no note matched (`?
+unmatched`), such as one you typed with `!`. The guard never chooses an
+agent, a helper or an unmatched command; you may stop a helper, an unmatched
+command or detached work, and a stop of an agent row is refused. Agent and
+helper rows are not logged while they run, and show only while a watcher
+runs.
 The header's first line gives the watcher's state (`● watching`, `○ not
 running`, `○ not connected`), a `memory low` or `memory critical` badge when
 memory runs short, and the clock; below a blank line, the counts (`3 running · 2
 finished`) and, while a watcher answers, the memory in use of the installed
-memory (`mem 11.27/16 GB`), the largest peak and the swap in use; then a line
+memory (`mem 11.27/16 GB`), the largest peak and the swap in use; under it one
+line splits the memory in use by the sizes the rows show (`in use 12.05 GB ·
+commands 40 MB · detached 4.20 GB · agents 1.36 GB · helpers 1.39 GB · other
+5.06 GB`), where unmatched commands count with the commands and `other` is the
+rest, a container engine's virtual machine for example; then a line
 that says `dry run: stops are logged, not sent` when every shown command is a
 dry run, or `dry run on 2 of 5 commands: …` when some are, each marked `(dry)`
 in its status. The selected row lies on a slate band across the window, its `▸`
 and ID bold in a light steel; a light terminal gets a light band, and without
 color the row is bold instead. ↑ and ↓ move (there is no `j` or `k`, since `k`
 stops, as in htop), space tags a running command and moves down, enter, → or `l`
-opens the selected one's details (the full command, folder, full ID, its
+opens the selected one's details (the full command, folder, full ID, for
+detached work the call that started it when that is proven, its
 processes and their memory, and a graph of its memory over the last 120
 readings), `k` opens the stop menu for the tagged commands or the selected one,
 with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
@@ -320,7 +375,9 @@ a `case … esac` and a command with a here-document stay whole.
 The details show every line and scroll when they are taller than the window: ↑
 and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends. The
 watcher stops the command the way it stops for memory, logs it `by=you` and
-tells the agent `Stopped by you (workbench guard memory).`; the bottom line
+tells the agent `Stopped by you (workbench guard memory).` (for detached work,
+the call that started it, when it is proven and its command still runs in the
+foreground; otherwise the stop is in the log only); the bottom line
 shows its answer for
 3 seconds (`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
 finished`). The watcher serves the view on `guard.sock` beside its log, only to

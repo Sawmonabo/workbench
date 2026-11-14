@@ -939,15 +939,25 @@ test runs them on fixed process snapshots:
 
 ## 12. Not in scope
 
-- Guarding MCP servers, hooks, built-in tools or the agents' own memory.
-- Processes that leave the command's tree (daemonized or `nohup` + `setsid`
-  children that re-parent to init). Once they leave, they are not tracked.
+- The guard stopping MCP servers, hooks, built-in tools or the agents
+  themselves. Each agent and each helper it starts is shown, and a person may
+  stop a helper from the view, but the guard never chooses one
+  ([detached work design](2026-11-13-guard-detached-work-design.md),
+  section 7).
+- Processes that leave the command's tree (a double fork, `setsid`, `nohup …
+  &`) are detached work, tracked by the
+  [detached work design](2026-11-13-guard-detached-work-design.md): found by
+  what they inherit from the command and by the kernel's record of which
+  process forked them, and stopped by the guard only when the call that
+  started them is proven. What it leaves unseen is in its section 10.
 - A process started, after the snapshot, under one that then exits before
   the escalation: for example, a `SIGTERM` trap that starts a child in the
   background and exits, or every snapshot process dying before 5 seconds
   while something it started lives on. That orphan sits under PID 1, outside
-  every process the watcher knows, and is not stopped. The guard may stop too
-  little here, never too much.
+  the stop under way, and is not stopped by it; it may later be found as
+  detached work, by the rules of the detached work design. The guard may stop
+  too little here,
+  never too much.
 - Per-command or per-project memory limits.
 - Changing any process's `oom_score_adj` or priority.
 - Native Windows. Under WSL2 the guard sees the WSL virtual machine's memory,

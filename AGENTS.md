@@ -130,7 +130,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Portable Python project policy | `project/pythonpolicy/` |
 | AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
-| Agent command memory guard | `internal/guard/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| Agent command memory guard | `internal/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench guard session`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are

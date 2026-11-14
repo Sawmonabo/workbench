@@ -21,12 +21,16 @@ section number below that names "guard design" points there.
 - `workbench guard memory` shows, live, each command the guard tracks: its
   status, run time, memory now and at its peak, project, agent and subagent.
   Arrow keys move, Space tags, Enter opens details, `k` stops, `q` quits.
-- Only commands the guard tracks are shown or can be stopped. Any other
-  process belongs to htop or Activity Monitor.
+- Shown are the commands the guard tracks, the work they started that
+  detached, each agent the guard knows, the helpers each agent started
+  itself, and running commands no note matched
+  ([detached work design](2026-11-13-guard-detached-work-design.md),
+  sections 7 and 8). All but the agents can be stopped from the view. Any
+  other process belongs to htop or Activity Monitor.
 - A stop from the view goes through the watcher, the guard's one process that
   signals commands, and is logged and told to the agent like the guard's own
   stops.
-- Not in scope: stopping or listing processes the guard does not track,
+- Not in scope: stopping or listing processes the guard does not show,
   signals other than the polite stop and the forced kill, a history browser
   inside the view (the log is the history), and keeping the watcher running
   while nothing is guarded.
@@ -305,13 +309,17 @@ A full-screen Bubble Tea program in the alternate screen.
 [WorkBench] Guard memory  ● watching · 11:33:32 PM
 
 3 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
+in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · helpers 1.39 GB · other 2.31 GB
 
-   ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
-▸  01HsQEPc  ● run      claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
-   3Nd7Lp8z  ● run      codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
-   7Kp3Rt9m  ● run      claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
-   5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
-   2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
+   ID        STATUS      AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
+▸  01HsQEPc  ● run       claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
+   3Nd7Lp8z  ● run       codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
+   7Kp3Rt9m  ● run       claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
+   p87305    ● detached  claude  implementer  4m36s  4.20 GB  4.20 GB  api-server     /bin/zsh scripts/build.sh --worker api
+   p81483    ● helper    claude                44m2s  1.39 GB  1.41 GB  api-server     tsc --lsp --stdio
+   p12253    ● agent     claude                 2h6m   739 MB   802 MB  api-server     claude
+   5Jx2Gm6r  ✓ done      claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
+   2Bv6Yc1d  ✗ stopped   claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
 ↑/↓ move  space tag  enter/→ details  k stop  q/esc quit
 ```
 
@@ -319,7 +327,19 @@ A full-screen Bubble Tea program in the alternate screen.
   ones, dimmed, for 60 s after they end, with their outcome: `✓ done`,
   `? unmatched`, `✗ stopped` (by the guard or by you). A row stopping and
   waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
-  `(dry)` (`● run (dry)`), in the list and in its details.
+  `(dry)` (`● run (dry)`), in the list and in its details. Beside them, in
+  the same columns
+  ([detached work design](2026-11-13-guard-detached-work-design.md),
+  section 8), each with its root's process ID as its ID: detached work
+  (`● detached`), timed from its root's start, its command the root's own
+  command line; each agent the guard knows (`● agent`), sized by the agent
+  process alone; each helper an agent started itself (`● helper`), sized by
+  its tree; and a running command no note matched (`? unmatched`), sized by
+  its tree.
+- **Memory line**, under the counts: the memory in use split into
+  commands (unmatched ones included), detached work, agents, helpers and
+  `other`, each part the sum of the sizes its rows show, `other` being the
+  memory in use less the four.
 - **Header**, four lines. The first: the brand, bold; the watcher's state
   (`●` green and ` watching` while connected, else `○` gold and ` not
   running` or ` not connected`); a badge after the state when memory runs
@@ -375,7 +395,8 @@ A full-screen Bubble Tea program in the alternate screen.
   is shown for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
 - **Details**, in this order: the full command, folder, agent, subagent,
-  full ID, status and run time, memory now and peak, the number of
+  full ID, for detached work the call that started it when that call is
+  proven, status and run time, memory now and peak, the number of
   processes and the process tree with each process's memory, and last a
   one-line graph of the command's memory over the last 120 readings. The
   command is laid out one step per line, as the Google Shell Style Guide
@@ -542,15 +563,23 @@ and whose processes are gone.
   the snapshot nested under `snapshot`, each command with `id` (full),
   `agent`, `subagent`, `project`, `cwd`, `cmd`, `state` (`running`,
   `stopping`, `done`, `unmatched`, `stopped`), `by`, `dry_run` (the note's),
-  `started`, `ended`, `memory`, `peak`, `history` (the last readings), and
-  `tree` (`pid`, `name`, `memory` per process) for running ones.
+  `started`, `ended`, `memory`, `peak`, `history` (the last readings),
+  `tree` (`pid`, `name`, `memory` per process) for running ones, and the
+  row's `kind` (empty for a command, else `detached`, `agent` or `helper`),
+  its root's `pid` and, for detached work, `launched_by`, the call that
+  started it when that call is proven. The commands include the detached,
+  agent, helper and running unmatched rows
+  ([detached work design](2026-11-13-guard-detached-work-design.md),
+  section 8), and the snapshot carries `sums`, the five parts of the memory
+  line (`commands`, `detached`, `agents`, `helpers`, `other`). All are
+  additions an older view ignores.
 - **Stop**: `{"type":"stop","ids":[…],"force":false}`. The watcher answers
   `{"type":"stopped","results":[{"id":…,"ok":true}|{"id":…,"ok":false,"error":"already finished"}]}`.
-  It looks each ID up among its tracked commands, never a process number,
-  and stops it the way it stops for memory (guard design 6.4: the same
+  It looks each ID up among its tracked commands and the rows of its last
+  snapshot, never a process number, refuses an agent row, and stops the rest the way it stops for memory (guard design 6.4: the same
   targets, start-time checks, pidfd on Linux, 5 s escalation; `force` sends
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
-  memory).` In dry-run mode it logs `would stop` and signals nothing.
+  memory).` when a call it can reach started what was stopped. In dry-run mode it logs `would stop` and signals nothing.
   A person's stop is asynchronous: the answer comes once the first signal
   is sent, the tick goroutine follows the stop across ticks (the row shows
   `stopping`, then `stopped`) and escalates after 5 s, and it starts no
