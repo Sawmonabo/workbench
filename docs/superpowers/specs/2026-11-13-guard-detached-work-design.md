@@ -583,11 +583,14 @@ its version changed: the kernel raises it at every exec and at nothing else
 (2.1 fact 21, 2.2 item 16). A program that rewrites its title keeps its
 version, and one that execs the same path with the same arguments gets a new
 one. On Linux and WSL, which keep no version, a process runs another program
-when its process name or command line changed, and this holds for a root
-and for every stamp read for a root's judgment (the root's own, those of the
-processes below it, and its agent's own setting); only a child of the init
-process that is not yet a root is told apart by its process name alone, so
-no command line is read for it at every tick. A failed or empty read never
+when its process name or command line changed. That rule holds for a
+tracked root and for every stamp a tracked root's judgment reads (the
+root's own, those of the processes below it, and its agent's own setting).
+Everything else is told apart by process name alone, so no command line is
+read for it at every tick: a child of the init process that is not yet a
+root, with the stamps read when it is first judged; the stamps of the rows
+(an agent and its helpers' and unmatched commands' trees); and an agent's
+own stamp read outside a root's judgment. A failed or empty read never
 counts as a change. The same rule decides when a root is judged again, when
 a child of the init process whose "no" was not final is judged again, and
 when a process's stamp is read again (5.4); a root's stamp is read again
