@@ -5,10 +5,25 @@ package guard
 import (
 	"cmp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
+
+// shownCommand is pid's command line as the view may show it: the form that
+// never holds what might be an environment string (see platform.ShownArgs),
+// ending in " …" when that form left something out, so a shortened line is
+// not read as the whole command; name, the process name, stands for the
+// line when nothing of it is left. Never logged.
+func shownCommand(pid int, name string) string {
+	args, cut := platform.ShownArgs(pid)
+	line := strings.Join(args, " ")
+	if !cut {
+		return line
+	}
+	return cmp.Or(line, name) + " …"
+}
 
 // commandView is a tracked command as a snapshot shows it, in state. A unit
 // shows its kind, its root, the call that started it when that resolved, and

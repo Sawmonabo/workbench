@@ -11,7 +11,6 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -210,15 +209,13 @@ func (w *watcher) addRow(
 	id := rowID(row, p)
 	c, ok := before[id]
 	if !ok || c.Root.Name != p.Name {
-		args := p.Args
-		if args == nil {
-			args = platform.Args(p.PID)
-		}
 		cwd, _ := platform.Folder(p.PID)
 		// The kernel's name only reaches the log; the command line, which
-		// may hold a token, only the view (see programName).
+		// may hold a token, only the view, in the form that never holds an
+		// environment string (see programName, shownCommand). p.Args, read
+		// for matching, is never shown.
 		c = command{
-			Row: row, Shown: strings.Join(args, " "),
+			Row: row, Shown: shownCommand(p.PID, p.Name),
 			Note: note{
 				ToolUseID: id, AgentPID: agent.pid, AgentStart: agent.start, Kind: k,
 				Command: programName(p), Cwd: cwd, Project: projectName("", cwd),

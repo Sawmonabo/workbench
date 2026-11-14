@@ -356,7 +356,7 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 		// this stop signals, not the one it left out.
 		first := own.Roots[0]
 		c.Root = proc{Process: platform.Process{PID: first.PID, PPID: 1, Start: first.Start}}
-		c.Note.Command, c.Shown = cmp.Or(first.Name, c.Note.Command), first.Args
+		c.Note.Command, c.Shown = cmp.Or(first.Name, c.Note.Command), first.Shown
 	}
 	return c, youngest
 }

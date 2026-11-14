@@ -187,14 +187,20 @@ type detached struct {
 // (see watcher.rejudgeRoots), and its process name and command line as they
 // are now. Pending marks a root that is not settled, which the guard's own
 // stop never takes (see rootHeld): seen in another program and not yet
-// judged in it, or with nothing readable for its setting. Args is shown in
-// the view only, never logged.
+// judged in it, or with nothing readable for its setting. Args is its
+// command line as the kernel gives it, kept only where it decides (where the
+// kernel keeps no versions, see program) and never shown: a program that
+// rewrote its title can make it end in environment strings, so where the
+// version decides it is not read at all, and nothing unfiltered is kept or
+// carried at a handover. Shown is what the view shows of it (see
+// shownCommand); neither is logged.
 type detachedRoot struct {
 	procRef
 	Since   time.Time `json:"-"`
 	Version uint32    `json:"version,omitempty"`
 	Name    string    `json:"name"`
-	Args    string    `json:"args"`
+	Args    string    `json:"args,omitempty"`
+	Shown   string    `json:"shown,omitempty"`
 	Pending bool      `json:"pending,omitempty"`
 }
 

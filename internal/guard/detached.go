@@ -531,8 +531,8 @@ func (w *watcher) loseStampCall(c *command) {
 // followProgram brings r, a live root of a unit, up to date with p, its
 // process: a root that runs another program than the one it was judged in,
 // or whose program cannot be read, is Pending (see rejudgeRoots), and the
-// former starts its time again; its Name and Args follow p whenever they
-// differ.
+// former starts its time again; its Name, Args (where they decide) and Shown
+// follow p whenever they differ.
 func followProgram(p proc, r *detachedRoot) {
 	now := programOf(p)
 	judgedIn := program{version: r.Version, name: r.Name, args: r.Args}
@@ -542,15 +542,16 @@ func followProgram(p proc, r *detachedRoot) {
 	case judgedIn.replaced(now) || !judgedIn.known():
 		r.Version, r.Since, r.Pending = now.version, time.Now(), true
 	}
-	args := now.args
-	if platform.KnowsOriginalParent {
-		args = strings.Join(platform.Args(p.PID), " ")
-	}
 	if p.Name != "" {
 		r.Name = p.Name
 	}
-	if args != "" {
-		r.Args = args
+	// Where the kernel keeps versions the command line decides nothing, so
+	// only the shown form is read again.
+	if now.args != "" {
+		r.Args = now.args
+	}
+	if shown := shownCommand(p.PID, p.Name); shown != "" {
+		r.Shown = shown
 	}
 }
 
@@ -570,7 +571,7 @@ func followFirstRoot(s snapshot, c *command) {
 	for _, r := range c.Detached.Roots {
 		if s.alive(r.PID, r.Start) {
 			c.Note.Command = cmp.Or(r.Name, programName(s[r.PID]))
-			c.Shown = r.Args
+			c.Shown = r.Shown
 			return
 		}
 	}
@@ -592,7 +593,8 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 		Since:   now,
 		Version: t.Version,
 		Name:    r.Name,
-		Args:    strings.Join(platform.Args(r.PID), " "),
+		Args:    programOf(r).args,
+		Shown:   shownCommand(r.PID, r.Name),
 		Pending: t.Hidden,
 	}
 	key := procKey{r.PID, r.Start}
@@ -629,7 +631,7 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 		n.Subagent = rec.Subagent
 	}
 	c := command{
-		Note: n, Root: s[r.PID], Shown: root.Args,
+		Note: n, Root: s[r.PID], Shown: root.Shown,
 		Detached: &detached{Roots: []detachedRoot{root}, Call: call, ByStamp: t.Owner == ""},
 	}
 	w.tracked[id] = c
