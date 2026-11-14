@@ -335,11 +335,14 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   command line; each agent the guard knows (`● agent`), sized by the agent
   process alone; each helper an agent started itself (`● helper`), sized by
   its tree; and a running command no note matched (`? unmatched`), sized by
-  its tree.
-- **Memory line**, under the counts: the memory in use split into
-  commands (unmatched ones included), detached work, agents, helpers and
-  `other`, each part the sum of the sizes its rows show, `other` being the
-  memory in use less the four.
+  its tree. A stopped helper or unmatched row leaves the list once its
+  processes are gone, with no finished entry.
+- **Memory line**, faint, under the count line: the memory in use split
+  into commands (unmatched ones included), detached work, agents, helpers
+  and `other`, each part the sum of the sizes its rows show, `other` being
+  the memory in use less the four. It is drawn only in a window taller than
+  11 lines, so the stop menu still fits below the header, and is left out
+  when a snapshot has no sums and while no watcher is connected.
 - **Header**, four lines. The first: the brand, bold; the watcher's state
   (`●` green and ` watching` while connected, else `○` gold and ` not
   running` or ` not connected`); a badge after the state when memory runs
@@ -348,7 +351,8 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   then a dim ` · ` and the clock (`3:04:05 PM`), inline, which a window too
   narrow for the badge and the clock drops. The second is blank. The third,
   dim: the counts, `N running · M finished` (finished in the last minute),
-  and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
+  counting commands, detached work and unmatched commands, never agent or
+  helper rows, and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
   2), of the installed memory, bold and not dim, its unit written once when
@@ -356,13 +360,15 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   that does not send it); the used figure is a measurement and the installed
   and swap totals capacities, by the rule in section 4; `peak P`, the largest
   peak since the watcher started; and `swap USED/TOTAL`, left out where there
-  is no swap. The fourth says why no watcher answers or, when every shown
-  command is a dry run, `dry run: stops are logged, not sent`, when only some
+  is no swap. The fourth (after the memory line, when that is drawn) says
+  why no watcher answers or, when every shown command is a dry run (the
+  count covering the same rows as the counts, running and finished), `dry run: stops are logged, not sent`, when only some
   are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold, and
   is blank otherwise; the dry-run texts fit 60 columns, and a longer text
   wraps onto another line, so no line is cut.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
-  Space tags or untags a running row and moves down; Enter, → or `l` opens
+  Space tags or untags a running row other than an agent row (on an agent
+  row it tags nothing) and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
   Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
   quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
@@ -393,7 +399,8 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   runs, and Enter stops only those still running and names the others as
   finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher
   is shown for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
-  4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`.
+  4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`. `k` on an agent row,
+  with no running row tagged, opens no menu, sends nothing and says `agents are never stopped`.
 - **Details**, in this order: the full command, folder, agent, subagent,
   full ID, for detached work the call that started it when that call is
   proven, status and run time, memory now and peak, the number of
@@ -576,10 +583,14 @@ and whose processes are gone.
 - **Stop**: `{"type":"stop","ids":[…],"force":false}`. The watcher answers
   `{"type":"stopped","results":[{"id":…,"ok":true}|{"id":…,"ok":false,"error":"already finished"}]}`.
   It looks each ID up among its tracked commands and the rows of its last
-  snapshot, never a process number, refuses an agent row, and stops the rest the way it stops for memory (guard design 6.4: the same
+  tick, never a process number, answers an agent row `not allowed`, and
+  stops the rest the way it stops for memory (guard design 6.4: the same
   targets, start-time checks, pidfd on Linux, 5 s escalation; `force` sends
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
-  memory).` when a call it can reach started what was stopped. In dry-run mode it logs `would stop` and signals nothing.
+  memory).` when a call it can reach started what was stopped; a row gets no
+  kill record. In dry-run mode, and for a row whose agent's or own stamps set
+  `WORKBENCH_GUARD` to `dry-run` or `off`, it logs `would stop` and signals
+  nothing.
   A person's stop is asynchronous: the answer comes once the first signal
   is sent, the tick goroutine follows the stop across ticks (the row shows
   `stopping`, then `stopped`) and escalates after 5 s, and it starts no

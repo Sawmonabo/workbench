@@ -285,9 +285,13 @@ environment is hidden takes the setting of the call that started it.
 
 Each tick the watcher already lists every process. It classifies, once per
 process ID and start time, each process of its own user that is a child of
-the init process and outside every protected process's tree. A process whose
-environment the kernel hides is looked at again only through the new
-processes under it.
+the init process and outside every protected process's tree. A root whose
+environment the kernel hides, with nothing readable below it, is asked again
+each tick while it lives: its environment becomes readable once it starts its
+own program, and new processes under it may carry the stamps. No environment
+is read for a root the rules of 5.2 reject before the stamp rules (another
+user's, under a protected process, an agent, Workbench, or started by the
+init process).
 
 ### 5.2 What a unit is
 
@@ -325,6 +329,19 @@ stamps.
 A unit one of whose roots turns out to be an agent drops that root, and is
 forgotten when it has no other.
 
+A root is judged again when its process name or command line changes: it
+has started its program, such as a fork caught before its own exec. The same
+rules run on fresh stamps, read again for the root and what is below it. A
+root that now fails (its stamps turn the guard off, it is Workbench, or it is
+another agent's) leaves its unit, and a unit left with no root ends with one
+`ended` record giving the reason; one whose stamps now say `dry-run` makes
+its unit a dry run. A root whose lineage cannot be read that tick keeps its
+place. A process judged no unit on what it ran is judged again when its
+process name changes; one judged on what never changes (another user's,
+started by the init process) is not. This cannot notice a program started
+under the same name and command line with only a new environment, nor a
+change that reverts within a tick.
+
 The unit is R and everything below it, with protected processes and what is
 under them left out, as for a command's tree.
 
@@ -345,6 +362,13 @@ that the init process later adopts, is tied the same way on every system:
 the guard saw where it came from and needs no kernel record for it.
 
 A new child of init forked by a process of an existing unit joins that unit.
+
+Only the tree a stop would signal is recorded, without protected processes
+(5.4). What was recorded of a process, where it was seen and its version, is
+dropped once a protected process stands between it and its owner's agent: a
+nested session that registers after its outer call saw it, or a process a
+stamp names as its agent. So a nested session's work is never tied to the
+outer call.
 
 It does not see through a double fork whose middle process lived and died
 between two ticks: that process was never recorded, and the kernel keeps
@@ -424,9 +448,13 @@ the unit is forgotten, not stopped, as a command is today.
   same way.
 - Units whose call resolved compete with commands for the largest. The
   floor, the cooldown, the refusal count and the dry run apply to them
-  unchanged. A unit whose call did not resolve is never chosen (5.5), and no
-  unit is chosen in its first ten seconds: a session a command started needs
-  that long to reach its SessionStart hook and be known as an agent.
+  unchanged. A unit whose call did not resolve is never chosen (5.5), and the
+  ten seconds count per root: a session a command started needs that long to
+  reach its SessionStart hook and be known as an agent, and it may join a
+  unit as a later root. The guard's own stop sizes and signals only the roots
+  tracked for ten seconds, and a unit with none is not chosen. A person's
+  stop covers every live root. A root that joins a unit with `dry-run` in its
+  stamps makes the unit a dry run.
 - The same target choice signals a unit: its root usually leads its own
   process group, which is signalled as a group when every member is in the
   unit.
@@ -434,28 +462,31 @@ the unit is forgotten, not stopped, as a command is today.
   resolves and its command still runs in the foreground, through that call's
   kill record, in words that name the detached program. Otherwise the stop
   is in the log only, as for a command whose result already returned.
-- The log and the reason name a unit by its root program's name, never by
-  its arguments: a call's text is logged as the agent wrote it, but a
-  running program's arguments hold what the shell put there, a token read
-  from a variable included. The full command line is in the view only, as a
-  process list would show it.
+- The log, the reason and the kill record name a unit by its root's process
+  name as the kernel keeps it, never by its arguments: a call's text is
+  logged as the agent wrote it, but a running program's arguments hold what
+  the shell put there, a token read from a variable included, and its
+  launcher or the program itself may rewrite them. The full command line is
+  in the view only, as a process list would show it.
 - A person stops a unit from the view the same way as a command.
 
 ## 7. Agent and helper rows
 
 - Each agent the guard knows is a row with its own size, not its tree's.
 - A helper is a direct child of such an agent that no note claims, that the
-  guard has seen alive for several seconds, that is not a shell running a
-  command script, and in whose tree no readable process carries a
-  `CLAUDE_PID` naming that agent: a language server, an MCP server (2.1
-  facts 10 and 14). It is a row with its tree's size.
+  guard has seen alive for several seconds, that is no shell, in any shape,
+  and in whose tree no readable process carries a `CLAUDE_PID` naming that
+  agent (under Codex, no Codex call ID): a language server, an MCP server
+  (2.1 facts 10 and 14). A child whose command line cannot be read is no
+  helper. It is a row with its tree's size.
 - A direct child that no note claims is a command the guard could not match
-  when a readable process in its tree carries a call stamp naming that child
-  as its shell, and the guard has seen it alive for several seconds. Today
-  it is unseen while it runs. It is a row with the status `unmatched` and its
-  tree's size while it runs, counted with the commands in the memory line,
-  and is logged when it ends as today. A command a person typed with `!` is
-  such a row too (2.1 fact 16). A hook or a status line command carries
+  when a readable process in its tree carries a call stamp, agreeing with its
+  own `CLAUDE_PID`, that names that agent and that child as its shell, in a
+  second that fits the child's start, and the guard has seen it alive for
+  several seconds. Today it is unseen while it runs. It is a row with the
+  status `unmatched` and its tree's size while it runs, counted with the
+  commands in the memory line. A command a person typed with `!` is such a
+  row too (2.1 fact 16). A hook or a status line command carries
   `CLAUDE_PID` but no such stamp, so it is neither this nor a helper and has
   no row.
 - Parent links decide these rows, so they hold on every platform.
@@ -463,16 +494,20 @@ the unit is forgotten, not stopped, as a command is today.
   change. It still exits after ten minutes with no note, no tracked command
   and no unit, and the rows go with it until the next command. Keeping the
   watcher running for as long as any known agent does was considered and
-  dropped: these rows are display only, and the view design's rule of no
+  dropped: the guard never chooses these rows, and the view design's rule of no
   watcher while nothing is guarded stands.
 - The guard never chooses an agent, a helper or an unmatched command for a
   stop. A person may stop a helper or an unmatched command from the view,
-  through the watcher like any stop. A stop of an agent row is refused.
-- Agent and helper rows are not written to the guard log while they run. A
-  person's stop of a helper or an unmatched command is logged with the
-  program's name only: a helper's command line is not a call's text and may
-  hold what its owner did not mean to keep on disk. The view shows it, as a
-  process list would.
+  through the watcher like any stop. A stop of an agent row is refused. When
+  the agent's or the row's own stamps set `WORKBENCH_GUARD` to `dry-run` or
+  `off`, a person's stop of the row is logged, not sent. A stopped row
+  leaves the view once its processes are gone, with no finished entry.
+- Rows are not written to the guard log while they run or when they go. A
+  person's stop of a helper or an unmatched command is logged with its kind
+  and its root's process name as the kernel keeps it, and no folder or
+  project: a helper's command line is not a call's text and may hold what its
+  owner did not mean to keep on disk. The view shows it, as a process list
+  would.
 
 This changes a boundary of the view design, which showed only commands the
 guard tracks.
@@ -493,8 +528,12 @@ claims reads `unmatched`, as it does today once it has ended:
    p12253    ● agent     claude                  2h6m   739 MB   802 MB  shop     claude
 ```
 
-Under the memory bar, one line splits the memory in use, each part by the
-size its rows show:
+Under the count line, one faint line splits the memory in use, each part by
+the size its rows show. It is left out in a window of the shortest height
+(11 lines, so the stop menu still fits), when a snapshot has no sums, and
+while no watcher answers. The counts above it (`N running · M finished`) and
+the dry-run line count commands, detached work and unmatched commands, never
+agent or helper rows:
 
 ```
 in use 12.05 GB · commands 40 MB · detached 4.20 GB · agents 1.36 GB · helpers 1.39 GB · other 5.06 GB
@@ -553,6 +592,13 @@ fact 15). The Codex hooks do not change.
    it to the init process to start. On macOS apps go through `open` and are
    left out (5.2); on Linux an app a command forked and left running is a
    unit like any other.
+9. **A subshell left by a fast command.** A subshell that never starts
+   another program, left behind by a command that returned within about a
+   second, under a shell whose environment is readable (not the system's
+   shell), shows the agent stamp without the call stamp and is not tied, so
+   it stays unseen. Reading stamps below a readable process was considered
+   and dropped: a job server a person started that forwards its caller's
+   environment would then count as an agent's work.
 
 No method open to a tool without root closes the first three. The ones that
 would are in section 3, C and D.
@@ -591,11 +637,13 @@ does, for one whose call stamp names another agent than its own `CLAUDE_PID`
 as a nested session's does, for a stamp alone where the system keeps no
 original parent, for a known agent, for a Workbench process, for a protected
 process, and when the kernel does not answer. The guard's choice of what to
-stop never falls on a unit whose call did not resolve or that is younger
-than ten seconds, and a known agent inside a unit is left out of what a stop
+stop never falls on a unit whose call did not resolve or on a root tracked
+for less than ten seconds, and a known agent inside a unit is left out of what a stop
 signals.
 
-Before release, in a disposable home on macOS and in a Linux container:
+Before release, in a disposable home on macOS and in a Linux container. The
+checks read rows and sums from the snapshot the watcher serves on its socket,
+since `guard memory` has no JSON output:
 
 - A command that double-forks a sleeper gives a `detached` row with its
   agent, and with its subagent when a subagent made the call. A stop from the

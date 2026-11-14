@@ -68,15 +68,24 @@ forked a process.
   the commands in the choice of the largest only when the call that started
   it resolves. Work found by its stamp alone, from a command a person typed
   with `!` or a call that ended within a tick, is shown and can be stopped by
-  a person, never chosen. No detached work is chosen in its first ten
-  seconds, the time a session a command started needs to say it is an agent.
-  The log and the reason name detached work by its program's name, never its
-  arguments, which may hold a token the shell expanded.
+  a person, never chosen. Each detached program gets its own first ten
+  seconds before the guard's own stop may size or signal it, the time a
+  session a command started needs to say it is an agent; a person's stop
+  covers every live program of the unit. A program is judged again once it
+  starts its own program (its name or command line changes), on fresh stamps,
+  so one that turns the guard off leaves its unit and one that says
+  `dry-run` makes its unit a dry run. The log, the reason and the kill record
+  name detached work by the process name the kernel keeps, never its
+  arguments, which may hold a token the shell expanded; the full command
+  line is in the view only.
 - **Agents and helpers are rows the guard never stops.** Each agent the
   guard knows is a row with its own size, and each long-lived helper it
-  starts itself a row with its tree's size; a running command no note
-  matched is an `unmatched` row. A person may stop a helper or an unmatched
-  command from the view; a stop of an agent row is refused. One line under
+  starts itself, never a shell, a row with its tree's size; a running
+  command no note matched, whose call stamp names that agent and that
+  command's shell, is an `unmatched` row. A person may stop a helper or an
+  unmatched command from the view, which only logs the stop when
+  `WORKBENCH_GUARD` is `dry-run` or `off` for it, and the row then leaves
+  the view; a stop of an agent row is refused. One line under
   the counts splits the memory in use into commands, detached work, agents,
   helpers and other.
 - **A Monitor command's note is cleared.** Claude Code's post hooks also
@@ -100,6 +109,15 @@ forked a process.
 - Detached work from a fast call or from a `!` command shows no subagent and
   is never chosen by the guard.
 - Another user's process can be neither sized nor signalled.
+- A subshell that never starts another program, left by a command that
+  returned within about a second under a shell whose environment is
+  readable, carries the agent stamp without the call stamp and stays unseen.
+  Reading stamps below a readable process would find it, but a job server a
+  person started that forwards its caller's environment would then count as
+  an agent's work.
+- A root is judged again only when its process name or command line
+  changes: a program started under the same name and command line with only
+  a new environment, or a change that reverts within a tick, goes unnoticed.
 - An agent session started without Workbench's hooks, or still in its first
   ten seconds, is a program like any other: the guard may stop it, as it
   stops such a session inside a command's tree.

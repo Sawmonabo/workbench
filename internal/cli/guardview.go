@@ -407,8 +407,9 @@ func stoppable(c guard.CommandView) bool { return active(c) && c.Kind != "agent"
 
 // commandWork reports whether a row is a command or detached work (a
 // command's, a detached program's or an unmatched command's row), which a
-// dry run applies to and the counts count; an agent or helper row is display
-// only, so a view with an agent open still reaches 0 running.
+// dry run applies to and the counts count; an agent or helper row is not
+// counted with the commands, so a view with an agent open still reaches 0
+// running.
 func commandWork(c guard.CommandView) bool { return c.Kind != "agent" && c.Kind != "helper" }
 
 // say shows text on the bottom line for a few seconds.
@@ -699,10 +700,10 @@ func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
 // countLine counts the running commands and those that finished in the last
 // minute, detached work and unmatched commands included but no agent or
-// helper row, and, once a watcher has sent a snapshot, gives the memory in use of the
-// installed memory, the largest peak since the watcher started and the swap
-// in use, the memory figure bold and the rest faint. A narrow window drops
-// the swap, then the peak, then clips the line.
+// helper row, and, once a watcher has sent a snapshot, gives the memory in
+// use of the installed memory, the largest peak since the watcher started
+// and the swap in use, the memory figure bold and the rest faint. A narrow
+// window drops the swap, then the peak, then clips the line.
 func (m *guardView) countLine() string {
 	running, finished := 0, 0
 	for _, c := range m.snap.Commands {
@@ -763,8 +764,9 @@ func (m *guardView) sumsLine() []string {
 // statusLines say why no watcher answers or, when shown commands are dry
 // runs, that their stops are only logged: for all of them, or for how many,
 // counting only the rows a dry run applies to (no agent or helper row, which
-// has no note); else they are one blank line. A long text wraps to the window; the dry-run
-// texts fit 60 columns, so the stop menu never covers a second line of them.
+// has no note); else they are one blank line. A long text wraps to the
+// window; the dry-run texts fit 60 columns, so the stop menu never covers a
+// second line of them.
 func (m *guardView) statusLines() []string {
 	text := ""
 	dry, commands := 0, 0

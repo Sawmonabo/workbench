@@ -302,7 +302,7 @@ func choose(cands []candidate) (chosen candidate, total uint64, ok bool)
   1. A command that double-forks a Python sleeper and waits. Expected in `guard logs --json`: `tracking` with `kind` `detached`, `launched_by` the call, and `command` the program's name, not its arguments.
   2. The same sleeper started with an argument `--token=SECRET-VALUE`: `rg SECRET-VALUE` over the scratch state folder finds nothing.
   3. End the fake agent's command and stop the sleeper: `ended` for the unit.
-  4. A command that starts a second fake agent detached, which runs `guard session claude` and then idles: no `tracking` line names it after its session hook ran, and `guard memory --json` lists no unit for it.
+  4. A command that starts a second fake agent detached, which runs `guard session claude` and then idles: no `tracking` line names it after its session hook ran, and the snapshot the watcher serves on its socket lists no unit for it.
 - [ ] **Step 12:** Commit: `feat(guard): track work that detached from an agent's command`
 
 ---

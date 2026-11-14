@@ -217,10 +217,14 @@ process forked it. The guard itself stops only what it can prove an agent's
 call started: detached work it cannot tie to a call, such as work a command
 you typed with `!` left behind or work from a call that ended within one tick
 (about a second), is shown with a blank subagent and can be stopped by you
-from the view, but the guard never chooses it. No detached row is chosen in
-its first ten seconds, since a session a command started needs that long to
-say it is an agent; a session that does say so is an agent row and never
-stopped. A detached row lasts while any of its processes runs and its agent
+from the view, but the guard never chooses it. Each detached program gets its
+own first ten seconds before the guard may choose or signal it, since a
+session a command started needs that long to say it is an agent; a session
+that does say so is an agent row and never stopped. A detached program is
+judged again once it starts its own program (its name or command line
+changes), so `WORKBENCH_GUARD=off` or `dry-run` set by the detached program
+itself is honoured: `off` drops it, `dry-run` keeps its stops to the log. A
+detached row lasts while any of its processes runs and its agent
 does; when the agent exits it is forgotten, not stopped. On Linux and WSL,
 which keep no record of which process forked another, detached work is found
 only when the guard saw it under the command for at least one tick before it
@@ -250,12 +254,14 @@ event: the time in the machine's time zone, the level, the event, then
 level available total still_running release old_release new_release new_pid msg
 error process cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
 `call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
-is the folder the command ran in; `kind` says what was tracked or stopped when
-it is not a noted command (`detached` for detached work); `launched_by` is the
-short ID of the call that started detached work, left out when that call is
-not proven; detached work, and a helper or unmatched command you stopped, is
-logged by its program's name, never its arguments, which may hold a token the
-shell expanded; `cmd` is the command as the log records it,
+is the folder the command ran in; `kind` is `detached` on the records of
+detached work and `helper` or `unmatched` on your stop of such a row;
+`launched_by` is the short ID of the call that started detached work, left
+out when that call is not proven; detached work and those rows are named by
+the process name the system keeps for their first program, never by its
+arguments, which may hold a token the shell expanded (their full command line
+is shown in `guard memory` only), and a row's stop carries no folder or
+project; `cmd` is the command as the log records it,
 on one line (backticks as `'`, blanks and newlines collapsed to one space) and
 cut at 120 characters with `…`, without a leading `cd PATH &&` or `cd PATH;`,
 last because it is the longest; `guard memory`'s details show it whole. Sizes are binary
@@ -337,31 +343,38 @@ its ID: detached work (`● detached`), timed from its first program's start
 and showing that program's command line; each agent the guard knows (`●
 agent`), sized by the agent process alone; each long-lived helper an agent
 started itself (`● helper`, a language server or an MCP server), sized with
-everything under it; and a command still running that no note matched (`?
-unmatched`), such as one you typed with `!`. The guard never chooses an
-agent, a helper or an unmatched command; you may stop a helper, an unmatched
-command or detached work, and a stop of an agent row is refused. Agent and
-helper rows are not logged while they run, and show only while a watcher
-runs.
+everything under it (a shell is never shown as a helper); and a command still
+running that no note matched (`? unmatched`), such as one you typed with `!`.
+The guard never chooses an agent, a helper or an unmatched command; you may
+stop a helper, an unmatched command or detached work, and a stop of an agent
+row is refused. When `WORKBENCH_GUARD` is `dry-run` or `off` for the agent or
+the row, your stop of a helper or unmatched row is logged, not sent. A stopped
+helper or unmatched row simply leaves the view, with no finished entry. Rows
+are not logged while they run, and agent and helper rows show only while a
+watcher runs.
 The header's first line gives the watcher's state (`● watching`, `○ not
 running`, `○ not connected`), a `memory low` or `memory critical` badge when
 memory runs short, and the clock; below a blank line, the counts (`3 running · 2
-finished`) and, while a watcher answers, the memory in use of the installed
-memory (`mem 11.27/16 GB`), the largest peak and the swap in use; under it one
-line splits the memory in use by the sizes the rows show (`in use 12.05 GB ·
-commands 40 MB · detached 4.20 GB · agents 1.36 GB · helpers 1.39 GB · other
-5.06 GB`), where unmatched commands count with the commands and `other` is the
-rest, a container engine's virtual machine for example; then a line
-that says `dry run: stops are logged, not sent` when every shown command is a
-dry run, or `dry run on 2 of 5 commands: …` when some are, each marked `(dry)`
-in its status. The selected row lies on a slate band across the window, its `▸`
+finished`, counting commands, detached work and unmatched commands, never
+agent or helper rows) and, while a watcher answers, the memory in use of the
+installed memory (`mem 11.27/16 GB`), the largest peak and the swap in use;
+under it one line splits the memory in use by the sizes the rows show (`in use
+12.05 GB · commands 40 MB · detached 4.20 GB · agents 1.36 GB · helpers 1.39
+GB · other 5.06 GB`), where unmatched commands count with the commands and
+`other` is the rest, a container engine's virtual machine for example; that
+line is left out in an 11-line window, when the watcher sends no split, and
+while no watcher answers; then a line that says `dry run: stops are logged,
+not sent` when every shown command, detached work and unmatched command,
+running or finished, is a dry run, or `dry run on 2 of 5 commands: …` when
+some are, each marked `(dry)` in its status. The selected row lies on a slate band across the window, its `▸`
 and ID bold in a light steel; a light terminal gets a light band, and without
 color the row is bold instead. ↑ and ↓ move (there is no `j` or `k`, since `k`
-stops, as in htop), space tags a running command and moves down, enter, → or `l`
+stops, as in htop), space tags any running row but an agent row (on an agent
+row it tags nothing) and moves down, enter, → or `l`
 opens the selected one's details (the full command, folder, full ID, for
 detached work the call that started it when that is proven, its
 processes and their memory, and a graph of its memory over the last 120
-readings), `k` opens the stop menu for the tagged commands or the selected one,
+readings), `k` opens the stop menu for the tagged rows or the selected one,
 with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
 it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
 ctrl+c quits. The view never takes the mouse (it asks the terminal for no
@@ -380,7 +393,8 @@ the call that started it, when it is proven and its command still runs in the
 foreground; otherwise the stop is in the log only); the bottom line
 shows its answer for
 3 seconds (`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)`, `4fQ8nX2a already
-finished`). The watcher serves the view on `guard.sock` beside its log, only to
+finished`, or `agents are never stopped` when `k` is pressed on an agent row
+with no row tagged, which sends nothing). The watcher serves the view on `guard.sock` beside its log, only to
 the same user, and never takes a stop from a process still under an agent with a
 guarded command. In a window under 60 columns or 11 lines the view asks to be
 widened or made taller; narrower windows first shorten COMMAND, then drop
