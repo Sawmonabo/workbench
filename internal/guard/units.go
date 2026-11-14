@@ -50,9 +50,8 @@ const (
 )
 
 // The reasons unitRootWhy gives for a root that is no unit, as an ended
-// record of a unit whose last root is dropped names them. whyOtherUser and
-// whyStartedByInit rest on facts that never change for a process, so a root
-// judged on them is never judged again.
+// record of a unit whose last root is dropped names them. finalWhy says which
+// are final.
 const (
 	whyOtherUser     = "its root is another user's"
 	whyStartedByInit = "its root was started by the init process"
@@ -67,11 +66,29 @@ const (
 	whyOff           = "its root turned the guard off"
 )
 
-// unitRoot decides whether r, a child of the init process, is the root of a
-// detached unit (see unitRootWhy).
-func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
-	t, v, _ := unitRootWhy(s, r, f)
-	return t, v
+// finalWhy reports whether a "no unit" verdict for why is final for the life
+// of the process (its PID and start time): it rests on evidence that the
+// process is not this agent's command's work, which no later program it runs
+// can take back. A verdict that rests only on the absence of evidence may be
+// judged again once the process runs another program. Every caller that
+// keeps a verdict asks this, so the first judgment and a later one agree.
+func finalWhy(why string) bool {
+	switch why {
+	case whyOtherUser, // a process's owner never changes
+		whyStartedByInit, // the kernel's record of who forked it never changes
+		whyProtected,     // an agent, the watcher, or work under them
+		whyAgent,         // an agent the guard knows is never a unit
+		whyWorkbench,     // Workbench's own process, whatever it runs next
+		whyOtherAgent,    // its stamps name another agent: that agent's work
+		whyOff:           // a program it execs inherits WORKBENCH_GUARD=off
+		return true
+	case whyNotDetached, // not (yet) a child of the init process, or a zombie
+		whyNoLineage,    // a read that failed, not an answer
+		whyUntied,       // nothing ties it to an agent's command yet
+		whyAgentUnknown: // the agent it is tied to is not known yet, or not alive
+		return false
+	}
+	return false // unread ("") and anything else: nothing readable was found
 }
 
 // unitRootWhy decides whether r, a child of the init process, is the root of

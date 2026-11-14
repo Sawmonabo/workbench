@@ -124,7 +124,7 @@ type watcher struct {
 	// and dropped when the process is gone; stampAgents are the live
 	// processes a stamp read names as its agent that started before the
 	// stamped process, protected while they live (see stampOf). classified is
-	// each child of the init process unitRoot has judged, with its verdict,
+	// each child of the init process unitRootWhy has judged, with its verdict,
 	// while it runs (see judged). seenUnder names the owner each process of a
 	// tracked tree was seen under, while it runs, and versionOf its version;
 	// versions names the owner of each version recorded, kept as versionSeen

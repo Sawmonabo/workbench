@@ -151,7 +151,7 @@ func outside(protected map[int]uint64) func(proc) bool {
 // command is an agent command the watcher tracks: the agent's direct child
 // whose tree holds the shell running one note's text. Or, with Detached, a
 // detached unit: work an agent's command forked that the init process
-// adopted (see unitRoot). A unit's Note is made up by the watcher and never
+// adopted (see unitRootWhy). A unit's Note is made up by the watcher and never
 // written to disk: its ToolUseID is the unit's ID and its Command the root
 // program's name only, because a running program's arguments may hold a
 // token the shell expanded and the note's Command reaches the log and the
@@ -181,12 +181,14 @@ type detached struct {
 // cross a handover: the new watcher starts it again), and what it was last
 // judged on, its process name and its command line, so that the guard
 // judges it again once it starts another program (see
-// watcher.rejudgeRoots). Args is shown in the view only, never logged.
+// watcher.rejudgeRoots); Pending marks a root seen in a new program and not
+// yet judged a unit in it. Args is shown in the view only, never logged.
 type detachedRoot struct {
 	procRef
-	Since time.Time `json:"-"`
-	Name  string    `json:"name"`
-	Args  string    `json:"args"`
+	Since   time.Time `json:"-"`
+	Name    string    `json:"name"`
+	Args    string    `json:"args"`
+	Pending bool      `json:"pending,omitempty"`
 }
 
 // target is one signal: to the process PID, or with Group to the process

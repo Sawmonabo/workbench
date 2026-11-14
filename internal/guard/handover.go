@@ -84,7 +84,8 @@ type handover struct {
 // knows, which live only in memory. The notes let the new watcher end a
 // command whose note was deleted, ended, while the watch passed. A unit is
 // carried with its made-up note, its roots and call (Detached) and its
-// command line (Shown), which passes only through the pipe.
+// command line (Shown), which passes only through the pipe. Final are the
+// processes judged no unit for good, which adopt keeps final.
 type carried struct {
 	Tracked     map[string]procRef  `json:"tracked"`
 	Notes       map[string]note     `json:"notes"`
@@ -98,6 +99,10 @@ type carried struct {
 	StoppedBy   map[string]string   `json:"stopped_by"`
 	Records     []callRecord        `json:"records"`
 	Known       []agentFile         `json:"known"`
+	// Final are the children of the init process judged no unit for good
+	// (see judged), so a new watcher, which records the trees of the units
+	// it takes on afresh, cannot tie one of them to a unit by parent again.
+	Final []procRef `json:"final"`
 }
 
 type procRef struct {
@@ -326,6 +331,11 @@ func (w *watcher) carried() carried {
 		StoppedBy:   map[string]string{},
 		Records:     w.records.all(),
 	}
+	for key, j := range w.classified {
+		if j.v == notUnit && j.fixed {
+			c.Final = append(c.Final, procRef{PID: key.pid, Start: key.start})
+		}
+	}
 	for key, k := range w.known {
 		c.Known = append(c.Known, agentFile{PID: key.pid, Start: key.start, Kind: k})
 	}
@@ -452,6 +462,11 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 	maps.Copy(w.stoppedBy, c.StoppedBy)
 	for _, rec := range c.Records {
 		w.records.keep(rec)
+	}
+	for _, r := range c.Final {
+		if p, ok := s[r.PID]; ok && s.alive(r.PID, r.Start) {
+			w.classified[procKey{r.PID, r.Start}] = finalNo(p)
+		}
 	}
 	for _, a := range c.Known {
 		if s.alive(a.PID, a.Start) {

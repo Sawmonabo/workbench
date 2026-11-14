@@ -1,7 +1,7 @@
 package guard
 
 // This file tracks detached units: work an agent's command forked and left
-// behind as a child of the init process (see unitRoot).
+// behind as a child of the init process (see unitRootWhy).
 
 import (
 	"cmp"
@@ -182,13 +182,24 @@ func (w *watcher) unrecordProtected(s snapshot, protected map[int]uint64) {
 	}
 }
 
-// unrecordTree forgets where root, a root leaving its unit, and every process
-// of its tree were seen, and their versions, whichever owner they were
-// recorded under: neither it nor what it started may be tied by parent to
-// that unit, or to the call before it, again.
-func (w *watcher) unrecordTree(s snapshot, root int) {
+// unrecordUnder forgets where root, a root leaving its unit, and every
+// process of its tree were seen under agent's calls and units, and their
+// versions, so neither it nor what it started is tied by parent to that
+// agent's work again. Entries under another agent, such as a nested
+// session's own calls, are kept: that agent's work stays tied to it.
+func (w *watcher) unrecordUnder(s snapshot, root int, agent procKey) {
 	for _, p := range s.tree(root, nil) {
-		w.forgetSeen(procKey{p.PID, p.Start})
+		key := procKey{p.PID, p.Start}
+		if o, ok := w.seenUnder[key]; ok && o.Agent == agent {
+			delete(w.seenUnder, key)
+		}
+		if v, ok := w.versionOf[key]; ok {
+			if o, ok := w.versions[v]; ok && o.Agent == agent {
+				delete(w.versions, v)
+				delete(w.versionSeen, v)
+				delete(w.versionOf, key)
+			}
+		}
 	}
 }
 
@@ -258,32 +269,34 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	return st
 }
 
-// judged is unitRoot's verdict on a child of the init process, with the
+// judged is unitRootWhy's verdict on a child of the init process, with the
 // process name it was judged under. fixed marks a verdict that is never
-// judged again: one on facts that never change for a process (another
-// user's, started by the init process), and WORKBENCH_GUARD=off, which a
-// program it execs inherits, so opting out sticks for the life of the
-// process even when a later program hides its environment.
+// judged again (see finalWhy), and every root that left its unit: it was
+// that unit's, was judged again and failed, so it never comes back.
 type judged struct {
 	v     verdict
 	name  string
 	fixed bool
 }
 
-// judgedAs is the judgement of p by unitRoot's verdict v and its reason why.
+// judgedAs is the judgement of p by unitRootWhy's verdict v and its reason why.
 func judgedAs(p proc, v verdict, why string) judged {
-	return judged{
-		v: v, name: p.Name,
-		fixed: why == whyOtherUser || why == whyStartedByInit || why == whyOff,
-	}
+	return judged{v: v, name: p.Name, fixed: v == notUnit && finalWhy(why)}
+}
+
+// finalNo is a final "no unit" for p: a root that left its unit, or one a
+// watcher handing over judged final.
+func finalNo(p proc) judged {
+	return judged{v: notUnit, name: p.Name, fixed: true}
 }
 
 // findUnits finds and judges again the units of this tick, after matching
 // and recordLineage. The roots of the tracked units are judged again first
 // (see rejudgeRoots). Then each child of an init process that is the
-// watcher's user's and not a zombie goes through unitRoot: once, each tick
-// while its verdict is unread, and again once a no that rests on what it ran
-// is followed by another program (its process name changed). A root tied by
+// watcher's user's and not a zombie goes through unitRootWhy: once, each tick
+// while its verdict is unread, and again once a no that rests only on the
+// absence of evidence (see finalWhy) is followed by another program (its
+// process name changed); a final no is never judged again. A root tied by
 // parent to a tracked unit joins it; any other becomes a tracked unit, logged
 // tracking. Where the kernel keeps the original parent but does not answer
 // for the init process, it judges nothing but whether a root has become a
@@ -308,7 +321,7 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 					"cannot read where processes come from; detached work is not tracked")
 			}
 			// A rule that needs lineage must not drop a unit on a failed read.
-			w.rejudgeRoots(s, facts{known: w.known}, false)
+			w.rejudgeRoots(s, facts{known: w.known, protected: protected}, false)
 			return
 		}
 		if w.lineageLost {
@@ -353,27 +366,33 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 	}
 }
 
-// rejudgeRoots judges each live root of every tracked unit again. A root
-// that has become an agent the guard knows leaves its unit at once. One
-// whose process name or command line changed since it was judged runs
-// another program than the one it was judged on, such as a fork caught
-// before it started its own: it goes through unitRoot again with fresh
-// stamps, so one that is now off, Workbench or another agent's leaves its
-// unit, and one whose stamps now say dry-run makes its unit a dry run. One
-// that is still a unit runs a new program, which may be a session that has
-// yet to register, so its time starts again (see ownStop). A root that
-// leaves its unit takes with it what was recorded of it and of its tree (see
-// unrecordTree), so neither it nor what it started is tied to the unit by
-// parent again. A unit left with no root is forgotten with one ended record
-// naming why. A root whose lineage cannot be read this tick, or that has
-// nothing readable, keeps its place and is judged again next tick. Without
-// lineage (whole false) only a root that became a known agent leaves. The
-// unit's command follows its first live root.
+// rejudgeRoots judges each live root of every tracked unit again.
+//
+// A root that has become an agent the guard knows, or protected (a stamp
+// names it as its agent), leaves its unit at once, with or without lineage;
+// unrecordProtected forgets what was recorded under it.
+//
+// A root seen with a new process name or command line runs another program
+// than before, such as a fork caught before it started its own: its Name,
+// Args and Since are taken from it at once, whatever the verdict, so its
+// time before the guard's own stop may take it starts again (see ownStop),
+// and it is judged again (Pending) with fresh stamps through every rule of
+// unitRootWhy. One that is now off, Workbench, another agent's or any other no
+// leaves its unit for good (see finalNo), and takes with it what was
+// recorded of it and its tree under the unit's agent (see unrecordUnder).
+// One still a unit whose stamps say dry-run makes its unit a dry run. One
+// whose lineage cannot be read, or that has nothing readable, stays and is
+// judged again next tick. Without lineage (whole false) nothing is judged
+// beyond the first paragraph.
+//
+// A unit left with no root is forgotten with one ended record naming why.
+// The unit's command follows its first live root.
 func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 	for id, c := range w.tracked {
 		if c.Detached == nil {
 			continue
 		}
+		agent := procKey{c.Note.AgentPID, c.Note.AgentStart}
 		changed, why := false, ""
 		roots := make([]detachedRoot, 0, len(c.Detached.Roots))
 		for _, r := range c.Detached.Roots {
@@ -385,16 +404,19 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 			p := s[r.PID]
 			if _, known := f.known[key]; known {
 				changed, why = true, whyAgent
-				w.classified[key] = judgedAs(p, notUnit, whyAgent)
-				w.unrecordTree(s, r.PID)
+				w.classified[key] = finalNo(p)
 				continue
 			}
-			if !whole {
-				roots = append(roots, r)
+			if underProtected(s, p, f.protected) {
+				changed, why = true, whyProtected
+				w.classified[key] = finalNo(p)
 				continue
 			}
-			args := strings.Join(platform.Args(r.PID), " ")
-			if p.Name == r.Name && args == r.Args {
+			if args := strings.Join(platform.Args(r.PID), " "); p.Name != r.Name || args != r.Args {
+				r.Name, r.Args, r.Since, r.Pending = p.Name, args, time.Now(), true
+				changed = true
+			}
+			if !whole || !r.Pending {
 				roots = append(roots, r)
 				continue
 			}
@@ -408,12 +430,11 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 				if t.Mode == "dry-run" {
 					c.Note.DryRun = true
 				}
-				r.Name, r.Args, r.Since = p.Name, args, time.Now()
-				changed = true
+				r.Pending = false
 			case v == notUnit && rootWhy != whyNoLineage:
 				changed, why = true, rootWhy
-				w.classified[key] = judgedAs(p, notUnit, rootWhy)
-				w.unrecordTree(s, r.PID)
+				w.classified[key] = finalNo(p)
+				w.unrecordUnder(s, r.PID, agent)
 				continue
 			}
 			roots = append(roots, r)
