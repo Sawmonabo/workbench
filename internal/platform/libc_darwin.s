@@ -20,6 +20,11 @@ TEXT libc_proc_pidinfo_trampoline<>(SB),NOSPLIT,$0-0
 GLOBL	·procPidinfo(SB), RODATA, $8
 DATA	·procPidinfo(SB)/8, $libc_proc_pidinfo_trampoline<>(SB)
 
+TEXT libc_proc_listchildpids_trampoline<>(SB),NOSPLIT,$0-0
+	JMP	libc_proc_listchildpids(SB)
+GLOBL	·procListChildPids(SB), RODATA, $8
+DATA	·procListChildPids(SB)/8, $libc_proc_listchildpids_trampoline<>(SB)
+
 TEXT libc_host_statistics64_trampoline<>(SB),NOSPLIT,$0-0
 	JMP	libc_host_statistics64(SB)
 GLOBL	·hostStatistics64(SB), RODATA, $8

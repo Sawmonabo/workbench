@@ -85,6 +85,10 @@ const TouchIDPossible = true
 // forked one even after that parent exited, as macOS's kernel records it.
 const KnowsOriginalParent = true
 
+// FollowsForks reports whether Waiter.Follow wakes a Wait when a process
+// forks or execs, as macOS's kqueue can for any process the caller can see.
+const FollowsForks = true
+
 // AssetTriple is the operating-system part of a Rust-style release asset name,
 // such as uv's.
 const AssetTriple = "apple-darwin"

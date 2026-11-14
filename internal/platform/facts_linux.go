@@ -99,6 +99,12 @@ const TouchIDPossible = false
 // forked one even after that parent exited, as macOS's kernel records it.
 const KnowsOriginalParent = false
 
+// FollowsForks reports whether Waiter.Follow wakes a Wait when a process
+// forks or execs, as macOS's kqueue can. Linux has no unprivileged way to
+// learn of another process's forks that works in every namespace, so here
+// Follow always reports false.
+const FollowsForks = false
+
 // AssetTriple is the operating-system part of a Rust-style release asset name,
 // such as uv's.
 const AssetTriple = "unknown-linux-gnu"

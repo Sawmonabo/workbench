@@ -266,11 +266,19 @@ func (w *Waiter) Watch(pid int) {
 	}
 }
 
-// Wait sleeps for d or until a watched process exits.
-func (w *Waiter) Wait(d time.Duration) {
+// Follow reports false and does nothing: Linux cannot follow another
+// process's forks and execs here (FollowsForks).
+func (*Waiter) Follow(int) bool { return false }
+
+// Unfollow does nothing, since nothing is ever followed here.
+func (*Waiter) Unfollow(int) {}
+
+// Wait sleeps for d or until a watched process exits, and returns the exits
+// it woke for, nil when d ran out.
+func (w *Waiter) Wait(d time.Duration) []Event {
 	if len(w.fds) == 0 {
 		time.Sleep(d)
-		return
+		return nil
 	}
 	polls := make([]unix.PollFd, 0, len(w.fds))
 	pids := make([]int, 0, len(w.fds))
@@ -282,14 +290,33 @@ func (w *Waiter) Wait(d time.Duration) {
 		if !errors.Is(err, unix.EINTR) {
 			time.Sleep(d)
 		}
-		return
+		return nil
 	}
+	var out []Event
 	for i, poll := range polls {
 		if poll.Revents != 0 {
 			_ = unix.Close(int(poll.Fd))
 			delete(w.fds, pids[i])
+			out = append(out, Event{PID: pids[i], Exit: true})
 		}
 	}
+	return out
+}
+
+// Children is the PIDs of pid's children now, from the processes whose
+// parent is pid in a listing of /proc; nil when there are none.
+func Children(pid int) []int {
+	all, err := Processes(func(int, error) {})
+	if err != nil {
+		return nil
+	}
+	var out []int
+	for _, p := range all {
+		if p.PPID == pid {
+			out = append(out, p.PID)
+		}
+	}
+	return out
 }
 
 // Close releases the pidfds still watched.

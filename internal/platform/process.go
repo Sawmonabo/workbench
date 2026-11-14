@@ -26,6 +26,16 @@ type Process struct {
 // execs. It stays recorded after that parent exits and init adopts the child.
 type Lineage struct{ Version, ParentVersion uint32 }
 
+// Event is what a Waiter woke for on one process: PID forked a child (Fork),
+// replaced its image (Exec) or exited (Exit). The kernel folds the changes
+// that happen between two Waits into one Event per process, so one Fork can
+// stand for several children, and an Event can carry more than one change.
+// It never names the child: list them with Children.
+type Event struct {
+	PID              int
+	Fork, Exec, Exit bool
+}
+
 // Exited reports whether err from reading a process means only that it
 // exited (ENOENT or ESRCH), which is no error.
 func Exited(err error) bool {

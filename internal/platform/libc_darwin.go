@@ -15,13 +15,14 @@ import (
 // whose addresses these variables hold.
 var (
 	getattrlist, fgetattrlist, procPidRusage, procPidinfo uintptr
-	hostStatistics64, machHostSelf                        uintptr
+	procListChildPids, hostStatistics64, machHostSelf     uintptr
 )
 
 //go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_fgetattrlist fgetattrlist "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_proc_pid_rusage proc_pid_rusage "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_proc_pidinfo proc_pidinfo "/usr/lib/libSystem.B.dylib"
+//go:cgo_import_dynamic libc_proc_listchildpids proc_listchildpids "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_host_statistics64 host_statistics64 "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_mach_host_self mach_host_self "/usr/lib/libSystem.B.dylib"
 
