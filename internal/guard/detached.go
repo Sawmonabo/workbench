@@ -96,15 +96,16 @@ func firstRoot(s snapshot, c command) proc {
 // process that is protected now (a known agent, the watcher, a process a
 // stamp names as its agent) is dropped with what was recorded below it (see
 // dropAndLeave), so what a nested session left before it was known is no
-// longer the outer call's. Each member's stamp is read in the walk, through
-// the cache (see stampOf), from the second tick the member is recorded at
-// (its versions are recorded from the first), so a live process a member
-// names as its agent,
-// older than the member, is protected from this tick, and is dropped with
-// the rest: a session started without the guard's hooks is known from the
-// first readable program that carries its CLAUDE_PID. A call whose tree
-// holds a protected process other than the watcher, found in the walk or in
-// that drop, started an agent (see markStartedAgents).
+// longer the outer call's. Where the kernel keeps the original parent, each
+// member's stamp is read in the walk, through the cache (see stampOf), from
+// the second tick the member is recorded at (its versions are recorded from
+// the first), so a live process a member names as its agent, older than the
+// member, is protected from this tick and is dropped with the rest: a
+// session started without the guard's hooks is protected from the first
+// readable program that carries its CLAUDE_PID. Elsewhere no member's stamp
+// is read. A call whose tree holds a protected process other than the
+// watcher, found in the walk or in that drop, started an agent (see
+// markStartedAgents).
 func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uint64) {
 	now := time.Now()
 	self := os.Getpid()
@@ -134,14 +135,15 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 				if l, ok := platform.ProcessLineage(p.PID); ok {
 					prog.version = l.Version
 				}
-			} else {
-				prog = programOf(p)
 			}
 			// A member's stamp is read from the second tick it is seen on:
 			// most processes of a busy build live less than a tick, and work a
 			// session leaves in its first tick is tied to it only through the
-			// store, which drops it once the session is known.
-			if w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now) {
+			// store, which drops it once the session is known. Where the
+			// kernel keeps no original parent, members' stamps are not read:
+			// protecting by them there is not verified.
+			before := w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now)
+			if before && platform.KnowsOriginalParent {
 				w.stampFor(s, p, prog, protected)
 			}
 		}
@@ -272,6 +274,19 @@ func programOf(p proc) program {
 	return program{name: p.Name, args: strings.Join(platform.Args(p.PID), " ")}
 }
 
+// programSeen is the program p runs as far as one cheap look tells: its
+// version where the kernel keeps versions, as programOf; elsewhere its
+// process name alone, which the snapshot holds, so no command line is read.
+// It tells a child of the init process that is no tracked root, and a
+// cached stamp, from the next program; a tracked root, which may be stopped
+// on its verdict, is followed by programOf.
+func programSeen(p proc) program {
+	if platform.KnowsOriginalParent {
+		return programOf(p)
+	}
+	return program{name: p.Name}
+}
+
 // known reports whether the program was read.
 func (prog program) known() bool { return prog != program{} }
 
@@ -314,13 +329,15 @@ func finalNo() judged {
 // of an init process that is the watcher's user's and not a zombie goes
 // through unitRootWhy: once, each tick while its verdict is unread, and again
 // once a no that rests only on the absence of evidence (see finalWhy) is
-// followed by another program (see programOf); a final no is never judged
+// followed by another program (see programSeen); a final no is never judged
 // again, and drops what was recorded of the process and below it (see
 // dropAndLeave). A root tied by parent to a tracked unit joins it; any other
 // becomes a tracked unit, logged tracking. Where the kernel keeps the
-// original parent but does not answer for the init process, it judges
-// nothing but whether a root has become a known agent, which needs no
-// lineage, and logs that once, and once more when it answers again.
+// original parent but does not answer for the init process, it judges only
+// whether a root has become a known agent or come under a protected process,
+// which needs no lineage, finds no new unit, and makes every root of every
+// unit Pending, so the guard's own stop takes no detached work meanwhile (see
+// rejudgeRoots); it logs that once, and once more when it answers again.
 func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64) {
 	for key := range w.classified {
 		if !s.alive(key.pid, key.start) {
@@ -376,7 +393,7 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 		if judgedBefore && (j.v == isUnit || j.fixed) {
 			continue
 		}
-		prog := programOf(p)
+		prog := programSeen(p)
 		if judgedBefore && j.v == notUnit && !j.program.replaced(prog) {
 			continue
 		}
@@ -422,8 +439,13 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 // whose setting is unread while its agent's own stamp says dry-run or off,
 // makes its unit a dry run. One that is now off, Workbench, another agent's
 // or any other no leaves its unit for good. One whose lineage cannot be read,
-// or that has nothing readable at all, stays Pending. Without lineage (whole
-// false) nothing is judged beyond the first two paragraphs.
+// or that has nothing readable at all, stays Pending.
+//
+// Without lineage (whole false: the kernel does not answer where processes
+// come from) nothing is judged beyond the first two paragraphs, and every
+// root that stays is Pending, so the guard's own stop takes no detached work
+// until lineage is read again and each root is judged again; a person's stop
+// is unchanged.
 //
 // Every root that leaves takes with it what was recorded of it and below it
 // (see dropAndLeave), and a unit left with no root is forgotten with one
@@ -456,7 +478,13 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 				continue
 			}
 			followProgram(p, r)
-			if !whole || !r.Pending {
+			if !whole {
+				// Where processes come from cannot be read: no root is
+				// settled, whatever it ran, until it is judged again.
+				r.Pending = true
+				continue
+			}
+			if !r.Pending {
 				continue
 			}
 			t, v, why := unitRootWhy(s, p, f)
@@ -491,7 +519,11 @@ func (w *watcher) loseStampCall(c *command) {
 // process: a root that runs another program than the one it was judged in,
 // or whose program cannot be read, is Pending (see rejudgeRoots), and the
 // former starts its time again; its Name, Args (where they decide) and Shown
-// follow p whenever they differ.
+// follow p whenever they differ. Where the kernel keeps versions the command
+// line decides nothing, so only the shown form is read again, at each call:
+// a program that rewrites its title keeps its version. Elsewhere the command
+// line just read is what changes, so the shown form is read again only when
+// it did, and no read is added to each tick there.
 func followProgram(p proc, r *detachedRoot) {
 	now := programOf(p)
 	judgedIn := program{version: r.Version, name: r.Name, args: r.Args}
@@ -504,10 +536,12 @@ func followProgram(p proc, r *detachedRoot) {
 	if p.Name != "" {
 		r.Name = p.Name
 	}
-	// Where the kernel keeps versions the command line decides nothing, so
-	// only the shown form is read again.
+	changed := now.args != "" && now.args != r.Args
 	if now.args != "" {
 		r.Args = now.args
+	}
+	if !platform.KnowsOriginalParent && !changed && r.Shown != "" {
+		return
 	}
 	if shown := shownCommand(p.PID, p.Name); shown != "" {
 		r.Shown = shown

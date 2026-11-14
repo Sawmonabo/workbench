@@ -109,7 +109,7 @@ type cachedStamp struct {
 }
 
 // stampOf is pid's stamp in s, read once per program a process runs (see
-// readStamp, programOf) and kept in stamps while it runs, a hidden one too:
+// readStamp, programSeen) and kept in stamps while it runs, a hidden one too:
 // a process forked but not yet exec'd shows its parent's environment, and
 // shows its own once it execs, which is another program. A stamp whose agent
 // stamp names a live process that started before pid makes that process
@@ -120,7 +120,7 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	if !ok {
 		return stamp{}
 	}
-	return w.stampFor(s, p, programOf(p), protected)
+	return w.stampFor(s, p, programSeen(p), protected)
 }
 
 // stampFor is stampOf for p, a process of s, whose program now was just read.
