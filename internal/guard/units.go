@@ -19,10 +19,13 @@ type owner struct {
 // facts is what the unit rule reads beyond the snapshot. The watcher fills it
 // from the kernel; the test fills it by hand.
 type facts struct {
-	self      int  // the watcher's user
-	lineage   bool // platform.KnowsOriginalParent
-	read      func(pid int) (platform.Lineage, bool)
-	stamp     func(pid int) stamp
+	self    int  // the watcher's user
+	lineage bool // platform.KnowsOriginalParent
+	read    func(pid int) (platform.Lineage, bool)
+	stamp   func(pid int) stamp
+	// rootStamp, when set, stands for stamp in judging a tracked root again
+	// (see rejudgeRoots, rootStampOf).
+	rootStamp func(pid int) stamp
 	args      func(pid int) []string // nil when unreadable
 	known     map[procKey]kind       // agents the guard knows
 	protected map[int]uint64

@@ -371,6 +371,7 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 		lineage:   platform.KnowsOriginalParent,
 		read:      platform.ProcessLineage,
 		stamp:     func(pid int) stamp { return w.stampOf(s, pid, protected) },
+		rootStamp: func(pid int) stamp { return w.rootStampOf(s, pid, protected) },
 		args:      platform.Args,
 		known:     w.known,
 		protected: protected,
@@ -462,6 +463,12 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 		why string
 	}
 	var leaves []leaving
+	// A tracked root is judged on stamps told apart by name and command line
+	// where the kernel keeps no versions (see rootStampOf).
+	judging := f
+	if f.rootStamp != nil {
+		judging.stamp = f.rootStamp
+	}
 	for id, c := range w.tracked {
 		if c.Detached == nil {
 			continue
@@ -499,7 +506,7 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 			if !r.Pending {
 				continue
 			}
-			t, v, why := unitRootWhy(s, p, f)
+			t, v, why := unitRootWhy(s, p, judging)
 			switch {
 			case v == isUnit:
 				r.Pending = t.Hidden
@@ -567,7 +574,7 @@ func followProgram(p proc, r *detachedRoot) (replaced bool) {
 // dryMode): a unit whose root's setting cannot be read takes it, as a
 // person's stop of a row does.
 func (w *watcher) agentDry(s snapshot, agent procKey) bool {
-	return s.alive(agent.pid, agent.start) && dryMode(w.stampOf(s, agent.pid, nil))
+	return s.alive(agent.pid, agent.start) && dryMode(w.rootStampOf(s, agent.pid, nil))
 }
 
 // followFirstRoot makes a unit's Root its first live root, and its command

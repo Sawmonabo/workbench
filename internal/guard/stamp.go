@@ -120,8 +120,11 @@ type cachedStamp struct {
 	program program
 }
 
-// stampOf is pid's stamp in s, read once per program a process runs (see
-// readStamp, programSeen) and kept in stamps while it runs, a hidden one too:
+// stampOf is pid's stamp in s, read once per program a process runs as
+// programSeen tells them apart (by name alone where the kernel keeps no
+// versions, so the scan of children of the init process and the rows read no
+// command line at each tick; a tracked root's judgment reads through
+// rootStampOf), and kept in stamps while it runs, a hidden one too:
 // a process forked but not yet exec'd shows its parent's environment, and
 // shows its own once it execs, which is another program. A stamp whose agent
 // stamp names a live process that started before pid makes that process
@@ -133,6 +136,21 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 		return stamp{}
 	}
 	return w.stampFor(s, p, programSeen(p), protected)
+}
+
+// rootStampOf is stampOf for a stamp a tracked root's judgment reads: the
+// root's own, those below it (see stampsFor) and its agent's (see agentDry).
+// It tells programs apart as programOf does, by name and command line where
+// the kernel keeps no versions, so a process that execs a program of the
+// same name with its own setting is read again; there it reads one command
+// line per process each time a root is judged, which is only when the root
+// is not settled. Where the kernel keeps versions it is stampOf.
+func (w *watcher) rootStampOf(s snapshot, pid int, protected map[int]uint64) stamp {
+	p, ok := s[pid]
+	if !ok {
+		return stamp{}
+	}
+	return w.stampFor(s, p, programOf(p), protected)
 }
 
 // stampFor is stampOf for p, a process of s, whose program now was just read.

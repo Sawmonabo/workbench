@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"log/slog"
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -286,46 +287,118 @@ func fixtureUnit(w *watcher, agent procKey, call string, now time.Time, rs ...pr
 }
 
 // A root that execs a program of the same name may set WORKBENCH_GUARD=off in
-// it: judged on the stamp kept for the program before, it settles again and
-// the guard may stop work that turned it off. Where the kernel keeps no
-// versions the stamp cache tells programs apart by name alone, so a root's
-// stamp must be read again whenever it runs another program. The root is this
-// test's own process, so its program reads.
+// it, and so may a readable process below a root whose own environment is
+// hidden: judged on the stamp kept for the program before, the root settles
+// again and the guard may stop work that turned it off. Where the kernel
+// keeps no versions the scan's stamp cache tells programs apart by name
+// alone, so every stamp a tracked root's judgment reads is told apart by name
+// and command line, and a root's own is read again whenever it runs another
+// program. The processes that must read are this test's own and a copy of
+// it, started with WORKBENCH_GUARD=off, that only waits (see childWaits).
 func TestWatcherReadsTheStampOfARootThatRunsAnotherProgram(t *testing.T) {
+	if os.Getenv(childWaits) != "" {
+		time.Sleep(time.Minute)
+		return
+	}
 	now := time.Now()
 	agent := procKey{1<<30 + 1, start(-3600)}
-	w, _ := fixtureWatcher(t, agent)
-	self := os.Getpid()
-	root := proc{Process: platform.Process{PID: self, PPID: 1, Start: start(10), Name: "test"}}
-	s := snapshotOf(
-		process(1, 0, 1, -99999, "launchd"),
-		process(agent.pid, 1<<30, agent.pid, -3600, "claude"),
-		root,
-	)
-	id := fixtureUnit(w, agent, "toolu_1", now, root)
-	key := procKey{root.PID, root.Start}
-	r := &w.tracked[id].Detached.Roots[0]
-	// It was judged in an earlier program of the same name, and its stamp
-	// kept for that program as the cache names it.
-	before := program{name: "test"}
-	r.Args = "test --before"
-	if platform.KnowsOriginalParent {
-		r.Version = programOf(root).version + 1
-		before = program{version: r.Version}
+	launchd := process(1, 0, 1, -99999, "launchd")
+	agentProc := process(agent.pid, 1<<30, agent.pid, -3600, "claude")
+	judge := func(w *watcher, s snapshot) {
+		w.rejudgeRoots(s, facts{
+			stamp:     func(pid int) stamp { return w.stampOf(s, pid, nil) },
+			rootStamp: func(pid int) stamp { return w.rootStampOf(s, pid, nil) },
+			args:      func(int) []string { return nil },
+			known:     w.known,
+			protected: map[int]uint64{agent.pid: agent.start},
+			origins:   w.ancestry,
+			records:   w.records,
+			below:     s.below(),
+		}, true)
 	}
-	stale := stamp{Readable: true, Agent: agent.pid, CallShell: 424242}
-	w.stamps[key] = cachedStamp{stale, before}
-	w.ancestry.record(key, owner{ID: id, Agent: agent, Kind: claude}, procKey{}, 0, now)
-	w.rejudgeRoots(s, facts{
-		stamp:     func(pid int) stamp { return w.stampOf(s, pid, nil) },
-		args:      func(int) []string { return nil },
-		known:     w.known,
-		protected: map[int]uint64{agent.pid: agent.start},
-		origins:   w.ancestry,
-		records:   w.records,
-		below:     s.below(),
-	}, true)
-	if w.stamps[key].stamp == stale {
-		t.Fatal("the root was judged in its new program on the stamp kept for the old one")
+	// stale is a stamp kept for p's earlier program of the same name, under
+	// the program the scan's cache would name it by.
+	stale := func(w *watcher, p proc) stamp {
+		before := program{name: p.Name}
+		if platform.KnowsOriginalParent {
+			before = program{version: programOf(p).version + 1}
+		}
+		st := stamp{Readable: true, Agent: agent.pid, CallShell: 424242}
+		w.stamps[procKey{p.PID, p.Start}] = cachedStamp{st, before}
+		return st
 	}
+
+	t.Run("itsOwnStamp", func(t *testing.T) {
+		w, _ := fixtureWatcher(t, agent)
+		root := proc{
+			Process: platform.Process{PID: os.Getpid(), PPID: 1, Start: start(10), Name: "test"},
+		}
+		s := snapshotOf(launchd, agentProc, root)
+		id := fixtureUnit(w, agent, "toolu_1", now, root)
+		r := &w.tracked[id].Detached.Roots[0]
+		// It was judged in an earlier program of the same name.
+		r.Args = "test --before"
+		if platform.KnowsOriginalParent {
+			r.Version = programOf(root).version + 1
+		}
+		old := stale(w, root)
+		w.ancestry.record(
+			procKey{root.PID, root.Start},
+			owner{ID: id, Agent: agent, Kind: claude},
+			procKey{},
+			0,
+			now,
+		)
+		judge(w, s)
+		if w.stamps[procKey{root.PID, root.Start}].stamp == old {
+			t.Fatal("the root was judged in its new program on the stamp kept for the old one")
+		}
+	})
+
+	// The root's environment is hidden (a made-up process, which no read
+	// finds), and it is judged by its readable child's stamp, kept from the
+	// child's earlier program; the child now runs one of the same name that
+	// turned the guard off. The root runs a program that cannot be read, so it
+	// is judged again: it must leave.
+	t.Run("theStampsBelowIt", func(t *testing.T) {
+		w, log := fixtureWatcher(t, agent)
+		root := process(1<<30+50, 1, 1<<30+50, 10, "sh")
+		cmd := exec.Command(
+			os.Args[0],
+			"-test.run=^TestWatcherReadsTheStampOfARootThatRunsAnotherProgram$",
+		)
+		cmd.Env = []string{childWaits + "=1", modeVariable + "=off"}
+		if err := cmd.Start(); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = cmd.Process.Kill(); _ = cmd.Wait() })
+		child := proc{Process: platform.Process{
+			PID: cmd.Process.Pid, PPID: root.PID, Start: start(20), Name: "guard.test",
+		}}
+		s := snapshotOf(launchd, agentProc, root, child)
+		id := fixtureUnit(w, agent, "toolu_1", now, root)
+		stale(w, child)
+		w.ancestry.record(
+			procKey{root.PID, root.Start},
+			owner{ID: id, Agent: agent, Kind: claude},
+			procKey{},
+			0,
+			now,
+		)
+		// The copy's environment must be readable before it is judged.
+		for deadline := time.Now().Add(5 * time.Second); !readStamp(child.PID).Readable; {
+			if time.Now().After(deadline) {
+				t.Fatal("the waiting copy's environment never read")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		judge(w, s)
+		if _, ok := w.tracked[id]; ok || !strings.Contains(log.String(), whyOff) {
+			t.Fatal("the root was judged on the stamp kept for its child's old program and stayed")
+		}
+	})
 }
+
+// childWaits, set in a copy of the test binary's environment, makes that copy
+// only wait, as a readable process whose environment the test chooses.
+const childWaits = "WORKBENCH_GUARD_TEST_CHILD_WAITS"

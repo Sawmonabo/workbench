@@ -595,7 +595,7 @@ func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	for _, r := range unit.Roots {
 		if s.alive(r.PID, r.Start) {
 			w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit}
-			w.stampOf(s, r.PID, nil)
+			w.rootStampOf(s, r.PID, nil)
 		}
 	}
 	if live(s, cmd) {
