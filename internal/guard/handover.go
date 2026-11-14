@@ -464,8 +464,8 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		w.records.keep(rec)
 	}
 	for _, r := range c.Final {
-		if p, ok := s[r.PID]; ok && s.alive(r.PID, r.Start) {
-			w.classified[procKey{r.PID, r.Start}] = finalNo(p)
+		if s.alive(r.PID, r.Start) {
+			w.classified[procKey{r.PID, r.Start}] = finalNo()
 		}
 	}
 	for _, a := range c.Known {
@@ -555,7 +555,7 @@ func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	w.passed[id] = slices.Contains(c.Passed, id)
 	for _, r := range unit.Roots {
 		if s.alive(r.PID, r.Start) {
-			w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit, name: r.Name}
+			w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit}
 			w.stampOf(s, r.PID, nil)
 		}
 	}

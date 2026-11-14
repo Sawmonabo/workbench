@@ -465,11 +465,16 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 // a unit's root that has exited, to whatever process reuses its PID. Each is
 // unauthorized execution. So is the guard's own stop signalling a root that
 // joined a unit less than unitGrace ago, which may be a session that has not
-// yet said it is an agent; a unit's rows go through ownStop for that reason.
+// yet said it is an agent, or a root not settled (Pending), which may have
+// turned the guard off; a unit's rows go through ownStop for that reason.
 func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 	now := time.Now()
 	root := func(pid int, seconds float64, tracked time.Duration) detachedRoot {
 		return detachedRoot{procRef: procRef{pid, start(seconds)}, Since: now.Add(-tracked)}
+	}
+	pending := func(r detachedRoot) detachedRoot {
+		r.Pending = true
+		return r
 	}
 	cases := []struct {
 		name      string
@@ -561,6 +566,23 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 			unit:      []detachedRoot{root(1400, 1, time.Minute), root(1500, 3, 3*time.Second)},
 			protected: map[int]uint64{100: start(-3600)},
 			want:      []target{{1400, start(1), true}},
+		},
+		{
+			// Root 1700 is not settled: it started a program not yet judged,
+			// or its setting cannot be read, so it may have turned the guard
+			// off. Only root 1600 may be signalled.
+			name: "a unit's root that is Pending",
+			procs: []proc{
+				process(1600, 1, 1600, 1, "node", "server.js"),
+				process(1700, 1, 1700, 2, "sleep", "600"),
+				process(1701, 1700, 1700, 3, "sh"),
+			},
+			unit: []detachedRoot{
+				root(1600, 1, time.Minute),
+				pending(root(1700, 2, time.Minute)),
+			},
+			protected: map[int]uint64{100: start(-3600)},
+			want:      []target{{1600, start(1), true}},
 		},
 	}
 	for _, c := range cases {

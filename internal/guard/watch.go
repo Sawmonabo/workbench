@@ -120,7 +120,7 @@ type watcher struct {
 	// agent files (see readAgentFiles) and their notes, until they are gone:
 	// every one that runs is protected, with or without a note.
 	known map[procKey]kind
-	// stamps are each process's readable stamp, read once per program it runs
+	// stamps are each process's stamp, read once per program it runs
 	// and dropped when the process is gone; stampAgents are the live
 	// processes a stamp read names as its agent that started before the
 	// stamped process, protected while they live (see stampOf). classified is
@@ -394,7 +394,7 @@ func (w *watcher) tick() time.Duration {
 	// before anything is measured or stopped.
 	below := s.below()
 	w.recordLineage(s, below, protected)
-	w.findUnits(s, protected)
+	w.findUnits(s, below, protected)
 	trees := w.measure(s, below, protected)
 	w.markChildSeen(s, notes, taken)
 	w.buildRows(s, below, notes, taken, protected)
@@ -942,8 +942,8 @@ func (w *watcher) coolingDown(s snapshot) bool {
 // dry-run one already logged, one a stop gave up on, or one whose stops
 // signalled nothing three times in a row. So is one that no longer runs in
 // this snapshot, one a person is stopping, a unit whose call did not resolve
-// and a unit none of whose roots has been tracked for unitGrace; a unit is
-// sized and stopped over only its roots tracked that long (see ownStop). A
+// and a unit none of whose roots the guard's own stop may take (see
+// rootHeld); a unit is sized and stopped over only those roots (see ownStop). A
 // polite stop leaves the commands running when together they hold less than
 // the memory floor, and logs that once a pressure episode.
 func (w *watcher) stopLargest(
@@ -960,7 +960,7 @@ func (w *watcher) stopLargest(
 		if w.passed[id] || w.manual[id] != nil || !live(s, c) {
 			continue
 		}
-		// A unit only with its roots tracked for unitGrace (see ownStop).
+		// A unit only with the roots its own stop may take (see ownStop).
 		own, tracked := ownStop(c, time.Now())
 		cand := candidate{c: own, tracked: tracked}
 		// One the guard may not choose is not sized: choose leaves it out.

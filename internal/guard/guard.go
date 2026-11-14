@@ -178,14 +178,18 @@ type detached struct {
 
 // detachedRoot is one root of a unit: the process, when the guard first
 // tracked it or when it last started a new program (Since, which does not
-// cross a handover: the new watcher starts it again), and what it was last
-// judged on, its process name and its command line, so that the guard
-// judges it again once it starts another program (see
-// watcher.rejudgeRoots); Pending marks a root seen in a new program and not
-// yet judged a unit in it. Args is shown in the view only, never logged.
+// cross a handover: the new watcher starts it again), the program it was
+// judged in (Version where the kernel keeps versions, else its Name and
+// Args, see program), so that the guard judges it again once it runs another
+// (see watcher.rejudgeRoots), and its process name and command line as they
+// are now. Pending marks a root that is not settled, which the guard's own
+// stop never takes (see rootHeld): seen in another program and not yet
+// judged in it, or with nothing readable for its setting. Args is shown in
+// the view only, never logged.
 type detachedRoot struct {
 	procRef
 	Since   time.Time `json:"-"`
+	Version uint32    `json:"version,omitempty"`
 	Name    string    `json:"name"`
 	Args    string    `json:"args"`
 	Pending bool      `json:"pending,omitempty"`

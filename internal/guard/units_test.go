@@ -65,6 +65,7 @@ func (w *unitWorld) facts() (snapshot, proc, facts) {
 		protected: w.protected,
 		origins:   origins,
 		records:   recs,
+		below:     s.below(),
 	}
 }
 
@@ -140,6 +141,15 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		{"byStamp", func(*unitWorld) {}, byStamp, isUnit, false},
 		{"byRecordedParentVersion", byParent, tie{
 			Agent: agent, Kind: claude, Owner: "toolu_1", Parent: forker, Version: 5000,
+		}, isUnit, false},
+		// Tied by parent, but its environment and all below it are hidden, so
+		// it may have turned the guard off: Hidden keeps it Pending, which the
+		// guard's own stop never takes (TestGuardChoosesOnlyWhatACallProvablyStarted).
+		{"byRecordedParentWithNothingReadable", func(w *unitWorld) {
+			byParent(w)
+			w.stamps[500] = stamp{}
+		}, tie{
+			Agent: agent, Kind: claude, Owner: "toolu_1", Parent: forker, Version: 5000, Hidden: true,
 		}, isUnit, false},
 		{"bySeenUnderWithoutLineage", func(w *unitWorld) {
 			w.lineage = false
@@ -300,19 +310,29 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 // The guard stops what choose gives without asking anyone. A unit whose
 // stamp resolved to no call may be work a person started with `!`, which
 // carries the same stamp as an agent's command; a unit tracked for only a
-// few seconds may be a session that has not yet said it is an agent. The
-// guard choosing either on its own would be unauthorized execution: it would
-// stop a person's program or an agent session. A person may still stop them.
+// few seconds may be a session that has not yet said it is an agent; a unit
+// whose root is not settled (Pending) may run a program that turned the guard
+// off, either because its new program was not judged yet or because its
+// setting cannot be read at all. The guard choosing any of them on its own
+// would be unauthorized execution: it would stop a person's program, an agent
+// session or work that opted out. A person may still stop them.
 func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 	const gb = uint64(1) << 30
 	now := time.Now()
 	// A unit's candidate is made as stopLargest makes it, through ownStop.
-	unit := func(pid int, call string, size uint64, tracked time.Duration) candidate {
+	unit := func(pid int, call string, size uint64, tracked time.Duration, pending bool) candidate {
 		c, age := ownStop(command{
 			Root: process(pid, 1, pid, float64(pid), "node"),
-			Detached: &detached{Roots: []detachedRoot{{
-				procRef: procRef{pid, start(float64(pid))}, Since: now.Add(-tracked),
-			}}, Call: call},
+			Detached: &detached{Roots: []detachedRoot{
+				{
+					procRef: procRef{
+						pid,
+						start(float64(pid)),
+					},
+					Since:   now.Add(-tracked),
+					Pending: pending,
+				},
+			}, Call: call},
 		}, now)
 		return candidate{c: c, size: size, tracked: age}
 	}
@@ -321,16 +341,17 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 		size:    gb,
 		tracked: time.Second,
 	}
-	withCall := unit(20, "toolu_1", 2*gb, time.Minute)
-	withoutCall := unit(30, "", 8*gb, time.Minute)
-	young := unit(40, "toolu_2", 9*gb, 3*time.Second)
+	withCall := unit(20, "toolu_1", 2*gb, time.Minute, false)
+	withoutCall := unit(30, "", 8*gb, time.Minute, false)
+	young := unit(40, "toolu_2", 9*gb, 3*time.Second, false)
+	unsettled := unit(50, "toolu_3", 10*gb, time.Minute, true)
 
-	chosen, total, ok := choose([]candidate{noted, withCall, withoutCall, young})
+	chosen, total, ok := choose([]candidate{noted, withCall, withoutCall, young, unsettled})
 	if !ok || chosen.c.Root.PID != 20 || total != 3*gb {
 		t.Fatalf("chose %d of %d bytes (ok %v), want the 2 GB unit of 3 GB",
 			chosen.c.Root.PID, total, ok)
 	}
-	if chosen, _, ok := choose([]candidate{withoutCall, young}); ok {
+	if chosen, _, ok := choose([]candidate{withoutCall, young, unsettled}); ok {
 		t.Fatalf("chose %d, want nothing", chosen.c.Root.PID)
 	}
 }

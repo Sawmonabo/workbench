@@ -27,6 +27,7 @@ type facts struct {
 	protected map[int]uint64
 	origins   *ancestry // where the processes of tracked trees were seen
 	records   *records
+	below     parents // the snapshot's parent index
 }
 
 // tie is how a unit's root is tied to an agent.
@@ -40,6 +41,10 @@ type tie struct {
 	Second  int64   // the call stamp's second
 	Codex   string  // Codex's call ID, "" without one
 	Mode    string  // WORKBENCH_GUARD as read, "" when unread
+	// Hidden marks a tie by parent for which nothing readable was found: the
+	// root's environment is hidden, and so is that of every process below it
+	// reached through hidden ones, so its setting is not known.
+	Hidden bool
 }
 
 type verdict int
@@ -139,12 +144,12 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 		}
 	}
 
-	stamps := stampsFor(s, r, f.stamp)
+	stamps := stampsFor(f.below, r, f.stamp)
 	var t tie
 	if o, ok := f.origins.ownerOf(rKey); ok {
-		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID}
+		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID, Hidden: len(stamps) == 0}
 	} else if forker, o, ok := f.origins.forker(mine.ParentVersion); f.lineage && ok {
-		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID, Parent: forker}
+		t = tie{Agent: o.Agent, Kind: o.Kind, Owner: o.ID, Parent: forker, Hidden: len(stamps) == 0}
 	} else {
 		// On Linux a service the init process starts can carry a command's
 		// variables, and nothing there tells it from a process the command
@@ -214,9 +219,9 @@ func underProtected(s snapshot, r proc, protected map[int]uint64) bool {
 }
 
 // stampsFor are the stamps read for r: its own when readable, else those of
-// the first readable processes below it, reached through unreadable ones
-// only. None means nothing readable was found.
-func stampsFor(s snapshot, r proc, read func(pid int) stamp) []stamp {
+// the first readable processes below it in below, the parent index, reached
+// through unreadable ones only. None means nothing readable was found.
+func stampsFor(below parents, r proc, read func(pid int) stamp) []stamp {
 	var out []stamp
 	seen := map[int]bool{}
 	var walk func(p proc)
@@ -229,7 +234,7 @@ func stampsFor(s snapshot, r proc, read func(pid int) stamp) []stamp {
 			out = append(out, st)
 			return
 		}
-		for _, child := range s.children(p.PID) {
+		for _, child := range below[p.PID] {
 			walk(child)
 		}
 	}
@@ -306,10 +311,11 @@ func (cand candidate) mayChoose() bool {
 
 // ownStop is c as the guard's own stop may take it at now, and how long the
 // youngest root it keeps has been tracked: a noted command whole (0); a unit
-// with only the roots tracked for unitGrace, since a session a unit's process
-// starts and leaves detached joins that unit and needs that long to be known
-// as an agent. A unit with no such root keeps none and gives 0, which choose
-// never takes. A person's stop takes every live root instead.
+// with only its settled roots (see rootHeld), since a session a unit's
+// process starts and leaves detached joins that unit and needs unitGrace to
+// be known as an agent, and a root not settled may be one that opted out. A
+// unit with no such root keeps none and gives 0, which choose never takes. A
+// person's stop takes every live root instead.
 func ownStop(c command, now time.Time) (command, time.Duration) {
 	if c.Detached == nil {
 		return c, 0
@@ -318,12 +324,13 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 	own.Roots = nil
 	var youngest time.Duration
 	for _, r := range c.Detached.Roots {
-		if age := now.Sub(r.Since); age >= unitGrace {
-			if own.Roots == nil || age < youngest {
-				youngest = age
-			}
-			own.Roots = append(own.Roots, r)
+		if rootHeld(r, now) != "" {
+			continue
 		}
+		if age := now.Sub(r.Since); own.Roots == nil || age < youngest {
+			youngest = age
+		}
+		own.Roots = append(own.Roots, r)
 	}
 	c.Detached = &own
 	if len(own.Roots) > 0 && !slices.ContainsFunc(own.Roots, func(r detachedRoot) bool {
@@ -333,6 +340,28 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 		c.Root = proc{Process: platform.Process{PID: first.PID, PPID: 1, Start: first.Start}}
 	}
 	return c, youngest
+}
+
+// Why the guard's own stop leaves a unit's root out (see rootHeld): it has
+// been tracked less than unitGrace, or it is not settled.
+const (
+	heldYoung  = "young"
+	heldUnread = "unread"
+)
+
+// rootHeld is why the guard's own stop leaves the root r out at now, "" when
+// it may take it: heldYoung while it has been tracked less than unitGrace
+// since it was found or started its present program, else heldUnread while
+// it is Pending (its setting cannot be read, or it is being judged again).
+// It is the one predicate that decides this.
+func rootHeld(r detachedRoot, now time.Time) string {
+	switch {
+	case now.Sub(r.Since) < unitGrace:
+		return heldYoung
+	case r.Pending:
+		return heldUnread
+	}
+	return ""
 }
 
 // choose is the guard's choice of what to stop: the largest candidate it may
