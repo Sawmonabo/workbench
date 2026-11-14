@@ -256,7 +256,7 @@ event: the time in the machine's time zone, the level, the event, then
 `key=value` fields in this order, each left out when it has no value:
 `id agent subagent project kind launched_by by dry_run took size peak floor
 level available total still_running release old_release new_release new_pid msg
-error process cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
+reason error process cmd`. `id` is the first 8 characters of the tool call ID after its `toolu_` or
 `call_` prefix and any provider segment such as `bdrk_` or `vrtx_`; `project`
 is the folder the command ran in; `kind` is `detached` on the records of
 detached work and `helper` or `unmatched` on your stop of such a row;
@@ -276,7 +276,8 @@ whole (`1.86GB`); `took` has one decimal below 10 s, whole seconds below a
 minute, else `1m12s`; `level` is macOS's memory pressure level, `available`
 and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
 `gave-up`, `error` and `raw`, where the event alone does not say what
-happened. A value holding a space, `"`, `=`, `\` or a control character is
+happened. `reason` shows only for `ended`, on detached work whose last program left
+it, and says why, such as `"its root turned the guard off"`. A value holding a space, `"`, `=`, `\` or a control character is
 written in Go's double quotes, so each value stays on one line and logfmt
 readers split the fields. The events are each command or detached work that ended, matched
 no known shape (`unmatched`) or was stopped (`stopping`, then `forced` or

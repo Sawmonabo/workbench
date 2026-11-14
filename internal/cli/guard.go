@@ -103,7 +103,7 @@ func guardLogsCommand(o *options) *cobra.Command {
 			"time zone, the level and the event, then key=value fields in a fixed order (id, " +
 			"agent, subagent, project, kind, launched_by, by, dry_run, took, size, peak, " +
 			"floor, level, available, total, still_running, release, old_release, " +
-			"new_release, new_pid, msg, error, process, cmd), a value with a space, quote, " +
+			"new_release, new_pid, msg, reason, error, process, cmd), a value with a space, quote, " +
 			"equals sign, backslash or control character in Go quotes. " +
 			"The events are each command or detached program that ended, matched no known " +
 			"shape or was stopped, a helper or unmatched command you stopped, low " +
@@ -349,9 +349,11 @@ type guardField struct {
 // value left out: a call's short id, where, for a program that detached from
 // a command its kind and the short id of the call that started it, by whom,
 // how long it took and how large it got, the memory reading, the watcher's
-// releases and processes, then msg, error, process and cmd. Values are plain
-// except the agent in its hue, a stop by you and a took of 10 s or more bold,
-// and a size or peak bold in gold from 1 GB and in red from 4 GB.
+// releases and processes, then msg, an ended unit's reason, error, process
+// and cmd. A stop's reason, the text the agent is told, stays in --json
+// only. Values are plain except the agent in its hue, a stop by you and a
+// took of 10 s or more bold, and a size or peak bold in gold from 1 GB and in
+// red from 4 GB.
 func guardFields(e guard.Event, running bool) []guardField {
 	took, peak := e.Took, e.Peak
 	if running {
@@ -361,9 +363,12 @@ func guardFields(e guard.Event, running bool) []guardField {
 	for i, pid := range e.StillRunning {
 		stillRunning[i] = strconv.Itoa(pid)
 	}
-	msg := ""
+	msg, reason := "", ""
 	if guardMessageEvents[e.Event] {
 		msg = e.Msg
+	}
+	if e.Event == guard.EventEnded {
+		reason = e.Reason
 	}
 	fields := []guardField{
 		{"id", shortCallID(e.Call), nil},
@@ -387,6 +392,7 @@ func guardFields(e guard.Event, running bool) []guardField {
 		{"new_release", e.NewRelease, nil},
 		{"new_pid", nonZero(e.NewPID), nil},
 		{"msg", msg, nil},
+		{"reason", reason, nil},
 		{"error", e.Error, nil},
 		{"process", nonZero(e.Process), nil},
 		{"cmd", guard.CommandRest(e.Command), nil},
