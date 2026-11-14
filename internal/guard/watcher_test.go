@@ -38,50 +38,8 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 			process(agent.pid, fake, agent.pid, -3600, "claude"),
 		}, procs...)...)
 	}
-	newWatcher := func(t *testing.T) (*watcher, *bytes.Buffer) {
-		dir := t.TempDir()
-		log := &bytes.Buffer{}
-		return &watcher{
-			f: folders{
-				root: dir, notes: dir, killed: dir, agents: dir, part: "test",
-				logger: slog.New(slog.NewJSONHandler(log, nil)),
-			},
-			tracked:     map[string]command{},
-			usage:       map[string]*usage{},
-			passed:      map[string]bool{},
-			refusals:    map[string]int{},
-			stoppedBy:   map[string]string{},
-			records:     &records{},
-			known:       map[procKey]kind{agent: claude},
-			stamps:      map[procKey]cachedStamp{},
-			stampAgents: map[procKey]bool{},
-			classified:  map[procKey]judged{},
-			ancestry:    newAncestry(true),
-		}, log
-	}
-	// unit tracks a unit of call whose roots are rs, all settled and old.
-	unit := func(w *watcher, rs ...proc) string {
-		d := &detached{Call: call}
-		for _, r := range rs {
-			d.Roots = append(d.Roots, detachedRoot{
-				procRef: procRef{r.PID, r.Start}, Since: now.Add(-time.Minute), Name: r.Name,
-			})
-			w.classified[key(r)] = judged{v: isUnit}
-		}
-		id := unitID(d.Roots[0].procRef)
-		w.tracked[id] = command{
-			Note: note{
-				ToolUseID:  id,
-				AgentPID:   agent.pid,
-				AgentStart: agent.start,
-				Kind:       claude,
-			},
-			Root:     rs[0],
-			Detached: d,
-		}
-		w.usage[id] = &usage{Since: now}
-		return id
-	}
+	newWatcher := func(t *testing.T) (*watcher, *bytes.Buffer) { return fixtureWatcher(t, agent) }
+	unit := func(w *watcher, rs ...proc) string { return fixtureUnit(w, agent, call, now, rs...) }
 	factsOf := func(s snapshot, w *watcher, stamps map[int]stamp) facts {
 		return facts{
 			self:      0,
@@ -243,6 +201,20 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 		}
 	})
 
+	// A session protected only by a stamp that names it must stay protected
+	// across a handover from the new watcher's first tick: its first
+	// protected set is what a person's stop at that tick leaves out.
+	t.Run("aStampNamedAgentIsProtectedFromTheFirstTickAfterAHandover", func(t *testing.T) {
+		w, _ := newWatcher(t)
+		session := process(fake+60, agent.pid, fake+60, 5, "claude")
+		s := world(session)
+		w.inherited = &carried{StampAgents: []procRef{{session.PID, session.Start}}}
+		w.adopt(s, nil)
+		if _, protected := w.agents(s, nil); protected[session.PID] != session.Start {
+			t.Fatal("the stamp-named session is not protected at the new watcher's first tick")
+		}
+	})
+
 	// While the kernel does not answer where processes come from, no root can
 	// be judged in what it runs now: the guard's own stop takes no unit.
 	t.Run("withoutLineageTheGuardChoosesNoUnit", func(t *testing.T) {
@@ -266,4 +238,49 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 			t.Fatalf("chose %d while lineage cannot be read", chosen.c.Root.PID)
 		}
 	})
+}
+
+// fixtureWatcher is the small watcher the rows run on: agent is the one
+// agent it knows, its log goes to the buffer it gives, and its state folder
+// is a temporary one.
+func fixtureWatcher(t *testing.T, agent procKey) (*watcher, *bytes.Buffer) {
+	dir := t.TempDir()
+	log := &bytes.Buffer{}
+	return &watcher{
+		f: folders{
+			root: dir, notes: dir, killed: dir, agents: dir, part: "test",
+			logger: slog.New(slog.NewJSONHandler(log, nil)),
+		},
+		tracked:     map[string]command{},
+		usage:       map[string]*usage{},
+		passed:      map[string]bool{},
+		refusals:    map[string]int{},
+		stoppedBy:   map[string]string{},
+		records:     &records{},
+		known:       map[procKey]kind{agent: claude},
+		stamps:      map[procKey]cachedStamp{},
+		stampAgents: map[procKey]bool{},
+		classified:  map[procKey]judged{},
+		ancestry:    newAncestry(true),
+	}, log
+}
+
+// fixtureUnit tracks in w a unit of agent's call whose roots are rs, all
+// settled and tracked for a minute at now, and gives its ID.
+func fixtureUnit(w *watcher, agent procKey, call string, now time.Time, rs ...proc) string {
+	d := &detached{Call: call}
+	for _, r := range rs {
+		d.Roots = append(d.Roots, detachedRoot{
+			procRef: procRef{r.PID, r.Start}, Since: now.Add(-time.Minute), Name: r.Name,
+		})
+		w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit}
+	}
+	id := unitID(d.Roots[0].procRef)
+	w.tracked[id] = command{
+		Note:     note{ToolUseID: id, AgentPID: agent.pid, AgentStart: agent.start, Kind: claude},
+		Root:     rs[0],
+		Detached: d,
+	}
+	w.usage[id] = &usage{Since: now}
+	return id
 }
