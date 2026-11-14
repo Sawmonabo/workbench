@@ -10,13 +10,16 @@ import (
 // Process is one process. Start is the kernel's start time in the system's
 // own units (StartSecond is one second of them) and, with the PID, names the
 // process: a later process reusing the PID has another Start. UID is the
-// process's effective user.
+// process's effective user. NotExeced marks a process forked and not exec'd
+// since: it still runs its parent's program image, as the kernel itself
+// records it.
 type Process struct {
 	PID, PPID, PGID int
 	UID             int
 	Start           uint64
 	Name            string
 	Zombie          bool
+	NotExeced       bool
 }
 
 // Lineage is the kernel's record of where a process came from, where the

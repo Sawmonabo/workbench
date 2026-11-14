@@ -27,16 +27,24 @@ func StartTime(start uint64) time.Time {
 // darwinZombie is SZOMB, kinfo_proc's p_stat for a zombie.
 const darwinZombie = 5
 
+// darwinExeced is P_EXEC, kinfo_proc's p_flag bit "Process called exec"
+// (sys/proc.h): exec_mach_imgact sets it at every exec and posix_spawn, and
+// fork copies only a fixed list of other flags into the child, so a forked
+// child that has not exec'd has it clear (XNU bsd/kern/kern_exec.c,
+// kern_fork.c).
+const darwinExeced = 0x00004000
+
 func fromKinfo(k *unix.KinfoProc) Process {
 	started := k.Proc.P_starttime
 	return Process{
-		PID:    int(k.Proc.P_pid),
-		PPID:   int(k.Eproc.Ppid),
-		PGID:   int(k.Eproc.Pgid),
-		UID:    int(k.Eproc.Ucred.Uid),
-		Start:  uint64(started.Sec)*1_000_000 + uint64(started.Usec),
-		Name:   unix.ByteSliceToString(k.Proc.P_comm[:]),
-		Zombie: k.Proc.P_stat == darwinZombie,
+		PID:       int(k.Proc.P_pid),
+		PPID:      int(k.Eproc.Ppid),
+		PGID:      int(k.Eproc.Pgid),
+		UID:       int(k.Eproc.Ucred.Uid),
+		Start:     uint64(started.Sec)*1_000_000 + uint64(started.Usec),
+		Name:      unix.ByteSliceToString(k.Proc.P_comm[:]),
+		Zombie:    k.Proc.P_stat == darwinZombie,
+		NotExeced: k.Proc.P_flag&darwinExeced == 0,
 	}
 }
 

@@ -76,19 +76,29 @@ func ProcessInfo(pid int) (Process, error) {
 	ppid, err1 := strconv.Atoi(fields[1])
 	pgid, err2 := strconv.Atoi(fields[2])
 	start, err3 := strconv.ParseUint(fields[19], 10, 64)
-	if err := errors.Join(err1, err2, err3); err != nil {
+	flags, err4 := strconv.ParseUint(fields[6], 10, 64)
+	if err := errors.Join(err1, err2, err3, err4); err != nil {
 		return Process{}, fmt.Errorf("/proc/%d/stat: %w", pid, err)
 	}
 	return Process{
-		PID:    pid,
-		PPID:   ppid,
-		PGID:   pgid,
-		UID:    int(owner.Uid),
-		Start:  start,
-		Name:   name,
-		Zombie: fields[0] == "Z",
+		PID:       pid,
+		PPID:      ppid,
+		PGID:      pgid,
+		UID:       int(owner.Uid),
+		Start:     start,
+		Name:      name,
+		Zombie:    fields[0] == "Z",
+		NotExeced: flags&linuxForkNoExec != 0,
 	}, nil
 }
+
+// linuxForkNoExec is PF_FORKNOEXEC, "Forked but didn't exec", a bit of the
+// kernel flags word that /proc/<pid>/stat gives as its field 9
+// (proc_pid_stat(5): "see the PF_* defines in ... include/linux/sched.h").
+// copy_process sets it in every child (kernel/fork.c) and begin_new_exec
+// clears it (fs/exec.c), so it marks exactly a process that has not exec'd
+// since it was forked.
+const linuxForkNoExec = 0x00000040
 
 // procStat reads /proc/<pid>/stat: the name, between the first "(" and the
 // last ")", and the fields after it, from state (field 3, at index 0) on.
