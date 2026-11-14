@@ -23,17 +23,22 @@ const stampSlack = 30 * time.Second
 // the note is gone, so that work a call's command left running can be traced
 // back to the call. Shell is the command's shell, the root the watcher
 // tracked, and stays zero until the call is tracked: a call that ended
-// within one tick never is.
+// within one tick never is. StartedAgent marks a call found to have started
+// an agent session (see watcher.markStartedAgents), set once and never
+// cleared: that session's own processes carry the call's stamps, so a stamp
+// that resolves to the call no longer proves the call's command forked the
+// process (see stampProves).
 type callRecord struct {
-	ID       string    `json:"id"`
-	Agent    procKey   `json:"agent"`
-	Kind     kind      `json:"kind"`
-	Subagent string    `json:"subagent,omitempty"`
-	Project  string    `json:"project,omitempty"`
-	Cwd      string    `json:"cwd,omitempty"`
-	DryRun   bool      `json:"dry_run,omitempty"`
-	Shell    procRef   `json:"shell"`
-	NotedAt  time.Time `json:"noted_at"`
+	ID           string    `json:"id"`
+	Agent        procKey   `json:"agent"`
+	Kind         kind      `json:"kind"`
+	Subagent     string    `json:"subagent,omitempty"`
+	Project      string    `json:"project,omitempty"`
+	Cwd          string    `json:"cwd,omitempty"`
+	DryRun       bool      `json:"dry_run,omitempty"`
+	Shell        procRef   `json:"shell"`
+	NotedAt      time.Time `json:"noted_at"`
+	StartedAgent bool      `json:"started_agent,omitempty"`
 }
 
 // MarshalJSON writes a procKey as a procRef, so a call record keeps its agent
@@ -104,6 +109,24 @@ func (r *records) tracked(id string, root proc) {
 		rec.Shell = procRef{PID: root.PID, Start: root.Start}
 		r.byCall[id] = rec
 	}
+}
+
+// startedAgent marks the call id, when its record is kept, as one that
+// started an agent session.
+func (r *records) startedAgent(id string) {
+	if rec, ok := r.byCall[id]; ok && !rec.StartedAgent {
+		rec.StartedAgent = true
+		r.byCall[id] = rec
+	}
+}
+
+// stampProves reports whether a stamp alone that resolves to the call id
+// proves that the call's command forked the process: the call's record is
+// kept and the call did not start an agent session, whose own subprocesses
+// and shell setup carry the call's stamps too.
+func (r *records) stampProves(id string) bool {
+	rec, ok := r.byCall[id]
+	return ok && !rec.StartedAgent
 }
 
 // byID is the record of the call id.

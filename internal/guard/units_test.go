@@ -354,4 +354,29 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 	if chosen, _, ok := choose([]candidate{withoutCall, young, unsettled}); ok {
 		t.Fatalf("chose %d, want nothing", chosen.c.Root.PID)
 	}
+
+	// A call that started an agent session: the session's own processes carry
+	// its stamps, so a unit tied to it by stamp alone gets no call, and one
+	// made before the session was known loses it.
+	codexAgent := procKey{200, start(-1800)}
+	w := &watcher{records: &records{}, tracked: map[string]command{}}
+	w.records.add(
+		note{ToolUseID: "call_s", AgentPID: 200, AgentStart: codexAgent.start, Kind: codex},
+	)
+	w.records.startedAgent("call_s")
+	byStamp := tie{Agent: codexAgent, Kind: codex, Codex: "call_s"}
+	if call, _ := w.resolveCall(process(60, 1, 60, 60, "node"), byStamp); call != "" {
+		t.Fatalf("a unit tied by stamp alone resolved to %s, a call that started an agent", call)
+	}
+	made := command{
+		Root: process(70, 1, 70, 70, "node"),
+		Detached: &detached{Roots: []detachedRoot{{
+			procRef: procRef{70, start(70)}, Since: now.Add(-time.Minute),
+		}}, Call: "call_s", ByStamp: true},
+	}
+	w.loseStampCall(&made)
+	c, age := ownStop(made, now)
+	if chosen, _, ok := choose([]candidate{{c: c, size: gb, tracked: age}}); ok {
+		t.Fatalf("chose %d, tied by stamp alone to a call that started an agent", chosen.c.Root.PID)
+	}
 }

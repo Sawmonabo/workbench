@@ -170,10 +170,13 @@ type command struct {
 // detached is what makes a command a unit: its roots, each a child of the
 // init process, and Call, the ID of the call that started it, "" when it did
 // not resolve (see watcher.resolveCall), in which case the guard never
-// chooses it.
+// chooses it. ByStamp marks a unit whose first root was tied by its stamps
+// alone, whose call it loses once that call is found to have started an
+// agent session (see records.stampProves).
 type detached struct {
-	Roots []detachedRoot `json:"roots"`
-	Call  string         `json:"call"`
+	Roots   []detachedRoot `json:"roots"`
+	Call    string         `json:"call"`
+	ByStamp bool           `json:"by_stamp,omitempty"`
 }
 
 // detachedRoot is one root of a unit: the process, when the guard first

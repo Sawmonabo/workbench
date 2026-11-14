@@ -96,14 +96,25 @@ func firstRoot(s snapshot, c command) proc {
 // process that is protected now (a known agent, the watcher, a process a
 // stamp names as its agent) is dropped with what was recorded below it (see
 // dropAndLeave), so what a nested session left before it was known is no
-// longer the outer call's.
+// longer the outer call's. A call whose tree holds a protected process other
+// than the watcher, found in the walk or in that drop, started an agent (see
+// markStartedAgents).
 func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uint64) {
 	now := time.Now()
+	self := os.Getpid()
 	w.ancestry.prune(func(k procKey) bool { return s.alive(k.pid, k.start) }, now)
-	skip := outside(protected)
 	for id, c := range w.tracked {
 		o := owner{ID: id, Agent: procKey{c.Note.AgentPID, c.Note.AgentStart}, Kind: c.Note.Kind}
 		roots := rootPIDs(s, c)
+		skip := func(p proc) bool {
+			if start, ok := protected[p.PID]; ok && start == p.Start && p.PID > 1 {
+				if p.PID != self {
+					w.markStartedAgent(id)
+				}
+				return true
+			}
+			return p.PID <= 1
+		}
 		for _, p := range below.tree(s, roots, skip) {
 			if p.Zombie {
 				continue
@@ -123,8 +134,12 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 	}
 	for pid, start := range protected {
 		key := procKey{pid, start}
-		if _, recorded := w.ancestry.ownerOf(key); !recorded {
+		o, recorded := w.ancestry.ownerOf(key)
+		if !recorded {
 			continue
+		}
+		if pid != self {
+			w.markStartedAgent(o.ID)
 		}
 		why := whyProtected
 		if _, known := w.known[key]; known {
@@ -132,6 +147,47 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 		}
 		w.dropAndLeave(s, key, why)
 	}
+	w.markStartedAgents(s)
+}
+
+// markStartedAgents marks each call whose call stamp or Codex call ID a
+// known agent's own environment holds: that call's command started the
+// agent, which inherited the stamp (see callRecord.StartedAgent).
+func (w *watcher) markStartedAgents(s snapshot) {
+	for agent := range w.known {
+		if !s.alive(agent.pid, agent.start) {
+			continue
+		}
+		if rec, ok := w.stampCall(s, w.stampOf(s, agent.pid, nil)); ok {
+			w.records.startedAgent(rec.ID)
+		}
+	}
+}
+
+// markStartedAgent marks the call of the owner id, a call or a unit whose
+// call resolved, as one that started an agent.
+func (w *watcher) markStartedAgent(id string) {
+	if strings.HasPrefix(id, unitPrefix) {
+		u, ok := w.tracked[id]
+		if !ok || u.Detached == nil || u.Detached.Call == "" {
+			return
+		}
+		id = u.Detached.Call
+	}
+	w.records.startedAgent(id)
+}
+
+// stampCall is the record of the call a stamp names: by its Codex call ID,
+// else by its call stamp written by its own agent (see records.byShell).
+func (w *watcher) stampCall(s snapshot, st stamp) (callRecord, bool) {
+	if rec, ok := resolve(w.records, st.Codex); ok {
+		return rec, true
+	}
+	a, ok := s[st.Agent]
+	if !st.call() || !ok {
+		return callRecord{}, false
+	}
+	return w.records.byShell(procKey{a.PID, a.Start}, st.CallShell, st.CallSecond)
 }
 
 // dropAndLeave drops key, a process found not to be the work of what it was
@@ -367,7 +423,9 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 	}
 }
 
-// rejudgeRoots judges each live root of every tracked unit again.
+// rejudgeRoots judges each live root of every tracked unit again, after a
+// unit tied by stamp alone has lost a call that no longer proves it (see
+// loseStampCall).
 //
 // A root that has become an agent the guard knows, or protected (a stamp
 // names it as its agent), leaves its unit at once, with or without lineage.
@@ -404,6 +462,7 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 			continue
 		}
 		agent := procKey{c.Note.AgentPID, c.Note.AgentStart}
+		w.loseStampCall(&c)
 		for i := range c.Detached.Roots {
 			r := &c.Detached.Roots[i]
 			key := procKey{r.PID, r.Start}
@@ -439,6 +498,15 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 	}
 	for _, l := range leaves {
 		w.dropAndLeave(s, l.key, l.why)
+	}
+}
+
+// loseStampCall takes from c, a unit tied by stamp alone, a call that no
+// longer proves it (see records.stampProves): its call and the subagent it
+// was labelled with, so the guard never chooses it; a person still may.
+func (w *watcher) loseStampCall(c *command) {
+	if d := c.Detached; d != nil && d.ByStamp && d.Call != "" && !w.records.stampProves(d.Call) {
+		d.Call, c.Note.Subagent = "", ""
 	}
 }
 
@@ -537,14 +605,14 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 		Cwd:        cwd,
 		Project:    projectName("", cwd),
 		NotedAt:    platform.StartTime(r.Start),
-		DryRun:     dry || call != "" && rec.DryRun,
+		DryRun:     dry || rec.DryRun,
 	}
 	if call != "" {
 		n.Subagent = rec.Subagent
 	}
 	c := command{
 		Note: n, Root: s[r.PID], Shown: root.Args,
-		Detached: &detached{Roots: []detachedRoot{root}, Call: call},
+		Detached: &detached{Roots: []detachedRoot{root}, Call: call, ByStamp: t.Owner == ""},
 	}
 	w.tracked[id] = c
 	w.usage[id] = &usage{Since: time.Now()}
@@ -557,7 +625,9 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 // the call of its agent whose shell its call stamp names (see byShell). A
 // tie by parent to a unit no longer tracked resolves to nothing, as does a
 // record of another agent, or of a call whose shell started after r: such a
-// call did not start it.
+// call did not start it. So does a tie by stamp alone to a call that started
+// an agent session (see records.stampProves), whose record gives only its
+// dry run.
 func (w *watcher) resolveCall(r proc, t tie) (string, callRecord) {
 	var rec callRecord
 	var ok bool
@@ -582,6 +652,12 @@ func (w *watcher) resolveCall(r proc, t tie) (string, callRecord) {
 	}
 	if !ok || rec.Agent != t.Agent || rec.Shell.Start != 0 && r.Start < rec.Shell.Start {
 		return "", callRecord{}
+	}
+	if t.Owner == "" && !w.records.stampProves(rec.ID) {
+		// The call started an agent session, whose own processes carry its
+		// stamps: the stamp alone no longer proves the call. Its dry run
+		// still holds.
+		return "", callRecord{DryRun: rec.DryRun}
 	}
 	return rec.ID, rec
 }
