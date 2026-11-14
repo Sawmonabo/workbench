@@ -435,8 +435,12 @@ func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 		}
 	}
 	// By gone, not by one reading: a record dropped is never read again, so
-	// one absent reading must not drop it.
-	stays := func(key procKey) bool { return !w.gone(s, key.pid, key.start) }
+	// one absent reading must not drop it. An agent that exited but is still
+	// in the process table, a zombie its parent has not reaped, stays known,
+	// so it stays a boundary of every tree until it is gone (see agents).
+	stays := func(key procKey) bool {
+		return s.present(key.pid, key.start) || !w.gone(s, key.pid, key.start)
+	}
 	for key := range w.known {
 		if !stays(key) {
 			delete(w.known, key)
@@ -814,13 +818,16 @@ func (w *watcher) forget(s snapshot) {
 }
 
 // agents are the live agents of the notes and tracked commands, whose
-// arguments readAgents reads. protected is them, every other known agent that
-// runs, every live process a stamp read names as its agent and that started
-// before the stamped process (see stampOf), and the watcher, each PID with
-// its start time: never signalled, nor anything under them. It reads the agents folder first (see
-// readAgentFiles), so every path that decides what is protected sees a
-// session that registered since the last read, and the known agents are
-// filled before anything later in the tick reads them.
+// arguments readAgents reads. protected is them, every other known agent,
+// every process a stamp read names as its agent and that started before the
+// stamped process (see stampOf), and the watcher, each PID with its start
+// time: never signalled, nor anything under them. An agent is protected for
+// as long as it is in the process table, a zombie its parent has not reaped
+// included (see present), so it stays a boundary of every tree until it is
+// gone. It reads the agents folder first (see readAgentFiles), so every path
+// that decides what is protected sees a session that registered since the
+// last read, and the known agents are filled before anything later in the
+// tick reads them.
 func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	w.readAgentFiles(s)
 	protected := map[int]uint64{}
@@ -829,8 +836,11 @@ func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	}
 	var agents []int
 	add := func(pid int, start uint64) {
-		if _, ok := protected[pid]; !ok && s.alive(pid, start) {
-			protected[pid] = start
+		if _, ok := protected[pid]; ok || !s.present(pid, start) {
+			return
+		}
+		protected[pid] = start
+		if s.alive(pid, start) {
 			agents = append(agents, pid)
 		}
 	}
@@ -842,12 +852,12 @@ func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	}
 	// After the agents above, which add would otherwise leave out of agents.
 	for key := range w.known {
-		if _, ok := protected[key.pid]; !ok && s.alive(key.pid, key.start) {
+		if _, ok := protected[key.pid]; !ok && s.present(key.pid, key.start) {
 			protected[key.pid] = key.start
 		}
 	}
 	for key := range w.stampAgents {
-		if !s.alive(key.pid, key.start) {
+		if !s.present(key.pid, key.start) {
 			delete(w.stampAgents, key)
 		} else if _, ok := protected[key.pid]; !ok {
 			protected[key.pid] = key.start
@@ -1268,6 +1278,14 @@ func loadArgs(s snapshot, agent int, callIDs, folders bool) {
 func (s snapshot) alive(pid int, start uint64) bool {
 	p, ok := s[pid]
 	return ok && p.Start == start && !p.Zombie
+}
+
+// present reports whether the process pid with this start time is in the
+// process table, a zombie included: its PID is not handed out again until it
+// is reaped, so an agent stays protected that long.
+func (s snapshot) present(pid int, start uint64) bool {
+	p, ok := s[pid]
+	return ok && p.Start == start
 }
 
 // anyAlive reports whether a stopped process still runs, leaving out the
