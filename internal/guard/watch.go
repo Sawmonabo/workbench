@@ -210,11 +210,11 @@ func Watch(ctx context.Context, version string) {
 	// The watcher must keep working when the machine is short of memory, so
 	// it keeps its own small. Its heap grows to its live heap plus GC percent
 	// of it before each collection, however little it allocates between: at
-	// 50 the heap under a busy build stays about a third smaller than at the
-	// default 100, for a collection every 2 to 3 s. The limit is the
-	// backstop: it makes the collector run more often only once the live heap
-	// passes about 16 MiB, well above the 10 MiB of a busy build with the
-	// ancestry store full.
+	// 50 the heap under a busy build stays about a quarter smaller than at the
+	// default 100, for a collection every one to three seconds. The limit is
+	// the backstop: it makes the collector run more often only once the live
+	// heap passes about 16 MiB, well above the 10 MiB of a busy build with
+	// the ancestry store full.
 	debug.SetMemoryLimit(32 << 20)
 	debug.SetGCPercent(50)
 	// The watcher never opens a database, so it lets go of what the SQLite
