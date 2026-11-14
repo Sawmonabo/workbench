@@ -61,26 +61,30 @@ forked a process.
   tied on every system when the guard saw it in a command's tree before it
   detached, and on macOS also when the kernel's record names a process the
   guard saw in a command's tree as its original parent, or when it carries a
-  stamp that agrees with its own agent variable. A stamp only ever exposes the process that carries it and
-  what is under it. Detached work is its own `detached` row, measured each
+  stamp that agrees with its own agent variable. A stamp only ever exposes
+  the process that carries it and what is under it. Detached work is its own `detached` row, measured each
   tick like a command.
 - **The guard stops only what a call provably started.** Detached work joins
   the commands in the choice of the largest only when the call that started
   it resolves. Work found by its stamp alone, from a command a person typed
   with `!` or a call that ended within a tick, is shown and can be stopped by
-  a person, never chosen. Each detached program gets its own first ten
-  seconds before the guard's own stop may size or signal it, the time a
-  session a command started needs to say it is an agent; a person's stop
-  covers every live program of the unit. A program is judged again once it
-  starts its own program (its name or command line changes), on fresh stamps,
-  so one that turns the guard off leaves its unit and one that says
-  `dry-run` makes its unit a dry run. The log, the reason and the kill record
+  a person, never chosen. Each detached program gets its own ten seconds
+  before the guard's own stop may size or signal it, the time a session a
+  command started needs to say it is an agent; they start again when it
+  starts a new program and when a new watcher takes over after an update. A
+  person's stop covers every live program of the unit. A program is judged
+  again once it starts its own program (its name or command line changes),
+  on fresh stamps: one that turns the guard off leaves its unit for the life
+  of that process, whatever it starts later, and takes with it what was
+  recorded of it and of its tree, so none of that is tied to the unit or its
+  call again; one that says `dry-run` makes its unit a dry run. The log, the reason and the kill record
   name detached work by the process name the kernel keeps, never its
   arguments, which may hold a token the shell expanded; the full command
   line is in the view only.
 - **Agents and helpers are rows the guard never stops.** Each agent the
   guard knows is a row with its own size, and each long-lived helper it
-  starts itself, never a shell, a row with its tree's size; a running
+  starts itself, never a shell or a sandbox launcher, a row with its tree's
+  size; a running
   command no note matched, whose call stamp names that agent and that
   command's shell, is an `unmatched` row. A person may stop a helper or an
   unmatched command from the view, which only logs the stop when

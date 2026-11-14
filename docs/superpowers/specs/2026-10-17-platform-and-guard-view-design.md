@@ -333,7 +333,8 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   section 8), each with its root's process ID as its ID: detached work
   (`● detached`), timed from its root's start, its command the root's own
   command line; each agent the guard knows (`● agent`), sized by the agent
-  process alone; each helper an agent started itself (`● helper`), sized by
+  process alone; each helper an agent started itself (`● helper`, never a
+  shell or a sandbox launcher), sized by
   its tree; and a running command no note matched (`? unmatched`), sized by
   its tree. A stopped helper or unmatched row leaves the list once its
   processes are gone, with no finished entry.

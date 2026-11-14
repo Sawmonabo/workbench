@@ -218,13 +218,17 @@ call started: detached work it cannot tie to a call, such as work a command
 you typed with `!` left behind or work from a call that ended within one tick
 (about a second), is shown with a blank subagent and can be stopped by you
 from the view, but the guard never chooses it. Each detached program gets its
-own first ten seconds before the guard may choose or signal it, since a
+own ten seconds before the guard's own stop may size or signal it, since a
 session a command started needs that long to say it is an agent; a session
-that does say so is an agent row and never stopped. A detached program is
-judged again once it starts its own program (its name or command line
-changes), so `WORKBENCH_GUARD=off` or `dry-run` set by the detached program
-itself is honoured: `off` drops it, `dry-run` keeps its stops to the log. A
-detached row lasts while any of its processes runs and its agent
+that does say so is an agent row and never stopped. The ten seconds start
+again when the program starts a new program, and when a new watcher takes
+over after an update. A detached program is judged again once it starts its
+own program (its name or command line changes), so `WORKBENCH_GUARD=off` or
+`dry-run` set by the detached program itself is honoured: `off` drops it for
+the life of that process, whatever it starts later, and `dry-run` keeps its
+stops to the log. A program that leaves its row when judged again takes with it what
+the guard recorded of it and of everything under it, so none of that is tied
+to the row or its call again. A detached row lasts while any of its processes runs and its agent
 does; when the agent exits it is forgotten, not stopped. On Linux and WSL,
 which keep no record of which process forked another, detached work is found
 only when the guard saw it under the command for at least one tick before it
@@ -343,7 +347,8 @@ its ID: detached work (`● detached`), timed from its first program's start
 and showing that program's command line; each agent the guard knows (`●
 agent`), sized by the agent process alone; each long-lived helper an agent
 started itself (`● helper`, a language server or an MCP server), sized with
-everything under it (a shell is never shown as a helper); and a command still
+everything under it (a shell or a sandbox launcher is never shown as a
+helper); and a command still
 running that no note matched (`? unmatched`), such as one you typed with `!`.
 The guard never chooses an agent, a helper or an unmatched command; you may
 stop a helper, an unmatched command or detached work, and a stop of an agent

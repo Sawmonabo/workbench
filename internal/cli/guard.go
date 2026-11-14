@@ -29,11 +29,13 @@ func guardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
 		Short: "Show what the agent command memory guard did, and watch what it tracks",
-		Long: "The guard stops the largest shell command Claude Code or Codex started when the " +
-			"machine is about to run out of memory, and tells the agent why. Its hooks and " +
-			"watcher run by themselves. `workbench guard logs` shows what they did, one line " +
-			"per event. `workbench guard memory` shows, live, the commands the guard tracks " +
-			"and stops the ones you choose.",
+		Long: "The guard stops the largest shell command Claude Code or Codex started, or the " +
+			"largest program such a command left running detached, when the machine is about " +
+			"to run out of memory, and tells the agent why. It never stops an agent or the " +
+			"helpers an agent starts itself. Its hooks and watcher run by themselves. " +
+			"`workbench guard logs` shows what they did, one line per event. `workbench guard " +
+			"memory` shows, live, the commands and detached programs the guard tracks, the " +
+			"agents, their helpers and commands no note matched, and stops the ones you choose but an agent.",
 		Example: "  workbench guard logs --since 2h\n" +
 			"  workbench guard memory",
 		Args: cobra.NoArgs,
@@ -103,7 +105,8 @@ func guardLogsCommand(o *options) *cobra.Command {
 			"floor, level, available, total, still_running, release, old_release, " +
 			"new_release, new_pid, msg, error, process, cmd), a value with a space, quote, " +
 			"equals sign, backslash or control character in Go quotes. " +
-			"The events are each command that ended, matched no known shape or was stopped, low " +
+			"The events are each command or detached program that ended, matched no known " +
+			"shape or was stopped, a helper or unmatched command you stopped, low " +
 			"memory that stopped nothing, calls dropped without their post hook, the watcher " +
 			"starting, handing over and exiting, errors, and any line of the watcher's own " +
 			"output, such as a crash's trace, as a raw event placed at the start of the watcher " +

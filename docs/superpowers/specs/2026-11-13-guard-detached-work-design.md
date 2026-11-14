@@ -334,11 +334,19 @@ has started its program, such as a fork caught before its own exec. The same
 rules run on fresh stamps, read again for the root and what is below it. A
 root that now fails (its stamps turn the guard off, it is Workbench, or it is
 another agent's) leaves its unit, and a unit left with no root ends with one
-`ended` record giving the reason; one whose stamps now say `dry-run` makes
-its unit a dry run. A root whose lineage cannot be read that tick keeps its
-place. A process judged no unit on what it ran is judged again when its
+`ended` record giving the reason. A root that leaves its unit, by this or by
+becoming a known agent, takes with it what the guard recorded of it and of
+everything under it (5.3), so neither it nor what it started can be tied to
+that unit or its call by parent again. One whose stamps now say `dry-run`
+makes its unit a dry run. One that is still a unit runs a new program, which
+may be a session yet to reach its SessionStart hook, so its ten seconds
+start again (section 6). A root whose lineage cannot be read that tick keeps
+its place. A process judged no unit on what it ran is judged again when its
 process name changes; one judged on what never changes (another user's,
-started by the init process) is not. This cannot notice a program started
+started by the init process) is not, and neither is one that turned the
+guard off: a program it starts inherits that setting, so the process stays
+out for its whole life, whatever it starts later, even when a later program
+hides its environment. This cannot notice a program started
 under the same name and command line with only a new environment, nor a
 change that reverts within a tick.
 
@@ -378,7 +386,9 @@ not at all (section 10).
 This is macOS only. The call it uses is the one condition 2 already depends
 on, which is not in the public SDK (2.1 fact 7). If the kernel stops
 answering it, no units are made, the guard is back to what it does today, and
-it logs that once.
+it logs that once, and once more when it answers again. Meanwhile a tracked
+unit's root that became a known agent still leaves its unit, which needs no
+kernel record; nothing else is judged again until the kernel answers.
 
 ### 5.4 Agents the guard knows, and protected processes
 
@@ -452,8 +462,10 @@ the unit is forgotten, not stopped, as a command is today.
   ten seconds count per root: a session a command started needs that long to
   reach its SessionStart hook and be known as an agent, and it may join a
   unit as a later root. The guard's own stop sizes and signals only the roots
-  tracked for ten seconds, and a unit with none is not chosen. A person's
-  stop covers every live root. A root that joins a unit with `dry-run` in its
+  tracked for ten seconds, and a unit with none is not chosen. A root's ten
+  seconds start again when it starts a new program (5.2), and when a new
+  watcher takes over after an update: a root's time does not cross a
+  handover. A person's stop covers every live root. A root that joins a unit with `dry-run` in its
   stamps makes the unit a dry run.
 - The same target choice signals a unit: its root usually leads its own
   process group, which is signalled as a group when every member is in the
@@ -475,7 +487,8 @@ the unit is forgotten, not stopped, as a command is today.
 - Each agent the guard knows is a row with its own size, not its tree's.
 - A helper is a direct child of such an agent that no note claims, that the
   guard has seen alive for several seconds, that is no shell, in any shape,
-  and in whose tree no readable process carries a `CLAUDE_PID` naming that
+  and no sandbox launcher (both run a command; each judged by the program its
+  command line names and by the kernel's process name), and in whose tree no readable process carries a `CLAUDE_PID` naming that
   agent (under Codex, no Codex call ID): a language server, an MCP server
   (2.1 facts 10 and 14). A child whose command line cannot be read is no
   helper. It is a row with its tree's size.
@@ -507,7 +520,8 @@ the unit is forgotten, not stopped, as a command is today.
   and its root's process name as the kernel keeps it, and no folder or
   project: a helper's command line is not a call's text and may hold what its
   owner did not mean to keep on disk. The view shows it, as a process list
-  would.
+  would. A row's command line and name are read again when its process name
+  changes, since it then runs another program.
 
 This changes a boundary of the view design, which showed only commands the
 guard tracks.
@@ -586,7 +600,9 @@ fact 15). The Codex hooks do not change.
    SessionStart hook. One started without the hooks, or still in its first
    moments, is a program like any other: it is a unit, and after ten seconds
    the guard may choose it, as it stops such a session inside a command's
-   tree today.
+   tree today. Work such a session leaves detached in its first moments,
+   before it is known as an agent, belongs to the outer command like any
+   other program's.
 8. **A program the agent opened for a person.** An editor or a browser a
    command starts is that command's work wherever the system does not hand
    it to the init process to start. On macOS apps go through `open` and are
