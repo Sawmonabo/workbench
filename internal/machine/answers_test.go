@@ -30,7 +30,13 @@ func TestRetiredTokensSurviveEveryAnswerWrite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	machine := filepath.Join(t.TempDir(), "machine.toml")
+	// The temporary folder is under a link on macOS, and Workbench keeps its
+	// own files only in real folders.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	machine := filepath.Join(root, "machine.toml")
 	if err = os.WriteFile(machine, before, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +57,10 @@ func TestRetiredTokensSurviveEveryAnswerWrite(t *testing.T) {
 		t.Errorf("the written answers are invalid at %s", key)
 	}
 
-	config := t.TempDir()
+	config, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	from := filepath.Join(config, "answers.toml")
 	adopted, err := encodeMachineConfig(workAnswers(), Selection{})
 	if err != nil {
