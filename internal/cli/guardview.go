@@ -50,10 +50,10 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"polite stop, force-killed after 5 s, or a forced kill now), esc or ← closes a menu " +
 			"or the details, and q, or esc on the list, quits. An agent is never stopped: it " +
 			"cannot be tagged, and k on it sends nothing. The watcher signals the row, logs " +
-			"the stop as by=you and tells the agent; with WORKBENCH_GUARD=dry-run it only logs. While no watcher " +
-			"runs, the view says so and reconnects on its own. It needs a terminal, has no " +
-			"--json output and refuses --non-interactive and coding agents; workbench guard " +
-			"logs --follow prints the same events.",
+			"the stop as by=you and tells the agent; with WORKBENCH_GUARD=dry-run it only " +
+			"logs. While no watcher runs, the view says so and reconnects on its own. It needs " +
+			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
+			"workbench guard logs --follow prints the same events.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd, o) })
@@ -202,13 +202,13 @@ const (
 )
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
-// five header lines, the memory split one of them, and the six-line stop
-// menu below them, with the key line), how long a notice stays, the readings
-// the memory graph shows at most, and the widest a project name is shown
-// before it is clipped.
+// four header lines and the six-line stop menu below them, with the key
+// line; the memory split is a fifth header line only from one line taller),
+// how long a notice stays, the readings the memory graph shows at most, and
+// the widest a project name is shown before it is clipped.
 const (
 	guardViewMinWidth  = 60
-	guardViewMinHeight = 12
+	guardViewMinHeight = 11
 	noticeShown        = 3 * time.Second
 	graphReadings      = 120
 	projectWidth       = 32
@@ -404,6 +404,12 @@ func active(c guard.CommandView) bool {
 // stoppable reports whether a person may stop a row: it still runs and is
 // not an agent, which the guard never stops.
 func stoppable(c guard.CommandView) bool { return active(c) && c.Kind != "agent" }
+
+// commandWork reports whether a row is a command or detached work (a
+// command's, a detached program's or an unmatched command's row), which a
+// dry run applies to and the counts count; an agent or helper row is display
+// only, so a view with an agent open still reaches 0 running.
+func commandWork(c guard.CommandView) bool { return c.Kind != "agent" && c.Kind != "helper" }
 
 // say shows text on the bottom line for a few seconds.
 func (m *guardView) say(text string) {
@@ -606,12 +612,16 @@ func (m *guardView) View() tea.View {
 }
 
 // screen is the header (the head line, a blank line, the counts, the memory
-// split when the snapshot has one and the status lines), the list or the
-// details with the stop menu over them when it is open, and the key line at
-// the bottom.
+// split when the snapshot has one and the window is taller than the
+// shortest, so the stop menu still fits below the header, and the status
+// lines), the list or the details with the stop menu over them when it is
+// open, and the key line at the bottom.
 func (m *guardView) screen() string {
-	lines := append(append([]string{m.headLine(), "", m.countLine()}, m.sumsLine()...),
-		m.statusLines()...)
+	lines := []string{m.headLine(), "", m.countLine()}
+	if m.height > guardViewMinHeight {
+		lines = append(lines, m.sumsLine()...)
+	}
+	lines = append(lines, m.statusLines()...)
 	header := len(lines)
 	room := max(m.height-len(lines)-2, 1)
 	if m.inDetails() {
@@ -688,18 +698,23 @@ func memorySlash(part, whole uint64) string {
 func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
 // countLine counts the running commands and those that finished in the last
-// minute and, once a watcher has sent a snapshot, gives the memory in use of the
+// minute, detached work and unmatched commands included but no agent or
+// helper row, and, once a watcher has sent a snapshot, gives the memory in use of the
 // installed memory, the largest peak since the watcher started and the swap
 // in use, the memory figure bold and the rest faint. A narrow window drops
 // the swap, then the peak, then clips the line.
 func (m *guardView) countLine() string {
-	running := 0
+	running, finished := 0, 0
 	for _, c := range m.snap.Commands {
-		if active(c) {
+		switch {
+		case !commandWork(c):
+		case active(c):
 			running++
+		default:
+			finished++
 		}
 	}
-	counts := fmt.Sprintf("%d running · %d finished", running, len(m.snap.Commands)-running)
+	counts := fmt.Sprintf("%d running · %d finished", running, finished)
 	if !m.connected || m.snap.At.IsZero() {
 		return fit(faint.Render(forTerm(counts)), m.width, false)
 	}
@@ -746,13 +761,18 @@ func (m *guardView) sumsLine() []string {
 }
 
 // statusLines say why no watcher answers or, when shown commands are dry
-// runs, that their stops are only logged: for all of them, or for how many;
-// else they are one blank line. A long text wraps to the window; the dry-run
+// runs, that their stops are only logged: for all of them, or for how many,
+// counting only the rows a dry run applies to (no agent or helper row, which
+// has no note); else they are one blank line. A long text wraps to the window; the dry-run
 // texts fit 60 columns, so the stop menu never covers a second line of them.
 func (m *guardView) statusLines() []string {
 	text := ""
-	dry := 0
+	dry, commands := 0, 0
 	for _, c := range m.snap.Commands {
+		if !commandWork(c) {
+			continue
+		}
+		commands++
 		if c.DryRun {
 			dry++
 		}
@@ -760,11 +780,11 @@ func (m *guardView) statusLines() []string {
 	switch {
 	case !m.connected && m.problem != "":
 		text = m.problem
-	case dry > 0 && dry == len(m.snap.Commands):
+	case dry > 0 && dry == commands:
 		text = "dry run: stops are logged, not sent"
 	case dry > 0:
 		text = fmt.Sprintf("dry run on %d of %d commands: stops are logged, not sent",
-			dry, len(m.snap.Commands))
+			dry, commands)
 	}
 	if text == "" {
 		return []string{""}
@@ -1277,11 +1297,11 @@ func graph(history []uint64, peak uint64, width int) string {
 	return forTerm(b.String())
 }
 
-// menuBox is the stop menu: a box titled with the command and its memory, or
-// the number of tagged commands, and the two stops, the chosen one marked.
+// menuBox is the stop menu: a box titled with the row's command line and its
+// memory, or the number of tagged rows, and the two stops, the chosen one marked.
 func (m *guardView) menuBox() []string {
 	ids := m.targets
-	title := fmt.Sprintf("Stop %d tagged commands", len(ids))
+	title := fmt.Sprintf("Stop %d tagged rows", len(ids))
 	if len(ids) == 1 {
 		i := slices.IndexFunc(
 			m.snap.Commands,

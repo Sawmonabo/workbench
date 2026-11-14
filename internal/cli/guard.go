@@ -100,9 +100,9 @@ func guardLogsCommand(o *options) *cobra.Command {
 		Long: "Show the guard log, oldest first, one line per event: the time in this machine's " +
 			"time zone, the level and the event, then key=value fields in a fixed order (id, " +
 			"agent, subagent, project, kind, launched_by, by, dry_run, took, size, peak, " +
-			"floor, level, available, total, still_running, release, old_release, new_release, new_pid, msg, error, " +
-			"process, cmd), a value with a space, quote, equals sign, backslash or control " +
-			"character in Go quotes. " +
+			"floor, level, available, total, still_running, release, old_release, " +
+			"new_release, new_pid, msg, error, process, cmd), a value with a space, quote, " +
+			"equals sign, backslash or control character in Go quotes. " +
 			"The events are each command that ended, matched no known shape or was stopped, low " +
 			"memory that stopped nothing, calls dropped without their post hook, the watcher " +
 			"starting, handing over and exiting, errors, and any line of the watcher's own " +
