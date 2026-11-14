@@ -403,7 +403,7 @@ func (w *watcher) findUnits(s snapshot, below parents, protected map[int]uint64)
 	}
 	var roots []candidate
 	for _, p := range s {
-		if p.UID != self || p.Zombie || !childOfInit(s, p) {
+		if p.UID != self || p.Zombie || !childOfInit(s, p, protected) {
 			continue
 		}
 		j, judgedBefore := w.classified[procKey{p.PID, p.Start}]

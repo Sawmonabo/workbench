@@ -285,6 +285,23 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 			w.stamps[500] = stamp{Readable: true, Codex: "call_abc"}
 		}, tie{}, notUnit, true},
 
+		// Below a hidden root, call stamps written by two agents: it is not
+		// one agent command's work, and that is evidence, final for its life.
+		{"stampsNamingTwoAgents", func(w *unitWorld) {
+			w.procs[501] = process(501, 500, 500, 11, "node", "a.js")
+			w.procs[502] = process(502, 500, 500, 12, "node", "b.js")
+			w.stamps[501] = w.stamps[500]
+			w.stamps[502] = stamp{
+				Readable: true, Agent: 150, CallAgent: 150, CallShell: 310, CallSecond: 1_000_006,
+			}
+			w.stamps[500] = stamp{}
+		}, tie{}, notUnit, true},
+		// An agent run as a container's init is PID 1 and protected: its
+		// children are its commands' shells, never work left behind.
+		{"aProtectedPID1", func(w *unitWorld) {
+			w.protected[1] = w.procs[1].Start
+		}, tie{}, notUnit, false},
+
 		{"unreadableWithNothingReadableBelow", func(w *unitWorld) {
 			w.stamps[500] = stamp{}
 		}, tie{}, unread, false},

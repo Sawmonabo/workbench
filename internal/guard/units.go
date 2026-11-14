@@ -1,6 +1,7 @@
 package guard
 
 import (
+	"cmp"
 	"path/filepath"
 	"slices"
 	"time"
@@ -50,7 +51,9 @@ type tie struct {
 type verdict int
 
 const (
-	notUnit verdict = iota // never a unit: do not ask again
+	// notUnit is no unit: asked again only when its reason is not final (see
+	// finalWhy) and the process runs another program.
+	notUnit verdict = iota
 	isUnit
 	unread // no unit yet, but nothing readable was found: ask again while it lives
 )
@@ -68,6 +71,7 @@ const (
 	whyNoLineage     = "where its root comes from cannot be read"
 	whyUntied        = "its root is tied to no agent's command"
 	whyOtherAgent    = "its root belongs to another agent"
+	whyTwoAgents     = "its root's stamps name two agents"
 	whyAgentUnknown  = "its root's agent is not one the guard knows that started before it"
 	whyOff           = "its root turned the guard off"
 	whyTiedDropped   = "what started its root is not this call's work"
@@ -87,8 +91,13 @@ func finalWhy(why string) bool {
 		whyAgent,         // an agent the guard knows is never a unit
 		whyWorkbench,     // Workbench's own process, whatever it runs next
 		whyOtherAgent,    // its stamps name another agent: that agent's work
+		whyTwoAgents,     // its stamps say two agents' commands started it
 		whyTiedDropped,   // what tied it was found not to be this call's work
-		whyOff:           // a program it execs inherits WORKBENCH_GUARD=off
+		// The process said so itself. A program it starts may drop the
+		// variable (the caller of execve chooses the environment), and it
+		// stays out all the same: once a process opted out, it is out for
+		// its life, whatever it runs later.
+		whyOff:
 		return true
 	case whyNotDetached, // not (yet) a child of the init process, or a zombie
 		whyNoLineage,    // a read that failed, not an answer
@@ -115,7 +124,7 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 	switch {
 	case r.UID != f.self:
 		return tie{}, notUnit, whyOtherUser
-	case r.Zombie || !childOfInit(s, r):
+	case r.Zombie || !childOfInit(s, r, f.protected):
 		return tie{}, notUnit, whyNotDetached
 	case underProtected(s, r, f.protected):
 		return tie{}, notUnit, whyProtected
@@ -160,9 +169,9 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 		if len(stamps) == 0 {
 			return tie{}, unread, ""
 		}
-		var ok bool
-		if t, ok = stampTie(s, stamps, f); !ok {
-			return tie{}, notUnit, whyUntied
+		var why string
+		if t, why = stampTie(s, stamps, f); why != "" {
+			return tie{}, notUnit, why
 		}
 	}
 
@@ -195,10 +204,14 @@ func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 }
 
 // childOfInit reports whether r's parent is the init process: PID 1, or a
-// process named as an init (initNames), such as a container's.
-func childOfInit(s snapshot, r proc) bool {
+// process named as an init (initNames), such as a container's. A PID 1 that
+// is protected is an agent run as a container's init, whose children are its
+// own commands' shells, not work left behind, so it is no init.
+func childOfInit(s snapshot, r proc, protected map[int]uint64) bool {
 	if r.PPID == 1 {
-		return true
+		first, ok := s[1]
+		start, isProtected := protected[1]
+		return !ok || !isProtected || start != first.Start
 	}
 	parent, ok := s[r.PPID]
 	return ok && initNames[parent.Name]
@@ -244,13 +257,16 @@ func stampsFor(below parents, r proc, read func(pid int) stamp) []stamp {
 
 // stampTie ties stamps to an agent: to a Codex call's agent by a Codex ID
 // that resolves to a Codex call, else to the one Claude Code agent that the
-// call stamps written by their own agent name, when the guard knows it. A
-// Claude Code call's ID put in CODEX_TOOL_CALL_ID ties nothing, so it cannot
-// stand in for the agreeing call stamp.
-func stampTie(s snapshot, stamps []stamp, f facts) (tie, bool) {
+// call stamps written by their own agent name, when the guard knows it, and
+// gives why not otherwise: call stamps written by two agents are evidence
+// that the root is not one agent command's work (whyTwoAgents), anything
+// else is the absence of a tie (whyUntied). A Claude Code call's ID put in
+// CODEX_TOOL_CALL_ID ties nothing, so it cannot stand in for the agreeing
+// call stamp.
+func stampTie(s snapshot, stamps []stamp, f facts) (tie, string) {
 	for _, st := range stamps {
 		if rec, ok := resolve(f.records, st.Codex); ok && rec.Kind == codex {
-			return tie{Agent: rec.Agent, Kind: codex, Codex: st.Codex}, true
+			return tie{Agent: rec.Agent, Kind: codex, Codex: st.Codex}, ""
 		}
 	}
 	var by *stamp
@@ -259,24 +275,24 @@ func stampTie(s snapshot, stamps []stamp, f facts) (tie, bool) {
 			continue
 		}
 		if by != nil && by.Agent != st.Agent {
-			return tie{}, false
+			return tie{}, whyTwoAgents
 		}
 		if by == nil {
 			by = &stamps[i]
 		}
 	}
 	if by == nil {
-		return tie{}, false
+		return tie{}, whyUntied
 	}
 	p, ok := s[by.Agent]
 	if !ok {
-		return tie{}, false
+		return tie{}, whyUntied
 	}
 	agent := procKey{by.Agent, p.Start}
 	if f.known[agent] != claude {
-		return tie{}, false
+		return tie{}, whyUntied
 	}
-	return tie{Agent: agent, Kind: claude, Shell: by.CallShell, Second: by.CallSecond}, true
+	return tie{Agent: agent, Kind: claude, Shell: by.CallShell, Second: by.CallSecond}, ""
 }
 
 // resolve is the record of the Codex call id, when one is kept.
@@ -336,8 +352,11 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 	if len(own.Roots) > 0 && !slices.ContainsFunc(own.Roots, func(r detachedRoot) bool {
 		return r.PID == c.Root.PID && r.Start == c.Root.Start
 	}) {
+		// The reason, the log and the kill record name the program of a root
+		// this stop signals, not the one it left out.
 		first := own.Roots[0]
 		c.Root = proc{Process: platform.Process{PID: first.PID, PPID: 1, Start: first.Start}}
+		c.Note.Command, c.Shown = cmp.Or(first.Name, c.Note.Command), first.Args
 	}
 	return c, youngest
 }

@@ -45,6 +45,9 @@ const (
 	readyWait = 10 * time.Second
 	// handoverPoll is the tick while a handover is under way.
 	handoverPoll = 100 * time.Millisecond
+	// startWait bounds how long the old watcher waits for the new one to
+	// read what it carries; a handover that takes longer is cancelled.
+	startWait = 5 * time.Second
 )
 
 // handoff is the watcher's part in a handover: the release it runs
@@ -144,10 +147,11 @@ func (w *watcher) identify() {
 // start, and reports true: the caller exits without another tick, so two
 // watchers never act at once. A stop under way finishes first, because it
 // runs within a tick. A command that cannot be read, a file that does not
-// start, or a watcher that is not ready within readyWait, such as one of a
-// release without handover, which finds the lock held and exits, leaves this
-// watcher running, logged once; it tries again only once the command resolves
-// to another file.
+// start, a watcher that is not ready within readyWait, such as one of a
+// release without handover, which finds the lock held and exits, or one that
+// does not take what is carried within startWait, leaves this watcher
+// running, logged once; it tries again only once the command resolves to
+// another file.
 func (w *watcher) handOver() bool {
 	h := w.pending
 	// A person's stop still owed its SIGKILL is not carried, so it holds the
@@ -177,6 +181,11 @@ func (w *watcher) handOver() bool {
 		fmt.Sprintf("watcher handing over from %s to %s", w.version, h.release),
 		"old_release", w.version, "new_release", h.release, "new_pid", h.process.Pid)
 	data, err := json.Marshal(w.carried())
+	if err == nil {
+		// What is carried can exceed the pipe's buffer: a new watcher that
+		// stops reading must not hold this one's ticks.
+		err = h.start.SetWriteDeadline(time.Now().Add(startWait))
+	}
 	if err == nil {
 		_, err = h.start.Write(append(data, '\n'))
 	}

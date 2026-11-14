@@ -319,10 +319,11 @@ func (w *watcher) drainStops(s snapshot, notes []note, protected map[int]uint64)
 
 // stopAllowed reports whether peer may stop an agent's command: it must run,
 // with its start time, and neither it nor any process above it may be
-// protected (an agent that left a note or has a tracked command, the
-// watcher), so a process still under a noted agent cannot stop an agent's
-// work. The walk goes up to PID 1 included, which may itself be an agent in
-// a container started without an init, and ends at its parent, 0. A parent
+// protected (see watcher.agents: every agent the guard knows, from its notes
+// or its agent file, every process a stamp names as its agent, and the
+// watcher), so a process still under an agent cannot stop an agent's work.
+// The walk goes up to PID 1 included, which may itself be an agent in a
+// container started without an init, and ends at its parent, 0. A parent
 // missing from s cannot be checked, so it refuses.
 func stopAllowed(peer procKey, s snapshot, protected map[int]uint64) bool {
 	if !s.alive(peer.pid, peer.start) {
