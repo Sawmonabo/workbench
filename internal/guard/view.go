@@ -10,12 +10,20 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// commandView is a tracked command as a snapshot shows it, in state.
+// commandView is a tracked command as a snapshot shows it, in state. A unit
+// shows its kind, its root, the call that started it when that resolved, and
+// its full command line, which the view alone shows.
 func (w *watcher) commandView(id string, c command, state string) CommandView {
 	v := CommandView{
 		ID: id, Agent: string(c.Note.Kind), Subagent: c.Note.Subagent, Project: c.Note.Project,
 		Cwd: c.Note.Cwd, Command: c.Note.Command, State: state, DryRun: c.Note.DryRun,
 		Started: c.Note.NotedAt,
+	}
+	if c.Shown != "" {
+		v.Command = c.Shown
+	}
+	if c.Detached != nil {
+		v.Kind, v.PID, v.LaunchedBy = "detached", c.Root.PID, c.Detached.Call
 	}
 	if state == stateStopped || state == stateStopping {
 		v.By = w.stoppedBy[id]
@@ -49,12 +57,15 @@ func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView
 		switch {
 		case w.manual[id] != nil:
 			state = stateStopping
-		case !s.alive(c.Root.PID, c.Root.Start) && w.stoppedBy[id] != "":
+		case !live(s, c) && w.stoppedBy[id] != "":
 			state = stateStopped
-		case !s.alive(c.Root.PID, c.Root.Start):
+		case !live(s, c):
 			state = stateDone
 		}
 		v := w.commandView(id, c, state)
+		if c.Detached != nil {
+			v.PID = firstRoot(s, c).PID
+		}
 		v.Tree = trees[id]
 		running = append(running, v)
 	}

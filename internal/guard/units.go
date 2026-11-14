@@ -2,13 +2,12 @@ package guard
 
 import (
 	"path/filepath"
+	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // owner is the call or unit in whose tree a process was seen.
-//
-//nolint:unused // first used by the watcher (unit tracking)
 type owner struct {
 	ID    string // a call's ID or a unit's
 	Agent procKey
@@ -17,8 +16,6 @@ type owner struct {
 
 // facts is what the unit rule reads beyond the snapshot. The watcher fills it
 // from the kernel; the test fills it by hand.
-//
-//nolint:unused // first used by the watcher (unit tracking)
 type facts struct {
 	self      int  // the watcher's user
 	lineage   bool // platform.KnowsOriginalParent
@@ -33,8 +30,6 @@ type facts struct {
 }
 
 // tie is how a unit's root is tied to an agent.
-//
-//nolint:unused // first used by the watcher (unit tracking)
 type tie struct {
 	Agent  procKey
 	Kind   kind
@@ -45,10 +40,8 @@ type tie struct {
 	Mode   string // WORKBENCH_GUARD as read, "" when unread
 }
 
-//nolint:unused // first used by the watcher (unit tracking)
 type verdict int
 
-//nolint:unused // first used by the watcher (unit tracking)
 const (
 	notUnit verdict = iota // never a unit: do not ask again
 	isUnit
@@ -65,8 +58,6 @@ const (
 // that runs and started before it, by the process that forked it or, where
 // the kernel keeps the original parent, by its stamps. A stamp naming another
 // agent, or WORKBENCH_GUARD=off, makes it none.
-//
-//nolint:unused // first used by the watcher (unit tracking)
 func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 	rKey := procKey{r.PID, r.Start}
 	if r.UID != f.self || r.Zombie || !childOfInit(s, r) || underProtected(s, r, f.protected) {
@@ -144,8 +135,6 @@ func unitRoot(s snapshot, r proc, f facts) (tie, verdict) {
 
 // childOfInit reports whether r's parent is the init process: PID 1, or a
 // process named as an init (initNames), such as a container's.
-//
-//nolint:unused // first used through unitRoot
 func childOfInit(s snapshot, r proc) bool {
 	if r.PPID == 1 {
 		return true
@@ -157,8 +146,6 @@ func childOfInit(s snapshot, r proc) bool {
 // underProtected reports whether r, or any process above it below PID 1, is
 // protected, each named by PID and start time. The walk ends at a parent loop
 // from a non-atomic scan.
-//
-//nolint:unused // first used through unitRoot
 func underProtected(s snapshot, r proc, protected map[int]uint64) bool {
 	seen := map[int]bool{}
 	for p, ok := r, true; ok && p.PID > 1 && !seen[p.PID]; p, ok = s[p.PPID] {
@@ -173,8 +160,6 @@ func underProtected(s snapshot, r proc, protected map[int]uint64) bool {
 // stampsFor are the stamps read for r: its own when readable, else those of
 // the first readable processes below it, reached through unreadable ones
 // only. None means nothing readable was found.
-//
-//nolint:unused // first used through unitRoot
 func stampsFor(s snapshot, r proc, read func(pid int) stamp) []stamp {
 	var out []stamp
 	seen := map[int]bool{}
@@ -201,8 +186,6 @@ func stampsFor(s snapshot, r proc, read func(pid int) stamp) []stamp {
 // call stamps written by their own agent name, when the guard knows it. A
 // Claude Code call's ID put in CODEX_TOOL_CALL_ID ties nothing, so it cannot
 // stand in for the agreeing call stamp.
-//
-//nolint:unused // first used through unitRoot
 func stampTie(s snapshot, stamps []stamp, f facts) (tie, bool) {
 	for _, st := range stamps {
 		if rec, ok := resolve(f.records, st.Codex); ok && rec.Kind == codex {
@@ -236,11 +219,47 @@ func stampTie(s snapshot, stamps []stamp, f facts) (tie, bool) {
 }
 
 // resolve is the record of the Codex call id, when one is kept.
-//
-//nolint:unused // first used through unitRoot
 func resolve(recs *records, id string) (callRecord, bool) {
 	if recs == nil || id == "" {
 		return callRecord{}, false
 	}
 	return recs.byID(id)
+}
+
+// unitGrace is how long a unit is tracked before the guard may choose it: a
+// session a command started and left detached needs that long to reach its
+// SessionStart hook and be known as an agent, which is never stopped.
+const unitGrace = 10 * time.Second
+
+// candidate is a tracked command as the guard's own choice sees it: its size
+// now and how long it has been tracked.
+type candidate struct {
+	c       command
+	size    uint64
+	tracked time.Duration
+}
+
+// mayChoose reports whether the guard may choose the candidate on its own: a
+// noted command always, a unit only once a call is proved to have started it
+// and it has been tracked for unitGrace. A stamp that resolves to no call
+// does not prove an agent's command forked the process (a command a person
+// typed with ! carries the same stamp), so such a unit is left to a person.
+func (cand candidate) mayChoose() bool {
+	return cand.c.Detached == nil || cand.c.Detached.Call != "" && cand.tracked >= unitGrace
+}
+
+// choose is the guard's choice of what to stop: the largest candidate it may
+// stop, the earlier root first among equals, and the sum of those it may.
+func choose(cands []candidate) (chosen candidate, total uint64, ok bool) {
+	for _, cand := range cands {
+		if !cand.mayChoose() {
+			continue
+		}
+		total += cand.size
+		if !ok || cand.size > chosen.size ||
+			cand.size == chosen.size && cand.c.Root.Start < chosen.c.Root.Start {
+			chosen, ok = cand, true
+		}
+	}
+	return chosen, total, ok
 }

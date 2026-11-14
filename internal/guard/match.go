@@ -280,19 +280,17 @@ func claims(s snapshot, n note, agent, child proc, earliest uint64, setsCallIDs 
 	})
 }
 
-// targets chooses what to signal to stop the tracked command whose root is
-// root, from one snapshot: the root and its descendants, leaving out every
-// protected process (agents that left a note, the watcher) with everything
-// under it, PID 0 and 1, and zombies, which hold no memory. A process group
-// is signalled as a group only when its leader is live and it and every
-// process in the group are among those; any other process is signalled on
-// its own. A root that is gone, or whose PID now names another process,
-// gives nothing.
-func targets(s snapshot, root proc, protected map[int]uint64) []target {
-	if current, ok := s[root.PID]; !ok || current.Start != root.Start {
-		return nil
-	}
-	members := s.tree(root.PID, outside(protected))
+// targets chooses what to signal to stop the tracked command c, from one
+// snapshot: its root and the root's descendants, or for a unit the trees of
+// its live roots, leaving out every protected process (the agents the guard
+// knows, the watcher) with everything under it, PID 0 and 1, and zombies,
+// which hold no memory. A process group is signalled as a group only when its
+// leader is live and it and every process in the group are among those; any
+// other process is signalled on its own. A root that is gone, or whose PID
+// now names another process, gives nothing, as does a unit none of whose
+// roots is live.
+func targets(s snapshot, c command, protected map[int]uint64) []target {
+	members := s.commandTree(c, outside(protected))
 	inGroup := map[int]int{}
 	for _, p := range members {
 		inGroup[p.PGID]++

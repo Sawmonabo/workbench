@@ -35,7 +35,7 @@ const stampLine = `export WORKBENCH_GUARD_CALL="$CLAUDE_PID:$$:${EPOCHSECONDS:-$
 // the three numbers of the call stamp, all 0 when it is absent or not
 // digits:digits:digits. Codex is CODEX_TOOL_CALL_ID and Mode is
 // WORKBENCH_GUARD, each as read.
-type stamp struct { //nolint:unused // first used by the unit rule
+type stamp struct {
 	Readable                    bool
 	Agent, CallAgent, CallShell int
 	CallSecond                  int64
@@ -44,7 +44,7 @@ type stamp struct { //nolint:unused // first used by the unit rule
 
 // readStamp reads pid's stamps from the environment it started with, in one
 // read of that environment.
-func readStamp(pid int) stamp { //nolint:unused // first used by the unit rule
+func readStamp(pid int) stamp {
 	values, readable := platform.Environment(pid, agentStamp, callStamp, codexStamp, modeVariable)
 	st := stamp{
 		Readable: readable,
@@ -65,12 +65,12 @@ func readStamp(pid int) stamp { //nolint:unused // first used by the unit rule
 // agent. A nested session a command starts, and everything its hooks start,
 // inherit the outer command's call stamp beside their own CLAUDE_PID, so the
 // two disagree there and the stamp does not count.
-func (st stamp) call() bool { //nolint:unused // first used by the unit rule
+func (st stamp) call() bool {
 	return st.CallAgent > 0 && st.CallAgent == st.Agent
 }
 
 // stampNumber is text as a number when it is plain digits, else 0.
-func stampNumber(text string) int64 { //nolint:unused // first used through readStamp
+func stampNumber(text string) int64 {
 	if !digits(text) {
 		return 0
 	}
@@ -83,7 +83,7 @@ func stampNumber(text string) int64 { //nolint:unused // first used through read
 
 // digits reports whether text is 1 to 18 ASCII digits, so it holds no sign
 // or space and always fits an int64.
-func digits(text string) bool { //nolint:unused // first used through readStamp
+func digits(text string) bool {
 	if text == "" || len(text) > 18 {
 		return false
 	}

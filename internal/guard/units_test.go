@@ -2,6 +2,7 @@ package guard
 
 import (
 	"testing"
+	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -265,5 +266,38 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 				t.Fatalf("tie %+v, want %+v", got, tc.want)
 			}
 		})
+	}
+}
+
+// The guard stops what choose gives without asking anyone. A unit whose
+// stamp resolved to no call may be work a person started with `!`, which
+// carries the same stamp as an agent's command; a unit tracked for only a
+// few seconds may be a session that has not yet said it is an agent. The
+// guard choosing either on its own would be unauthorized execution: it would
+// stop a person's program or an agent session. A person may still stop them.
+func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
+	const gb = uint64(1) << 30
+	unit := func(pid int, call string) command {
+		return command{
+			Root:     process(pid, 1, pid, float64(pid), "node"),
+			Detached: &detached{Roots: []procRef{{pid, start(float64(pid))}}, Call: call},
+		}
+	}
+	noted := candidate{
+		c:       command{Root: process(10, 100, 10, 10, "zsh")},
+		size:    gb,
+		tracked: time.Second,
+	}
+	withCall := candidate{c: unit(20, "toolu_1"), size: 2 * gb, tracked: time.Minute}
+	withoutCall := candidate{c: unit(30, ""), size: 8 * gb, tracked: time.Minute}
+	young := candidate{c: unit(40, "toolu_2"), size: 9 * gb, tracked: 3 * time.Second}
+
+	chosen, total, ok := choose([]candidate{noted, withCall, withoutCall, young})
+	if !ok || chosen.c.Root.PID != 20 || total != 3*gb {
+		t.Fatalf("chose %d of %d bytes (ok %v), want the 2 GB unit of 3 GB",
+			chosen.c.Root.PID, total, ok)
+	}
+	if chosen, _, ok := choose([]candidate{withoutCall, young}); ok {
+		t.Fatalf("chose %d, want nothing", chosen.c.Root.PID)
 	}
 }

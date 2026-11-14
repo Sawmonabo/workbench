@@ -151,8 +151,10 @@ func delay(m memory) time.Duration {
 }
 
 // reason is what the agent is told: the command, its size, the machine's
-// state and what to try.
-func reason(command string, children int, size uint64, m memory) string {
+// state and what to try. For a unit (detached), command is the root
+// program's name, never its arguments, and the call that started it is told
+// that program had detached.
+func reason(command string, detached bool, children int, size uint64, m memory) string {
 	var state string
 	switch {
 	case m.Level > 0:
@@ -171,6 +173,10 @@ func reason(command string, children int, size uint64, m memory) string {
 		processes = " and its 1 child process"
 	case children > 1:
 		processes = fmt.Sprintf(" and its %d child processes", children)
+	}
+	if detached {
+		processes = ", a program this call started that had detached" +
+			strings.Replace(processes, " and", ", and", 1)
 	}
 	return fmt.Sprintf("workbench guard: stopped `%s`%s. The machine was nearly out of memory "+
 		"(%s) and this was the largest agent command, at %s. Retry with less parallelism or a "+

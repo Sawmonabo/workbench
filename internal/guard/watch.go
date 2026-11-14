@@ -119,10 +119,27 @@ type watcher struct {
 	// known are the agents the guard knows, each with its kind, from their
 	// agent files (see readAgentFiles) and their notes, until they are gone:
 	// every one that runs is protected, with or without a note.
-	known     map[procKey]kind
-	idleSince time.Time
-	expired   time.Time
-	waiter    *platform.Waiter
+	known map[procKey]kind
+	// stamps are each process's readable stamp, read once and dropped when
+	// the process is gone; stampAgents are the live processes a stamp read names
+	// as its agent that started before the stamped process, protected while
+	// they live (see stampOf). classified is each child of the init process
+	// unitRoot has judged, with its verdict, while it runs. seenUnder names
+	// the owner each process of a tracked tree was seen under, while it
+	// runs; versions names the owner of each version recorded, kept as
+	// versionSeen says (see recordLineage), last at lineageAt. lineageLost is
+	// set once the kernel's original-parent record was found unreadable.
+	stamps      map[procKey]stamp
+	stampAgents map[procKey]bool
+	classified  map[procKey]verdict
+	seenUnder   map[procKey]owner
+	versions    map[uint32]owner
+	versionSeen map[uint32]time.Time
+	lineageAt   time.Time
+	lineageLost bool
+	idleSince   time.Time
+	expired     time.Time
+	waiter      *platform.Waiter
 	// unsized are processes whose footprint could not be read, so each is
 	// logged once, not every tick.
 	unsized map[procKey]bool
@@ -170,12 +187,12 @@ type procKey struct {
 // Watch is the watcher, at most one per user, started detached by the pre
 // hook. It finds each noted command, watches machine memory, and near
 // out-of-memory stops the largest agent command and records why. It returns
-// after ten minutes with no note and no tracked command, when its lock file is
-// no longer the one it locked, once it has handed over to another release's
-// watcher (see handOver), or at its next tick after ctx ends; a stop under way
-// finishes first. It has no terminal and logs only to the guard log. It works
-// from /, so it never holds the folder of the session that started it. version
-// is the release it runs, for the log.
+// after ten minutes with no note and no tracked command or unit, when its
+// lock file is no longer the one it locked, once it has handed over to
+// another release's watcher (see handOver), or at its next tick after ctx
+// ends; a stop under way finishes first. It has no terminal and logs only to
+// the guard log. It works from /, so it never holds the folder of the session
+// that started it. version is the release it runs, for the log.
 func Watch(ctx context.Context, version string) {
 	debug.SetMemoryLimit(32 << 20)
 	f, err := openFolders("watch")
@@ -198,6 +215,12 @@ func Watch(ctx context.Context, version string) {
 		setsCallIDs: map[procKey]bool{},
 		records:     &records{},
 		known:       map[procKey]kind{},
+		stamps:      map[procKey]stamp{},
+		stampAgents: map[procKey]bool{},
+		classified:  map[procKey]verdict{},
+		seenUnder:   map[procKey]owner{},
+		versions:    map[uint32]owner{},
+		versionSeen: map[uint32]time.Time{},
 		unsized:     map[procKey]bool{},
 		idleSince:   time.Now(),
 		waiter:      platform.NewWaiter(),
@@ -321,7 +344,8 @@ func (w *watcher) carryOn() bool {
 // tick runs one round and returns the time to the next. When the process
 // list or the notes folder cannot be read, it does nothing else this round.
 // It follows the stops people asked for and takes new ones with the same
-// snapshot, and keeps what it saw in view.
+// snapshot, finds and tracks detached units beside the noted commands (see
+// findUnits), and keeps what it saw in view.
 func (w *watcher) tick() time.Duration {
 	w.round++
 	w.calm = false
@@ -348,7 +372,7 @@ func (w *watcher) tick() time.Duration {
 	}
 	agents, protected := w.agents(s, notes)
 	w.followManual(s, protected)
-	w.drainStops(s, protected)
+	w.drainStops(s, notes, protected)
 	w.readAgents(s, agents, notes)
 	taken := map[int]bool{}
 	for _, c := range w.tracked {
@@ -364,7 +388,15 @@ func (w *watcher) tick() time.Duration {
 		w.seen[c.Note.ToolUseID] = seen
 		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
 	}
-	trees := w.measure(s, protected)
+	// One parent index for the tick's trees. Units are found after matching,
+	// so a command's tree is recorded before its work detaches, and an
+	// agent a stamp names is protected, in protected too, before anything
+	// is measured or stopped.
+	below := s.below()
+	w.recordLineage(s, below, protected)
+	w.findUnits(s, protected)
+	w.dropAgentRoots(s)
+	trees := w.measure(s, below, protected)
 	w.markChildSeen(s, notes, taken)
 	if len(notes) > 0 || len(w.tracked) > 0 {
 		w.idleSince = time.Now()
@@ -382,7 +414,7 @@ func (w *watcher) tick() time.Duration {
 	}
 	w.calm = act == nothing && w.softSince.IsZero() && w.criticalSince.IsZero()
 	if !w.coolingDown(s) && act != nothing && len(w.tracked) > 0 {
-		w.stopLargest(s, protected, act, m)
+		w.stopLargest(s, below, protected, act, m)
 	}
 	return delay(m)
 }
@@ -620,10 +652,19 @@ func (w *watcher) snapshot() (snapshot, error) {
 }
 
 // callAttrs are the log attributes of a tracked call: its note's folder,
-// project and subagent only when the note has them.
+// project and subagent only when the note has them. A unit's add its kind,
+// detached, and launched_by, the call that started it, when that resolved;
+// its call is the unit's ID and its command the root program's name, never
+// its arguments.
 func callAttrs(c command) []any {
 	attrs := append([]any{"call", c.Note.ToolUseID, "agent", c.Note.Kind},
 		placeAttrs(c.Note.Cwd, c.Note.Project, c.Note.Subagent)...)
+	if c.Detached != nil {
+		attrs = append(attrs, "kind", "detached")
+		if c.Detached.Call != "" {
+			attrs = append(attrs, "launched_by", c.Detached.Call)
+		}
+	}
 	return append(attrs, "root_pid", c.Root.PID, "command", clip(c.Note.Command))
 }
 
@@ -652,17 +693,22 @@ func (w *watcher) endAttrs(c command) []any {
 
 // measure adds each tracked command's size this tick to its usage: the
 // resident sizes over the tree a stop would signal, without protected
-// processes. A command whose root is absent from this snapshot is left for
-// forget. It gives each measured command's tree with the sizes it read.
-func (w *watcher) measure(s snapshot, protected map[int]uint64) map[string][]ProcessView {
+// processes, a unit's over the trees of its live roots. A command that no
+// longer runs is left for forget. It gives each measured command's tree with
+// the sizes it read.
+func (w *watcher) measure(
+	s snapshot,
+	below parents,
+	protected map[int]uint64,
+) map[string][]ProcessView {
 	skip := outside(protected)
 	trees := map[string][]ProcessView{}
 	for id, c := range w.tracked {
 		u := w.usage[id]
-		if u == nil || !s.alive(c.Root.PID, c.Root.Start) {
+		if u == nil || !live(s, c) {
 			continue
 		}
-		tree, sizes := s.tree(c.Root.PID, skip), map[int]uint64{}
+		tree, sizes := s.commandTreeIn(below, c, skip), map[int]uint64{}
 		u.add(w.size(tree, residentInto(sizes)))
 		w.largestPeak = max(w.largestPeak, u.Peak)
 		trees[id] = treeView(tree, sizes)
@@ -725,8 +771,9 @@ func (w *watcher) markChildSeen(s snapshot, notes []note, taken map[int]bool) {
 }
 
 // forget stops tracking commands that ended or whose agent is gone (see
-// gone). A call whose command ended is remembered until its note goes, so the
-// note cannot claim a later command with the same text.
+// gone), and units as forgetUnit says. A call whose command ended is
+// remembered until its note goes, so the note cannot claim a later command
+// with the same text.
 func (w *watcher) forget(s snapshot) {
 	for key := range w.unsized {
 		if !s.alive(key.pid, key.start) {
@@ -734,6 +781,10 @@ func (w *watcher) forget(s snapshot) {
 		}
 	}
 	for id, c := range w.tracked {
+		if c.Detached != nil {
+			w.forgetUnit(s, id, c)
+			continue
+		}
 		rootGone := w.gone(s, c.Root.PID, c.Root.Start)
 		agentGone := w.gone(s, c.Note.AgentPID, c.Note.AgentStart)
 		if rootGone || agentGone {
@@ -743,11 +794,7 @@ func (w *watcher) forget(s snapshot) {
 				state = stateStopped
 			}
 			w.finish(w.commandView(id, c, state))
-			delete(w.stoppedBy, id)
-			delete(w.tracked, id)
-			delete(w.usage, id)
-			delete(w.passed, id)
-			delete(w.refusals, id)
+			w.untrack(id)
 			// Only a call whose note is still on disk is remembered: once notes
 			// has deleted it, ended, nothing can match it again and notes would
 			// never clear the entry.
@@ -760,8 +807,9 @@ func (w *watcher) forget(s snapshot) {
 
 // agents are the live agents of the notes and tracked commands, whose
 // arguments readAgents reads. protected is them, every other known agent that
-// runs and the watcher, each PID with its start time: never signalled, nor
-// anything under them. It reads the agents folder first (see
+// runs, every live process a stamp read names as its agent and that started
+// before the stamped process (see stampOf), and the watcher, each PID with
+// its start time: never signalled, nor anything under them. It reads the agents folder first (see
 // readAgentFiles), so every path that decides what is protected sees a
 // session that registered since the last read, and the known agents are
 // filled before anything later in the tick reads them.
@@ -787,6 +835,13 @@ func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	// After the agents above, which add would otherwise leave out of agents.
 	for key := range w.known {
 		if _, ok := protected[key.pid]; !ok && s.alive(key.pid, key.start) {
+			protected[key.pid] = key.start
+		}
+	}
+	for key := range w.stampAgents {
+		if !s.alive(key.pid, key.start) {
+			delete(w.stampAgents, key)
+		} else if _, ok := protected[key.pid]; !ok {
 			protected[key.pid] = key.start
 		}
 	}
@@ -873,32 +928,45 @@ func (w *watcher) coolingDown(s snapshot) bool {
 	return false
 }
 
-// stopLargest stops the tracked command with the largest footprint over its
-// tree (without protected processes); a tie goes to the older command. A
-// passed call is left out: a dry-run one already logged, one a stop gave up
-// on, or one whose stops signalled nothing three times in a row. So is one
-// whose root is absent from this snapshot, and one a person is stopping. A
-// polite stop leaves the commands running when together they hold less than
-// the memory floor, and logs that once a pressure episode.
-func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, m memory) {
+// stopLargest stops the tracked command or unit the guard may choose (see
+// choose) with the largest footprint over its tree (without protected
+// processes); a tie goes to the older root. A passed call is left out: a
+// dry-run one already logged, one a stop gave up on, or one whose stops
+// signalled nothing three times in a row. So is one that no longer runs in
+// this snapshot, one a person is stopping, a unit whose call did not resolve
+// and a unit tracked for less than unitGrace. A polite stop leaves the
+// commands running when together they hold less than the memory floor, and
+// logs that once a pressure episode.
+func (w *watcher) stopLargest(
+	s snapshot,
+	below parents,
+	protected map[int]uint64,
+	act action,
+	m memory,
+) {
 	skip := outside(protected)
-	var chosen command
-	var chosenSize, total uint64
-	var members []proc
+	var cands []candidate
+	trees := map[string][]proc{}
 	for id, c := range w.tracked {
-		if w.passed[id] || w.manual[id] != nil || !s.alive(c.Root.PID, c.Root.Start) {
+		if w.passed[id] || w.manual[id] != nil || !live(s, c) {
 			continue
 		}
-		tree := s.tree(c.Root.PID, skip)
-		size := w.size(tree, platform.Footprint)
-		total += size
-		if members == nil || size > chosenSize ||
-			size == chosenSize && c.Root.Start < chosen.Root.Start {
-			chosen, chosenSize, members = c, size, tree
+		cand := candidate{c: c}
+		if u := w.usage[id]; u != nil {
+			cand.tracked = time.Since(u.Since)
 		}
+		// One the guard may not choose is not sized: choose leaves it out.
+		if !cand.mayChoose() {
+			continue
+		}
+		trees[id] = s.commandTreeIn(below, c, skip)
+		cand.size = w.size(trees[id], platform.Footprint)
+		cands = append(cands, cand)
 	}
+	chosen, total, ok := choose(cands)
+	members := trees[chosen.c.Note.ToolUseID]
 	switch {
-	case len(members) == 0:
+	case !ok || len(members) == 0:
 	case act == polite && total < m.floor():
 		if !w.underFloor {
 			w.underFloor = true
@@ -907,7 +975,7 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 				"size", total, "floor", m.floor(), "memory", m)
 		}
 	default:
-		w.stop(chosen, chosenSize, len(members)-1)
+		w.stop(chosen.c, chosen.size, len(members)-1)
 	}
 }
 
@@ -915,9 +983,10 @@ func (w *watcher) stopLargest(s snapshot, protected map[int]uint64, act action, 
 // signals it. It reads the notes and the agents folder again first (see
 // agents), so an agent that left its first note or registered its session
 // since the tick is protected. The record is written before any signal,
-// because the agent's post hook may run the moment the command dies; it is
-// deleted when nothing was signalled. With WORKBENCH_GUARD=dry-run on the
-// note it only logs.
+// because the agent's post hook may run the moment the command dies; a
+// unit's is written for the call that started it, when that call is told
+// (see killRecordFor). A record it wrote is deleted when nothing was
+// signalled. With WORKBENCH_GUARD=dry-run on the note it only logs.
 func (w *watcher) stop(c command, size uint64, children int) {
 	m, err := readMemory()
 	if err != nil {
@@ -941,7 +1010,7 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		return
 	}
 	_, protected := w.agents(s, notes)
-	chosen := targets(s, c.Root, protected)
+	chosen := targets(s, c, protected)
 	if len(chosen) == 0 {
 		// Nothing to signal: the root is gone or changed (the next tick stops
 		// tracking it) or is protected. Counted like a refused stop, so a
@@ -949,7 +1018,7 @@ func (w *watcher) stop(c command, size uint64, children int) {
 		w.refused(c)
 		return
 	}
-	text := reason(c.Note.Command, children, size, m)
+	text := reason(c.Note.Command, c.Detached != nil, children, size, m)
 	stopping := append(w.endAttrs(c), "by", "guard",
 		"size", size, "children", children, "reason", text, "memory", m)
 	if c.Note.DryRun {
@@ -958,24 +1027,19 @@ func (w *watcher) stop(c command, size uint64, children int) {
 			append(stopping, "dry_run", true)...)
 		return
 	}
-	w.stopped = s.tree(c.Root.PID, outside(protected))
+	w.stopped = s.commandTree(c, outside(protected))
 	w.quietFrom = time.Time{}
-	record := w.f.record(c.Note.ToolUseID)
-	if err = writeJSON(
-		record,
-		kill{ToolUseID: c.Note.ToolUseID, Reason: text, At: time.Now()},
-	); err != nil {
-		// The machine comes first: the stop goes ahead and the agent gets no reason.
-		w.f.event(slog.LevelError, EventError,
-			"cannot record the stop; stopping anyway, the agent will be told nothing",
-			append(callAttrs(c), "error", err)...)
-	}
+	// A unit's reason goes to the call that started it, only while that
+	// call's command runs in the foreground (see killRecordFor).
+	record := w.writeKill(c, notes, text)
 	w.f.event(slog.LevelWarn, EventStopping, "stopping", stopping...)
 	if w.signal(chosen, c) {
 		delete(w.refusals, c.Note.ToolUseID)
 		return
 	}
-	_ = os.Remove(record)
+	if record != "" {
+		_ = os.Remove(record)
+	}
 	// Nothing was signalled, so there is nothing to wait for: no cooldown.
 	w.stopped = nil
 	w.refused(c)
@@ -990,7 +1054,7 @@ func (w *watcher) stop(c command, size uint64, children int) {
 func (w *watcher) refused(c command) {
 	id := c.Note.ToolUseID
 	s, err := w.snapshot()
-	if err != nil || !s.alive(c.Root.PID, c.Root.Start) {
+	if err != nil || !live(s, c) {
 		w.f.event(slog.LevelInfo, EventRefused,
 			"nothing signalled: the command ended or could not be checked", callAttrs(c)...)
 		return

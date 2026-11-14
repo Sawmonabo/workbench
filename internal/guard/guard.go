@@ -90,12 +90,30 @@ func olderFirst(a, b proc) int {
 // the walk. One pass indexes the snapshot by parent, so a large tree costs
 // one scan of the machine's processes, not one per member.
 func (s snapshot) tree(root int, skip func(proc) bool) []proc {
-	below := map[int][]proc{}
+	return s.below().tree(s, []int{root}, skip)
+}
+
+// parents are a snapshot's processes by parent PID, each parent's children
+// oldest first: one scan of the snapshot that every tree of it can share.
+type parents map[int][]proc
+
+// below indexes s by parent.
+func (s snapshot) below() parents {
+	below := parents{}
 	for _, p := range s {
 		if p.PPID != p.PID {
 			below[p.PPID] = append(below[p.PPID], p)
 		}
 	}
+	for _, children := range below {
+		slices.SortFunc(children, olderFirst)
+	}
+	return below
+}
+
+// tree is the trees of roots in s, as snapshot.tree gives one, each process
+// listed once even where the trees overlap.
+func (below parents) tree(s snapshot, roots []int, skip func(proc) bool) []proc {
 	var out []proc
 	seen := map[int]bool{}
 	var walk func(p proc)
@@ -105,14 +123,14 @@ func (s snapshot) tree(root int, skip func(proc) bool) []proc {
 		}
 		seen[p.PID] = true
 		out = append(out, p)
-		children := below[p.PID]
-		slices.SortFunc(children, olderFirst)
-		for _, child := range children {
+		for _, child := range below[p.PID] {
 			walk(child)
 		}
 	}
-	if p, ok := s[root]; ok {
-		walk(p)
+	for _, root := range roots {
+		if p, ok := s[root]; ok {
+			walk(p)
+		}
 	}
 	return out
 }
@@ -128,10 +146,28 @@ func outside(protected map[int]uint64) func(proc) bool {
 }
 
 // command is an agent command the watcher tracks: the agent's direct child
-// whose tree holds the shell running one note's text.
+// whose tree holds the shell running one note's text. Or, with Detached, a
+// detached unit: work an agent's command forked that the init process
+// adopted (see unitRoot). A unit's Note is made up by the watcher and never
+// written to disk: its ToolUseID is the unit's ID and its Command the root
+// program's name only, because a running program's arguments may hold a
+// token the shell expanded and the note's Command reaches the log and the
+// reason. Root is then its first root that runs, and Shown its command line,
+// which only the view shows.
 type command struct {
-	Note note
-	Root proc
+	Note     note
+	Root     proc
+	Detached *detached
+	Shown    string
+}
+
+// detached is what makes a command a unit: its roots, each a child of the
+// init process, and Call, the ID of the call that started it, "" when it did
+// not resolve (see watcher.resolveCall), in which case the guard never
+// chooses it.
+type detached struct {
+	Roots []procRef `json:"roots"`
+	Call  string    `json:"call"`
 }
 
 // target is one signal: to the process PID, or with Group to the process

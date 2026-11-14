@@ -458,12 +458,18 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 	}
 }
 
+// A stop signals what targets gives. A target outside the command's tree, or
+// a unit's trees, would be a signal to a program no agent command started;
+// one inside a protected process's tree, to an agent or what it runs; one for
+// a unit's root that has exited, to whatever process reuses its PID. Each is
+// unauthorized execution.
 func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 	cases := []struct {
 		name      string
 		procs     []proc
 		root      int
 		start     uint64
+		unit      []procRef // the unit's roots, nil for a noted command
 		protected map[int]uint64
 		want      []target
 	}{
@@ -512,10 +518,39 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 			procs: []proc{process(1, 0, 1, 0, "launchd")},
 			root:  1, start: start(0), protected: map[int]uint64{},
 		},
+		{
+			// Root 1100 has exited; its PID now names another process.
+			name: "a unit of two roots, one gone",
+			procs: []proc{
+				process(1100, 1, 1100, 9, "postgres"),
+				process(1200, 1, 1200, 2, "node", "server.js"),
+				process(1201, 1200, 1200, 3, "node", "worker.js"),
+			},
+			unit:      []procRef{{1100, start(1)}, {1200, start(2)}},
+			protected: map[int]uint64{100: start(-3600)},
+			want:      []target{{1200, start(2), true}},
+		},
+		{
+			name: "a unit whose tree holds a protected agent",
+			procs: []proc{
+				process(1300, 1, 1300, 1, "zsh"),
+				process(1301, 1300, 1301, 2, "claude"),
+				process(1302, 1301, 1301, 3, "node", "mcp-server.js"),
+				process(1303, 1300, 1300, 4, "node", "build.js"),
+			},
+			unit:      []procRef{{1300, start(1)}},
+			protected: map[int]uint64{100: start(-3600), 1301: start(2)},
+			want:      []target{{1300, start(1), true}},
+		},
 	}
 	for _, c := range cases {
 		s := snapshotOf(c.procs...)
-		got := targets(s, proc{Process: platform.Process{PID: c.root, Start: c.start}}, c.protected)
+		cmd := command{Root: proc{Process: platform.Process{PID: c.root, Start: c.start}}}
+		if c.unit != nil {
+			cmd.Detached = &detached{Roots: c.unit, Call: "toolu_1"}
+			cmd.Root = proc{Process: platform.Process{PID: c.unit[0].PID, Start: c.unit[0].Start}}
+		}
+		got := targets(s, cmd, c.protected)
 		if !slices.Equal(got, c.want) {
 			t.Errorf("%s: targets %v, want %v", c.name, got, c.want)
 		}

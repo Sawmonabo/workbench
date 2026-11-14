@@ -302,14 +302,14 @@ func writeMessage(conn *net.UnixConn, m message) error {
 }
 
 // drainStops answers each stop waiting for this tick (see manualStop).
-func (w *watcher) drainStops(s snapshot, protected map[int]uint64) {
+func (w *watcher) drainStops(s snapshot, notes []note, protected map[int]uint64) {
 	if w.server == nil {
 		return
 	}
 	for {
 		select {
 		case req := <-w.server.stops:
-			req.reply <- w.manualStop(req, s, protected)
+			req.reply <- w.manualStop(req, s, notes, protected)
 		default:
 			return
 		}
@@ -343,8 +343,8 @@ func stopAllowed(peer procKey, s snapshot, protected map[int]uint64) bool {
 
 // chooseStops picks the tracked commands to stop, in the order asked, each
 // once, and answers each ID: unknown when not tracked, already finished when
-// its root is gone or its PID names another process, otherwise OK, which the
-// stop itself may still change.
+// it no longer runs (see live), otherwise OK, which the stop itself may still
+// change.
 func chooseStops(
 	ids []string,
 	tracked map[string]command,
@@ -360,7 +360,7 @@ func chooseStops(
 		switch {
 		case !ok:
 			results = append(results, StopResult{ID: id, Error: "unknown"})
-		case !s.alive(c.Root.PID, c.Root.Start):
+		case !live(s, c):
 			results = append(results, StopResult{ID: id, Error: "already finished"})
 		default:
 			stop = append(stop, c)

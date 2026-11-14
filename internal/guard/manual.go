@@ -31,8 +31,15 @@ type manualStop struct {
 // other gets the kill record, then SIGTERM, or SIGKILL with force, and is
 // followed at each tick by followManual. A stop that signals nothing removes
 // its record and answers already finished. A person's stop was asked for,
-// not chosen, so it sets no cooldown and counts toward no refusal or pass.
-func (w *watcher) manualStop(req stopRequest, s snapshot, protected map[int]uint64) []StopResult {
+// not chosen, so it sets no cooldown and counts toward no refusal or pass. A
+// person may stop a unit whose call did not resolve; notes, read at the same
+// tick, say whether a unit's call is told (see killRecordFor).
+func (w *watcher) manualStop(
+	req stopRequest,
+	s snapshot,
+	notes []note,
+	protected map[int]uint64,
+) []StopResult {
 	if !stopAllowed(req.peer, s, protected) {
 		results := make([]StopResult, 0, len(req.ids))
 		for _, id := range req.ids {
@@ -46,7 +53,7 @@ func (w *watcher) manualStop(req stopRequest, s snapshot, protected map[int]uint
 		index[r.ID] = i
 	}
 	for _, c := range stop {
-		if err := w.stopFor(c, s, protected, req.force); err != "" {
+		if err := w.stopFor(c, s, notes, protected, req.force); err != "" {
 			results[index[c.Note.ToolUseID]] = StopResult{ID: c.Note.ToolUseID, Error: err}
 		}
 	}
@@ -56,8 +63,15 @@ func (w *watcher) manualStop(req stopRequest, s snapshot, protected map[int]uint
 // stopFor stops one command for a person (see manualStop) and gives why it
 // could not, or "". A command already being stopped for a person is not
 // signalled again, but a forced stop of one stopped politely sends SIGKILL
-// now.
-func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force bool) string {
+// now. A unit's kill record goes to the call that started it, as for the
+// guard's own stop (see killRecordFor).
+func (w *watcher) stopFor(
+	c command,
+	s snapshot,
+	notes []note,
+	protected map[int]uint64,
+	force bool,
+) string {
 	id := c.Note.ToolUseID
 	if m := w.manual[id]; m != nil {
 		if force && !m.forced {
@@ -71,7 +85,7 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 	}
 	// size is what the guard's own stop records: the tree's footprint (Pss on
 	// Linux), read now, or the last reading when none of it can be read.
-	size := w.size(s.tree(c.Root.PID, outside(protected)), platform.Footprint)
+	size := w.size(s.commandTree(c, outside(protected)), platform.Footprint)
 	if u := w.usage[id]; size == 0 && u != nil && len(u.Samples) > 0 {
 		size = u.Samples[len(u.Samples)-1]
 	}
@@ -81,19 +95,11 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 			append(stopping, "dry_run", true)...)
 		return ""
 	}
-	chosen := targets(s, c.Root, protected)
+	chosen := targets(s, c, protected)
 	if len(chosen) == 0 {
 		return "already finished"
 	}
-	record := w.f.record(id)
-	if err := writeJSON(
-		record,
-		kill{ToolUseID: id, Reason: manualReason, At: time.Now()},
-	); err != nil {
-		w.f.event(slog.LevelError, EventError,
-			"cannot record the stop; stopping anyway, the agent will be told nothing",
-			append(callAttrs(c), "error", err)...)
-	}
+	record := w.writeKill(c, notes, manualReason)
 	w.f.event(slog.LevelWarn, EventStopping, "stopping", stopping...)
 	sig := unix.SIGTERM
 	if force {
@@ -104,7 +110,9 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 		sent = platform.Signal(platform.Process{PID: t.PID, Start: t.Start}, t.Group, sig) || sent
 	}
 	if !sent {
-		_ = os.Remove(record)
+		if record != "" {
+			_ = os.Remove(record)
+		}
 		return "already finished"
 	}
 	if force {
@@ -112,7 +120,7 @@ func (w *watcher) stopFor(c command, s snapshot, protected map[int]uint64, force
 	}
 	w.stoppedBy[id] = "you"
 	w.manual[id] = &manualStop{
-		procs: s.tree(c.Root.PID, outside(protected)), since: time.Now(),
+		procs: s.commandTree(c, outside(protected)), since: time.Now(),
 		force: force, forced: force, command: c,
 	}
 	return ""

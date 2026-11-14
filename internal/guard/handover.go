@@ -82,18 +82,22 @@ type handover struct {
 // the commands that finished within finishedShown, who stopped each tracked
 // command that was signalled, the call records and the agents the guard
 // knows, which live only in memory. The notes let the new watcher end a
-// command whose note was deleted, ended, while the watch passed.
+// command whose note was deleted, ended, while the watch passed. A unit is
+// carried with its made-up note, its roots and call (Detached) and its
+// command line (Shown), which passes only through the pipe.
 type carried struct {
-	Tracked     map[string]procRef `json:"tracked"`
-	Notes       map[string]note    `json:"notes"`
-	Ended       []string           `json:"ended"`
-	Passed      []string           `json:"passed"`
-	Usage       map[string]usage   `json:"usage"`
-	LargestPeak uint64             `json:"largest_peak"`
-	Finished    []CommandView      `json:"finished"`
-	StoppedBy   map[string]string  `json:"stopped_by"`
-	Records     []callRecord       `json:"records"`
-	Known       []agentFile        `json:"known"`
+	Tracked     map[string]procRef  `json:"tracked"`
+	Notes       map[string]note     `json:"notes"`
+	Detached    map[string]detached `json:"detached"`
+	Shown       map[string]string   `json:"shown"`
+	Ended       []string            `json:"ended"`
+	Passed      []string            `json:"passed"`
+	Usage       map[string]usage    `json:"usage"`
+	LargestPeak uint64              `json:"largest_peak"`
+	Finished    []CommandView       `json:"finished"`
+	StoppedBy   map[string]string   `json:"stopped_by"`
+	Records     []callRecord        `json:"records"`
+	Known       []agentFile         `json:"known"`
 }
 
 type procRef struct {
@@ -314,6 +318,8 @@ func (w *watcher) carried() carried {
 	c := carried{
 		Tracked:     map[string]procRef{},
 		Notes:       map[string]note{},
+		Detached:    map[string]detached{},
+		Shown:       map[string]string{},
 		Usage:       map[string]usage{},
 		LargestPeak: w.largestPeak,
 		Finished:    w.finished,
@@ -326,6 +332,12 @@ func (w *watcher) carried() carried {
 	for id, cmd := range w.tracked {
 		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
 		c.Notes[id] = cmd.Note
+		if cmd.Detached != nil {
+			c.Detached[id] = *cmd.Detached
+			if cmd.Shown != "" {
+				c.Shown[id] = cmd.Shown
+			}
+		}
 		if u := w.usage[id]; u != nil {
 			c.Usage[id] = *u
 		}
@@ -431,8 +443,8 @@ func takeListener() *net.UnixListener {
 // any command, once its root has been absent for two rounds: it logs the end
 // once and keeps it among the finished commands with who stopped it, and the
 // note on disk is never matched again. A tracked command carried without
-// memory starts it anew. Other notes are matched as a new watcher matches
-// them (see match).
+// memory starts it anew. A unit is taken on as adoptUnit says. Other notes
+// are matched as a new watcher matches them (see match).
 func (w *watcher) adopt(s snapshot, notes []note) {
 	c := w.inherited
 	w.largestPeak = max(w.largestPeak, c.LargestPeak)
@@ -454,6 +466,10 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		}
 	}
 	for id, root := range c.Tracked {
+		if unit, ok := c.Detached[id]; ok {
+			w.adoptUnit(s, id, unit, c)
+			continue
+		}
 		n, noted := onDisk[id]
 		if !noted {
 			n, noted = c.Notes[id]
@@ -488,5 +504,53 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		if _, ok := w.tracked[id]; !ok {
 			delete(w.stoppedBy, id)
 		}
+	}
+}
+
+// adoptUnit takes on a carried unit with its made-up note, which is never on
+// disk, its roots, call, command line and memory, and whether it is passed
+// over. Its roots are children of the init process, not of its agent, so
+// none is asked to be the agent's child. Each root is marked classified, so
+// it is not found again as a unit of its own, and each process of the roots'
+// trees is marked seen under the unit, so one the init process adopts later
+// joins it (see findUnits), as it would have under the old watcher; its
+// roots' stamps are read again, so an agent they name stays protected. One
+// none of whose roots runs is tracked without a log, and forget ends it.
+func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
+	n, ok := c.Notes[id]
+	if !ok {
+		return
+	}
+	unit.Roots = slices.Clone(unit.Roots)
+	cmd := command{Note: n, Detached: &unit, Shown: c.Shown[id]}
+	if len(unit.Roots) > 0 {
+		cmd.Root = firstRoot(s, cmd)
+	}
+	w.tracked[id] = cmd
+	u, kept := c.Usage[id]
+	if !kept {
+		u = usage{Since: time.Now()}
+	}
+	w.usage[id] = &u
+	w.passed[id] = slices.Contains(c.Passed, id)
+	o := owner{ID: id, Agent: procKey{n.AgentPID, n.AgentStart}, Kind: n.Kind}
+	for _, r := range unit.Roots {
+		if s.alive(r.PID, r.Start) {
+			w.classified[procKey{r.PID, r.Start}] = isUnit
+			w.stampOf(s, r.PID, nil)
+		}
+	}
+	// Without the agents the guard knows, as recordLineage leaves out
+	// protected processes, so work under a nested agent is not the unit's.
+	agent := func(p proc) bool {
+		key := procKey{p.PID, p.Start}
+		_, known := w.known[key]
+		return known || w.stampAgents[key] || p.PID <= 1
+	}
+	for _, p := range s.commandTree(cmd, agent) {
+		w.seenUnder[procKey{p.PID, p.Start}] = o
+	}
+	if live(s, cmd) {
+		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(cmd)...)
 	}
 }

@@ -17,8 +17,6 @@ const recordsKept = 4096
 // have started: the stamp line runs once the shell has started and read the
 // env file, a moment after the kernel's start time, and that moment can be
 // long on a loaded machine.
-//
-//nolint:unused // first used by the unit rule
 const stampSlack = 30 * time.Second
 
 // callRecord is what the watcher keeps of a call whose note it read, after
@@ -109,8 +107,6 @@ func (r *records) tracked(id string, root proc) {
 }
 
 // byID is the record of the call id.
-//
-//nolint:unused // first used by the unit rule
 func (r *records) byID(id string) (callRecord, bool) {
 	rec, ok := r.byCall[id]
 	return rec, ok
@@ -121,8 +117,6 @@ func (r *records) byID(id string) (callRecord, bool) {
 // than stampSlack before it. A later shell that reuses the ID started at
 // another time, so a stamp never resolves to another call. It reports false
 // when no record matches, or more than one does.
-//
-//nolint:unused // first used by the unit rule
 func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, bool) {
 	if shell <= 0 {
 		return callRecord{}, false
