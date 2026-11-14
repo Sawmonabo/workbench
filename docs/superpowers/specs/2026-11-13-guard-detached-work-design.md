@@ -24,15 +24,18 @@ waits for a check before it is designed further.
   and is a candidate when the guard must stop the largest agent command.
 - The rule names no script, tool or project. A process is detached work when
   it was forked by another process and not started by the init process, is no
-  longer under its agent, and either carries a stamp of an agent the guard
-  knows or was forked by a process the guard saw in a command's tree.
+  longer under its agent, and was itself seen in a command's tree before it
+  detached, was forked by a process the guard saw in a command's tree, or
+  carries a stamp of an agent the guard knows.
 - A row always names its agent. It names its subagent and call only when the
   guard can prove which call started it, and is blank otherwise. Nothing is
   guessed. The guard's own stop takes detached work only when its call is
   proved and its setting was read; anything else is shown and left to a
   person.
-- Each agent, and each long-lived helper it starts itself, is a row too. The
-  guard never chooses these for a stop.
+- Each agent the guard knows, and each long-lived helper it starts itself,
+  is a row too. The guard never chooses these for a stop. An agent session
+  the guard does not know yet is a program like any other; 5.4 says which
+  sessions those are and for how long.
 - One line shows where the memory in use is: commands, detached work, agents,
   helpers and everything else.
 - The only change to how a command runs is one more variable in its
@@ -141,7 +144,8 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
 22. The kernel's `P_EXEC` flag, which the process listing the watcher reads
     already carries (`kinfo_proc`'s `p_flag`), was clear on every forked
     child that had not exec'd (100 of 100 in every series, a Perl daemon's
-    child included) and set on every `posix_spawn`ed shell.
+    child included) and set on every `posix_spawn`ed shell. The watcher uses
+    it to tell a forked child that has not exec'd yet (5.3).
 23. A process of the same user can attach `NOTE_FORK`, `NOTE_EXEC` and
     `NOTE_EXIT` (`EVFILT_PROC`) to a process that is not its child, without
     privileges; `NOTE_TRACK` is refused. A fork event carries no child PID
@@ -163,8 +167,8 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     events. A double fork made by a program below the shell (a Perl one-liner
     that forks twice) was caught 0 of 100: nothing below the shell is
     followed. A shell forking 500 times a second cost such a follower about
-    4.3 % of a core (measured for 0.6 s; about 6.8 % in a 10 s run that also
-    logged every read); a build below the shell cost nothing, since its forks
+    4.3 % of a core (measured for 0.6 s; about 6.8 % in a 10 s run of
+    research code), both logging every read; a build below the shell cost nothing, since its forks
     come from processes not followed.
 26. Sampling instead of waking, listing an agent's children every 2, 5 or
     10 ms, caught a single fork 100 of 100 at 2 and 5 ms and 85 of 100 at
@@ -195,6 +199,12 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     `eslogger` read nothing more or need root.
 30. After `/usr/bin/perl` rewrote `$0`, its command line read through
     `kern.procargs2` held an environment string's name among its arguments.
+    A C program that rewrites its title, started by Homebrew bash, `/bin/bash`
+    or `/bin/zsh` as `WORKBENCH_GUARD=off CLAUDE_PID=… program ARGS`, read
+    with its setting empty or its agent stamp missing in some of those
+    shapes when only the environment proper was read, and with both in every
+    shape when the trailing `NAME=value` strings among its arguments were
+    read too (4.4).
 31. One read of a process's version (flavor 17 of `proc_pidinfo`) took 0.27
     to 0.95 µs; one read of its environment (`kern.procargs2`) 4.8 to
     10.2 µs on average, 110 µs at worst; `proc_listchildpids` 6.2 µs;
@@ -205,7 +215,9 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     32 MiB. With 1,400 processes held under one command the watcher spent
     8.4 ms a tick, and under a churn of about 650 new processes a tick
     10.2 ms, as much as a watcher without detached work (11.4 and 10.0 ms in
-    the same session). Under that churn, with the store at its bound, its
+    the same session). Under that churn, with the store at its bound
+    (inferred from the churn rate; the watcher does not report the store's
+    size), its
     live heap was 11 to 13 MiB, of which the store took 5.1 to 6.8 MiB; the
     memory its limit counts stayed near 30 MiB, the collector used under
     0.1 % of the CPU, and it was resident at 37 to 41 MiB, the rest being
@@ -222,7 +234,11 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     call's shell forking 300 times and an agent forking 300 times were capped
     after 251 and 101 wakes in their second. Following cost about 4 ms of
     the watcher's CPU per call, each call making three children of the
-    agent (the pre hook, the shell, the post hook).
+    agent (the pre hook, the shell, the post hook). A research follower
+    attached to a real Claude Code 2.1.325 session's process from its start,
+    following the session and each new child as the watcher does, was woken
+    85 times over the whole of one throwaway session, with 61 listings of
+    children and 18 ms of CPU.
 
 ### 2.2 Documented
 
@@ -291,7 +307,8 @@ measurements in 2.1 agree with it.
 17. `sysctl_procargsx`, which serves `kern.procargs2`, omits the environment
     unless the target is the caller, is not `cs_restricted`, SIP is off or
     the caller holds `com.apple.private.read-environment-variables`; a
-    process can also mark itself restricted (`CS_OPS_MARKRESTRICT`). It
+    process can also mark itself restricted (`CS_OPS_MARKRESTRICT`, in
+    `kern_proc.c`). It
     finds the end of the arguments only by counting `p_argc` strings, and
     copies the area as the process holds it now, so a program that merged
     its argument strings when it rewrote its title moves environment strings
@@ -306,7 +323,8 @@ measurements in 2.1 agree with it.
     child starts with it clear, since fork copies only a fixed list of other
     flags; `proc_pidinfo` reports it as `PROC_FLAG_EXEC`.
 20. PIDs are handed out one after another and wrap at `PID_MAX` (99,999)
-    back to 100 (`kern_fork.c`), so the PID of a process that exited is
+    back to 100 (the wrap in `kern_fork.c`, `PID_MAX` in
+    `bsd/sys/proc_internal.h`), so the PID of a process that exited is
     handed out again in time.
 21. The version read through flavor 17 cannot be read wrong for a reparented
     process: `p_orig_ppidversion` "doesn't change if reparented"
@@ -333,6 +351,14 @@ measurements in 2.1 agree with it.
     never matched. Jenkins (tag `jenkins-2.590`, `ProcessTree.java`) kills
     only processes whose environment matches every variable of its model, and
     a failed read gives an empty one, which never matches.
+26. Linux, read at `v6.12`: `PF_FORKNOEXEC` ("Forked but didn't exec",
+    `include/linux/sched.h`) is set for a new process in `copy_process`
+    (`kernel/fork.c`) and cleared in `begin_new_exec` (`fs/exec.c`), and
+    `/proc/PID/stat` gives the flags word as field 9 (`proc_pid_stat(5)`).
+    `environ_read` (`fs/proc/base.c`) copies the environment area as the
+    process holds it now, and Perl uses that area for a longer `$0` (`perl.c`,
+    `perl_parse`: "Can we grab env area too to be used as the area for $0?"),
+    so a retitled program's variables can be gone from it.
 
 ### 2.3 Not yet verified
 
@@ -341,21 +367,25 @@ measurements in 2.1 agree with it.
    outside, and whether a command run in a sandbox sees its shell's process
    ID as the watcher does or one of its own namespace.
 
-2. Everything new in 2.1 (facts 21 to 32) on Linux and WSL, and the cost of
+2. Everything new in 2.1 (facts 21 to 34) on Linux and WSL, and the cost of
    the rules of section 5 there, where a process's program is told by its
    name and command line, read from `/proc`.
 
 Nothing on Linux, WSL or Windows was run for this design; those systems are
 unqualified for it, and `docs/acceptance.md` lists what was observed there.
-Nothing is built on these facts: a stamp ties nothing on Linux and WSL
-(5.2), and fork events are not followed there (5.3).
+Little is built on these facts: a stamp ties nothing on Linux and WSL (5.2),
+no stamp is read inside a tracked tree there (5.4), and fork events are not
+followed there (5.3). Stamps read for a detached root, and below a hidden
+one, still protect a process they name and carry the opt-out there, which can
+only make the guard stop less.
 
 ## 3. Approaches considered
 
 - **A. Inherited stamps, checked against the kernel's record of the original
   parent (chosen).** It is the method the Actions runner uses where a tool
-  cannot control how processes are grouped, it needs no privileges, and it
-  costs one read per new process tree.
+  cannot control how processes are grouped, and it needs no privileges. It
+  costs one version read per tracked process per tick and one environment
+  read per program (2.1 facts 31 and 32).
 - **B. Guess by start time and working folder.** Rejected: it would stop
   programs a person started themselves in the same folder.
 - **C. Kernel process events as the way to know a fork's child.** Exact,
@@ -366,8 +396,8 @@ Nothing is built on these facts: a stamp ties nothing on Linux and WSL
   (5.3): they need no privileges for a process of the same user (2.1 fact
   23), and on a wake the watcher lists the children itself. Sampling the
   agent's children from the pre hook instead was weighed and not chosen: it
-  misses by timing and misses most double forks, at twenty to forty times
-  the CPU (2.1 fact 26).
+  misses by timing and misses most double forks, at about ten times the CPU
+  of the wake-up as built (2.1 facts 26 and 34).
 - **D. Start each command inside a kernel group.** On Linux a cgroup keeps
   every descendant, but the command must be placed in it when it starts,
   which a hook cannot do; macOS has no equivalent. Section 11 uses Claude
@@ -382,8 +412,8 @@ Nothing is built on these facts: a stamp ties nothing on Linux and WSL
 ## 4. Stamps
 
 A stamp is an environment variable a command's processes inherit. The guard
-reads only the names below, with `platform.Environ`, and keeps or logs nothing
-else of any environment. A stamp only ever exposes the process that carries
+reads only the names below, with `platform.ReadEnvironment`, and keeps or logs
+nothing else of any environment. A stamp only ever exposes the process that carries
 it and what is under it: no process can make the guard stop another by what
 it puts in its own environment.
 
@@ -457,11 +487,25 @@ own environment says `dry-run` or `off`.
 program it starts may run without the variable (2.2 item 22), and the
 process still stays out, with everything recorded below it (5.3). What it
 starts is judged by its own stamps: a program it runs with the variable
-removed (`env -u`, `env -i`, a build tool that filters its tasks'
-variables, 2.2 item 13) reads as not set. A hidden root whose first
+removed (`env -u`, a build tool that filters its tasks' variables, 2.2 item
+13) reads as not set. A program with an empty environment (`env -i`) reads
+as unreadable, like a restricted one, unless it sets a variable of its own.
+A hidden root whose first
 readable programs read so is judged by them, and a program that leaves an
 opted-out root and later detaches is tied by its own stamps like any other
 (section 10). No registered opt-out exists beside the variable.
+
+A program that rewrote its title keeps its setting and its agent stamp. On
+macOS a title written past the arguments can push environment strings into
+what reads as the arguments (2.1 fact 30, 2.2 item 17), so `WORKBENCH_GUARD`
+and `CLAUDE_PID` are also read from the trailing `NAME=value` strings among
+the arguments: either can only make the guard do less, so a real argument
+such as `make WORKBENCH_GUARD=off` keeps that program out too. The call stamp
+and Codex's call ID, which tie, are read from the environment only. On Linux
+a title written over the environment area wipes the variables there (2.2
+item 26), so an environment area holding a string that is not a variable
+reads as unreadable, and such a process is treated as one whose environment
+is hidden.
 
 ## 5. Detached units
 
@@ -509,10 +553,10 @@ A process R is the root of a unit when all of these hold:
 6. R is not itself an agent the guard knows (5.4). A session a command
    started and left detached is an agent, with a row of its own, not a unit.
 
-Whatever tied it, R is no unit when a stamp read for it names another agent
-(its `CLAUDE_PID` names another process, or its Codex stamp resolves to
-another agent), when its call stamps name two different agents, or when it
-says `WORKBENCH_GUARD=off` (4.4).
+R is also no unit when a stamp read for it says `WORKBENCH_GUARD=off` (4.4),
+when its Codex stamp resolves to another agent, when, for a tie a Claude Code
+agent owns, its `CLAUDE_PID` names another process, and, for a tie by stamp,
+when its call stamps name two different agents.
 
 **Final and not final.** A "no" that rests on evidence is final for the life
 of the process (its PID and start time): another user's, started by the init
@@ -527,14 +571,17 @@ once the process runs another program.
 its version changed: the kernel raises it at every exec and at nothing else
 (2.1 fact 21, 2.2 item 16). A program that rewrites its title keeps its
 version, and one that execs the same path with the same arguments gets a new
-one. On Linux and WSL, which keep no version, a process runs another program
-when its process name or command line changed; a failed or empty read never
-counts as a change. The same rule decides when a root is judged again, when
-a child of the init process whose "no" was not final is judged again, and
-when a process's stamp is read again (5.4). A root's name, which the log
+one. On Linux and WSL, which keep no version, a root runs another program
+when its process name or command line changed, and a child of the init
+process that is no root yet, or a process whose stamp is cached, when its
+process name changed, so no command line is read for them at every tick; a
+failed or empty read never counts as a change. The same rule decides when a
+root is judged again, when a child of the init process whose "no" was not
+final is judged again, and when a process's stamp is read again (5.4). A root's name, which the log
 shows, and the command line the view shows (section 8) follow the process
 whenever they differ; that alone resets nothing. On macOS a root's whole
-command line is not kept: only the shown form is.
+command line is not kept: only the shown form is, read again at every tick;
+on Linux the shown form is read again only when the command line changed.
 
 **Settled roots.** A unit's root carries the program it was judged in, when
 that program was first seen, and whether it is settled. It is not settled
@@ -560,13 +607,13 @@ program may be a session yet to reach its SessionStart hook; one whose
 stamps now say `dry-run` makes its unit a dry run.
 
 **While the kernel does not answer** where processes come from, on macOS, no
-new unit is made and no root is judged again. A root still leaves when it
-becomes a known agent, when it comes under a protected process, and when
-what tied it is dropped from the store (5.3), since none of these needs a
-kernel record. A root whose program cannot then be read is
-pending, so the guard does not choose it on a verdict given to an earlier
-program (section 6). The guard logs the loss once, and once more when the
-kernel answers again.
+new unit is made, no root is judged again, and every root of every unit is
+pending, so the guard's own stop takes no detached work (section 6). A root
+still leaves when it becomes a known agent, when it comes under a protected
+process, and when what tied it is dropped from the store (5.3), since none
+of these needs a kernel record. When the kernel answers again, each root is
+judged again. The guard logs the loss once, and once more when the kernel
+answers again.
 
 The unit is R and everything below it, with protected processes and what is
 under them left out, as for a command's tree.
@@ -613,8 +660,8 @@ its entry, every entry whose chain of parents reaches it, and all their
 versions. Every root of a tracked unit whose entry was forgotten this way
 leaves its unit (5.2): the one that caused it with its own reason, any other
 with "what started its root is not this call's work". So work a nested
-session left detached before the session was known is no longer the outer
-call's once it is known, even when it was tied through a process that
+session left detached before the session was known or protected is no
+longer the outer call's once it is, even when it was tied through a process that
 exited or exec'd before the session registered; and a program that opted
 out takes with it what it started. A nested agent's own calls stay tied to
 it: their shells have no parent entry, so forgetting the nested agent never
@@ -623,33 +670,46 @@ reaches them.
 **The shell learned at its start.** On macOS the watcher follows the forks,
 execs and exit of every known agent that runs, between its calls too,
 through the kernel's event queue (2.1 fact 23). On an agent's fork it lists
-the agent's children; it follows each new child that is not protected
-first, then reads it, so an exec is never missed, and matches it against
-that agent's notes that have no tracked command, are not ended and have not
-yet been given a shell, by the same matching rules as a tick, so each note
-goes to one shell. A matched shell's call record gets the shell (its PID and
-start time), and the store records the shell, with no parent, and its
-direct children, with the call as owner, each with its version read then;
+the agent's children, oldest first; it follows each new child that is not
+protected first, then reads it, so an exec is never missed, and matches it
+against that agent's notes that have no tracked command, are not ended and
+have not yet been given a shell, by the same matching rules as a tick. It
+gives a matched note to the child only where the tick would give the same
+one: the note's text is the only one of the agent's untracked notes with
+that text, or the child runs in the best folder the note allows and no older
+child of the agent is still waiting for its exec. Otherwise the call is left
+to the tick. So each note goes to one shell, and two subagents starting the
+same command at once each keep their own work.
+
+A matched shell's call record gets the shell (its PID and start time), and
+the store records the shell, with no parent, and its direct children that
+are not protected, with the call as owner, each with its version read then;
 no stamp is read. The shell is then followed for its forks (whose children
 are recorded), its execs (whose version is recorded) and its exit, and
-nothing deeper. A child still in its agent's image waits, followed, for its
-exec; any other child that matched no note is no longer followed. These
-records only make ties earlier, never a new kind: the tick stays the one
-place that tracks, measures, logs and decides stops, and a wake neither
-hurries nor delays it.
+nothing deeper. Before each of these, the watcher checks that the shell is
+still the call's: once it is protected (a stamp names it, or it exec'd into
+a session) or the store no longer holds it under the call, it is no longer
+followed and nothing more is recorded under it. A child that has forked and
+not exec'd, which the kernel's own flag tells (2.1 fact 22, 2.2 items 19 and
+26), waits, followed, for its exec; any other child that matched no note is
+no longer followed. What the watcher keeps for this is forgotten at each
+tick for processes that have ended. These records only make ties earlier,
+never a new kind: the tick stays the one place that tracks, measures, logs
+and decides stops, and a wake neither hurries nor delays it.
 
 Two bounds keep the cost down, and neither is logged. A call's shell that
-wakes the watcher more than 250 times in one second loses its fork watch for
-the rest of its life; its exit stays watched and the tick still tracks it.
-An agent that wakes it more than 100 times in one second is not followed for
-its forks for 5 seconds, and a later tick follows it again; its calls are
-found at the ticks meanwhile (2.1 fact 34). When the kernel refuses to
-follow an agent that still runs, the guard logs that once and finds that
-agent's calls at the ticks. Where the kernel cannot follow forks (Linux and
-WSL), the tick alone records. So work a sub-second call leaves detached is
-tied to the call by its original parent (5.5), as it is for a longer call.
-The watcher handles wakes between ticks only: a waiting child whose exec and
-exit both arrive while a tick runs is dropped (section 10).
+wakes the watcher more than 250 times in one second, by its forks and execs
+together, loses its fork watch for the rest of its life (2.1 fact 25); its
+exit stays watched and the tick still tracks it. An agent that wakes it more
+than 100 times in one second is not followed for its forks for 5 seconds,
+and a later tick follows it again; its calls are found at the ticks
+meanwhile (2.1 fact 34). When the kernel refuses to follow an agent that
+still runs, the guard logs that once and finds that agent's calls at the
+ticks. Where the kernel cannot follow forks (Linux and WSL), the tick alone
+records. So work a sub-second call leaves detached is tied to the call by
+its original parent (5.5), as it is for a longer call. The watcher handles
+wakes between ticks only: a waiting child whose exec and exit both arrive
+while a tick runs is dropped (section 10).
 
 It does not see through a double fork made by a program below the shell
 whose middle process lived and died between two ticks: nothing below the
@@ -686,25 +746,47 @@ Only known agents count for a stamp.
 
 Protected, with everything under them: every known agent, whether or not it
 has a note at the moment, the watcher, and every process that any stamp
-names as an agent and that started before the stamped process. A protected
-process stays protected, and a known agent stays known, for as long as it is
+names as an agent and that started before the stamped process. Those
+stamp-named processes pass to the next watcher at a handover, so they are
+protected from its first tick. A protected process stays protected, and a known agent stays known, for as long as it is
 in the process table, a zombie its parent has not yet reaped included, so an
 exiting session is never shown inside the tree of the command that started
 it.
 
-**Stamps inside tracked trees.** While it records a tracked tree, the
-watcher reads each member's stamp from the second tick at which it records
-it, once per program (5.2); its versions are recorded from the first. A live process a member names as its agent, older
-than that member, is protected from that tick, with everything under it, and
-forgotten from the store with what was recorded below it (5.3), as it
-already is for a detached root. So a Claude Code session started without
-the guard's hooks is known from the first readable program that carries its
-own `CLAUDE_PID`, one tick after that program is first recorded (one second
-at the normal pace, 100 ms under pressure), with no name hard-coded; work it
+**Stamps inside tracked trees.** On macOS, while it records a tracked tree,
+the watcher reads each member's stamp from the second tick at which it
+records it, once per program (5.2); its versions are recorded from the
+first. A live process a member names as its agent, older than that member,
+is protected from that tick, with everything under it, and forgotten from
+the store with what was recorded below it (5.3), as it already is for a
+detached root. So a Claude Code session started without the guard's hooks is
+protected from the first readable program that carries its own
+`CLAUDE_PID`, one tick after that program is first recorded (one second at
+the normal pace, 100 ms under pressure), with no name hard-coded; work it
 leaves detached in that tick is tied to the outer call only through the
-store, which drops it once the session is known (5.3). One whose programs
-are all hidden is never known (section 10). Stamps are read once per program a process
-runs, a hidden result included (2.1 fact 31).
+store, which drops it once the session is protected (5.3). It is protected,
+not known: it has no agent row, and its forks are not followed. One whose
+programs are all hidden is never protected this way (section 10). Stamps are
+read once per program a process runs, a hidden result included (2.1 fact
+31). On Linux and WSL no stamp is read inside a tracked tree (2.3).
+
+**Sessions the guard does not know yet.** The guard never stops an agent it
+knows or protects. A session a command started is a program like any other
+until then, and if it is left detached it is a unit the guard may choose
+after its ten seconds (section 6):
+- a Claude Code session with the hooks, until its SessionStart hook runs:
+  0.31 to 0.69 s measured (2.1 fact 28);
+- a Codex session with the hooks, until its SessionStart hook runs in its
+  first turn: 2.3 to 3.5 s measured, 17.1 s with a required MCP server that
+  answered after 15 s, and never for an idle session started without a
+  prompt (2.2 item 23);
+- a Claude Code session without the hooks, on macOS, until a readable
+  program carrying its own `CLAUDE_PID` has been recorded at two ticks; one
+  whose programs are all hidden, never; on Linux and WSL, never;
+- a Codex session without the hooks, which sets no `CLAUDE_PID`: never;
+- a Claude Code session before 2.1.214, which sets no `CLAUDE_PID`, when it
+  runs without the hooks: never.
+Section 10 items 7 to 9 give these as limits.
 
 ### 5.5 Which call started it
 
@@ -781,8 +863,11 @@ At a handover the next watcher takes each unit with its roots (each with the
 program it was judged in, whether it is settled, its name and the command
 line it shows, and on Linux the command line it was judged in),
 its call and whether it was tied by stamp alone; the call records, with
-whether each started an agent; the final verdicts; and the store (5.3). No
-root's time passes: a wall clock that steps would make a root look older
+whether each started an agent; the final verdicts; the processes stamps
+named as agents (5.4); and the store (5.3). Known agents and stamp-named ones
+are taken on while they are in the process table, a zombie not yet reaped
+included, so they are protected from the new watcher's first tick. No root's
+time passes: a wall clock that steps would make a root look older
 than it is, so each root's ten seconds start again at the handover. The old
 watcher gives what it carries 5 seconds to be read; a successor that does
 not read it in time is cancelled and the old watcher carries on.
@@ -798,15 +883,12 @@ not read it in time is cancelled and the old watcher carries on.
   been tracked for ten seconds, and sizes and signals only those; a unit
   with none is not chosen. The ten seconds count per root, from when it was
   found or started its present program, and start again at a handover
-  (5.6): a session a command started needs that long to reach its
-  SessionStart hook and be known as an agent (2.1 fact 28), and it may join
-  a unit as a later root. One predicate decides this for the stop and for
-  the view's `held` (section 8). While the kernel does not answer where
-  processes come from, a root whose program cannot be read is not settled,
-  so no unit is chosen on a verdict given to an earlier program. Since the
-  call fails only for a process that does not exist or by a policy (2.2
-  item 21), a root's own read fails then too, and no detached work is
-  chosen; this is read from the source, not measured.
+  (5.6): a session a command started usually needs less than that to reach
+  its SessionStart hook and be known as an agent, and it may join a unit as
+  a later root; 5.4 lists the sessions that can take longer. One predicate
+  decides this for the stop and for the view's `held` (section 8). While
+  the kernel does not answer where processes come from, every root is
+  pending, so the guard's own stop takes no detached work (5.2).
 - A person's stop covers every live root. A root that joins a unit with
   `dry-run` in its stamps makes the unit a dry run, and so does a root whose
   setting cannot be read while its agent's own environment says `dry-run`
@@ -818,9 +900,10 @@ not read it in time is cancelled and the old watcher carries on.
   resolves and its command still runs in the foreground, through that call's
   kill record, in words that name the detached program. Otherwise the stop
   is in the log only, as for a command whose result already returned.
-- The log, the reason and the kill record name a unit by the process name,
-  as the kernel keeps it, of a root the stop signals, never a root it left
-  out, and never by its arguments: a call's text is
+- The log, the reason and the kill record of the guard's own stop name a
+  unit by the process name, as the kernel keeps it, of the first root it
+  signals that still runs, never a root it left out or one that has exited,
+  and never by its arguments: a call's text is
   logged as the agent wrote it, but a running program's arguments hold what
   the shell put there, a token read from a variable included, and its
   launcher or the program itself may rewrite them. The command line is in
@@ -836,15 +919,14 @@ not read it in time is cancelled and the old watcher carries on.
   its command line names and by the kernel's process name), and in whose
   tree no readable process carries a `CLAUDE_PID` naming that agent (under
   Codex, no Codex call ID): a language server, an MCP server (2.1 facts 10
-  and 14). A child whose command line cannot be read is no helper. It is a
-  row with its tree's size.
+  and 14). It is a row with its tree's size. A child whose command line
+  cannot be read is no helper.
 - A direct child that no note claims is a command the guard could not match
   when a readable process in its tree carries a call stamp, agreeing with its
   own `CLAUDE_PID`, that names that agent and that child as its shell, in a
   second that fits the child's start, and the guard has seen it alive for
-  five seconds. It is a row with the
-  status `unmatched` and its tree's size while it runs, counted with the
-  commands in the memory line. A command a person typed with `!` is such a
+  five seconds. It is a row with the status `unmatched` and its tree's size
+  while it runs, counted with the commands in the memory line. A command a person typed with `!` is such a
   row too (2.1 fact 16). A hook or a status line command carries
   `CLAUDE_PID` but no such stamp, so it is neither this nor a helper and has
   no row.
@@ -975,55 +1057,65 @@ stop what it must not (a fault).
    chosen (5.5). Misses.
 6. **An opt-out removed from what a program runs.** A program that set
    `WORKBENCH_GUARD=off` and runs others with the variable removed (`env
-   -u`, `env -i`, a build tool that filters variables) leaves them judged by
-   their own stamps, which read as not set (4.4): a hidden root whose first
+   -u`, a build tool that filters variables) leaves them judged by their
+   own stamps, which read as not set (4.4): a hidden root whose first
    readable programs read so may be chosen, and so may such a program that
    later detaches from a root that opted out. May stop what it must not.
    Only an opt-out that needs no environment would close it, and none is
    built.
 7. **A session that never runs a readable program carrying its own agent
    stamp.** An agent session a command starts and leaves detached is known,
-   and so never stopped, from its SessionStart hook, or without the hooks
-   from the first readable program that carries its own `CLAUDE_PID` (5.4).
-   One whose programs are all hidden, or one still in its first moments
-   (0.31 to 0.69 s measured for Claude Code, 2.1 fact 28), is a program
-   like any other: it is a unit of the outer command, and after ten seconds
-   the guard may choose it, with the work it left detached. May stop what it
-   must not. Once such a session is known, the work it left before is no
+   and so never stopped, from its SessionStart hook, or, without the hooks
+   and on macOS, protected from the first readable program that carries its
+   own `CLAUDE_PID` (5.4). One without the hooks whose programs are all
+   hidden, one without the hooks on Linux and WSL, and one still in its
+   first moments are programs like any other (5.4 lists them and for how
+   long): a unit of the outer command, which after ten seconds the guard may
+   choose, with the work it left detached. May stop what it must not. Once
+   such a session is known or protected, the work it left before is no
    longer the outer call's (5.3).
 8. **A Codex session whose required MCP servers take longer than the ten
    seconds.** Codex runs its SessionStart hook in its first turn, after its
    required MCP servers are prepared (2.2 item 23); with one that answered
    after 15 s it registered at 17.1 s (2.1 fact 28). Left detached by a
    command, it is a unit the guard may choose between the tenth second and
-   its registration. May stop what it must not.
+   its registration (5.4). May stop what it must not.
 9. **Claude Code before 2.1.214.** It sets no `CLAUDE_PID` (2.2 fact 1), so
    its commands carry no valid stamp. Their detached work is found only by
    the store (5.3), never by a stamp: misses. And a nested session of such a
-   version started without the hooks is never known from a stamp (5.4), as
-   in item 7: may stop what it must not.
+   version started without the hooks is never protected by a stamp (5.4),
+   as in item 7: may stop what it must not.
 10. **A command that names one of its own processes as an agent.** Any
     command can keep the guard off its own tree by naming one of its own
     processes in `CLAUDE_PID` (`CLAUDE_PID=$$ …`): the stamp protects that
-    process, inside a tracked tree as in a detached one (5.4). The guard
-    cannot stop that command. Misses.
+    process, in a detached tree everywhere and inside a tracked tree on
+    macOS (5.4). The guard cannot stop that command. Misses.
 11. **While the kernel does not answer where processes come from.** No new
-    unit is made and no detached work is chosen (5.2, section 6). Misses.
+    unit is made and every root is pending, so no detached work is chosen
+    by the guard (5.2, section 6). Misses.
 12. **Linux and WSL find less.** With no original-parent record, no tie by
     stamp and no fork events, detached work is found there only when the
     guard recorded it in a tracked command's tree at a tick before it
     detached; with ticks of one second, or 100 ms under memory pressure, a
     program that detaches at once, through a double fork, is unseen, and so
-    is work whose environment was wiped. Misses. Whether more can be found
+    is work whose environment was wiped. Misses. No stamp is read inside a
+    tracked tree there, so a session started without the hooks is never
+    protected by one (item 7). Whether more can be found
     safely is decided with the checks of 2.3 and section 11. None of this was
     run on Linux or WSL.
 13. **A child that execs and exits while a tick runs.** The watcher handles
     wakes only between ticks, and the kernel folds a process's events that
     arrive meanwhile into one. A child of an agent still waiting for its
-    exec, whose exec and exit come together that way, is dropped unmatched, so its shell is not
-    learned and work it left is found only as for a call before any watcher
-    ran (item 5). Misses.
-14. **A program the agent opened for a person.** An editor or a browser a
+    exec, whose exec and exit come together that way, is dropped unmatched,
+    so its shell is not learned and work it left is found only as for a call
+    before any watcher ran (item 5). Misses.
+14. **A note left to the tick.** At a fork wake-up a note is given only where
+    the tick would give the same one (5.3). Where an agent forks a child and
+    then execs it (Claude Code spawns its shells whole, 2.1 fact 24), a
+    younger child with the same text that exec'd before an older one is left
+    to the tick; if its command ends within a tick, its work is found only
+    by its stamp and never chosen. Misses.
+15. **A program the agent opened for a person.** An editor or a browser a
     command starts is that command's work wherever the system does not hand
     it to the init process to start. On macOS apps go through `open` and are
     left out (5.2); on Linux an app a command forked and left running is a
@@ -1037,8 +1129,8 @@ returned within a tick, under a shell whose environment is readable; detached
 work of any noted call that ended within a tick, which gets its call and
 subagent; a double fork made by the command's shell itself; all three
 through the shell learned at its start (5.3), on macOS while a watcher runs.
-Work a nested session left detached before it was known is no longer the
-outer call's once it is known (5.3).
+Work a nested session left detached before it was known or protected is no
+longer the outer call's once it is (5.3).
 
 ## 11. Waiting for a check: Claude Code's cgroup on Linux and WSL
 
@@ -1057,18 +1149,20 @@ how a command is accounted.
 
 The names of the variable, the hidden command, the statuses and the log
 attributes; the classification cache; a row's full ID in the socket
-protocol; how many fork events in a second take a shell's fork watch (5.3);
-the Linux details once 2.3 is known; whether the protocol version moves. The
-bounds this design rests on are stated where they are used: 4,096 call
-records (5.5), versions kept 60 seconds and at most 16,384 (5.3), a helper
-seen for five seconds (section 7), ten seconds before the guard's own stop
-(section 6).
+protocol; the Linux details once 2.3 is known; whether the protocol version
+moves. The bounds this design rests on are stated where they are used: 4,096
+call records and a stamp's 30-second window (5.5); versions kept 60 seconds
+and at most 16,384, the oldest then dropped down to 14,336 (5.3); 250 wakes
+a second for a call's shell, and 100 wakes a second then a 5-second pause
+for an agent (5.3); the 5-second deadline of a handover's write (5.6); a
+helper seen for five seconds (section 7); ten seconds before the guard's own
+stop (section 6).
 
 ## 13. Tests and checks
 
-Tests for one risk, unauthorized execution: the guard stopping a program no
-agent command provably started, an agent, or work that opted out. Each says
-the risk beside it.
+Tests for two risks: unauthorized execution (the guard stopping a program no
+agent command provably started, an agent, or work that opted out), and
+credential exposure (the last). Each says its risk beside it.
 
 - `TestUnitRootOnlyForWhatAnAgentCommandForked`: the unit rule yields no
   root for a process without a stamp and without a recorded original
@@ -1080,14 +1174,28 @@ the risk beside it.
   that name two agents, for a stamp alone where the system keeps no
   original parent, for a known agent, for a Workbench process, for a
   protected process, for a child of a protected PID 1, and when the kernel
-  does not answer; a tie by parent with nothing readable is marked as such.
+  does not answer; a tie by its own entry or by its original parent with
+  nothing readable is marked as such.
 - `TestGuardChoosesOnlyWhatACallProvablyStarted`: the guard's choice never
   falls on a unit whose call did not resolve, on a root tracked for less
   than ten seconds, on a root that is not settled, or on a unit tied by
   stamp alone to a call that started an agent.
+- `TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop`, on a watcher with
+  made-up processes: a final "no" at first sight drops what it started; a
+  recorded process that becomes protected takes its tree; what judging a
+  root again decides (settled, dry run) is kept; a root that runs another
+  program is pending and young again; a root with nothing readable is
+  pending; without lineage no unit is chosen; a stamp-named agent is
+  protected from the first tick after a handover.
 - `TestTargetsStayInsideTheCommandTree`: a stop of a unit signals only its
   live roots' trees, never a protected agent inside it, never a root that
-  joined less than ten seconds ago or is not settled.
+  joined less than ten seconds ago or is not settled, and is named after a
+  root it signals that still runs.
+- `TestGlimpseRecordsNothingUnderAProtectedShell`: once a learned shell is
+  protected, its forks and execs record nothing and it is no longer
+  followed.
+- `TestARetitledProgramKeepsItsOptOut`: a program that rewrote its title
+  still reads `WORKBENCH_GUARD=off` and its `CLAUDE_PID`.
 - `TestManualStopsOnlyWhatAPersonMayStop`: a stop of an agent row is
   refused; a helper row may be stopped.
 - `TestDropTakesWhatAProcessStarted`: forgetting a process takes what was
@@ -1127,8 +1235,8 @@ is not forced, so the guard's own stop is shown by the facts it rests on
 - A nested session a command starts, in each shape (its early work hidden or
   readable, through a middle that lived or not, detached itself, exiting
   right after it registers, tied through a version from before an exec):
-  once it is known, no row keeps the outer call. Without hooks, it is known
-  from its first readable program carrying its own `CLAUDE_PID`. A command
+  once it is known, no row keeps the outer call. Without hooks, it is
+  protected from its first readable program carrying its own `CLAUDE_PID`. A command
   that sets `CLAUDE_PID=$$` keeps the guard off its own tree.
 - A session that exits but is not yet reaped stays out of the outer
   command's tree.
@@ -1214,7 +1322,19 @@ Nothing is run on Linux, WSL or Windows for this release (2.3).
   `PROC_FLAG_EXEC` and flavor 17's checks
   <https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/proc_info.c>;
   `p_orig_ppidversion`
-  <https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/proc_info_private.h>
+  <https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/proc_info_private.h>;
+  `PID_MAX`
+  <https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/proc_internal.h>;
+  `CS_OPS_MARKRESTRICT`
+  <https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_proc.c>
+- Linux `v6.12`, `PF_FORKNOEXEC`:
+  <https://elixir.bootlin.com/linux/v6.12/source/include/linux/sched.h>,
+  set in `copy_process`
+  <https://elixir.bootlin.com/linux/v6.12/source/kernel/fork.c> and cleared
+  in `begin_new_exec` <https://elixir.bootlin.com/linux/v6.12/source/fs/exec.c>;
+  `proc_pid_stat(5)` <https://man7.org/linux/man-pages/man5/proc_pid_stat.5.html>
+- Perl, `$0` using the environment area (`perl_parse` in `perl.c`):
+  <https://github.com/Perl/perl5/blob/blead/perl.c>
 - `man 2 kqueue` and `man 2 execve` on macOS
 - Codex at commit `048431dcbecc510f1879c9421a97220016ecac44`, SessionStart in
   the first turn:
