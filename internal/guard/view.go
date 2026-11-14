@@ -52,7 +52,8 @@ func (w *watcher) finish(v CommandView) {
 }
 
 // buildView is the snapshot of this tick: s and m, the tracked commands with
-// their trees as measure read them, then the rows of this tick (see
+// their trees as measure read them, a unit that runs with why the guard
+// itself will not choose it now (see held), then the rows of this tick (see
 // buildRows), an unmatched command's with the state unmatched, then the
 // commands that finished within finishedShown, whose older ones it forgets,
 // and the memory in use split by the sizes the running rows show.
@@ -75,6 +76,13 @@ func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView
 		v := w.commandView(id, c, state)
 		if c.Detached != nil {
 			v.PID = firstRoot(s, c).PID
+			if live(s, c) {
+				v.Held = held(
+					c.Detached,
+					now,
+					func(r detachedRoot) bool { return s.alive(r.PID, r.Start) },
+				)
+			}
 		}
 		v.Tree = trees[id]
 		running = append(running, v)

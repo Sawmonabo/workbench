@@ -342,12 +342,39 @@ func ownStop(c command, now time.Time) (command, time.Duration) {
 	return c, youngest
 }
 
-// Why the guard's own stop leaves a unit's root out (see rootHeld): it has
-// been tracked less than unitGrace, or it is not settled.
+// Why the guard itself will not choose a unit now (see held), as a snapshot
+// shows it: no call is proved to have started it, no root has been tracked
+// unitGrace, or no root tracked that long is settled. The last two are also
+// why its own stop leaves one root out (see rootHeld).
 const (
+	heldNoCall = "no call"
 	heldYoung  = "young"
 	heldUnread = "unread"
 )
+
+// held is why the guard itself will not choose the unit d at now, "" when it
+// may: heldNoCall without a proved call, else heldYoung when no root that
+// runs (runs reports it) has been tracked unitGrace, else heldUnread when
+// none of those is settled. It is the view's word for what mayChoose and
+// ownStop decide, by the same rootHeld.
+func held(d *detached, now time.Time, runs func(detachedRoot) bool) string {
+	if d.Call == "" {
+		return heldNoCall
+	}
+	why := heldYoung
+	for _, r := range d.Roots {
+		if !runs(r) {
+			continue
+		}
+		switch rootHeld(r, now) {
+		case "":
+			return ""
+		case heldUnread:
+			why = heldUnread
+		}
+	}
+	return why
+}
 
 // rootHeld is why the guard's own stop leaves the root r out at now, "" when
 // it may take it: heldYoung while it has been tracked less than unitGrace

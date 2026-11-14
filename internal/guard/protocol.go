@@ -96,12 +96,18 @@ type MemoryView struct {
 // program that detached from a command, agent for the agent process itself or
 // helper for a long-lived program the agent started; PID is the row's root
 // process, and LaunchedBy the ID of the call that started a detached
-// program, empty when unknown.
+// program, empty when unknown. Held is, for a detached program that runs,
+// why the guard itself will not choose it now: "no call" (no call is proved
+// to have started it), "young" (none of its roots has been tracked ten
+// seconds since it was found or started its program) or "unread" (none of
+// those is settled: its setting cannot be read, or it is being judged
+// again), the first that applies; it is empty when the guard may choose it.
 type CommandView struct {
 	ID         string        `json:"id"`
 	Kind       string        `json:"kind"`
 	PID        int           `json:"pid"`
 	LaunchedBy string        `json:"launched_by"`
+	Held       string        `json:"held,omitempty"`
 	Agent      string        `json:"agent"`
 	Subagent   string        `json:"subagent"`
 	Project    string        `json:"project"`

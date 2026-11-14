@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -364,7 +365,7 @@ func (m *guardView) take(snap guard.Snapshot) {
 	}
 	if m.mode == menuMode && len(m.running(m.targets)) == 0 {
 		m.mode = m.menuFrom
-		m.say(shortIDs(m.targets) + " already finished; nothing was stopped")
+		m.say(m.shortIDs(m.targets) + " already finished; nothing was stopped")
 	}
 }
 
@@ -380,13 +381,37 @@ func (m *guardView) running(ids []string) []string {
 	return out
 }
 
-// shortIDs are call IDs as the view shows them, joined with commas.
-func shortIDs(ids []string) string {
+// shortIDs are rows' IDs as the view shows them (see label), joined with
+// commas.
+func (m *guardView) shortIDs(ids []string) string {
 	short := make([]string, len(ids))
 	for i, id := range ids {
-		short[i] = shortCallID(id)
+		short[i] = m.label(id)
 	}
 	return strings.Join(short, ", ")
+}
+
+// label is the ID of the row id as the view shows it (see rowLabel), or
+// its call's short ID when the snapshot no longer has it.
+func (m *guardView) label(id string) string {
+	i := slices.IndexFunc(m.snap.Commands, func(c guard.CommandView) bool { return c.ID == id })
+	if i < 0 {
+		return shortCallID(id)
+	}
+	return rowLabel(m.snap.Commands[i])
+}
+
+// rowLabel is a row's ID as the list shows it: for a detached program, p and
+// the process ID of its first root that runs, since a number in a process
+// list is read as a live PID and the system hands a gone root's PID out
+// again; for any other row its short ID (see shortCallID). The log and
+// --json keep a detached program's own ID, which its details show as the
+// label the log uses.
+func rowLabel(c guard.CommandView) string {
+	if c.Kind == "detached" && c.PID > 0 {
+		return "p" + strconv.Itoa(c.PID)
+	}
+	return shortCallID(c.ID)
 }
 
 // selectedID is the selected command's call ID, empty with no rows.
@@ -432,11 +457,11 @@ func (m *guardView) answered(results []guard.StopResult) {
 		})
 		switch {
 		case r.OK && dry:
-			parts = append(parts, "logged "+shortCallID(r.ID)+" (dry run)")
+			parts = append(parts, "logged "+m.label(r.ID)+" (dry run)")
 		case r.OK:
-			parts = append(parts, "stopped "+shortCallID(r.ID))
+			parts = append(parts, "stopped "+m.label(r.ID))
 		default:
-			parts = append(parts, shortCallID(r.ID)+" "+r.Error)
+			parts = append(parts, m.label(r.ID)+" "+r.Error)
 		}
 	}
 	m.say(strings.Join(parts, "; "))
@@ -523,7 +548,7 @@ func (m *guardView) pressMenu(key string) tea.Cmd {
 		}
 		cmd := m.send(ids, m.menu == 1)
 		if len(gone) > 0 {
-			m.say(strings.TrimPrefix(m.notice+"; ", "; ") + shortIDs(gone) + " already finished")
+			m.say(strings.TrimPrefix(m.notice+"; ", "; ") + m.shortIDs(gone) + " already finished")
 		}
 		return cmd
 	}
@@ -564,7 +589,7 @@ func (m *guardView) openMenu(from viewMode) {
 		m.snap.Commands[m.cursor].Kind == "agent":
 		m.say("agents are never stopped")
 	case len(ids) == 0 && m.cursor < len(m.snap.Commands):
-		m.say(shortCallID(m.selectedID()) + " already finished")
+		m.say(m.label(m.selectedID()) + " already finished")
 	case len(ids) == 0:
 	case !m.connected:
 		m.say("No watcher is connected; nothing was stopped")
@@ -581,7 +606,7 @@ func (m *guardView) send(ids []string, force bool) tea.Cmd {
 		m.notice = ""
 		return nil
 	}
-	m.say("asking the watcher to stop " + shortIDs(ids))
+	m.say("asking the watcher to stop " + m.shortIDs(ids))
 	clear(m.tagged)
 	return func() tea.Msg {
 		results, err := client.Stop(ids, force)
@@ -884,7 +909,7 @@ func (m *guardView) cells(c guard.CommandView) []string {
 		took = tookValue(end.Sub(c.Started).Seconds())
 	}
 	return []string{
-		shortCallID(c.ID),
+		rowLabel(c),
 		forTerm(statusText(c.Kind, c.State, c.DryRun)),
 		c.Agent,
 		c.Subagent,
@@ -1052,9 +1077,11 @@ func onBand(s lipgloss.Style, light bool) lipgloss.Style {
 
 // detailLines are the selected command's details, every line of them, in
 // this order: a blank line, the full command, one step of it per line, its
-// folder, agent, subagent, full ID, for a detached program whose call is
-// known the full ID of the call that started it, status and run time, memory
-// now and at its peak, its processes, and a graph of its memory. The details
+// folder, agent, subagent, full ID, for a detached program the ID the log
+// gives it and, when its call is known, the full ID of the call that started
+// it, status and run time, for a detached program the guard will not stop
+// itself why not (see heldText), memory now and at its peak, its processes,
+// and a graph of its memory. The details
 // pane scrolls through them; none is cut.
 func (m *guardView) detailLines() []string {
 	if m.cursor >= len(m.snap.Commands) {
@@ -1089,10 +1116,16 @@ func (m *guardView) detailLines() []string {
 	add("Agent", c.Agent)
 	add("Subagent", cmp.Or(c.Subagent, "—"))
 	add("ID", c.ID)
+	if c.Kind == "detached" {
+		add("In the log", shortCallID(c.ID))
+	}
 	if c.LaunchedBy != "" {
 		add("Started by", c.LaunchedBy)
 	}
 	add("Status", status)
+	if text := heldText(c.Held); text != "" {
+		add("Note", text)
+	}
 	now, peak := cells[memoryColumn], cells[peakColumn]
 	nowStyle, peakStyle := sizeStyles(c)
 	if nowStyle != nil {
@@ -1109,6 +1142,20 @@ func (m *guardView) detailLines() []string {
 	}
 	add("Graph", graph(c.History, c.Peak, m.width-15))
 	return lines
+}
+
+// heldText says in plain words why the guard itself will not stop a
+// detached program now (guard.CommandView.Held), "" when it may.
+func heldText(held string) string {
+	why := map[string]string{
+		"no call": "no call is proved to have started it",
+		"young":   "it was found, or started its program, less than ten seconds ago",
+		"unread":  "its setting cannot be read",
+	}[held]
+	if why == "" {
+		return ""
+	}
+	return "The guard will not stop this itself: " + why + ". You can stop it here."
 }
 
 // commandSteps splits a shell command into the steps a reader follows, as
