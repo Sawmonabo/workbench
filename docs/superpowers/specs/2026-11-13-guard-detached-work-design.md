@@ -57,11 +57,11 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
 2. A subagent's Bash command runs in a shell that is a direct child of the
    same agent process and carries the same `CLAUDE_PID`. No variable in its
    environment names the subagent or the call.
-3. A line `export NAME="$$"` that a SessionStart hook appends to
-   `$CLAUDE_ENV_FILE` gives every later Bash command a `NAME` equal to its own
-   shell's process ID, a different one for each command. A line added to the
-   file in the middle of a session did not reach that session's later
-   commands.
+3. A line `export NAME="$CLAUDE_PID:$$"` that a SessionStart hook appends to
+   `$CLAUDE_ENV_FILE` gives every later Bash command a `NAME` holding its
+   agent's process ID and its own shell's, a different shell for each
+   command. A line added to the file in the middle of a session did not reach
+   that session's later commands.
 4. Reading another process's environment (`kern.procargs2`) returns none for
    `/bin/zsh`, `/bin/bash`, `/bin/sleep` and `/usr/bin/perl`, and returns it
    for Homebrew's Python, Xcode's Python and clang, cargo and rustc.
@@ -90,6 +90,11 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
     the variables the env file exports: the watcher, which the pre hook
     starts, is one. A session's env file gains the same lines again each time
     a SessionStart hook that appends to it runs.
+12. A Claude Code session started with such a variable already in its
+    environment, as one a command starts would be, passes it unchanged to
+    what its hooks start: a daemon one of its hooks left carried that
+    session's own `CLAUDE_PID` beside the inherited value, which named
+    another agent.
 
 ### 2.2 Documented
 
@@ -139,8 +144,9 @@ as the agent's shell, in throwaway sessions and with throwaway processes:
 ### 2.3 Not yet verified
 
 1. Everything in 2.1 on Linux and WSL: which process adopts an orphan, that
-   its environment is readable, and how the memory cap's cgroup looks from
-   outside.
+   its environment is readable, how the memory cap's cgroup looks from
+   outside, and whether a command run in a sandbox sees its shell's process
+   ID as the watcher does or one of its own namespace.
 2. That a detached process started by a Codex command carries
    `CODEX_TOOL_CALL_ID` where the guard can read it.
 3. When a PostToolUse hook matched on `Bash|Monitor` fires for a Monitor call
@@ -195,7 +201,8 @@ Sessions of a Claude Code older than v2.1.214 have no agent stamp.
 
 Claude Code gives `CLAUDE_PID` to hook commands too (2.1 fact 11), so on its
 own it does not show that a command forked a process. A Claude Code process
-is tied by its stamps only when it carries the call stamp as well.
+is tied by its stamps only when it carries the call stamp as well, and the
+two agree.
 
 ### 4.2 Call stamp
 
@@ -203,11 +210,16 @@ A new hidden command, run as a SessionStart hook beside the costs hook,
 appends one line to `$CLAUDE_ENV_FILE` unless it is already there:
 
 ```sh
-export WORKBENCH_GUARD_SHELL="$$"
+export WORKBENCH_GUARD_CALL="$CLAUDE_PID:$$"
 ```
 
-Every Bash and Monitor command of the session then carries the process ID of
-its own shell, which is the process the guard tracks as the command's root.
+Every Bash and Monitor command of the session then carries its agent's
+process ID and the process ID of its own shell, which is the process the
+guard tracks as the command's root. The stamp counts only when its agent part
+equals the `CLAUDE_PID` of the process that carries it. A nested session a
+command starts, and everything that session's hooks start, inherit the outer
+command's stamp beside their own `CLAUDE_PID`; the two disagree, so the stamp
+does not count (2.1 fact 12).
 A process a hook starts never carries it (2.1 fact 11), which is what keeps a
 daemon some hook started from being taken for a command's work. The hook
 prints nothing and never fails; with `WORKBENCH_GUARD=off`, or without
@@ -252,14 +264,17 @@ A process R is the root of a unit when all of these hold:
    condition, pending 2.3 item 1.
 3. R is tied to an agent the guard knows, by a stamp or by its original
    parent (5.3).
-   - By a stamp: R carries the call stamp and the agent stamp, or Codex's
-     one stamp. When R's environment is hidden, they are read from the first
-     readable processes below it, reached through hidden ones only: at least
-     one carries them and none carries another agent's.
+   - By a stamp: R carries the call stamp and the agent stamp, agreeing, or
+     Codex's one stamp. When R's environment is hidden, they are read from
+     the first readable processes below it, reached through hidden ones
+     only: at least one carries them and none carries another agent's.
    - By its original parent: 5.3.
 4. R started after that agent, and after the call's shell when the call
    resolves (5.5), by the kernel's start times.
 5. R is not a Workbench process and not a protected process.
+
+By either tie, R is no unit of an agent when a stamp read for it names
+another agent: it is that agent's, to be judged by that agent's stamps.
 
 The unit is R and everything below it, with protected processes and what is
 under them left out, as for a command's tree.
@@ -303,7 +318,11 @@ The guard keeps a record of each call whose note it read: its ID, the agent,
 subagent, project and folder, whether its note was a dry run, and, once the
 call was tracked, its shell's process ID and start time. So that every call
 leaves one, the post hook marks a call's note ended where it deletes it
-today, and the watcher deletes the note once it has the record. Records
+today, and the watcher deletes the note once it has the record. An ended note
+is never matched to a command, so it cannot claim a later command with the
+same text; it is not abandoned and adds no warning the guard does not log
+today; and when no watcher holds the lock the post hook deletes the note as
+it does today, so notes never pile up unread. Records
 outlive their calls while the agent runs, the newest few thousand per agent,
 and pass to the next watcher at a handover with the tracked commands. A
 watcher that starts fresh has none.
@@ -313,7 +332,7 @@ The first of these that applies:
 1. A unit tied by its original parent belongs to the call whose tree held
    that parent.
 2. A Codex call stamp resolves to its note or record.
-3. A Claude Code call stamp resolves to the record of that agent with that
+3. A Claude Code call stamp resolves to the record of its agent with its
    shell ID whose shell started before R. When more than one such record
    exists, because the ID was reused, it does not resolve.
 4. Otherwise the row has the agent from the agent stamp, the project from
@@ -354,15 +373,20 @@ the unit is forgotten, not stopped, as a command is today.
   command script, and in whose tree no readable process carries `CLAUDE_PID`:
   a language server, an MCP server (2.1 fact 10, 2.3 item 5). It is a row
   with its tree's size.
-- A direct child that is a shell running a command script, or whose tree
-  carries `CLAUDE_PID`, and that no note claims is a command the guard could
-  not match. Today it is unseen while it runs. It is a row with the status
-  `unmatched` and its tree's size while it runs, and is logged when it ends
-  as today.
+- A direct child that no note claims is a command the guard could not match
+  when a readable process in its tree carries a call stamp naming that child
+  as its shell, and the guard has seen it alive for several seconds. Today
+  it is unseen while it runs. It is a row with the status `unmatched` and its
+  tree's size while it runs, counted with the commands in the memory line,
+  and is logged when it ends as today. A hook or a status line command
+  carries `CLAUDE_PID` but no such stamp, so it is neither this nor a helper
+  and has no row.
 - Parent links decide these rows, so they hold on every platform.
-- They show while the watcher runs. The watcher's lifetime does not change:
-  it still exits after ten minutes with no note, no tracked command and no
-  unit, and the rows go with it until the next command.
+- Proposed, for the owner to confirm: they show while the watcher runs, and
+  the watcher's lifetime does not change. It still exits after ten minutes
+  with no note, no tracked command and no unit, and the rows go with it
+  until the next command. The other choice keeps the watcher running for as
+  long as any known agent does.
 - The guard never chooses an agent, a helper or an unmatched command for a
   stop. A person may stop a helper or an unmatched command from the view,
   through the watcher like any stop. A stop of an agent row is refused.
@@ -463,7 +487,8 @@ process without a stamp and without a recorded original parent, for a stamp
 naming a dead process, an unknown one or one younger than the stamped
 process, for a process the init process started that carries a stamp, for a
 process that carries the agent stamp without the call stamp as a hook's child
-does, for a Workbench process, for a protected process, and when the kernel
+does, for one whose call stamp names another agent than its own `CLAUDE_PID`
+as a nested session's does, for a Workbench process, for a protected process, and when the kernel
 does not answer; and no agent, helper or unmatched row is ever a stop the
 guard chooses. The risk
 it guards is the guard stopping a program no agent command forked.
@@ -492,7 +517,11 @@ Before release, in a disposable home on macOS and in a Linux container:
 - A new ADR for recognizing detached work by stamps and the original-parent
   record, and for the agent and helper rows.
 - `docs/usage.md`: the guard section's sentence that detached programs are
-  not tracked, and the view's rows and memory line.
+  not tracked, its sentence that the guard never stops MCP servers or
+  anything else of the agent's, which now holds for the guard's own stops
+  and not for a helper a person stops from the view, and the view's rows and
+  memory line.
+- The package comment of `internal/guard`, which says the same.
 - `AGENTS.md`: the guard row of the ownership table gains the SessionStart
   hook.
 - `docs/acceptance.md` once the checks in section 13 have run.
