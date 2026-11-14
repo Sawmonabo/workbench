@@ -43,16 +43,21 @@ type stamp struct {
 }
 
 // readStamp reads pid's stamps from the environment it started with, in one
-// read of that environment.
+// read of that environment. The agent stamp and the mode can only make the
+// guard do less (a stamp-named agent is protected and keeps work apart from
+// another agent's call; off and dry-run keep work out or to the log), so they
+// are read also where a rewritten title left them among the arguments (see
+// platform.Environment.Narrowing). The call stamp and the Codex call ID tie
+// work to a call, so they come from the environment proper only.
 func readStamp(pid int) stamp {
-	values, readable := platform.Environment(pid, agentStamp, callStamp, codexStamp, modeVariable)
+	env := platform.ReadEnvironment(pid, agentStamp, callStamp, codexStamp, modeVariable)
 	st := stamp{
-		Readable: readable,
-		Agent:    int(stampNumber(values[agentStamp])),
-		Codex:    values[codexStamp],
-		Mode:     values[modeVariable],
+		Readable: env.Readable,
+		Agent:    int(stampNumber(env.Narrowing(agentStamp))),
+		Codex:    env.Value(codexStamp),
+		Mode:     env.Narrowing(modeVariable),
 	}
-	if parts := strings.Split(values[callStamp], ":"); len(parts) == 3 &&
+	if parts := strings.Split(env.Value(callStamp), ":"); len(parts) == 3 &&
 		digits(parts[0]) && digits(parts[1]) && digits(parts[2]) {
 		st.CallAgent = int(stampNumber(parts[0]))
 		st.CallShell = int(stampNumber(parts[1]))

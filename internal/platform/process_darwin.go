@@ -175,34 +175,53 @@ func environmentShaped(s string) bool {
 // Environ is the variable name in the environment the process started with.
 // It is "" when absent or unreadable.
 func Environ(pid int, name string) string {
-	values, _ := Environment(pid, name)
-	return values[name]
+	return ReadEnvironment(pid, name).Value(name)
 }
 
-// Environment is the named variables among the environment strings that
-// follow the arguments in kern.procargs2, up to the empty string that ends
-// them: the environment the process started with, read once. A name that is
-// absent has no entry. readable is false when the kernel gives no
-// environment at all, as it does for a restricted program such as /bin/sleep
-// or /bin/zsh, or when the process cannot be read.
-func Environment(pid int, names ...string) (values map[string]string, readable bool) {
-	_, rest := procArgs(pid)
-	values = map[string]string{}
+// ReadEnvironment reads the named variables of the environment the process
+// started with, once: the environment strings that follow the first p_argc
+// strings in kern.procargs2, up to the empty string that ends them. Readable
+// is false when the kernel gives no environment at all, as it does for a
+// restricted program such as /bin/sleep or /bin/zsh, or when the process
+// cannot be read.
+//
+// A process that rewrote its title can leave fewer strings in its argument
+// area than p_argc (see Args), so the first environment strings are counted
+// as arguments and are missing from the environment proper. Those are kept
+// apart, from the trailing strings of the first p_argc that are shaped like
+// variables (see environmentShaped), and only Narrowing gives them.
+func ReadEnvironment(pid int, names ...string) Environment {
+	args, rest := procArgs(pid)
+	e := Environment{values: map[string]string{}, inArgs: map[string]string{}}
 	for len(rest) > 0 {
 		end := bytes.IndexByte(rest, 0)
 		if end <= 0 {
 			break
 		}
-		readable = true
-		name, value, ok := strings.Cut(string(rest[:end]), "=")
-		if ok && slices.Contains(names, name) {
-			if _, seen := values[name]; !seen {
-				values[name] = value
-			}
-		}
+		e.Readable = true
+		keepNamed(e.values, string(rest[:end]), names)
 		rest = rest[end+1:]
 	}
-	return values, readable
+	first := len(args)
+	for first > 0 && environmentShaped(args[first-1]) {
+		first--
+	}
+	for _, arg := range args[first:] {
+		keepNamed(e.inArgs, arg, names)
+	}
+	return e
+}
+
+// keepNamed keeps entry, a NAME=value string, in values when its name is
+// among names and not kept yet: the first of a name counts, as for getenv.
+func keepNamed(values map[string]string, entry string, names []string) {
+	name, value, ok := strings.Cut(entry, "=")
+	if !ok || !slices.Contains(names, name) {
+		return
+	}
+	if _, seen := values[name]; !seen {
+		values[name] = value
+	}
 }
 
 // procArgs reads kern.procargs2: argc as a 32-bit integer, the executable

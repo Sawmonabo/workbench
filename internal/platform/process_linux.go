@@ -211,31 +211,49 @@ func argumentArea(pid int) (uint64, bool) {
 // Environ is the variable name in the environment the process started with.
 // It is "" when absent or unreadable.
 func Environ(pid int, name string) string {
-	values, _ := Environment(pid, name)
-	return values[name]
+	return ReadEnvironment(pid, name).Value(name)
 }
 
-// Environment is the named variables in /proc/<pid>/environ, the environment
-// the process started with, read once. A name that is absent has no entry.
-// readable is false when the kernel gives no environment at all: the file
-// cannot be read, as for another user's process, or it reads empty with no
-// error, as for a zombie, a process that exited but is not yet reaped, or a
-// kernel thread.
-func Environment(pid int, names ...string) (values map[string]string, readable bool) {
-	values = map[string]string{}
+// ReadEnvironment reads the named variables in /proc/<pid>/environ, the
+// environment the process started with, once. Readable is false when the
+// kernel gives no environment at all: the file cannot be read, as for
+// another user's process, or it reads empty with no error, as for a zombie,
+// a process that exited but is not yet reaped, or a kernel thread.
+//
+// The arguments never run into the environment here, as they can on macOS
+// (see Narrowing): the kernel's environ_read (fs/proc/base.c) copies exactly
+// the bytes from env_start to env_end, the environment area, as they are now
+// in the process's memory. But that memory can be overwritten: a program
+// that sets its title in the setproctitle way (Perl's $0, for one, when its
+// environment follows its arguments) first copies its environment elsewhere
+// and then writes the title over the arguments and the environment area,
+// which proc_pid_environ(5) leaves unsaid ("this file contains the initial
+// environment"; changes made through putenv are not reflected). The
+// variables there are then gone, an opt-out among them, and the strings left
+// are not variables. So a read with a string that is not shaped like one (no
+// "=" after a name) is not Readable: the process is then judged as one whose
+// environment is hidden, which only makes the guard do less. The values read
+// are kept as they are, so Environ is unchanged.
+func ReadEnvironment(pid int, names ...string) Environment {
+	e := Environment{values: map[string]string{}}
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 	if err != nil || len(data) == 0 {
-		return values, false
+		return e
 	}
-	for entry := range strings.SplitSeq(string(data), "\x00") {
+	e.Readable = true
+	for entry := range strings.SplitSeq(strings.TrimSuffix(string(data), "\x00"), "\x00") {
 		name, value, ok := strings.Cut(entry, "=")
-		if ok && slices.Contains(names, name) {
-			if _, seen := values[name]; !seen {
-				values[name] = value
+		if !ok || name == "" {
+			e.Readable = false
+			continue
+		}
+		if slices.Contains(names, name) {
+			if _, seen := e.values[name]; !seen {
+				e.values[name] = value
 			}
 		}
 	}
-	return values, true
+	return e
 }
 
 // Footprint is the process's proportional set size (Pss), which counts a
