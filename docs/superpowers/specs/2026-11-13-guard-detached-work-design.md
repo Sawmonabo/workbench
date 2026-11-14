@@ -382,11 +382,12 @@ the unit is forgotten, not stopped, as a command is today.
   carries `CLAUDE_PID` but no such stamp, so it is neither this nor a helper
   and has no row.
 - Parent links decide these rows, so they hold on every platform.
-- Proposed, for the owner to confirm: they show while the watcher runs, and
-  the watcher's lifetime does not change. It still exits after ten minutes
-  with no note, no tracked command and no unit, and the rows go with it
-  until the next command. The other choice keeps the watcher running for as
-  long as any known agent does.
+- They show while the watcher runs, and the watcher's lifetime does not
+  change. It still exits after ten minutes with no note, no tracked command
+  and no unit, and the rows go with it until the next command. Keeping the
+  watcher running for as long as any known agent does was considered and
+  dropped: these rows are display only, and the view design's rule of no
+  watcher while nothing is guarded stands.
 - The guard never chooses an agent, a helper or an unmatched command for a
   stop. A person may stop a helper or an unmatched command from the view,
   through the watcher like any stop. A stop of an agent row is refused.
