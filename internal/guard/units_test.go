@@ -1,0 +1,259 @@
+package guard
+
+import (
+	"testing"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
+)
+
+// A detached unit is a candidate the guard stops when memory runs out, and
+// nothing ties it to an agent but what unitRoot reads. Taking for a unit a
+// program no agent command forked (an app opened from the Dock, a daemon a
+// hook started, a service the init process runs, another user's program, a
+// stamp naming a dead, unknown or younger process, a nested session's
+// inherited stamp) or an agent itself, or Workbench, or a protected process,
+// would let the guard kill the user's work or session: the one catastrophic
+// outcome this feature can have. Each row that must give no unit starts from
+// a setup that is a unit and changes only the one thing it is about, so that
+// thing alone is what keeps it out.
+
+// unitWorld is the snapshot and facts of one row, built fresh for each.
+type unitWorld struct {
+	procs     map[int]proc
+	root      int
+	lineage   bool
+	lineages  map[int]platform.Lineage
+	stamps    map[int]stamp
+	known     map[procKey]kind
+	protected map[int]uint64
+	versions  map[uint32]owner
+	seenUnder map[procKey]owner
+	notes     []note
+}
+
+func (w *unitWorld) facts() (snapshot, proc, facts) {
+	s := snapshot(w.procs)
+	recs := &records{}
+	for _, n := range w.notes {
+		recs.add(n)
+	}
+	return s, s[w.root], facts{
+		self:    0,
+		lineage: w.lineage,
+		read: func(pid int) (platform.Lineage, bool) {
+			l, ok := w.lineages[pid]
+			return l, ok
+		},
+		stamp:     func(pid int) stamp { return w.stamps[pid] },
+		args:      func(pid int) []string { return s[pid].Args },
+		known:     w.known,
+		protected: w.protected,
+		versions:  w.versions,
+		seenUnder: w.seenUnder,
+		records:   recs,
+	}
+}
+
+func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
+	agent := procKey{100, start(-3600)}
+	nested := procKey{150, start(-1000)}
+	codexAgent := procKey{200, start(-1800)}
+	rootKey := procKey{500, start(10)}
+	byCall := owner{ID: "toolu_1", Agent: agent, Kind: claude}
+
+	// The base is a unit by stamp on macOS: node, forked by agent 100's
+	// command (its original parent's version 4000 is no longer recorded), now
+	// a child of launchd, carrying the call stamp of agent 100's shell 300.
+	base := func() *unitWorld {
+		return &unitWorld{
+			procs: map[int]proc{
+				1:   process(1, 0, 1, -99999, "launchd"),
+				100: process(100, 1, 100, -3600, "claude"),
+				150: process(150, 100, 150, -1000, "claude"),
+				200: process(200, 1, 200, -1800, "codex"),
+				500: process(500, 1, 500, 10, "node", "server.js"),
+				700: process(700, 100, 700, -10, "tini"),
+				800: process(800, 1, 800, -5, "bash"),
+			},
+			root:    500,
+			lineage: true,
+			lineages: map[int]platform.Lineage{
+				1:   {Version: 1, ParentVersion: 0},
+				500: {Version: 5000, ParentVersion: 4000},
+				700: {Version: 7000, ParentVersion: 6000},
+				800: {Version: 8000, ParentVersion: 1},
+			},
+			stamps: map[int]stamp{
+				500: {
+					Readable:   true,
+					Agent:      100,
+					CallAgent:  100,
+					CallShell:  300,
+					CallSecond: 1_000_005,
+					Mode:       "dry-run",
+				},
+			},
+			known:     map[procKey]kind{agent: claude, nested: claude, codexAgent: codex},
+			protected: map[int]uint64{100: agent.start, 150: nested.start, 200: codexAgent.start},
+			versions:  map[uint32]owner{},
+			seenUnder: map[procKey]owner{},
+		}
+	}
+	// byParent makes the base a unit by its recorded original parent alone:
+	// its environment holds no stamp.
+	byParent := func(w *unitWorld) {
+		w.stamps[500] = stamp{Readable: true}
+		w.versions[4000] = byCall
+	}
+
+	byStamp := tie{Agent: agent, Kind: claude, Shell: 300, Second: 1_000_005, Mode: "dry-run"}
+	for _, tc := range []struct {
+		name    string
+		change  func(*unitWorld)
+		want    tie
+		verdict verdict
+	}{
+		{"byStamp", func(*unitWorld) {}, byStamp, isUnit},
+		{"byRecordedParentVersion", byParent, tie{Agent: agent, Kind: claude, Owner: "toolu_1"}, isUnit},
+		{"bySeenUnderWithoutLineage", func(w *unitWorld) {
+			w.lineage = false
+			w.lineages = nil
+			w.stamps[500] = stamp{Readable: true}
+			w.seenUnder[rootKey] = byCall
+		}, tie{Agent: agent, Kind: claude, Owner: "toolu_1"}, isUnit},
+		// A Codex session a Claude Code command started: its command's
+		// processes carry the outer agent's stamps and the Codex call's ID,
+		// and the nearer agent, Codex, owns the unit.
+		{"byCodexIDUnderAnOuterAgent", func(w *unitWorld) {
+			w.notes = []note{{ToolUseID: "call_abc", AgentPID: 200, AgentStart: codexAgent.start, Kind: codex}}
+			st := w.stamps[500]
+			st.Codex = "call_abc"
+			w.stamps[500] = st
+		}, tie{Agent: codexAgent, Kind: codex, Codex: "call_abc", Mode: "dry-run"}, isUnit},
+		// A root whose environment is hidden is read through the first
+		// readable process below it.
+		{"byStampBelowAnUnreadableRoot", func(w *unitWorld) {
+			w.procs[501] = process(501, 500, 500, 11, "sudo")
+			w.procs[502] = process(502, 501, 500, 12, "node", "worker.js")
+			w.stamps[502] = w.stamps[500]
+			w.stamps[500] = stamp{}
+		}, byStamp, isUnit},
+
+		{"noStampAndNoRecordedParent", func(w *unitWorld) {
+			w.stamps[500] = stamp{Readable: true}
+		}, tie{}, notUnit},
+		{"stampNamesADeadProcess", func(w *unitWorld) {
+			delete(w.procs, 100)
+		}, tie{}, notUnit},
+		{"stampNamesAnUnknownProcess", func(w *unitWorld) {
+			delete(w.known, agent)
+		}, tie{}, notUnit},
+		{"stampNamesAProcessYoungerThanTheRoot", func(w *unitWorld) {
+			young := procKey{100, start(20)}
+			w.procs[100] = process(100, 1, 100, 20, "claude")
+			delete(w.known, agent)
+			w.known[young] = claude
+			w.protected[100] = young.start
+		}, tie{}, notUnit},
+		// An app opened with `open` is started by launchd: its original
+		// parent's version is launchd's own, whatever it carries.
+		{"initStartedCarryingAStamp", func(w *unitWorld) {
+			w.lineages[500] = platform.Lineage{Version: 5000, ParentVersion: 1}
+		}, tie{}, notUnit},
+		// A daemon a hook started carries CLAUDE_PID but no call stamp.
+		{"agentStampWithoutTheCallStamp", func(w *unitWorld) {
+			w.stamps[500] = stamp{Readable: true, Agent: 100, Mode: "dry-run"}
+		}, tie{}, notUnit},
+		// A nested session's processes carry their own CLAUDE_PID beside the
+		// outer command's call stamp.
+		{"callStampAgentDiffersFromCLAUDE_PID", func(w *unitWorld) {
+			st := w.stamps[500]
+			st.Agent = 150
+			w.stamps[500] = st
+		}, tie{}, notUnit},
+		// On Linux a service the init process starts can carry a command's
+		// variables, so a stamp ties nothing there.
+		{"validStampWithoutLineageNorSeenUnder", func(w *unitWorld) {
+			w.lineage = false
+		}, tie{}, notUnit},
+		{"rootIsAKnownAgentTiedByStamp", func(w *unitWorld) {
+			w.known[rootKey] = claude
+		}, tie{}, notUnit},
+		{"rootIsAKnownAgentTiedByParent", func(w *unitWorld) {
+			byParent(w)
+			w.known[rootKey] = claude
+		}, tie{}, notUnit},
+		{"aWorkbenchProcess", func(w *unitWorld) {
+			w.procs[500] = process(500, 1, 500, 10, "/opt/workbench/bin/workbench", "guard", "watch")
+		}, tie{}, notUnit},
+		{"aProtectedProcess", func(w *unitWorld) {
+			w.protected[500] = rootKey.start
+		}, tie{}, notUnit},
+		// tini, an init by name, runs under the protected agent 100.
+		{"aProcessUnderAProtectedOne", func(w *unitWorld) {
+			r := w.procs[500]
+			r.PPID = 700
+			w.procs[500] = r
+		}, tie{}, notUnit},
+		{"aZombieRoot", func(w *unitWorld) {
+			w.procs[500] = zombie(w.procs[500])
+		}, tie{}, notUnit},
+		// A child of a running bash is still under its parent, not detached.
+		{"aParentThatIsNotAnInit", func(w *unitWorld) {
+			r := w.procs[500]
+			r.PPID = 800
+			w.procs[500] = r
+		}, tie{}, notUnit},
+		{"tieByParentToADeadAgent", func(w *unitWorld) {
+			byParent(w)
+			delete(w.procs, 100)
+		}, tie{}, notUnit},
+		{"tieByParentToAnUnknownAgent", func(w *unitWorld) {
+			byParent(w)
+			delete(w.known, agent)
+		}, tie{}, notUnit},
+		{"lineageKnownButUnread", func(w *unitWorld) {
+			w.lineages = nil
+		}, tie{}, notUnit},
+		{"anotherUsersProcess", func(w *unitWorld) {
+			r := w.procs[500]
+			r.UID = 501
+			w.procs[500] = r
+		}, tie{}, notUnit},
+		{"guardOff", func(w *unitWorld) {
+			st := w.stamps[500]
+			st.Mode = "off"
+			w.stamps[500] = st
+		}, tie{}, notUnit},
+		// Forked by agent 100's command but carrying the nested agent 150's
+		// CLAUDE_PID: it is that agent's, judged by that agent's stamps.
+		{"tieByParentWhoseStampNamesAnotherAgent", func(w *unitWorld) {
+			byParent(w)
+			w.stamps[500] = stamp{Readable: true, Agent: 150}
+		}, tie{}, notUnit},
+		// Forked by agent 100's command but carrying a call ID of the Codex
+		// agent 200: it is that agent's.
+		{"tieByParentWhoseCodexIDNamesAnotherAgent", func(w *unitWorld) {
+			byParent(w)
+			w.notes = []note{{ToolUseID: "call_abc", AgentPID: 200, AgentStart: codexAgent.start, Kind: codex}}
+			w.stamps[500] = stamp{Readable: true, Codex: "call_abc"}
+		}, tie{}, notUnit},
+
+		{"unreadableWithNothingReadableBelow", func(w *unitWorld) {
+			w.stamps[500] = stamp{}
+		}, tie{}, unread},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			w := base()
+			tc.change(w)
+			s, r, f := w.facts()
+			got, v := unitRoot(s, r, f)
+			if v != tc.verdict {
+				t.Fatalf("verdict %v, want %v (tie %+v)", v, tc.verdict, got)
+			}
+			if v == isUnit && got != tc.want {
+				t.Fatalf("tie %+v, want %+v", got, tc.want)
+			}
+		})
+	}
+}
