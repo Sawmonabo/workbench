@@ -108,10 +108,68 @@ func Folder(pid int) (string, error) {
 	return unix.ByteSliceToString(info[pathAt : pathAt+pathMax]), nil
 }
 
-// Args is the process's command line, nil when it cannot be read.
+// Args is the process's command line as the kernel counts it, nil when it
+// cannot be read: the first p_argc strings of kern.procargs2. It is for
+// matching and deciding, never for showing, which is ShownArgs: a process
+// that rewrote its title can make its last strings environment strings.
+//
+// kern.procargs2 does not say where the arguments end. The kernel saves only
+// their count at exec (p_argc) and the length of the whole string area, which
+// holds the arguments followed at once by the environment strings, and it
+// reads the area from the process's own memory as it is now. A process that
+// writes its title over its arguments, as /usr/bin/perl does for $0 by padding
+// with spaces up to the last NUL, leaves fewer NUL-separated strings there, so
+// the first p_argc strings run on into the environment: the kernel counts
+// them the same way when it cuts the environment of a restricted program, so
+// the strings it returns end with environment strings too.
 func Args(pid int) []string {
 	args, _ := procArgs(pid)
 	return args
+}
+
+// ShownArgs is the process's command line for showing to a person: Args
+// without any string that might be an environment string, and cut, true when
+// it left something out, so a view can mark the line as shortened. No parse
+// can tell an environment string that a rewritten title let in (see Args)
+// from an argument, and the environment follows the arguments, so what runs
+// into it is always at the end: ShownArgs drops the trailing strings shaped
+// like NAME=value and, when it drops any, keeps only the first argument,
+// since the area may have been rewritten and what lay between may be the tail
+// of an environment value. The cost: a real trailing argument of that shape
+// cuts the line to its program, so `make CC=clang` shows as `make` and
+// `bash -lc 'CI=1 npm test'` as `bash`. The case left: a process that writes
+// its title on past its arguments into its environment without clearing the
+// rest leaves the tail of a value, which shows when it is the last of the
+// p_argc strings.
+func ShownArgs(pid int) (args []string, cut bool) {
+	return withoutEnvironment(Args(pid))
+}
+
+// withoutEnvironment is args without the trailing strings that may be
+// environment strings, and with only its first argument when it had any, and
+// whether it left anything out.
+func withoutEnvironment(args []string) ([]string, bool) {
+	keep := len(args)
+	for keep > 0 && environmentShaped(args[keep-1]) {
+		keep--
+	}
+	switch {
+	case keep == len(args):
+		return args, false
+	case keep == 0:
+		return nil, true
+	}
+	return args[:1], true
+}
+
+// environmentShaped reports whether s has the shape of an environment string:
+// a name before its first "=" that is not empty, does not start with "-" and
+// holds no space, quote or "/", which no option or path argument has before
+// an "=".
+func environmentShaped(s string) bool {
+	name, _, ok := strings.Cut(s, "=")
+	return ok && name != "" && !strings.HasPrefix(name, "-") &&
+		!strings.ContainsAny(name, " \t\"'/")
 }
 
 // Environ is the variable name in the environment the process started with.

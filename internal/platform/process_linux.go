@@ -66,15 +66,10 @@ func ProcessInfo(pid int) (Process, error) {
 	if err := unix.Stat(dir, &owner); err != nil {
 		return Process{}, &fs.PathError{Op: "stat", Path: dir, Err: err}
 	}
-	data, err := os.ReadFile(dir + "/stat")
+	name, fields, err := procStat(pid)
 	if err != nil {
 		return Process{}, err
 	}
-	open, end := bytes.IndexByte(data, '('), bytes.LastIndexByte(data, ')')
-	if open < 0 || end < open || end+2 > len(data) {
-		return Process{}, fmt.Errorf("/proc/%d/stat: unreadable", pid)
-	}
-	fields := strings.Fields(string(data[end+2:]))
 	if len(fields) < 20 {
 		return Process{}, fmt.Errorf("/proc/%d/stat: short", pid)
 	}
@@ -90,9 +85,23 @@ func ProcessInfo(pid int) (Process, error) {
 		PGID:   pgid,
 		UID:    int(owner.Uid),
 		Start:  start,
-		Name:   string(data[open+1 : end]),
+		Name:   name,
 		Zombie: fields[0] == "Z",
 	}, nil
+}
+
+// procStat reads /proc/<pid>/stat: the name, between the first "(" and the
+// last ")", and the fields after it, from state (field 3, at index 0) on.
+func procStat(pid int) (name string, fields []string, err error) {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	if err != nil {
+		return "", nil, err
+	}
+	open, end := bytes.IndexByte(data, '('), bytes.LastIndexByte(data, ')')
+	if open < 0 || end < open || end+2 > len(data) {
+		return "", nil, fmt.Errorf("/proc/%d/stat: unreadable", pid)
+	}
+	return string(data[open+1 : end]), strings.Fields(string(data[end+2:])), nil
 }
 
 // Folder is the process's working folder as the kernel reports it, a real
@@ -127,13 +136,76 @@ func Processes(unreadable func(pid int, err error)) ([]Process, error) {
 }
 
 // Args is the process's command line from /proc/<pid>/cmdline, nil when it
-// cannot be read.
+// cannot be read. It is for matching and deciding, never for showing, which
+// is ShownArgs: a process that rewrote its title can make its last string
+// run on into its environment.
+//
+// The kernel's get_mm_cmdline returns exactly the argument area, from
+// arg_start to arg_end, unless the area's last byte is no longer NUL: it then
+// takes the process for one that rewrote its title with setproctitle and
+// returns the string from arg_start to the first NUL, which may run on into
+// the environment strings that follow. Where the kernel shows the area's
+// bounds (see argumentArea), Args cuts what it reads at their length, which
+// leaves the read of a process that kept its arguments as it was.
 func Args(pid int) []string {
+	data, _, _ := argumentBytes(pid)
+	return splitArgs(data)
+}
+
+// ShownArgs is the process's command line for showing to a person: Args
+// without anything that might come from the environment, and cut, true when
+// it left something out, so a view can mark the line as shortened. Cut at
+// the argument area, a title longer than the arguments loses its end. Where
+// the kernel hides the area's bounds (another user's process, or one that is
+// not dumpable), a read with fewer than two NULs could be the one string a
+// rewritten title runs on into the environment with, so ShownArgs gives nil
+// and cut for it; a read with more came from the argument area alone, since
+// the kernel's run-on read is one string.
+func ShownArgs(pid int) (args []string, cut bool) {
+	data, bounded, cut := argumentBytes(pid)
+	if !bounded && len(data) > 0 && bytes.Count(data, []byte{0}) < 2 {
+		return nil, true
+	}
+	return splitArgs(data), cut
+}
+
+// argumentBytes is /proc/<pid>/cmdline, cut at the argument area's length
+// when the kernel shows it (bounded), and whether that cut left bytes out.
+func argumentBytes(pid int) (data []byte, bounded, cut bool) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
 	if err != nil || len(data) == 0 {
+		return nil, false, false
+	}
+	size, bounded := argumentArea(pid)
+	if bounded && uint64(len(data)) > size {
+		return data[:size], true, true
+	}
+	return data, bounded, false
+}
+
+// splitArgs is the NUL-separated strings of a command line, nil for none.
+func splitArgs(data []byte) []string {
+	if len(data) == 0 {
 		return nil
 	}
 	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
+}
+
+// argumentArea is the length of pid's argument area, arg_end less arg_start
+// from /proc/<pid>/stat (fields 48 and 49, at 45 and 46 after the name);
+// false when the kernel shows them as 0 to this caller or they cannot be
+// read.
+func argumentArea(pid int) (uint64, bool) {
+	_, fields, err := procStat(pid)
+	if err != nil || len(fields) < 47 {
+		return 0, false
+	}
+	start, err1 := strconv.ParseUint(fields[45], 10, 64)
+	end, err2 := strconv.ParseUint(fields[46], 10, 64)
+	if err1 != nil || err2 != nil || start == 0 || end <= start {
+		return 0, false
+	}
+	return end - start, true
 }
 
 // Environ is the variable name in the environment the process started with.
