@@ -197,14 +197,16 @@ func stampsFor(s snapshot, r proc, read func(pid int) stamp) []stamp {
 }
 
 // stampTie ties stamps to an agent: to a Codex call's agent by a Codex ID
-// that resolves, else to the one Claude Code agent that the call stamps
-// written by their own agent name, when the guard knows it.
+// that resolves to a Codex call, else to the one Claude Code agent that the
+// call stamps written by their own agent name, when the guard knows it. A
+// Claude Code call's ID put in CODEX_TOOL_CALL_ID ties nothing, so it cannot
+// stand in for the agreeing call stamp.
 //
 //nolint:unused // first used through unitRoot
 func stampTie(s snapshot, stamps []stamp, f facts) (tie, bool) {
 	for _, st := range stamps {
-		if rec, ok := resolve(f.records, st.Codex); ok {
-			return tie{Agent: rec.Agent, Kind: rec.Kind, Codex: st.Codex}, true
+		if rec, ok := resolve(f.records, st.Codex); ok && rec.Kind == codex {
+			return tie{Agent: rec.Agent, Kind: codex, Codex: st.Codex}, true
 		}
 	}
 	var by *stamp

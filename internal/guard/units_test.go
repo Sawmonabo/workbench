@@ -215,6 +215,16 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 		{"lineageKnownButUnread", func(w *unitWorld) {
 			w.lineages = nil
 		}, tie{}, notUnit},
+		{"parentsLineageUnread", func(w *unitWorld) {
+			delete(w.lineages, 1)
+		}, tie{}, notUnit},
+		// A daemon a hook started carries CLAUDE_PID without the call stamp;
+		// a Claude Code call's ID in CODEX_TOOL_CALL_ID must not stand in for
+		// that call stamp.
+		{"codexStampResolvingToAClaudeCall", func(w *unitWorld) {
+			w.notes = []note{{ToolUseID: "toolu_1", AgentPID: 100, AgentStart: agent.start, Kind: claude}}
+			w.stamps[500] = stamp{Readable: true, Agent: 100, Codex: "toolu_1"}
+		}, tie{}, notUnit},
 		{"anotherUsersProcess", func(w *unitWorld) {
 			r := w.procs[500]
 			r.UID = 501
