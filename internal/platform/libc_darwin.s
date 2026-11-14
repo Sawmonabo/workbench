@@ -34,3 +34,8 @@ TEXT libc_mach_host_self_trampoline<>(SB),NOSPLIT,$0-0
 	JMP	libc_mach_host_self(SB)
 GLOBL	·machHostSelf(SB), RODATA, $8
 DATA	·machHostSelf(SB)/8, $libc_mach_host_self_trampoline<>(SB)
+
+TEXT libc_sysctl_trampoline<>(SB),NOSPLIT,$0-0
+	JMP	libc_sysctl(SB)
+GLOBL	·sysctl(SB), RODATA, $8
+DATA	·sysctl(SB)/8, $libc_sysctl_trampoline<>(SB)

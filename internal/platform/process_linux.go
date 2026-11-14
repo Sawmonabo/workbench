@@ -124,11 +124,25 @@ func Folder(pid int) (string, error) {
 // out: it exited (ENOENT, ESRCH) or, for any other error, it is passed to
 // unreadable.
 func Processes(unreadable func(pid int, err error)) ([]Process, error) {
+	var l ProcessList
+	return l.Read(unreadable)
+}
+
+// ProcessList lists every process again and again, as Processes does,
+// keeping the list it gives between reads. The list Read gives is valid only
+// until the next Read: a caller copies what it keeps. The zero value is ready
+// to use; a ProcessList is not for concurrent use.
+type ProcessList struct {
+	out []Process
+}
+
+// Read lists every process, as Processes does, into the list's buffer.
+func (l *ProcessList) Read(unreadable func(pid int, err error)) ([]Process, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
 	}
-	out := make([]Process, 0, len(entries))
+	out := l.out[:0]
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(entry.Name())
 		if err != nil {
@@ -142,6 +156,7 @@ func Processes(unreadable func(pid int, err error)) ([]Process, error) {
 			unreadable(pid, err)
 		}
 	}
+	l.out = out
 	return out, nil
 }
 

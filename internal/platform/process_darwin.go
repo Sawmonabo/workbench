@@ -3,6 +3,7 @@ package platform
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -50,16 +51,86 @@ func fromKinfo(k *unix.KinfoProc) Process {
 
 // Processes lists every process. kern.proc.all reads them in one call, so
 // none is left out for want of a read.
-func Processes(_ func(pid int, err error)) ([]Process, error) {
-	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
-	if err != nil {
-		return nil, err
+func Processes(unreadable func(pid int, err error)) ([]Process, error) {
+	var l ProcessList
+	return l.Read(unreadable)
+}
+
+// ProcessList lists every process again and again, as Processes does,
+// keeping the kernel's records and the list it gives between reads, so a
+// caller that lists the processes each second does not make a megabyte of
+// them anew each time on a busy machine (648 bytes a process). The list Read
+// gives is valid only until the next Read: a caller copies what it keeps.
+// The zero value is ready to use; a ProcessList is not for concurrent use.
+type ProcessList struct {
+	kinfo []unix.KinfoProc
+	out   []Process
+}
+
+// kernProcAll is the MIB of kern.proc.all: CTL_KERN (1), KERN_PROC (14),
+// KERN_PROC_ALL (0) in sys/sysctl.h.
+var kernProcAll = [3]int32{1, 14, 0}
+
+// Read lists every process, as Processes does, into the list's buffers. A
+// buffer too small for every record fails with ENOMEM, and is then sized
+// again by asking the kernel how much it needs, plus an eighth for the
+// processes that start meanwhile. A buffer four times larger than the
+// records it last held is let go, so a build that ends does not leave its
+// megabyte held.
+func (l *ProcessList) Read(_ func(pid int, err error)) ([]Process, error) {
+	for {
+		if len(l.kinfo) == 0 {
+			var size uintptr
+			if err := readProcs(nil, &size); err != nil {
+				return nil, err
+			}
+			count := int(size / unix.SizeofKinfoProc)
+			l.kinfo = make([]unix.KinfoProc, max(count+count/8, 1))
+		}
+		size := uintptr(len(l.kinfo)) * unix.SizeofKinfoProc
+		err := readProcs(&l.kinfo[0], &size)
+		if errors.Is(err, unix.ENOMEM) {
+			// The process table grew past the buffer.
+			l.kinfo = nil
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if size%unix.SizeofKinfoProc != 0 {
+			return nil, fmt.Errorf(
+				"kern.proc.all returned %d bytes, not a multiple of %d", size, unix.SizeofKinfoProc)
+		}
+		all := l.kinfo[:size/unix.SizeofKinfoProc]
+		out := l.out[:0]
+		for i := range all {
+			out = append(out, fromKinfo(&all[i]))
+		}
+		l.out = out
+		if len(all)*4 < len(l.kinfo) {
+			l.kinfo, l.out = nil, nil
+		}
+		return out, nil
 	}
-	out := make([]Process, len(all))
-	for i := range all {
-		out[i] = fromKinfo(&all[i])
+}
+
+// readProcs reads kern.proc.all into buffer, or with a nil buffer asks the size
+// it needs, through libSystem's sysctl; size is the buffer's size in bytes
+// and becomes the bytes written, or needed.
+func readProcs(buffer *unix.KinfoProc, size *uintptr) error {
+	_, _, errno := libcCall6(
+		sysctl,
+		uintptr(unsafe.Pointer(&kernProcAll[0])),
+		uintptr(len(kernProcAll)),
+		uintptr(unsafe.Pointer(buffer)),
+		uintptr(unsafe.Pointer(size)),
+		0,
+		0,
+	)
+	if errno != 0 {
+		return fmt.Errorf("kern.proc.all: %w", errno)
 	}
-	return out, nil
+	return nil
 }
 
 // ProcessInfo reads one process through kern.proc.pid. For a PID no process

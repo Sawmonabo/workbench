@@ -9,13 +9,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// The libSystem functions x/sys/unix does not wrap. cgo would break
+// The libSystem functions x/sys/unix does not wrap, and sysctl, which it
+// wraps only with a buffer it makes anew at every call. cgo would break
 // CGO_ENABLED=0 release builds, so they are called as x/sys calls libSystem:
 // through the runtime's syscall.syscall6 and the trampolines in libc_darwin.s,
 // whose addresses these variables hold.
 var (
 	getattrlist, fgetattrlist, procPidRusage, procPidinfo uintptr
 	procListChildPids, hostStatistics64, machHostSelf     uintptr
+	sysctl                                                uintptr
 )
 
 //go:cgo_import_dynamic libc_getattrlist getattrlist "/usr/lib/libSystem.B.dylib"
@@ -25,6 +27,7 @@ var (
 //go:cgo_import_dynamic libc_proc_listchildpids proc_listchildpids "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_host_statistics64 host_statistics64 "/usr/lib/libSystem.B.dylib"
 //go:cgo_import_dynamic libc_mach_host_self mach_host_self "/usr/lib/libSystem.B.dylib"
+//go:cgo_import_dynamic libc_sysctl sysctl "/usr/lib/libSystem.B.dylib"
 
 // libcCall6 is the runtime's syscall.syscall6, which calls a libSystem
 // function on the system stack and returns errno when it returns -1.
