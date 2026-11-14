@@ -513,9 +513,10 @@ environment only.
 On Linux a title written over the environment area wipes the variables
 there (2.2 item 26), so an environment area holding a string that is not a
 variable reads as unreadable, and such a process is treated as one whose
-environment is hidden: it does not keep its setting, but it is tracked,
-held `unread`, never chosen by the guard itself, and a person can still stop
-it (5.2).
+environment is hidden: it does not keep its setting. When it was recorded
+in a tracked command's tree before it detached, it is tracked, held
+`unread`, never chosen by the guard itself, and a person can still stop it
+(5.2, section 10 item 12).
 
 ## 5. Detached units
 
@@ -581,13 +582,16 @@ once the process runs another program.
 its version changed: the kernel raises it at every exec and at nothing else
 (2.1 fact 21, 2.2 item 16). A program that rewrites its title keeps its
 version, and one that execs the same path with the same arguments gets a new
-one. On Linux and WSL, which keep no version, a root runs another program
-when its process name or command line changed, and a child of the init
-process that is no root yet, or a process whose stamp is cached, when its
-process name changed, so no command line is read for them at every tick; a
-failed or empty read never counts as a change. The same rule decides when a
-root is judged again, when a child of the init process whose "no" was not
-final is judged again, and when a process's stamp is read again (5.4). A root's name, which the log
+one. On Linux and WSL, which keep no version, a process runs another program
+when its process name or command line changed, and this holds for a root
+and for every stamp read for a root's judgment (the root's own, those of the
+processes below it, and its agent's own setting); only a child of the init
+process that is not yet a root is told apart by its process name alone, so
+no command line is read for it at every tick. A failed or empty read never
+counts as a change. The same rule decides when a root is judged again, when
+a child of the init process whose "no" was not final is judged again, and
+when a process's stamp is read again (5.4); a root's stamp is read again
+whenever the root runs another program. A root's name, which the log
 shows, and the command line the view shows (section 8) follow the process
 whenever they differ; that alone resets nothing. On macOS a root's whole
 command line is not kept: only the shown form is, read again at every tick;
@@ -1196,7 +1200,8 @@ credential exposure (the last). Each says its risk beside it.
   carries a stamp, for a process that carries the agent stamp without the
   call stamp as a hook's child does, for one whose call stamp names another
   agent than its own `CLAUDE_PID` as a nested session's does, for stamps
-  that name two agents, for a stamp alone where the system keeps no
+  that name two agents, for a call stamp whose `CLAUDE_PID` is only among
+  the arguments, for a stamp alone where the system keeps no
   original parent, for a known agent, for a Workbench process, for a
   protected process, for a child of a protected PID 1, and when the kernel
   does not answer; a tie by its own entry or by its original parent with
@@ -1229,6 +1234,10 @@ credential exposure (the last). Each says its risk beside it.
 - `TestTickBuffersHoldOnlyThisTick`: the tick's snapshot and parent index,
   built in the last tick's, hold exactly what new ones would, so no process
   that left a command's tree is signalled with it.
+- `TestWatcherReadsTheStampOfARootThatRunsAnotherProgram`: a root that runs
+  another program has its stamp read again, so a `WORKBENCH_GUARD=off` set
+  in its new program is honoured and the guard does not stop work that
+  turned it off.
 - `TestShownArgsNeverHoldTheEnvironmentOfARetitledProcess`: the shown
   command line of a retitled `/usr/bin/perl` holds no environment string
   (a credential-exposure risk).
