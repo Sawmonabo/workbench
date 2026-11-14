@@ -163,8 +163,8 @@ How to see a call that ends within a tick:
   processes; a tree whose command named one of its own processes as an
   agent; and any detached work while the kernel does not answer where
   processes come from.
-- The guard may still stop what it must not: a hidden program that set `off`
-  and ran a readable program from which the variable was removed; a nested
+- The guard may still stop what it must not: work run with the variable
+  removed by a program that set `off`; a nested
   session that never runs a readable program carrying its own agent stamp,
   or has not registered yet, after its first ten seconds; and a Codex
   session whose required MCP servers take longer than ten seconds to start,
@@ -180,6 +180,9 @@ How to see a call that ends within a tick:
 - The ten seconds start again at a handover, so detached work is not chosen
   for ten seconds after an update; the store and the call records pass to
   the next watcher.
+- The original-parent record and the versions come from a kernel call that
+  is not in Apple's public SDK. If the kernel stops answering it, the guard
+  makes no new detached rows, chooses none, and logs that once.
 - A session already running when this ships has no stamp until it restarts;
   until then its detached work is found only through the store.
 

@@ -440,10 +440,12 @@ own environment says `dry-run` or `off`.
 
 `off` is final for the life of the process: the process said so itself. A
 program it starts may run without the variable (2.2 item 22), and the
-process still stays out, with everything recorded below it (5.3). A hidden
-root that set `off` and runs a readable program from which the variable was
+process still stays out, with everything recorded below it (5.3). What it
+starts is judged by its own stamps: a program it runs with the variable
 removed (`env -u`, `env -i`, a build tool that filters its tasks'
-variables, 2.2 item 13) is judged by that program, which reads as not set
+variables, 2.2 item 13) reads as not set. A hidden root whose first
+readable programs read so is judged by them, and a program that leaves an
+opted-out root and later detaches is tied by its own stamps like any other
 (section 10). No registered opt-out exists beside the variable.
 
 ## 5. Detached units
@@ -542,8 +544,10 @@ program may be a session yet to reach its SessionStart hook; one whose
 stamps now say `dry-run` makes its unit a dry run.
 
 **While the kernel does not answer** where processes come from, on macOS, no
-new unit is made, and only the first two reasons to leave are applied, since
-they need no kernel record. A root whose program cannot then be read is
+new unit is made and no root is judged again. A root still leaves when it
+becomes a known agent, when it comes under a protected process, and when
+what tied it is dropped from the store (5.3), since none of these needs a
+kernel record. A root whose program cannot then be read is
 pending, so the guard does not choose it on a verdict given to an earlier
 program (section 6). The guard logs the loss once, and once more when the
 kernel answers again.
@@ -831,9 +835,9 @@ guard tracks.
 ## 8. View, log and protocol
 
 Every row uses the view's own columns. A detached unit's status reads
-`detached`, its time counts from its first root's start, and its command is
-that root's command line. Its ID column shows `p` and the PID of its first
-root that runs, since a number in a process list is read as a live PID and a
+`detached`, its time counts from the start of the program that detached
+first, and its command is the command line of its first root that still
+runs. Its ID column shows `p` and the PID of that root, since a number in a process list is read as a live PID and a
 dead root's PID is handed out again (2.2 item 20): the label changes when
 that root exits. The unit's ID in the log, in `guard logs` (`p` and the PID
 of the program that detached first) and in the snapshot does not change, and
@@ -923,17 +927,17 @@ stop what it must not (a fault).
    person can stop it from the view. Misses.
 5. **A call that starts before any watcher runs.** The pre hook starts the
    watcher, so a session's first call can start its shell before a watcher
-   follows its agent; in one session the watcher was up 0.8 s before the
-   command's shell. If that command ends within a tick, its shell is never
+   follows its agent. If that command ends within a tick, its shell is never
    learned, and its detached work is found only by its stamp and never
    chosen (5.5). Misses.
-6. **A hidden root that removed its setting from what it runs.** A root
-   whose environment is hidden, that set `WORKBENCH_GUARD=off`, and whose
-   first readable programs had the variable removed (`env -u`, `env -i`, a
-   build tool that filters variables) is judged by those programs, which
-   read as not set (4.4), so the guard may stop that work. May stop what it
-   must not. Only an opt-out that needs no environment would close it, and
-   none is built.
+6. **An opt-out removed from what a program runs.** A program that set
+   `WORKBENCH_GUARD=off` and runs others with the variable removed (`env
+   -u`, `env -i`, a build tool that filters variables) leaves them judged by
+   their own stamps, which read as not set (4.4): a hidden root whose first
+   readable programs read so may be chosen, and so may such a program that
+   later detaches from a root that opted out. May stop what it must not.
+   Only an opt-out that needs no environment would close it, and none is
+   built.
 7. **A session that never runs a readable program carrying its own agent
    stamp.** An agent session a command starts and leaves detached is known,
    and so never stopped, from its SessionStart hook, or without the hooks
@@ -1057,8 +1061,7 @@ is not forced, so the guard's own stop is shown by the facts it rests on
 - A command that leaves a background job of a system program behind gives a
   `detached` row with its call, held as `unread`.
 - A sub-second command that leaves a subshell, or double-forks from its
-  shell, gives a row with its call and subagent; a sub-second command typed
-  with `!` gives a row with a blank subagent that the guard does not choose.
+  shell, gives a row with its call and subagent.
 - An app started with `open` from a command gives no row. A daemon a hook
   starts gives no row.
 - A program given `WORKBENCH_GUARD=off`: readable, no row; hidden, a row held

@@ -331,9 +331,9 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   the same columns
   ([detached work design](2026-11-13-guard-detached-work-design.md),
   section 8), each with `p` and a process ID as its ID: detached work
-  (`● detached`), timed from its first root's start, its command that
-  root's command line, its ID the PID of its first root that still runs,
-  which changes when that root exits; each agent the guard knows (`● agent`), sized by the agent
+  (`● detached`), timed from the start of the program that detached
+  first, its command and its ID (the PID) those of its first root that
+  still runs, which change when that root exits; each agent the guard knows (`● agent`), sized by the agent
   process alone; each helper an agent started itself (`● helper`, never a
   shell or a sandbox launcher), sized by
   its tree; and a running command no note matched (`? unmatched`), sized by

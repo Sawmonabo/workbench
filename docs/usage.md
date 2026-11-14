@@ -229,18 +229,18 @@ cannot be read. You can stop any of them from the view. The ten seconds start
 again when the program runs another one and after an update, and a session's
 work stops being the command's once the session is known.
 
-`WORKBENCH_GUARD=off` in a detached program's own environment keeps it, and
-everything it starts, out of the guard for the life of that process, even if
-what it runs later drops the variable; `dry-run` keeps the guard's stops of it
-to the log. On macOS, many programs hide their environment from other
+`WORKBENCH_GUARD=off` in a detached program's own environment keeps it out of
+the guard for the life of that process, even if a program it later runs in
+its place drops the variable, and the programs it starts stay out as long as
+they keep the variable; `dry-run` keeps the guard's stops of it to the log. On macOS, many programs hide their environment from other
 programs: the system's own, such as `/bin/zsh`, `/bin/bash`, `/bin/sleep`,
 `/usr/bin/perl` and `/usr/bin/ruby`. For such a program the guard reads the
 setting from the first programs below it that show their environment. When
 none does, the guard never stops that work itself; it is shown and you can
 stop it from the view, which sends the stop unless the agent's own setting is
-`dry-run` or `off` or the call's is `dry-run`. The setting must reach those first readable
-programs: a program that removes it from what it runs (`env -u`, `env -i`, a
-build tool that filters variables) counts as not opted out.
+`dry-run` or `off` or the call's is `dry-run`. The setting must reach every
+program that should stay out: a program run with it removed (`env -u`,
+`env -i`, a build tool that filters variables) counts as not opted out.
 
 A detached row lasts while any of its processes runs and its agent does; when
 the agent exits it is forgotten, not stopped. Not seen: work a program below
@@ -361,9 +361,9 @@ tracks, newest first: its short ID, status (`● run`, `◌ stopping`), agent,
 subagent, run time, memory now and at its peak, project and command, then,
 dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
 Beside them are rows of four other kinds, each with `p` and a process ID as
-its ID: detached work (`● detached`), timed from its first program's start
-and showing that program's command line, whose ID is the PID of its first
-program that still runs (it changes when that program exits; the log keeps
+its ID: detached work (`● detached`), timed from the start of the program
+that detached first, showing the command line and PID of its first program
+that still runs (they change when that program exits; the log keeps
 one label for the row, which its details show on an "In the log" line); each
 agent the guard knows (`●
 agent`), sized by the agent process alone; each long-lived helper an agent
