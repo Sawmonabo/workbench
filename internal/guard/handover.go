@@ -510,9 +510,9 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 // adoptUnit takes on a carried unit with its made-up note, which is never on
 // disk, its roots, call, command line and memory, and whether it is passed
 // over. Its roots are children of the init process, not of its agent, so
-// none is asked to be the agent's child. Each root keeps the time it was
-// first tracked, so its wait before the guard may stop it (see ownStop) goes
-// on where it was; a root carried without one starts it again. Each live
+// none is asked to be the agent's child. No root's time crosses the
+// handover, since a clock that jumps would make it look older: each starts
+// its wait before the guard may stop it (see ownStop) again. Each live
 // root is marked judged, so it is not found again as a unit of its own, and
 // its stamps are read again, so an agent they name stays protected; the
 // roots' trees are recorded by recordLineage in this same tick, before units
@@ -525,9 +525,7 @@ func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	}
 	unit.Roots = slices.Clone(unit.Roots)
 	for i := range unit.Roots {
-		if unit.Roots[i].Since.IsZero() {
-			unit.Roots[i].Since = time.Now()
-		}
+		unit.Roots[i].Since = time.Now()
 	}
 	cmd := command{Note: n, Detached: &unit, Shown: c.Shown[id]}
 	if len(unit.Roots) > 0 {

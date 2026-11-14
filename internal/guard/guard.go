@@ -177,13 +177,14 @@ type detached struct {
 }
 
 // detachedRoot is one root of a unit: the process, when the guard first
-// tracked it (Since, carried across a handover), and what it was last judged
-// on, its process name and its command line, so that the guard judges it
-// again once it starts another program (see watcher.rejudgeRoots). Args is
-// shown in the view only, never logged.
+// tracked it or when it last started a new program (Since, which does not
+// cross a handover: the new watcher starts it again), and what it was last
+// judged on, its process name and its command line, so that the guard
+// judges it again once it starts another program (see
+// watcher.rejudgeRoots). Args is shown in the view only, never logged.
 type detachedRoot struct {
 	procRef
-	Since time.Time `json:"since"`
+	Since time.Time `json:"-"`
 	Name  string    `json:"name"`
 	Args  string    `json:"args"`
 }

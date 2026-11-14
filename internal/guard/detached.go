@@ -178,12 +178,27 @@ func (w *watcher) unrecordProtected(s snapshot, protected map[int]uint64) {
 		if !ok || p.Start != key.start || !underOther(s, p, o.Agent, protected) {
 			continue
 		}
-		delete(w.seenUnder, key)
-		if v, ok := w.versionOf[key]; ok {
-			delete(w.versions, v)
-			delete(w.versionSeen, v)
-			delete(w.versionOf, key)
-		}
+		w.forgetSeen(key)
+	}
+}
+
+// unrecordTree forgets where root, a root leaving its unit, and every process
+// of its tree were seen, and their versions, whichever owner they were
+// recorded under: neither it nor what it started may be tied by parent to
+// that unit, or to the call before it, again.
+func (w *watcher) unrecordTree(s snapshot, root int) {
+	for _, p := range s.tree(root, nil) {
+		w.forgetSeen(procKey{p.PID, p.Start})
+	}
+}
+
+// forgetSeen forgets where the process key was seen, and its version.
+func (w *watcher) forgetSeen(key procKey) {
+	delete(w.seenUnder, key)
+	if v, ok := w.versionOf[key]; ok {
+		delete(w.versions, v)
+		delete(w.versionSeen, v)
+		delete(w.versionOf, key)
 	}
 }
 
@@ -244,12 +259,23 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 }
 
 // judged is unitRoot's verdict on a child of the init process, with the
-// process name it was judged under. fixed marks a verdict on facts that never
-// change for a process (another user's, started by the init process).
+// process name it was judged under. fixed marks a verdict that is never
+// judged again: one on facts that never change for a process (another
+// user's, started by the init process), and WORKBENCH_GUARD=off, which a
+// program it execs inherits, so opting out sticks for the life of the
+// process even when a later program hides its environment.
 type judged struct {
 	v     verdict
 	name  string
 	fixed bool
+}
+
+// judgedAs is the judgement of p by unitRoot's verdict v and its reason why.
+func judgedAs(p proc, v verdict, why string) judged {
+	return judged{
+		v: v, name: p.Name,
+		fixed: why == whyOtherUser || why == whyStartedByInit || why == whyOff,
+	}
 }
 
 // findUnits finds and judges again the units of this tick, after matching
@@ -260,7 +286,8 @@ type judged struct {
 // is followed by another program (its process name changed). A root tied by
 // parent to a tracked unit joins it; any other becomes a tracked unit, logged
 // tracking. Where the kernel keeps the original parent but does not answer
-// for the init process, it judges nothing and logs that once, and once more
+// for the init process, it judges nothing but whether a root has become a
+// known agent, which needs no lineage, and logs that once, and once more
 // when it answers again.
 func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 	for key := range w.classified {
@@ -280,6 +307,8 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 				w.f.event(slog.LevelError, EventError,
 					"cannot read where processes come from; detached work is not tracked")
 			}
+			// A rule that needs lineage must not drop a unit on a failed read.
+			w.rejudgeRoots(s, facts{known: w.known}, false)
 			return
 		}
 		if w.lineageLost {
@@ -301,7 +330,7 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 		seenUnder: w.seenUnder,
 		records:   w.records,
 	}
-	w.rejudgeRoots(s, f)
+	w.rejudgeRoots(s, f, true)
 	var roots []proc
 	for _, p := range s {
 		if p.UID != self || p.Zombie || !childOfInit(s, p) {
@@ -317,9 +346,7 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 	slices.SortFunc(roots, olderFirst)
 	for _, r := range roots {
 		t, v, why := unitRootWhy(s, r, f)
-		w.classified[procKey{r.PID, r.Start}] = judged{
-			v: v, name: r.Name, fixed: why == whyOtherUser || why == whyStartedByInit,
-		}
+		w.classified[procKey{r.PID, r.Start}] = judgedAs(r, v, why)
 		if v == isUnit {
 			w.addRoot(s, r, t)
 		}
@@ -332,12 +359,17 @@ func (w *watcher) findUnits(s snapshot, protected map[int]uint64) {
 // another program than the one it was judged on, such as a fork caught
 // before it started its own: it goes through unitRoot again with fresh
 // stamps, so one that is now off, Workbench or another agent's leaves its
-// unit, and one whose stamps now say dry-run makes its unit a dry run. A
-// unit left with no root is forgotten with one ended record naming why. A
-// root whose lineage cannot be read this tick, or that has nothing readable,
-// keeps its place and is judged again next tick. The unit's command follows
-// its first live root.
-func (w *watcher) rejudgeRoots(s snapshot, f facts) {
+// unit, and one whose stamps now say dry-run makes its unit a dry run. One
+// that is still a unit runs a new program, which may be a session that has
+// yet to register, so its time starts again (see ownStop). A root that
+// leaves its unit takes with it what was recorded of it and of its tree (see
+// unrecordTree), so neither it nor what it started is tied to the unit by
+// parent again. A unit left with no root is forgotten with one ended record
+// naming why. A root whose lineage cannot be read this tick, or that has
+// nothing readable, keeps its place and is judged again next tick. Without
+// lineage (whole false) only a root that became a known agent leaves. The
+// unit's command follows its first live root.
+func (w *watcher) rejudgeRoots(s snapshot, f facts, whole bool) {
 	for id, c := range w.tracked {
 		if c.Detached == nil {
 			continue
@@ -353,7 +385,12 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts) {
 			p := s[r.PID]
 			if _, known := f.known[key]; known {
 				changed, why = true, whyAgent
-				w.classified[key] = judged{v: notUnit, name: p.Name}
+				w.classified[key] = judgedAs(p, notUnit, whyAgent)
+				w.unrecordTree(s, r.PID)
+				continue
+			}
+			if !whole {
+				roots = append(roots, r)
 				continue
 			}
 			args := strings.Join(platform.Args(r.PID), " ")
@@ -371,11 +408,12 @@ func (w *watcher) rejudgeRoots(s snapshot, f facts) {
 				if t.Mode == "dry-run" {
 					c.Note.DryRun = true
 				}
-				r.Name, r.Args = p.Name, args
+				r.Name, r.Args, r.Since = p.Name, args, time.Now()
 				changed = true
 			case v == notUnit && rootWhy != whyNoLineage:
 				changed, why = true, rootWhy
-				w.classified[key] = judged{v: notUnit, name: p.Name}
+				w.classified[key] = judgedAs(p, notUnit, rootWhy)
+				w.unrecordTree(s, r.PID)
 				continue
 			}
 			roots = append(roots, r)
