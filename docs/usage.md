@@ -239,8 +239,11 @@ command's once the session is known or protected.
 `WORKBENCH_GUARD=off` in a detached program's own environment keeps it out of
 the guard for the life of that process, even if a program it later runs in
 its place drops the variable, and the programs it starts stay out as long as
-they keep the variable; `dry-run` keeps the guard's stops of it to the log. A
-program that rewrites its title keeps its setting. On macOS, many programs
+they keep the variable; `dry-run` keeps the guard's stops of it to the log. On
+macOS a program that rewrites its title keeps its setting; on Linux a title
+written over the environment area wipes it, and the program is treated as one
+whose setting cannot be read: the guard never stops it itself, and you can
+stop it from the view. On macOS, many programs
 hide their environment from other
 programs: the system's own, such as `/bin/zsh`, `/bin/bash`, `/bin/sleep`,
 `/usr/bin/perl` and `/usr/bin/ruby`. For such a program the guard reads the

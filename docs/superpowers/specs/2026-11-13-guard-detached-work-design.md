@@ -218,9 +218,9 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     650 shell loops of `/bin/sleep 1` (about 650 new processes a second) for
     75 s. Memory was read every 5 s over a 60-second window and counted as
     the limit counts it (`Sys` less `HeapReleased`); CPU is the watcher's CPU
-    time over the window. CPU a tick was 0.4 to 2.3 ms higher in six pairs
-    of runs (7.9 to 10.4 ms against 6.1 to 9.0 ms), inside the run-to-run
-    spread of one build, about 2 ms, so it is given as a range. Under the
+    time over the window. CPU a tick was 0.4 to 2.3 ms higher (7.9 to
+    10.4 ms against 6.1 to 9.0 ms), higher in all six pairs of runs; one
+    build varies by about 2 ms from run to run. Under the
     churn the watcher counted up to 23.1 MiB against the limit where the
     earlier release counted 16.1 to 18.0 MiB; the difference is the store,
     5 to 7 MiB of live heap at its bound (inferred from the churn rate; the
@@ -499,17 +499,23 @@ readable programs read so is judged by them, and a program that leaves an
 opted-out root and later detaches is tied by its own stamps like any other
 (section 10). No registered opt-out exists beside the variable.
 
-A program that rewrote its title keeps its setting and its agent stamp. On
-macOS a title written past the arguments can push environment strings into
+On macOS a program that rewrote its title keeps its setting and its agent
+stamp. A title written past the arguments can push environment strings into
 what reads as the arguments (2.1 fact 30, 2.2 item 17), so `WORKBENCH_GUARD`
 and `CLAUDE_PID` are also read from the trailing `NAME=value` strings among
-the arguments: either can only make the guard do less, so a real argument
-such as `make WORKBENCH_GUARD=off` keeps that program out too. The call stamp
-and Codex's call ID, which tie, are read from the environment only. On Linux
-a title written over the environment area wipes the variables there (2.2
-item 26), so an environment area holding a string that is not a variable
-reads as unreadable, and such a process is treated as one whose environment
-is hidden.
+the arguments. Either can only make the guard do less: a `WORKBENCH_GUARD`
+read there keeps the program out, so a real argument such as `make
+WORKBENCH_GUARD=off` does too, and a `CLAUDE_PID` read there protects the
+process it names and never ties. A tie by stamp needs the call stamp and
+`CLAUDE_PID` in the environment proper, and Codex's call ID is read from the
+environment only.
+
+On Linux a title written over the environment area wipes the variables
+there (2.2 item 26), so an environment area holding a string that is not a
+variable reads as unreadable, and such a process is treated as one whose
+environment is hidden: it does not keep its setting, but it is tracked,
+held `unread`, never chosen by the guard itself, and a person can still stop
+it (5.2).
 
 ## 5. Detached units
 
@@ -1113,12 +1119,15 @@ stop what it must not (a fault).
     stamp and no fork events, detached work is found there only when the
     guard recorded it in a tracked command's tree at a tick before it
     detached; with ticks of one second, or 100 ms under memory pressure, a
-    program that detaches at once, through a double fork, is unseen, and so
-    is work whose environment was wiped. Misses. No stamp is read inside a
-    tracked tree there, so a session started without the hooks is never
-    protected by one (item 7). Whether more can be found
-    safely is decided with the checks of 2.3 and section 11. None of this was
-    run on Linux or WSL.
+    program that detaches at once, through a double fork, is unseen. Misses.
+    Work whose environment was wiped, such as a program that sets a long
+    title over its environment area as Perl does for `$0` (2.2 item 26), is
+    seen and tracked when it was recorded before it detached, but held
+    `unread` and never chosen by the guard itself (4.4); a person can stop
+    it. Misses. No stamp is read inside a tracked tree there, so a session
+    started without the hooks is never protected by one (item 7). Whether
+    more can be found safely is decided with the checks of 2.3 and section
+    11. None of this was run on Linux or WSL.
 13. **A child that execs and exits while a tick runs.** The watcher handles
     wakes only between ticks, and the kernel folds a process's events that
     arrive meanwhile into one. A child of an agent still waiting for its
@@ -1205,8 +1214,7 @@ credential exposure (the last). Each says its risk beside it.
   protected from the first tick after a handover.
 - `TestTargetsStayInsideTheCommandTree`: a stop of a unit signals only its
   live roots' trees, never a protected agent inside it, never a root that
-  joined less than ten seconds ago or is not settled, and is named after a
-  root it signals that still runs.
+  joined less than ten seconds ago or is not settled.
 - `TestGlimpseRecordsNothingUnderAProtectedShell`: once a learned shell is
   protected, its forks and execs record nothing and it is no longer
   followed.
@@ -1218,6 +1226,9 @@ credential exposure (the last). Each says its risk beside it.
   recorded below it, through a middle process that exited and through a
   version recorded before an exec, and leaves a nested agent's own calls
   alone.
+- `TestTickBuffersHoldOnlyThisTick`: the tick's snapshot and parent index,
+  built in the last tick's, hold exactly what new ones would, so no process
+  that left a command's tree is signalled with it.
 - `TestShownArgsNeverHoldTheEnvironmentOfARetitledProcess`: the shown
   command line of a retitled `/usr/bin/perl` holds no environment string
   (a credential-exposure risk).

@@ -127,11 +127,14 @@ How to see a call that ends within a tick:
   everything that came from it, and every unit root tied through it leaves
   its unit for good. A "no" that rests on evidence is final for the life of
   the process. `off` is one: the process said so itself, and a program it
-  runs may drop the variable without bringing it back. A program that
-  rewrites its title keeps it: on macOS `WORKBENCH_GUARD` and `CLAUDE_PID`
-  are also read from trailing `NAME=value` strings among its arguments,
-  which can only make the guard do less; the stamps that tie are read from
-  the environment only.
+  runs may drop the variable without bringing it back. On macOS a program
+  that rewrites its title keeps it: `WORKBENCH_GUARD` and `CLAUDE_PID` are
+  also read from trailing `NAME=value` strings among its arguments, which
+  can only make the guard do less (a `CLAUDE_PID` read there protects,
+  never ties); the stamps that tie are read from the environment only. On
+  Linux a title written over the environment area wipes the setting, and
+  the program is treated as one whose setting cannot be read: never chosen
+  by the guard itself, still stoppable by a person.
 - **A root is settled, or the guard does not choose it.** The guard's own
   stop takes a root only when its call is proved, it has been tracked for
   ten seconds since it was found or started its present program, and it is
@@ -196,7 +199,8 @@ How to see a call that ends within a tick:
   tick, so a session without the hooks is protected one tick later.
   Measured against a watcher built from the release before this work, at
   one tick a second, the watcher spends 0.4 to 2.3 ms more CPU a tick
-  (inside the run-to-run spread), and under a build starting about 650
+  (higher in all six pairs; one build varies by about 2 ms from run to
+  run), and under a build starting about 650
   processes a second counts up to 23.1 MiB against its 32 MiB limit where
   the earlier one counted 16.1 to 18.0 MiB, the difference being the store;
   under 1,400 held processes it counts slightly less (15.2 against up to
