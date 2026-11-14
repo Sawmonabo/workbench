@@ -406,7 +406,7 @@ func (w *watcher) tick() time.Duration {
 	w.findUnits(s, protected)
 	trees := w.measure(s, below, protected)
 	w.markChildSeen(s, notes, taken)
-	w.buildRows(s, notes, taken, protected)
+	w.buildRows(s, below, notes, taken, protected)
 	if len(notes) > 0 || len(w.tracked) > 0 {
 		w.idleSince = time.Now()
 	}

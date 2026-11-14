@@ -36,18 +36,26 @@ func rowID(row string, p proc) string { return fmt.Sprintf("%s-%d-%d", row, p.PI
 // known agent that runs, sized by the agent process alone, and, for each of
 // its direct children seen alive for helperAfter that is not in taken, not
 // protected and claimed by no waiting note, the row rowKind gives it, sized
-// over its tree without protected processes, as a command's is. A row keeps
-// its made-up note and command line from the tick it was first seen, and its
-// usage by row ID; the usage and stoppedBy of a row that is gone are dropped.
+// over its tree without protected processes, as a command's is. below is the
+// tick's parent index of s. A row keeps its made-up note and command line
+// from the tick it was first seen while its process name stays the same, and
+// its usage by row ID; the usage and stoppedBy of a row that is gone are
+// dropped. A child kept as a row the tick before, with the same PID, start
+// time and process name, is not read again for its command line.
 func (w *watcher) buildRows(
 	s snapshot,
+	below parents,
 	notes []note,
 	taken map[int]bool,
 	protected map[int]uint64,
 ) {
 	before := w.rows
 	w.rows, w.rowTrees = map[string]command{}, map[string][]ProcessView{}
-	below, skip, now := s.below(), outside(protected), time.Now()
+	kept := map[procKey]proc{}
+	for _, c := range before {
+		kept[procKey{c.Root.PID, c.Root.Start}] = c.Root
+	}
+	skip, now := outside(protected), time.Now()
 	waiting := w.untracked(notes)
 	for agent, k := range w.known {
 		if !s.alive(agent.pid, agent.start) {
@@ -57,14 +65,13 @@ func (w *watcher) buildRows(
 		w.addRow(before, rowAgent, a, agent, k, []proc{a}, false)
 		dry := dryMode(w.stampOf(s, a.PID, protected))
 		for _, child := range below[a.PID] {
-			first, seen := w.agentChildren[procKey{child.PID, child.Start}]
+			key := procKey{child.PID, child.Start}
+			first, seen := w.agentChildren[key]
 			if !seen || now.Sub(first) < helperAfter || taken[child.PID] || child.Zombie ||
 				skip(child) {
 				continue
 			}
-			if child.Args == nil {
-				child.Args = platform.Args(child.PID)
-			}
+			child.Args = argsOf(child, kept[key])
 			if slices.ContainsFunc(waiting, func(n note) bool {
 				return n.AgentPID == a.PID && n.AgentStart == a.Start && claims(s, n, a, child,
 					n.NotedStart-min(n.NotedStart, platform.StartSecond),
@@ -72,13 +79,7 @@ func (w *watcher) buildRows(
 			}) {
 				continue
 			}
-			tree := below.tree(s, []int{child.PID}, skip)
-			var stamps []stamp
-			for _, p := range tree {
-				if st := w.stampOf(s, p.PID, protected); st.Readable && !p.Zombie {
-					stamps = append(stamps, st)
-				}
-			}
+			tree, stamps := w.stampedTree(s, below, child.PID, protected)
 			row := rowKind(k, a.PID, child, stamps)
 			if row == "" {
 				continue
@@ -102,31 +103,79 @@ func (w *watcher) buildRows(
 	}
 }
 
+// argsOf is child's command line: as already read this tick, else as read
+// for last, the same process kept as a row the tick before, while its
+// process name stays the same, else read now.
+func argsOf(child, last proc) []string {
+	switch {
+	case child.Args != nil:
+		return child.Args
+	case last.PID == child.PID && last.Start == child.Start && last.Name == child.Name &&
+		last.Args != nil:
+		return last.Args
+	}
+	return platform.Args(child.PID)
+}
+
+// stampedTree is root's tree without protected processes and the readable
+// stamps of its processes, zombies left out. The stamps are read first: one
+// may name a process of the tree as its agent, which stampOf then protects,
+// so the tree is walked again after, without it, and a row's size never
+// counts it beside its own agent's row.
+func (w *watcher) stampedTree(
+	s snapshot,
+	below parents,
+	root int,
+	protected map[int]uint64,
+) ([]proc, []stamp) {
+	stamped := map[int]stamp{}
+	for _, p := range below.tree(s, []int{root}, outside(protected)) {
+		if !p.Zombie {
+			stamped[p.PID] = w.stampOf(s, p.PID, protected)
+		}
+	}
+	tree := below.tree(s, []int{root}, outside(protected))
+	var stamps []stamp
+	for _, p := range tree {
+		if st, ok := stamped[p.PID]; ok && st.Readable {
+			stamps = append(stamps, st)
+		}
+	}
+	return tree, stamps
+}
+
 // rowKind is the row a direct child of an agent of kind k, whose PID is
 // agentPID, gets from its command line and the readable stamps of its tree,
-// or "" for none. A helper is not a shell (see shells) and, under
-// Claude Code, carries no CLAUDE_PID naming its agent in its tree (a hook and
-// a status line command do), or, under Codex, no Codex call ID. An unmatched
-// command, under Claude Code only, has in its tree a call stamp its own agent
-// wrote that names the child as its shell, with a second that fits the
-// child's start as records.byShell judges it: a command whose shape no note
+// or "" for none. A helper is not a shell (see shells) or a sandbox launcher
+// (see launchers), which runs a command, and, under Claude Code, carries no
+// CLAUDE_PID naming its agent in its tree (a hook and a status line command
+// do), or, under Codex, no Codex call ID. An unmatched command, under Claude
+// Code only, has in its tree a call stamp its own agent wrote that names the
+// child as its shell, with a second that fits the child's start as
+// records.byShell judges it (see fitsShell): a command whose shape no note
 // matched, or one a person typed with !. A child whose command line cannot be
 // read is no helper.
 func rowKind(k kind, agentPID int, child proc, stamps []stamp) string {
 	// Any shell, in a shape shellScript knows or not: a shell whose whole tree
-	// hides its environment would otherwise pass for a helper.
-	helper := len(child.Args) > 0 && !shells[filepath.Base(child.Args[0])]
+	// hides its environment would otherwise pass for a helper. A launcher
+	// runs a command too, which under a Codex that sets no call IDs carries
+	// nothing that tells it from a helper. Both are judged by the program
+	// the command line names and by the kernel's name.
+	helper := len(child.Args) > 0
+	if helper {
+		for _, name := range []string{filepath.Base(child.Args[0]), child.Name} {
+			helper = helper && !shells[name] && !launchers[name]
+		}
+	}
 	switch k {
 	case claude:
 		if helper &&
 			!slices.ContainsFunc(stamps, func(st stamp) bool { return st.Agent == agentPID }) {
 			return rowHelper
 		}
-		started := platform.StartTime(child.Start)
-		if !started.IsZero() && slices.ContainsFunc(stamps, func(st stamp) bool {
-			late := st.CallSecond - started.Unix()
+		if slices.ContainsFunc(stamps, func(st stamp) bool {
 			return st.call() && st.Agent == agentPID && st.CallShell == child.PID &&
-				late >= 0 && late <= int64(stampSlack/time.Second)
+				fitsShell(child.Start, st.CallSecond)
 		}) {
 			return rowUnmatched
 		}
@@ -146,8 +195,9 @@ func dryMode(st stamp) bool { return st.Mode == "dry-run" || st.Mode == "off" }
 // w.rows, and adds its size over tree to its usage. A new row's note is made
 // up as a unit's is (see addRoot): its ID the row's, its command the
 // program's name only, its folder and project the process's own, no
-// subagent, and its command line in Shown, which only the view shows. dry
-// marks its stops as log only; once set it stays.
+// subagent, and its command line in Shown, which only the view shows; it is
+// made again once the process name changes, since the process then runs
+// another program. dry marks its stops as log only; once set it stays.
 func (w *watcher) addRow(
 	before map[string]command,
 	row string,
@@ -159,7 +209,7 @@ func (w *watcher) addRow(
 ) {
 	id := rowID(row, p)
 	c, ok := before[id]
-	if !ok {
+	if !ok || c.Root.Name != p.Name {
 		args := p.Args
 		if args == nil {
 			args = platform.Args(p.PID)

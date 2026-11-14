@@ -123,14 +123,8 @@ func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, b
 	}
 	var found []callRecord
 	for _, rec := range r.byCall {
-		if rec.Agent != agent || rec.Shell.PID != shell || rec.Shell.Start == 0 {
-			continue
-		}
-		started := platform.StartTime(rec.Shell.Start)
-		if started.IsZero() {
-			continue
-		}
-		if late := second - started.Unix(); late >= 0 && late <= int64(stampSlack/time.Second) {
+		if rec.Agent == agent && rec.Shell.PID == shell && rec.Shell.Start != 0 &&
+			fitsShell(rec.Shell.Start, second) {
 			found = append(found, rec)
 		}
 	}
@@ -138,6 +132,18 @@ func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, b
 		return callRecord{}, false
 	}
 	return found[0], true
+}
+
+// fitsShell reports whether a call stamp's second fits a shell that started
+// at start, a kernel start time: in that second or no more than stampSlack
+// after it. byShell and the unmatched rows (see rowKind) both judge by it.
+func fitsShell(start uint64, second int64) bool {
+	started := platform.StartTime(start)
+	if started.IsZero() {
+		return false
+	}
+	late := second - started.Unix()
+	return late >= 0 && late <= int64(stampSlack/time.Second)
 }
 
 // prune drops the records of agents that are gone.
