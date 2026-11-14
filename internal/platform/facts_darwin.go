@@ -81,6 +81,10 @@ const GroupFromFolder = true
 // TouchIDPossible reports whether sudo can be set up to ask for Touch ID here.
 const TouchIDPossible = true
 
+// KnowsOriginalParent reports whether ProcessLineage names the process that
+// forked one even after that parent exited, as macOS's kernel records it.
+const KnowsOriginalParent = true
+
 // AssetTriple is the operating-system part of a Rust-style release asset name,
 // such as uv's.
 const AssetTriple = "apple-darwin"

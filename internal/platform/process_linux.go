@@ -4,9 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -18,11 +21,49 @@ import (
 // step, such as WSL2's resync after the host sleeps.
 const StartSecond = 100
 
+// bootTime is the wall-clock second the system booted, the btime line of
+// /proc/stat, read once; the zero time when it cannot be read.
+var bootTime = sync.OnceValue(func() time.Time {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return time.Time{}
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if rest, ok := strings.CutPrefix(line, "btime "); ok {
+			second, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
+			if err != nil {
+				return time.Time{}
+			}
+			return time.Unix(second, 0)
+		}
+	}
+	return time.Time{}
+})
+
+// StartTime is a Process.Start as a wall-clock time: the boot time plus the
+// clock ticks since boot. It is the zero time when the boot time cannot be
+// read. The boot time is whole seconds, so the result can be up to a second
+// early.
+func StartTime(start uint64) time.Time {
+	boot := bootTime()
+	if boot.IsZero() {
+		return time.Time{}
+	}
+	return boot.Add(time.Duration(start) * (time.Second / StartSecond))
+}
+
 // ProcessInfo parses /proc/<pid>/stat. The name sits between the first "("
 // and the last ")", so a name holding either cannot shift the fields after
-// it: state (field 3), ppid (4), pgrp (5) and starttime (22).
+// it: state (field 3), ppid (4), pgrp (5) and starttime (22). UID is the
+// owner of /proc/<pid>, which the kernel sets to the process's effective
+// user.
 func ProcessInfo(pid int) (Process, error) {
-	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/stat")
+	dir := "/proc/" + strconv.Itoa(pid)
+	var owner unix.Stat_t
+	if err := unix.Stat(dir, &owner); err != nil {
+		return Process{}, &fs.PathError{Op: "stat", Path: dir, Err: err}
+	}
+	data, err := os.ReadFile(dir + "/stat")
 	if err != nil {
 		return Process{}, err
 	}
@@ -44,6 +85,7 @@ func ProcessInfo(pid int) (Process, error) {
 		PID:    pid,
 		PPID:   ppid,
 		PGID:   pgid,
+		UID:    int(owner.Uid),
 		Start:  start,
 		Name:   string(data[open+1 : end]),
 		Zombie: fields[0] == "Z",
@@ -91,19 +133,32 @@ func Args(pid int) []string {
 	return strings.Split(strings.TrimSuffix(string(data), "\x00"), "\x00")
 }
 
-// Environ is the variable name in /proc/<pid>/environ, the environment the
-// process started with. It is "" when absent or unreadable.
+// Environ is the variable name in the environment the process started with.
+// It is "" when absent or unreadable.
 func Environ(pid int, name string) string {
+	values, _ := Environment(pid, name)
+	return values[name]
+}
+
+// Environment is the named variables in /proc/<pid>/environ, the environment
+// the process started with, read once. A name that is absent has no entry.
+// readable is false when the file cannot be read, as for another user's
+// process.
+func Environment(pid int, names ...string) (values map[string]string, readable bool) {
+	values = map[string]string{}
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 	if err != nil {
-		return ""
+		return values, false
 	}
 	for entry := range strings.SplitSeq(string(data), "\x00") {
-		if value, ok := strings.CutPrefix(entry, name+"="); ok {
-			return value
+		name, value, ok := strings.Cut(entry, "=")
+		if ok && slices.Contains(names, name) {
+			if _, seen := values[name]; !seen {
+				values[name] = value
+			}
 		}
 	}
-	return ""
+	return values, true
 }
 
 // Footprint is the process's proportional set size (Pss), which counts a

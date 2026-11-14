@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 	"unsafe"
@@ -17,6 +18,12 @@ import (
 // against the other.
 const StartSecond = 1_000_000
 
+// StartTime is a Process.Start as a wall-clock time: Start already is one,
+// in microseconds since the epoch.
+func StartTime(start uint64) time.Time {
+	return time.UnixMicro(int64(start))
+}
+
 // darwinZombie is SZOMB, kinfo_proc's p_stat for a zombie.
 const darwinZombie = 5
 
@@ -26,6 +33,7 @@ func fromKinfo(k *unix.KinfoProc) Process {
 		PID:    int(k.Proc.P_pid),
 		PPID:   int(k.Eproc.Ppid),
 		PGID:   int(k.Eproc.Pgid),
+		UID:    int(k.Eproc.Ucred.Uid),
 		Start:  uint64(started.Sec)*1_000_000 + uint64(started.Usec),
 		Name:   unix.ByteSliceToString(k.Proc.P_comm[:]),
 		Zombie: k.Proc.P_stat == darwinZombie,
@@ -106,23 +114,37 @@ func Args(pid int) []string {
 	return args
 }
 
-// Environ is the variable name among the environment strings that follow
-// the arguments in kern.procargs2, up to the empty string that ends them:
-// the environment the process started with. It is "" when absent or
-// unreadable.
+// Environ is the variable name in the environment the process started with.
+// It is "" when absent or unreadable.
 func Environ(pid int, name string) string {
+	values, _ := Environment(pid, name)
+	return values[name]
+}
+
+// Environment is the named variables among the environment strings that
+// follow the arguments in kern.procargs2, up to the empty string that ends
+// them: the environment the process started with, read once. A name that is
+// absent has no entry. readable is false when the kernel gives no
+// environment at all, as it does for a restricted program such as /bin/sleep
+// or /bin/zsh, or when the process cannot be read.
+func Environment(pid int, names ...string) (values map[string]string, readable bool) {
 	_, rest := procArgs(pid)
+	values = map[string]string{}
 	for len(rest) > 0 {
 		end := bytes.IndexByte(rest, 0)
 		if end <= 0 {
-			return ""
+			break
 		}
-		if value, ok := strings.CutPrefix(string(rest[:end]), name+"="); ok {
-			return value
+		readable = true
+		name, value, ok := strings.Cut(string(rest[:end]), "=")
+		if ok && slices.Contains(names, name) {
+			if _, seen := values[name]; !seen {
+				values[name] = value
+			}
 		}
 		rest = rest[end+1:]
 	}
-	return ""
+	return values, readable
 }
 
 // procArgs reads kern.procargs2: argc as a 32-bit integer, the executable
