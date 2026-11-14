@@ -84,8 +84,8 @@ func guardLogsCommand(o *options) *cobra.Command {
 		Short: "Show the commands the guard stopped, memory warnings and watcher errors",
 		Long: "Show the guard log, oldest first, one line per event: the time in this machine's " +
 			"time zone, the level and the event, then key=value fields in a fixed order (id, " +
-			"agent, subagent, project, by, dry_run, took, size, peak, floor, level, available, " +
-			"total, still_running, release, old_release, new_release, new_pid, msg, error, " +
+			"agent, subagent, project, kind, launched_by, by, dry_run, took, size, peak, " +
+			"floor, level, available, total, still_running, release, old_release, new_release, new_pid, msg, error, " +
 			"process, cmd), a value with a space, quote, equals sign, backslash or control " +
 			"character in Go quotes. " +
 			"The events are each command that ended, matched no known shape or was stopped, low " +
@@ -328,11 +328,12 @@ type guardField struct {
 }
 
 // guardFields are the fields of e in a guard line's order, each without a
-// value left out: a call's short id, where and by whom, how long it took and
-// how large it got, the memory reading, the watcher's releases and processes,
-// then msg, error, process and cmd. Values are plain except the agent in its
-// hue, a stop by you and a took of 10 s or more bold, and a size or peak bold
-// in gold from 1 GB and in red from 4 GB.
+// value left out: a call's short id, where, for a program that detached from
+// a command its kind and the short id of the call that started it, by whom,
+// how long it took and how large it got, the memory reading, the watcher's
+// releases and processes, then msg, error, process and cmd. Values are plain
+// except the agent in its hue, a stop by you and a took of 10 s or more bold,
+// and a size or peak bold in gold from 1 GB and in red from 4 GB.
 func guardFields(e guard.Event, running bool) []guardField {
 	took, peak := e.Took, e.Peak
 	if running {
@@ -351,6 +352,8 @@ func guardFields(e guard.Event, running bool) []guardField {
 		{"agent", e.Agent, agentStyle(e.Agent)},
 		{"subagent", e.Subagent, nil},
 		{"project", e.Project, nil},
+		{"kind", e.Kind, nil},
+		{"launched_by", shortCallID(e.LaunchedBy), nil},
 		{"by", e.By, styleIf(e.By == "you", bold)},
 		{"dry_run", whenTrue(e.DryRun), nil},
 		{"took", tookValue(took), styleIf(took >= 10, bold)},
@@ -401,8 +404,17 @@ func nonZero(n int) string {
 // (Claude Code) or call_ (Codex) prefix and any provider segment after it,
 // enough to tell calls apart on screen. Claude on Amazon Bedrock and Google
 // Vertex AI adds a short lowercase segment ("toolu_bdrk_01…",
-// "toolu_vrtx_01…"), the same in every ID, so it is left out too.
+// "toolu_vrtx_01…"), the same in every ID, so it is left out too. A row the
+// watcher made for a process, not a call (detached-, agent-, helper- or
+// unmatched-, then the process ID and its start), is p and that process ID
+// ("p87305").
 func shortCallID(call string) string {
+	for _, kind := range []string{"detached-", "agent-", "helper-", "unmatched-"} {
+		if rest, ok := strings.CutPrefix(call, kind); ok {
+			pid, _, _ := strings.Cut(rest, "-")
+			return "p" + pid
+		}
+	}
 	call = strings.TrimPrefix(strings.TrimPrefix(call, "toolu_"), "call_")
 	if segment, rest, ok := strings.Cut(call, "_"); ok && len(segment) >= 2 &&
 		len(segment) <= 8 && strings.Trim(segment, "abcdefghijklmnopqrstuvwxyz") == "" {
