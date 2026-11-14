@@ -60,7 +60,8 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"when it is known and its command still runs in the foreground; a helper's or " +
 			"unmatched command's stop is in the log only. With WORKBENCH_GUARD=dry-run it only " +
 			"logs; it also only logs for a helper, an unmatched row, or a detached program " +
-			"whose setting cannot be read, when the agent's setting is dry-run or off. " +
+			"whose setting cannot be read, when the agent's setting is dry-run or off. A " +
+			"helper's or unmatched row's own dry-run or off does the same. " +
 			"While no watcher runs, the view says so and reconnects on its own. It needs " +
 			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
 			"workbench guard logs --follow prints the same events.",

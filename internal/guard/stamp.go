@@ -113,8 +113,8 @@ type cachedStamp struct {
 // a process forked but not yet exec'd shows its parent's environment, and
 // shows its own once it execs, which is another program. A stamp whose agent
 // stamp names a live process that started before pid makes that process
-// protected while it lives (see agents), and at once in protected when it is
-// not nil.
+// protected while it is in the process table (see agents), and at once in
+// protected when that is not nil.
 func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	p, ok := s[pid]
 	if !ok {

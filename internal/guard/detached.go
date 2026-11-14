@@ -95,7 +95,7 @@ func firstRoot(s snapshot, c command) proc {
 // parent it was given when it was tied (see addRoot). Then every recorded
 // process that is protected now (a known agent, the watcher, a process a
 // stamp names as its agent) is dropped with what was recorded below it (see
-// dropAndLeave), so what a nested session left before it was known is no
+// dropAndLeave), so what a nested session left before it was protected is no
 // longer the outer call's. Where the kernel keeps the original parent, each
 // member's stamp is read in the walk, through the cache (see stampOf), from
 // the second tick the member is recorded at (its versions are recorded from
@@ -139,7 +139,7 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 			// A member's stamp is read from the second tick it is seen on:
 			// most processes of a busy build live less than a tick, and work a
 			// session leaves in its first tick is tied to it only through the
-			// store, which drops it once the session is known. Where the
+			// store, which drops it once the session is protected. Where the
 			// kernel keeps no original parent, members' stamps are not read:
 			// protecting by them there is not verified.
 			before := w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now)
@@ -426,8 +426,9 @@ func (w *watcher) judgeUnits(s snapshot, f facts) {
 // unit tied by stamp alone has lost a call that no longer proves it (see
 // loseStampCall).
 //
-// A root that has become an agent the guard knows, or protected (a stamp
-// names it as its agent), leaves its unit at once, with or without lineage.
+// A root that has become an agent the guard knows, or protected or under a
+// protected process (a stamp names it as its agent), leaves its unit at once,
+// with or without lineage.
 //
 // A root found running another program than the one it was judged in (see
 // programOf), such as a fork caught before it started its own, starts its
@@ -561,9 +562,8 @@ func (w *watcher) agentDry(s snapshot, agent procKey) bool {
 }
 
 // followFirstRoot makes a unit's Root its first live root, and its command
-// that root's program as it was last judged: its process name in the note,
-// which may be logged, and its command line in Shown, which only the view
-// shows.
+// that root's program: its process name in the note, which may be logged,
+// and its command line in Shown, which only the view shows.
 func followFirstRoot(s snapshot, c *command) {
 	c.Root = firstRoot(s, *c)
 	for _, r := range c.Detached.Roots {

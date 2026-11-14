@@ -1,10 +1,11 @@
 // Package guard stops the largest shell command an AI coding agent started
 // when the machine is about to run out of memory, and tells the agent why. On
 // its own it stops only a command an agent started, or work such a command
-// provably forked and left behind; never an agent, its helpers (language and
-// MCP servers), hooks, a command it could not match or any other program. A
-// person may stop a helper, an unmatched command or detached work from the
-// view.
+// provably forked and left behind; never an agent it knows (one whose session
+// hook ran or that left a note, or a process a stamp names as its agent), an
+// agent's helpers (language and MCP servers), hooks, a command it could not
+// match or any other program. A person may stop a helper, an unmatched
+// command or detached work from the view.
 package guard
 
 import (

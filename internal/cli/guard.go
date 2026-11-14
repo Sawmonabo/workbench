@@ -31,8 +31,9 @@ func guardCommand(o *options) *cobra.Command {
 		Short: "Show what the agent command memory guard did, and watch what it tracks",
 		Long: "The guard stops the largest shell command Claude Code or Codex started, or the " +
 			"largest program such a command left running detached, when the machine is about " +
-			"to run out of memory, and tells the agent why. It never stops an agent or the " +
-			"helpers an agent starts itself. Its hooks and watcher run by themselves. " +
+			"to run out of memory, and tells the agent why. It never stops an agent it knows " +
+			"(one whose session hook ran or that left a note) or the helpers an agent starts " +
+			"itself. Its hooks and watcher run by themselves. " +
 			"`workbench guard logs` shows what they did, one line per event. `workbench guard " +
 			"memory` shows, live, the commands and detached programs the guard tracks, the " +
 			"agents, their helpers and commands no note matched, and stops the ones you choose but an agent.",

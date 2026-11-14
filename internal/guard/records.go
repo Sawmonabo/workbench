@@ -22,8 +22,9 @@ const stampSlack = 30 * time.Second
 // callRecord is what the watcher keeps of a call whose note it read, after
 // the note is gone, so that work a call's command left running can be traced
 // back to the call. Shell is the command's shell, the root the watcher
-// tracked, and stays zero until the call is tracked: a call that ended
-// within one tick never is. StartedAgent marks a call found to have started
+// tracked, and stays zero until the call is tracked or its shell is learned
+// when it starts (see glimpseShell); a call that ended within one tick while
+// no watcher followed its agent never has one. StartedAgent marks a call found to have started
 // an agent session (see watcher.markStartedAgents), set once and never
 // cleared: that session's own processes carry the call's stamps, so a stamp
 // that resolves to the call no longer proves the call's command forked the

@@ -115,9 +115,10 @@ func finalWhy(why string) bool {
 // user's, not a zombie, not protected or under a protected process, not an
 // agent the guard knows and not Workbench; when, where the kernel keeps the
 // original parent, it was forked rather than started by init; and when it is
-// tied to a known agent that runs and started before it, by the process that
-// forked it or, where the kernel keeps the original parent, by its stamps. A
-// stamp naming another agent, or WORKBENCH_GUARD=off, makes it none. No
+// tied to a known agent that runs and started before it: by its own record
+// in a tracked tree, by the process that forked it where the kernel keeps
+// the original parent, or there by its stamps. A stamp naming another agent,
+// call stamps naming two agents, or WORKBENCH_GUARD=off make it none. No
 // environment is read for a root these rules reject before its stamps.
 func unitRootWhy(s snapshot, r proc, f facts) (tie, verdict, string) {
 	rKey := procKey{r.PID, r.Start}
@@ -303,9 +304,12 @@ func resolve(recs *records, id string) (callRecord, bool) {
 	return recs.byID(id)
 }
 
-// unitGrace is how long a unit is tracked before the guard may choose it: a
-// session a command started and left detached needs that long to reach its
-// SessionStart hook and be known as an agent, which is never stopped.
+// unitGrace is how long a unit's root is tracked before the guard may choose
+// it: a session a command started and left detached is never stopped once it
+// says it is an agent. A Claude Code session registers well within it (0.3 to
+// 0.7 s measured) and plain Codex in 2.3 to 3.5 s; a Codex session whose
+// required MCP servers start slowly may take longer (design section 10 item
+// 8), and may then be stopped as the command's work.
 const unitGrace = 10 * time.Second
 
 // candidate is a tracked command as the guard's own choice sees it: its size
@@ -318,7 +322,8 @@ type candidate struct {
 
 // mayChoose reports whether the guard may choose the candidate on its own: a
 // noted command always, a unit only once a call is proved to have started it
-// and it has been tracked for unitGrace. A stamp that resolves to no call
+// and one of its roots is settled and has been tracked for unitGrace (see
+// ownStop, which gives tracked). A stamp that resolves to no call
 // does not prove an agent's command forked the process (a command a person
 // typed with ! carries the same stamp), so such a unit is left to a person.
 func (cand candidate) mayChoose() bool {

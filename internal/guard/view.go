@@ -27,9 +27,10 @@ func shownCommand(pid int, name string) string {
 
 // commandView is a tracked command as a snapshot shows it, in state. A unit
 // shows its kind, its root, the call that started it when that resolved, and
-// its full command line, which the view alone shows. A row shows its root
-// and command line too, and its kind unless it is an unmatched command,
-// which shows as a command does.
+// its command line in the form that never holds an environment string (see
+// shownCommand), which the view alone shows. A row shows its root and
+// command line in that form too, and its kind unless it is an unmatched
+// command, which shows as a command does.
 func (w *watcher) commandView(id string, c command, state string) CommandView {
 	v := CommandView{
 		ID: id, Agent: string(c.Note.Kind), Subagent: c.Note.Subagent, Project: c.Note.Project,
