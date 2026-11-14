@@ -250,15 +250,16 @@ equals the `CLAUDE_PID` of the process that carries it. A nested session a
 command starts, and everything that session's hooks start, inherit the outer
 command's stamp beside their own `CLAUDE_PID`; the two disagree, so the stamp
 does not count (2.1 fact 12).
+A process a hook starts never carries the call stamp (2.1 fact 11), which is
+what keeps a daemon some hook started from being taken for a command's work.
+A session already running when this ships has no call stamp until it
+restarts; until then its detached work is found only through its original
+parent (5.3).
 
 The same hook tells the guard that its agent runs (5.4), under Claude Code
-and under Codex, where it writes no stamp.
-A process a hook starts never carries it (2.1 fact 11), which is what keeps a
-daemon some hook started from being taken for a command's work. The hook
-prints nothing and never fails; with `WORKBENCH_GUARD=off`, or without
-`CLAUDE_ENV_FILE`, it writes nothing. A session already running when this
-ships has no call stamp until it restarts; until then its detached work is
-found only through its original parent (5.3).
+and under Codex. Without `CLAUDE_ENV_FILE`, as under Codex, it writes no
+stamp and still says its agent runs. With `WORKBENCH_GUARD=off` it writes
+nothing. It prints nothing and never fails.
 
 ### 4.3 Codex
 
