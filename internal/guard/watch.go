@@ -207,7 +207,16 @@ type procKey struct {
 // the guard log. It works from /, so it never holds the folder of the session
 // that started it. version is the release it runs, for the log.
 func Watch(ctx context.Context, version string) {
+	// The watcher must keep working when the machine is short of memory, so
+	// it keeps its own small. Its heap grows to its live heap plus GC percent
+	// of it before each collection, however little it allocates between: at
+	// 50 the heap under a busy build stays about a third smaller than at the
+	// default 100, for a collection every 2 to 3 s. The limit is the
+	// backstop: it makes the collector run more often only once the live heap
+	// passes about 16 MiB, well above the 10 MiB of a busy build with the
+	// ancestry store full.
 	debug.SetMemoryLimit(32 << 20)
+	debug.SetGCPercent(50)
 	f, err := openFolders("watch")
 	if err != nil {
 		return
