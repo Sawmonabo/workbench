@@ -38,20 +38,24 @@ func guardMemoryCommand(o *options) *cobra.Command {
 			"other kinds, by status: detached, a program that detached from a command and still " +
 			"runs, with the call that started it in its details when known; agent, the agent " +
 			"process itself, by its own size; helper, a long-lived program the agent started, " +
-			"such as a language server or an MCP server; and unmatched, a running command no " +
-			"note matched. Their ID is p and the process ID. The header counts the running and " +
-			"finished rows and shows the memory in use of the installed memory, the largest " +
-			"peak and the swap in use, and under it the memory in use split into commands, " +
-			"detached programs, agents, helpers and the rest. ↑ and ↓ move, as the mouse wheel " +
-			"does in most terminals; space tags a running row, enter or → opens the selected " +
+			"such as a language server or an MCP server, never a shell or a sandbox launcher; " +
+			"and unmatched, a running command no note matched. Their ID is p and the process " +
+			"ID. The header counts the running and finished commands, detached programs and " +
+			"unmatched commands, not agent or helper rows, and shows the memory in use of the " +
+			"installed memory, the largest peak and the swap in use, and under it the memory " +
+			"in use split into commands, detached programs, agents, helpers and the rest. " +
+			"↑ and ↓ move, as the mouse wheel does in most terminals; space tags a running " +
+			"row, enter or → opens the selected " +
 			"one's details (the full command, one step of a pipeline or && chain per line, its " +
 			"folder, processes and memory graph, which scroll with ↑, ↓, pgup, pgdn, home, end " +
 			"and the wheel), k opens the stop menu for the tagged rows or the selected one (a " +
 			"polite stop, force-killed after 5 s, or a forced kill now), esc or ← closes a menu " +
 			"or the details, and q, or esc on the list, quits. An agent is never stopped: it " +
-			"cannot be tagged, and k on it sends nothing. The watcher signals the row, logs " +
-			"the stop as by=you and tells the agent; with WORKBENCH_GUARD=dry-run it only " +
-			"logs. While no watcher runs, the view says so and reconnects on its own. It needs " +
+			"cannot be tagged, and k on it sends nothing. The watcher signals the row and logs " +
+			"the stop as by=you. It tells a command's call; a detached program's call only " +
+			"when it is known and its command still runs in the foreground; a helper's or " +
+			"unmatched command's stop is in the log only. With WORKBENCH_GUARD=dry-run, and " +
+			"for a helper or unmatched row also with off, it only logs. While no watcher runs, the view says so and reconnects on its own. It needs " +
 			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
 			"workbench guard logs --follow prints the same events.",
 		Args: cobra.NoArgs,
