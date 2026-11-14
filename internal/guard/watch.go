@@ -136,6 +136,9 @@ type watcher struct {
 	idleSince   time.Time
 	expired     time.Time
 	waiter      *platform.Waiter
+	// glimpse is what the watcher follows between ticks, nil until it
+	// follows something (see followAgents).
+	glimpse *glimpse
 	// unsized are processes whose footprint could not be read, so each is
 	// logged once, not every tick.
 	unsized map[procKey]bool
@@ -282,7 +285,7 @@ func Watch(ctx context.Context, version string) {
 		if w.pending == nil && time.Since(w.idleSince) >= idleExit && !w.carryOn() {
 			return
 		}
-		w.waiter.Wait(next)
+		w.wait(func() bool { return ctx.Err() != nil }, next)
 	}
 	f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
 }
@@ -419,10 +422,11 @@ func (w *watcher) tick() time.Duration {
 	return delay(m)
 }
 
-// readAgents has the waiter wake at each agent's exit and reads what matching
-// needs of each (see loadArgs), noting the Codex agents seen setting call IDs
-// of their own while they run. It forgets the known agents that are gone (see
-// gone), with their calls' records.
+// readAgents has the waiter wake at each agent's exit, and follow its forks
+// where it can (see followAgents), and reads what matching needs of each (see
+// loadArgs), noting the Codex agents seen setting call IDs of their own while
+// they run. It forgets the known agents that are gone (see gone), with their
+// calls' records.
 func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 	codexAgents, inFolders := map[int]bool{}, map[int]bool{}
 	for _, n := range notes {
@@ -459,6 +463,7 @@ func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 			}
 		}
 	}
+	w.followAgents(s, agents)
 }
 
 // demand is what memory calls for at now, after the holds that keep a brief
