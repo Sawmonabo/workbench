@@ -215,26 +215,40 @@ func Session(stdin *os.File, agent string) {
 }
 
 // removeGoneAgents removes each agent file whose process has exited or is
-// another process reusing its PID. A file whose process cannot be read for
-// any other reason stays.
+// another process reusing its PID, and each file whose name does not parse as
+// <pid>-<start>.json, which no agent file ever is. A file whose process cannot
+// be read for any other reason stays.
 func (f folders) removeGoneAgents() {
 	entries, err := listFolder(f.agents)
 	if err != nil {
 		return
 	}
 	for _, entry := range entries {
-		name, ok := strings.CutSuffix(entry.Name(), ".json")
-		pidText, startText, cut := strings.Cut(name, "-")
-		pid, pidErr := strconv.Atoi(pidText)
-		start, startErr := strconv.ParseUint(startText, 10, 64)
-		if !ok || !cut || pidErr != nil || startErr != nil {
+		path := filepath.Join(f.agents, entry.Name())
+		pid, start, ok := agentFileName(entry.Name())
+		if !ok {
+			_ = os.Remove(path)
 			continue
 		}
 		p, err := platform.ProcessInfo(pid)
 		if err != nil && platform.Exited(err) || err == nil && (p.Start != start || p.Zombie) {
-			_ = os.Remove(filepath.Join(f.agents, entry.Name()))
+			_ = os.Remove(path)
 		}
 	}
+}
+
+// agentFileName is the PID and start time an agent file's name holds, false
+// when the name is not one folders.agent gives.
+func agentFileName(name string) (int, uint64, bool) {
+	base, ok := strings.CutSuffix(name, ".json")
+	pidText, startText, cut := strings.Cut(base, "-")
+	pid, pidErr := strconv.Atoi(pidText)
+	start, startErr := strconv.ParseUint(startText, 10, 64)
+	if !ok || !cut || pidErr != nil || startErr != nil ||
+		name != fmt.Sprintf("%d-%d.json", pid, start) {
+		return 0, 0, false
+	}
+	return pid, start, true
 }
 
 // appendStampLine appends stampLine to the env file at path, created private
@@ -301,12 +315,14 @@ func startWatcher(f folders) {
 }
 
 // Post is the PostToolUse hook on Bash, and Claude Code's PostToolUseFailure.
-// It drops the call's note, except for a call sent to the background
-// (run_in_background), whose command runs on after this hook: it marks that
-// note posted and the watcher drops it (see watcher.notes). When the watcher
-// stopped this call, it prints the reason as additionalContext, which the
-// agent sees beside the tool result. Otherwise it prints nothing. It never
-// fails.
+// It marks the call's note ended, or, for a call sent to the background
+// (run_in_background), whose command runs on after this hook, posted. It
+// deletes no note: the watcher deletes it once it has kept the call's record
+// (see watcher.notes), so every call leaves one. It takes no lock to ask
+// whether a watcher runs: an ended note waits for the next watcher, which the
+// next pre hook starts. When the watcher stopped this call, it prints the
+// reason as additionalContext, which the agent sees beside the tool result.
+// Otherwise it prints nothing. It never fails.
 func Post(stdin *os.File, stdout io.Writer) {
 	var f folders
 	defer func() {
@@ -324,13 +340,15 @@ func Post(stdin *os.File, stdout io.Writer) {
 	}
 	path := f.note(input.ToolUseID)
 	var n note
-	switch {
-	case !input.Input.Background:
-		_ = os.Remove(path)
-	case readJSON(path, &n) == nil:
-		n.Posted = true
+	if readJSON(path, &n) == nil {
+		mark := "ended"
+		if input.Input.Background {
+			n.Posted, mark = true, "posted"
+		} else {
+			n.Ended = true
+		}
 		if err = writeJSON(path, n); err != nil {
-			f.event(slog.LevelError, EventError, "cannot mark the note posted",
+			f.event(slog.LevelError, EventError, "cannot mark the note "+mark,
 				"call", input.ToolUseID, "error", err)
 		}
 	}

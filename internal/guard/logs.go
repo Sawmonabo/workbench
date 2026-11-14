@@ -12,7 +12,7 @@ import (
 )
 
 // The guard log is JSON Lines from [slog.JSONHandler]: each record has time,
-// level, msg and event, one of these, with part (pre, post or watch) and pid,
+// level, msg and event, one of these, with part (pre, post, session or watch) and pid,
 // the process that wrote it. Records about a call add call, agent, command
 // (clipped as in the stop reason), root_pid and, when the note has them, cwd,
 // project and subagent; ended, unmatched and stopping add took, the seconds

@@ -24,7 +24,10 @@ const (
 // hook process's own kernel start time, in the units of proc.Start, so the
 // matcher compares kernel start times with each other and never with the
 // wall clock. Posted marks a background call's note after its post hook,
-// which runs while the command goes on. Cwd is the agent's working folder for
+// which runs while the command goes on; Ended marks any other call's note
+// after its post hook, which runs once the command has returned, and the
+// watcher deletes an ended note once it has kept the call's record (see
+// watcher.notes). Cwd is the agent's working folder for
 // the call and Folder the command's leading cd target, both real paths, so
 // they compare with the folder the kernel reports for a process; either is
 // empty when unknown. Subagent is the Claude Code subagent type that made the
@@ -41,6 +44,7 @@ type note struct {
 	NotedAt    time.Time `json:"noted_at"`
 	DryRun     bool      `json:"dry_run,omitempty"`
 	Posted     bool      `json:"posted,omitempty"`
+	Ended      bool      `json:"ended,omitempty"`
 	Cwd        string    `json:"cwd,omitempty"`
 	Folder     string    `json:"folder,omitempty"`
 	Subagent   string    `json:"subagent,omitempty"`
@@ -114,7 +118,7 @@ func (s snapshot) tree(root int, skip func(proc) bool) []proc {
 }
 
 // outside is the skip for a tree that may be signalled: protected processes
-// (agents that left a note, the watcher), each named by PID and start time so
+// (the agents the guard knows, the watcher), each named by PID and start time so
 // a later process reusing a protected PID is not left out, and PID 0 and 1.
 func outside(protected map[int]uint64) func(proc) bool {
 	return func(p proc) bool {

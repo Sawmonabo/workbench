@@ -104,8 +104,8 @@ type watcher struct {
 	// its command still ran.
 	refusals map[string]int
 	// ended are calls whose tracked command has ended. A call runs once, so
-	// its note, which stays until the post hook, the agent's exit or its
-	// abandonment (see notes), is never matched again.
+	// its note, which stays until notes reads it ended, its agent exits or it
+	// is dropped posted or abandoned (see notes), is never matched again.
 	ended map[string]bool
 	// lastEnded is, for each agent, the latest NotedStart of its notes that
 	// went away while this watcher ran.
@@ -113,9 +113,16 @@ type watcher struct {
 	// setsCallIDs are the Codex agents seen with a child carrying a call ID
 	// of its own (Codex 0.163.0 and later), while they run.
 	setsCallIDs map[procKey]bool
-	idleSince   time.Time
-	expired     time.Time
-	waiter      *platform.Waiter
+	// records are what is kept of each call whose note was read, while its
+	// agent runs (see records).
+	records *records
+	// known are the agents the guard knows, each with its kind, from their
+	// agent files (see readAgentFiles) and their notes, until they are gone:
+	// every one that runs is protected, with or without a note.
+	known     map[procKey]kind
+	idleSince time.Time
+	expired   time.Time
+	waiter    *platform.Waiter
 	// unsized are processes whose footprint could not be read, so each is
 	// logged once, not every tick.
 	unsized map[procKey]bool
@@ -129,7 +136,8 @@ type watcher struct {
 	// critical level began, zero while they do not hold (see demand).
 	softSince, criticalSince time.Time
 	// round counts ticks; missing holds the round each needed process (an
-	// agent of a note, a tracked command's root) was first absent in.
+	// agent of a note or a known agent, a tracked command's root) was first
+	// absent in.
 	round   int
 	missing map[procKey]int
 	// unreadNotes and unreadPIDs are notes and processes that could not be
@@ -188,6 +196,8 @@ func Watch(ctx context.Context, version string) {
 		stoppedBy: map[string]string{},
 
 		setsCallIDs: map[procKey]bool{},
+		records:     &records{},
+		known:       map[procKey]kind{},
 		unsized:     map[procKey]bool{},
 		idleSince:   time.Now(),
 		waiter:      platform.NewWaiter(),
@@ -336,6 +346,7 @@ func (w *watcher) tick() time.Duration {
 		w.adopt(s, notes)
 		w.inherited = nil
 	}
+	w.readAgentFiles(s)
 	agents, protected := w.agents(s, notes)
 	w.followManual(s, protected)
 	w.drainStops(s, protected)
@@ -348,13 +359,14 @@ func (w *watcher) tick() time.Duration {
 		taken[c.Root.PID] = true
 		w.tracked[c.Note.ToolUseID] = c
 		w.usage[c.Note.ToolUseID] = &usage{Since: time.Now()}
+		w.records.tracked(c.Note.ToolUseID, c.Root)
 		seen := w.seen[c.Note.ToolUseID]
 		seen.matched = true
 		w.seen[c.Note.ToolUseID] = seen
 		w.f.event(slog.LevelInfo, EventTracking, "tracking", callAttrs(c)...)
 	}
 	trees := w.measure(s, protected)
-	w.markChildSeen(s, agents, notes, taken)
+	w.markChildSeen(s, notes, taken)
 	if len(notes) > 0 || len(w.tracked) > 0 {
 		w.idleSince = time.Now()
 	}
@@ -378,7 +390,8 @@ func (w *watcher) tick() time.Duration {
 
 // readAgents has the waiter wake at each agent's exit and reads what matching
 // needs of each (see loadArgs), noting the Codex agents seen setting call IDs
-// of their own while they run.
+// of their own while they run. It forgets the known agents that are gone (see
+// gone), with their calls' records.
 func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 	codexAgents, inFolders := map[int]bool{}, map[int]bool{}
 	for _, n := range notes {
@@ -390,6 +403,15 @@ func (w *watcher) readAgents(s snapshot, agents []int, notes []note) {
 			delete(w.setsCallIDs, key)
 		}
 	}
+	// By gone, not by one reading: a record dropped is never read again, so
+	// one absent reading must not drop it.
+	stays := func(key procKey) bool { return !w.gone(s, key.pid, key.start) }
+	for key := range w.known {
+		if !stays(key) {
+			delete(w.known, key)
+		}
+	}
+	w.records.prune(stays)
 	for _, agent := range agents {
 		w.waiter.Watch(agent)
 		loadArgs(s, agent, codexAgents[agent], inFolders[agent])
@@ -433,7 +455,10 @@ func (w *watcher) demand(m memory, now time.Time) action {
 // memory or file descriptors, say) is left for a later tick, its state kept. A
 // note that does not parse is deleted: the pre hook renames a complete file
 // into place, so a broken one never heals. So is a note whose agent (PID and
-// start time) is gone (see gone). A posted note, a background call's that its
+// start time) is gone (see gone). Every other note read makes its agent known
+// and keeps its call's record. An ended note, one whose post hook ran, is then
+// deleted and taken as a note that went away: it is not given, so it is never
+// matched, nor abandoned. A posted note, a background call's that its
 // post hook kept, is deleted once its command has ended or, when no command
 // matched it, childLinger after it was first read posted and once match has
 // looked for it in two rounds: its command started before the post hook, so a
@@ -474,6 +499,12 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			_ = os.Remove(path)
 			continue
 		}
+		w.known[procKey{n.AgentPID, n.AgentStart}] = n.Kind
+		w.records.add(n)
+		if n.Ended {
+			_ = os.Remove(path)
+			continue
+		}
 		seen, ok := w.seen[id]
 		if !ok {
 			seen = seenNote{
@@ -510,6 +541,15 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		present[id] = true
 		notes = append(notes, n)
 	}
+	w.wentAway(s, present)
+	return notes, nil
+}
+
+// wentAway forgets the notes seen that are not present now, deleted by notes
+// or gone from disk, logging one that never matched while its agent had run a
+// command, and what notes keeps of notes that cannot be read or agents that
+// are gone.
+func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 	for id, seen := range w.seen {
 		if !present[id] {
 			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
@@ -541,7 +581,6 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 			delete(w.lastEnded, key)
 		}
 	}
-	return notes, nil
 }
 
 // gone reports whether the process pid with this start time is absent from s
@@ -659,12 +698,16 @@ func (w *watcher) size(procs []proc, read func(pid int) (uint64, error)) uint64 
 // childLinger: its command may have run in a shape match does not know. The
 // span is in time, not ticks, because ticks quicken to 100 ms under memory
 // pressure. The pre hook's own shell started before NotedStart and never
-// counts.
-func (w *watcher) markChildSeen(s snapshot, agents []int, notes []note, taken map[int]bool) {
+// counts. agentChildren covers every known agent that runs, with a note or
+// without.
+func (w *watcher) markChildSeen(s snapshot, notes []note, taken map[int]bool) {
 	before, now := w.agentChildren, time.Now()
 	w.agentChildren = map[procKey]time.Time{}
-	for _, agent := range agents {
-		for _, p := range s.children(agent) {
+	for agent := range w.known {
+		if !s.alive(agent.pid, agent.start) {
+			continue
+		}
+		for _, p := range s.children(agent.pid) {
 			if key := (procKey{p.PID, p.Start}); !p.Zombie {
 				w.agentChildren[key] = cmp.Or(before[key], now)
 			}
@@ -706,9 +749,9 @@ func (w *watcher) forget(s snapshot) {
 			delete(w.usage, id)
 			delete(w.passed, id)
 			delete(w.refusals, id)
-			// Only a call whose note is still on disk is remembered: when the
-			// post hook already removed it, nothing can match it again and
-			// notes would never clear the entry.
+			// Only a call whose note is still on disk is remembered: once notes
+			// has deleted it, ended, nothing can match it again and notes would
+			// never clear the entry.
 			if _, noted := w.seen[id]; noted && !agentGone {
 				w.ended[id] = true
 			}
@@ -716,8 +759,9 @@ func (w *watcher) forget(s snapshot) {
 	}
 }
 
-// agents are the live agents of the notes and tracked commands. protected is
-// them and the watcher, each PID with its start time: never signalled, nor
+// agents are the live agents of the notes and tracked commands, whose
+// arguments readAgents reads. protected is them, every other known agent that
+// runs and the watcher, each PID with its start time: never signalled, nor
 // anything under them.
 func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	protected := map[int]uint64{}
@@ -737,7 +781,42 @@ func (w *watcher) agents(s snapshot, notes []note) ([]int, map[int]uint64) {
 	for _, c := range w.tracked {
 		add(c.Note.AgentPID, c.Note.AgentStart)
 	}
+	// After the agents above, which add would otherwise leave out of agents.
+	for key := range w.known {
+		if _, ok := protected[key.pid]; !ok && s.alive(key.pid, key.start) {
+			protected[key.pid] = key.start
+		}
+	}
 	return agents, protected
+}
+
+// readAgentFiles reads the agents folder (see Session). A file whose agent
+// runs, with that start time, makes it known; one whose agent is gone (see
+// gone) is removed, as is one that does not parse or does not match its name,
+// which never heals. A file that cannot be read is left for a later tick, and
+// a folder that cannot be read leaves the agents known from their notes only.
+func (w *watcher) readAgentFiles(s snapshot) {
+	entries, err := listFolder(w.f.agents)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		path := filepath.Join(w.f.agents, entry.Name())
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var a agentFile
+		pid, start, named := agentFileName(entry.Name())
+		if !named || json.Unmarshal(data, &a) != nil || a.PID != pid || a.Start != start ||
+			w.gone(s, a.PID, a.Start) {
+			_ = os.Remove(path)
+			continue
+		}
+		if s.alive(a.PID, a.Start) {
+			w.known[procKey{a.PID, a.Start}] = a.Kind
+		}
+	}
 }
 
 // untracked are the notes still waiting for their command: not tracked, and
@@ -1016,7 +1095,8 @@ func (w *watcher) escalate() bool {
 
 // escalation chooses, from one snapshot, what escalate kills: every stopped
 // process still alive and anything started since under one, leaving out
-// protected processes (the agents of the notes on disk now, the watcher) with
+// protected processes (the agents of the notes on disk now and the other
+// agents the guard knows, the watcher) with
 // everything under them, and each stopped process that is protected now or
 // sits under one that is (see dropProtected). wait is the stopped processes to
 // wait for: those kept, and the new ones. A process started under one that has
@@ -1113,7 +1193,8 @@ func (s snapshot) alive(pid int, start uint64) bool {
 }
 
 // anyAlive reports whether a stopped process still runs, leaving out the
-// agents of the notes on disk now and everything under them. Notes it cannot
+// agents of the notes on disk now, the other agents the guard knows and
+// everything under them. Notes it cannot
 // read count as a process still running.
 func (w *watcher) anyAlive(s snapshot) bool {
 	notes, err := w.notes(s)

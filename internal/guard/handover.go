@@ -79,10 +79,10 @@ type handover struct {
 // carried is what the old watcher hands over beside the notes on disk, which
 // the new one reads itself: the tracked commands' roots, notes and memory,
 // the calls whose command ended or that are passed over, the largest peak,
-// the commands that finished within finishedShown and who stopped each
-// tracked command that was signalled, which live only in memory. The notes
-// let the new watcher end a command whose note the post hook removed while
-// the watch passed.
+// the commands that finished within finishedShown, who stopped each tracked
+// command that was signalled, the call records and the agents the guard
+// knows, which live only in memory. The notes let the new watcher end a
+// command whose note was deleted, ended, while the watch passed.
 type carried struct {
 	Tracked     map[string]procRef `json:"tracked"`
 	Notes       map[string]note    `json:"notes"`
@@ -92,6 +92,8 @@ type carried struct {
 	LargestPeak uint64             `json:"largest_peak"`
 	Finished    []CommandView      `json:"finished"`
 	StoppedBy   map[string]string  `json:"stopped_by"`
+	Records     []callRecord       `json:"records"`
+	Known       []agentFile        `json:"known"`
 }
 
 type procRef struct {
@@ -316,6 +318,10 @@ func (w *watcher) carried() carried {
 		LargestPeak: w.largestPeak,
 		Finished:    w.finished,
 		StoppedBy:   map[string]string{},
+		Records:     w.records.all(),
+	}
+	for key, k := range w.known {
+		c.Known = append(c.Known, agentFile{PID: key.pid, Start: key.start, Kind: k})
 	}
 	for id, cmd := range w.tracked {
 		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
@@ -415,7 +421,9 @@ func takeListener() *net.UnixListener {
 
 // adopt takes on what the old watcher carried: the largest peak, the
 // finished commands, which buildView drops finishedShown after they ended as
-// it does its own, who stopped each tracked command, and each tracked command
+// it does its own, who stopped each tracked command, the call records, each in
+// place of the one this watcher made from the note on disk, which holds no
+// shell, the known agents that run, and each tracked command
 // with its note, the one on disk or else the one carried. A command whose
 // root still runs, with its start time, as the note's agent's child is
 // tracked again with its memory, whether it is passed over, and logged. One
@@ -430,6 +438,14 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 	w.largestPeak = max(w.largestPeak, c.LargestPeak)
 	w.finished = append(w.finished, c.Finished...)
 	maps.Copy(w.stoppedBy, c.StoppedBy)
+	for _, rec := range c.Records {
+		w.records.keep(rec)
+	}
+	for _, a := range c.Known {
+		if s.alive(a.PID, a.Start) {
+			w.known[procKey{a.PID, a.Start}] = a.Kind
+		}
+	}
 	onDisk := map[string]note{}
 	for _, n := range notes {
 		onDisk[n.ToolUseID] = n
@@ -452,6 +468,7 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		}
 		cmd := command{Note: n, Root: p}
 		w.tracked[id] = cmd
+		w.records.tracked(id, p)
 		u, kept := c.Usage[id]
 		if !kept {
 			u = usage{Since: time.Now()}

@@ -11,8 +11,6 @@ import (
 
 // recordsKept bounds the call records kept in all, so a long session cannot
 // grow the watcher without end; the oldest are dropped first.
-//
-//nolint:unused // first used by the watcher (watcher.records)
 const recordsKept = 4096
 
 // stampSlack is how long before the second in a call stamp its shell may
@@ -28,8 +26,6 @@ const stampSlack = 30 * time.Second
 // back to the call. Shell is the command's shell, the root the watcher
 // tracked, and stays zero until the call is tracked: a call that ended
 // within one tick never is.
-//
-//nolint:unused // first used by the watcher (watcher.records)
 type callRecord struct {
 	ID       string    `json:"id"`
 	Agent    procKey   `json:"agent"`
@@ -60,24 +56,16 @@ func (k *procKey) UnmarshalJSON(data []byte) error {
 
 // records are the call records by call ID. The zero value holds none and is
 // ready to use.
-//
-//nolint:unused // first used by the watcher (watcher.records)
 type records struct {
 	byCall map[string]callRecord
 }
 
-// add keeps the record of n's call, unless one is kept already, and drops the
-// oldest record once more than recordsKept are kept.
-//
-//nolint:unused // first used by the watcher (watcher.notes)
+// add keeps the record of n's call, unless one is kept already (see keep).
 func (r *records) add(n note) {
 	if _, ok := r.byCall[n.ToolUseID]; ok {
 		return
 	}
-	if r.byCall == nil {
-		r.byCall = map[string]callRecord{}
-	}
-	r.byCall[n.ToolUseID] = callRecord{
+	r.keep(callRecord{
 		ID:       n.ToolUseID,
 		Agent:    procKey{n.AgentPID, n.AgentStart},
 		Kind:     n.Kind,
@@ -86,15 +74,33 @@ func (r *records) add(n note) {
 		Cwd:      n.Cwd,
 		DryRun:   n.DryRun,
 		NotedAt:  n.NotedAt,
+	})
+}
+
+// keep keeps rec in place of any record of its call, and drops the oldest
+// other record once more than recordsKept are kept. Never rec itself: a note
+// older than every kept record would otherwise be dropped by the read that
+// added it, and come back at every read after.
+func (r *records) keep(rec callRecord) {
+	if r.byCall == nil {
+		r.byCall = map[string]callRecord{}
 	}
-	if len(r.byCall) > recordsKept {
-		delete(r.byCall, slices.MinFunc(r.all(), olderRecord).ID)
+	r.byCall[rec.ID] = rec
+	if len(r.byCall) <= recordsKept {
+		return
+	}
+	var oldest *callRecord
+	for id, other := range r.byCall {
+		if id != rec.ID && (oldest == nil || olderRecord(other, *oldest) < 0) {
+			oldest = &other
+		}
+	}
+	if oldest != nil {
+		delete(r.byCall, oldest.ID)
 	}
 }
 
 // tracked keeps root as the shell of the call id, when its record is kept.
-//
-//nolint:unused // first used by the watcher (tick)
 func (r *records) tracked(id string, root proc) {
 	if rec, ok := r.byCall[id]; ok {
 		rec.Shell = procRef{PID: root.PID, Start: root.Start}
@@ -141,8 +147,6 @@ func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, b
 }
 
 // prune drops the records of agents that are gone.
-//
-//nolint:unused // first used by the watcher (tick)
 func (r *records) prune(alive func(procKey) bool) {
 	for id, rec := range r.byCall {
 		if !alive(rec.Agent) {
@@ -152,8 +156,6 @@ func (r *records) prune(alive func(procKey) bool) {
 }
 
 // all are the records, oldest first, as a copy.
-//
-//nolint:unused // first used by the watcher (handover)
 func (r *records) all() []callRecord {
 	out := make([]callRecord, 0, len(r.byCall))
 	for _, rec := range r.byCall {
@@ -163,7 +165,6 @@ func (r *records) all() []callRecord {
 	return out
 }
 
-//nolint:unused // first used through records.all
 func olderRecord(a, b callRecord) int {
 	return cmp.Or(a.NotedAt.Compare(b.NotedAt), cmp.Compare(a.ID, b.ID))
 }
