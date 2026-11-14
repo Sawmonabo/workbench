@@ -62,8 +62,16 @@ func Processes(unreadable func(pid int, err error)) ([]Process, error) {
 // them anew each time on a busy machine (648 bytes a process). The list Read
 // gives is valid only until the next Read: a caller copies what it keeps.
 // The zero value is ready to use; a ProcessList is not for concurrent use.
+//
+// The kernel's records are kept as words, not as []unix.KinfoProc. x/sys
+// declares several of the record's fields as Go pointers (P_vmspace, P_wchan,
+// P_ru and more) whose bytes the kernel writes, so a []unix.KinfoProc is
+// memory the collector scans; kept for the watcher's life, a kernel that one
+// day filled such a field with an address would leave a word the collector
+// could take for a bad heap pointer, which makes the runtime throw. A
+// []uint64 holds no pointers, so the collector never looks inside it.
 type ProcessList struct {
-	kinfo []unix.KinfoProc
+	words []uint64
 	out   []Process
 }
 
@@ -71,27 +79,56 @@ type ProcessList struct {
 // KERN_PROC_ALL (0) in sys/sysctl.h.
 var kernProcAll = [3]int32{1, 14, 0}
 
+// kinfoWords is the size of one kinfo_proc record in the buffer's words:
+// unix.SizeofKinfoProc (648 bytes on amd64 and arm64) is a whole number of
+// 8-byte words, so record i starts at word i*kinfoWords.
+const kinfoWords = unix.SizeofKinfoProc / 8
+
+// The buffer's words must hold whole records, and a record at a word's start
+// must be aligned: unix.KinfoProc's alignment is 8, a uint64's. Each line
+// fails to compile if that ever stops being so.
+const (
+	_ = uint(unix.SizeofKinfoProc - kinfoWords*8)
+	_ = uint(kinfoWords*8 - unix.SizeofKinfoProc)
+	_ = uint(8 - unsafe.Alignof(unix.KinfoProc{}))
+)
+
+// readAttempts is how many times Read asks the kernel for every record before
+// it gives up. A read fails with ENOMEM when the process table grew past the
+// buffer since it was sized; each new attempt asks the size again and leaves
+// twice the headroom. A table that still outgrows it after this many tries,
+// or a kernel that answers ENOMEM for another reason, gets an error rather
+// than a loop that never ends.
+const readAttempts = 4
+
 // Read lists every process, as Processes does, into the list's buffers. A
 // buffer too small for every record fails with ENOMEM, and is then sized
 // again by asking the kernel how much it needs, plus an eighth for the
-// processes that start meanwhile. A buffer four times larger than the
-// records it last held is let go, so a build that ends does not leave its
-// megabyte held.
+// processes that start meanwhile (a quarter, a half and the whole at the
+// next attempts), at most readAttempts times. A buffer four times larger
+// than the records it last held is let go, so a build that ends does not
+// leave its megabyte held.
+//
+// The kernel writes whole records: sysctl_doproc copies out sizeof(struct
+// kinfo_proc) bytes for each process, the size unix.KinfoProc mirrors; a
+// length that is not a whole number of them is an error, so a kernel whose
+// record had another size is never read at the wrong offsets.
 func (l *ProcessList) Read(_ func(pid int, err error)) ([]Process, error) {
-	for {
-		if len(l.kinfo) == 0 {
+	headroom := 8
+	for range readAttempts {
+		if len(l.words) == 0 {
 			var size uintptr
 			if err := readProcs(nil, &size); err != nil {
 				return nil, err
 			}
 			count := int(size / unix.SizeofKinfoProc)
-			l.kinfo = make([]unix.KinfoProc, max(count+count/8, 1))
+			l.words = make([]uint64, max(count+count/headroom, 1)*kinfoWords)
 		}
-		size := uintptr(len(l.kinfo)) * unix.SizeofKinfoProc
-		err := readProcs(&l.kinfo[0], &size)
+		size := uintptr(len(l.words)) * 8
+		err := readProcs(unsafe.Pointer(&l.words[0]), &size)
 		if errors.Is(err, unix.ENOMEM) {
 			// The process table grew past the buffer.
-			l.kinfo = nil
+			l.words, headroom = nil, max(headroom/2, 1)
 			continue
 		}
 		if err != nil {
@@ -101,23 +138,40 @@ func (l *ProcessList) Read(_ func(pid int, err error)) ([]Process, error) {
 			return nil, fmt.Errorf(
 				"kern.proc.all returned %d bytes, not a multiple of %d", size, unix.SizeofKinfoProc)
 		}
-		all := l.kinfo[:size/unix.SizeofKinfoProc]
+		count := int(size / unix.SizeofKinfoProc)
 		out := l.out[:0]
-		for i := range all {
-			out = append(out, fromKinfo(&all[i]))
+		for i := range count {
+			out = append(out, fromKinfo(l.record(i)))
 		}
 		l.out = out
-		if len(all)*4 < len(l.kinfo) {
-			l.kinfo, l.out = nil, nil
+		if count*4*kinfoWords < len(l.words) {
+			l.words, l.out = nil, nil
 		}
 		return out, nil
 	}
+	l.words = nil
+	return nil, fmt.Errorf("kern.proc.all: the process table outgrew the buffer %d times: %w",
+		readAttempts, unix.ENOMEM)
+}
+
+// record is the buffer's record i, read in place. Its words are first taken
+// as a *[kinfoWords]uint64 by a checked slice-to-array-pointer conversion,
+// which panics rather than reach past the buffer, and that is converted to
+// *unix.KinfoProc under unsafe.Pointer rule (1), "Conversion of a *T1 to
+// Pointer to *T2": T2 is no larger than T1 (both are SizeofKinfoProc bytes),
+// T1's alignment of 8 is T2's (the constants above), and the two share a
+// layout because the kernel wrote a kinfo_proc there. The race detector's
+// checkptr instrumentation checks the alignment and the bounds. Only
+// fromKinfo reads it, and it copies out no field x/sys types as a pointer.
+func (l *ProcessList) record(i int) *unix.KinfoProc {
+	words := (*[kinfoWords]uint64)(l.words[i*kinfoWords:])
+	return (*unix.KinfoProc)(unsafe.Pointer(words))
 }
 
 // readProcs reads kern.proc.all into buffer, or with a nil buffer asks the size
 // it needs, through libSystem's sysctl; size is the buffer's size in bytes
 // and becomes the bytes written, or needed.
-func readProcs(buffer *unix.KinfoProc, size *uintptr) error {
+func readProcs(buffer unsafe.Pointer, size *uintptr) error {
 	_, _, errno := libcCall6(
 		sysctl,
 		uintptr(unsafe.Pointer(&kernProcAll[0])),
