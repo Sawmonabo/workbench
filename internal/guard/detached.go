@@ -96,9 +96,13 @@ func firstRoot(s snapshot, c command) proc {
 // process that is protected now (a known agent, the watcher, a process a
 // stamp names as its agent) is dropped with what was recorded below it (see
 // dropAndLeave), so what a nested session left before it was known is no
-// longer the outer call's. A call whose tree holds a protected process other
-// than the watcher, found in the walk or in that drop, started an agent (see
-// markStartedAgents).
+// longer the outer call's. Each member's stamp is read in the walk, through
+// the cache (see stampOf), so a live process a member names as its agent,
+// older than the member, is protected from this tick, and is dropped with
+// the rest: a session started without the guard's hooks is known from the
+// first readable program that carries its CLAUDE_PID. A call whose tree
+// holds a protected process other than the watcher, found in the walk or in
+// that drop, started an agent (see markStartedAgents).
 func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uint64) {
 	now := time.Now()
 	self := os.Getpid()
@@ -123,13 +127,16 @@ func (w *watcher) recordLineage(s snapshot, below parents, protected map[int]uin
 			if q, ok := s[p.PPID]; ok && !slices.Contains(roots, p.PID) {
 				parent = procKey{q.PID, q.Start}
 			}
-			var version uint32
+			var prog program
 			if platform.KnowsOriginalParent {
 				if l, ok := platform.ProcessLineage(p.PID); ok {
-					version = l.Version
+					prog.version = l.Version
 				}
+			} else {
+				prog = programOf(p)
 			}
-			w.ancestry.record(procKey{p.PID, p.Start}, o, parent, version, now)
+			w.ancestry.record(procKey{p.PID, p.Start}, o, parent, prog.version, now)
+			w.stampFor(s, p, prog, protected)
 		}
 	}
 	for pid, start := range protected {
@@ -292,12 +299,16 @@ func (w *watcher) stampOf(s snapshot, pid int, protected map[int]uint64) stamp {
 	if !ok {
 		return stamp{}
 	}
-	key := procKey{pid, p.Start}
-	now := programOf(p)
+	return w.stampFor(s, p, programOf(p), protected)
+}
+
+// stampFor is stampOf for p, a process of s, whose program now was just read.
+func (w *watcher) stampFor(s snapshot, p proc, now program, protected map[int]uint64) stamp {
+	key := procKey{p.PID, p.Start}
 	cached, ok := w.stamps[key]
 	st := cached.stamp
 	if !ok || !cached.program.known() || cached.program.replaced(now) {
-		st = readStamp(pid)
+		st = readStamp(p.PID)
 		w.stamps[key] = cachedStamp{st, now}
 	}
 	if a, ok := s[st.Agent]; ok && st.Agent > 1 && !a.Zombie && a.Start < p.Start {
