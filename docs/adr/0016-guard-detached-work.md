@@ -204,7 +204,10 @@ How to see a call that ends within a tick:
   processes a second counts up to 23.1 MiB against its 32 MiB limit where
   the earlier one counted 16.1 to 18.0 MiB, the difference being the store;
   under 1,400 held processes it counts slightly less (15.2 against up to
-  17.9 MiB). The limit is unchanged; the collector runs at 50 GC percent.
+  17.9 MiB). The 32 MiB is a limit on what the Go runtime counts, not on
+  the resident size, which peaked at 34.0 MiB under the churn and 25.2 MiB
+  under the held processes, against 26.1 and 31.7 MiB for the earlier
+  release. The limit is unchanged; the collector runs at 50 GC percent.
 - The ten seconds start again at a handover, so detached work is not chosen
   for ten seconds after an update; the store (3.66 MB at its bound), the
   call records and the processes stamps named as agents pass to the next

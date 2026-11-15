@@ -212,7 +212,8 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
 32. A Go map model of the versions kept took 13.0 MiB of heap at 65,536
     versions, about 208 bytes each; at the bound of 16,384 that is about
     3.3 MiB (computed, not measured). The watcher's soft memory limit is
-    32 MiB. The watcher as built was measured against one built from the
+    32 MiB of what the Go runtime counts (`Sys` less `HeapReleased`), not of
+    its resident size. The watcher as built was measured against one built from the
     release before this design, on macOS, ticking once a second, under two
     loads: a command holding 1,400 `sleep` processes, and a command running
     650 shell loops of `/bin/sleep 1` (about 650 new processes a second) for
@@ -226,8 +227,15 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     5 to 7 MiB of live heap at its bound (inferred from the churn rate; the
     watcher does not report the store's size). Under the held processes it
     counted slightly less, 15.2 MiB at most against up to 17.9 MiB. The
-    collector used 0.03 % of the CPU or less. The cost at the 100 ms pressure
-    tick is not measured.
+    collector used 0.03 % of the CPU or less. The resident size, which the
+    limit does not bound, was 22.3 to 31.0 MiB under the churn against 15.5
+    to 26.5 MiB for the earlier release, and 12.2 to 25.4 MiB under the held
+    processes against 18.5 to 26.3 MiB (read with `ps` over the window).
+    In a second series on the same loads, reading the resident size once a
+    second over the whole run, it peaked at 34.0 MiB under the churn and at
+    25.2 MiB under the held processes, against 26.1 and 31.7 MiB for the
+    earlier release, while the counted memory peaked at 22.3 and 15.7 MiB.
+    The cost at the 100 ms pressure tick is not measured.
 33. At a handover with the store at its bound (14,468 entries), the old
     watcher wrote 3.66 MB to the next one in 6.9 ms; marshalling, writing
     and reading took about 31 ms in all.
@@ -607,7 +615,10 @@ its program cannot be read, and while nothing readable was found for its
 setting: it is tied by its entry or its original parent, its environment is
 hidden, and so is that of every process below it reached through hidden ones
 (4.4). A pending root is judged again by every rule above at each tick at
-which the kernel answers. One that is still a unit is settled once something
+which the kernel answers and its unit's own agent runs. Once that agent has
+exited (gone, or a zombie not yet reaped) the root is not judged again: it
+stays pending, so the guard's own stop never takes it, and its unit ends
+with its agent (5.6). One that is still a unit is settled once something
 readable was found for it; one that stays unreadable stays pending for as
 long as nothing readable appears below it. The guard's own stop takes only
 settled roots (section 6).
@@ -803,7 +814,13 @@ after its ten seconds (section 6):
 - a Codex session without the hooks, which sets no `CLAUDE_PID`: never;
 - a Claude Code session before 2.1.214, which sets no `CLAUDE_PID`, when it
   runs without the hooks: never.
-Section 10 items 7 to 9 give these as limits.
+Section 10 items 7 to 9 give these as limits. Meanwhile such a session, left
+detached by a call that returned at once, can be in the log as detached
+work: a `tracking` record and then, once it is known, an `ended` one with
+"its root is an agent". It is measured as such only until a tick finds it
+known, which was within about a second in a real Claude Code session; the
+view showed it as an agent row from its first snapshot, and the guard
+could not choose it meanwhile (held `young`, and with no proved call).
 
 ### 5.5 Which call started it
 
@@ -874,7 +891,10 @@ afterwards, never gained.
 A unit is tracked while any of its processes lives and its agent runs.
 Members the init process adopts after the unit's root exits join it as
 roots. The watcher does not exit idle while a unit is tracked. When the agent
-exits, the unit is forgotten, not stopped, as a command is.
+exits, every one of its units is forgotten, not stopped, as a command is,
+whatever its roots can show: at the same tick, with an `ended` record that
+gives no reason, and a finished `done` line in the view (`stopped` when a
+person had stopped it).
 
 At a handover the next watcher takes each unit with its roots (each with the
 program it was judged in, whether it is settled, its name and the command
@@ -926,8 +946,9 @@ not read it in time is cancelled and the old watcher carries on.
   launcher or the program itself may rewrite them. The command line is in
   the view only, in the shown form of section 8.
 - A person stops a unit from the view the same way as a command.
-- The watcher's own memory stays under its 32 MiB limit with room to spare
-  (2.1 fact 32). Its collector runs at 50 GC percent, so the heap grows to
+- What the Go runtime counts of the watcher's memory stays under its 32 MiB
+  limit with room to spare (2.1 fact 32); its resident size is not bounded
+  by that limit and was measured above it under a churning build. Its collector runs at 50 GC percent, so the heap grows to
   one and a half times its live heap before each collection instead of
   twice: Go's GC guide gives the heap target as "Live heap + (Live heap + GC
   roots) * GOGC / 100" and, for a program close to its memory limit, says
@@ -997,7 +1018,11 @@ of the program that detached first) and in the snapshot does not change, and
 the details screen shows that log label on an "In the log" line, so a row
 can be matched to its log records. An agent's and a helper's status read
 `agent` and `helper`, and a running command no note claims reads
-`unmatched`, as it does once it has ended:
+`unmatched`. A finished `unmatched` row, and the log's `unmatched` record,
+stand only for a call the guard never found: no tick tracked it and no fork
+wake-up learned its shell. A call whose shell was learned and that ended
+within a tick gets no row or record of its own; what it left is a
+`detached` row naming it:
 
 ```
    ID        STATUS      AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND

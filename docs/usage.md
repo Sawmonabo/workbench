@@ -217,7 +217,10 @@ program that was among them, or on macOS one that a recorded process forked
 (by the kernel's record of which process forked it) or that carries the
 command's variable, counts as that command's work once it detaches. On macOS
 the guard also learns a command's shell the moment it starts, so work left
-behind by a command that ends within a second is seen too, with its call;
+behind by a command that ends within a second is seen too, with its call,
+once a watcher runs: a session's first call can end before the watcher its
+hook starts is up, and what it leaves then has no call. Such a call gets no
+row or log record of its own; what it left is a `detached` row naming it;
 an agent that wakes the guard more than 100 times in a second by forking is
 not followed for 5 seconds, and its calls are found at the ticks meanwhile. An
 app opened with `open` is never detached work: the system started it.
@@ -256,7 +259,8 @@ tool that filters variables) counts as not opted out. A program run with an
 empty environment (`env -i`) reads as unreadable, like a hidden one.
 
 A detached row lasts while any of its processes runs and its agent does; when
-the agent exits it is forgotten, not stopped. Not seen: work a program below
+the agent exits, every row of that agent is forgotten, not stopped, and shows
+as finished. Not seen: work a program below
 the command's shell double-forks at once when nothing in it shows its
 environment, work handed to a service (a container engine, a launchd or
 systemd job), and another user's process. A command that names one of its own
@@ -315,7 +319,8 @@ happened. `reason` shows only for `ended`, on detached work whose last program l
 it, and says why, such as `"its root turned the guard off"`. A value holding a space, `"`, `=`, `\` or a control character is
 written in Go's double quotes, so each value stays on one line and logfmt
 readers split the fields. The events are each command or detached work that ended, matched
-no known shape (`unmatched`) or was stopped (`stopping`, then `forced` or
+no known shape (`unmatched`, only for a call the guard never found: no tick
+tracked it and no fork wake-up learned its shell) or was stopped (`stopping`, then `forced` or
 `gave-up` if it comes to that), low memory that stopped nothing, calls dropped
 without their post hook, the watcher starting, handing over to a new release,
 going idle and exiting, errors, and any line of the watcher's own output, such
@@ -377,7 +382,8 @@ section 4.1.
 `workbench guard memory` shows, live and full screen, each command the watcher
 tracks, newest first: its short ID, status (`● run`, `◌ stopping`), agent,
 subagent, run time, memory now and at its peak, project and command, then,
-dimmed for a minute, those that ended (`✓ done`, `? unmatched`, `✗ stopped`).
+dimmed for a minute, those that ended (`✓ done`, `? unmatched` for a call the
+guard never found, `✗ stopped`).
 Beside them are rows of four other kinds, each with `p` and a process ID as
 its ID: detached work (`● detached`), timed from the start of the program
 that detached first, showing the command line and PID of its first program

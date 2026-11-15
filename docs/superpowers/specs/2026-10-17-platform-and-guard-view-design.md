@@ -325,7 +325,8 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
 
 - **Rows** are the commands the watcher tracks, newest first, then finished
   ones, dimmed, for 60 s after they end, with their outcome: `✓ done`,
-  `? unmatched`, `✗ stopped` (by the guard or by you). A row stopping and
+  `? unmatched` (a call the guard never found: no tick tracked it and no
+  fork wake-up learned its shell), `✗ stopped` (by the guard or by you). A row stopping and
   waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
   `(dry)` (`● run (dry)`), in the list and in its details. Beside them, in
   the same columns
