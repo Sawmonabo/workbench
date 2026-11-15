@@ -959,9 +959,11 @@ synthetic answers.
   ancestry store full, measured with timing lines added to the handover, the
   old watcher wrote 4,054,865 bytes for 16,012 entries in 9.1 ms and the
   next watcher's read ended 1 ms after the write, with no `error` record;
-  and 50 fake agents that each exited just as the watcher first looked at
-  them left no "cannot follow an agent's forks" record and no `WARN` or
-  `ERROR` record.
+  and 50 fake agents, each timed to exit in the 36 ms before the tick at
+  which the watcher first looks at it, left no "cannot follow an agent's
+  forks" record and no `WARN` or `ERROR` record. How many of the 50 exits
+  fell in the moment macOS no longer hands out an exiting process was not
+  counted.
 - On 2026-11-14, on macOS with Codex 0.169.0 (`codex exec`) and a throwaway
   Codex home holding the guard's hooks, a sub-second command that left a
   sleeper in a session of its own (`setsid`) gave a `detached` row with the

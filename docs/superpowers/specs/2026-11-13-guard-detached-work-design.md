@@ -732,8 +732,9 @@ logs that once ("cannot follow an agent's forks") and finds that agent's
 calls at the ticks. An agent that exits just as the watcher looks at it is
 no refusal and gives no such record: macOS no longer hands out a process
 that has begun to exit, though its process list still shows it running, and
-the watcher keeps nothing for it. An exiting agent's exit always ends the
-watcher's wait, as any watched agent's does. Where the kernel cannot follow
+the watcher keeps nothing for it. The exit of an agent the watcher watches
+ends its wait as before, even while the process list still shows that agent
+running. Where the kernel cannot follow
 forks (Linux and WSL), the tick alone records, and nothing is logged. So work a sub-second call leaves detached is tied to the call by
 its original parent (5.5), as it is for a longer call. The watcher handles
 wakes between ticks only: a waiting child whose exec and exit both arrive
