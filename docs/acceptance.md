@@ -888,17 +888,144 @@ synthetic answers.
   as the container's PID 1, the guard stopped the command as above; a hook
   that took no PID 1 for an agent found none, and the kernel killed the
   command.
+- On 2026-11-14, on macOS, detached work was checked with Claude Code
+  2.1.325 (`claude -p`) in throwaway sessions whose settings held only the
+  guard's hooks, with an isolated state folder, and `workbench guard memory`
+  driven in a private terminal. A command that double-forked a sleeper gave
+  a `detached` row naming its agent and the call that started it, and,
+  through a subagent, the subagent too; a person's stop from the view ended
+  it (`◌ stopping`, then `✗ stopped`), and the session's reply quoted
+  `Stopped by you (workbench guard memory)`, from the main session and from
+  the subagent. A command that left `/bin/sleep` running when it returned
+  gave a row with its call, held `young` for ten seconds and `unread` after;
+  its details read "The guard will not stop this itself: its setting cannot be
+  read. You can stop it here.", and a person's stop ended it.
+- On 2026-11-14, on macOS, in Claude Code 2.1.325 sessions set up the same
+  way, a detached program whose root exited while its child kept running
+  stayed one row with its call and peak (9 MB) and was measured
+  from the child (1 MB); the ID column moved to the live child's PID, the
+  log and the details' "In the log" line kept the first label, and a
+  person's stop from the view ended it. A command that returned at once,
+  leaving a sleeper, gave a row with its call, in the main session and
+  through a subagent with its subagent, and the call was neither logged nor
+  shown as `unmatched`. With a fake agent, a `sleep 4` call under `/bin/ksh`,
+  a shell no matching rule knows, was still logged `unmatched`, while the
+  same text under zsh was tracked and ended. When an agent exited while a
+  unit whose program hides its environment and one whose program shows it
+  were tracked, both ended at the same tick with no reason and showed
+  `✓ done`, in a real session and with a fake agent; the processes kept
+  running, forgotten, not stopped.
+- On 2026-11-14, on macOS, an app a command opened with `open -gj -a
+  Calculator` and a sleeper a second `PreToolUse` hook double-forked, carrying
+  `CLAUDE_PID` and no call stamp, gave no row and no log record, under a real
+  Claude Code session and under a fake agent. A real nested Claude Code
+  session a fake agent's command started with `nohup … &` showed only as an
+  `agent` row in every snapshot, whether the command stayed four seconds or
+  returned at once; when it returned at once, the log held the session for
+  one second as detached work that ended with "its root is an agent", and
+  the call, which ended before the watcher its own pre hook started was up,
+  was never tracked. With a stand-in nested session, a readable sleeper it
+  left detached before its session hook ran was a `detached` row of the
+  outer call, held `young`, and ended in the log with "what started its root
+  is not this call's work" once the session registered, while the sleeper
+  kept running.
+- On 2026-11-14, on macOS, a real Claude Code session with a stdio MCP server
+  showed an agent row sized by the agent process alone, a helper row for the
+  server and the command's row, and the five sums added up to the memory in
+  use in every snapshot. With a fake agent, the view showed all five kinds at
+  once with the memory split line, Space tagged a detached row and nothing on
+  the agent row, `k` on the agent row answered `agents are never stopped`,
+  and an 11-line window left the split line out. Under bash, with a fake
+  agent, a program left detached by a call with `WORKBENCH_GUARD=off` as a
+  command prefix and three arguments, which then rewrote its title, gave no
+  row, while the same program without the prefix gave a `detached` row with
+  its call.
+- On 2026-11-14, on macOS with fake agents, a watcher running from a copy of
+  the binary handed over to a build of another version while a detached unit
+  was tracked: the new watcher showed the unit once, with its call and the
+  peak measured before the handover (69,681,704 to 69,714,448 bytes, its
+  memory then 6,586,848 to 6,734,304), logged `tracking` for it once, and
+  held it `young` for ten seconds after the adoption. A session without
+  hooks, protected only by a readable child's stamp inside a tracked call,
+  was never signalled by a person's stop of that call sent right after a
+  handover, in three runs; the stop reached the new watcher's second tick,
+  and the first tick is pinned by the
+  `aStampNamedAgentIsProtectedFromTheFirstTickAfterAHandover` row of
+  `TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop`. Detached work a
+  nested session left before it registered was carried across a handover
+  with its call and ended with "what started its root is not this call's
+  work" when the session registered.
+- On 2026-11-14, on macOS with a fake agent, in a handover with the
+  ancestry store full, measured with
+  timing lines added to the handover, the old watcher wrote 3.89 MB for
+  15,361 entries in 6.8 ms and the next watcher read it, with no `error`
+  record.
+- On 2026-11-14, on macOS with Codex 0.169.0 (`codex exec`) and a throwaway
+  Codex home holding the guard's hooks, a sub-second command that left a
+  sleeper in a session of its own (`setsid`) gave a `detached` row with the
+  call's ID, held `young` and then cleared, and the unit ended once the agent
+  was gone; the session's agent file existed while it ran and was removed
+  after. A plain `&` sleeper, in its command's process group, was gone at the
+  end with no `stopping` record: inferred to be ended by Codex itself, not
+  observed.
+- On 2026-11-14, on macOS with a fake agent, a watcher tracking one command
+  that held 1,400 `sleep` processes, and one running 650 shell loops of
+  `/bin/sleep 1` for 75 s (about 650 new processes a second), logged no
+  `error` record and ticked once a second; the counted figure below was read
+  from a build with a memory readout added. The memory the Go runtime counts, which is what its
+  32 MiB limit bounds, peaked at 15.2 to 15.7 MiB under the held processes
+  and 22.3 MiB under the churn; its resident size, which that limit does not
+  bound, peaked at 25.2 to 28.5 MiB and 32.0 to 34.0 MiB. The release before,
+  under the same two loads, peaked at 17.3 and 18.8 MiB counted and 31.7 and
+  26.1 MiB resident.
+- On 2026-11-14, on macOS with stand-in agents, the scenarios of the
+  [detached work design](superpowers/specs/2026-11-13-guard-detached-work-design.md)
+  (sections 5 and 10) gave what it says. Opt-out and hidden programs: a
+  hidden leftover of `WORKBENCH_GUARD=off` was held `unread`, a readable one
+  gave no row, a root that ran itself again with the guard off ended with
+  "its root turned the guard off", a hidden orphan of an opted-out root gave
+  no row, and a program that strips the variable stayed one the guard may
+  choose. Nested sessions: work a session left before it was known ended
+  with "what started its root is not this call's work", or, tied by stamp
+  alone, lost its call (`no call`), and a session without hooks was kept out
+  of the call's tree once a readable process named it. Sub-second calls
+  under Homebrew bash that left a subshell gave a row with the call and its
+  subagent in 30 of 30 runs in each of two series, and a `/bin/sleep` left
+  behind a row with its call, held `young` then `unread`. Two subagents
+  starting the same command at the same moment, in one folder or two, had
+  each leftover tied to its own call (40 of 40 and 20 of 20 in two series),
+  none to the other. A person's stop of an outer call never reached a nested
+  session known only by its agent file, nor its helper. A detached subshell that ran
+  a program with the guard off ended with "its root turned the guard off",
+  and one without kept its ID and call through the new program, also when
+  its call returned at once; such work of a call that returned at once and
+  whose own pre hook started the watcher was not seen. The session hook, run
+  for a stand-in agent, added its line to the env file once, and not again
+  when it ran again for a resumed session.
 - Not yet observed: a stop under real memory pressure on macOS or WSL2, or on
   Linux outside a memory-limited cgroup; either agent's interactive session,
   Claude Code's own sandbox and either agent on WSL2 with the guard enabled,
   where a command whose shape differs would go unguarded and be logged, not
-  stopped wrongly; and a real agent receiving the stop reason. `workbench
-  guard memory` has not been run against real Claude Code and Codex commands,
-  such as the same command in two worktrees of one repository at once, one
-  through a subagent, to see each row carry its project and subagent and a
-  stop hit the row chosen; nor has it shown a stop the guard chose under
-  memory pressure, or a watcher of an older release holding the socket.
-  Applying the hooks to a real machine is not yet observed.
+  stopped wrongly; and a stop the guard itself chose reaching a real agent,
+  or a person's stop reaching Codex. `workbench guard memory` has been run
+  against real Claude Code commands only (detached rows, through a
+  subagent, and a person's stop of the chosen row), not against Codex's or
+  the same command in two worktrees of one repository at once; nor has it
+  shown a stop the guard chose under memory pressure, or a watcher of an
+  older release holding the socket. Applying the hooks to a real machine is
+  not yet observed.
+- Not yet observed for detached work: the guard's own stop of it under real
+  memory pressure, which was never forced. That it never chooses a unit with
+  no proved call, one younger than ten seconds or one whose setting was not
+  read rests on the `held` reason the snapshots showed (`no call`, `young`,
+  `unread`) and on `TestGuardChoosesOnlyWhatACallProvablyStarted` and
+  `TestTargetsStayInsideTheCommandTree`; that it never names a nested
+  session rests on its `agent` row and on the `rootIsAKnownAgentTiedByStamp`
+  and `rootIsAKnownAgentTiedByParent` rows of
+  `TestUnitRootOnlyForWhatAnAgentCommandForked`. None of these checks ran on
+  Linux or WSL2, and the Linux container check was not run. Also not
+  observed: the editor's command-line launcher starting the editor, and a
+  real session resuming with the same env file.
 - A moved agent config folder is reported, not written. On 2026-10-16, on
   macOS in a disposable home with synthetic answers, with `CLAUDE_CONFIG_DIR`
   unset, set to `~/.claude` or `~/.claude/`, `apply --local-build --dry-run
@@ -935,7 +1062,7 @@ synthetic answers.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked, including the WSL VS Code server install. |
-| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, and a real session of each agent showing the stop reason. |
+| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and
