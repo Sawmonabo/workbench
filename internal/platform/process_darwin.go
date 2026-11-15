@@ -458,8 +458,9 @@ func (w *Waiter) Watch(pid int) Attach {
 // no process to attach to: none by that ID, or one the kernel will no longer
 // hand out because it is exiting (proc_prepareexit sets P_REF_DEAD, "will not
 // be visible via proc_find", before the last thread ends and the process
-// becomes a zombie, bsd/kern/kern_exit.c) or is still being made (P_REF_NEW).
-// Any other error is a refusal of a process that is there.
+// becomes a zombie, bsd/kern/kern_exit.c) or is still being made (P_REF_NEW,
+// while it is on no process list yet). Any other error is a refusal of a
+// process that is there.
 func attachResult(err error) Attach {
 	switch {
 	case err == nil:
@@ -481,7 +482,8 @@ func attachResult(err error) Attach {
 // event), so the old knote is deleted and a new one added. A watched process
 // that exits in between, or whose exit was waiting to be read, is Gone, and
 // the next Wait reports that exit itself, so a watched exit is never lost. A
-// watched process that is Refused gets its exit watch back.
+// watched process that is Refused gets its exit watch back where the system
+// allows it; one found Gone at that second try is Gone.
 func (w *Waiter) Follow(pid int) Attach {
 	now, ok := w.watched[pid]
 	switch {
@@ -504,6 +506,7 @@ func (w *Waiter) Follow(pid int) Attach {
 		w.exited = append(w.exited, Event{PID: pid, Exit: true})
 	case w.Watch(pid) == Gone:
 		w.exited = append(w.exited, Event{PID: pid, Exit: true})
+		return Gone
 	}
 	return result
 }

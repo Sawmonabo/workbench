@@ -132,8 +132,8 @@ func newGlimpse() *glimpse {
 // nothing. An agent paused for waking it too often (see agentWakesCap) is
 // followed again by the first tick after its pause. An agent the system
 // refuses while it runs (platform.Refused, or Unsupported on a system that
-// says it can follow) is not asked again and keeps the exit watch it had; the
-// first such refusal is logged, once. An agent that is Gone has exited, or is
+// says it can follow) is not asked again and keeps the exit watch it had where
+// the system allows it; the first such refusal is logged, once. An agent that is Gone has exited, or is
 // exiting while the process list still shows it running: nothing is kept or
 // logged for it, and a tick asks again only while it still runs.
 func (w *watcher) followAgents(s snapshot, agents []int) {
@@ -306,7 +306,8 @@ func (w *watcher) glimpseEvent(e platform.Event) bool {
 	// exit ends the wait. A capped shell is still among the shells above.
 	// Every exit the waiter reports is one: it reports none for a process
 	// the system refused to follow, and one that is exiting, though the
-	// process list may still show it running, has exited for the guard.
+	// process list may still show it running, has exited for the wait (the
+	// tick counts it as running until the list shows otherwise).
 	return e.Exit
 }
 
@@ -363,7 +364,8 @@ func (w *watcher) glimpseAgent(agent procKey) {
 			g.seen[key] = true
 			w.glimpseChild(agent, key)
 		case platform.Gone:
-			// Exiting, or still being made by fork: nothing is kept of it, and
+			// Its exit has begun (by the published kernel source a listed
+			// child is never still being made): nothing is kept of it, and
 			// the agent's next fork looks again while it is still listed.
 		default:
 			// Refused: left to the ticks, as without the wake-ups.

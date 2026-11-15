@@ -372,8 +372,8 @@ type Waiter struct{ fds map[int]int }
 func NewWaiter() *Waiter { return &Waiter{fds: map[int]int{}} }
 
 // Watch makes Wait return when pid exits, and says what it did (see Attach):
-// pidfd_open gives ESRCH for a process that is gone, and any other error
-// (such as EMFILE) is Refused.
+// pidfd_open gives ESRCH for a process that is gone, a kernel without it
+// (ENOSYS) is Unsupported, and any other error (such as EMFILE) is Refused.
 func (w *Waiter) Watch(pid int) Attach {
 	if _, ok := w.fds[pid]; ok {
 		return Attached
@@ -385,6 +385,8 @@ func (w *Waiter) Watch(pid int) Attach {
 		return Attached
 	case errors.Is(err, unix.ESRCH):
 		return Gone
+	case errors.Is(err, unix.ENOSYS):
+		return Unsupported
 	}
 	return Refused
 }

@@ -69,12 +69,13 @@ const (
 	// It has exited, or is exiting: on macOS the kernel stops handing out a
 	// process the moment it starts to exit, while its process listing still
 	// shows it running for a while (until its last thread ends). A process
-	// still being made by fork is not handed out either, so a process listed
-	// as a child may be Gone for a moment and attach later. Nothing is to be
-	// remembered of it.
+	// still being made by fork is not handed out either, but by the published
+	// XNU source it is on no process list yet, so a listed process that is
+	// Gone has begun to exit. Nothing is to be remembered of it.
 	Gone
 	// Refused is a process that runs and that the system will not attach
-	// this watch to. Whatever was watched of it before is watched still.
+	// this watch to. Whatever was watched of it before is watched again
+	// where the system allows it.
 	Refused
 	// Unsupported is a Waiter that can attach nothing of this kind: forks
 	// cannot be followed on this system (FollowsForks), or it has nothing to
