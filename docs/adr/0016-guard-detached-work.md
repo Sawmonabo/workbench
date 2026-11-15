@@ -201,15 +201,14 @@ How to see a call that ends within a tick:
   one tick a second, the watcher spends 0.4 to 2.3 ms more CPU a tick
   (higher in all six pairs; one build varies by about 2 ms from run to
   run), and under a build starting about 650
-  processes a second counts up to 23.1 MiB against its 32 MiB limit where
-  the earlier one counted 16.1 to 18.0 MiB, the difference being the store;
-  under 1,400 held processes it counts slightly less (15.2 against up to
-  17.9 MiB). The 32 MiB is a limit on what the Go runtime counts, not on
-  the resident size, which peaked at 34.0 MiB under the churn and 25.2 MiB
-  under the held processes, against 26.1 and 31.7 MiB for the earlier
-  release. The limit is unchanged; the collector runs at 50 GC percent.
+  processes a second counts up to 22.8 MiB against its 32 MiB limit where
+  the earlier one counted 18.8 MiB, the difference being the store; under
+  1,400 held processes it counts slightly less (15.3 against 17.3 MiB). The
+  32 MiB is a limit on what the Go runtime counts, not on the resident
+  size, which peaked at 32.1 MiB under the churn and 27.5 MiB under the
+  held processes, against 26.1 and 31.7 MiB for the earlier release. The limit is unchanged; the collector runs at 50 GC percent.
 - The ten seconds start again at a handover, so detached work is not chosen
-  for ten seconds after an update; the store (3.66 MB at its bound), the
+  for ten seconds after an update; the store (about 4.1 MB when full), the
   call records and the processes stamps named as agents pass to the next
   watcher.
 - The original-parent record and the versions come from a kernel call that

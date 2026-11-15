@@ -956,10 +956,12 @@ synthetic answers.
   with its call and ended with "what started its root is not this call's
   work" when the session registered.
 - On 2026-11-14, on macOS with a fake agent, in a handover with the
-  ancestry store full, measured with
-  timing lines added to the handover, the old watcher wrote 3.89 MB for
-  15,361 entries in 6.8 ms and the next watcher read it, with no `error`
-  record.
+  ancestry store full, measured with timing lines added to the handover, the
+  old watcher wrote 4,054,865 bytes for 16,012 entries in 9.1 ms and the
+  next watcher's read ended 1 ms after the write, with no `error` record;
+  and 50 fake agents that each exited just as the watcher first looked at
+  them left no "cannot follow an agent's forks" record and no `WARN` or
+  `ERROR` record.
 - On 2026-11-14, on macOS with Codex 0.169.0 (`codex exec`) and a throwaway
   Codex home holding the guard's hooks, a sub-second command that left a
   sleeper in a session of its own (`setsid`) gave a `detached` row with the
@@ -973,9 +975,9 @@ synthetic answers.
   `/bin/sleep 1` for 75 s (about 650 new processes a second), logged no
   `error` record and ticked once a second; the counted figure below was read
   from a build with a memory readout added. The memory the Go runtime counts, which is what its
-  32 MiB limit bounds, peaked at 15.2 to 15.7 MiB under the held processes
-  and 22.3 MiB under the churn; its resident size, which that limit does not
-  bound, peaked at 25.2 to 28.5 MiB and 32.0 to 34.0 MiB. The release before,
+  32 MiB limit bounds, peaked at 15.3 MiB under the held processes and
+  22.8 MiB under the churn; its resident size, which that limit does not
+  bound, peaked at 27.5 MiB and 32.1 MiB. The release before,
   under the same two loads, peaked at 17.3 and 18.8 MiB counted and 31.7 and
   26.1 MiB resident.
 - On 2026-11-14, on macOS with stand-in agents, the scenarios of the

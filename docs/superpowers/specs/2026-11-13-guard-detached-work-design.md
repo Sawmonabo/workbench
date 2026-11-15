@@ -221,24 +221,19 @@ on, with Claude Code 2.1.325 and Codex 0.169.0 where an agent took part.
     the limit counts it (`Sys` less `HeapReleased`); CPU is the watcher's CPU
     time over the window. CPU a tick was 0.4 to 2.3 ms higher (7.9 to
     10.4 ms against 6.1 to 9.0 ms), higher in all six pairs of runs; one
-    build varies by about 2 ms from run to run. Under the
-    churn the watcher counted up to 23.1 MiB against the limit where the
-    earlier release counted 16.1 to 18.0 MiB; the difference is the store,
-    5 to 7 MiB of live heap at its bound (inferred from the churn rate; the
-    watcher does not report the store's size). Under the held processes it
-    counted slightly less, 15.2 MiB at most against up to 17.9 MiB. The
-    collector used 0.03 % of the CPU or less. The resident size, which the
-    limit does not bound, was 22.3 to 31.0 MiB under the churn against 15.5
-    to 26.5 MiB for the earlier release, and 12.2 to 25.4 MiB under the held
-    processes against 18.5 to 26.3 MiB (read with `ps` over the window).
-    In a second series on the same loads, reading the resident size once a
-    second over the whole run, it peaked at 34.0 MiB under the churn and at
-    25.2 MiB under the held processes, against 26.1 and 31.7 MiB for the
-    earlier release, while the counted memory peaked at 22.3 and 15.7 MiB.
-    The cost at the 100 ms pressure tick is not measured.
-33. At a handover with the store at its bound (14,468 entries), the old
-    watcher wrote 3.66 MB to the next one in 6.9 ms; marshalling, writing
-    and reading took about 31 ms in all.
+    build varies by about 2 ms from run to run. The collector used 0.03 %
+    of the CPU or less. On the same loads, with the counted memory read
+    every 5 s and the resident size once a second over the whole run, the
+    watcher as released peaked at 22.8 MiB counted and 32.1 MiB resident
+    under the churn, and at 15.3 MiB counted and 27.5 MiB resident under
+    the held processes; the earlier release peaked at 18.8 and 26.1 MiB
+    under the churn and 17.3 and 31.7 MiB under the held processes. The
+    difference under the churn is the store, 5 to 7 MiB of live heap at its
+    bound (inferred from the churn rate; the watcher does not report the
+    store's size). The cost at the 100 ms pressure tick is not measured.
+33. At a handover with the store full (16,012 entries), the old watcher
+    wrote 4,054,865 bytes to the next one in 9.1 ms, and the next one's read
+    ended 1 ms after the write.
 34. Woken at each agent's fork, a watcher tied the work of sub-second calls
     that left a never-exec'ing subshell under Homebrew bash to the call, with
     its subagent, in 30 of 30 runs (no time, 20 and 200 ms), and in a real
@@ -956,8 +951,9 @@ not read it in time is cancelled and the old watcher carries on.
   the view only, in the shown form of section 8.
 - A person stops a unit from the view the same way as a command.
 - What the Go runtime counts of the watcher's memory stays under its 32 MiB
-  limit with room to spare (2.1 fact 32); its resident size is not bounded
-  by that limit and was measured above it under a churning build. Its collector runs at 50 GC percent, so the heap grows to
+  limit with room to spare (2.1 fact 32: 22.8 MiB at most); its resident
+  size is not bounded by that limit and was measured above it, at 32.1 MiB,
+  under a churning build. Its collector runs at 50 GC percent, so the heap grows to
   one and a half times its live heap before each collection instead of
   twice: Go's GC guide gives the heap target as "Live heap + (Live heap + GC
   roots) * GOGC / 100" and, for a program close to its memory limit, says

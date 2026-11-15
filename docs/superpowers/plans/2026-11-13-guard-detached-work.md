@@ -407,7 +407,7 @@ Each check uses the built binary, a scratch state folder and throwaway sessions 
 - [ ] **Check 3:** A unit whose root exits while a child lives stays one row, is still measured and can still be stopped.
 - [ ] **Check 4:** An app started with `open` from a command gives no row, and neither does the editor's command-line launcher starting the editor. A daemon a hook starts gives no row.
 - [ ] **Check 5:** A real nested session a command starts with `nohup … &` and leaves detached shows as an `agent` row, not a `detached` one, and a dry-run stop at critical memory never names it.
-- [ ] **Check 6:** A sub-second Claude Code command that leaves a sleeper gives a row with a blank subagent that a dry-run stop never names; under Codex it gives a row with its call.
+- [ ] **Check 6:** A sub-second Claude Code command that leaves a sleeper gives a `detached` row with its call, and its subagent when a subagent made the call, which the guard's own stop may choose once its ten seconds have passed and its setting was read; under Codex it gives a row with its call.
 - [ ] **Check 7:** An agent with a language server shows an agent row and a helper row, and the five sums add up to the memory in use.
 - [ ] **Check 8:** A handover while a unit is tracked: start the watcher from a copy of the binary in the scratch folder, replace that copy with a build of another version, and the next watcher shows the unit once, with its peak and its call, and logs `tracking` for it once.
 - [ ] **Check 9:** With a build of a few thousand processes under a tracked command, the watcher's own size stays under 32 MiB.
