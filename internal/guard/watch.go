@@ -64,8 +64,8 @@ func (u *usage) add(size uint64) {
 // and NotedStart, read when this watcher first read it, matched once it was
 // tracked, childSeen as markChildSeen sets it, and posted and postedRound
 // from the first tick it was read marked posted. One that goes away unmatched
-// with childSeen is logged, with the note's cwd, project, subagent and at, its
-// NotedAt.
+// with childSeen, and whose shell was not learned either (see found), is
+// logged, with the note's cwd, project, subagent and at, its NotedAt.
 type seenNote struct {
 	command     string
 	agent       procKey
@@ -612,14 +612,14 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 }
 
 // wentAway forgets the notes seen that are not present now, deleted by notes
-// or gone from disk, logging one that never matched while its agent had run a
-// command, and what notes keeps of notes that cannot be read or agents that
-// are gone.
+// or gone from disk, logging one whose command was never found while its
+// agent had run a command (see found), and what notes keeps of notes that
+// cannot be read or agents that are gone.
 func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 	for id, seen := range w.seen {
 		if !present[id] {
 			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
-			if !seen.matched && seen.childSeen {
+			if !w.found(id, seen) && seen.childSeen {
 				attrs := append([]any{"call", id, "agent", seen.kind},
 					placeAttrs(seen.cwd, seen.project, seen.subagent)...)
 				// A note that never found its command left that command unguarded,
@@ -647,6 +647,22 @@ func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 			delete(w.lastEnded, key)
 		}
 	}
+}
+
+// found reports whether the command of the call id was found: tracked by a
+// tick (matched), or its shell learned when it started, by a fork wake-up
+// (see glimpseShell), which keeps the shell in the call's record; a record
+// crosses a handover, so a new watcher knows it too. A call whose shell was
+// learned but that ended before any tick tracked it was never measured, as
+// any call that ends within a tick is not, but its command was found and its
+// work tied to it, so it did not run in a shape the guard does not know: it
+// is no unmatched call, and nothing is logged or shown for it but that work.
+func (w *watcher) found(id string, seen seenNote) bool {
+	if seen.matched {
+		return true
+	}
+	rec, ok := w.records.byID(id)
+	return ok && rec.Shell.Start != 0
 }
 
 // gone reports whether the process pid with this start time is absent from s
