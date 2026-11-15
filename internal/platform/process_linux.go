@@ -371,19 +371,27 @@ type Waiter struct{ fds map[int]int }
 // NewWaiter makes a Waiter that watches nothing yet.
 func NewWaiter() *Waiter { return &Waiter{fds: map[int]int{}} }
 
-// Watch makes Wait return when pid exits.
-func (w *Waiter) Watch(pid int) {
+// Watch makes Wait return when pid exits, and says what it did (see Attach):
+// pidfd_open gives ESRCH for a process that is gone, and any other error
+// (such as EMFILE) is Refused.
+func (w *Waiter) Watch(pid int) Attach {
 	if _, ok := w.fds[pid]; ok {
-		return
+		return Attached
 	}
-	if fd, err := unix.PidfdOpen(pid, 0); err == nil {
+	fd, err := unix.PidfdOpen(pid, 0)
+	switch {
+	case err == nil:
 		w.fds[pid] = fd
+		return Attached
+	case errors.Is(err, unix.ESRCH):
+		return Gone
 	}
+	return Refused
 }
 
-// Follow reports false and does nothing: Linux cannot follow another
+// Follow is Unsupported and does nothing: Linux cannot follow another
 // process's forks and execs here (FollowsForks).
-func (*Waiter) Follow(int) bool { return false }
+func (*Waiter) Follow(int) Attach { return Unsupported }
 
 // Unfollow does nothing, since nothing is ever followed here.
 func (*Waiter) Unfollow(int) {}

@@ -102,7 +102,7 @@ const KnowsOriginalParent = false
 // FollowsForks reports whether Waiter.Follow wakes a Wait when a process
 // forks or execs, as macOS's kqueue can. Linux has no unprivileged way to
 // learn of another process's forks that works in every namespace, so here
-// Follow always reports false.
+// Follow is always Unsupported.
 const FollowsForks = false
 
 // AssetTriple is the operating-system part of a Rust-style release asset name,

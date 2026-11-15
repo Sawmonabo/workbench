@@ -130,11 +130,12 @@ func newGlimpse() *glimpse {
 // that is no longer known or runs no more; it forgets what it looked at of
 // processes that are gone. Where the system cannot follow forks it does
 // nothing. An agent paused for waking it too often (see agentWakesCap) is
-// followed again by the first tick after its pause. An agent the kernel
-// refuses while it runs is not asked again and
-// keeps the exit watch it had; the first such refusal on a system that says
-// it can follow is logged, once. One for an agent that exited meanwhile is
-// not a refusal.
+// followed again by the first tick after its pause. An agent the system
+// refuses while it runs (platform.Refused, or Unsupported on a system that
+// says it can follow) is not asked again and keeps the exit watch it had; the
+// first such refusal is logged, once. An agent that is Gone has exited, or is
+// exiting while the process list still shows it running: nothing is kept or
+// logged for it, and a tick asks again only while it still runs.
 func (w *watcher) followAgents(s snapshot, agents []int) {
 	if !platform.FollowsForks {
 		return
@@ -159,20 +160,16 @@ func (w *watcher) followAgents(s snapshot, agents []int) {
 			continue
 		}
 		delete(g.paused, key)
-		if w.waiter.Follow(key.pid) {
+		switch w.waiter.Follow(key.pid) {
+		case platform.Attached:
 			g.agents[key.pid] = key
 			g.agentWakes[key.pid] = &wakes{}
 			continue
-		}
-		info, err := platform.ProcessInfo(key.pid)
-		if err != nil || info.Start != key.start || info.Zombie {
-			continue // it exited meanwhile
+		case platform.Gone:
+			continue
+		case platform.Refused, platform.Unsupported:
 		}
 		g.refusedBy[key] = true
-		if g.watched[key.pid] {
-			// Follow gave up the exit watch it replaces; take it again.
-			w.waiter.Watch(key.pid)
-		}
 		if !g.refused {
 			g.refused = true
 			w.f.event(slog.LevelWarn, EventError,
@@ -306,15 +303,11 @@ func (w *watcher) glimpseEvent(e platform.Event) bool {
 		return false
 	}
 	// Else an agent the waiter only watches (one it could not follow): its
-	// exit ends the wait. A capped shell is still among the shells above. An
-	// exit the waiter reports for a process that still runs is the one it
-	// gives when the kernel refuses a follow (see platform.Waiter.Follow),
-	// not an exit.
-	if !e.Exit {
-		return false
-	}
-	p, err := platform.ProcessInfo(e.PID)
-	return err != nil || p.Zombie
+	// exit ends the wait. A capped shell is still among the shells above.
+	// Every exit the waiter reports is one: it reports none for a process
+	// the system refused to follow, and one that is exiting, though the
+	// process list may still show it running, has exited for the guard.
+	return e.Exit
 }
 
 // agentForked handles a fork of a followed agent: its new children are looked
@@ -365,11 +358,17 @@ func (w *watcher) glimpseAgent(agent procKey) {
 		if g.seen[key] || w.protectedNow(key) {
 			continue
 		}
-		g.seen[key] = true
-		if !w.waiter.Follow(p.PID) {
-			continue // it exited meanwhile
+		switch w.waiter.Follow(p.PID) {
+		case platform.Attached:
+			g.seen[key] = true
+			w.glimpseChild(agent, key)
+		case platform.Gone:
+			// Exiting, or still being made by fork: nothing is kept of it, and
+			// the agent's next fork looks again while it is still listed.
+		default:
+			// Refused: left to the ticks, as without the wake-ups.
+			g.seen[key] = true
 		}
-		w.glimpseChild(agent, key)
 	}
 }
 

@@ -434,56 +434,78 @@ func NewWaiter() *Waiter {
 	return &Waiter{kq: kq, watched: map[int]watch{}, events: make([]unix.Kevent_t, 64)}
 }
 
-// Watch makes Wait return when pid exits. A followed process is already
-// watched.
-func (w *Waiter) Watch(pid int) {
+// Watch makes Wait return when pid exits, and says what it did (see Attach).
+// A followed process is already watched.
+func (w *Waiter) Watch(pid int) Attach {
 	now, ok := w.watched[pid]
-	if w.kq < 0 || ok {
-		if ok && !now.exit {
-			now.exit = true
-			w.watched[pid] = now
-		}
-		return
+	switch {
+	case w.kq < 0:
+		return Unsupported
+	case ok:
+		now.exit = true
+		w.watched[pid] = now
+		return Attached
 	}
-	if w.register(pid, unix.EV_ADD|unix.EV_ONESHOT, unix.NOTE_EXIT) {
+	result := attachResult(w.register(pid, unix.EV_ADD|unix.EV_ONESHOT, unix.NOTE_EXIT))
+	if result == Attached {
 		w.watched[pid] = watch{exit: true}
 	}
+	return result
+}
+
+// attachResult is what an EVFILT_PROC attach's error means. The kernel's
+// filt_procattach (XNU bsd/kern/kern_event.c) gives ESRCH when proc_find finds
+// no process to attach to: none by that ID, or one the kernel will no longer
+// hand out because it is exiting (proc_prepareexit sets P_REF_DEAD, "will not
+// be visible via proc_find", before the last thread ends and the process
+// becomes a zombie, bsd/kern/kern_exit.c) or is still being made (P_REF_NEW).
+// Any other error is a refusal of a process that is there.
+func attachResult(err error) Attach {
+	switch {
+	case err == nil:
+		return Attached
+	case errors.Is(err, unix.ESRCH):
+		return Gone
+	}
+	return Refused
 }
 
 // Follow makes Wait return when pid forks, execs or exits, until Unfollow or
-// its exit, after which the kernel drops the watch itself. It reports false
-// when the kernel refuses, as it does for a process that is gone, or when
-// the system cannot follow forks (FollowsForks). The knote is kept after each
-// event and cleared when read (EV_CLEAR), so forks between two Waits come back
-// as one Event.
+// its exit, after which the kernel drops the watch itself, and says what it
+// did (see Attach). The knote is kept after each event and cleared when read
+// (EV_CLEAR), so forks between two Waits come back as one Event.
 //
 // Following a watched process replaces its one-shot exit knote. kqueue keys a
 // knote by process and filter, and EV_ADD on that pair changes the events it
 // reports but keeps EV_ONESHOT (measured: the knote was gone after its first
-// event), so the old knote is deleted and a new one added. A process that
-// exits in between, or whose exit was waiting to be read, refuses the new
-// knote; the next Wait then reports that exit itself, so a watched exit is
-// never lost.
-func (w *Waiter) Follow(pid int) bool {
+// event), so the old knote is deleted and a new one added. A watched process
+// that exits in between, or whose exit was waiting to be read, is Gone, and
+// the next Wait reports that exit itself, so a watched exit is never lost. A
+// watched process that is Refused gets its exit watch back.
+func (w *Waiter) Follow(pid int) Attach {
 	now, ok := w.watched[pid]
-	if w.kq < 0 {
-		return false
-	}
-	if now.follow {
-		return true
+	switch {
+	case w.kq < 0:
+		return Unsupported
+	case now.follow:
+		return Attached
 	}
 	if ok {
-		w.register(pid, unix.EV_DELETE, 0)
+		_ = w.register(pid, unix.EV_DELETE, 0)
 		delete(w.watched, pid)
 	}
-	if !w.register(pid, unix.EV_ADD|unix.EV_CLEAR, unix.NOTE_FORK|unix.NOTE_EXEC|unix.NOTE_EXIT) {
-		if ok {
-			w.exited = append(w.exited, Event{PID: pid, Exit: true})
-		}
-		return false
+	result := attachResult(
+		w.register(pid, unix.EV_ADD|unix.EV_CLEAR, unix.NOTE_FORK|unix.NOTE_EXEC|unix.NOTE_EXIT))
+	switch {
+	case result == Attached:
+		w.watched[pid] = watch{exit: ok && now.exit, follow: true}
+	case !ok:
+	case result == Gone:
+		w.exited = append(w.exited, Event{PID: pid, Exit: true})
+	case w.Watch(pid) == Gone:
+		w.exited = append(w.exited, Event{PID: pid, Exit: true})
 	}
-	w.watched[pid] = watch{exit: ok && now.exit, follow: true}
-	return true
+	return result
 }
 
 // Unfollow stops following pid. A process also watched stays watched for its
@@ -496,26 +518,37 @@ func (w *Waiter) Unfollow(pid int) {
 	if now.exit {
 		// Changing the knote in place leaves no gap for an exit to fall
 		// into; it stays EV_CLEAR, which the exit drops like a one-shot.
-		if w.register(pid, unix.EV_ADD|unix.EV_CLEAR, unix.NOTE_EXIT) {
+		switch attachResult(w.register(pid, unix.EV_ADD|unix.EV_CLEAR, unix.NOTE_EXIT)) {
+		case Attached:
 			w.watched[pid] = watch{exit: true}
 			return
+		case Gone:
+			w.exited = append(w.exited, Event{PID: pid, Exit: true})
+		default:
+			// Refused in place: the follow is removed below, and a new
+			// one-shot exit watch is tried, whose own Gone is reported.
+			_ = w.register(pid, unix.EV_DELETE, 0)
+			delete(w.watched, pid)
+			if w.Watch(pid) == Gone {
+				w.exited = append(w.exited, Event{PID: pid, Exit: true})
+			}
+			return
 		}
-		w.exited = append(w.exited, Event{PID: pid, Exit: true})
 	}
 	// Removing a knote the kernel already dropped at the exit fails with
 	// ENOENT, which leaves nothing to undo.
-	w.register(pid, unix.EV_DELETE, 0)
+	_ = w.register(pid, unix.EV_DELETE, 0)
 	delete(w.watched, pid)
 }
 
-// register applies one change to pid's EVFILT_PROC knote and reports whether
-// the kernel took it.
-func (w *Waiter) register(pid int, flags int, fflags uint32) bool {
+// register applies one change to pid's EVFILT_PROC knote and gives the
+// kernel's error, nil when it took it.
+func (w *Waiter) register(pid int, flags int, fflags uint32) error {
 	var event unix.Kevent_t
 	unix.SetKevent(&event, pid, unix.EVFILT_PROC, flags)
 	event.Fflags = fflags
 	_, err := unix.Kevent(w.kq, []unix.Kevent_t{event}, nil, nil)
-	return err == nil
+	return err
 }
 
 // Wait sleeps for d or until a watched process exits or a followed one forks
