@@ -732,9 +732,14 @@ exit stays watched and the tick still tracks it. An agent that wakes it more
 than 100 times in one second is not followed for its forks for 5 seconds,
 and a later tick follows it again; its calls are found at the ticks
 meanwhile (2.1 fact 34). When the kernel refuses to follow an agent that
-still runs, the guard logs that once and finds that agent's calls at the
-ticks. Where the kernel cannot follow forks (Linux and WSL), the tick alone
-records. So work a sub-second call leaves detached is tied to the call by
+still runs, or cannot follow forks at all on a system that should, the guard
+logs that once ("cannot follow an agent's forks") and finds that agent's
+calls at the ticks. An agent that exits just as the watcher looks at it is
+no refusal and gives no such record: macOS no longer hands out a process
+that has begun to exit, though its process list still shows it running, and
+the watcher keeps nothing for it. An exiting agent's exit always ends the
+watcher's wait, as any watched agent's does. Where the kernel cannot follow
+forks (Linux and WSL), the tick alone records, and nothing is logged. So work a sub-second call leaves detached is tied to the call by
 its original parent (5.5), as it is for a longer call. The watcher handles
 wakes between ticks only: a waiting child whose exec and exit both arrive
 while a tick runs is dropped (section 10).
@@ -894,7 +899,11 @@ roots. The watcher does not exit idle while a unit is tracked. When the agent
 exits, every one of its units is forgotten, not stopped, as a command is,
 whatever its roots can show: at the same tick, with an `ended` record that
 gives no reason, and a finished `done` line in the view (`stopped` when a
-person had stopped it).
+person had stopped it). After a failed tick or a handover that tick can come
+one or two ticks late, and a person's stop of the unit in that window, which
+a tick handles before it judges roots, can reach a pending root whose newest
+program was not judged, since a root is no longer judged once its agent has
+exited (5.2); the guard's own stop never takes a pending root.
 
 At a handover the next watcher takes each unit with its roots (each with the
 program it was judged in, whether it is settled, its name and the command
@@ -1103,7 +1112,11 @@ stop what it must not (a fault).
 4. **Commands a person types with `!`.** They leave no note (2.1 fact 16),
    so their shell is never learned: detached work they leave is found only
    by its stamp, shows no subagent and is never chosen by the guard. A
-   person can stop it from the view. Misses.
+   person can stop it from the view. When such a command has the same text
+   as one of the agent's noted calls at the same moment, a fork wake-up can
+   give that call's note to the typed command's shell (5.3), and the noted
+   call is then not reported as `unmatched`, even when the agent's own
+   command ends within a tick unfound. Misses.
 5. **A call that starts before any watcher runs.** The pre hook starts the
    watcher, so a session's first call can start its shell before a watcher
    follows its agent. If that command ends within a tick, its shell is never
@@ -1286,7 +1299,8 @@ is not forced, so the guard's own stop is shown by the facts it rests on
   subagents starting the same command at once each get their own call. A
   call's shell and an agent that fork in a loop are capped, and their calls
   are still tracked at the ticks; a refused follow is logged once and the
-  ticks keep their pace. A retitled `/usr/bin/perl` shows no environment
+  ticks keep their pace, and an agent that exits as it is followed logs
+  nothing. A retitled `/usr/bin/perl` shows no environment
   name in its row.
 - An app started with `open` from a command gives no row. A daemon a hook
   starts gives no row.
