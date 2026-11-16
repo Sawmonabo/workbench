@@ -790,7 +790,9 @@ func (w *watcher) measure(
 
 // size is the sum of read over the processes, zombies left out. A process
 // whose size cannot be read, for a reason other than its exit, counts as 0
-// and is logged once.
+// and is logged once, as a warning: the system keeps the size of a program
+// that runs as another user (a setuid one) to itself, and the guard goes on
+// with the rest of the tree.
 func (w *watcher) size(procs []proc, read func(pid int) (uint64, error)) uint64 {
 	var total uint64
 	for _, p := range procs {
@@ -801,7 +803,7 @@ func (w *watcher) size(procs []proc, read func(pid int) (uint64, error)) uint64 
 		key := procKey{p.PID, p.Start}
 		if err != nil && !platform.Exited(err) && !w.unsized[key] {
 			w.unsized[key] = true
-			w.f.event(slog.LevelError, EventError, "cannot read a process's size (counted as 0)",
+			w.f.event(slog.LevelWarn, EventError, "cannot read a process's size (counted as 0)",
 				"process", p.PID, "error", err)
 		}
 		total += bytes
