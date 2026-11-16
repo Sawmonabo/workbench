@@ -1011,11 +1011,11 @@ command is not in the snapshot, is a row among the commands:
 
 ```
    ID        STATUS     AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND
+   01Hx2Lm9  ✓ done     claude  reviewer        3.0s        —    22 MB  shop     npm run dev > dev.log 2>&1 &
+   └ p90112  ● running  claude  reviewer       9m10s  1.36 GB  1.36 GB  shop     node server.js
    01PnU61k  ● running  claude  implementer   12m58s   500 MB   500 MB  shop     scripts/build.sh api
    ├ p87352  ● running  claude  implementer   12m13s  1.27 GB  1.27 GB  shop     node scripts/watch.js
    └ p87305  ● running  claude  implementer   12m18s  2.54 GB  2.54 GB  shop     /bin/zsh scripts/build.sh --worker api
-   01Hx2Lm9  ✓ done     claude  reviewer        3.0s        —    22 MB  shop     npm run dev > dev.log 2>&1 &
-   └ p90112  ● running  claude  reviewer       9m10s  1.36 GB  1.36 GB  shop     node server.js
    p55120    ● running  claude                 31m0s   640 MB   655 MB  shop     node .next/standalone/server.js
 ```
 

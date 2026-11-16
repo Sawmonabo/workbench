@@ -311,9 +311,9 @@ A full-screen Bubble Tea program in the alternate screen.
 5 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 
    ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
-▸  01HsQEPc  ● running  claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
+▸  7Kp3Rt9m  ● running  claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
    3Nd7Lp8z  ● running  codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
-   7Kp3Rt9m  ● running  claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
+   01HsQEPc  ● running  claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
    01PnU61k  ● running  claude  implementer  5m16s     6 MB   166 MB  api-server     scripts/build.sh api
    └ p87305  ● running  claude  implementer  4m36s  4.20 GB  4.20 GB  api-server     /bin/zsh scripts/build.sh --worker api
    5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src

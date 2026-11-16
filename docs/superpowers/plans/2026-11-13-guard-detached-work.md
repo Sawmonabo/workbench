@@ -3,7 +3,9 @@
 Status: executed; the checkboxes are the task script, not progress. Research
 after the first build rebuilt tasks 5 to 8 (one store of where processes were
 seen in place of `seenUnder` and the version maps, settled roots, the shell
-learned at its start), so the names and rules below differ from what shipped.
+learned at its start), and the agent, helper and unmatched rows and the
+memory sums of task 7 were removed afterwards, so the names and rules below
+differ from what shipped.
 The [design](../specs/2026-11-13-guard-detached-work-design.md) records what
 shipped.
 
