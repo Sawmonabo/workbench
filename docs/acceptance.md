@@ -938,7 +938,11 @@ synthetic answers.
   snapshot held a row for the agent or a split of the memory in use. The
   view drew sample rows with each detached program under its command, in a
   132-column and a 60-column window and with `LC_ALL=C` (`|-` and `` `- ``
-  for the tree marks).
+  for the tree marks). A watcher built from `v0.1.32-rc.1`, tracking such a
+  sleeper 20 seconds after its command ended, handed over to this build when
+  the installed file was replaced: the new watcher showed the sleeper once,
+  with its call, and still held the command's row 90 seconds after the
+  command ended, with no row for the agent, and the log held no error.
 - On 2026-11-14, on macOS, under bash, with a fake
   agent, a program left detached by a call with `WORKBENCH_GUARD=off` as a
   command prefix and three arguments, which then rewrote its title, gave no
