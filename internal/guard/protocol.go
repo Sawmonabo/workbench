@@ -18,7 +18,9 @@ const (
 	messageStopped  = "stopped"
 )
 
-// finishedShown is how long a finished command stays in the snapshots.
+// finishedShown is how long a finished command stays in the snapshots; one
+// whose call started a detached program stays for as long as that program
+// does (see buildView).
 const finishedShown = 60 * time.Second
 
 // The states of a command in a snapshot.
@@ -46,29 +48,14 @@ type message struct {
 
 // Snapshot is what the watcher sees at one tick: the machine's memory, the
 // largest peak any command reached since the watcher started, and the
-// commands it tracks, newest first, then the rows of the agents, their
-// helpers and the commands no note matched, newest first, then the commands
-// that finished within the last minute, the latest first, and the memory in
-// use split by the kind of row that holds it.
+// commands and detached programs it tracks, newest first, then those that
+// finished, the latest first: within the last minute, or earlier for a
+// command while a detached program its call started still shows.
 type Snapshot struct {
 	At          time.Time     `json:"at"`
 	Memory      MemoryView    `json:"memory"`
 	LargestPeak uint64        `json:"largest_peak"`
 	Commands    []CommandView `json:"commands"`
-	Sums        MemorySums    `json:"sums"`
-}
-
-// MemorySums split the memory in use, in bytes, each part by the sizes its
-// rows show: commands (unmatched ones included), detached programs, agents
-// and helpers, and Other, the memory in use less the four, which a container
-// engine's virtual machine or a system job holds without any agent starting
-// it.
-type MemorySums struct {
-	Commands uint64 `json:"commands"`
-	Detached uint64 `json:"detached"`
-	Agents   uint64 `json:"agents"`
-	Helpers  uint64 `json:"helpers"`
-	Other    uint64 `json:"other"`
 }
 
 // MemoryView is the machine's memory, in bytes, as the guard reads it. Level
@@ -93,10 +80,9 @@ type MemoryView struct {
 // dry run, when it was noted and when it ended, its memory now and at its
 // peak in bytes, its latest sizes, oldest first, and its process tree with
 // each process's memory. Kind is empty for a command, else detached for a
-// program that detached from a command, agent for the agent process itself or
-// helper for a long-lived program the agent started; PID is the row's root
-// process, and LaunchedBy the ID of the call that started a detached
-// program, empty when unknown. Held is, for a detached program that runs,
+// program that detached from a command; PID is a detached program's first
+// root that runs, and LaunchedBy the ID of the call that started it, empty
+// when unknown. Held is, for a detached program that runs,
 // why the guard itself will not choose it now: "no call" (no call is proved
 // to have started it), "young" (none of its roots has been tracked ten
 // seconds since it was found or started its program) or "unread" (none of

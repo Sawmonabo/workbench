@@ -580,9 +580,12 @@ func followProgram(p proc, r *detachedRoot) (replaced bool) {
 	return replaced
 }
 
+// dryMode reports whether a stamp's WORKBENCH_GUARD keeps a stop to the log:
+// dry-run, as for a call's note, or off.
+func dryMode(st stamp) bool { return st.Mode == "dry-run" || st.Mode == "off" }
+
 // agentDry reports whether agent's own stamp says dry-run or off (see
-// dryMode): a unit whose root's setting cannot be read takes it, as a
-// person's stop of a row does.
+// dryMode): a unit whose root's setting cannot be read takes it.
 func (w *watcher) agentDry(s snapshot, agent procKey) bool {
 	return s.alive(agent.pid, agent.start) && dryMode(w.rootStampOf(s, agent.pid, nil))
 }

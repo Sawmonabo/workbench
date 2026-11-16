@@ -35,8 +35,8 @@ func guardCommand(o *options) *cobra.Command {
 			"(one whose session hook ran or that left a note) or the helpers an agent starts " +
 			"itself. Its hooks and watcher run by themselves. " +
 			"`workbench guard logs` shows what they did, one line per event. `workbench guard " +
-			"memory` shows, live, the commands and detached programs the guard tracks, the " +
-			"agents, their helpers and commands no note matched, and stops the ones you choose but an agent.",
+			"memory` shows, live, the commands and detached programs the guard tracks, and " +
+			"stops the ones you choose.",
 		Example: "  workbench guard logs --since 2h\n" +
 			"  workbench guard memory",
 		Args: cobra.NoArgs,
@@ -107,7 +107,7 @@ func guardLogsCommand(o *options) *cobra.Command {
 			"new_release, new_pid, msg, reason, error, process, cmd), a value with a space, quote, " +
 			"equals sign, backslash or control character in Go quotes. " +
 			"The events are each command or detached program that ended, matched no known " +
-			"shape or was stopped, a helper or unmatched command you stopped, low " +
+			"shape or was stopped, low " +
 			"memory that stopped nothing, calls dropped without their post hook, the watcher " +
 			"starting, handing over and exiting, errors, and any line of the watcher's own " +
 			"output, such as a crash's trace, as a raw event placed at the start of the watcher " +
@@ -429,16 +429,13 @@ func nonZero(n int) string {
 // (Claude Code) or call_ (Codex) prefix and any provider segment after it,
 // enough to tell calls apart on screen. Claude on Amazon Bedrock and Google
 // Vertex AI adds a short lowercase segment ("toolu_bdrk_01…",
-// "toolu_vrtx_01…"), the same in every ID, so it is left out too. A row the
-// watcher made for a process, not a call (detached-, agent-, helper- or
-// unmatched-, then the process ID and its start), is p and that process ID
-// ("p87305").
+// "toolu_vrtx_01…"), the same in every ID, so it is left out too. A detached
+// program's ID, made by the watcher for a process, not a call (detached-,
+// then the process ID and its start), is p and that process ID ("p87305").
 func shortCallID(call string) string {
-	for _, kind := range []string{"detached-", "agent-", "helper-", "unmatched-"} {
-		if rest, ok := strings.CutPrefix(call, kind); ok {
-			pid, _, _ := strings.Cut(rest, "-")
-			return "p" + pid
-		}
+	if rest, ok := strings.CutPrefix(call, "detached-"); ok {
+		pid, _, _ := strings.Cut(rest, "-")
+		return "p" + pid
 	}
 	call = strings.TrimPrefix(strings.TrimPrefix(call, "toolu_"), "call_")
 	if segment, rest, ok := strings.Cut(call, "_"); ok && len(segment) >= 2 &&

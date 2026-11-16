@@ -122,8 +122,8 @@ type cachedStamp struct {
 
 // stampOf is pid's stamp in s, read once per program a process runs as
 // programSeen tells them apart (by name alone where the kernel keeps no
-// versions, so the scan of children of the init process and the rows read no
-// command line at each tick; a tracked root's judgment reads through
+// versions, so the scan of children of the init process reads no command
+// line at each tick; a tracked root's judgment reads through
 // rootStampOf), and kept in stamps while it runs, a hidden one too:
 // a process forked but not yet exec'd shows its parent's environment, and
 // shows its own once it execs, which is another program. A stamp whose agent

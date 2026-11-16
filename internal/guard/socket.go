@@ -301,8 +301,7 @@ func writeMessage(conn *net.UnixConn, m message) error {
 	return err
 }
 
-// drainStops answers each stop waiting for this tick (see manualStop), with
-// the rows of the tick before, which this tick has not built yet.
+// drainStops answers each stop waiting for this tick (see manualStop).
 func (w *watcher) drainStops(s snapshot, notes []note, protected map[int]uint64) {
 	if w.server == nil {
 		return
@@ -343,14 +342,14 @@ func stopAllowed(peer procKey, s snapshot, protected map[int]uint64) bool {
 	return true
 }
 
-// chooseStops picks the tracked commands and the rows of the tick before
-// (see buildRows) to stop, in the order asked, each once, and answers each
-// ID: unknown when neither tracked nor a row, not allowed for an agent's row,
-// which is never stopped, already finished when it no longer runs in s (see
-// live), otherwise OK, which the stop itself may still change.
+// chooseStops picks the tracked commands to stop, in the order asked, each
+// once, and answers each ID: unknown when not tracked, which an agent or any
+// other process the guard does not track always is, already finished when it
+// no longer runs in s (see live), otherwise OK, which the stop itself may
+// still change.
 func chooseStops(
 	ids []string,
-	tracked, rows map[string]command,
+	tracked map[string]command,
 	s snapshot,
 ) (stop []command, results []StopResult) {
 	seen := map[string]bool{}
@@ -360,14 +359,9 @@ func chooseStops(
 		}
 		seen[id] = true
 		c, ok := tracked[id]
-		if !ok {
-			c, ok = rows[id]
-		}
 		switch {
 		case !ok:
 			results = append(results, StopResult{ID: id, Error: "unknown"})
-		case c.Row == rowAgent:
-			results = append(results, StopResult{ID: id, Error: "not allowed"})
 		case !live(s, c):
 			results = append(results, StopResult{ID: id, Error: "already finished"})
 		default:

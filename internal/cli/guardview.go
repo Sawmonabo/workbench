@@ -35,33 +35,30 @@ func guardMemoryCommand(o *options) *cobra.Command {
 		Short: "Watch the commands the guard tracks and stop one",
 		Long: "Show, live, each agent command the guard's watcher tracks: its status, how long it " +
 			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
-			"commands that ended in the last minute, dimmed. Beside the commands are rows of " +
-			"other kinds, by status: detached, a program that detached from a command and still " +
-			"runs, with the call that started it in its details when known and, when the " +
-			"guard will not stop it itself, why; agent, the agent " +
-			"process itself, by its own size; helper, a long-lived program the agent started, " +
-			"such as a language server or an MCP server, never a shell or a sandbox launcher; " +
-			"and unmatched, a running command no note matched. Their ID is p and a process ID: " +
-			"for a detached program, that of its first program that still runs, which changes " +
-			"when it exits. A command line that might hold an environment string is shown " +
-			"shortened, on macOS to its program, and ends with …. The header counts the running and finished commands, detached programs and " +
-			"unmatched commands, not agent or helper rows, and shows the memory in use of the " +
-			"installed memory, the largest peak and the swap in use, and under it the memory " +
-			"in use split into commands, detached programs, agents, helpers and the rest. " +
+			"commands that ended in the last minute, dimmed. A program that detached from a " +
+			"command and still runs has a row of its own, directly under the command that " +
+			"started it and joined to it by a tree line; that command's row stays, dimmed once " +
+			"the command has ended, for as long as a detached program shows under it. A " +
+			"detached program whose command is not known has a row among the commands. A " +
+			"detached program's ID is p and the process ID of its first program that still " +
+			"runs, which changes when that exits; its details show the call that started it " +
+			"when known and, when the guard will not stop it itself, why. A command line that " +
+			"might hold an environment string is shown shortened, on macOS to its program, and " +
+			"ends with …. The header counts the running and finished rows and shows the memory " +
+			"in use of the installed memory, the largest peak and the swap in use. " +
 			"↑ and ↓ move, as the mouse wheel does in most terminals; space tags a running " +
 			"row, enter or → opens the selected " +
 			"one's details (the full command, one step of a pipeline or && chain per line, its " +
 			"folder, processes and memory graph, which scroll with ↑, ↓, pgup, pgdn, home, end " +
 			"and the wheel), k opens the stop menu for the tagged rows or the selected one (a " +
 			"polite stop, force-killed after 5 s, or a forced kill now), esc or ← closes a menu " +
-			"or the details, and q, or esc on the list, quits. An agent is never stopped: it " +
-			"cannot be tagged, and k on it sends nothing. The watcher signals the row and logs " +
-			"the stop as by=you. It tells a command's call; a detached program's call only " +
-			"when it is known and its command still runs in the foreground; a helper's or " +
-			"unmatched command's stop is in the log only. With WORKBENCH_GUARD=dry-run it only " +
-			"logs; it also only logs for a helper, an unmatched row, or a detached program " +
-			"whose setting cannot be read, when the agent's setting is dry-run or off. A " +
-			"helper's or unmatched row's own dry-run or off does the same. " +
+			"or the details, and q, or esc on the list, quits. The watcher signals the row and " +
+			"logs the stop as by=you. A stop reaches only its own row: a command and a program " +
+			"that detached from it are stopped one by one, or together when both are tagged. " +
+			"It tells a command's call; a detached program's call only when it is known and " +
+			"its command still runs in the foreground. With WORKBENCH_GUARD=dry-run it only " +
+			"logs; it also only logs for a detached program whose setting cannot be read, " +
+			"when the agent's setting is dry-run or off. " +
 			"While no watcher runs, the view says so and reconnects on its own. It needs " +
 			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
 			"workbench guard logs --follow prints the same events.",
@@ -132,8 +129,12 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 // whether a watcher answers, and why not when none does. The rows stay after
 // a disconnect, dimmed.
 type guardView struct {
-	client      *guard.Client
+	client *guard.Client
+	// snap is the watcher's latest snapshot with its rows in the list's order,
+	// and branch the tree mark before the ID of each row drawn under its
+	// command, by row ID (see treeRows).
 	snap        guard.Snapshot
+	branch      map[string]string
 	cursor      int
 	tagged      map[string]bool
 	mode        viewMode
@@ -214,8 +215,7 @@ const (
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
 // four header lines and the six-line stop menu below them, with the key
-// line; the memory split is a fifth header line only from one line taller),
-// how long a notice stays, the readings the memory graph shows at most, and
+// line), how long a notice stays, the readings the memory graph shows at most, and
 // the widest a project name is shown before it is clipped.
 const (
 	guardViewMinWidth  = 60
@@ -345,11 +345,12 @@ func (m *guardView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// take shows a new snapshot: the selection stays on its command, tags stay
-// only on commands still running, and details whose command left the
-// snapshot close.
+// take shows a new snapshot, its rows in the list's order (see treeRows):
+// the selection stays on its command, tags stay only on commands still
+// running, and details whose command left the snapshot close.
 func (m *guardView) take(snap guard.Snapshot) {
 	selected := m.selectedID()
+	snap.Commands, m.branch = treeRows(snap.Commands)
 	m.snap = snap
 	at := slices.IndexFunc(
 		snap.Commands,
@@ -373,6 +374,65 @@ func (m *guardView) take(snap guard.Snapshot) {
 		m.mode = m.menuFrom
 		m.say(m.shortIDs(m.targets) + " already finished; nothing was stopped")
 	}
+}
+
+// treeRows are the watcher's rows in the order the list shows them, and the
+// tree mark of each row drawn under another, by row ID. A detached program
+// whose call's command is among the rows is drawn directly under that
+// command, with ├, or └ when it is the last there; one whose command is
+// unknown or not among the rows keeps a place of its own. A command and
+// what is under it move as one: those of which any row still runs come
+// first, the newest command first, then the ones that ended, as the watcher
+// ordered them. Under a command the rows keep the watcher's order.
+func treeRows(all []guard.CommandView) ([]guard.CommandView, map[string]string) {
+	shown := map[string]bool{}
+	for _, c := range all {
+		shown[c.ID] = true
+	}
+	var groups [][]guard.CommandView
+	at := map[string]int{}
+	for _, c := range all {
+		head := c.ID
+		if c.Kind == "detached" && shown[c.LaunchedBy] {
+			head = c.LaunchedBy
+		}
+		i, ok := at[head]
+		if !ok {
+			i, at[head] = len(groups), len(groups)
+			groups = append(groups, nil)
+		}
+		if c.ID == head {
+			groups[i] = slices.Insert(groups[i], 0, c)
+		} else {
+			groups[i] = append(groups[i], c)
+		}
+	}
+	slices.SortStableFunc(groups, func(a, b []guard.CommandView) int {
+		runsA, runsB := slices.ContainsFunc(a, active), slices.ContainsFunc(b, active)
+		switch {
+		case runsA && !runsB:
+			return -1
+		case runsB && !runsA:
+			return 1
+		case !runsA:
+			return 0
+		}
+		return cmp.Or(b[0].Started.Compare(a[0].Started), cmp.Compare(a[0].ID, b[0].ID))
+	})
+	rows, branch := make([]guard.CommandView, 0, len(all)), map[string]string{}
+	for _, group := range groups {
+		for i, c := range group {
+			switch {
+			case i == 0:
+			case i == len(group)-1:
+				branch[c.ID] = "└ "
+			default:
+				branch[c.ID] = "├ "
+			}
+		}
+		rows = append(rows, group...)
+	}
+	return rows, branch
 }
 
 // running are those of ids whose command still runs, in the order given.
@@ -428,24 +488,9 @@ func (m *guardView) selectedID() string {
 	return ""
 }
 
-// active reports whether a row still runs, so it shows its memory and, unless
-// it is an agent, can be tagged and stopped: it is running or stopping, or a
-// command no note matched that has no end time yet.
-func active(c guard.CommandView) bool {
-	return c.State == "running" || c.State == "stopping" ||
-		c.State == "unmatched" && c.Ended.IsZero()
-}
-
-// stoppable reports whether a person may stop a row: it still runs and is
-// not an agent, which the guard never stops.
-func stoppable(c guard.CommandView) bool { return active(c) && c.Kind != "agent" }
-
-// commandWork reports whether a row is a command or detached work (a
-// command's, a detached program's or an unmatched command's row), which a
-// dry run applies to and the counts count; an agent or helper row is not
-// counted with the commands, so a view with an agent open still reaches 0
-// running.
-func commandWork(c guard.CommandView) bool { return c.Kind != "agent" && c.Kind != "helper" }
+// active reports whether a row still runs, so it shows its memory and can
+// be tagged and stopped: it is running or stopping.
+func active(c guard.CommandView) bool { return c.State == "running" || c.State == "stopping" }
 
 // say shows text on the bottom line for a few seconds.
 func (m *guardView) say(text string) {
@@ -515,7 +560,7 @@ func (m *guardView) pressList(key string) {
 	case "down":
 		m.cursor = max(min(m.cursor+1, rows-1), 0)
 	case "space":
-		if m.cursor < rows && stoppable(m.snap.Commands[m.cursor]) {
+		if m.cursor < rows && active(m.snap.Commands[m.cursor]) {
 			id := m.snap.Commands[m.cursor].ID
 			if m.tagged[id] {
 				delete(m.tagged, id)
@@ -569,31 +614,27 @@ func (m *guardView) openDetails() {
 
 // stopTargets are the IDs a stop would name: from the details, the row
 // shown; from the list, the tagged rows still running, or else the selected
-// one when it runs; never an agent.
+// one when it runs.
 func (m *guardView) stopTargets(from viewMode) []string {
 	var ids []string
 	if from == listMode {
 		for _, c := range m.snap.Commands {
-			if m.tagged[c.ID] && stoppable(c) {
+			if m.tagged[c.ID] && active(c) {
 				ids = append(ids, c.ID)
 			}
 		}
 	}
-	if len(ids) == 0 && m.cursor < len(m.snap.Commands) && stoppable(m.snap.Commands[m.cursor]) {
+	if len(ids) == 0 && m.cursor < len(m.snap.Commands) && active(m.snap.Commands[m.cursor]) {
 		ids = []string{m.snap.Commands[m.cursor].ID}
 	}
 	return ids
 }
 
 // openMenu opens the stop menu from a screen, its polite stop chosen, when
-// there is a running row to stop and a watcher to ask. An agent alone is
-// refused on the bottom line, and nothing is sent.
+// there is a running row to stop and a watcher to ask.
 func (m *guardView) openMenu(from viewMode) {
 	ids := m.stopTargets(from)
 	switch {
-	case len(ids) == 0 && m.cursor < len(m.snap.Commands) &&
-		m.snap.Commands[m.cursor].Kind == "agent":
-		m.say("agents are never stopped")
 	case len(ids) == 0 && m.cursor < len(m.snap.Commands):
 		m.say(m.label(m.selectedID()) + " already finished")
 	case len(ids) == 0:
@@ -647,16 +688,11 @@ func (m *guardView) View() tea.View {
 	return view
 }
 
-// screen is the header (the head line, a blank line, the counts, the memory
-// split when the snapshot has one and the window is taller than the
-// shortest, so the stop menu still fits below the header, and the status
-// lines), the list or the details with the stop menu over them when it is
-// open, and the key line at the bottom.
+// screen is the header (the head line, a blank line, the counts and the
+// status lines), the list or the details with the stop menu over them when
+// it is open, and the key line at the bottom.
 func (m *guardView) screen() string {
 	lines := []string{m.headLine(), "", m.countLine()}
-	if m.height > guardViewMinHeight {
-		lines = append(lines, m.sumsLine()...)
-	}
 	lines = append(lines, m.statusLines()...)
 	header := len(lines)
 	room := max(m.height-len(lines)-2, 1)
@@ -733,20 +769,17 @@ func memorySlash(part, whole uint64) string {
 // for none.
 func memorySize(bytes uint64) string { return cmp.Or(sizeText(bytes), "—") }
 
-// countLine counts the running commands and those that finished in the last
-// minute, detached work and unmatched commands included but no agent or
-// helper row, and, once a watcher has sent a snapshot, gives the memory in
-// use of the installed memory, the largest peak since the watcher started
-// and the swap in use, the memory figure bold and the rest faint. A narrow
-// window drops the swap, then the peak, then clips the line.
+// countLine counts the rows that run and those that finished, commands and
+// detached programs alike, and, once a watcher has sent a snapshot, gives
+// the memory in use of the installed memory, the largest peak since the
+// watcher started and the swap in use, the memory figure bold and the rest
+// faint. A narrow window drops the swap, then the peak, then clips the line.
 func (m *guardView) countLine() string {
 	running, finished := 0, 0
 	for _, c := range m.snap.Commands {
-		switch {
-		case !commandWork(c):
-		case active(c):
+		if active(c) {
 			running++
-		default:
+		} else {
 			finished++
 		}
 	}
@@ -774,42 +807,14 @@ func (m *guardView) countLine() string {
 	return fit(line, m.width, false)
 }
 
-// sumsLine is, under the count line's memory figure, the memory in use and
-// its split by the kind of row that holds it, as the snapshot sums it, faint
-// and clipped to the window: "in use 12.05 GB · commands 40 MB · detached
-// 4.20 GB · agents 1.36 GB · helpers 1.39 GB · other 5.06 GB", a part of 0
-// an em dash. It is no line while no watcher is connected or when every part
-// is 0, which a watcher without the sums sends.
-func (m *guardView) sumsLine() []string {
-	s := m.snap.Sums
-	if !m.connected || s == (guard.MemorySums{}) {
-		return nil
-	}
-	parts := []string{
-		"in use " + memorySize(m.snap.Memory.Used),
-		"commands " + memorySize(s.Commands),
-		"detached " + memorySize(s.Detached),
-		"agents " + memorySize(s.Agents),
-		"helpers " + memorySize(s.Helpers),
-		"other " + memorySize(s.Other),
-	}
-	return []string{fit(faint.Render(forTerm(strings.Join(parts, " · "))), m.width, false)}
-}
-
 // statusLines say why no watcher answers or, when shown commands are dry
-// runs, that their stops are only logged: for all of them, or for how many,
-// counting only the rows a dry run applies to (no agent or helper row, which
-// has no note); else they are one blank line. A long text wraps to the
-// window; the dry-run texts fit 60 columns, so the stop menu never covers a
-// second line of them.
+// runs, that their stops are only logged: for all of them, or for how many;
+// else they are one blank line. A long text wraps to the window; the dry-run
+// texts fit 60 columns, so the stop menu never covers a second line of them.
 func (m *guardView) statusLines() []string {
 	text := ""
-	dry, commands := 0, 0
+	dry, commands := 0, len(m.snap.Commands)
 	for _, c := range m.snap.Commands {
-		if !commandWork(c) {
-			continue
-		}
-		commands++
 		if c.DryRun {
 			dry++
 		}
@@ -899,8 +904,9 @@ func (m *guardView) tableLines(room int) []string {
 	return lines
 }
 
-// cells are a command's cells in the list: short ID, status, agent,
-// subagent, run time, memory now, peak, project and command on one line.
+// cells are a command's cells in the list: short ID, behind its tree mark
+// when it is drawn under its command, status, agent, subagent, run time,
+// memory now, peak, project and command on one line.
 func (m *guardView) cells(c guard.CommandView) []string {
 	took, now := "", "—"
 	// A command that ended this tick is still tracked, without its end time.
@@ -915,8 +921,8 @@ func (m *guardView) cells(c guard.CommandView) []string {
 		took = tookValue(end.Sub(c.Started).Seconds())
 	}
 	return []string{
-		rowLabel(c),
-		forTerm(statusText(c.Kind, c.State, c.DryRun)),
+		m.branch[c.ID] + rowLabel(c),
+		forTerm(statusText(c.State, c.DryRun)),
 		c.Agent,
 		c.Subagent,
 		took,
@@ -943,14 +949,13 @@ func projectLabel(project string, width int) string {
 }
 
 // statusText is a row's state as the list shows it: a mark that carries the
-// state without color, then a word, a running row of a kind other than a
-// command naming its kind ("● detached", "● helper", "● agent"), and "(dry)"
-// for a dry-run command, whose stops are only logged.
-func statusText(kind, state string, dry bool) string {
+// state without color, then the state's word, and "(dry)" for a dry-run
+// command, whose stops are only logged.
+func statusText(state string, dry bool) string {
 	text := state
 	switch state {
 	case "running":
-		text = "● " + cmp.Or(kind, "run")
+		text = "● running"
 	case "stopping":
 		text = "◌ stopping"
 	case "done":
@@ -1095,7 +1100,7 @@ func (m *guardView) detailLines() []string {
 	}
 	c := m.snap.Commands[m.cursor]
 	cells := m.cells(c)
-	status := statusStyle(c.State).Render(forTerm(statusText(c.Kind, c.State, c.DryRun)))
+	status := statusStyle(c.State).Render(forTerm(statusText(c.State, c.DryRun)))
 	if c.By != "" {
 		status += " by " + c.By
 	}

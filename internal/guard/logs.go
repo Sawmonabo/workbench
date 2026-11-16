@@ -20,9 +20,7 @@ import (
 // its call is the unit's ID, its command the root program's process name,
 // never its arguments, and its root_pid its first root that runs. An ended
 // record of a unit whose last root left it adds reason, why (its root is an
-// agent, turned the guard off, and so on). A person's stop of a helper or an
-// unmatched row adds kind (helper or unmatched), with the row's ID as call
-// and its program's process name as command. Ended, unmatched and stopping
+// agent, turned the guard off, and so on). Ended, unmatched and stopping
 // add took, the seconds since the call's note, and ended and stopping add
 // peak, the command's largest size in bytes. A stop adds by (guard), size in
 // bytes, reason, the text the agent is told, and memory, the reading that
@@ -65,8 +63,7 @@ type Event struct {
 	Subagent string    `json:"subagent"`
 	Project  string    `json:"project"`
 	// Kind is detached on a record about a program that detached from a
-	// command, and LaunchedBy the ID of the call that started it, when known;
-	// helper or unmatched on a person's stop of such a row.
+	// command, and LaunchedBy the ID of the call that started it, when known.
 	Kind       string  `json:"kind"`
 	LaunchedBy string  `json:"launched_by"`
 	Cwd        string  `json:"cwd"`

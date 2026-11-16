@@ -6,8 +6,7 @@ that shell is no longer under it, so the guard neither measures nor stops it,
 and a command whose real work runs detached shows as a few megabytes. This
 design makes the guard recognize that work by what it inherits from the
 command and by what the kernel records about where it came from. It also
-gives the agent and the helpers it starts their own rows, adds a line for
-where the machine's memory is, and clears a Monitor command's note. It builds
+clears a Monitor command's note. It builds
 on the [agent command guard design](2026-10-14-agent-command-guard-design.md)
 and the [platform and guard view design](2026-10-17-platform-and-guard-view-design.md),
 and replaces the "processes that leave the command's tree" line of the guard
@@ -20,7 +19,8 @@ waits for a check before it is designed further.
 
 - A program that an agent's command started and that then detached (a double
   fork, `setsid`, `nohup … &`, a background job left behind when its call
-  returns) is its own row in `workbench guard memory`, is measured each tick,
+  returns) is its own row in `workbench guard memory`, under the command that
+  started it, is measured each tick,
   and is a candidate when the guard must stop the largest agent command.
 - The rule names no script, tool or project. A process is detached work when
   it was forked by another process and not started by the init process, is no
@@ -32,12 +32,10 @@ waits for a check before it is designed further.
   guessed. The guard's own stop takes detached work only when its call is
   proved and its setting was read; anything else is shown and left to a
   person.
-- Each agent the guard knows, and each long-lived helper it starts itself,
-  is a row too. The guard never chooses these for a stop. An agent session
+- The guard never chooses an agent it knows, or a helper the agent starts
+  itself, for a stop, and the view does not show them. An agent session
   the guard does not know yet is a program like any other; 5.4 says which
   sessions those are and for how long.
-- One line shows where the memory in use is: commands, detached work, agents,
-  helpers and everything else.
 - The only change to how a command runs is one more variable in its
   environment (section 4.2).
 - Not in scope: anything that needs root or an entitlement from Apple;
@@ -591,8 +589,7 @@ tracked root and for every stamp a tracked root's judgment reads (the
 root's own, those of the processes below it, and its agent's own setting).
 Everything else is told apart by process name alone, so no command line is
 read for it at every tick: a child of the init process that is not yet a
-root, with the stamps read when it is first judged; the stamps of the rows
-(an agent and its helpers' and unmatched commands' trees); and an agent's
+root, with the stamps read when it is first judged; and an agent's
 own stamp read outside a root's judgment. A failed or empty read never
 counts as a change. The same rule decides when a root is judged again, when
 a child of the init process whose "no" was not final is judged again, and
@@ -794,7 +791,7 @@ protected from the first readable program that carries its own
 the normal pace, 100 ms under pressure), with no name hard-coded; work it
 leaves detached in that tick is tied to the outer call only through the
 store, which drops it once the session is protected (5.3). It is protected,
-not known: it has no agent row, and its forks are not followed. One whose
+not known: its forks are not followed. One whose
 programs are all hidden is never protected this way (section 10). Stamps are
 read once per program a process runs, a hidden result included (2.1 fact
 31). On Linux and WSL no stamp is read inside a tracked tree (2.3).
@@ -820,8 +817,7 @@ detached by a call that returned at once, can be in the log as detached
 work: a `tracking` record and then, once it is known, an `ended` one with
 "its root is an agent". It is measured as such only until a tick finds it
 known, which was within about a second in a real Claude Code session; the
-view showed it as an agent row from its first snapshot, and the guard
-could not choose it meanwhile (held `young`, and with no proved call).
+guard could not choose it meanwhile (held `young`, and with no proved call).
 
 ### 5.5 Which call started it
 
@@ -966,77 +962,66 @@ not read it in time is cancelled and the old watcher carries on.
   the SQLite driver's C library builds in every Workbench process; the
   watcher never opens a database.
 
-## 7. Agent and helper rows
+## 7. Agents, helpers and unmatched commands
 
-- Each agent the guard knows is a row with its own size, not its tree's.
-- A helper is a direct child of such an agent that no note claims, that the
-  guard has seen alive for five seconds, that is no shell, in any shape,
-  and no sandbox launcher (both run a command; each is judged by the program
-  its command line names and by the kernel's process name), and in whose
-  tree no readable process carries a `CLAUDE_PID` naming that agent (under
-  Codex, no Codex call ID): a language server, an MCP server (2.1 facts 10
-  and 14). It is a row with its tree's size. A child whose command line
-  cannot be read is no helper.
-- A direct child that no note claims is a command the guard could not match
-  when a readable process in its tree carries a call stamp, agreeing with its
-  own `CLAUDE_PID`, that names that agent and that child as its shell, in a
-  second that fits the child's start, and the guard has seen it alive for
-  five seconds. It is a row with the status `unmatched` and its tree's size
-  while it runs, counted with the commands in the memory line. A command a person typed with `!` is such a
-  row too (2.1 fact 16). A hook or a status line command carries
-  `CLAUDE_PID` but no such stamp, so it is neither this nor a helper and has
-  no row.
-- Parent links decide these rows, so they hold on every platform.
-- They show while the watcher runs, and the watcher's lifetime does not
-  change. It still exits after ten minutes with no note, no tracked command
-  and no unit, and the rows go with it until the next command. Keeping the
-  watcher running for as long as any known agent does was considered and
-  dropped: the guard never chooses these rows, and the view design's rule
-  of no watcher while nothing is guarded stands. An agent's row goes once
-  the agent has exited, while the agent stays protected until it is gone
-  from the process table (5.4).
-- The guard never chooses an agent, a helper or an unmatched command for a
-  stop. A person may stop a helper or an unmatched command from the view,
-  through the watcher like any stop. A stop of an agent row is refused. When
-  the agent's or the row's own stamps set `WORKBENCH_GUARD` to `dry-run` or
-  `off`, a person's stop of the row is logged, not sent. A stopped row
-  leaves the view once its processes are gone, with no finished entry.
-- Rows are not written to the guard log while they run or when they go. A
-  person's stop of a helper or an unmatched command is logged with its kind
-  and its root's process name as the kernel keeps it, and no folder or
-  project: a helper's command line is not a call's text and may hold what its
-  owner did not mean to keep on disk. The view shows it, as a process list
-  would. A row's command line and name are read again when its process name
-  changes, since it then runs another program.
+- The guard never chooses, for a stop, an agent it knows, a helper the agent
+  starts itself (a language server, an MCP server; 2.1 facts 10 and 14) or a
+  command it could not match (one whose shape no note claims, or one a
+  person typed with `!`; 2.1 fact 16).
+- None of them has a row. The view shows what the guard tracks: commands
+  and detached work, and for a minute what ended, an `unmatched` call among
+  them. A row for each agent, for each helper seen alive five seconds and
+  for a running unmatched command, with a line splitting the memory in use
+  by the kind of row, was built and dropped: the rows the guard never stops
+  crowded the list, and a status column naming a row's kind no longer said
+  its state.
+- The watcher's lifetime does not change. It still exits after ten minutes
+  with no note, no tracked command and no unit.
 
-This changes a boundary of the view design, which showed only commands the
-guard tracks.
+The view keeps the boundary of the view design: it shows only what the guard
+tracks.
 
 ## 8. View, log and protocol
 
-Every row uses the view's own columns. A detached unit's status reads
-`detached`, its time counts from the start of the program that detached
+Every row uses the view's own columns, and its status says only its state.
+A detached unit's time counts from the start of the program that detached
 first, and its command is the command line of its first root that still
 runs. Its ID column shows `p` and the PID of that root, since a number in a process list is read as a live PID and a
 dead root's PID is handed out again (2.2 item 20): the label changes when
 that root exits. The unit's ID in the log, in `guard logs` (`p` and the PID
 of the program that detached first) and in the snapshot does not change, and
 the details screen shows that log label on an "In the log" line, so a row
-can be matched to its log records. An agent's and a helper's status read
-`agent` and `helper`, and a running command no note claims reads
-`unmatched`. A finished `unmatched` row, and the log's `unmatched` record,
+can be matched to its log records. A finished `unmatched` row, and the log's `unmatched` record,
 stand only for a call the guard never found: no tick tracked it and no fork
 wake-up learned its shell. A call whose shell was learned and that ended
-within a tick gets no row or record of its own; what it left is a
-`detached` row naming it:
+within a tick gets no row or record of its own; what it left is a row of
+detached work naming it.
+
+A unit whose call resolved is drawn directly under that call's command,
+joined to it by a tree mark before its ID (`├`, and `└` for the last under a
+command; `|-` and `` `- `` where the terminal shows no such characters). The
+view builds that order from each unit's launching call: a command and the
+units under it move as one block, the blocks of which any row runs first,
+the newest command first, then the ones that ended. The watcher keeps a
+finished command in its snapshots, past the minute a finished row is shown,
+for as long as a unit its call started is tracked or was finished within
+that minute, so such a unit always has its command above it; it carries the
+finished commands at a handover. A unit whose call did not resolve, or whose
+command is not in the snapshot, is a row among the commands:
 
 ```
-   ID        STATUS      AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND
-   01PnU61k  ● run       claude  implementer   12m58s     6 MB   166 MB  shop     scripts/build.sh api
-   p87305    ● detached  claude  implementer    4m36s  4.20 GB  4.20 GB  shop     /bin/zsh scripts/build.sh --worker api
-   p81483    ● helper    claude                 44m2s  1.39 GB  1.41 GB  shop     tsc --lsp --stdio
-   p12253    ● agent     claude                  2h6m   739 MB   802 MB  shop     claude
+   ID        STATUS     AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND
+   01PnU61k  ● running  claude  implementer   12m58s   500 MB   500 MB  shop     scripts/build.sh api
+   ├ p87352  ● running  claude  implementer   12m13s  1.27 GB  1.27 GB  shop     node scripts/watch.js
+   └ p87305  ● running  claude  implementer   12m18s  2.54 GB  2.54 GB  shop     /bin/zsh scripts/build.sh --worker api
+   01Hx2Lm9  ✓ done     claude  reviewer        3.0s        —    22 MB  shop     npm run dev > dev.log 2>&1 &
+   └ p90112  ● running  claude  reviewer       9m10s  1.36 GB  1.36 GB  shop     node server.js
+   p55120    ● running  claude                 31m0s   640 MB   655 MB  shop     node .next/standalone/server.js
 ```
+
+Each row shows its own memory, and a stop reaches only its own row: a
+command and a unit under it are stopped one by one, or together when both
+are tagged.
 
 A command line read from a running process is shown only in a form that
 never holds what may be an environment string (2.1 fact 30, 2.2 item 17):
@@ -1048,20 +1033,8 @@ shows as `make …`, and one with nothing left shows the process name and
 ` …`. Matching and judging read the whole command line; only the shown form
 is kept for the screen, sent in the snapshot and carried at a handover.
 
-Under the count line, one faint line splits the memory in use, each part by
-the size its rows show. It is left out in a window of the shortest height
-(11 lines, so the stop menu still fits), when a snapshot has no sums, and
-while no watcher answers. The counts above it (`N running · M finished`) and
-the dry-run line count commands, detached work and unmatched commands, never
-agent or helper rows:
-
-```
-in use 12.05 GB · commands 40 MB · detached 4.20 GB · agents 1.36 GB · helpers 1.39 GB · other 5.06 GB
-```
-
-"Other" is the memory in use less the four parts. A container engine's
-virtual machine or a launchd job is in it, without the guard claiming an
-agent started it.
+The counts under the head line (`N running · M finished`) and the dry-run
+line count every row, commands and detached work alike.
 
 The details screen of a unit names the call that started it when it
 resolved ("Started by") and, while the guard itself would not choose it, why,
@@ -1077,8 +1050,7 @@ The log's `tracking`, `ended` and `stopping` events for a unit carry its
 kind, root, root program's name and launching call, and an `ended` record of
 a unit whose last root left carries the reason, which the text view of
 `guard logs` shows after the message. A snapshot's command gains its kind,
-launching call and `held`, and a snapshot gains the five sums; all are
-additions an older view ignores.
+launching call and `held`; all are additions an older view ignores.
 
 ## 9. The Monitor post hook
 
@@ -1221,8 +1193,7 @@ moves. The bounds this design rests on are stated where they are used: 4,096
 call records and a stamp's 30-second window (5.5); versions kept 60 seconds
 and at most 16,384, the oldest then dropped down to 14,336 (5.3); 250 wakes
 a second for a call's shell, and 100 wakes a second then a 5-second pause
-for an agent (5.3); the 5-second deadline of a handover's write (5.6); a
-helper seen for five seconds (section 7); ten seconds before the guard's own
+for an agent (5.3); the 5-second deadline of a handover's write (5.6); ten seconds before the guard's own
 stop (section 6).
 
 ## 13. Tests and checks
@@ -1263,8 +1234,8 @@ credential exposure (the last). Each says its risk beside it.
   followed.
 - `TestARetitledProgramKeepsItsOptOut`: a program that rewrote its title
   still reads `WORKBENCH_GUARD=off` and its `CLAUDE_PID`.
-- `TestManualStopsOnlyWhatAPersonMayStop`: a stop of an agent row is
-  refused; a helper row may be stopped.
+- `TestManualStopsOnlyWhatAPersonMayStop`: a stop naming what the guard does
+  not track chooses nothing.
 - `TestDropTakesWhatAProcessStarted`: forgetting a process takes what was
   recorded below it, through a middle process that exited and through a
   version recorded before an exec, and leaves a nested agent's own calls
@@ -1315,8 +1286,9 @@ is not forced, so the guard's own stop is shown by the facts it rests on
   that sets `CLAUDE_PID=$$` keeps the guard off its own tree.
 - A session that exits but is not yet reaped stays out of the outer
   command's tree.
-- An agent with a language server shows an agent row and a helper row, and
-  the five sums add up to the memory in use.
+- A command that leaves a program detached and ends: the program's row is
+  under the command's, which stays past its minute and goes a minute after
+  the program ends.
 - A handover with a unit tracked shows the unit once afterwards, with its
   call, held as `young` until its ten seconds have passed again.
 - 1,400 processes under one command, and a churn of short processes under
@@ -1332,10 +1304,9 @@ Nothing is run on Linux, WSL or Windows for this release (2.3).
   tree, and the view design's section 1 line on what is shown, its columns,
   the `held` line and its protocol section.
 - ADR 0016, for recognizing detached work by stamps and the store, the
-  settled root, the shell learned at its start, and the agent and helper
-  rows.
+  settled root, the shell learned at its start, and what the view shows.
 - `docs/usage.md`: the guard section (detached work, the opt-out, what is
-  not seen), the view's rows, ID column, details and memory line, and the
+  not seen), the view's rows, ID column and details, and the
   log's fields.
 - The package comment of `internal/guard`, and the help texts of `workbench
   guard`, `guard memory` and `guard logs`.

@@ -28,9 +28,7 @@ func shownCommand(pid int, name string) string {
 // commandView is a tracked command as a snapshot shows it, in state. A unit
 // shows its kind, its root, the call that started it when that resolved, and
 // its command line in the form that never holds an environment string (see
-// shownCommand), which the view alone shows. A row shows its root and
-// command line in that form too, and its kind unless it is an unmatched
-// command, which shows as a command does.
+// shownCommand), which the view alone shows.
 func (w *watcher) commandView(id string, c command, state string) CommandView {
 	v := CommandView{
 		ID: id, Agent: string(c.Note.Kind), Subagent: c.Note.Subagent, Project: c.Note.Project,
@@ -42,12 +40,6 @@ func (w *watcher) commandView(id string, c command, state string) CommandView {
 	}
 	if c.Detached != nil {
 		v.Kind, v.PID, v.LaunchedBy = "detached", c.Root.PID, c.Detached.Call
-	}
-	if c.Row != "" {
-		v.PID = c.Root.PID
-		if c.Row != rowUnmatched {
-			v.Kind = c.Row
-		}
 	}
 	if state == stateStopped || state == stateStopping {
 		v.By = w.stoppedBy[id]
@@ -61,7 +53,8 @@ func (w *watcher) commandView(id string, c command, state string) CommandView {
 	return v
 }
 
-// finish keeps a command that ended for the snapshots of the next minute.
+// finish keeps a command that ended for the snapshots that follow (see
+// buildView).
 func (w *watcher) finish(v CommandView) {
 	v.Ended, v.Memory, v.Tree = time.Now(), 0, nil
 	w.finished = append(w.finished, v)
@@ -69,14 +62,27 @@ func (w *watcher) finish(v CommandView) {
 
 // buildView is the snapshot of this tick: s and m, the tracked commands with
 // their trees as measure read them, a unit that runs with why the guard
-// itself will not choose it now (see held), then the rows of this tick (see
-// buildRows), an unmatched command's with the state unmatched, then the
-// commands that finished within finishedShown, whose older ones it forgets,
-// and the memory in use split by the sizes the running rows show.
+// itself will not choose it now (see held), then the commands that finished
+// within finishedShown, whose older ones it forgets. A finished command is
+// kept past that for as long as a unit its call started shows, tracked or
+// finished within finishedShown, so the view always has the command to draw
+// such a unit under; it is judged again each tick, so a unit that loses its
+// call lets the command go.
 func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView) Snapshot {
 	now := time.Now()
+	started := map[string]bool{}
+	for _, c := range w.tracked {
+		if c.Detached != nil && c.Detached.Call != "" {
+			started[c.Detached.Call] = true
+		}
+	}
+	for _, v := range w.finished {
+		if v.LaunchedBy != "" && now.Sub(v.Ended) < finishedShown {
+			started[v.LaunchedBy] = true
+		}
+	}
 	w.finished = slices.DeleteFunc(w.finished, func(v CommandView) bool {
-		return now.Sub(v.Ended) >= finishedShown
+		return now.Sub(v.Ended) >= finishedShown && !started[v.ID]
 	})
 	var running []CommandView
 	for id, c := range w.tracked {
@@ -103,55 +109,15 @@ func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView
 		v.Tree = trees[id]
 		running = append(running, v)
 	}
-	newestFirst := func(a, b CommandView) int {
+	slices.SortFunc(running, func(a, b CommandView) int {
 		return cmp.Or(b.Started.Compare(a.Started), cmp.Compare(a.ID, b.ID))
-	}
-	slices.SortFunc(running, newestFirst)
-	var rows []CommandView
-	for id, c := range w.rows {
-		state := stateRunning
-		switch {
-		case w.manual[id] != nil:
-			state = stateStopping
-		case c.Row == rowUnmatched:
-			state = stateUnmatched
-		}
-		v := w.commandView(id, c, state)
-		v.Tree = w.rowTrees[id]
-		rows = append(rows, v)
-	}
-	slices.SortFunc(rows, newestFirst)
+	})
 	finished := slices.Clone(w.finished)
 	slices.SortFunc(finished, func(a, b CommandView) int { return b.Ended.Compare(a.Ended) })
-	view := Snapshot{
+	return Snapshot{
 		At: now, Memory: memoryView(m), LargestPeak: w.largestPeak,
-		Commands: slices.Concat(running, rows, finished),
+		Commands: slices.Concat(running, finished),
 	}
-	view.Sums = memorySums(view.Memory.Used, slices.Concat(running, rows))
-	return view
-}
-
-// memorySums splits used, the memory in use, by the memory the views show,
-// each by its kind; a command's ended this tick shows none. Other is what is
-// left, never below zero: resident sizes count shared pages in each process.
-func memorySums(used uint64, views []CommandView) MemorySums {
-	var sums MemorySums
-	for _, v := range views {
-		switch v.Kind {
-		case "":
-			sums.Commands += v.Memory
-		case "detached":
-			sums.Detached += v.Memory
-		case rowAgent:
-			sums.Agents += v.Memory
-		case rowHelper:
-			sums.Helpers += v.Memory
-		}
-	}
-	if parts := sums.Commands + sums.Detached + sums.Agents + sums.Helpers; parts < used {
-		sums.Other = used - parts
-	}
-	return sums
 }
 
 // treeView is a command's processes with the resident sizes read for them; a

@@ -698,8 +698,7 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		process(300, 200, 300, 0.5, "workbench", "guard", "memory"), // under the agent's command
 		process(400, 1, 400, 0.6, "zsh"),
 		process(401, 400, 401, 0.7, "workbench", "guard", "memory"),
-		process(500, 1, 500, -3600, "claude"),              // agent-named, left no note
-		process(250, 100, 250, -60, "node", "tsserver.js"), // a helper the agent started
+		process(500, 1, 500, -3600, "claude"), // agent-named, left no note
 	)
 	protected := map[int]uint64{100: start(-3600)}
 	// An agent may be PID 1, in a container started without an init.
@@ -734,28 +733,14 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		"toolu_live": {Root: shell},
 		"toolu_gone": {Root: process(201, 100, 201, 0.1, "sh")},
 	}
-	// The view lists the agent itself as a row a person may select. A stop
-	// naming it must answer not allowed and choose nothing, even while the
-	// agent runs: a person's stop reaching an agent would end the session and
-	// lose its unsaved work. A helper's row, a language server, is the
-	// person's to stop.
-	rows := map[string]command{
-		"agent-100":  {Row: rowAgent, Root: agent},
-		"helper-250": {Row: rowHelper, Root: s[250]},
-	}
-	stop, results := chooseStops(
-		[]string{"toolu_live", "toolu_gone", "toolu_never", "agent-100", "helper-250"},
-		tracked, rows, s,
-	)
-	if len(stop) != 2 || stop[0].Root.PID != 200 || stop[1].Root.PID != 250 {
-		t.Fatalf("chosen %v, want only the live command and the helper", stop)
+	stop, results := chooseStops([]string{"toolu_live", "toolu_gone", "toolu_never"}, tracked, s)
+	if len(stop) != 1 || stop[0].Root.PID != 200 {
+		t.Fatalf("chosen %v, want only the live command", stop)
 	}
 	want := []StopResult{
 		{ID: "toolu_live", OK: true},
 		{ID: "toolu_gone", Error: "already finished"},
 		{ID: "toolu_never", Error: "unknown"},
-		{ID: "agent-100", Error: "not allowed"},
-		{ID: "helper-250", OK: true},
 	}
 	if !slices.Equal(results, want) {
 		t.Fatalf("results %v, want %v", results, want)

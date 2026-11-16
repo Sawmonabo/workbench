@@ -160,7 +160,7 @@ func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, b
 
 // fitsShell reports whether a call stamp's second fits a shell that started
 // at start, a kernel start time: in that second or no more than stampSlack
-// after it. byShell and the unmatched rows (see rowKind) both judge by it.
+// after it. byShell judges by it.
 func fitsShell(start uint64, second int64) bool {
 	started := platform.StartTime(start)
 	if started.IsZero() {

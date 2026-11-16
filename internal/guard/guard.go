@@ -4,8 +4,8 @@
 // provably forked and left behind; never an agent it knows (one whose session
 // hook ran or that left a note, or a process a stamp names as its agent), an
 // agent's helpers (language and MCP servers), hooks, a command it could not
-// match or any other program. A person may stop a helper, an unmatched
-// command or detached work from the view.
+// match or any other program. A person may stop a command or detached work
+// from the view.
 package guard
 
 import (
@@ -174,15 +174,12 @@ func outside(protected map[int]uint64) func(proc) bool {
 // program's name only, because a running program's arguments may hold a
 // token the shell expanded and the note's Command reaches the log and the
 // reason. Root is then its first root that runs, and Shown its command line,
-// which only the view shows. Or, with Row (agent, helper or unmatched), a row
-// of the view (see buildRows), whose Note is made up the same way; a row is
-// never tracked. Row is "" for a command or a unit.
+// which only the view shows.
 type command struct {
 	Note     note
 	Root     proc
 	Detached *detached
 	Shown    string
-	Row      string
 }
 
 // detached is what makes a command a unit: its roots, each a child of the

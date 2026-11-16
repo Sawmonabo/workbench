@@ -1,4 +1,4 @@
-# 16. The guard tracks work that detached from an agent's command, and shows each agent and its helpers
+# 16. The guard tracks work that detached from an agent's command
 
 - Status: Accepted, November 13, 2026
 
@@ -9,9 +9,6 @@ from the shell its agent started. A program that leaves that shell (a double
 fork, `setsid`, `nohup … &`, a background job left running when its call
 returns) is no longer under it, so the guard neither measured nor stopped
 it, and a command whose real work ran detached showed as a few megabytes.
-The memory view showed only the commands the guard tracked, so the memory an
-agent and its own helpers (a language server, an MCP server) held was
-nowhere in it.
 
 Facts shape the answer, all measured or read on macOS:
 - The kernel hides the environment of every restricted program from other
@@ -83,7 +80,7 @@ How to keep a nested session's work from the outer call:
   stamp that resolves to such a call proves nothing.
 - **Agent stamps read inside tracked trees.** Chosen, on macOS. A session
   started without the hooks is protected from the first readable program
-  that carries its own `CLAUDE_PID`, though not known: it gets no agent row.
+  that carries its own `CLAUDE_PID`, though not known.
   It lets a command keep the guard off its own tree, which only makes the
   guard miss. On Linux and WSL no stamp is read inside a tracked tree.
 - **A longer or adaptive wait.** Not chosen: no wait changes who the work
@@ -150,14 +147,19 @@ How to see a call that ends within a tick:
   it more than 250 times in a second, by forks and execs, loses its fork
   watch, and an agent more than 100 times is not followed for 5 seconds. The tick still tracks, measures,
   logs and decides every stop.
-- **Agents and helpers are rows the guard never stops.** Each agent the
-  guard knows is a row with its own size, each long-lived helper it starts
-  itself (never a shell or a sandbox launcher) a row with its tree's size,
-  and a running command no note matched an `unmatched` row. A person may
-  stop a helper or an unmatched command, which only logs the stop when
-  `WORKBENCH_GUARD` is `dry-run` or `off` for it; a stop of an agent row is
-  refused. One line under the counts splits the memory in use into
-  commands, detached work, agents, helpers and other.
+- **The view shows a detached program under its command.** Each detached
+  program is a row of its own, drawn directly under the command whose call
+  started it and joined to it by a tree line, and that command's row stays,
+  dimmed once the command has ended, for as long as a detached program
+  shows under it. One whose call is not proved, or whose command the view
+  does not have, is a row among the commands. The status column says only
+  the state. A stop reaches only its own row.
+- **Rows for agents, helpers and unmatched running commands.** Not chosen.
+  A row for each agent the guard knows, for each long-lived helper it starts
+  and for a running command no note matched, with the row's kind in the
+  status column and a line splitting the memory in use by kind, crowded the
+  list with rows the guard never stops and made a detached program hard to
+  tie to its command. The view shows only what the guard tracks.
 - **What a person sees.** The details of a detached row say why the guard
   will not stop it itself (no call proved, younger than ten seconds, setting
   unread). Its ID column shows the PID of its first root that runs; the log

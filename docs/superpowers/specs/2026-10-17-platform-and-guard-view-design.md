@@ -21,12 +21,12 @@ section number below that names "guard design" points there.
 - `workbench guard memory` shows, live, each command the guard tracks: its
   status, run time, memory now and at its peak, project, agent and subagent.
   Arrow keys move, Space tags, Enter opens details, `k` stops, `q` quits.
-- Shown are the commands the guard tracks, the work they started that
-  detached, each agent the guard knows, the helpers each agent started
-  itself, and running commands no note matched
+- Shown are the commands the guard tracks and the work they started that
+  detached, each detached program under its command
   ([detached work design](2026-11-13-guard-detached-work-design.md),
-  sections 7 and 8). All but the agents can be stopped from the view. Any
-  other process belongs to htop or Activity Monitor.
+  sections 7 and 8). Any running row can be stopped from the view. Any
+  other process, an agent and its helpers among them, belongs to htop or
+  Activity Monitor.
 - A stop from the view goes through the watcher, the guard's one process that
   signals commands, and is logged and told to the agent like the guard's own
   stops.
@@ -308,18 +308,16 @@ A full-screen Bubble Tea program in the alternate screen.
 ```
 [WorkBench] Guard memory  ● watching · 11:33:32 PM
 
-4 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
-in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · helpers 1.39 GB · other 2.31 GB
+5 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 
-   ID        STATUS      AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
-▸  01HsQEPc  ● run       claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
-   3Nd7Lp8z  ● run       codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
-   7Kp3Rt9m  ● run       claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
-   p87305    ● detached  claude  implementer  4m36s  4.20 GB  4.20 GB  api-server     /bin/zsh scripts/build.sh --worker api
-   p81483    ● helper    claude                44m2s  1.39 GB  1.41 GB  api-server     tsc --lsp --stdio
-   p12253    ● agent     claude                 2h6m   739 MB   802 MB  api-server     claude
-   5Jx2Gm6r  ✓ done      claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
-   2Bv6Yc1d  ✗ stopped   claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
+   ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
+▸  01HsQEPc  ● running  claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
+   3Nd7Lp8z  ● running  codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
+   7Kp3Rt9m  ● running  claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
+   01PnU61k  ● running  claude  implementer  5m16s     6 MB   166 MB  api-server     scripts/build.sh api
+   └ p87305  ● running  claude  implementer  4m36s  4.20 GB  4.20 GB  api-server     /bin/zsh scripts/build.sh --worker api
+   5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
+   2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
 ↑/↓ move  space tag  enter/→ details  k stop  q/esc quit
 ```
 
@@ -328,26 +326,22 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   `? unmatched` (a call the guard never found: no tick tracked it and no
   fork wake-up learned its shell), `✗ stopped` (by the guard or by you). A row stopping and
   waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
-  `(dry)` (`● run (dry)`), in the list and in its details. Beside them, in
-  the same columns
+  `(dry)` (`● running (dry)`), in the list and in its details. Detached work
+  has a row of its own in the same columns
   ([detached work design](2026-11-13-guard-detached-work-design.md),
-  section 8), each with `p` and a process ID as its ID: detached work
-  (`● detached`), timed from the start of the program that detached
-  first, its command and its ID (the PID) those of its first root that
-  still runs, which change when that root exits; each agent the guard knows (`● agent`), sized by the agent
-  process alone; each helper an agent started itself (`● helper`, never a
-  shell or a sandbox launcher), sized by
-  its tree; and a running command no note matched (`? unmatched`), sized by
-  its tree. A stopped helper or unmatched row leaves the list once its
-  processes are gone, with no finished entry. A command line read from a
+  section 8), directly under the command whose call started it and joined
+  to it by a tree mark before its ID (`├`, and `└` for the last under a
+  command); a command and what is under it move as one block, and the
+  command's row stays, dimmed once the command has ended, for as long as
+  detached work shows under it. Detached work whose call is not proven, or
+  whose command the snapshot does not have, is a row among the commands.
+  Its ID is `p` and a process ID; it is timed from the start of the program
+  that detached first, and its command and its ID (the PID) are those of
+  its first root that still runs, which change when that root exits. An
+  agent, its helpers and a running command no note matched have no row. A
+  command line read from a
   running process is shown in a form that never holds what may be an
   environment string; one shortened that way ends with ` …`.
-- **Memory line**, faint, under the count line: the memory in use split
-  into commands (unmatched ones included), detached work, agents, helpers
-  and `other`, each part the sum of the sizes its rows show, `other` being
-  the memory in use less the four. It is drawn only in a window taller than
-  11 lines, so the stop menu still fits below the header, and is left out
-  when a snapshot has no sums and while no watcher is connected.
 - **Header**, four lines. The first: the brand, bold; the watcher's state
   (`●` green and ` watching` while connected, else `○` gold and ` not
   running` or ` not connected`); a badge after the state when memory runs
@@ -355,9 +349,8 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   none for `normal` or macOS's `warning`, which the guard treats as routine;
   then a dim ` · ` and the clock (`3:04:05 PM`), inline, which a window too
   narrow for the badge and the clock drops. The second is blank. The third,
-  dim: the counts, `N running · M finished` (finished in the last minute),
-  counting commands, detached work and unmatched commands, never agent or
-  helper rows, and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
+  dim: the counts, `N running · M finished`, commands and detached work
+  alike, and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
   2), of the installed memory, bold and not dim, its unit written once when
@@ -365,15 +358,14 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   that does not send it); the used figure is a measurement and the installed
   and swap totals capacities, by the rule in section 4; `peak P`, the largest
   peak since the watcher started; and `swap USED/TOTAL`, left out where there
-  is no swap. The fourth (after the memory line, when that is drawn) says
+  is no swap. The fourth says
   why no watcher answers or, when every shown command is a dry run (the
   count covering the same rows as the counts, running and finished), `dry run: stops are logged, not sent`, when only some
   are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold, and
   is blank otherwise; the dry-run texts fit 60 columns, and a longer text
   wraps onto another line, so no line is cut.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
-  Space tags or untags a running row other than an agent row (on an agent
-  row it tags nothing) and moves down; Enter, → or `l` opens
+  Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `k` opens the stop menu for the tagged rows, or the selected one;
   Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
   quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
@@ -404,8 +396,9 @@ in use 11.27 GB · commands 2.65 GB · detached 4.20 GB · agents 739 MB · help
   runs, and Enter stops only those still running and names the others as
   finished. Enter sends, Esc, ← or `h` cancels. The answer from the watcher
   is shown for 3 s on the bottom line, for example `stopped 4fQ8nX2a`, `logged
-  4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`. `k` on an agent row,
-  with no running row tagged, opens no menu, sends nothing and says `agents are never stopped`.
+  4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`. A stop reaches only
+  its own row: a command and detached work under it are stopped one by one,
+  or together when both are tagged.
 - **Details**, in this order: the full command, folder, agent, subagent,
   full ID, for detached work its label in the log ("In the log", `p` and the
   PID of its first root, which never changes) and the call that started it
@@ -582,26 +575,24 @@ and whose processes are gone.
   `stopping`, `done`, `unmatched`, `stopped`), `by`, `dry_run` (the note's),
   `started`, `ended`, `memory`, `peak`, `history` (the last readings),
   `tree` (`pid`, `name`, `memory` per process) for running ones, and the
-  row's `kind` (empty for a command, else `detached`, `agent` or `helper`),
+  row's `kind` (empty for a command, else `detached`),
   its first live root's `pid` and, for detached work, `launched_by`, the
   call that started it when that call is proven, and, on a running unit,
   `held`: why the guard itself will not choose it now (`no call`, `young`,
-  `unread`, the first that applies), left out when it may. The commands include the detached,
-  agent, helper and running unmatched rows
+  `unread`, the first that applies), left out when it may. The commands
+  are those the watcher tracks, then the finished ones, a finished command
+  kept past its minute for as long as detached work its call started shows
   ([detached work design](2026-11-13-guard-detached-work-design.md),
-  section 8), and the snapshot carries `sums`, the five parts of the memory
-  line (`commands`, `detached`, `agents`, `helpers`, `other`). All are
-  additions an older view ignores.
+  section 8). `kind`, `pid`, `launched_by` and `held` are additions an older
+  view ignores.
 - **Stop**: `{"type":"stop","ids":[…],"force":false}`. The watcher answers
   `{"type":"stopped","results":[{"id":…,"ok":true}|{"id":…,"ok":false,"error":"already finished"}]}`.
-  It looks each ID up among its tracked commands and the rows of its last
-  tick, never a process number, answers an agent row `not allowed`, and
-  stops the rest the way it stops for memory (guard design 6.4: the same
+  It looks each ID up among its tracked commands, never a process number,
+  and stops each the way it stops for memory (guard design 6.4: the same
   targets, start-time checks, pidfd on Linux, 5 s escalation; `force` sends
   SIGKILL at once), telling the agent `Stopped by you (workbench guard
-  memory).` when a call it can reach started what was stopped; a row gets no
-  kill record. In dry-run mode, and for a row whose agent's or own stamps set
-  `WORKBENCH_GUARD` to `dry-run` or `off`, it logs `would stop` and signals
+  memory).` when a call it can reach started what was stopped. In dry-run
+  mode it logs `would stop` and signals
   nothing.
   A person's stop is asynchronous: the answer comes once the first signal
   is sent, the tick goroutine follows the stop across ticks (the row shows

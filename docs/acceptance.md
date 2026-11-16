@@ -919,8 +919,8 @@ synthetic answers.
   Calculator` and a sleeper a second `PreToolUse` hook double-forked, carrying
   `CLAUDE_PID` and no call stamp, gave no row and no log record, under a real
   Claude Code session and under a fake agent. A real nested Claude Code
-  session a fake agent's command started with `nohup … &` showed only as an
-  `agent` row in every snapshot, whether the command stayed four seconds or
+  session a fake agent's command started with `nohup … &` was detached work
+  in no snapshot, whether the command stayed four seconds or
   returned at once; when it returned at once, the log held the session for
   one second as detached work that ended with "its root is an agent", and
   the call, which ended before the watcher its own pre hook started was up,
@@ -929,13 +929,17 @@ synthetic answers.
   outer call, held `young`, and ended in the log with "what started its root
   is not this call's work" once the session registered, while the sleeper
   kept running.
-- On 2026-11-14, on macOS, a real Claude Code session with a stdio MCP server
-  showed an agent row sized by the agent process alone, a helper row for the
-  server and the command's row, and the five sums added up to the memory in
-  use in every snapshot. With a fake agent, the view showed all five kinds at
-  once with the memory split line, Space tagged a detached row and nothing on
-  the agent row, `k` on the agent row answered `agents are never stopped`,
-  and an 11-line window left the split line out. Under bash, with a fake
+- On 2026-11-16, on macOS, with a fake agent and a watcher on a state folder
+  of its own, a command that left `sleep 600` detached and ended after four
+  seconds was in the snapshots 20 and 75 seconds after it ended, as `done`,
+  with the sleeper as detached work naming its call; 30 seconds after the
+  sleeper was ended both were still there, finished, and 72 seconds after
+  it both were gone while another command of the agent still ran. No
+  snapshot held a row for the agent or a split of the memory in use. The
+  view drew sample rows with each detached program under its command, in a
+  132-column and a 60-column window and with `LC_ALL=C` (`|-` and `` `- ``
+  for the tree marks).
+- On 2026-11-14, on macOS, under bash, with a fake
   agent, a program left detached by a call with `WORKBENCH_GUARD=off` as a
   command prefix and three arguments, which then rewrote its title, gave no
   row, while the same program without the prefix gave a `detached` row with
@@ -1024,7 +1028,7 @@ synthetic answers.
   read rests on the `held` reason the snapshots showed (`no call`, `young`,
   `unread`) and on `TestGuardChoosesOnlyWhatACallProvablyStarted` and
   `TestTargetsStayInsideTheCommandTree`; that it never names a nested
-  session rests on its `agent` row and on the `rootIsAKnownAgentTiedByStamp`
+  session rests on the `rootIsAKnownAgentTiedByStamp`
   and `rootIsAKnownAgentTiedByParent` rows of
   `TestUnitRootOnlyForWhatAnAgentCommandForked`. None of these checks ran on
   Linux or WSL2, and the Linux container check was not run. Also not
