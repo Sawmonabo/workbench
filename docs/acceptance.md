@@ -60,6 +60,17 @@ synthetic answers.
   observed).
   The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
   downloading from GitHub each installed a release.
+- The rule on `main` (ADR 0017) was observed on a scratch branch under the
+  same rule (Nov 18, 2026): a push of a commit without the `all-checks`
+  check was refused for the repository owner (`GH013`, "Required status
+  check "all-checks" is expected") and for a workflow's own token, and
+  accepted from the deploy key, both from a shell and from a workflow that
+  checked out with the `CHANGELOG_DEPLOY_KEY` secret as the `changelog` job
+  does; a push made with the deploy key started a CI run. On `main`, a pull
+  request was blocked until `all-checks` passed and reported no required
+  check while the jobs `all-checks` needs were running. Not observed: the
+  `changelog` job itself pushing to `main` with the key (it runs only for a
+  full release), and a Dependabot pull request under the rule.
   `update --list` marks the latest and installed releases; an installed
   release missing from the list, a pre-release or local build, follows on its
   own line (observed for a local build in a disposable home). Switching to an

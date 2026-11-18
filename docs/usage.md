@@ -1004,7 +1004,10 @@ conventional commit subjects (`feat:`, `fix:`, `docs:` and so on) with
 commits belong to the full release that follows, and its notes list the commits
 since the tag before it. Once a full release is out, the workflow commits the
 regenerated [CHANGELOG.md](../CHANGELOG.md) to `main`, so pull before your next
-commit. It does so only for a tag on `main` that is also the newest full release tag: a
+commit. `main` accepts only commits whose `all-checks` CI check passed; the
+changelog commit is new, so the workflow pushes it with a deploy key that the
+branch rule lets through
+([ADR 17](adr/0017-main-requires-ci.md)). It does so only for a tag on `main` that is also the newest full release tag: a
 tag off `main` publishes its release and leaves CHANGELOG.md alone, an older
 tag leaves it to the newer tag's run, and changelog commits run one at a time.
 Build one bundle locally with the pinned Go toolchain and Python 3.11+:

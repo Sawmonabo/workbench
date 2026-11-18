@@ -197,7 +197,10 @@ claims aligned with `docs/acceptance.md`.
 Releases are personal: pushing a `v*` tag publishes the four bundles and a
 tag-stamped `install.sh` through `.github/workflows/release.yml`, with that
 tag's changelog section as release notes, then commits the regenerated
-`CHANGELOG.md` to `main`. Write conventional commit subjects, which become the
+`CHANGELOG.md` to `main`, pushed with the repository's one deploy key
+(ADR 0017). `main` accepts a commit only after its `all-checks` CI check
+passed: push to a `feat/**` branch or a pull request first, then
+fast-forward or merge. Write conventional commit subjects, which become the
 changelog; never edit `CHANGELOG.md` by hand. They are
 unsigned and grant no redistribution rights; add no LICENSE. Only that
 workflow passes `scripts/package-release.py --published`. A tag with a hyphen
