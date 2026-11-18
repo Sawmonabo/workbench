@@ -614,9 +614,13 @@ the plan. Piped output, and `NO_COLOR`,
 give the same lines without symbols or color.
 
 A plan lists only the steps this apply would actually run: the provisioning
-scripts chezmoi would run (a once-only script that already ran is left out, as
-is an on-change script whose content has not changed) and the steps whose files
-change. On macOS, every full plan lists its
+scripts chezmoi would run, the steps whose files change, and a step whose
+script chezmoi would skip (a once-only script that already ran, or an on-change
+script whose content has not changed) when its check finds something to do,
+for example `install lefthook 2.2.2` after `~/.local/bin/lefthook` was deleted.
+Every script is checked while planning. When a ticked step's check found
+something to do, its script runs in that apply even where chezmoi would skip
+it, and the next apply with nothing to do does not run it. On macOS, every full plan lists its
 steps as effects, and checking them approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`

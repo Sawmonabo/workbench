@@ -159,7 +159,9 @@ synthetic answers.
 - A plan shows each changed file with a summary, such as `+0 −2 lines` or
   `mode 0600 → 0644`, and flags files edited outside Workbench. It lists an
   effect only when chezmoi would run one of its scripts or change one of its
-  files. A fresh home lists every effect; an up-to-date machine lists only the
+  files, or, as observed only in a Linux container (below), when a script
+  chezmoi would skip finds something missing that its run puts right. A fresh
+  home lists every effect; an up-to-date machine lists only the
   always-run apps and cleanup steps. A new CI action pin in `versions.toml`
   leaves the runtimes and global-tools scripts unchanged, while bumping a pin
   they install changes them. Each outdated app or formula in
@@ -1117,6 +1119,31 @@ synthetic answers.
   version was replaced. With chezmoi 2.70.3 alone, a run-on-change script ran
   again when its content went back to an earlier one, which a run-once script
   did not; the packages script was not run again after it became run-on-change.
+- On November 17, 2026, in an Ubuntu 24.04 arm64 container (Docker 29.8.2) as
+  a sudo user with a disposable home, from a local build with synthetic
+  personal/pinned answers, through `--dry-run --json` and `--approve-plan`,
+  first with every step unticked but System packages, Runtime managers, Move
+  Workbench's files and Credential files: after the first apply,
+  `~/.local/bin/lefthook` (the run-on-change packages script) and `~/.nvm`
+  (the run-once runtime managers script) were deleted. The plan listed
+  `linux-packages: install lefthook 2.2.2` and `runtime-managers: install
+  nvm`, the approved apply ran both scripts and put both back, and the next
+  plan listed neither step and its apply ran only the migrations and
+  credential files scripts, which run on every apply. With only `~/.nvm`
+  deleted, the apply ran the runtime managers script and not the packages
+  script, whose probe found nothing to do; with Runtime managers unticked,
+  the plan showed it off with `install nvm` and the apply did not run its
+  script. With Language runtimes, Command-line tools and tmux plugins ticked
+  too and applied, the next plan listed none of the five steps and its apply
+  ran no step script. Deleting ruff, gofumpt and cargo-deny listed
+  `global-tools: install ruff, cargo-deny, gofumpt; …`, the apply put all
+  three back (uv reinstalling ruff), and the next plan did not list the
+  step. With chezmoi 2.70.3 alone, a run-once and a run-on-change script that
+  had run both ran again as plain `run_` scripts with the same content, and
+  then under their own names neither ran. `scripts/render-check.sh` linted
+  the Linux scripts there for personal, work and both pinned and both latest.
+  Latest mode, macOS (whose probes changed too), WSL, AlmaLinux and a shared
+  script with an unticked step were not observed.
 
 ## Unqualified release gates
 

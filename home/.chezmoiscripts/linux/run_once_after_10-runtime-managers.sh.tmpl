@@ -19,17 +19,23 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         fi
     done
     [ ${#missing[@]} -eq 0 ] || { printf -v joined '%s, ' "${missing[@]}"; parts+=("install ${joined%, }"); }
-{{- if eq .versions_mode "pinned" }}
-    go_target="{{ .versions.go }}"
-{{- else }}
-    go_target=$( (curl -fsSL --max-time 3 'https://go.dev/VERSION?m=text' 2>/dev/null || true) | head -n1); go_target=${go_target#go}
-{{- end }}
     go_have=
     if go_bin=$(go_command); then
         go_root=$(dirname "$(dirname "$(readlink -f "$go_bin")")")
         [ -r "$go_root/VERSION" ] && go_have=$(head -n1 "$go_root/VERSION")
         go_have=${go_have#go}; go_have=${go_have%% *}
     fi
+{{- if eq .versions_mode "pinned" }}
+    go_target="{{ .versions.go }}"
+{{- else }}
+    # When chezmoi would not run this script (WORKBENCH_PROBE_RAN=1), only a
+    # missing Go is work for it: a newer release alone does not make it run.
+    if [ "${WORKBENCH_PROBE_RAN:-}" = 1 ] && [ -n "$go_have" ]; then
+        go_target=$go_have
+    else
+        go_target=$( (curl -fsSL --max-time 3 'https://go.dev/VERSION?m=text' 2>/dev/null || true) | head -n1); go_target=${go_target#go}
+    fi
+{{- end }}
     if [ -z "$go_target" ]; then
         parts+=("Go is ${go_have:-missing}; the latest version could not be looked up")
     elif [ "$go_have" = "$go_target" ]; then

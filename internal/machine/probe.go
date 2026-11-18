@@ -87,14 +87,17 @@ func (t *probeTally) record(name string, lines map[string]probeResult, status st
 	}
 }
 
-// probeEffects fills each effect's Delta from the active scripts run with
+// probeEffects fills each effect's Delta from the scripts run with
 // WORKBENCH_PROBE=1: the migrations script's alone first, then the others in
-// parallel. A probe that fails, times out or prints anything but effect lines
-// leaves its effects with a ProbeNote saying, in plain words, what could not
-// be checked; the plan never blocks on a probe, and an unprobed effect stays
-// checked. Probes write nothing: Go telemetry and Node's compile cache are
-// switched off. It returns the context's error when the run was interrupted,
-// so the plan stops instead of showing every effect unprobed.
+// parallel. Scripts chezmoi would not run are probed too, with
+// WORKBENCH_PROBE_RAN=1, so a step whose tool was removed after its script ran
+// is listed again (see [listDue]). A probe that fails, times out or prints
+// anything but effect lines leaves its effects with a ProbeNote saying, in
+// plain words, what could not be checked; the plan never blocks on a probe,
+// and an unprobed effect stays checked. Probes write nothing: Go telemetry and
+// Node's compile cache are switched off. It returns the context's error when
+// the run was interrupted, so the plan stops instead of showing every effect
+// unprobed.
 func (p *preparation) probeEffects(ctx context.Context, c operation.Context) error {
 	// Nothing here touches the plan digest: a probe failure shows as a note
 	// on the effect, never as a warning the digest would cover.
@@ -125,8 +128,14 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	for name, contents := range scripts {
 		// The agent updates are planned without their script, which has no
 		// probe.
-		if !p.active[name] || name == migrationsScript || name == agentUpdatesScript {
+		if name == migrationsScript || name == agentUpdatesScript {
 			continue
+		}
+		// A script chezmoi would not run reports only what its run would put
+		// right on this machine, so a step with nothing missing stays unlisted.
+		environment := environment
+		if !p.active[name] {
+			environment = append(slices.Clip(environment), "WORKBENCH_PROBE_RAN=1")
 		}
 		wg.Go(func() {
 			lines, status := p.runProbe(ctx, c, directory, environment, name, contents)
@@ -250,13 +259,20 @@ func probeNote(script, status string) string {
 	return ""
 }
 
-// scriptSources renders every provisioning script native would consider,
-// keyed by name without chezmoi's prefixes and .sh suffix.
+// scriptSources renders every provisioning script, keyed by name without
+// chezmoi's prefixes and .sh suffix. chezmoi's dump leaves out a run-once
+// script that already ran, so it renders against an empty native state, in
+// which no script has run.
 func (p *preparation) scriptSources(
 	ctx context.Context,
 	c operation.Context,
 ) (map[string]string, error) {
-	rendered, err := p.run(ctx, c, "dump", "--include=scripts", "--format=json")
+	native := p.native
+	native.PersistentState = filepath.Join(
+		filepath.Dir(p.native.PersistentState),
+		"render-state.boltdb",
+	)
+	rendered, err := p.runIn(ctx, c, native, "dump", "--include=scripts", "--format=json")
 	if err != nil {
 		return nil, err
 	}

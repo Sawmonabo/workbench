@@ -44,6 +44,9 @@ type preparation struct {
 	// active names the files and scripts this apply would change or run; see
 	// activeSources.
 	active map[string]bool
+	// dormant names the effects whose scripts chezmoi would not run; see
+	// activeEffects.
+	dormant map[string]bool
 	// appUpdates and toolUpdates name the casks and formulae the plan's
 	// Homebrew update effects cover, and agentCasks the Codex and Claude Code
 	// casks among the casks Homebrew is asked about.
@@ -150,7 +153,7 @@ func prepare(
 	if err != nil {
 		return prepared, err
 	}
-	plan.Effects = append(plan.Effects, activeEffects(effects, prepared.active)...)
+	plan.Effects = append(plan.Effects, prepared.activeEffects(effects)...)
 	plan.Effects = append(plan.Effects, hostOptionalEffects()...)
 	markHomebrewInstall(plan.Effects)
 	if err = prepared.buildChanges(ctx, c); err != nil {
@@ -185,8 +188,9 @@ func prepare(
 	return prepared, nil
 }
 
-// selectEffects probes the active scripts for their deltas, unless shown has
-// them already, lists the take-overs they call for, then checks each effect as
+// selectEffects probes the scripts for their deltas, unless shown has them
+// already, drops the dormant effects with nothing to do (see [listDue]), lists
+// the take-overs they call for, then checks each effect as
 // the selection and the saved skips say. On WSL the writer record the scripts
 // follow is an input. An isolated destination gets files only: scripts
 // provision the real home.
@@ -209,6 +213,7 @@ func (p *preparation) selectEffects(
 		}
 		shown = &p.Plan
 	}
+	p.Plan.Effects = listDue(p.Plan.Effects, p.dormant, shown.Effects)
 	p.Plan.Effects = append(p.Plan.Effects, takeOverEffects(shown.Effects)...)
 	saved, err := ReadSelection(c.Native.Config)
 	if err != nil {
@@ -505,7 +510,17 @@ func (p *preparation) run(
 	c operation.Context,
 	args ...string,
 ) (string, error) {
-	prefix, err := p.native.Args()
+	return p.runIn(ctx, c, p.native, args...)
+}
+
+// runIn is [preparation.run] in the given native context.
+func (p *preparation) runIn(
+	ctx context.Context,
+	c operation.Context,
+	native operation.NativeContext,
+	args ...string,
+) (string, error) {
+	prefix, err := native.Args()
 	if err != nil {
 		return "", err
 	}
@@ -1223,13 +1238,15 @@ func readBlocked(path string, effects []operation.Effect) map[string]string {
 // effect's section runs when it is checked later. A checked update effect
 // owns the script that runs it (see [preparation.updateScript]) like a listed
 // effect; the agent updates script, which has no other owner, is deleted
-// without one.
+// without one. A script that stays and carries a checked effect whose probe
+// found something to do runs every time in this apply; see [runEveryTime].
 // The plan's source identity and digest are computed from the unmodified source
 // before this runs.
 func (p *preparation) selectScripts() error {
-	checked, listed := map[string]bool{}, map[string]bool{}
+	checked, listed, due := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	for _, effect := range p.Plan.Effects {
 		checked[effect.Name], listed[effect.Name] = effect.Checked, true
+		due[effect.Name] = effect.Checked && hasWork(effect)
 	}
 	root := filepath.Join(p.native.Source, "home", ".chezmoiscripts")
 	return filepath.WalkDir(root, func(path string, entry os.DirEntry, err error) error {
@@ -1264,11 +1281,35 @@ func (p *preparation) selectScripts() error {
 		if !slices.ContainsFunc(owners, func(name string) bool { return checked[name] }) {
 			return os.Remove(path)
 		}
+		if slices.ContainsFunc(owners, func(name string) bool { return due[name] }) {
+			if path, err = runEveryTime(path); err != nil {
+				return err
+			}
+		}
 		if len(skipped) == 0 {
 			return nil
 		}
 		return markSkipped(path, skipped)
 	})
+}
+
+// runEveryTime renames a run_once_ or run_onchange_ script to a plain run_
+// one and returns its new path. chezmoi decides whether those run from their
+// content alone, so a script whose tool was removed after it ran would not run
+// although its probe found something to do. A run_ script always runs, under
+// the same target name and so in the same order, and chezmoi records the same
+// content state for it as for the script it stands in for, so the next apply
+// with nothing to do runs nothing.
+func runEveryTime(path string) (string, error) {
+	base := filepath.Base(path)
+	rest, ok := strings.CutPrefix(base, "run_once_")
+	if !ok {
+		if rest, ok = strings.CutPrefix(base, "run_onchange_"); !ok {
+			return path, nil
+		}
+	}
+	plain := filepath.Join(filepath.Dir(path), "run_"+rest)
+	return plain, os.Rename(path, plain)
 }
 
 // markSkipped inserts a comment naming the skipped effects directly after the

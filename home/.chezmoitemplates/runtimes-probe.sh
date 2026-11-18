@@ -1,5 +1,8 @@
     # Reads only: what is installed is looked up in the directories the
-    # installers use, never by running a package manager.
+    # installers use, never by running a package manager. In latest mode, when
+    # chezmoi would not run this script (WORKBENCH_PROBE_RAN=1), only a missing
+    # runtime is work for it: a newer release alone does not make it run, so
+    # none is looked up.
     parts=() same=()
     if [ -r "$NVM_DIR/nvm.sh" ]; then
         # shellcheck source=/dev/null
@@ -14,7 +17,11 @@
 {{- else }}
         # nvm version-remote rewrites nvm's lts alias files, and a probe writes nothing:
         # read the newest release from the same index instead.
-        node_want=$(curl -fsSL --max-time 3 "${NVM_NODEJS_ORG_MIRROR:-https://nodejs.org/dist}/index.tab" 2>/dev/null | awk -F'\t' 'NR==2 {print $1}' || true); node_want=${node_want#v}
+        if [ "${WORKBENCH_PROBE_RAN:-}" = 1 ] && [ -n "$node_have" ]; then
+            node_want=$node_have
+        else
+            node_want=$(curl -fsSL --max-time 3 "${NVM_NODEJS_ORG_MIRROR:-https://nodejs.org/dist}/index.tab" 2>/dev/null | awk -F'\t' 'NR==2 {print $1}' || true); node_want=${node_want#v}
+        fi
         node_missing=()
 {{- end }}
         if [ -z "$node_want" ]; then
@@ -46,7 +53,11 @@
             same+=("Python {{ join ", " .versions.python_pinned }}")
         fi
 {{- else }}
-        parts+=("Python is brought to the newest release")
+        if [ "${WORKBENCH_PROBE_RAN:-}" = 1 ] && compgen -G "${UV_PYTHON_INSTALL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/uv/python}/cpython-*" >/dev/null; then
+            same+=("Python")
+        else
+            parts+=("Python is brought to the newest release")
+        fi
 {{- end }}
     else
 {{- if eq .versions_mode "pinned" }}
@@ -67,7 +78,9 @@
             same+=("Rust {{ .versions.rust }}")
         fi
 {{- else }}
-        if [[ "$rust_default" == stable-* ]]; then
+        if [ "${WORKBENCH_PROBE_RAN:-}" = 1 ] && [[ "$rust_default" == stable-* ]]; then
+            same+=("stable Rust")
+        elif [[ "$rust_default" == stable-* ]]; then
             parts+=("Rust is brought to the newest stable release")
         else
             parts+=("Rust is brought to the newest stable release and made the default")

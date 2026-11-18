@@ -15,14 +15,21 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    missing=()
+    missing=() brew_missing=()
     [ -r "${NVM_DIR:-$HOME/.nvm}/nvm.sh" ] || missing+=(nvm)
     command -v rustup >/dev/null 2>&1 || [ -x "$HOME/.cargo/bin/rustup" ] || missing+=(rustup)
     for tool in uv bun go; do
-        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool (from Homebrew)")
+        command -v "$tool" >/dev/null 2>&1 || brew_missing+=("$tool")
     done
-    if [ ${#missing[@]} -eq 0 ]; then
+    # This script only checks the Homebrew tools, so when chezmoi would not
+    # run it (WORKBENCH_PROBE_RAN=1) a missing one is not work for it.
+    if [ "${WORKBENCH_PROBE_RAN:-}" != 1 ]; then
+        for tool in ${brew_missing[@]+"${brew_missing[@]}"}; do missing+=("$tool (from Homebrew)"); done
+    fi
+    if [ ${#missing[@]} -eq 0 ] && [ ${#brew_missing[@]} -eq 0 ]; then
         echo "runtime-managers: = nvm, rustup, uv, bun and Go are installed"
+    elif [ ${#missing[@]} -eq 0 ]; then
+        printf -v joined '%s, ' "${brew_missing[@]}"; echo "runtime-managers: = nvm and rustup are installed; ${joined%, } come from Homebrew (System packages)"
     else
         printf -v joined '%s, ' "${missing[@]}"; echo "runtime-managers: install ${joined%, }"
     fi

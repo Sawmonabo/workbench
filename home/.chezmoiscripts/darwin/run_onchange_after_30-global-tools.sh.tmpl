@@ -44,9 +44,13 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     policy="upgraded to the latest"
 {{- end }}
     # Versions are not compared here, so even with every tool installed the run
-    # still sets them: this never reports "no change". Codex and Claude Code
-    # are the exception: their update steps set an installed copy's version.
-    if [ ${#missing[@]} -eq 0 ]; then
+    # still sets them, and the probe reports no change only when chezmoi would
+    # not run this script (WORKBENCH_PROBE_RAN=1): its last run, of this same
+    # content, set them. Codex and Claude Code are the exception: their update
+    # steps set an installed copy's version.
+    if [ ${#missing[@]} -eq 0 ] && [ "${WORKBENCH_PROBE_RAN:-}" = 1 ]; then
+        echo "global-tools: = the npm, uv, cargo and Go tools are installed"
+    elif [ ${#missing[@]} -eq 0 ]; then
         echo "global-tools: the npm, uv, cargo and Go tools are installed; versions other than Codex's and Claude Code's are $policy"
     else
         printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions other than Codex's and Claude Code's are $policy"
@@ -86,12 +90,16 @@ else
 fi
 
 # --- uv tools ---
+# A tool whose command is gone is reinstalled: uv keeps its environment and
+# otherwise says it is already installed without putting the command back.
 if command -v uv &>/dev/null; then
 {{- range $pkg, $ver := .uv_tools }}
+    reinstall=()
+    command -v "{{ $pkg }}" >/dev/null 2>&1 || reinstall=(--reinstall)
 {{- if eq $mode "pinned" }}
-    uv tool install "{{ $pkg }}=={{ $ver }}" || failed+=("{{ $pkg }}")
+    uv tool install ${reinstall[@]+"${reinstall[@]}"} "{{ $pkg }}=={{ $ver }}" || failed+=("{{ $pkg }}")
 {{- else }}
-    uv tool install --upgrade "{{ $pkg }}" || failed+=("{{ $pkg }}")
+    uv tool install --upgrade ${reinstall[@]+"${reinstall[@]}"} "{{ $pkg }}" || failed+=("{{ $pkg }}")
 {{- end }}
 {{- end }}
 else

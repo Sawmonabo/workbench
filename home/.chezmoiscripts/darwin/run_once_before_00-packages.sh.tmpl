@@ -37,9 +37,12 @@ write_brewfile() {
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # A probe writes nothing and fetches nothing. Checking what is installed
     # would make brew download its formula data into ~/Library/Caches, so the
-    # probe only says what apply does.
+    # probe only says what apply does, and, when chezmoi would not run this
+    # script (WORKBENCH_PROBE_RAN=1), that its last run installed them.
     if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
         echo "macos-packages: install Homebrew and the tools Workbench lists"
+    elif [ "${WORKBENCH_PROBE_RAN:-}" = 1 ]; then
+        echo "macos-packages: = Homebrew is installed, and the tools Workbench lists were installed when this step last ran"
     else
         echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
     fi

@@ -52,7 +52,8 @@ var macOSEffects = []operation.Effect{
 // effectSources names what each effect covers: the scripts that carry it out,
 // by name without chezmoi's prefixes and .sh suffix, and the files it manages,
 // relative to the destination. A plan lists an effect only when one of them is
-// active; an effect without an entry is always listed.
+// active, or when a script of its own that chezmoi would not run has something
+// to do (see [listDue]); an effect without an entry is always listed.
 var effectSources = map[string][]string{
 	"ai-security-settings":    {".claude/settings.json", ".codex/config.toml", ".codex/hooks.json"},
 	"runtime-managers":        {"10-runtime-managers"},
@@ -86,13 +87,59 @@ var effectSources = map[string][]string{
 	takeOverPrefix + "default-distro":      {"10-deploy-windows-configs"},
 }
 
-// activeEffects keeps the effects with an active source; see [effectSources].
-func activeEffects(effects []operation.Effect, active map[string]bool) []operation.Effect {
+// activeEffects keeps the effects with an active source, and the effects
+// carried by a script chezmoi would not run (a run-once script that ran, or an
+// on-change script whose content is unchanged), which it names in p.dormant:
+// the plan probes those scripts too, and [listDue] keeps such an effect only
+// when one of its scripts has something to do. See [effectSources].
+func (p *preparation) activeEffects(effects []operation.Effect) []operation.Effect {
+	p.dormant = map[string]bool{}
 	return slices.DeleteFunc(effects, func(effect operation.Effect) bool {
 		sources, ok := effectSources[effect.Name]
-		return ok &&
-			!slices.ContainsFunc(sources, func(source string) bool { return active[source] })
+		if !ok ||
+			slices.ContainsFunc(sources, func(source string) bool { return p.active[source] }) {
+			return false
+		}
+		if slices.ContainsFunc(sources, isScript) {
+			p.dormant[effect.Name] = true
+			return false
+		}
+		return true
 	})
+}
+
+// isScript reports that an [effectSources] entry names a script, not a file.
+func isScript(source string) bool { return !strings.HasPrefix(source, ".") }
+
+// listDue drops each dormant effect (see [activeEffects]) none of whose
+// scripts has something to do by the probe findings, which are the effects of
+// the plan that probed. A script that has something to do keeps every effect
+// it carries, so each one's switch reaches it and an unticked one stays off.
+func listDue(
+	effects []operation.Effect,
+	dormant map[string]bool,
+	findings []operation.Effect,
+) []operation.Effect {
+	due := map[string]bool{}
+	for _, finding := range findings {
+		if hasWork(finding) {
+			for _, source := range effectSources[finding.Name] {
+				due[source] = true
+			}
+		}
+	}
+	return slices.DeleteFunc(effects, func(effect operation.Effect) bool {
+		return dormant[effect.Name] &&
+			!slices.ContainsFunc(effectSources[effect.Name], func(source string) bool {
+				return due[source]
+			})
+	})
+}
+
+// hasWork reports that every script carrying the effect answered its probe
+// and at least one named something to do.
+func hasWork(effect operation.Effect) bool {
+	return effect.Probe == "ok" && !effect.NoChange && effect.Delta != ""
 }
 
 // aiSecurityEffect is the fixed first effect of every plan: the managed AI settings.
