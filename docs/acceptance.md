@@ -410,6 +410,18 @@ synthetic answers.
     the apply blocked, and an approval that was already valid left alone.
   - Target, not yet observed: an actual touch on a real Mac, and each app that
     needs administrator rights asking for its own touch.
+- On November 17, 2026, on macOS, chezmoi 2.70.3 alone applied the global Git
+  ignore template into throwaway destinations. With no file it wrote the eight
+  entries; over a file whose last line had no newline it kept both lines,
+  ended the last one and appended the eight; over a file holding all eight
+  the file stayed byte-identical, and a second apply over the first result
+  changed nothing; over a file holding `**/.claude/settings.local.json` it
+  kept that line and appended the other seven. In a repository with that file
+  as the global ignore, `git status` hid a root `tmp/`, `.agents/tmp/`,
+  `.worktrees/`, `.claude/worktrees/`, `.claude/settings.local.json` and
+  `CLAUDE.local.md`, and still listed `pkg/tmp/`, `.claude/settings.json`,
+  `.claude/skills/`, `CLAUDE.md` and `AGENTS.override.md`. Not observed: an
+  agent following the worktree instruction.
 
 ### On a WSL2 host
 

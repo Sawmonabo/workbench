@@ -385,6 +385,13 @@ for event, groups in codex.items():
 sys.exit(bad)
 PY
 
+echo "==> [$role/$mode] worktree instructions and the global git ignore"
+grep -qF 'git worktree add .worktrees/<name> -b <branch>' "$dest/.claude/CLAUDE.md" || { echo 'WORKTREE FAIL: CLAUDE.md lacks the worktree instruction'; fail=1; }
+grep -qF 'git worktree add .worktrees/<name> -b <branch>' "$dest/.codex/AGENTS.md" || { echo 'WORKTREE FAIL: AGENTS.md lacks the worktree instruction'; fail=1; }
+for entry in .DS_Store __pycache__/ /tmp/ .agents/tmp/ .worktrees/ .claude/worktrees/ .claude/settings.local.json CLAUDE.local.md; do
+    grep -qxF -- "$entry" "$dest/.config/git/ignore" || { echo "IGNORE FAIL: the global git ignore lacks $entry"; fail=1; }
+done
+
 echo "==> [$role/$mode] claude code status line"
 python3 -m py_compile "$dest/.claude/scripts/statusline.py" || { echo "STATUSLINE FAIL: statusline.py does not compile"; fail=1; }
 grep -q 'python3 ~/.claude/scripts/statusline.py' "$dest/.claude/settings.json" || { echo "STATUSLINE FAIL: settings.json does not point at statusline.py"; fail=1; }

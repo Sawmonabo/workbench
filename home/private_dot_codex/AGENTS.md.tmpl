@@ -24,6 +24,19 @@
   file; a command's stdin may be left open, and a path-less `rg` or bare `cat`
   then waits forever.
 
+## Git worktrees
+
+- Keep git worktrees in the project's `.worktrees/<name>` folder (create
+  `.worktrees/` when it is missing), never beside the repository and never in
+  Codex's own folder: run `git worktree add .worktrees/<name> -b <branch>`
+  from the repository root and work in it.
+- Do not use Codex's built-in worktrees (`--worktree`, `/worktree`, the
+  `create_worktree` tool), which go in a folder outside the project.
+- When a worktree's work is merged or dropped, remove the worktree and its
+  branch.
+- The global git ignore already covers `.worktrees/`, `.agents/tmp/` and a
+  root `tmp/`, so never add them to a project's `.gitignore`.
+
 ## Credentials
 
 - Credentials are in environment variables loaded from Workbench's env files.
