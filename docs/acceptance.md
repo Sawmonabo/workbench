@@ -661,6 +661,32 @@ synthetic answers.
   root. A `[tool.pyright]` table or a `ruff.toml` below the project root stops
   configure, and block-scalar `run:` steps are read by `--ci` (target; not yet
   observed).
+- On 2026-11-18, on macOS 27.2 arm64 (Go 1.27.4, golangci-lint 2.15.0,
+  actionlint 1.7.12, gitleaks 8.30.1), with a disposable home and scratch Go
+  modules, using `--local-build` and the `--dry-run --json` then
+  `--approve-plan` pair: a module with no lint configuration got
+  `.golangci.yml`, `.workbench.toml`, `.vscode/extensions.json`, three ignore
+  entries and a `workbench-go` job in its one workflow. `golangci-lint config
+  verify` accepted the written file and `golangci-lint run` used it (exit 1 on a
+  revive finding); actionlint passed the workflow; the job's govulncheck
+  command (v1.9.0) and gitleaks command ran clean locally. The next plan had no
+  files or effects, and `project revert` left every file, folder and mode as
+  before. A module's own `.golangci.yml` stayed byte for byte and was listed
+  as kept; a v1 file, and a v1 `.golangci.toml` in a parent folder, got the
+  migrate note. A `go.work`, a `go.mod` only below the selection, no or two
+  `go test` workflows, a selection below the repository root and a `go.mod`
+  without a `go` line each blocked with their reason. With a release workflow
+  using anchors beside the test workflow, only the test workflow changed. A
+  `workbench-go` job with a bumped `uses:` ref was kept and reported; a changed
+  `run` line stopped the plan. A Python and Go project at one root with every
+  option applied as one checkpoint and reverted exactly; a uv project with a
+  nested Go module and `go.work` still planned, with a warning. A uv project's
+  plan with `--extensions --gitignore --ci` had the same digest from this build
+  and from the build before Go support, and applied and reverted exactly.
+  golangci-lint 2.15.0 reads a configuration from parent folders, and rejects
+  `version: 2` in `config verify` while `run` accepts it. Not observed: a CI
+  run of the `workbench-go` job on GitHub (setup-go without a `go.sum`, the
+  runner's tools), Linux, or a module with a real dependency graph.
 
 ### Costs
 

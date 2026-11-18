@@ -743,15 +743,18 @@ workbench project inspect .
 workbench project apply ./apps/api --language python --dry-run
 workbench project apply . --language python --extensions --gitignore --dry-run
 workbench project apply . --language python --resolve-dependencies
+workbench project apply . --language go --extensions --gitignore --ci --dry-run
 workbench project revert . --dry-run
 workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID
 ```
 
-Only existing uv Python projects/workspaces are configurable. Inspection also
-recognizes JavaScript/TypeScript, Rust and Go. Unsupported detected projects are
-reported and unchanged; explicitly requesting an unsupported language blocks
-before writes. Poetry/PDM/requirements-only projects are not converted.
+Existing uv Python projects/workspaces and the Go module at the selected folder
+are configurable. Inspection also recognizes JavaScript/TypeScript and Rust.
+Without `--language` every configurable language found is planned;
+`--language` only narrows. Unsupported detected projects are reported and
+unchanged; explicitly requesting an unsupported language blocks before writes.
+Poetry/PDM/requirements-only projects are not converted.
 
 Workspace members share their identified root lock/configuration owner. Select
 that root deliberately; selecting a child cannot authorize sibling/parent edits.
@@ -769,13 +772,26 @@ additionally selects possible native build-code execution and requires resolutio
 uv's `--no-build` is not a sandbox. Dynamic/local/direct dependencies and custom
 resolver arrangements may remain blocked rather than execute unexpectedly.
 
+A Go module gets a `.golangci.yml` only when no golangci-lint configuration
+exists at it or above it in the repository; an existing one is kept byte for
+byte and named in the plan, with a `golangci-lint migrate` note for a v1 file.
+Its `.workbench.toml` records `policies = ["go-v1"]`. A `go.work` at or above
+the module blocks the Go plan, and so does selecting a folder whose only
+`go.mod` is below it; select the module folder. Go planning runs no Go command
+and needs no management Python.
+
 `--extensions` merges portable recommendations; it does not install extensions.
 `--gitignore` appends relevant absent entries while retaining pattern order.
-`--ci` supports a conservative existing GitHub workflow with an explicit
-`.python-version` and identifiable existing test job. It preserves that job and
-adds owned Ruff/basedpyright checks. Ambiguous owners/unsupported YAML receive
-a manual proposal, not a second pipeline or fabricated tests. See the
-[portable policy](../project/pythonpolicy/README.md).
+Both combine every selected language's entries into one edit. `--ci` supports,
+for Python, a conservative existing GitHub workflow with an explicit
+`.python-version` and identifiable existing test job, and adds owned
+Ruff/basedpyright checks. For Go it needs the repository root, a `go` line in
+`go.mod` and exactly one workflow with a `go test` step, and adds a
+`workbench-go` job: golangci-lint, `go build`, govulncheck and gitleaks, at the
+pins in `versions.toml`. Existing jobs are preserved. Ambiguous owners and
+unsupported YAML receive a manual proposal, not a second pipeline or fabricated
+tests. See the [Python policy](../project/pythonpolicy/README.md) and the
+[Go policy](../project/gopolicy/README.md).
 
 ## Recovery and runtime storage
 

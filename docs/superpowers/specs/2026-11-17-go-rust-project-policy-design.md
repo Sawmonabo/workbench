@@ -1,6 +1,7 @@
 # Go and Rust project policy and the mbx step
 
-Status: design, Nov 17, 2026. Nothing here is built yet. It adds two languages
+Status: design, Nov 17, 2026. Step 1, the Go policy, is built (section 8);
+steps 2 to 4 are not. It adds two languages
 to `workbench project apply`, two new flags for every language (`--hooks`, `--dependabot`), and one
 new machine step that installs mbx, a shared Rust compile cache and scheduler.
 
@@ -16,10 +17,11 @@ depends on it must check it first.
 - **Discovery** (`internal/project/inspect.go`, `discovery.go`) already finds
   `go.mod`, `go.work`, `Cargo.toml` and `Cargo.lock`. It reads them without
   running anything. Each `go.mod` and each `Cargo.toml` becomes its own
-  project, marked "Recognized; configuration is not supported for this
-  language". Nothing links a Cargo workspace member to its root.
-- **Planning** (`plan.go`) refuses any `--language` other than `python`.
-  Python settings go into `pyproject.toml` through the TOML Kit adapter
+  project. A Go module is configurable as section 3.1 says; a Cargo project is
+  marked "Recognized; configuration is not supported for this language".
+  Nothing links a Cargo workspace member to its root.
+- **Planning** (`plan.go`) refuses any `--language` other than `python` and
+  `go`. Python settings go into `pyproject.toml` through the TOML Kit adapter
   (`adapter.py`). That adapter **adds missing settings and keeps every existing
   value and rule list**. It also records `[tool.workbench]` with
   `schema_version = 1` and `policies = ["python-v1"]`.
@@ -45,8 +47,9 @@ depends on it must check it first.
 - **Apply and revert** (`apply.go`) write every change under one project
   checkpoint. `project revert` restores the pre-images, and a file that was
   absent before is restored as absent.
-- **The plan's source identity** is the policy ID (`pythonpolicy.ID`) plus a
-  digest of the embedded assets.
+- **The plan's source identity** is the selected policy IDs joined by `_`
+  (`go-v1`, `python-v1`, or `go-v1_python-v1`), plus a digest of their
+  embedded assets. A plan with one policy keeps that policy's ID and digest.
 
 ## 2. Rules shared by both languages
 
@@ -118,13 +121,11 @@ When several languages are selected:
 | Native metadata slot in the manifest | **Use where one exists.** Python keeps `[tool.workbench]`; the no-migration rule in AGENTS.md is reason enough, and `[tool.*]` is the slot PEP 518 reserves for tools. Rust uses Cargo's reserved `metadata` table: `[workspace.metadata.workbench]` in a workspace root, `[package.metadata.workbench]` in a single crate (a `[workspace.*]` table in a single crate would turn it into a workspace root). |
 | `.workbench.toml` at the project root | **Use for Go.** `go.mod` has no slot for tools. One small file, written whole by Workbench, so it needs no TOML Kit. |
 | Header comment in `.golangci.yml` | Rejected. The comment would exist only when Workbench created that file. It is not data, so `inspect` could not read it reliably. |
-| Nothing (work it out from the files) | Rejected. A file the project wrote by hand looks the same as one Workbench wrote. A later `go-v2` could not tell what it is upgrading. |
+| Nothing (work it out from the files) | Rejected. A file the project wrote by hand looks the same as one Workbench wrote. |
 
 All three records hold the same two keys: `schema_version = 1` and
-`policies = [...]`. Proposed change: the list keeps **one entry per language**,
-and the current ID replaces an older ID of the same language. For example,
-`python-v2` replaces `python-v1`, so the record says what the project follows
-now.
+`policies = [...]`. Policy IDs never change: the ID is added when absent and
+left alone when present. Python stays `python-v1`.
 
 The Go record:
 
@@ -136,8 +137,10 @@ policies = ["go-v1"]
 ```
 
 An existing `.workbench.toml` is parsed with go-toml. If its schema version is
-not 1, the run stops, the same rule `adapter.py` applies. Otherwise Workbench
-writes it again with the ID added.
+not the integer 1, or it holds any key besides `schema_version` and
+`policies`, the run stops, the same rule `adapter.py` applies; rewriting the
+whole file would otherwise drop that data. A record that already lists the ID
+is left byte for byte. Otherwise Workbench writes it again with the ID added.
 
 ### 2.5 Strictness
 
@@ -204,13 +207,19 @@ again. A file edited after apply is a recovery conflict, as it is today.
 | No `go.mod` at the root, but one below | Blocked: "select the module folder". |
 
 `inspect` reports the module with manager `go`, owner equal to its folder,
-and `supported` true or false with the reason.
+and `supported` true or false with the reason. `go.work` is looked for up to
+the repository root, like every other ownership walk.
+
+The blocks above stop a plan only when Go is requested with `--language go`
+or nothing else is selected. A uv project at the root with a Go module or a
+`go.work` below it still plans, and the Go module is named in a warning, so
+adding Go support never stops a Python plan that worked before.
 
 ### 3.2 Files
 
 | File | Rule | Content |
 | --- | --- | --- |
-| `.golangci.yml` | Whole file; created when no golangci-lint config exists. Any of `.golangci.yml`, `.yaml`, `.toml` or `.json` counts as existing. | Below. |
+| `.golangci.yml` | Whole file; created when no golangci-lint config exists. Any of `.golangci.yml`, `.yaml`, `.toml` or `.json`, at the module or in a parent folder up to the repository root, counts as existing: golangci-lint 2.15.0 searches the folder it runs in and then each parent (`golangci-lint run -v` lists the search paths and used `../.golangci.yml`). | Below. |
 | Format settings | Inside `.golangci.yml` (`formatters`) | gofumpt |
 | Toolchain pin | Left alone | `go.mod` owns `go` and `toolchain` |
 | Supply-chain settings | None | govulncheck needs no file |
@@ -219,7 +228,10 @@ and `supported` true or false with the reason.
 
 An existing config without `version: "2"` is a golangci-lint v1 file, which v2
 refuses. It is kept, and the plan says "golangci-lint v2 refuses this v1
-config; run `golangci-lint migrate`".
+config; run `golangci-lint migrate`". The number `version: 2` counts as v2:
+`golangci-lint run` 2.15.0 accepts it, though `config verify` rejects it as
+"got number, want string". An existing config that does not parse stops the
+run (invalid syntax, section 2.1).
 
 ```yaml
 # Written by workbench project apply (go-v1). The project owns this file
@@ -250,10 +262,15 @@ HuJSON merge as Python. **`--gitignore`** appends `/bin/`, `*.test` and
 `/coverage.out`, skipping a line that is already there. `--hooks`,
 `--dependabot` and `--ci` are in section 6.
 
-When the root `.gitignore` has a `.vscode/` or `.vscode/*` line and no
-`!.vscode/extensions.json`, `--extensions` (in every language) still writes
-the file but warns that Git ignores it. Workbench does not evaluate ignore
-rules beyond that literal check.
+When the owner's `.gitignore` (as the plan leaves it) has a `.vscode/` or
+`.vscode/*` line and no `!.vscode/extensions.json`, `--extensions` (in every
+language) still writes the file but warns that Git ignores it. Workbench does
+not evaluate ignore rules beyond that literal check. `--gitignore` accepts
+`!.vscode/extensions.json` beside `!.env.example` as a negation that no
+appended entry can change, so following that warning never blocks it.
+
+When several languages share an owner, `--extensions` and `--gitignore`
+combine their entries into one edit of each file.
 
 ## 4. Rust (`--language rust`, policy `rust-v1`)
 
@@ -619,10 +636,14 @@ Everything else is unchanged:
 Without this relaxation, `--ci` would be refused on every surveyed project,
 all of which have two or more workflows.
 
-Re-apply checks an owned job against the recipe, as `checkOwnedJob` does.
-Proposed change: a job that differs only in `uses:` refs is kept and
-reported, because Dependabot may have bumped those refs. Any other difference
-still stops the run.
+Re-apply checks an owned job against the recipe, as `checkOwnedJob` does. A
+`workbench-go` job that differs only in `uses:` refs is kept and reported,
+because Dependabot may have bumped those refs. Any other difference still
+stops the run. `workbench-python` still stops on any difference.
+
+Jobs of several languages aimed at one workflow are merged into one edit of
+it. Go's `--ci` also needs a `go` line in `go.mod`, which
+`go-version-file` reads.
 
 The `workbench-go` steps:
 
@@ -636,7 +657,13 @@ The `workbench-go` steps:
 - `go run golang.org/x/vuln/cmd/govulncheck@<pin> ./...`;
 - gitleaks: download, check its SHA-256, then
   `gitleaks git --redact --no-banner --exit-code 1`, the same steps as this
-  repository's `secret-scan` job.
+  repository's `secret-scan` job. Each is a one-line `run`: goccy/go-yaml's
+  `MergeFromFile` re-indents a merged job but not the text of a block scalar
+  in it, and the merge's reparse check refused the result.
+
+Checked at the pinned commits: `actions/setup-go` v7.0.0's `action.yml` has
+`go-version-file`, and `golangci/golangci-lint-action` v9.3.0's has `version`
+and `install-only`. actionlint 1.7.12 passed a workflow with the job.
 
 The `workbench-rust` steps:
 
@@ -652,19 +679,21 @@ The `workbench-rust` steps:
 No Rust action needs a pin. The runner image's rustup is enough (its presence
 there is unverified).
 
-Proposed new table in `versions.toml`. `scripts/check-action-pins.py` stays
-as it is, because these are not action pins:
+Each tool keeps its one pin in `versions.toml`: golangci-lint and gitleaks in
+`[linux_binaries]`, govulncheck in `[linux_go_tools]`, the actions in
+`[github_actions]`. The one new table holds only what had no pin, keyed by the
+version above it so a bump without its checksum stops `--ci`.
+`scripts/check-action-pins.py` stays as it is, because these are not action
+pins:
 
 ```toml
-# Tools the generated project CI jobs download, checked by SHA-256.
 [project_ci]
-golangci_lint = "2.14.0"
-govulncheck = "v1.5.0"          # confirm the current release when building
-gitleaks = "8.30.1"
-gitleaks_sha256 = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"  # linux_x64
-cargo_deny = "0.20.2"
-cargo_deny_sha256 = "<from the release's .sha256 asset>"
+gitleaks_linux_x64_sha256 = { "8.30.1" = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" }
 ```
+
+The hash is the `gitleaks_8.30.1_linux_x64.tar.gz` line of that release's
+`gitleaks_8.30.1_checksums.txt`. Rust's step adds the cargo-deny version and
+checksum here.
 
 ## 7. Code layout
 
@@ -672,14 +701,14 @@ There is no new framework. Each concern stays with its existing owner.
 
 | Concern | Owner | New or changed |
 | --- | --- | --- |
-| Policy assets | `project/gopolicy/` and `project/rustpolicy/`, beside `project/pythonpolicy/` | Each has `assets.go` with `ID`, plus `README.md` and the embedded files above. `pythonpolicy` gains `lefthook.yml`, and its ID moves to `python-v2`, because the ID changes whenever content does. |
+| Policy assets | `project/gopolicy/` and `project/rustpolicy/`, beside `project/pythonpolicy/` | Each has `assets.go` with `ID`, plus `README.md` and the embedded files above. `pythonpolicy` gains `lefthook.yml`. |
 | Discovery | `internal/project/discovery.go` | `goOwner` and `cargoOwner` beside `pythonOwner`; `manifestProject` calls them |
-| Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `,`, with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
+| Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `_` (a release identifier allows no `,`), with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
 | `.vscode/extensions.json`, `.gitignore` | `editor.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
 | Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs |
-| Workflow | `internal/project/ci.go` | The workflow choice of section 6.3, plus `goJob` and `rustJob` |
+| Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` in `rust.go` |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
 | mbx step | `internal/machine/effects.go`, `source.go`, plus the shared script, the shell templates and `versions.toml` | One effect |
 
@@ -698,8 +727,7 @@ apply, then a revert, on a real project.
    `deny.toml`, `.mbx.toml`, `--extensions`, `--gitignore`, `--ci`.
    - Try: a workspace with its own `[workspace.lints]` gets only the record
      and the missing whole files.
-3. **`--hooks` and `--dependabot`** for Go, Rust and Python (Python moves to
-   `python-v2`).
+3. **`--hooks` and `--dependabot`** for Go, Rust and Python.
    - Try: commit a badly formatted file after `lefthook install`, and watch
      the hook refuse it.
 4. **mbx step**, after the Linux tools change lands.
