@@ -432,12 +432,14 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	// A step whose check could not finish says so on its row, in place of its
 	// summary, so an unchecked state never reads like an ordinary option. A
 	// step whose check found something to do shows what, since its summary
-	// says what the step keeps in place, not what is missing here.
+	// says what the step keeps in place, not what is missing here; under
+	// --verbose the panel below the row says it (On this PC), so the row keeps
+	// its summary.
 	summary, style := effect.Summary, faint
 	switch {
 	case effect.ProbeNote != "":
 		summary, style = effect.ProbeNote, yellow
-	case effect.Delta != "" && !effect.NoChange:
+	case effect.Delta != "" && !effect.NoChange && (!view.Verbose || view.Interactive):
 		summary = effect.Delta
 	case summary == "":
 		summary = effect.Description
