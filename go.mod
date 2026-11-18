@@ -17,7 +17,7 @@ require (
 	github.com/spf13/pflag v1.0.9
 	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	golang.org/x/sync v0.23.0
-	golang.org/x/sys v0.48.0
+	golang.org/x/sys v0.50.0
 	modernc.org/libc v1.77.1
 	modernc.org/sqlite v1.60.1
 )
