@@ -746,9 +746,19 @@ tutorial:
 - **Update type.** `dependabot/fetch-metadata` v3.1.0 (pinned by commit in
   `[github_actions]`) documents `update-type` as "The highest semver change
   being made by this PR", so a group holding a major change reports
-  `version-update:semver-major`. Auto-merge is turned on only for
+  `version-update:semver-major`. The job goes on only for
   `version-update:semver-patch` or `version-update:semver-minor`; anything
   else, a major update or an empty value, stays open.
+- **Wait.** Before merging, the job polls `gh pr checks "$PR_URL" --json
+  bucket,workflow` every 20 seconds for up to 40 minutes, leaving out its own
+  workflow, and goes on only after two polls in a row show at least one
+  `pass` and no `fail`, `cancel` or `pending` (two, so a job that starts when
+  another ends is seen). A failed or cancelled check, nine polls in a row with
+  no other check, or checks that never finish fail the job with the reason
+  and leave the pull request open. This is what keeps a repository without a
+  required check from merging an update its CI has not passed (see Merge). A
+  check that starts after two clean polls is missed; the branch rule below
+  closes that gap.
 - **Merge.** `gh pr merge --auto --squash "$PR_URL"`. GitHub: "Auto-merge
   merges a pull request automatically after all required reviews and status
   checks pass. Before you use auto-merge, it must be enabled for the
@@ -757,14 +767,16 @@ tutorial:
   !isImmediatelyMergeable(pr.MergeStateStatus)`) turns on auto-merge only
   when the pull request is not immediately mergeable (merge state `CLEAN`,
   `HAS_HOOKS` or `UNSTABLE` is), and otherwise merges it at once, which needs
-  no "Allow auto-merge". With no required check, a patch or minor pull
-  request therefore merges when the workflow runs, before CI finishes and
-  whatever its result.
+  no "Allow auto-merge". With no required check, `gh pr merge --auto` alone
+  would therefore merge when the workflow runs, before CI finishes and
+  whatever its result, which is why the job waits first.
 
 The plan lists the `dependabot-auto-merge` effect and warns, each time it
-writes the workflow, that auto-merge is GitHub only and needs "Allow
-auto-merge" and a branch rule on the default branch that requires the CI
-check, which Workbench sets neither of. The plan never runs `git remote`, so
+writes the workflow, that auto-merge is GitHub only, that the workflow waits
+for the other checks and keeps a pull request open when none ran, and that
+"Allow auto-merge" and a branch rule on the default branch that requires the
+CI check, which Workbench sets neither of, close the gap of a check that
+starts late. The plan never runs `git remote`, so
 the GitHub-only rule is stated in the flag's help, the warning and the docs.
 `actionlint` 1.7.12 accepted the written workflow.
 

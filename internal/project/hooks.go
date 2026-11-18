@@ -502,16 +502,19 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		"Dependabot auto-merge works on GitHub only. Turn on \"Allow auto-merge\" in the repository settings "+
-			"and add a branch rule on the default branch that requires the CI check; Workbench sets neither. "+
-			"Without a required check, gh pr merge merges a patch or minor Dependabot pull request at once, "+
-			"when the workflow runs, before CI finishes and whatever its result, even with \"Allow auto-merge\" off",
+		"Dependabot auto-merge works on GitHub only. The workflow waits for the pull request's other checks "+
+			"and merges only when at least one ran and none failed; a repository with no CI check keeps its "+
+			"Dependabot pull requests open. Checks that start late can be missed, so also turn on \"Allow "+
+			"auto-merge\" in the repository settings and add a branch rule on the default branch that "+
+			"requires the CI check, which GitHub then waits for itself; Workbench sets neither",
 	)
 	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
-		Name:        "dependabot-auto-merge",
-		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once the default branch's required checks pass, or at once when none is required; a major update stays open",
-		Privilege:   "CI runner",
-		Recovery:    "Restoring the workflow does not undo merges it made",
+		Name: "dependabot-auto-merge",
+		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once " +
+			"the pull request's other checks have passed; a failed check, no check at all or a major update " +
+			"leaves it open",
+		Privilege: "CI runner",
+		Recovery:  "Restoring the workflow does not undo merges it made",
 	})
 	return nil
 }
@@ -524,9 +527,10 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 func renderAutoMerge(fetchMetadata string, ids []string) []byte {
 	return []byte(comment("Written by workbench project apply ("+strings.Join(ids, ", ")+
 		"). It turns on GitHub auto-merge for Dependabot's patch and minor pull requests and "+
-		"leaves every other pull request alone. Auto-merge needs \"Allow auto-merge\" in the "+
-		"repository settings and waits only for the checks a branch rule requires; with none "+
-		"required, the pull request merges at once. The project "+
+		"leaves every other pull request alone. It first waits for the pull request's other "+
+		"checks: a failed check, or no check at all, leaves the pull request open. With \"Allow "+
+		"auto-merge\" in the repository settings and a branch rule that requires the CI check, "+
+		"GitHub waits for that check itself as well. The project "+
 		"owns this file; Workbench never edits an existing one.") + `name: Dependabot auto-merge
 on: pull_request
 permissions:
@@ -536,21 +540,50 @@ jobs:
   dependabot:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 5
+    timeout-minutes: 45
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Read the Dependabot update
         id: metadata
         uses: ` + fetchMetadata + `
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Turn on auto-merge for a patch or minor update
+      - name: Wait for the other checks of a patch or minor update
+        id: checks
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: |
+          # The state of every check but this workflow's: none, fail, pending or pass.
+          others='[.[] | select(.workflow != "Dependabot auto-merge") | .bucket]
+            | if length == 0 then "none"
+              elif any(. == "fail" or . == "cancel") then "fail"
+              elif any(. == "pending") then "pending"
+              elif any(. == "pass") then "pass"
+              else "none" end'
+          passes=0
+          missing=0
+          for _ in $(seq 1 120); do
+            state=$(gh pr checks "$PR_URL" --json bucket,workflow --jq "$others" 2>/dev/null || true)
+            case "${state:-none}" in
+              pass) passes=$((passes + 1)); missing=0 ;;
+              fail) echo "A check failed, so this pull request stays open."; exit 1 ;;
+              none) passes=0; missing=$((missing + 1)) ;;
+              *) passes=0; missing=0 ;;
+            esac
+            # Two passing polls in a row, so a job that starts after another ends is seen.
+            [ "$passes" -lt 2 ] || exit 0
+            # Three minutes without any other check: the repository runs none for it.
+            [ "$missing" -lt 9 ] || { echo "No other check ran for this pull request, so it stays open."; exit 1; }
+            sleep 20
+          done
+          echo "The other checks did not finish in 40 minutes, so this pull request stays open."
+          exit 1
+      - name: Merge once GitHub's required checks pass too
+        if: steps.checks.outcome == 'success'
         run: gh pr merge --auto --squash "$PR_URL"
-        env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 `)
 }
 

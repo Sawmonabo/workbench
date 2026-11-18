@@ -769,7 +769,11 @@ synthetic answers.
   and the schema refused an `update-types` value of `tiny`. Every
   `--dependabot` run wrote `.github/workflows/dependabot-auto-merge.yml`,
   which `actionlint` 1.7.12 accepted, listed the `dependabot-auto-merge`
-  effect and gave the auto-merge settings warning; an existing file of that
+  effect and gave the auto-merge settings warning. Its wait script, run with
+  a stand-in for `gh pr checks`, stopped with exit 1 on no other check, a
+  failed check and checks that never finished, went on after two passing
+  polls in a row, and its filter printed `pass` for a merged public pull
+  request with gh 2.104.0; an existing file of that
   name, and another workflow running `gh pr merge --auto` for Dependabot, were
   kept and listed, and adding the file between the dry run and
   `--approve-plan` exited 4 with nothing written. With the workflow written,

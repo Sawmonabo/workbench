@@ -152,17 +152,20 @@ whole, only when no workflow of that name (`.yml` or `.yaml`) exists and no othe
 already turns on auto-merge for Dependabot. On `pull_request`, its one job runs
 only when the pull request's author is `dependabot[bot]`, reads the update
 with `dependabot/fetch-metadata` (pinned by commit in `versions.toml`), and
-runs `gh pr merge --auto --squash` only when the `update-type` it reports, the
-highest change in the pull request, is `version-update:semver-patch` or
-`version-update:semver-minor`; a major update stays open. It asks for
-`contents: write` and `pull-requests: write`, which a Dependabot-triggered
-run gets only by declaring them. This works on GitHub only, and needs two
-repository settings Workbench does not make: "Allow auto-merge", and a branch
-rule on the default branch that requires the CI check. Without a required
-check, `gh pr merge --auto` merges the pull request at once, when the workflow
-runs, before CI finishes and whatever its result, even with "Allow
-auto-merge" off; the plan says so and lists the `dependabot-auto-merge`
-effect.
+goes on only when the `update-type` it reports, the highest change in the
+pull request, is `version-update:semver-patch` or
+`version-update:semver-minor`; a major update stays open. It then waits for
+the pull request's other checks (`gh pr checks`, every 20 seconds for up to
+40 minutes) and runs `gh pr merge --auto --squash` only after two polls in a
+row show at least one passed check and none failed, cancelled or pending. A
+failed check, three minutes with no other check at all, or checks that do not
+finish leave the pull request open and fail the job with the reason. It asks
+for `contents: write` and `pull-requests: write`, which a Dependabot-triggered
+run gets only by declaring them. This works on GitHub only. A check that
+starts after the others have passed can be missed, so also turn on "Allow
+auto-merge" and add a branch rule on the default branch that requires the CI
+check, which GitHub then waits for itself; Workbench sets neither. The plan
+says so and lists the `dependabot-auto-merge` effect.
 
 Both need the selected folder to be the repository root (it holds `.git`) and
 every selected project to be at it.
