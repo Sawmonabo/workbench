@@ -1,0 +1,4 @@
+# Written by workbench project apply (rust-v1). mbx reuses a crate compiled
+# in one checkout in every other checkout with the same sources. The
+# machine's compile budget lives in mbx's own config file, not here.
+share_workspace_root = true

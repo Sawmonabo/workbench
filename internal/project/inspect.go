@@ -36,6 +36,8 @@ type Inventory struct {
 	Projects  []Project `json:"projects"`
 	Warnings  []string  `json:"warnings,omitempty"`
 	inputs    map[string][]byte
+	// cargo holds the member folders of the Cargo workspace at Directory.
+	cargo map[string]bool
 }
 
 // Inspect reads bounded native metadata without commands or directory creation.

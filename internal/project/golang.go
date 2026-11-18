@@ -211,7 +211,7 @@ func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, 
 			"go.mod needs a go line, which the job's actions/setup-go reads to choose the Go version",
 		)
 	}
-	path, err := p.goTestWorkflow(c.Scope.Root)
+	path, err := p.testWorkflow(c.Scope.Root, "go test", goTest, goCIFailure)
 	if err != nil {
 		return "", ownedJob{}, err
 	}
@@ -228,6 +228,7 @@ func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, 
 		addition:      addition,
 		desired:       desired,
 		refsMayDiffer: true,
+		fail:          goCIFailure,
 		effect:        "The workflow that runs go test will gain Go check steps. A future CI run downloads the module's dependencies and the pinned golangci-lint, govulncheck and gitleaks, and builds and checks project code",
 	}, nil
 }
@@ -247,14 +248,19 @@ func isRepositoryRoot(root string) bool {
 	return err == nil
 }
 
-// goTestWorkflow returns the one workflow under root with a run step that
-// runs go test. Other workflows, such as release workflows, are left alone,
-// and one that is not valid YAML is skipped with a warning; only the chosen
-// workflow must meet the merge's exact-roundtrip rules.
-func (p *Proposal) goTestWorkflow(root string) (string, error) {
+// testWorkflow returns the one workflow under root with a run step that
+// matches runs, which recognizes the language's test command (label). Other
+// workflows, such as release workflows, are left alone, and one that is not
+// valid YAML is skipped with a warning; only the chosen workflow must meet
+// the merge's exact-roundtrip rules. fail words a refusal for the language.
+func (p *Proposal) testWorkflow(
+	root, label string,
+	runs *regexp.Regexp,
+	fail func(string) error,
+) (string, error) {
 	workflows, readable := workflowFiles(root)
 	if !readable {
-		return "", goCIFailure("No readable existing GitHub workflow owner")
+		return "", fail("No readable existing GitHub workflow owner")
 	}
 	var matches []string
 	for _, path := range workflows {
@@ -266,37 +272,39 @@ func (p *Proposal) goTestWorkflow(root string) (string, error) {
 		if yaml.Unmarshal(data, &doc) != nil {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				"Skipped a workflow that is not valid YAML while looking for go test: "+path,
+				"Skipped a workflow that is not valid YAML while looking for "+label+": "+path,
 			)
 			continue
 		}
-		if runsGoTest(doc) {
+		if runsCommand(doc, runs) {
 			matches = append(matches, path)
 		}
 	}
 	switch len(matches) {
 	case 0:
-		return "", goCIFailure(
-			"No workflow has a run step that runs go test; tests will not be invented",
+		return "", fail(
+			"No workflow has a run step that runs " + label + "; tests will not be invented",
 		)
 	case 1:
 		return matches[0], nil
 	default:
-		return "", goCIFailure(
-			"Several workflows run go test: " + strings.Join(matches, ", "),
-		)
+		return "", fail("Several workflows run " + label + ": " + strings.Join(matches, ", "))
 	}
 }
 
-// runsGoTest reports whether a parsed workflow has a job step whose run
-// command contains go test.
-func runsGoTest(doc any) bool {
+// goTest matches a go test command, and not one that merely ends in "go",
+// such as cargo test.
+var goTest = regexp.MustCompile(`\bgo\s+test\b`)
+
+// runsCommand reports whether a parsed workflow has a job step whose run
+// command matches command.
+func runsCommand(doc any, command *regexp.Regexp) bool {
 	workflow, _ := doc.(map[string]any)
 	jobs, _ := workflow["jobs"].(map[string]any)
 	for _, job := range jobs {
 		steps, _ := table(job)["steps"].([]any)
 		for _, step := range steps {
-			if run, ok := table(step)["run"].(string); ok && strings.Contains(run, "go test") {
+			if run, ok := table(step)["run"].(string); ok && command.MatchString(run) {
 				return true
 			}
 		}
@@ -320,16 +328,26 @@ var (
 	sha256Hex    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
-// readGoPins reads the Go job's pins from the machine source this command
-// uses: --local-build, else the active release. Every value lands in the
-// workflow's shell commands and download URL, so each must be a plain
-// version or digest.
-func readGoPins(c operation.Context) (goPins, error) {
+// sourceVersions are the versions.toml pins the generated CI jobs use.
+type sourceVersions struct {
+	Binaries   map[string]string `toml:"linux_binaries"`
+	GoTools    map[string]string `toml:"linux_go_tools"`
+	CargoTools map[string]string `toml:"cargo_tools"`
+	CI         struct {
+		Gitleaks  map[string]string `toml:"gitleaks_linux_x64_sha256"`
+		CargoDeny map[string]string `toml:"cargo_deny_linux_x64_sha256"`
+	} `toml:"project_ci"`
+}
+
+// readSourceVersions reads the CI jobs' pins from the machine source this
+// command uses: --local-build, else the active release.
+func readSourceVersions(c operation.Context) (machine.Requirements, sourceVersions, error) {
+	var versions sourceVersions
 	source := c.Native.Source
 	if source == "" {
 		state, err := operation.ReadState(c.Paths)
 		if err != nil {
-			return goPins{}, err
+			return machine.Requirements{}, versions, err
 		}
 		if state != nil && state.ActiveRelease != nil {
 			source = state.ActiveRelease.Source
@@ -337,40 +355,29 @@ func readGoPins(c operation.Context) (goPins, error) {
 	}
 	files, _, err := machine.SourceSnapshot(source, c.Native.Developer)
 	if err != nil {
-		return goPins{}, err
+		return machine.Requirements{}, versions, err
 	}
 	requirements, err := machine.SourceRequirements(files)
 	if err != nil {
-		return goPins{}, err
+		return machine.Requirements{}, versions, err
 	}
-	var versions struct {
-		Binaries map[string]string `toml:"linux_binaries"`
-		GoTools  map[string]string `toml:"linux_go_tools"`
-		CI       struct {
-			Gitleaks map[string]string `toml:"gitleaks_linux_x64_sha256"`
-		} `toml:"project_ci"`
-	}
-	if err = toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &versions); err != nil {
-		return goPins{}, err
-	}
-	pins := goPins{
-		requirements: requirements,
-		golangciLint: versions.Binaries["golangci-lint"],
-		govulncheck:  versions.GoTools["golang.org/x/vuln/cmd/govulncheck"],
-		gitleaks:     versions.Binaries["gitleaks"],
-	}
-	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
-	for _, pin := range []struct {
-		name, value string
-		shape       *regexp.Regexp
-	}{
-		{"linux_binaries.golangci-lint", pins.golangciLint, plainVersion},
-		{"linux_go_tools govulncheck", pins.govulncheck, goVersion},
-		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion},
-		{"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks, pins.gitleaksSHA256, sha256Hex},
-	} {
+	err = toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &versions)
+	return requirements, versions, err
+}
+
+// pinCheck is one pin a generated job needs, with the shape it must have.
+type pinCheck struct {
+	name, value string
+	shape       *regexp.Regexp
+}
+
+// checkPins refuses a pin that does not have its shape. Every value lands in
+// a workflow's shell commands or download URL, so each must be a plain
+// version or digest.
+func checkPins(pins []pinCheck) error {
+	for _, pin := range pins {
 		if !pin.shape.MatchString(pin.value) {
-			return goPins{}, operation.Fail(
+			return operation.Fail(
 				operation.ExitInvalid,
 				"source",
 				fmt.Sprintf(
@@ -381,7 +388,33 @@ func readGoPins(c operation.Context) (goPins, error) {
 			)
 		}
 	}
-	return pins, nil
+	return nil
+}
+
+// readGoPins reads the Go job's pins from the machine source this command
+// uses.
+func readGoPins(c operation.Context) (goPins, error) {
+	requirements, versions, err := readSourceVersions(c)
+	if err != nil {
+		return goPins{}, err
+	}
+	pins := goPins{
+		requirements: requirements,
+		golangciLint: versions.Binaries["golangci-lint"],
+		govulncheck:  versions.GoTools["golang.org/x/vuln/cmd/govulncheck"],
+		gitleaks:     versions.Binaries["gitleaks"],
+	}
+	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
+	return pins, checkPins([]pinCheck{
+		{"linux_binaries.golangci-lint", pins.golangciLint, plainVersion},
+		{"linux_go_tools govulncheck", pins.govulncheck, goVersion},
+		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion},
+		{
+			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
+			pins.gitleaksSHA256,
+			sha256Hex,
+		},
+	})
 }
 
 // goJob renders the owned Go job as a one-entry jobs mapping. The gitleaks

@@ -1,0 +1,4 @@
+# Written by workbench project apply (rust-v1). Bare rustfmt reads edition
+# 2015 unless told, so cargo fmt and the editor agree only with these.
+edition = "EDITION"
+style_edition = "EDITION"

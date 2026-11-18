@@ -1,0 +1,12 @@
+# Written by workbench project apply (rust-v1). Licence checks are left to
+# the project: run `cargo deny check advisories bans sources`.
+[advisories]
+yanked = "deny"
+
+[bans]
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

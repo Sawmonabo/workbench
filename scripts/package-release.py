@@ -36,6 +36,10 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
                 "project/pythonpolicy/extensions.json", "project/pythonpolicy/checks.example.yml",
                 "project/gopolicy/golangci.yml", "project/gopolicy/gitignore.entries",
                 "project/gopolicy/extensions.json",
+                "project/rustpolicy/lints.toml", "project/rustpolicy/profile.toml",
+                "project/rustpolicy/rustfmt.toml", "project/rustpolicy/deny.toml",
+                "project/rustpolicy/mbx.toml", "project/rustpolicy/gitignore.entries",
+                "project/rustpolicy/extensions.json",
             }:
                 continue
             if any(part in {".git", "__pycache__", ".venv", ".env", ".DS_Store"} for part in relative.parts):

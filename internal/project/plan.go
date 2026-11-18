@@ -3,7 +3,6 @@ package project
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -12,10 +11,10 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
+	"github.com/Sawmonabo/workbench/project/rustpolicy"
 )
 
 // ApplyOptions selects what project apply changes.
@@ -36,14 +35,16 @@ type Proposal struct {
 	native    []nativeRequest
 	// applied holds the images Workbench last left at project targets.
 	applied map[string]operation.Image
+	// toml is the manifest adapter, once a policy has needed it.
+	toml *tomlAdapter
 }
 type nativeRequest struct {
 	Owner   string
 	Missing []string
 }
 
-// Plan previews configuring the supported uv projects and Go modules in c's
-// scope. The proposal is returned with any error so callers can show what
+// Plan previews configuring the supported uv projects, Go modules and Cargo
+// packages and workspaces in c's scope. The proposal is returned with any error so callers can show what
 // blocked it.
 func Plan(
 	ctx context.Context,
@@ -65,7 +66,7 @@ func Plan(
 		return p, operation.Fail(
 			operation.ExitBlocked,
 			"unsupported_language",
-			"Explicitly requested language is discovery-only; only Python and Go configuration is supported",
+			"Explicitly requested language is discovery-only; only Python, Go and Rust configuration is supported",
 		)
 	}
 	inventory, err := Inspect(ctx, c.Scope.Root)
@@ -103,6 +104,17 @@ func Plan(
 			return p, err
 		}
 	}
+	if roots := rustRoots(selected); len(roots) > 0 {
+		if err = p.addRustPolicy(
+			ctx,
+			c,
+			options,
+			roots,
+			withLanguage(selected, "rust"),
+		); err != nil {
+			return p, err
+		}
+	}
 	for _, owner := range ownersOf(selected) {
 		if err = p.addOwner(c, owner, languagesOf(ownedBy(selected, owner)), options); err != nil {
 			return p, err
@@ -118,7 +130,7 @@ func Plan(
 
 // configurable lists the languages project apply configures, in the order
 // their policies are named.
-var configurable = []string{"go", "python"}
+var configurable = []string{"go", "python", "rust"}
 
 // policyContent returns a configurable language's policy ID and the embedded
 // content that ID names.
@@ -127,6 +139,10 @@ func policyContent(language string) (id, content string) {
 	case "go":
 		return gopolicy.ID, string(gopolicy.Golangci) + string(gopolicy.Extensions) +
 			gopolicy.Ignore + gopolicy.RecordHeader
+	case "rust":
+		return rustpolicy.ID, rustpolicy.Lints + rustpolicy.Profile + rustpolicy.Rustfmt +
+			string(rustpolicy.Deny) + string(rustpolicy.Mbx) + string(rustpolicy.Extensions) +
+			rustpolicy.Ignore + adapter
 	default:
 		return pythonpolicy.ID, pythonpolicy.Policy + string(pythonpolicy.Extensions) +
 			pythonpolicy.Ignore + adapter
@@ -139,9 +155,10 @@ func policyContent(language string) (id, content string) {
 const policySeparator = "_"
 
 // policySource identifies the plan's source by the policies of languages, the
-// selected configurable languages (all of them when none is selected), rather
-// than by CLI release, so an upgrade that keeps the policies proposes no
-// project edits. A single policy is named by its ID and digested alone.
+// selected configurable languages (all of them when none is selected): their
+// IDs and a digest of the embedded content those IDs name, not the CLI
+// release that carries them. A single policy is named by its ID and digested
+// alone.
 func policySource(languages []string) operation.SourceIdentity {
 	if !slices.ContainsFunc(
 		languages,
@@ -167,7 +184,7 @@ func policySource(languages []string) operation.SourceIdentity {
 func PolicyIDs(release string) []string {
 	ids := strings.Split(release, policySeparator)
 	for _, id := range ids {
-		if id != gopolicy.ID && id != pythonpolicy.ID {
+		if id != gopolicy.ID && id != pythonpolicy.ID && id != rustpolicy.ID {
 			return nil
 		}
 	}
@@ -209,12 +226,13 @@ func ownedBy(projects []Project, owner string) []Project {
 // selectProjects returns the supported projects of the requested languages
 // (every configurable language when none is requested). Components of other
 // languages are left untouched with a warning, and so are the discovery-only
-// Python ones; unsupported uv projects block the plan. An unsupported Go
-// module blocks it only when Go was requested or nothing else is selected,
-// so a nested module or go.work never stops a Python project's plan.
+// Python ones; unsupported uv projects block the plan. An unsupported Go or
+// Rust project blocks it only when its language was requested or nothing
+// else is selected, so a nested module, crate or go.work never stops another
+// language's plan.
 func (p *Proposal) selectProjects(languages []string) []Project {
 	var selected []Project
-	var goBlocked []string
+	blocked := map[string][]string{}
 	for _, project := range p.Inventory.Projects {
 		switch {
 		case !slices.Contains(configurable, project.Language):
@@ -227,8 +245,8 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 				p.Warnings,
 				"Component of a language not selected left untouched: "+project.Root,
 			)
-		case project.Language == "go" && !project.Supported:
-			goBlocked = append(goBlocked, unsupported(project))
+		case project.Language != "python" && !project.Supported:
+			blocked[project.Language] = append(blocked[project.Language], unsupported(project))
 		case !project.Supported && project.Manager != "uv":
 			p.Warnings = append(
 				p.Warnings,
@@ -240,15 +258,17 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 			selected = append(selected, project)
 		}
 	}
-	goSelected := slices.ContainsFunc(
-		selected,
-		func(project Project) bool { return project.Language == "go" },
-	)
-	if !goSelected && (slices.Contains(languages, "go") || len(selected) == 0) {
-		p.Plan.Prerequisites = append(p.Plan.Prerequisites, goBlocked...)
-	} else {
-		for _, reason := range goBlocked {
-			p.Warnings = append(p.Warnings, "Go component left untouched: "+reason)
+	for _, language := range []struct{ id, name string }{{"go", "Go"}, {"rust", "Rust"}} {
+		chosen := slices.ContainsFunc(
+			selected,
+			func(project Project) bool { return project.Language == language.id },
+		)
+		if !chosen && (slices.Contains(languages, language.id) || len(selected) == 0) {
+			p.Plan.Prerequisites = append(p.Plan.Prerequisites, blocked[language.id]...)
+			continue
+		}
+		for _, reason := range blocked[language.id] {
+			p.Warnings = append(p.Warnings, language.name+" component left untouched: "+reason)
 		}
 	}
 	if len(selected) == 0 {
@@ -259,16 +279,21 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 
 // noProject says what to select when nothing configurable was found.
 func noProject(languages []string) string {
-	python := "an existing supported uv project or workspace with a shared lockfile"
-	golang := "an existing Go module's folder"
-	switch {
-	case slices.Equal(languages, []string{"python"}):
-		return "Select " + python
-	case slices.Equal(languages, []string{"go"}):
-		return "Select " + golang
-	default:
-		return "Select " + python + ", or " + golang
+	choices := map[string]string{
+		"python": "an existing supported uv project or workspace with a shared lockfile",
+		"go":     "an existing Go module's folder",
+		"rust":   "an existing Cargo package's or workspace root's folder",
 	}
+	var named []string
+	for _, language := range []string{"python", "go", "rust"} {
+		if len(languages) == 0 || slices.Contains(languages, language) {
+			named = append(named, choices[language])
+		}
+	}
+	if len(named) == 1 {
+		return "Select " + named[0]
+	}
+	return "Select " + strings.Join(named[:len(named)-1], ", ") + ", or " + named[len(named)-1]
 }
 
 // blocked fails the plan while prerequisites remain.
@@ -287,26 +312,21 @@ func (p *Proposal) addPolicy(
 	options ApplyOptions,
 	selected []Project,
 ) error {
-	python, library, version, deps, err := adapterDependency(ctx, c)
-	p.Plan.Dependencies = deps
+	tool, err := p.adapter(ctx, c, options)
 	if err != nil {
-		p.Plan.Prerequisites = append(
-			p.Plan.Prerequisites,
-			"Workbench's private Python and TOML Kit are missing; "+machine.InstallHint(c),
-		)
 		return err
 	}
-	optionsData, _ := json.Marshal(options)
-	p.Plan.Inputs = append(
-		p.Plan.Inputs,
-		operation.Input{Name: "tomlkit", Digest: operation.SHA256Hex([]byte(library + version))},
-		operation.Input{Name: "project-options", Digest: operation.SHA256Hex(optionsData)},
-	)
-	documents := make([]string, len(selected))
+	documents := make([]adapterDocument, len(selected))
 	for i, project := range selected {
-		documents[i] = string(p.Inventory.inputs[filepath.Join(project.Root, "pyproject.toml")])
+		documents[i] = adapterDocument{
+			Source:     string(p.Inventory.inputs[filepath.Join(project.Root, "pyproject.toml")]),
+			Policy:     pythonpolicy.Policy,
+			PolicyID:   pythonpolicy.ID,
+			Provenance: []string{"tool", "workbench"},
+			Ruff:       true,
+		}
 	}
-	rendered, err := transform(ctx, c, python, library, version, documents)
+	rendered, err := tool.transform(ctx, c, documents)
 	if err != nil {
 		return err
 	}

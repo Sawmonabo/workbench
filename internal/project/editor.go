@@ -16,24 +16,71 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
+	"github.com/Sawmonabo/workbench/project/rustpolicy"
 	"github.com/tailscale/hujson"
 )
 
 //go:embed adapter.py
 var adapter string
 
-func transform(
+// adapterDocument is one manifest the TOML Kit adapter merges a policy into.
+type adapterDocument struct {
+	Source string `json:"source"`
+	Policy string `json:"policy"`
+	// PolicyID is recorded at Provenance, the record's key path; a document
+	// without a Provenance gets no record.
+	PolicyID   string   `json:"policy_id,omitempty"`
+	Provenance []string `json:"provenance"`
+	// Ruff leaves the policy's Ruff rule selection out when the document has
+	// a selection of its own.
+	Ruff bool `json:"ruff"`
+}
+
+// tomlAdapter is the private Python and TOML Kit that edit manifests.
+type tomlAdapter struct {
+	python           operation.Dependency
+	library, version string
+}
+
+// adapter returns the private TOML Kit adapter, found once per plan, and binds
+// its version and the apply options as plan inputs.
+func (p *Proposal) adapter(
 	ctx context.Context,
 	c operation.Context,
-	python operation.Dependency,
-	library, version string,
-	documents []string,
+	options ApplyOptions,
+) (*tomlAdapter, error) {
+	if p.toml != nil {
+		return p.toml, nil
+	}
+	python, library, version, deps, err := adapterDependency(ctx, c)
+	p.Plan.Dependencies = deps
+	if err != nil {
+		p.Plan.Prerequisites = append(
+			p.Plan.Prerequisites,
+			"Workbench's private Python and TOML Kit are missing; "+machine.InstallHint(c),
+		)
+		return nil, err
+	}
+	optionsData, _ := json.Marshal(options)
+	p.Plan.Inputs = append(
+		p.Plan.Inputs,
+		operation.Input{Name: "tomlkit", Digest: operation.SHA256Hex([]byte(library + version))},
+		operation.Input{Name: "project-options", Digest: operation.SHA256Hex(optionsData)},
+	)
+	p.toml = &tomlAdapter{python: python, library: library, version: version}
+	return p.toml, nil
+}
+
+// transform merges each document's policy through the adapter and returns the
+// rendered documents in order.
+func (a *tomlAdapter) transform(
+	ctx context.Context,
+	c operation.Context,
+	documents []adapterDocument,
 ) ([]string, error) {
 	input, err := json.Marshal(
 		map[string]any{
-			"version":   version,
-			"policy":    pythonpolicy.Policy,
-			"policy_id": pythonpolicy.ID,
+			"version":   a.version,
 			"documents": documents,
 		},
 	)
@@ -45,8 +92,8 @@ func transform(
 		c,
 		nil,
 		operation.Process{
-			Executable:  python.Path,
-			Args:        []string{"-I", "-S", "-B", "-c", adapter, library},
+			Executable:  a.python.Path,
+			Args:        []string{"-I", "-S", "-B", "-c", adapter, a.library},
 			Directory:   "/",
 			Environment: []string{"PATH=/usr/bin:/bin"},
 			Input:       input,
@@ -75,8 +122,11 @@ func transform(
 // Each policy's embedded recommendation lists. An invalid embedded asset is
 // a build defect, so it fails at startup like a bad regexp.
 var (
-	pythonExtensions = embeddedExtensions(pythonpolicy.Extensions)
-	goExtensions     = embeddedExtensions(gopolicy.Extensions)
+	languageExtensions = map[string]map[string][]string{
+		"go":     embeddedExtensions(gopolicy.Extensions),
+		"python": embeddedExtensions(pythonpolicy.Extensions),
+		"rust":   embeddedExtensions(rustpolicy.Extensions),
+	}
 )
 
 func embeddedExtensions(data []byte) map[string][]string {
@@ -95,10 +145,7 @@ func extensionPolicy(languages []string) map[string][]string {
 		if !slices.Contains(languages, language) {
 			continue
 		}
-		lists := pythonExtensions
-		if language == "go" {
-			lists = goExtensions
-		}
+		lists := languageExtensions[language]
 		for _, key := range extensionKeys {
 			for _, id := range lists[key] {
 				if !slices.Contains(policy[key], id) {
@@ -261,8 +308,11 @@ func ignoreEntries(languages []string) []string {
 			continue
 		}
 		add := pythonIgnore
-		if language == "go" {
+		switch language {
+		case "go":
 			add = strings.Split(strings.TrimSpace(gopolicy.Ignore), "\n")
+		case "rust":
+			add = strings.Split(strings.TrimSpace(rustpolicy.Ignore), "\n")
 		}
 		for _, entry := range add {
 			if !slices.Contains(entries, entry) {
@@ -280,9 +330,24 @@ func ignoreDescription(languages []string) string {
 		return "Append relevant Python environment/cache ignore entries preserving order"
 	case slices.Equal(languages, []string{"go"}):
 		return "Append Go build and test output ignore entries preserving order"
-	default:
+	case slices.Equal(languages, []string{"rust"}):
+		return "Append the Rust build output ignore entry preserving order"
+	case slices.Equal(languages, []string{"go", "python"}):
 		return "Append relevant Python environment/cache and Go build output ignore entries preserving order"
 	}
+	parts := map[string]string{
+		"go":     "Go build output",
+		"python": "Python environment/cache",
+		"rust":   "Rust build output",
+	}
+	var named []string
+	for _, language := range []string{"python", "go", "rust"} {
+		if slices.Contains(languages, language) {
+			named = append(named, parts[language])
+		}
+	}
+	return "Append relevant " + strings.Join(named[:len(named)-1], ", ") + " and " +
+		named[len(named)-1] + " ignore entries preserving order"
 }
 
 // knownNegations are the negation lines no appended entry can change the

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -157,6 +158,7 @@ func (r *Inventory) resolve(ctx context.Context) error {
 	if len(r.Projects) == 0 {
 		return r.enclosingProject()
 	}
+	r.settleCargoMembers()
 	return nil
 }
 
@@ -193,7 +195,11 @@ func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Projec
 		}
 	case "Cargo.toml":
 		project.Manager = "cargo"
-		_, err = decodeTOML(data)
+		project.metadata, err = decodeTOML(data)
+		if err != nil {
+			return project, err
+		}
+		err = r.cargoOwner(&project)
 	case "go.mod":
 		project.Manager = "go"
 		err = r.goOwner(&project)
@@ -508,3 +514,288 @@ func (r *Inventory) inputsList() []operation.Input {
 }
 
 func unsupported(p Project) string { return fmt.Sprintf("%s: %s", p.Root, p.Reason) }
+
+// cargoOwner decides who owns the Cargo package or workspace at p's root,
+// from the manifests' text alone: no cargo command runs, because a
+// rust-toolchain.toml can make rustup download a toolchain before Cargo
+// starts. A workspace root at the selected folder owns itself and its
+// members. A package inside a workspace is configured only through that
+// workspace's root, and one below the selected folder through its own.
+func (r *Inventory) cargoOwner(p *Project) error {
+	workspace, isRoot := p.metadata["workspace"]
+	pkg := nested(p.metadata, "package")
+	switch {
+	case !isRoot && pkg == nil:
+		p.Reason = "Cargo.toml has neither [package] nor [workspace]"
+		return nil
+	case isRoot:
+		if reason := cargoPatterns(table(workspace)); reason != "" {
+			p.Reason = reason
+			return nil
+		}
+		if p.Root != r.Directory {
+			p.Reason = "Cargo workspace below the selected folder; select its folder to configure it"
+			return nil
+		}
+		members, reason, err := r.cargoMembers(p.Root, p.metadata)
+		if err != nil || reason != "" {
+			p.Reason = reason
+			return err
+		}
+		p.Supported, p.Reason = true, ""
+		r.cargo = members
+		return nil
+	}
+	if _, explicit := pkg["workspace"]; explicit {
+		p.Reason = "package.workspace names the workspace root; review this layout explicitly"
+		return nil
+	}
+	root, err := r.cargoWorkspace(p.Root)
+	switch {
+	case err != nil:
+		return err
+	case root == "" && p.Root != r.Directory:
+		p.Reason = "Cargo package below the selected folder; select its folder to configure it"
+	case root == "":
+		p.Supported, p.Reason = true, ""
+	case root != r.Directory:
+		// Cargo builds a package inside a workspace only as that workspace's
+		// member, so the root's settings are what apply to it.
+		p.Owner = root
+		p.Reason = "Inside the Cargo workspace at " + root + "; select the workspace root"
+	default:
+		// Membership at the selected root is settled once every manifest is
+		// read (settleCargoMembers).
+		p.Owner = root
+	}
+	return nil
+}
+
+// cargoWorkspace returns the nearest folder above root, up to the repository
+// root, whose Cargo.toml declares a workspace that does not exclude root, or
+// "" when there is none. That is the workspace Cargo puts the package in.
+func (r *Inventory) cargoWorkspace(root string) (string, error) {
+	var found string
+	err := ancestors(root, func(parent string) (bool, error) {
+		if parent == root {
+			return false, nil
+		}
+		data, err := r.read(filepath.Join(parent, "Cargo.toml"))
+		if err != nil || data == nil {
+			return false, err
+		}
+		doc, err := decodeTOML(data)
+		if err != nil {
+			return false, err
+		}
+		workspace, ok := doc["workspace"]
+		if !ok {
+			return false, nil
+		}
+		listed, _, err := cargoListed(table(workspace), parent, root)
+		if err != nil {
+			return false, err
+		}
+		if !listed && cargoExcluded(table(workspace), parent, root) {
+			return false, nil
+		}
+		found = parent
+		return true, nil
+	})
+	return found, err
+}
+
+// cargoPatterns returns why a workspace's members or exclude entries need
+// review: a pattern filepath.Match cannot evaluate as Cargo does, or a
+// members pattern naming a folder that discovery skips, whose members would
+// otherwise be missed silently.
+func cargoPatterns(workspace map[string]any) string {
+	for _, pattern := range stringsOf(workspace["members"]) {
+		if !exactPattern(pattern) {
+			return "Workspace pattern needs explicit ownership review: " + pattern
+		}
+		for segment := range strings.SplitSeq(path.Clean(pattern), "/") {
+			if segment != "." && excludedDirectory(segment) {
+				return "Workspace member pattern names a folder discovery skips, so its members cannot be found: " +
+					pattern
+			}
+		}
+	}
+	for _, pattern := range stringsOf(workspace["exclude"]) {
+		if !exactPattern(pattern) {
+			return "Workspace exclusion pattern needs explicit ownership review: " + pattern
+		}
+	}
+	return ""
+}
+
+// cargoListed reports whether a workspace's members patterns at parent name
+// root, through the same matching as uv workspaces. Cargo accepts "./a/" for
+// "a", so patterns are cleaned first.
+func cargoListed(workspace map[string]any, parent, root string) (bool, string, error) {
+	var members []any
+	for _, pattern := range stringsOf(workspace["members"]) {
+		if !exactPattern(pattern) {
+			members = append(members, pattern)
+			continue
+		}
+		members = append(members, path.Clean(pattern))
+	}
+	listed, reason, err := workspaceMember(map[string]any{"members": members}, parent, root)
+	return listed && parent != root, reason, err
+}
+
+// cargoExcluded reports whether an exclude entry of the workspace at parent
+// covers root. Cargo reads each entry as a path prefix, not a glob.
+func cargoExcluded(workspace map[string]any, parent, root string) bool {
+	for _, entry := range stringsOf(workspace["exclude"]) {
+		if operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), root) {
+			return true
+		}
+	}
+	return false
+}
+
+// cargoMembers returns the member folders of the workspace at root, whose
+// manifest is doc: its own package, the packages its members patterns list,
+// and every path dependency of a member inside the workspace folder, as
+// Cargo adds them. reason names a member layout that needs review.
+func (r *Inventory) cargoMembers(root string, doc map[string]any) (map[string]bool, string, error) {
+	workspace := table(doc["workspace"])
+	members := map[string]bool{}
+	var queue []string
+	if nested(doc, "package") != nil {
+		queue = append(queue, root)
+	}
+	for _, item := range r.Items {
+		dir := filepath.Dir(filepath.Join(r.Directory, filepath.FromSlash(item.Path)))
+		if item.Kind != "manifest" || filepath.Base(item.Path) != "Cargo.toml" || dir == root {
+			continue
+		}
+		listed, reason, err := cargoListed(workspace, root, dir)
+		if err != nil || reason != "" {
+			return nil, reason, err
+		}
+		if listed {
+			queue = append(queue, dir)
+		}
+	}
+	shared := table(workspace["dependencies"])
+	for len(queue) > 0 {
+		dir := queue[0]
+		queue = queue[1:]
+		if members[dir] {
+			continue
+		}
+		members[dir] = true
+		manifest := doc
+		if dir != root {
+			data, err := r.read(filepath.Join(dir, "Cargo.toml"))
+			if err != nil || data == nil {
+				return nil, "", err
+			}
+			if manifest, err = decodeTOML(data); err != nil {
+				return nil, "", err
+			}
+		}
+		for _, dependency := range cargoPathDependencies(manifest, dir, shared, root) {
+			if members[dependency] {
+				continue
+			}
+			member, reason, err := r.cargoPathMember(root, workspace, dependency)
+			if err != nil || reason != "" {
+				return nil, reason, err
+			}
+			if member {
+				queue = append(queue, dependency)
+			}
+		}
+	}
+	return members, "", nil
+}
+
+// cargoPathMember reports whether a member's path dependency is a member of
+// the workspace at root too: a package inside the workspace folder that the
+// workspace does not exclude. One in a folder discovery skips needs review.
+func (r *Inventory) cargoPathMember(
+	root string,
+	workspace map[string]any,
+	dependency string,
+) (member bool, reason string, err error) {
+	if !operation.Within(root, dependency) || cargoExcluded(workspace, root, dependency) {
+		return false, "", nil
+	}
+	relative, err := filepath.Rel(root, dependency)
+	if err != nil {
+		return false, "", err
+	}
+	if slices.ContainsFunc(strings.Split(filepath.ToSlash(relative), "/"), excludedDirectory) {
+		return false, "Path dependency in a folder discovery skips needs review: " + dependency, nil
+	}
+	data, err := r.read(filepath.Join(dependency, "Cargo.toml"))
+	return data != nil, "", err
+}
+
+// cargoPathDependencies returns the folders of manifest's path dependencies
+// (normal, dev and build, also per target), with an entry inheriting a
+// workspace dependency resolved against the workspace root. [patch] paths do
+// not make members and are not read.
+func cargoPathDependencies(
+	manifest map[string]any,
+	dir string,
+	shared map[string]any,
+	root string,
+) []string {
+	tables := []map[string]any{manifest}
+	for _, target := range table(manifest["target"]) {
+		tables = append(tables, table(target))
+	}
+	var result []string
+	for _, owner := range tables {
+		for _, kind := range []string{"dependencies", "dev-dependencies", "build-dependencies"} {
+			for name, entry := range table(owner[kind]) {
+				spec := table(entry)
+				base := dir
+				if spec["workspace"] == true {
+					spec, base = table(shared[name]), root
+				}
+				if location, ok := spec["path"].(string); ok {
+					result = append(result, filepath.Join(base, filepath.FromSlash(location)))
+				}
+			}
+		}
+	}
+	slices.Sort(result)
+	return slices.Compact(result)
+}
+
+// settleCargoMembers marks each package inside the selected workspace root as
+// a supported member, or as untouched when Cargo would not count it as one.
+// Members of a root that needs review are not configured either.
+func (r *Inventory) settleCargoMembers() {
+	var root *Project
+	for i := range r.Projects {
+		project := &r.Projects[i]
+		if project.Manager == "cargo" && project.Root == r.Directory &&
+			project.Owner == r.Directory {
+			root = project
+		}
+	}
+	for i := range r.Projects {
+		project := &r.Projects[i]
+		if project.Manager != "cargo" || project.Owner != r.Directory ||
+			project.Root == r.Directory {
+			continue
+		}
+		switch {
+		case root == nil || !root.Supported:
+			project.Reason = "The Cargo workspace root needs review first: " + r.Directory
+		case !r.cargo[project.Root]:
+			project.Owner = project.Root
+			project.Reason = "Not a member of the Cargo workspace at " + r.Directory +
+				"; Cargo refuses to build it there, so it is left untouched"
+		default:
+			project.Supported, project.Reason = true, ""
+		}
+	}
+}

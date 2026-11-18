@@ -31,6 +31,8 @@ type ownedJob struct {
 	refsMayDiffer bool
 	// effect says what a future CI run of the job does.
 	effect string
+	// fail words a refusal for the job's language.
+	fail func(string) error
 }
 
 // addCI proposes each selected language's owned check job. Jobs aimed at the
@@ -48,6 +50,16 @@ func (p *Proposal) addCI(c operation.Context, selected []Project) error {
 	}
 	if modules := withLanguage(selected, "go"); len(modules) > 0 {
 		path, job, err := p.goCI(c, modules[0])
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+		jobs[path] = append(jobs[path], job)
+	}
+	if roots := rustRoots(selected); len(roots) > 0 {
+		path, job, err := p.rustCI(c, roots[0])
 		if err != nil {
 			return err
 		}
@@ -121,6 +133,7 @@ func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, owned
 		addition: addition,
 		desired:  desired,
 		effect:   "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code",
+		fail:     ciFailure,
 	}, nil
 }
 
@@ -132,13 +145,9 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 	if err != nil {
 		return nil, err
 	}
-	fail := ciFailure
-	if !slices.ContainsFunc(
-		jobs,
-		func(job ownedJob) bool { return job.name == "workbench-python" },
-	) {
-		fail = goCIFailure
-	}
+	// Jobs are in language order, so a shared workflow's refusal names Python's
+	// manual recipe whenever a Python job is among them.
+	fail := jobs[0].fail
 	file, err := parseWorkflow(data, fail)
 	if err != nil {
 		return nil, err
@@ -179,6 +188,8 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 		description = "Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments"
 	case slices.Equal(added, []string{"workbench-go"}):
 		description = "Add one owned Go check job to the workflow that runs go test; preserve existing jobs, triggers and comments"
+	case slices.Equal(added, []string{"workbench-rust"}):
+		description = "Add one owned Rust check job to the workflow that runs cargo test; preserve existing jobs, triggers and comments"
 	default:
 		description = "Add the owned check jobs " + strings.Join(added, " and ") +
 			" to the existing workflow; preserve existing jobs, triggers and comments"

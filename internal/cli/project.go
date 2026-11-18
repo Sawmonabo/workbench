@@ -73,23 +73,30 @@ func projectInspectCommand(o *options) *cobra.Command {
 	}
 }
 
+// projectApplyLong is project apply's help text.
+const projectApplyLong = "Plan Workbench's settings for the project at PATH: Ruff, ty and basedpyright for a " +
+	"uv Python project; a golangci-lint configuration (only when the module has none) " +
+	"and a .workbench.toml record for a Go module; and, for a Cargo package or workspace " +
+	"root, missing lints, a dev profile setting and a record in Cargo.toml, member " +
+	"opt-ins to new workspace lints, and rustfmt.toml, deny.toml and .mbx.toml where " +
+	"the project has none. Show the plan and apply it once " +
+	"approved, saving a checkpoint that project revert restores. --extensions, " +
+	"--gitignore and --ci add optional changes. --resolve-dependencies lets uv resolve " +
+	"missing Python check tools, an external effect, and --allow-build-hooks (only with " +
+	"it) lets that run project build code. --dry-run previews offline without changing " +
+	"anything. Without a terminal, or for a coding agent, pass --approve-plan DIGEST " +
+	"from a --dry-run --json plan."
+
 func projectApplyCommand(o *options) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "apply [PATH]",
-		Short: "Preview and apply Workbench's settings to an existing uv Python project or Go module",
-		Long: "Plan Workbench's settings for the project at PATH: Ruff, ty and basedpyright for a " +
-			"uv Python project, and a golangci-lint configuration (only when the module has none) " +
-			"and a .workbench.toml record for a Go module. Show the plan and apply it once " +
-			"approved, saving a checkpoint that project revert restores. --extensions, " +
-			"--gitignore and --ci add optional changes. --resolve-dependencies lets uv resolve " +
-			"missing Python check tools, an external effect, and --allow-build-hooks (only with " +
-			"it) lets that run project build code. --dry-run previews offline without changing " +
-			"anything. Without a terminal, or for a coding agent, pass --approve-plan DIGEST " +
-			"from a --dry-run --json plan.",
+		Short: "Preview and apply Workbench's settings to an existing uv Python project, Go module or Cargo package or workspace",
+		Long:  projectApplyLong,
 		Example: "  workbench project apply ./apps/api --language python --dry-run\n" +
 			"  workbench project apply . --language python --extensions --gitignore\n" +
 			"  workbench project apply . --language python --resolve-dependencies\n" +
-			"  workbench project apply . --language go --extensions --gitignore --ci",
+			"  workbench project apply . --language go --extensions --gitignore --ci\n" +
+			"  workbench project apply . --language rust --extensions --gitignore --ci",
 		Args: cobra.MaximumNArgs(1),
 	}
 	command.Flags().
