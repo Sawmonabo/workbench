@@ -1,0 +1,25 @@
+name: pins
+# Weekly check that the Node, Go, Python and Rust pins in
+# home/.chezmoidata/versions.toml are still supported. A failed run names each
+# stale pin; bump it in versions.toml.
+on:
+  schedule:
+    - cron: '17 6 * * 1'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: pins
+  cancel-in-progress: true
+jobs:
+  version-pins:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # The runner's own Python (3.12 on ubuntu-24.04) is enough: the script
+      # uses only the standard library, and tomllib needs 3.11.
+      - name: Check runtime pins against endoflife.date
+        run: python3 scripts/check-version-pins.py
