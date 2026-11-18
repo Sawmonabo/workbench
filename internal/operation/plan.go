@@ -170,6 +170,10 @@ type Plan struct {
 	Edits         []Edit         `json:"edits"`
 	Prerequisites []string       `json:"prerequisites"`
 	Effects       []Effect       `json:"effects"`
+	// Unlisted names the effects this machine offers that are left off the
+	// plan for having nothing to do. They take no part in the digest; --reset
+	// forgets the saved choices for them too.
+	Unlisted []string `json:"-"`
 	// UnchangedTargets counts the managed files this plan leaves as they are.
 	UnchangedTargets int `json:"unchanged_targets"`
 	// Warnings are review notes that change nothing, such as a check that

@@ -317,7 +317,7 @@ func (a *applyRun) saveSelection(plan operation.Plan) error {
 	if err != nil {
 		return err
 	}
-	selection := selectionToSave(plan.Effects, a.selection, saved)
+	selection := selectionToSave(plan, a.selection, saved)
 	if selection.equal(saved) {
 		return nil
 	}
@@ -345,7 +345,7 @@ func selectionUnchanged(
 	if err != nil {
 		return false, err
 	}
-	return selectionToSave(plan.Effects, selection, saved).equal(saved), nil
+	return selectionToSave(plan, selection, saved).equal(saved), nil
 }
 
 // hasProvisioning reports whether any non-fixed effect is checked, which is

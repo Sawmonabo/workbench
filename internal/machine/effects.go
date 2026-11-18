@@ -669,20 +669,27 @@ func SelectionOf(effects []operation.Effect) Selection {
 // nothing to change and no saved skip sits on the Already set line, where it
 // cannot be turned off, so it is not recorded as decided unless it already was:
 // it is asked about, marked new, the first time it has something to do.
-// effects is the plan as applied and chosen the selection that produced it.
-// With --reset (chosen.Forget) the earlier decided list is forgotten for the
-// effects listed, and so are saved selects for effects this host does not offer,
-// which the plan warns about; unlisted skips and decisions are kept. The decided
-// list is always non-nil: once saved, the owner has decided.
+// plan is the plan as applied and chosen the selection that produced it.
+// With --reset (chosen.Forget) every saved choice for an effect this machine
+// offers is forgotten, listed or left off the plan for having nothing to do
+// (plan.Unlisted), so such a step is asked about, marked new, when it has work
+// again; so are saved selects for effects this host does not offer, which the
+// plan warns about. Skips and decisions for those are kept. The decided list
+// is always non-nil: once saved, the owner has decided.
 // A take-over is never saved as selected: a tick takes over once, and a later
 // one is apply --choose. Decided keeps it, so a declined one is not asked again.
-func selectionToSave(effects []operation.Effect, chosen, saved Selection) Selection {
+func selectionToSave(plan operation.Plan, chosen, saved Selection) Selection {
+	effects := plan.Effects
 	selection := SelectionOf(effects)
-	plan := operation.Plan{Effects: effects}
 	listed := func(name string) bool {
 		return slices.ContainsFunc(effects, func(effect operation.Effect) bool {
 			return effect.Name == name
 		})
+	}
+	// kept reports a saved choice for an effect the plan does not list that
+	// this save carries over.
+	kept := func(name string) bool {
+		return !listed(name) && (!chosen.Forget || !slices.Contains(plan.Unlisted, name))
 	}
 	takeOver := func(name string) bool { return strings.HasPrefix(name, takeOverPrefix) }
 	selection.Select = slices.DeleteFunc(selection.Select, takeOver)
@@ -694,7 +701,7 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 		}
 	}
 	for _, name := range saved.Skip {
-		if !listed(name) {
+		if kept(name) {
 			selection.Skip = append(selection.Skip, name)
 		}
 	}
@@ -704,7 +711,7 @@ func selectionToSave(effects []operation.Effect, chosen, saved Selection) Select
 		}
 	}
 	for _, name := range saved.Decided {
-		if !listed(name) {
+		if kept(name) {
 			selection.Decided = append(selection.Decided, name)
 		}
 	}

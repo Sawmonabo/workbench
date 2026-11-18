@@ -217,6 +217,14 @@ func (p *preparation) selectEffects(
 	// so its saved tick is not stale.
 	offered := slices.Clone(p.Plan.Effects)
 	p.Plan.Effects = listDue(p.Plan.Effects, p.dormant, shown.Effects)
+	p.Plan.Unlisted = nil
+	for _, effect := range offered {
+		if !slices.ContainsFunc(p.Plan.Effects, func(listed operation.Effect) bool {
+			return listed.Name == effect.Name
+		}) {
+			p.Plan.Unlisted = append(p.Plan.Unlisted, effect.Name)
+		}
+	}
 	p.Plan.Effects = append(p.Plan.Effects, takeOverEffects(shown.Effects)...)
 	saved, err := ReadSelection(c.Native.Config)
 	if err != nil {

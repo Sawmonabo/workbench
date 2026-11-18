@@ -163,7 +163,7 @@ func TestWindowsStepsRunOnlyWhenSelectedByName(t *testing.T) {
 			)
 		}
 		saved := selectionToSave(
-			applySelection(windows(), test.chosen, test.chosen),
+			operation.Plan{Effects: applySelection(windows(), test.chosen, test.chosen)},
 			test.chosen,
 			test.chosen,
 		)
@@ -186,7 +186,7 @@ func TestStepNeverShownWithWorkIsNotRecordedAsDecided(t *testing.T) {
 		{Name: "sysctl", NoChange: true, Checked: true},
 		{Name: "runtimes", Checked: true},
 	}
-	saved := selectionToSave(effects, Selection{}, Selection{})
+	saved := selectionToSave(operation.Plan{Effects: effects}, Selection{}, Selection{})
 	if !slices.Equal(saved.Decided, []string{"runtimes"}) {
 		t.Fatalf("decided %v, want only the step the owner could see work for", saved.Decided)
 	}
