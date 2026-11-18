@@ -444,7 +444,8 @@ synthetic answers.
 - AlmaLinux 10 container, first apply in a new home (Nov 17): System packages
   ended `blocked — oh-my-posh was not installed`, its installer refusing
   `~/.local/bin` because the folder did not exist; a second apply installed
-  it. The step now creates the folder first (not rerun in a container).
+  it. The step creates `~/.local/bin` before it runs that installer (not
+  observed in a container).
 
 ### On a WSL2 host
 
@@ -681,8 +682,7 @@ synthetic answers.
   `run` line stopped the plan. A Python and Go project at one root with every
   option applied as one checkpoint and reverted exactly; a uv project with a
   nested Go module and `go.work` still planned, with a warning. A uv project's
-  plan with `--extensions --gitignore --ci` had the same digest from this build
-  and from the build before Go support, and applied and reverted exactly.
+  plan with `--extensions --gitignore --ci` applied and reverted exactly.
   golangci-lint 2.15.0 reads a configuration from parent folders, and rejects
   `version: 2` in `config verify` while `run` accepts it. Not observed: a CI
   run of the `workbench-go` job on GitHub (setup-go without a `go.sum`, the
@@ -822,9 +822,9 @@ synthetic answers.
   the planner share moved into one package per system, the same commands gave
   the same output as before the move: `doctor`, `apply --local-build --dry-run
   --json` in a disposable home with synthetic answers (the same `plan_digest`)
-  on macOS and in an Ubuntu 24.04 container as uid 1000, the Linux `init
-  --answers-from FILE --dry-run --json` plan, and `render-check.sh personal
-  pinned wsl`; the macOS init plan differed only in the answers-file path it
+  on macOS and in an Ubuntu 24.04 container as uid 1000, the Linux `answers
+  import FILE --dry-run --json` plan, and `render-check.sh personal
+  pinned wsl`; the macOS plan differed only in the answers-file path it
   quotes.
 - On 2026-10-17, on macOS in disposable homes with a fake agent and
   `WORKBENCH_GUARD=dry-run`, `workbench agent guard logs` printed one line per event
@@ -1164,8 +1164,8 @@ synthetic answers.
   skipped every part. Latest mode kept an installed 2.14.0. A pin with no
   release exited 1 and kept the working copy, and a lefthook that reported no
   version was replaced. With chezmoi 2.70.3 alone, a run-on-change script ran
-  again when its content went back to an earlier one, which a run-once script
-  did not; the packages script was not run again after it became run-on-change.
+  again when its content went back to one it had run before, which a run-once
+  script did not.
 - On November 17, 2026, in an Ubuntu 24.04 arm64 container (Docker 29.8.2) as
   a sudo user with a disposable home, from a local build with synthetic
   personal/pinned answers, through `--dry-run --json` and `--approve-plan`,

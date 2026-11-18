@@ -183,7 +183,7 @@ grep -qF 'echo user-edit-pretool' "$dest/.claude/settings.json" || { echo 'MERGE
 guard_pre=$(grep -cF 'workbench agent guard pre' "$dest/.claude/settings.json" || true)
 [ "$guard_pre" = 0 ] && { echo 'MERGE FAIL: claude settings lost the guard hook'; fail=1; }
 [ "$guard_pre" -gt 1 ] && { echo 'MERGE FAIL: claude settings kept a stale copy of the guard hook'; fail=1; }
-grep -qF '/old/workbench' "$dest/.claude/settings.json" && { echo 'MERGE FAIL: claude settings kept an older copy of a managed hook'; fail=1; }
+grep -qF '/old/workbench' "$dest/.claude/settings.json" && { echo 'MERGE FAIL: claude settings kept a copy of a managed hook from another folder'; fail=1; }
 cp "$tmp/codex-valid" "$dest/.codex/config.toml"
 cp "$tmp/claude-valid" "$dest/.claude/settings.json"
 

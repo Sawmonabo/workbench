@@ -30,7 +30,7 @@ claims. No live-machine application is required to finish code/documentation wor
 
 Deliver one Go/Cobra CLI for developer-machine configuration and existing-project tooling. Install from release bundles through a minimal POSIX bootstrap; reuse chezmoi and existing provisioning owners. Support macOS Apple Silicon/Intel, declared Linux/Ubuntu targets, and WSL with Windows integration. Native Windows without WSL is outside the initial compatibility commitment.
 
-The application must provide apply (with preview), init, update, version, doctor, costs, scoped configuration revert, project inspect, project configure and project revert. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
+The application must provide apply (with preview), answers, update, version, doctor, migrate, agent costs, agent guard, scoped configuration revert, project inspect, project apply and project revert. Project configuration uses explicit actions and repeatable language filters, never application generation. Personal VS Code data remains global machine configuration; project policy remains portable.
 
 Do not implement a second package manager, shell CLI, per-language installer, generic plugin framework or task runner. Shared operations own planning, consent, dependency ownership, execution, locking, reporting and checkpoint behavior. Preserve current native tool functionality unless the specification explicitly requires a safety correction.
 
@@ -118,7 +118,7 @@ owner pushes a `v*` tag, not when files are implemented.
 
 ### Work
 
-1. Register one Cobra command tree: `apply`, `init`, `update`, `version`, `doctor`, `revert`, `costs`, `project inspect`, `project configure` and `project revert`.
+1. Register one Cobra command tree: `apply`, `answers`, `update`, `version`, `doctor`, `migrate`, `revert`, `agent costs`, `agent guard`, `project inspect`, `project apply` and `project revert`.
 2. Implement explicit PATH resolution, existing-directory validation and repeatable `--language` selection. Omitted project PATH means `.`. Unsupported explicit language requests fail before mutation.
 3. Define one resolved operation context and plan/result model. A plan contains source identity, scope, observed inputs, intended target edits/removals, prerequisites, external effects and recovery limits.
 4. Add one cancellable subprocess runner with argument arrays, controlled environment, bounded output and redaction. Do not build shell command strings from project paths or answers, or introduce a mock framework.
