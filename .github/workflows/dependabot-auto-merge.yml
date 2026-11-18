@@ -1,0 +1,84 @@
+# Merges Dependabot's patch and minor pull requests for this repository and
+# leaves every other pull request alone. It is the workflow that workbench
+# project apply --dependabot writes for a project. No branch rule requires
+# checks on main, because the release workflow commits CHANGELOG.md there
+# with the workflow token, so this job waits for the pull request's other
+# checks itself: a failed check, or no check at all, leaves the pull request
+# open, and running the job again tries again.
+name: Dependabot auto-merge
+on: pull_request
+permissions:
+  actions: read
+  checks: read
+  contents: write
+  pull-requests: write
+  statuses: read
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+jobs:
+  dependabot:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    env:
+      PR_URL: ${{ github.event.pull_request.html_url }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Read the Dependabot update
+        id: metadata
+        uses: dependabot/fetch-metadata@25dd0e34f4fe68f24cc83900b1fe3fe149efef98 # v3.1.0
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Merge a patch or minor update once its checks pass
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: |
+          # Only the commit this run was started for is merged.
+          merge() { gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"; }
+          # Where a branch rule requires checks, GitHub waits for them itself.
+          required=$(gh pr checks "$PR_URL" --required --json name --jq length 2>/dev/null) || required=0
+          if [ "$required" -gt 0 ]; then
+            if merge; then exit 0; fi
+            echo "GitHub did not take the merge, so this job waits for the checks itself."
+          fi
+          # The state of every check but this workflow's: none, fail, pending or pass.
+          others='[.[] | select(.workflow != "Dependabot auto-merge") | .bucket]
+            | if length == 0 then "none"
+              elif any(. == "fail" or . == "cancel") then "fail"
+              elif any(. == "pending") then "pending"
+              elif any(. == "pass") then "pass"
+              else "none" end'
+          passes=0
+          missing=0
+          unread=0
+          errors="$RUNNER_TEMP/checks.err"
+          while [ "$SECONDS" -lt 2400 ]; do
+            # This job is a check itself, so a list that cannot be read is an error, not an empty one.
+            state=$(gh pr checks "$PR_URL" --json bucket,workflow --jq "$others" 2>"$errors") || state=unread
+            case "$state" in
+              pass) passes=$((passes + 1)); missing=0; unread=0 ;;
+              fail) echo "A check failed, so this pull request stays open."; exit 1 ;;
+              none) passes=0; missing=$((missing + 1)); unread=0 ;;
+              pending) passes=0; missing=0; unread=0 ;;
+              *) passes=0; unread=$((unread + 1)) ;;
+            esac
+            # Two passing polls in a row, so a job that starts after another ends is seen.
+            if [ "$passes" -ge 2 ]; then
+              merge
+              exit 0
+            fi
+            # Nine polls, about three minutes, without any other check: the repository runs none.
+            [ "$missing" -lt 9 ] || { echo "No other check ran for this pull request, so it stays open."; exit 1; }
+            # Three failed lookups in a row: the checks cannot be read.
+            if [ "$unread" -ge 3 ]; then
+              echo "The checks of this pull request could not be read, so it stays open:"
+              cat "$errors"
+              exit 1
+            fi
+            sleep 20
+          done
+          echo "The other checks did not finish in 40 minutes, so this pull request stays open."
+          exit 1

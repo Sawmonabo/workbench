@@ -13,3 +13,10 @@ updates:
     # Commit subjects become the changelog, so keep them conventional.
     commit-message:
       prefix: chore(deps)
+    # One pull request a week for every minor and patch update, which
+    # .github/workflows/dependabot-auto-merge.yml merges once CI passes; a
+    # major update comes alone and stays open for review.
+    groups:
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]

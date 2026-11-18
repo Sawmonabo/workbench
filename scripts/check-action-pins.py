@@ -12,7 +12,7 @@ for name, pin in pins.items():
 workflows = sorted((root / ".github/workflows").glob("*.y*ml")) + [root / "project/pythonpolicy/checks.example.yml"]
 for workflow in workflows:
     for number, line in enumerate(workflow.read_text().splitlines(), 1):
-        used = re.search(r"uses:\s*(\S+)(?:\s+#\s*(\S+))?", line)
+        used = re.search(r"(?<![\w-])uses:\s*(\S+)(?:\s+#\s*(\S+))?", line)
         if used is None or used.group(1).startswith("./"):
             continue
         name, _, commit = used.group(1).partition("@")
