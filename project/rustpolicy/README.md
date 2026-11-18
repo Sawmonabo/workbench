@@ -23,8 +23,12 @@ configuration does.
   dev or build, also per target, and a `workspace = true` entry resolved
   through `[workspace.dependencies]`) inside the workspace folder, as Cargo
   adds them. An `exclude` entry removes the folder and everything below it,
-  unless `members` lists the package. A `[workspace.dependencies]` path entry
-  no member uses, and a `[patch]` path, make no member.
+  member or path dependency, unless a `members` entry written as a plain path
+  names the package's folder or a folder above it: a package that only a glob
+  such as `crates/*` lists stays excluded, as Cargo decides. An excluded
+  package is left untouched, and selecting its folder plans it as a crate of
+  its own. A `[workspace.dependencies]` path entry no member uses, and a
+  `[patch]` path, make no member.
 - A package inside a workspace is configured only through the workspace root.
   Selecting it alone is blocked with "select the workspace root".
 - A `members` or `exclude` pattern with `**`, `..` or a leading `/` is blocked

@@ -295,8 +295,14 @@ combine their entries into one edit of each file.
 Membership reuses `workspaceMember` in `discovery.go` for the `members`
 patterns, cleaned first because Cargo accepts `./a/` for `a`, and that
 function already refuses `**` and `..` patterns for review. Cargo reads an
-`exclude` entry as a path prefix, not a glob, and a package `members` lists
-explicitly stays a member under an excluded folder; Workbench does the same.
+`exclude` entry as a path prefix of whole folder names, not a glob, and it
+applies to a path dependency as to a listed member. Only a `members` entry
+read as a plain path, one naming the package's folder or a folder above it,
+keeps a package a member under an excluded folder; a package that only a glob
+such as `crates/*` lists stays excluded (`cargo metadata` on scratch
+workspaces). Workbench does the same in each test of membership, so an
+excluded crate is never given `[lints] workspace = true`, which Cargo would
+refuse for lack of a workspace, and selecting its folder plans it alone.
 
 One gap: discovery skips hidden folders and `vendor`, `target`, `build`,
 `dist` and the other generated folders. A `members` pattern, or a member's

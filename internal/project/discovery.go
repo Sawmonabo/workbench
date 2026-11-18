@@ -592,11 +592,7 @@ func (r *Inventory) cargoWorkspace(root string) (string, error) {
 		if !ok {
 			return false, nil
 		}
-		listed, _, err := cargoListed(table(workspace), parent, root)
-		if err != nil {
-			return false, err
-		}
-		if !listed && cargoExcluded(table(workspace), parent, root) {
+		if cargoExcluded(table(workspace), parent, root) {
 			return false, nil
 		}
 		found = parent
@@ -629,9 +625,9 @@ func cargoPatterns(workspace map[string]any) string {
 	return ""
 }
 
-// cargoListed reports whether a workspace's members patterns at parent name
-// root, through the same matching as uv workspaces. Cargo accepts "./a/" for
-// "a", so patterns are cleaned first.
+// cargoListed reports whether the workspace at parent makes root a member
+// through its members patterns, matched as for uv workspaces, and does not
+// exclude it. Cargo accepts "./a/" for "a", so patterns are cleaned first.
 func cargoListed(workspace map[string]any, parent, root string) (bool, string, error) {
 	var members []any
 	for _, pattern := range stringsOf(workspace["members"]) {
@@ -642,18 +638,22 @@ func cargoListed(workspace map[string]any, parent, root string) (bool, string, e
 		members = append(members, path.Clean(pattern))
 	}
 	listed, reason, err := workspaceMember(map[string]any{"members": members}, parent, root)
-	return listed && parent != root, reason, err
+	return listed && parent != root && !cargoExcluded(workspace, parent, root), reason, err
 }
 
-// cargoExcluded reports whether an exclude entry of the workspace at parent
-// covers root. Cargo reads each entry as a path prefix, not a glob.
+// cargoExcluded reports whether the workspace at parent excludes root, as
+// Cargo decides it: an exclude entry covers root when it names root's folder
+// or a folder above it, compared by whole folder names, not as a glob; and a
+// members entry that covers root the same way, read as a plain path, keeps
+// it a member. A members glob such as "crates/*" names no real folder that
+// way, so exclude wins over a package a glob lists, and a package named
+// literally wins over exclude.
 func cargoExcluded(workspace map[string]any, parent, root string) bool {
-	for _, entry := range stringsOf(workspace["exclude"]) {
-		if operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), root) {
-			return true
-		}
+	covers := func(entry string) bool {
+		return operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), root)
 	}
-	return false
+	return slices.ContainsFunc(stringsOf(workspace["exclude"]), covers) &&
+		!slices.ContainsFunc(stringsOf(workspace["members"]), covers)
 }
 
 // cargoMembers returns the member folders of the workspace at root, whose
