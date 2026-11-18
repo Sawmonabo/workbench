@@ -396,7 +396,8 @@ func rowPrefix(
 }
 
 // effectLines is an effect's row: its plain name and tags, then one faint line
-// saying what it does. Nothing else stands on the row.
+// saying what its check found to do on this machine, or what the step does
+// when the check found nothing. Nothing else stands on the row.
 func effectLines(plan operation.Plan, index, width int, view planView) []string {
 	effect := plan.Effects[index]
 	row := planRow{rowEffect, index}
@@ -429,11 +430,15 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 		false,
 	)
 	// A step whose check could not finish says so on its row, in place of its
-	// summary, so an unchecked state never reads like an ordinary option.
+	// summary, so an unchecked state never reads like an ordinary option. A
+	// step whose check found something to do shows what, since its summary
+	// says what the step keeps in place, not what is missing here.
 	summary, style := effect.Summary, faint
 	switch {
 	case effect.ProbeNote != "":
 		summary, style = effect.ProbeNote, yellow
+	case effect.Delta != "" && !effect.NoChange:
+		summary = effect.Delta
 	case summary == "":
 		summary = effect.Description
 	}
