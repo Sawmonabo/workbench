@@ -140,7 +140,8 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 			return operation.Fail(
 				operation.ExitBlocked,
 				"provenance",
-				"Unsupported Workbench record; it needs schema_version = 1 and a policies list, nothing else: "+path,
+				"The Workbench record "+path+
+					" needs the integer schema_version = 1 and a policies list, and nothing else; correct it before planning",
 			)
 		}
 		for _, item := range list {
@@ -149,7 +150,8 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 				return operation.Fail(
 					operation.ExitBlocked,
 					"provenance",
-					"Unsupported Workbench record; policies must be strings: "+path,
+					"The Workbench record "+path+
+						" needs a policies list of strings; correct it before planning",
 				)
 			}
 			policies = append(policies, id)

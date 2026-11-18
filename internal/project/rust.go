@@ -125,6 +125,9 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 		provenance = []string{"workspace", "metadata", "workbench"}
 		lints, hasLints = table(workspace)["lints"]
 	}
+	if err := checkRecord(manifest, doc, provenance); err != nil {
+		return nil, err
+	}
 	if hasLints && !lintGroups(lints) {
 		name := "[lints]"
 		if isWorkspace {

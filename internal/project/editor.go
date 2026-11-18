@@ -38,6 +38,34 @@ type adapterDocument struct {
 	Ruff bool `json:"ruff"`
 }
 
+// checkRecord refuses a manifest's Workbench record that the adapter would
+// refuse, naming the record and what it needs: a table at provenance in doc,
+// the decoded manifest at path, with the integer schema_version = 1 and, when
+// present, a policies list.
+func checkRecord(path string, doc map[string]any, provenance []string) error {
+	var record any = doc
+	for _, key := range provenance {
+		value, ok := table(record)[key]
+		if !ok {
+			return nil
+		}
+		record = value
+	}
+	fields, isTable := record.(map[string]any)
+	version, isInteger := fields["schema_version"].(int64)
+	policies, hasPolicies := fields["policies"]
+	_, isList := policies.([]any)
+	if isTable && isInteger && version == 1 && (!hasPolicies || isList) {
+		return nil
+	}
+	return operation.Fail(
+		operation.ExitBlocked,
+		"provenance",
+		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+path+
+			" needs the integer schema_version = 1 and a policies list; correct it before planning",
+	)
+}
+
 // tomlAdapter is the private Python and TOML Kit that edit manifests for
 // proposal.
 type tomlAdapter struct {

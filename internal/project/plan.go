@@ -318,6 +318,13 @@ func (p *Proposal) addPolicy(
 	}
 	documents := make([]adapterDocument, len(selected))
 	for i, project := range selected {
+		if err = checkRecord(
+			filepath.Join(project.Root, "pyproject.toml"),
+			project.metadata,
+			[]string{"tool", "workbench"},
+		); err != nil {
+			return err
+		}
 		documents[i] = adapterDocument{
 			Path:       filepath.Join(project.Root, "pyproject.toml"),
 			Source:     string(p.Inventory.inputs[filepath.Join(project.Root, "pyproject.toml")]),
