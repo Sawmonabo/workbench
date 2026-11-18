@@ -39,9 +39,9 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     [ -x "$HOME/go/bin/$(basename "{{ $mod }}")" ] || command -v "$(basename "{{ $mod }}")" >/dev/null 2>&1 || missing+=("$(basename "{{ $mod }}")")
 {{- end }}
 {{- if eq .versions_mode "pinned" }}
-    policy="set to the pinned versions"
+    policy="set the installed tools to the pinned versions"
 {{- else }}
-    policy="upgraded to the latest"
+    policy="upgrade the installed tools to the latest versions"
 {{- end }}
     # Versions are not compared here, so even with every tool installed the run
     # still sets them, and the probe reports no change only when chezmoi would
@@ -51,9 +51,9 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ ${#missing[@]} -eq 0 ] && [ "${WORKBENCH_PROBE_RAN:-}" = 1 ]; then
         echo "global-tools: = the npm, uv, cargo and Go tools are installed"
     elif [ ${#missing[@]} -eq 0 ]; then
-        echo "global-tools: the npm, uv, cargo and Go tools are installed; versions other than Codex's and Claude Code's are $policy"
+        echo "global-tools: $policy"
     else
-        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }; versions other than Codex's and Claude Code's are $policy"
+        printf -v joined '%s, ' "${missing[@]}"; echo "global-tools: install ${joined%, }"
     fi
     exit 0
 fi

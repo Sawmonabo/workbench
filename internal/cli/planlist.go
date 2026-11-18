@@ -395,9 +395,10 @@ func rowPrefix(
 	return cursor + " " + boxStyle.Render(box) + " ", livePrefix
 }
 
-// effectLines is an effect's row: its plain name and tags, then one faint line
+// effectLines is an effect's row: its plain name and tags, then faint text
 // saying what its check found to do on this machine, or what the step does
-// when the check found nothing. Nothing else stands on the row.
+// when the check found nothing, wrapped to the width so none of what is
+// approved is cut. Nothing else stands on the row.
 func effectLines(plan operation.Plan, index, width int, view planView) []string {
 	effect := plan.Effects[index]
 	row := planRow{rowEffect, index}
@@ -434,23 +435,27 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	// step whose check found something to do shows what, since its summary
 	// says what the step keeps in place, not what is missing here; under
 	// --verbose the panel below the row says it (On this PC), so the row keeps
-	// its summary.
+	// its summary. A step that was turned off says the finding is skipped, so
+	// it never reads as something this apply does; an optional step not ticked
+	// keeps its summary, which says what ticking it would bring.
 	summary, style := effect.Summary, faint
+	found := effect.Delta != "" && !effect.NoChange && (!view.Verbose || view.Interactive)
 	switch {
 	case effect.ProbeNote != "":
 		summary, style = effect.ProbeNote, yellow
-	case effect.Delta != "" && !effect.NoChange && (!view.Verbose || view.Interactive):
+	case found && runs(effect):
 		summary = effect.Delta
+	case found && !effect.Optional:
+		summary = "skipped: " + effect.Delta
 	case summary == "":
 		summary = effect.Description
 	}
 	pad := strings.Repeat(" ", prefixWidth)
 	lines := []string{prefix + titleStyle.Render(title) + tags}
 	if summary != "" {
-		lines = append(
-			lines,
-			pad+style.Render(fit(forTerm(summary), max(width-prefixWidth, 8), false)),
-		)
+		for _, line := range wrapPlain(summary, max(width-prefixWidth, 8)) {
+			lines = append(lines, pad+style.Render(line))
+		}
 	}
 	return lines
 }

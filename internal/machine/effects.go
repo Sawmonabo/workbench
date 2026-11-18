@@ -260,7 +260,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no tool rollback",
 		Title:       "Command-line tools",
 		Summary:     "Claude Code, Codex and the tools Workbench lists",
-		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and on Linux podman and, through go install, gofumpt and govulncheck, which the Mac gets from Homebrew. Their install steps run.",
+		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and on Linux podman and, through go install, gofumpt and govulncheck, which the Mac gets from Homebrew. Their install steps run. Each run also sets the versions of the tools that are installed, other than Codex's and Claude Code's: to the pinned ones in pinned mode, to the latest in latest mode.",
 		Touches:     "the global tool folders under your home folder",
 		RunsAs:      "you; downloads packages and runs their install steps; podman uses sudo",
 		Undo:        "Not reverted automatically: uninstall a tool with npm, uv, cargo or go",

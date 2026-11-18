@@ -1183,7 +1183,7 @@ synthetic answers.
   script. With Language runtimes, Command-line tools and tmux plugins ticked
   too and applied, the next plan listed none of the five steps and its apply
   ran no step script. Deleting ruff, gofumpt and cargo-deny listed
-  `global-tools: install ruff, cargo-deny, gofumpt; …`, the apply put all
+  `global-tools: install ruff, cargo-deny, gofumpt`, the apply put all
   three back (uv reinstalling ruff), and the next plan did not list the
   step. With chezmoi 2.70.3 alone, a run-once and a run-on-change script that
   had run both ran again as plain `run_` scripts with the same content, and
