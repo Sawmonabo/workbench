@@ -685,7 +685,7 @@ func (m *guardView) inDetails() bool {
 // critical, and the clock, on one line; a window too narrow for all of them
 // loses the clock.
 func (m *guardView) headLine() string {
-	line := bold.Render("[WorkBench] Guard memory") + "  "
+	line := bold.Render("[WorkBench] Agent Guard") + "  "
 	if m.connected {
 		line += guardGreen.Render(forTerm("●")) + " watching"
 	} else {

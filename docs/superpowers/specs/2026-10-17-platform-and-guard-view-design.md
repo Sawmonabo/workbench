@@ -306,7 +306,7 @@ Oct 17 14:50:00 INFO  idle
 A full-screen Bubble Tea program in the alternate screen.
 
 ```
-[WorkBench] Guard memory  ● watching · 11:33:32 PM
+[WorkBench] Agent Guard  ● watching · 11:33:32 PM
 
 5 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 
