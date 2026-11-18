@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: rust-format
+      glob: "*.rs"
+      run: cargo fmt --all --check
+    - name: rust-lint
+      glob: "*.rs"
+      run: cargo clippy --workspace --all-targets --locked -- -D warnings
+    - name: rust-dependencies
+      glob: "{Cargo.toml,Cargo.lock,*/Cargo.toml}"
+      run: cargo metadata --locked --format-version 1 >/dev/null && cargo deny --offline check bans sources
+    - name: secrets
+      run: gitleaks git --staged --redact --no-banner
+pre-push:
+  jobs:
+    - name: rust-test
+      run: cargo test --workspace --locked

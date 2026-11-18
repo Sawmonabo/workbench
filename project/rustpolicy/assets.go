@@ -47,3 +47,13 @@ var Extensions []byte
 //
 //go:embed gitignore.entries
 var Ignore string
+
+// Hooks holds the policy's lefthook jobs (lefthook.yml), which --hooks
+// combines with the other selected languages' jobs into one lefthook.yml.
+//
+//go:embed lefthook.yml
+var Hooks []byte
+
+// Ecosystem is the Dependabot package-ecosystem --dependabot lists for the
+// policy's manifests and lockfile.
+const Ecosystem = "cargo"

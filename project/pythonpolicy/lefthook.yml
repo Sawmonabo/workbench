@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: python-format
+      glob: "*.py"
+      run: uv run --locked ruff format --check
+    - name: python-lint
+      glob: "*.py"
+      run: uv run --locked ruff check
+    - name: python-dependencies
+      glob: "{pyproject.toml,uv.lock,*/pyproject.toml}"
+      run: uv lock --check
+    - name: secrets
+      run: gitleaks git --staged --redact --no-banner
+pre-push:
+  jobs:
+    - name: python-test
+      run: uv run --locked pytest

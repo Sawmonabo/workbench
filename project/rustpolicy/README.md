@@ -176,6 +176,45 @@ macros, and a CI run downloads the crates' dependencies, the RustSec advisory
 database and the pinned tools; the plan lists that as the
 `ci-workflow-checks` effect. File recovery cannot undo a CI run.
 
+`--hooks` writes `lefthook.yml` at the repository root, whole, and only when
+the repository has no lefthook configuration. lefthook reads its main
+configuration from `lefthook`, `.lefthook` or `.config/lefthook` with the
+extension `.yml`, `.yaml`, `.json`, `.jsonc` or `.toml`, and uses the first it
+finds; any of them is kept byte for byte and listed as kept, and a second one
+is named. lefthook merges a `lefthook-local.*` file over the written one, and
+the plan says so. The Rust jobs come from `lefthook.yml` in this folder:
+
+| Hook | Job | Staged files that run it | Command |
+| --- | --- | --- | --- |
+| pre-commit | `rust-format` | `*.rs` | `cargo fmt --all --check` |
+| pre-commit | `rust-lint` | `*.rs` | `cargo clippy --workspace --all-targets --locked -- -D warnings` |
+| pre-commit | `rust-dependencies` | `{Cargo.toml,Cargo.lock,*/Cargo.toml}` | `cargo metadata --locked --format-version 1 >/dev/null && cargo deny --offline check bans sources` |
+| pre-commit | `secrets` | any | `gitleaks git --staged --redact --no-banner` |
+| pre-push | `rust-test` | any | `cargo test --workspace --locked` |
+
+A job with a glob runs only when a staged file matches it; lefthook's `*`
+matches across folders, and a name without `*` matches at the root only.
+With other languages selected, their jobs join the same file, and `secrets`
+runs once, after them. `cargo metadata --locked` fails when `Cargo.lock` is missing or stale, and `--offline` keeps cargo-deny's advisory database download out of the hook; the advisories check runs in CI. The lint job adds `-D warnings`, so a commit that passes it passes CI's clippy. Workbench never runs `lefthook install`,
+which writes into `.git/hooks`: run it once per clone. The plan lists the
+`git-hook-checks` effect, because once the hooks are installed every commit
+and push runs these commands, which build and test project code.
+
+`--dependabot` writes `.github/dependabot.yml`, whole, only when neither
+`.github/dependabot.yml` nor `.github/dependabot.yaml` exists. It has weekly
+`cargo` and `github-actions` entries at `directory: /`, plus the other
+selected languages' ecosystems. An existing file is kept byte for byte, and the
+plan names the ecosystems it has no entry for; both names at once stop the
+plan, because GitHub reads one, and so does a file that is not valid YAML. A
+Renovate configuration (`renovate.json`, `renovate.jsonc` or `renovate.json5`
+at the root or in `.github/`, `.renovaterc`, `.renovaterc.json`,
+`.renovaterc.jsonc`, `.renovaterc.json5`, or a `renovate` key in the root
+`package.json`) makes the plan warn that two update bots would open pull
+requests for the same dependencies; the file is still written.
+
+Both need the selected folder to be the repository root (it holds `.git`) and
+every selected project to be at it.
+
 ## Recovery
 
 Every written file, member manifests included, and a `.vscode/` folder

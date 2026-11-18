@@ -1,0 +1,18 @@
+pre-commit:
+  parallel: true
+  jobs:
+    - name: go-format
+      glob: "*.go"
+      run: golangci-lint fmt --diff ./...
+    - name: go-lint
+      glob: "*.go"
+      run: golangci-lint run
+    - name: go-dependencies
+      glob: "go.{mod,sum}"
+      run: go mod tidy -diff
+    - name: secrets
+      run: gitleaks git --staged --redact --no-banner
+pre-push:
+  jobs:
+    - name: go-test
+      run: go test ./...

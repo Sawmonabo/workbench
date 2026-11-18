@@ -34,12 +34,14 @@ for base in [root / ".chezmoiroot", root / "home", root / "project"]:
             if relative.parts[0] == "project" and relative.as_posix() not in {
                 "project/pythonpolicy/policy.toml", "project/pythonpolicy/gitignore.entries",
                 "project/pythonpolicy/extensions.json", "project/pythonpolicy/checks.example.yml",
+                "project/pythonpolicy/lefthook.yml",
                 "project/gopolicy/golangci.yml", "project/gopolicy/gitignore.entries",
-                "project/gopolicy/extensions.json",
+                "project/gopolicy/extensions.json", "project/gopolicy/record.toml",
+                "project/gopolicy/lefthook.yml",
                 "project/rustpolicy/lints.toml", "project/rustpolicy/profile.toml",
                 "project/rustpolicy/rustfmt.toml", "project/rustpolicy/deny.toml",
                 "project/rustpolicy/mbx.toml", "project/rustpolicy/gitignore.entries",
-                "project/rustpolicy/extensions.json",
+                "project/rustpolicy/extensions.json", "project/rustpolicy/lefthook.yml",
             }:
                 continue
             if any(part in {".git", "__pycache__", ".venv", ".env", ".DS_Store"} for part in relative.parts):

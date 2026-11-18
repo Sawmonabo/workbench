@@ -29,3 +29,13 @@ var Ignore string
 //
 //go:embed record.toml
 var RecordHeader string
+
+// Hooks holds the policy's lefthook jobs (lefthook.yml), which --hooks
+// combines with the other selected languages' jobs into one lefthook.yml.
+//
+//go:embed lefthook.yml
+var Hooks []byte
+
+// Ecosystem is the Dependabot package-ecosystem --dependabot lists for the
+// policy's manifests and lockfile.
+const Ecosystem = "gomod"

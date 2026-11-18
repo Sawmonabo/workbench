@@ -81,7 +81,9 @@ const projectApplyLong = "Plan Workbench's settings for the project at PATH: Ruf
 	"opt-ins to new workspace lints, and rustfmt.toml, deny.toml and .mbx.toml where " +
 	"the project has none. Show the plan and apply it once " +
 	"approved, saving a checkpoint that project revert restores. --extensions, " +
-	"--gitignore and --ci add optional changes. --resolve-dependencies lets uv resolve " +
+	"--gitignore, --ci, --hooks and --dependabot add optional changes; the last three " +
+	"need the projects at the repository root. --hooks never runs lefthook install: " +
+	"run it once per clone. --resolve-dependencies lets uv resolve " +
 	"missing Python check tools, an external effect, and --allow-build-hooks (only with " +
 	"it) lets that run project build code. --dry-run previews offline without changing " +
 	"anything. Without a terminal, or for a coding agent, pass --approve-plan DIGEST " +
@@ -96,7 +98,8 @@ func projectApplyCommand(o *options) *cobra.Command {
 			"  workbench project apply . --language python --extensions --gitignore\n" +
 			"  workbench project apply . --language python --resolve-dependencies\n" +
 			"  workbench project apply . --language go --extensions --gitignore --ci\n" +
-			"  workbench project apply . --language rust --extensions --gitignore --ci",
+			"  workbench project apply . --language rust --extensions --gitignore --ci\n" +
+			"  workbench project apply . --hooks --dependabot",
 		Args: cobra.MaximumNArgs(1),
 	}
 	command.Flags().
@@ -113,18 +116,17 @@ func projectApplyCommand(o *options) *cobra.Command {
 		Bool("allow-build-hooks", false, "Explicitly select potential native build-code execution during dependency resolution")
 	command.Flags().
 		Bool("ci", false, "Add Workbench's check job to the existing workflow that runs the tests; other layouts get a manual proposal")
+	command.Flags().
+		Bool("hooks", false, "Write lefthook.yml with format, lint, dependency-file and secret checks before commit and tests before push, when the repository has no lefthook configuration")
+	command.Flags().
+		Bool("dependabot", false, "Write .github/dependabot.yml with weekly updates for the selected languages and GitHub Actions, when the repository has none")
 	o.localBuildFlag(command)
 	o.approveFlag(command)
 	command.RunE = o.action(
 		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			var options project.ApplyOptions
-			options.Extensions, _ = cmd.Flags().GetBool("extensions")
-			options.Ignore, _ = cmd.Flags().GetBool("gitignore")
-			options.ResolveDependencies, _ = cmd.Flags().GetBool("resolve-dependencies")
-			options.AllowBuildHooks, _ = cmd.Flags().GetBool("allow-build-hooks")
-			options.CI, _ = cmd.Flags().GetBool("ci")
+			options := projectApplyOptions(cmd)
 			if options.AllowBuildHooks && !options.ResolveDependencies {
 				return result, operation.Fail(
 					operation.ExitInvalid,
@@ -167,6 +169,12 @@ func projectApplyCommand(o *options) *cobra.Command {
 			if err == nil {
 				shownAtPrompt(o, &result.Results[0])
 				result.Summary = "Configured the project at " + c.ShowPath(c.Scope.Root)
+				if hooks := proposal.HooksFile(); hooks != "" {
+					result.Summary += "; run lefthook install there once per clone to turn on the Git hooks in " +
+						c.ShowPath(
+							hooks,
+						)
+				}
 			}
 			status := operation.StatusOf(err)
 			result.Results = append(
@@ -181,6 +189,19 @@ func projectApplyCommand(o *options) *cobra.Command {
 		},
 	)
 	return command
+}
+
+// projectApplyOptions reads project apply's optional-change flags.
+func projectApplyOptions(cmd *cobra.Command) project.ApplyOptions {
+	var options project.ApplyOptions
+	options.Extensions, _ = cmd.Flags().GetBool("extensions")
+	options.Ignore, _ = cmd.Flags().GetBool("gitignore")
+	options.ResolveDependencies, _ = cmd.Flags().GetBool("resolve-dependencies")
+	options.AllowBuildHooks, _ = cmd.Flags().GetBool("allow-build-hooks")
+	options.CI, _ = cmd.Flags().GetBool("ci")
+	options.Hooks, _ = cmd.Flags().GetBool("hooks")
+	options.Dependabot, _ = cmd.Flags().GetBool("dependabot")
+	return options
 }
 
 func projectRevertCommand(o *options) *cobra.Command {

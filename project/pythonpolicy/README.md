@@ -69,6 +69,45 @@ tags on 2026-09-22:
 Unsupported `--ci` requests report the precise ownership/preservation gate without
 writing a duplicate workflow or changing providers/branch protection.
 
+`--hooks` writes `lefthook.yml` at the repository root, whole, and only when
+the repository has no lefthook configuration. lefthook reads its main
+configuration from `lefthook`, `.lefthook` or `.config/lefthook` with the
+extension `.yml`, `.yaml`, `.json`, `.jsonc` or `.toml`, and uses the first it
+finds; any of them is kept byte for byte and listed as kept, and a second one
+is named. lefthook merges a `lefthook-local.*` file over the written one, and
+the plan says so. The Python jobs come from `lefthook.yml` in this folder:
+
+| Hook | Job | Staged files that run it | Command |
+| --- | --- | --- | --- |
+| pre-commit | `python-format` | `*.py` | `uv run --locked ruff format --check` |
+| pre-commit | `python-lint` | `*.py` | `uv run --locked ruff check` |
+| pre-commit | `python-dependencies` | `{pyproject.toml,uv.lock,*/pyproject.toml}` | `uv lock --check` |
+| pre-commit | `secrets` | any | `gitleaks git --staged --redact --no-banner` |
+| pre-push | `python-test` | any | `uv run --locked pytest` |
+
+A job with a glob runs only when a staged file matches it; lefthook's `*`
+matches across folders, and a name without `*` matches at the root only.
+With other languages selected, their jobs join the same file, and `secrets`
+runs once, after them. The `python-test` job is written only when the dev group (with the groups it includes) lists pytest; otherwise the file has no pre-push hook and the plan says so, because Workbench invents no tests. `uv lock --check` passes offline while the manifests match the lockfile, and needs the package index once a manifest changes. Workbench never runs `lefthook install`,
+which writes into `.git/hooks`: run it once per clone. The plan lists the
+`git-hook-checks` effect, because once the hooks are installed every commit
+and push runs these commands, which build and test project code.
+
+`--dependabot` writes `.github/dependabot.yml`, whole, only when neither
+`.github/dependabot.yml` nor `.github/dependabot.yaml` exists. It has weekly
+`uv` and `github-actions` entries at `directory: /`, plus the other
+selected languages' ecosystems. An existing file is kept byte for byte, and the
+plan names the ecosystems it has no entry for; both names at once stop the
+plan, because GitHub reads one, and so does a file that is not valid YAML. A
+Renovate configuration (`renovate.json`, `renovate.jsonc` or `renovate.json5`
+at the root or in `.github/`, `.renovaterc`, `.renovaterc.json`,
+`.renovaterc.jsonc`, `.renovaterc.json5`, or a `renovate` key in the root
+`package.json`) makes the plan warn that two update bots would open pull
+requests for the same dependencies; the file is still written.
+
+Both need the selected folder to be the repository root (it holds `.git`) and
+every selected project to be at it.
+
 Application writes use the shared project checkpoint engine.
 `workbench project revert PATH` lets you pick a checkpoint at a terminal, or
 lists them for `--checkpoint UUID`, then asks you to approve its exact plan.

@@ -24,6 +24,8 @@ type ApplyOptions struct {
 	ResolveDependencies bool
 	AllowBuildHooks     bool
 	CI                  bool
+	Hooks               bool
+	Dependabot          bool
 }
 
 // Proposal is a project apply plan with the exact changes it approves.
@@ -37,7 +39,14 @@ type Proposal struct {
 	applied map[string]operation.Image
 	// toml is the manifest adapter, once a policy has needed it.
 	toml *tomlAdapter
+	// hooks is the lefthook.yml the plan writes, or "".
+	hooks string
 }
+
+// HooksFile returns the lefthook.yml the plan writes, or "" when it writes
+// none. Apply never runs lefthook install; the person does, once per clone.
+func (p *Proposal) HooksFile() string { return p.hooks }
+
 type nativeRequest struct {
 	Owner   string
 	Missing []string
@@ -125,6 +134,11 @@ func Plan(
 			return p, err
 		}
 	}
+	if options.Hooks || options.Dependabot {
+		if err = p.addRepositoryFiles(c, selected, options); err != nil {
+			return p, err
+		}
+	}
 	return p, p.finish(c)
 }
 
@@ -138,14 +152,14 @@ func policyContent(language string) (id, content string) {
 	switch language {
 	case "go":
 		return gopolicy.ID, string(gopolicy.Golangci) + string(gopolicy.Extensions) +
-			gopolicy.Ignore + gopolicy.RecordHeader
+			gopolicy.Ignore + gopolicy.RecordHeader + string(gopolicy.Hooks) + gopolicy.Ecosystem
 	case "rust":
 		return rustpolicy.ID, rustpolicy.Lints + rustpolicy.Profile + rustpolicy.Rustfmt +
 			string(rustpolicy.Deny) + string(rustpolicy.Mbx) + string(rustpolicy.Extensions) +
-			rustpolicy.Ignore + adapter
+			rustpolicy.Ignore + string(rustpolicy.Hooks) + rustpolicy.Ecosystem + adapter
 	default:
 		return pythonpolicy.ID, pythonpolicy.Policy + string(pythonpolicy.Extensions) +
-			pythonpolicy.Ignore + adapter
+			pythonpolicy.Ignore + string(pythonpolicy.Hooks) + pythonpolicy.Ecosystem + adapter
 	}
 }
 
@@ -653,6 +667,19 @@ func (p *Proposal) addParent(c operation.Context, path string) error {
 }
 
 func missingTools(doc map[string]any) []string {
+	found := devRequirements(doc)
+	var missing []string
+	for _, name := range []string{"ruff", "basedpyright"} {
+		if !found[name] {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// devRequirements returns the normalized names the dev dependency group lists,
+// with the groups it includes, and tool.uv.dev-dependencies.
+func devRequirements(doc map[string]any) map[string]bool {
 	found := map[string]bool{}
 	groups := table(doc["dependency-groups"])
 	// Preserve other groups and existing versions. The default dev group is the
@@ -675,13 +702,7 @@ func missingTools(doc map[string]any) []string {
 	for _, value := range stringsOf(nested(doc, "tool", "uv")["dev-dependencies"]) {
 		found[requirementName(value)] = true
 	}
-	var missing []string
-	for _, name := range []string{"ruff", "basedpyright"} {
-		if !found[name] {
-			missing = append(missing, name)
-		}
-	}
-	return missing
+	return found
 }
 
 func array(value any) []any { result, _ := value.([]any); return result }
