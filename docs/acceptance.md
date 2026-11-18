@@ -795,10 +795,16 @@ synthetic answers.
   and `uv lock --check` passed offline with an empty cache until a manifest
   changed. A `pyproject.toml` or `Cargo.toml` record whose `schema_version`
   is `2`, `"1"`, `1.0` or missing stopped the plan naming the record's table
-  and manifest. Not observed: Linux, a Dependabot run on GitHub (grouped pull
-  requests, the auto-merge workflow on a real pull request, its token
-  reading the checks of a private repository, or `gh pr merge --auto` with
-  and without a required check), a Go module
+  and manifest. On a public GitHub repository with no branch rule (Nov 18,
+  2026), Dependabot answered the grouped configuration with one pull request
+  of eight Go module updates and closed its five single ones; the auto-merge
+  job (without the branch deletion) read the checks with its own token,
+  waited for the 15 CI checks to pass and squash-merged it, and the merged
+  branch stayed although "Automatically delete head branches" was on. Not
+  observed: Linux, a Dependabot run on GitHub (grouped pull
+  requests on a private repository, the workflow's token reading the checks
+  there, `gh pr merge --auto` with a required check, or the job deleting the
+  merged branch), a Go module
   or crate with registry dependencies in the hooks, or lefthook installed by
   the machine step.
 

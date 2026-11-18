@@ -797,6 +797,14 @@ tutorial:
   no "Allow auto-merge". With no required check, `gh pr merge --auto` alone
   would therefore merge when the workflow runs, before CI finishes and
   whatever its result, which is why the job waits first.
+- **Branch.** After its merge command, the job reads the pull request's
+  state and, when it is `MERGED`, deletes the head branch with
+  `DELETE /repos/{owner}/{repo}/git/refs/heads/{branch}`: on a repository
+  with "Automatically delete head branches" on, the branch of a pull request
+  merged with the workflow token stayed, with no `head_ref_deleted` event. A
+  refused deletion is printed and does not fail the job. A pull request left
+  open with auto-merge on is merged by GitHub later, and its branch is left
+  to that setting.
 
 The plan lists the `dependabot-auto-merge` effect and warns, each time it
 writes the workflow, that auto-merge is GitHub only, that it works best with

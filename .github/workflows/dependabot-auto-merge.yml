@@ -24,6 +24,7 @@ jobs:
     env:
       PR_URL: ${{ github.event.pull_request.html_url }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      HEAD_REF: ${{ github.event.pull_request.head.ref }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Read the Dependabot update
@@ -36,8 +37,15 @@ jobs:
           steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: |
-          # Only the commit this run was started for is merged.
-          merge() { gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"; }
+          # Only the commit this run was started for is merged. GitHub does not delete the
+          # branch of a pull request this job's token merged, so the job deletes it.
+          merge() {
+            gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL" || return
+            if [ "$(gh pr view "$PR_URL" --json state --jq .state)" = MERGED ]; then
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$HEAD_REF" >/dev/null ||
+                echo "The merged branch $HEAD_REF could not be deleted."
+            fi
+          }
           # Where a branch rule requires checks, GitHub waits for them itself.
           required=$(gh pr checks "$PR_URL" --required --json name --jq length 2>/dev/null) || required=0
           if [ "$required" -gt 0 ]; then

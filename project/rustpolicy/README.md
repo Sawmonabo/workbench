@@ -241,7 +241,11 @@ finish leave the pull request open and fail the job with the reason; running
 the job again, or a new push to the pull request, tries again. The merge
 names the commit the run started for (`--match-head-commit`), so a commit
 pushed meanwhile is never merged unchecked, and a new run for the same pull
-request cancels the old one. The job asks for `contents: write` and
+request cancels the old one. When the job's own command merged the pull
+request, it deletes the update's branch, which GitHub's "Automatically delete
+head branches" was seen not to do for a merge made with the workflow token; a
+pull request GitHub merges later by auto-merge leaves its branch to that
+setting. The job asks for `contents: write` and
 `pull-requests: write` to merge and `actions: read`, `checks: read` and
 `statuses: read` to read the other checks, which a Dependabot-triggered run
 gets only by declaring them; when the checks cannot be read, the job fails
