@@ -1,8 +1,7 @@
 # Go and Rust project policy and the mbx step
 
 Status: design, Nov 17, 2026. Nothing here is built yet. It adds two languages
-to `workbench project apply` (renamed from `project configure` in a separate
-change), two new flags for every language (`--hooks`, `--dependabot`), and one
+to `workbench project apply`, two new flags for every language (`--hooks`, `--dependabot`), and one
 new machine step that installs mbx, a shared Rust compile cache and scheduler.
 
 The work ships in four steps (section 8). Each step can be tried on a real
