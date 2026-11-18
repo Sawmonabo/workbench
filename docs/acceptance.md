@@ -1083,6 +1083,19 @@ synthetic answers.
   mode: the Claude Code settings merge replaced copies of the managed hooks
   from another folder with the current `workbench agent costs ingest` and
   `workbench agent guard pre`, keeping the user's own hooks.
+- On November 17, 2026, on macOS with a local build, `doctor` in a disposable
+  home holding every Claude Code hook printed `agent-hooks-claude: complete`;
+  with three of them removed it printed `absent`, naming `1 of 2 agent costs
+  hooks (SessionEnd) and 2 of 4 agent guard hooks (PreToolUse, PostToolUse)`;
+  with none it printed `has no agent costs or agent guard hooks`. Node, Python
+  and Rust, not installed there, read `absent` on their `runtime-` lines, and
+  `runtime-go` and `runtime-bun` showed the Homebrew versions. Pinned mode,
+  the Linux pin comparisons and Codex's untrusted and disabled hooks were not
+  observed.
+- On November 17, 2026, in an Ubuntu 24.04 arm64 container (Docker 29.8.2),
+  uv 0.13.9 installed Python 3.12.16, 3.13.18, 3.14.10 and 3.15.2, and
+  `cargo install --locked` built cargo-audit 0.22.2 and cargo-deny 0.20.2
+  with Rust 1.100.0.
 
 ## Unqualified release gates
 
