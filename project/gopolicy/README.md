@@ -70,7 +70,8 @@ is. Otherwise a negation line other than `!.env.example` or
 change what it re-includes.
 
 `--ci` adds one job, `workbench-go`, to the existing GitHub workflow that has
-a `run` step containing `go test`. It needs:
+a `run` step running `go test` (matched as a command, so `cargo test` does
+not count). It needs:
 
 - the selected folder to be the repository root (it holds `.git`), because
   GitHub reads workflows there;

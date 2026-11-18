@@ -58,10 +58,12 @@ There are two kinds of file, and each gets one rule:
 
 1. **Settings in a shared manifest** (`Cargo.toml`, `pyproject.toml`): add
    what is missing and keep every existing value. This is Python's rule,
-   unchanged and run by the same adapter. A project that sets
-   `unsafe_code = "forbid"` keeps `forbid`. A project with
-   `clippy::all = "deny"` keeps `deny`. Existing rule tables are never
-   extended beyond the keys the policy names.
+   run by the same adapter. An existing rule selection is the project's own
+   and gets no rule: Python leaves out the Ruff selection when the project
+   has one, and Rust adds no lint to an existing `[lints]` or
+   `[workspace.lints]` table (section 4.2). A project that sets
+   `unsafe_code = "forbid"` keeps `forbid`, and one with
+   `clippy::all = "deny"` keeps `deny` with nothing added beside it.
 2. **Whole files a tool reads on its own**:
    - `.golangci.yml`
    - `lefthook.yml`
@@ -719,8 +721,8 @@ The `workbench-rust` steps:
   "Install or update the given toolchains, or by default the active
   toolchain", and in a scratch crate it printed "the active toolchain
   `1.99.0-aarch64-apple-darwin` has been installed ... overridden by
-  `.../rust-toolchain.toml`". The runner image's rustup version is
-  unverified;
+  `.../rust-toolchain.toml`". The `actions/runner-images` readme for
+  ubuntu-24.04 lists Rustup 1.29.3, the same version (not run there);
 - `cargo fmt --all --check`;
 - `cargo clippy --workspace --all-targets --locked -- -D warnings`, so
   `--ci` also needs an existing `Cargo.lock` at the root;
@@ -730,8 +732,8 @@ The `workbench-rust` steps:
   then `cargo-deny --locked check advisories bans sources`;
 - gitleaks, the same four steps as Go's.
 
-Each `run` is one line, for the reason Go's are. No Rust action needs a pin.
-The runner image's rustup is enough (its presence there is unverified).
+Each `run` is one line, for the reason Go's are. No Rust action needs a pin:
+the runner image's rustup is enough.
 actionlint 1.7.12 passed a workflow with the job.
 
 Each tool keeps its one pin in `versions.toml`: golangci-lint and gitleaks in

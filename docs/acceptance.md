@@ -681,8 +681,8 @@ synthetic answers.
   `workbench-go` job with a bumped `uses:` ref was kept and reported; a changed
   `run` line stopped the plan. A Python and Go project at one root with every
   option applied as one checkpoint and reverted exactly; a uv project with a
-  nested Go module and `go.work` still planned, with a warning. A uv project's
-  plan with `--extensions --gitignore --ci` applied and reverted exactly.
+  nested Go module and `go.work` still planned, with a warning. A uv project
+  with `--extensions --gitignore --ci` applied and reverted exactly.
   golangci-lint 2.15.0 reads a configuration from parent folders, and rejects
   `version: 2` in `config verify` while `run` accepts it. Not observed: a CI
   run of the `workbench-go` job on GitHub (setup-go without a `go.sum`, the
