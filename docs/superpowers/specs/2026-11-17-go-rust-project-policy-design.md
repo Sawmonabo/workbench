@@ -697,7 +697,8 @@ govulncheck on Linux (`[linux_binaries]` and `[linux_go_tools]`).
 ### 6.2 `--dependabot`: `.github/dependabot.yml`
 
 The file is written whole, only when neither `.github/dependabot.yml` nor
-`.github/dependabot.yaml` exists (GitHub reads either). It holds weekly
+`.github/dependabot.yaml` exists (Dependabot reads either; dependabot-core's
+`config/file_fetcher.rb` takes `.yml` first). It holds weekly
 entries for each selected language's ecosystem (`gomod`, `cargo` or `uv`)
 plus `github-actions`, all at `directory: /`. GitHub's Dependabot options
 reference lists these four YAML values and `weekly` as a `schedule.interval`;
@@ -711,7 +712,8 @@ root or in `.github/` (or `.gitlab/`, only on GitLab), `.renovaterc`,
 key in `package.json` (`lib/config/app-strings.ts`). When one of these exists,
 the plan warns that two update bots would compete, and still writes the file.
 An existing Dependabot file is kept, and the plan names the ecosystems it
-lacks; both names at once, or a file that is not valid YAML, stop the plan.
+lacks, and with both names it names the ignored `.yaml`; a file that is not
+valid YAML stops the plan.
 
 ### 6.3 `--ci`
 

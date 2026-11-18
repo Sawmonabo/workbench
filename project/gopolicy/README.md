@@ -135,8 +135,9 @@ and push runs these commands, which build and test project code.
 `.github/dependabot.yml` nor `.github/dependabot.yaml` exists. It has weekly
 `gomod` and `github-actions` entries at `directory: /`, plus the other
 selected languages' ecosystems. An existing file is kept byte for byte, and the
-plan names the ecosystems it has no entry for; both names at once stop the
-plan, because GitHub reads one, and so does a file that is not valid YAML. A
+plan names the ecosystems it has no entry for; a file that is not valid YAML
+stops the plan. With both names, Dependabot reads `dependabot.yml`, and the
+plan names the ignored `dependabot.yaml`. A
 Renovate configuration (`renovate.json`, `renovate.jsonc` or `renovate.json5`
 at the root or in `.github/`, `.renovaterc`, `.renovaterc.json`,
 `.renovaterc.jsonc`, `.renovaterc.json5`, or a `renovate` key in the root

@@ -71,8 +71,9 @@ var lefthookConfigs, lefthookLocals = func() (main, local []string) {
 	return main, local
 }()
 
-// dependabotConfigs are the two names GitHub reads Dependabot's configuration
-// from.
+// dependabotConfigs are the two names Dependabot reads its configuration
+// from, in its order: dependabot-core's config file fetcher takes the first
+// that exists.
 var dependabotConfigs = []string{
 	filepath.Join(".github", "dependabot.yml"),
 	filepath.Join(".github", "dependabot.yaml"),
@@ -171,18 +172,12 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 	}
 	var hooks hookFile
 	var ids []string
+	noTests := false
 	for _, language := range languages {
 		jobs := languageHooks[language]
 		if language == "python" && !p.listsPytest(selected, root) {
 			jobs.PrePush.Jobs = nil
-			p.Plan.Warnings = append(
-				p.Plan.Warnings,
-				"No pre-push test job for Python: the dev group in "+
-					filepath.Join(
-						root,
-						"pyproject.toml",
-					)+" lists no pytest, and Workbench invents no tests",
-			)
+			noTests = true
 		}
 		hooks.PreCommit.Parallel = hooks.PreCommit.Parallel || jobs.PreCommit.Parallel
 		hooks.PreCommit.Jobs = appendJobs(hooks.PreCommit.Jobs, jobs.PreCommit.Jobs)
@@ -214,6 +209,16 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 			)
 		}
 		return nil
+	}
+	if noTests {
+		p.Plan.Warnings = append(
+			p.Plan.Warnings,
+			"No pre-push test job for Python: the dev group in "+
+				filepath.Join(
+					root,
+					"pyproject.toml",
+				)+" lists no pytest, and Workbench invents no tests",
+		)
 	}
 	for _, name := range lefthookLocals {
 		local, err := p.readInput(filepath.Join(root, name))
@@ -342,8 +347,7 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 			found = append(found, filepath.Join(root, name))
 		}
 	}
-	switch len(found) {
-	case 0:
+	if len(found) == 0 {
 		return p.add(
 			c,
 			filepath.Join(root, dependabotConfigs[0]),
@@ -351,16 +355,7 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 			"Create the Dependabot configuration: weekly update pull requests for "+
 				listed(ecosystems)+" at the repository root",
 		)
-	case 1:
-	default:
-		return operation.Fail(
-			operation.ExitBlocked,
-			"dependabot",
-			"GitHub reads one Dependabot configuration, and both "+strings.Join(found, " and ")+
-				" exist; keep one before planning",
-		)
 	}
-	p.keep(root, found[0], dependabotConfigs[0], data, "Dependabot")
 	var config struct {
 		Updates []dependabotUpdate `yaml:"updates"`
 	}
@@ -369,6 +364,13 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 			operation.ExitInvalid,
 			"dependabot",
 			"Invalid Dependabot configuration; correct it before planning: "+found[0],
+		)
+	}
+	p.keep(root, found[0], dependabotConfigs[0], data, "Dependabot")
+	if len(found) > 1 {
+		p.Plan.Warnings = append(
+			p.Plan.Warnings,
+			"Dependabot reads "+found[0]+" and ignores "+found[1],
 		)
 	}
 	var missing []string
