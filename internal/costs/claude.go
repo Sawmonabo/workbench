@@ -678,12 +678,12 @@ func (claude) Observations(home string) []Observation {
 	return out
 }
 
-// Hooks reports, for each session event, whether Claude Code's settings.json
-// runs the ingest hook synchronously: HookOK, else HookMissing. An async hook
-// does not count: Claude Code kills a background hook still running when a
-// session ends in headless (-p) mode, and the ingest hook returns within
+// Hooks reports, for each of hooks, whether Claude Code's settings.json runs
+// it on its event synchronously: HookOK, else HookMissing. An async hook does
+// not count: Claude Code kills a background hook still running when a session
+// ends in headless (-p) mode, and Workbench's hooks return within
 // milliseconds anyway. Claude Code has no hook trust or per-hook switch.
-func (claude) Hooks(home string) map[string]string {
+func (claude) Hooks(home string, hooks []HookCommand) []string {
 	var settings struct {
 		Hooks map[string][]struct {
 			Hooks []struct {
@@ -695,17 +695,15 @@ func (claude) Hooks(home string) map[string]string {
 	if raw, err := os.ReadFile(filepath.Join(ClaudeDir(home), "settings.json")); err == nil {
 		decode(raw, &settings)
 	}
-	out := map[string]string{}
-	for _, event := range []string{"SessionStart", "SessionEnd"} {
-		installed := false
-		for _, group := range settings.Hooks[event] {
+	out := make([]string, len(hooks))
+	for i, want := range hooks {
+		out[i] = HookMissing
+		for _, group := range settings.Hooks[want.Event] {
 			for _, hook := range group.Hooks {
-				installed = installed || isIngestHook(hook.Command) && !hook.Async
+				if want.Command.MatchString(hook.Command) && !hook.Async {
+					out[i] = HookOK
+				}
 			}
-		}
-		out[event] = HookMissing
-		if installed {
-			out[event] = HookOK
 		}
 	}
 	return out

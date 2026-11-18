@@ -2,10 +2,16 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
+	"syscall"
+	"time"
 
+	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/guard"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
@@ -14,11 +20,13 @@ import (
 func doctorCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check what is installed and applied, tool versions and the host, without repair",
-		Long: "Show Workbench's version, what is installed and last applied, any apply that " +
-			"did not finish, the steps you skipped or selected, tool versions and host checks, " +
-			"and a CLAUDE_CONFIG_DIR or CODEX_HOME that moves an agent away from the settings " +
-			"Workbench installs. It repairs nothing; workbench apply or workbench update does.",
+		Short: "Check Workbench, your runtimes, the agent hooks and the guard, without repair",
+		Long: "Show what Workbench has installed and applied, the steps you skipped or " +
+			"selected, its tools and the host; then Node, Python, Rust, Go and bun against " +
+			"their pins, the costs and guard hooks in Claude Code and Codex, and whether the " +
+			"guard's watcher runs. It reads only this machine and repairs nothing. A missing " +
+			"prerequisite returns nonzero; a missing runtime or hook does not, and workbench " +
+			"apply fixes it.",
 		Example: "  workbench doctor\n" +
 			"  workbench doctor --json",
 		Args: cobra.NoArgs,
@@ -35,8 +43,10 @@ func doctorCommand(o *options) *cobra.Command {
 					}},
 					components...,
 				)
+				result.Results = append(result.Results, agentHooks(c.Home)...)
+				result.Results = append(result.Results, guardWatcher(cmd.Context()))
 				if err == nil {
-					result.Summary = "[WorkBench] Every check passed"
+					result.Summary = doctorSummary(result.Results)
 				}
 				return result, err
 			},
@@ -44,6 +54,110 @@ func doctorCommand(o *options) *cobra.Command {
 	}
 	o.localBuildFlag(cmd)
 	return cmd
+}
+
+// doctorSummary is "Every check passed", or, when lines that block nothing
+// still need a look, names them.
+func doctorSummary(components []operation.Component) string {
+	var look []string
+	for _, component := range components {
+		switch component.Status {
+		case operation.StatusComplete, operation.StatusUnchanged, operation.StatusSkipped:
+		default:
+			look = append(look, component.Name)
+		}
+	}
+	if len(look) == 0 {
+		return "[WorkBench] Every check passed"
+	}
+	return "[WorkBench] Nothing blocks Workbench; look at " + strings.Join(look, ", ")
+}
+
+// agentHooks is one doctor line per agent: whether Claude Code and Codex run
+// the costs ingest hooks and the guard hooks Workbench installs, read the way
+// workbench agent costs status reads them. A missing hook is absent, and one
+// the agent does not run (Codex's untrusted or disabled) is a conflict;
+// neither blocks Workbench, and workbench apply installs and trusts them.
+func agentHooks(home string) []operation.Component {
+	var lines []operation.Component
+	for _, tool := range costs.Tools {
+		if tool.Source == nil {
+			continue
+		}
+		hooks := slices.Concat(costs.IngestHooks, guard.Hooks(tool.Name))
+		states := tool.Source.Hooks(home, hooks)
+		var missing, idle []string
+		fixable := false
+		for i, state := range states {
+			part := "costs " + hooks[i].Event
+			if i >= len(costs.IngestHooks) {
+				part = "guard " + hooks[i].Event
+			}
+			switch state {
+			case costs.HookOK:
+			case costs.HookMissing:
+				missing = append(missing, part)
+				fixable = true
+			default:
+				fixable = fixable || state == costs.HookUntrusted
+				idle = append(idle, part+" "+state)
+			}
+		}
+		line := operation.Component{
+			Name:    "hooks-" + tool.Name,
+			Status:  operation.StatusComplete,
+			Message: "costs and guard hooks are installed and run",
+		}
+		var problems []string
+		if len(missing) > 0 {
+			line.Status = operation.StatusAbsent
+			problems = append(problems, "missing "+strings.Join(missing, ", "))
+		}
+		if len(idle) > 0 {
+			if line.Status == operation.StatusComplete {
+				line.Status = operation.StatusConflict
+			}
+			problems = append(problems, strings.Join(idle, ", "))
+		}
+		if len(problems) > 0 {
+			line.Message = tool.Title + ": " + strings.Join(problems, "; ")
+			// Workbench installs nothing in a folder a variable moved, which
+			// doctor's own line for the move explains.
+			moved := slices.ContainsFunc(costs.ConfigMoves(home), func(m costs.ConfigMove) bool {
+				return m.Tool == tool.Title && m.Source != ""
+			})
+			if fixable && !moved {
+				line.Message += "; workbench apply installs and trusts them"
+			}
+		}
+		lines = append(lines, line)
+	}
+	return lines
+}
+
+// guardWatcher is the doctor line for the guard's watcher: whether one
+// answers on its socket. The watcher starts with an agent session and exits
+// when idle, so one that is not running is no problem.
+func guardWatcher(ctx context.Context) operation.Component {
+	line := operation.Component{
+		Name:    "guard-watcher",
+		Status:  operation.StatusComplete,
+		Message: "running",
+	}
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	client, err := guard.Dial(ctx)
+	switch {
+	case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ECONNREFUSED):
+		line.Status = operation.StatusSkipped
+		line.Message = "not running; the next agent session starts it, and it exits when idle"
+	case err != nil:
+		line.Status = operation.StatusConflict
+		line.Message = "cannot reach the watcher: " + err.Error()
+	default:
+		_ = client.Close()
+	}
+	return line
 }
 
 // answersCommand groups the commands that change the saved machine answers

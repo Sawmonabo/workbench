@@ -331,8 +331,11 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 }
 
 // Doctor reports what Workbench has installed and applied, then probes
-// management versions and the host. It does not launch VS Code's CLI: that CLI
-// may create logs/user state. Host/profile discovery reads the actual locations.
+// management versions, the language runtimes against their pins (see
+// checkRuntimes) and the host. It does not launch VS Code's CLI: that CLI may
+// create logs/user state. Host/profile discovery reads the actual locations.
+// Only a blocked line, a missing prerequisite Workbench itself needs, makes it
+// fail.
 func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, error) {
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
@@ -365,15 +368,21 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	results = append(results, effects)
 	results = append(results, checkPlatform(ctx, c))
-	if requirements, requirementsErr := ManagementRequirements(c); requirementsErr != nil {
+	files, sourceErr := selectedSource(c)
+	var requirements Requirements
+	if sourceErr == nil {
+		requirements, sourceErr = SourceRequirements(files)
+	}
+	if sourceErr != nil {
 		results = append(results, operation.Component{
 			Name:    "tool-versions",
 			Status:  operation.StatusBlocked,
-			Message: requirementsErr.Error(),
+			Message: sourceErr.Error(),
 		})
 	} else {
 		_, resolved := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
 		results = append(results, resolved...)
+		results = append(results, checkRuntimes(ctx, c, files, selection.Skip)...)
 	}
 	// Plain chezmoi still pointed at another source, such as dotfiles, would
 	// reapply it over the same files Workbench manages.

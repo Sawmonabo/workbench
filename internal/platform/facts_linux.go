@@ -56,6 +56,10 @@ var HomebrewRepositories = []string{"/home/linuxbrew/.linuxbrew/Homebrew"}
 // exist here.
 const HasCasks = false
 
+// GoBunFromHomebrew reports whether Go and bun come from Homebrew here, which
+// installs only its current version, so the go and bun pins do not apply.
+const GoBunFromHomebrew = false
+
 // ToolFolders are the folders searched for an agent's launcher, in the order
 // the managed shell startup files put them on PATH: ~/bin, bun's globals, nvm
 // (the bin folder of nvm's default Node, left out when empty), Cargo's bin

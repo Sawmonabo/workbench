@@ -9,13 +9,44 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
+
+// guardCommand matches a guard hook's command as Workbench installs it: the
+// workbench executable, by name, by path or as a single-quoted path, then
+// "agent guard" and the part, then "|| true", so a failing hook never blocks
+// the agent.
+func guardCommand(part string) *regexp.Regexp {
+	return regexp.MustCompile(
+		`(^|/)workbench'? agent guard ` + regexp.QuoteMeta(part) + ` \|\| true$`,
+	)
+}
+
+// Hooks are the guard hooks Workbench installs in the agent named tool
+// ("claude" or "codex", the costs tool names): the session hook that starts
+// the watcher, the pre hook before a Bash call and the post hook after it,
+// which Claude Code also runs when a call fails.
+func Hooks(tool string) []costs.HookCommand {
+	hooks := []costs.HookCommand{
+		{Event: "SessionStart", Command: guardCommand("session " + tool)},
+		{Event: "PreToolUse", Command: guardCommand("pre")},
+		{Event: "PostToolUse", Command: guardCommand("post")},
+	}
+	if tool == "claude" {
+		hooks = append(
+			hooks,
+			costs.HookCommand{Event: "PostToolUseFailure", Command: guardCommand("post")},
+		)
+	}
+	return hooks
+}
 
 // hookInput is the part of a Claude Code or Codex hook's stdin the guard
 // reads. Codex's carries turn_id; Claude Code's tool_use_id starts "toolu_".

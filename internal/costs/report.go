@@ -734,7 +734,10 @@ func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 				Subscription: cmp.Or(signIn.Subscription, "unknown"),
 				Label:        subscriptionLabel(signIn.Subscription, signIn.Label),
 			}
-			status.Hooks = tool.Source.Hooks(paths.Home)
+			status.Hooks = map[string]string{}
+			for i, state := range tool.Source.Hooks(paths.Home, IngestHooks) {
+				status.Hooks[IngestHooks[i].Event] = state
+			}
 			if mover, ok := tool.Source.(configMover); ok {
 				if move, moved := mover.ConfigMove(paths.Home); moved {
 					status.ConfigMove = &move

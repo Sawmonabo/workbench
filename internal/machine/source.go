@@ -65,18 +65,28 @@ func (r Requirements) Uses(name string) (string, error) {
 // uses: --local-build, else the active release. The source passes the same checks
 // as any other read, so a release's pins are the ones it was released with.
 func ManagementRequirements(c operation.Context) (Requirements, error) {
+	files, err := selectedSource(c)
+	if err != nil {
+		return Requirements{}, err
+	}
+	return SourceRequirements(files)
+}
+
+// selectedSource reads the machine source this command uses: --local-build,
+// else the active release.
+func selectedSource(c operation.Context) (map[string][]byte, error) {
 	source := c.Native.Source
 	if source == "" {
 		state, err := operation.ReadState(c.Paths)
 		if err != nil {
-			return Requirements{}, err
+			return nil, err
 		}
 		if state != nil && state.ActiveRelease != nil {
 			source = state.ActiveRelease.Source
 		}
 	}
 	if source == "" {
-		return Requirements{}, operation.Fail(
+		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"source",
 			"No Workbench release is active to read tool versions from; "+
@@ -84,10 +94,7 @@ func ManagementRequirements(c operation.Context) (Requirements, error) {
 		)
 	}
 	files, _, err := SourceSnapshot(source, c.Native.Developer)
-	if err != nil {
-		return Requirements{}, err
-	}
-	return SourceRequirements(files)
+	return files, err
 }
 
 // SourceRequirements reads the pins from a machine source snapshot.

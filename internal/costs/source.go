@@ -29,7 +29,7 @@ type Source interface {
 	Observations(
 		home string,
 	) []Observation // the tool's own (tokens, cost) pairs, for calibration; nil when none
-	Hooks(home string) map[string]string // hook event → a Hook* state
+	Hooks(home string, hooks []HookCommand) []string // a Hook* state for each of hooks
 }
 
 // SignIn is who a tool is signed in as, and what pays for it: the account (an
@@ -108,7 +108,7 @@ func EvidenceRank(evidence string) int {
 	}
 }
 
-// The states of a tool's ingest hook for one event, as Hooks reports them.
+// The states of a hook Workbench installs in a tool, as Hooks reports them.
 const (
 	HookOK        = "ok"        // installed, and the tool runs it
 	HookMissing   = "missing"   // not installed as Workbench installs it
@@ -116,14 +116,24 @@ const (
 	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
 )
 
+// HookCommand is one hook Workbench installs in a tool: the event it runs on and a
+// match for its command.
+type HookCommand struct {
+	Event   string
+	Command *regexp.Regexp
+}
+
 // ingestCommand matches the ingest hook's command as Workbench installs it:
 // the workbench executable, by name, by path or as a single-quoted path, then
-// "agent costs ingest" and nothing after. "claude-costs ingest", the replaced
-// script, is not it.
+// "agent costs ingest" and nothing after.
 var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest$`)
 
-// isIngestHook reports whether command is the ingest hook's command.
-func isIngestHook(command string) bool { return ingestCommand.MatchString(command) }
+// IngestHooks are the ingest hook on each session event, the hooks that keep
+// the ledger.
+var IngestHooks = []HookCommand{
+	{Event: "SessionStart", Command: ingestCommand},
+	{Event: "SessionEnd", Command: ingestCommand},
+}
 
 // ConfigMove is a tool's config folder moved by a variable away from the one
 // Workbench installs the tool's settings, instructions and hooks in, so the

@@ -1072,13 +1072,13 @@ func codexHookHash(event string, group codexGroup, hook codexHook) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// Hooks reports, for each session event, whether hooks.json runs the ingest
-// hook and Codex runs it: HookOK when config.toml trusts that exact hook and
-// does not disable it, HookDisabled when it sets enabled = false, HookUntrusted
+// Hooks reports, for each of hooks, whether hooks.json runs it on its event
+// and Codex runs it: HookOK when config.toml trusts that exact hook and does
+// not disable it, HookDisabled when it sets enabled = false, HookUntrusted
 // when it records no trusted_hash or another one (Codex ignores the hook then),
-// and HookMissing without the hook. Of several ingest hooks for an event the
+// and HookMissing without the hook. Of several matching hooks for an event the
 // best state counts.
-func (codex) Hooks(home string) map[string]string {
+func (codex) Hooks(home string, hooks []HookCommand) []string {
 	dir := codexDir(home)
 	path := filepath.Join(dir, "hooks.json")
 	var file struct {
@@ -1100,12 +1100,13 @@ func (codex) Hooks(home string) map[string]string {
 	}
 	// Better states come first.
 	rank := []string{HookOK, HookDisabled, HookUntrusted, HookMissing}
-	out := map[string]string{}
-	for _, event := range []string{"SessionStart", "SessionEnd"} {
+	out := make([]string, len(hooks))
+	for i, want := range hooks {
+		event := want.Event
 		best := HookMissing
 		for gi, group := range file.Hooks[event] {
 			for hi, hook := range group.Hooks {
-				if hook.Type != "command" || !isIngestHook(hook.Command) {
+				if hook.Type != "command" || !want.Command.MatchString(hook.Command) {
 					continue
 				}
 				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", path, codexEvents[event], gi, hi)]
@@ -1121,7 +1122,7 @@ func (codex) Hooks(home string) map[string]string {
 				}
 			}
 		}
-		out[event] = best
+		out[i] = best
 	}
 	return out
 }
