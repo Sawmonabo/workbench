@@ -555,8 +555,10 @@ func renderAutoMerge(fetchMetadata string, ids []string) []byte {
 		"owns this file; Workbench never edits an existing one.") + `name: Dependabot auto-merge
 on: pull_request
 permissions:
+  checks: read
   contents: write
   pull-requests: write
+  statuses: read
 jobs:
   dependabot:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
@@ -586,18 +588,28 @@ jobs:
               else "none" end'
           passes=0
           missing=0
+          unread=0
+          errors="$RUNNER_TEMP/checks.err"
           for _ in $(seq 1 120); do
-            state=$(gh pr checks "$PR_URL" --json bucket,workflow --jq "$others" 2>/dev/null || true)
-            case "${state:-none}" in
-              pass) passes=$((passes + 1)); missing=0 ;;
+            # This job is a check itself, so a list that cannot be read is an error, not an empty one.
+            state=$(gh pr checks "$PR_URL" --json bucket,workflow --jq "$others" 2>"$errors") || state=unread
+            case "$state" in
+              pass) passes=$((passes + 1)); missing=0; unread=0 ;;
               fail) echo "A check failed, so this pull request stays open."; exit 1 ;;
-              none) passes=0; missing=$((missing + 1)) ;;
-              *) passes=0; missing=0 ;;
+              none) passes=0; missing=$((missing + 1)); unread=0 ;;
+              pending) passes=0; missing=0; unread=0 ;;
+              *) passes=0; unread=$((unread + 1)) ;;
             esac
             # Two passing polls in a row, so a job that starts after another ends is seen.
             [ "$passes" -lt 2 ] || exit 0
             # Three minutes without any other check: the repository runs none for it.
             [ "$missing" -lt 9 ] || { echo "No other check ran for this pull request, so it stays open."; exit 1; }
+            # One minute of failed lookups: the checks cannot be read.
+            if [ "$unread" -ge 3 ]; then
+              echo "The checks of this pull request could not be read, so it stays open:"
+              cat "$errors"
+              exit 1
+            fi
             sleep 20
           done
           echo "The other checks did not finish in 40 minutes, so this pull request stays open."

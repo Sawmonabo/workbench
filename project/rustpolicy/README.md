@@ -234,8 +234,11 @@ the pull request's other checks (`gh pr checks`, every 20 seconds for up to
 row show at least one passed check and none failed, cancelled or pending. A
 failed check, three minutes with no other check at all, or checks that do not
 finish leave the pull request open and fail the job with the reason. It asks
-for `contents: write` and `pull-requests: write`, which a Dependabot-triggered
-run gets only by declaring them. This works on GitHub only. A check that
+for `contents: write` and `pull-requests: write` to merge and `checks: read`
+and `statuses: read` to read the other checks, which a Dependabot-triggered
+run gets only by declaring them; when the checks cannot be read, the job
+fails with GitHub's error and the pull request stays open. This works on
+GitHub only. A check that
 starts after the others have passed can be missed, so also turn on "Allow
 auto-merge" and add a branch rule on the default branch that requires the CI
 check, which GitHub then waits for itself; Workbench sets neither. The plan

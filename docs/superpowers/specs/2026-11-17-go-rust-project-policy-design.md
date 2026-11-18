@@ -749,7 +749,10 @@ tutorial:
   get a `GITHUB_TOKEN` with read-only permissions. You can use the
   `permissions` key in your workflow to increase the access for the token"
   (Dependabot on Actions troubleshooting). The workflow declares only
-  `contents: write` and `pull-requests: write`, as the tutorial does.
+  `contents: write` and `pull-requests: write`, as the tutorial does, plus
+  `checks: read` and `statuses: read` for the wait below: a `permissions`
+  block sets every scope it leaves out to none, and a private repository's
+  checks and statuses are read only with those two.
 - **Update type.** `dependabot/fetch-metadata` v3.1.0 (pinned by commit in
   `[github_actions]`) documents `update-type` as "The highest semver change
   being made by this PR", so a group holding a major change reports
@@ -761,7 +764,9 @@ tutorial:
   workflow, and goes on only after two polls in a row show at least one
   `pass` and no `fail`, `cancel` or `pending` (two, so a job that starts when
   another ends is seen). A failed or cancelled check, nine polls in a row with
-  no other check, or checks that never finish fail the job with the reason
+  no other check, three failed lookups in a row (the job prints GitHub's
+  error, since its own run is a check and the list is never empty), or
+  checks that never finish fail the job with the reason
   and leave the pull request open. This is what keeps a repository without a
   required check from merging an update its CI has not passed (see Merge). A
   check that starts after two clean polls is missed; the branch rule below
