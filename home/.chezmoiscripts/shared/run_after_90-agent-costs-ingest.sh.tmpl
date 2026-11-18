@@ -8,14 +8,14 @@ set -euo pipefail
 {{ template "old-locations.sh" }}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     if [ -x "$workbench" ]; then
-        echo "costs-ingest: $("$workbench" --version) reads new usage into the ledger"
+        echo "agent-costs-ingest: $("$workbench" --version) reads new usage into the ledger"
     else
-        echo "costs-ingest: = Workbench is not installed here yet, so there is nothing to read with"
+        echo "agent-costs-ingest: = Workbench is not installed here yet, so there is nothing to read with"
     fi
     exit 0
 fi
-if [[ "${WORKBENCH_EFFECT_COSTS_INGEST:-}" != 1 ]]; then
-    echo 'WORKBENCH_EFFECT costs-ingest disabled (not selected)' >&2
+if [[ "${WORKBENCH_EFFECT_AGENT_COSTS_INGEST:-}" != 1 ]]; then
+    echo 'WORKBENCH_EFFECT agent-costs-ingest disabled (not selected)' >&2
     exit 0
 fi
 if [ ! -x "$workbench" ]; then
@@ -25,4 +25,4 @@ fi
 echo "==> costs: reading new usage into the ledger"
 {{ template "effect-report.sh" }}
 old_locations "$workbench" agent costs ingest --worker ||
-    part_failed costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1
+    part_failed agent-costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1

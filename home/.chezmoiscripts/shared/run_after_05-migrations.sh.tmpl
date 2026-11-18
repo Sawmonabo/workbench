@@ -5,7 +5,7 @@
 # files is the one that writes them next. Checking is a few Lstat calls, and a
 # run with nothing to do takes no lock. chezmoi runs scripts in the order of
 # their full source paths (darwin/, linux/, shared/, then wsl/), so this always
-# runs after the files and before shared/run_after_90-costs-ingest.
+# runs after the files and before shared/run_after_90-agent-costs-ingest.
 set -euo pipefail
 {{ template "installed-workbench.sh" }}
 {{ template "old-locations.sh" }}

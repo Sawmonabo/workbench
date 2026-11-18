@@ -346,7 +346,7 @@ func (p *preparation) stageNative(
 		nativeAnswers["workbench_uv_dir"] = filepath.Dir(uv)
 	}
 	// The Claude Code and Codex hooks run the installed workbench in the bin
-	// folder this apply resolved, as the migrations and costs-ingest scripts
+	// folder this apply resolved, as the migrations and agent-costs-ingest scripts
 	// do. Templates cannot read the caller's environment (the preview renders
 	// with a fixed one), so the path reaches them as an answer.
 	workbench := filepath.Join(c.Paths.Bin, "workbench")

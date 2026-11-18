@@ -59,7 +59,7 @@ var effectSources = map[string][]string{
 	"runtimes":                {"20-runtimes"},
 	"global-tools":            {"30-global-tools"},
 	"tmux-plugins":            {"40-tmux-plugins"},
-	"costs-ingest":            {"90-costs-ingest"},
+	"agent-costs-ingest":      {"90-agent-costs-ingest"},
 	"migrations":              {"05-migrations"},
 	"env-files":               {"06-env-files"},
 	"claude-mcp":              {"46-claude-mcp"},
@@ -197,7 +197,7 @@ var sharedEffects = []operation.Effect{
 		Undo:        "Not reverted automatically: claude mcp remove --scope user dispatch-atlassian, then the same for dispatch-gitlab",
 	},
 	{
-		Name:        "costs-ingest",
+		Name:        "agent-costs-ingest",
 		Description: "The installed workbench reads new Claude Code and Codex usage into the costs ledger, as its hooks do",
 		Privilege:   "user; network for the official price pages",
 		Recovery:    "external; ledger rows are derived from the transcripts and not reverted",
@@ -304,11 +304,11 @@ var windowsHostEffects = []operation.Effect{
 
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
-// costs-ingest touches the ledger in the data folder this apply resolved.
+// agent-costs-ingest touches the ledger in the data folder this apply resolved.
 func provisioningEffects(c operation.Context, answers Answers) []operation.Effect {
 	effects := slices.Clone(sharedEffects)
 	for i := range effects {
-		if effects[i].Name == "costs-ingest" {
+		if effects[i].Name == "agent-costs-ingest" {
 			effects[i].Touches = c.ShowPath(filepath.Join(c.Paths.Data, "costs", "ledger.sqlite"))
 		}
 	}

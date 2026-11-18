@@ -253,7 +253,7 @@ func scriptEnvironment(
 	// The scripts download packages and tools, so they need the user's proxy
 	// and CA settings; nothing else of the caller's environment reaches them.
 	environment = append(environment, operation.NetworkEnvironment()...)
-	// The migrations and costs-ingest scripts run the installed workbench in
+	// The migrations and agent-costs-ingest scripts run the installed workbench in
 	// the bin folder this apply resolved, which must find the runtime folders
 	// it resolved and, to find the files earlier releases left, the owner's
 	// old-location variables.
