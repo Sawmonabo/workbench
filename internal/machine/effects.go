@@ -279,7 +279,7 @@ var windowsHostEffects = []operation.Effect{
 		Name:        "windows-files",
 		Optional:    true,
 		Description: "Discovered Windows home/AppData: oh-my-posh binary/themes, fonts, .wslconfig, bin/rg.exe and Notepad++ themes; RestartWSL helpers an earlier release wrote are left in place",
-		Privilege:   "Windows user; not yet qualified on a real Windows host",
+		Privilege:   "Windows user; not yet checked on a real Windows host",
 		Recovery:    "script writes are not checkpointed; acquired executables are external",
 		Title:       "Windows setup",
 		Summary:     "theme, fonts and ripgrep on the Windows side",

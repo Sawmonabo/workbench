@@ -45,6 +45,14 @@ func doctorCommand(o *options) *cobra.Command {
 				)
 				result.Results = append(result.Results, agentHooks(c.Home)...)
 				result.Results = append(result.Results, guardWatcher(cmd.Context()))
+				// A check that found nothing wrong reads ok, not the complete
+				// or unchanged of a step that ran.
+				for i, line := range result.Results {
+					if line.Status == operation.StatusComplete ||
+						line.Status == operation.StatusUnchanged {
+						result.Results[i].Status = operation.StatusOK
+					}
+				}
 				if err == nil {
 					result.Summary = doctorSummary(result.Results)
 				}
@@ -62,7 +70,7 @@ func doctorSummary(components []operation.Component) string {
 	var look []string
 	for _, component := range components {
 		switch component.Status {
-		case operation.StatusComplete, operation.StatusUnchanged, operation.StatusSkipped:
+		case operation.StatusOK, operation.StatusSkipped:
 		default:
 			look = append(look, component.Name)
 		}

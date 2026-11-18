@@ -75,7 +75,7 @@ func newRoot(o *options) *cobra.Command {
 	root := &cobra.Command{
 		Use:           "workbench",
 		Short:         "Set up and maintain developer machines and existing projects",
-		Long:          "Workbench shows what it will change, asks, then provisions the machine, applies recoverable configuration and configures existing projects.",
+		Long:          "Workbench shows what it will change, asks, then provisions the machine, applies recoverable configuration and sets up existing projects.",
 		Version:       shownVersion(),
 		SilenceErrors: true,
 		SilenceUsage:  true,
@@ -339,7 +339,7 @@ func (p painter) mark(status operation.Status) string {
 		return ""
 	}
 	switch status {
-	case operation.StatusComplete:
+	case operation.StatusComplete, operation.StatusOK:
 		return green.Render(glyphs.Check) + " "
 	case operation.StatusUnchanged, operation.StatusAbsent, operation.StatusSkipped,
 		operation.StatusPending:

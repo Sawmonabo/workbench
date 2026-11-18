@@ -32,11 +32,13 @@ func hostVersion(ctx context.Context, c operation.Context, result *operation.Com
 	}
 	major, _ := strconv.Atoi(strings.Split(strings.TrimSpace(output.Stdout), ".")[0])
 	result.Message = fmt.Sprintf(
-		"macOS %s/%s; native provisioning qualification still required",
+		"macOS %s on %s",
 		strings.TrimSpace(output.Stdout),
 		runtime.GOARCH,
 	)
 	if major >= 15 {
 		result.Status = operation.StatusComplete
+	} else {
+		result.Message += "; Workbench supports macOS 15 or later"
 	}
 }

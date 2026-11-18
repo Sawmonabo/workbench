@@ -1084,7 +1084,7 @@ synthetic answers.
   from another folder with the current `workbench agent costs ingest` and
   `workbench agent guard pre`, keeping the user's own hooks.
 - On November 17, 2026, on macOS with a local build, `doctor` in a disposable
-  home holding every Claude Code hook printed `agent-hooks-claude: complete`;
+  home holding every Claude Code hook printed `agent-hooks-claude: ok`;
   with three of them removed it printed `absent`, naming `1 of 2 agent costs
   hooks (SessionEnd) and 2 of 4 agent guard hooks (PreToolUse, PostToolUse)`;
   with none it printed `has no agent costs or agent guard hooks`. Node, Python

@@ -13,7 +13,7 @@ import (
 func projectCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
-		Short: "Inspect or configure an existing project; never generate one",
+		Short: "Inspect an existing project or apply Workbench's settings to it; never generate one",
 		Long: "Workbench works on a project you already have: inspect lists what it finds, " +
 			"apply previews and applies Workbench's settings for its language, and revert " +
 			"restores the files an apply changed. PATH defaults to the current folder.",
@@ -74,9 +74,9 @@ func projectInspectCommand(o *options) *cobra.Command {
 }
 
 func projectApplyCommand(o *options) *cobra.Command {
-	configure := &cobra.Command{
+	command := &cobra.Command{
 		Use:   "apply [PATH]",
-		Short: "Preview and configure existing uv Python projects",
+		Short: "Preview and apply Workbench's settings to an existing uv Python project",
 		Long: "Plan Workbench's Ruff, ty and basedpyright settings for the uv Python project at " +
 			"PATH, show the plan and apply it once approved, saving a checkpoint that project " +
 			"revert restores. --extensions, --gitignore and --ci add optional changes. " +
@@ -89,23 +89,23 @@ func projectApplyCommand(o *options) *cobra.Command {
 			"  workbench project apply . --language python --resolve-dependencies",
 		Args: cobra.MaximumNArgs(1),
 	}
-	configure.Flags().
+	command.Flags().
 		StringArray("language", nil, "Narrow configuration by language; repeat to select multiple")
-	configure.Flags().
+	command.Flags().
 		Bool("dry-run", false, "Preview offline without resolving dependencies or changing project files")
-	configure.Flags().
+	command.Flags().
 		Bool("extensions", false, "Merge optional portable VS Code extension recommendations")
-	configure.Flags().
+	command.Flags().
 		Bool("gitignore", false, "Append relevant Python environment and cache ignore entries")
-	configure.Flags().
+	command.Flags().
 		Bool("resolve-dependencies", false, "Approve native uv dependency resolution as an explicit external effect")
-	configure.Flags().
+	command.Flags().
 		Bool("allow-build-hooks", false, "Explicitly select potential native build-code execution during dependency resolution")
-	configure.Flags().
+	command.Flags().
 		Bool("ci", false, "Request CI integration; unsupported ownership receives a manual proposal")
-	o.localBuildFlag(configure)
-	o.approveFlag(configure)
-	configure.RunE = o.action(
+	o.localBuildFlag(command)
+	o.approveFlag(command)
+	command.RunE = o.action(
 		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
@@ -170,7 +170,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 			return result, err
 		},
 	)
-	return configure
+	return command
 }
 
 func projectRevertCommand(o *options) *cobra.Command {

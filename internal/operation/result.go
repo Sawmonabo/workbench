@@ -63,6 +63,7 @@ type Status string
 // Statuses.
 const (
 	StatusComplete    Status = "complete"
+	StatusOK          Status = "ok" // a doctor check that found nothing wrong
 	StatusUnchanged   Status = "unchanged"
 	StatusSkipped     Status = "skipped"
 	StatusPending     Status = "pending" // waits for a run, such as a migration's

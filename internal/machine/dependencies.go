@@ -58,9 +58,13 @@ func ResolveDependencies(
 			)
 		}
 		component := operation.Component{
-			Name:    name,
-			Status:  operation.StatusBlocked,
-			Message: "Missing qualified tool; approved setup is required",
+			Name:   name,
+			Status: operation.StatusBlocked,
+			Message: "not found; " + c.WorkbenchCommand() + " apply or update installs Workbench's own " +
+				qualifiedVersions(
+					name,
+					requirements,
+				),
 		}
 		for _, candidate := range candidates {
 			version, err := probeVersion(ctx, c, name, candidate.Path)
@@ -73,11 +77,12 @@ func ResolveDependencies(
 			candidate.Version = version
 			if !qualified {
 				component.Message = fmt.Sprintf(
-					"%s %s at %s is not the qualified %s; it is left alone, and approved setup installs a private copy",
+					"%s %s at %s is not %s; %s apply or update installs Workbench's own copy and leaves this one alone",
 					name,
 					version,
 					candidate.Path,
 					qualifiedVersions(name, requirements),
+					c.WorkbenchCommand(),
 				)
 				continue
 			}
@@ -321,9 +326,10 @@ func checkPlatform(ctx context.Context, c operation.Context) operation.Component
 	result := operation.Component{
 		Name:    "platform",
 		Status:  operation.StatusBlocked,
-		Message: platform.System + "/" + runtime.GOARCH,
+		Message: platform.System + " on " + runtime.GOARCH,
 	}
 	if runtime.GOARCH != "amd64" && runtime.GOARCH != "arm64" {
+		result.Message += "; Workbench supports amd64 and arm64"
 		return result
 	}
 	hostVersion(ctx, c, &result)
@@ -348,9 +354,9 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	results := installed(c, state)
 	selection, selectionErr := ReadSelection(c.Native.Config)
 	effects := operation.Component{
-		Name:    "effects",
+		Name:    "saved-choices",
 		Status:  operation.StatusUnchanged,
-		Message: "none skipped",
+		Message: "no step skipped or selected",
 	}
 	switch {
 	case selectionErr != nil:
@@ -359,10 +365,10 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		effects.Status = operation.StatusComplete
 		var parts []string
 		if len(selection.Skip) > 0 {
-			parts = append(parts, "skipped "+strings.Join(selection.Skip, ", ")+" (saved)")
+			parts = append(parts, "skipped "+strings.Join(selection.Skip, ", "))
 		}
 		if len(selection.Select) > 0 {
-			parts = append(parts, "selected "+strings.Join(selection.Select, ", ")+" (saved)")
+			parts = append(parts, "selected "+strings.Join(selection.Select, ", "))
 		}
 		effects.Message = strings.Join(parts, "; ")
 	}
@@ -381,6 +387,11 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		})
 	} else {
 		_, resolved := ResolveDependencies(ctx, c, requirements, recorded, os.Getenv("PATH"))
+		// Workbench's own tools read tool-, apart from the runtime- lines of
+		// the versions the machine's projects run on.
+		for i := range resolved {
+			resolved[i].Name = "tool-" + resolved[i].Name
+		}
 		results = append(results, resolved...)
 		results = append(results, checkRuntimes(ctx, c, files, selection.Skip)...)
 	}
@@ -410,33 +421,45 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 			Message: move.Explain(c.Home),
 		})
 	}
-	root := platform.VSCodeUserFolder(c.Home)
-	editors := []struct{ name, path string }{
-		{"editor-local", root},
-		{"editor-remote-wsl", filepath.Join(c.Home, ".vscode-server", "data", "Machine")},
-	}
-	for _, target := range editors {
-		component := operation.Component{
-			Name:    target.name,
-			Status:  operation.StatusSkipped,
-			Message: "No existing host settings directory",
-		}
-		if info, statErr := os.Lstat(target.path); statErr == nil && info.IsDir() {
-			component.Status = operation.StatusComplete
-			component.Message = target.path + " (profile ownership requires apply preflight)"
-		}
-		results = append(results, component)
-	}
+	results = append(results, editorFolders(c)...)
 	for _, result := range results {
 		if result.Status == operation.StatusBlocked {
 			return results, operation.Fail(
 				operation.ExitBlocked,
 				"dependency",
-				"Doctor found missing or unqualified prerequisites; no repair performed",
+				"Doctor found something Workbench cannot run without (the blocked lines); it repaired nothing",
 			)
 		}
 	}
 	return results, nil
+}
+
+// editorFolders is a doctor line for each VS Code settings folder Workbench
+// can manage: the local one, and the VS Code Server one of a remote host.
+func editorFolders(c operation.Context) []operation.Component {
+	var lines []operation.Component
+	root := platform.VSCodeUserFolder(c.Home)
+	editors := []struct{ name, path, what string }{
+		{"editor-local", root, "VS Code"},
+		{
+			"editor-remote-wsl",
+			filepath.Join(c.Home, ".vscode-server", "data", "Machine"),
+			"VS Code Server",
+		},
+	}
+	for _, target := range editors {
+		component := operation.Component{
+			Name:    target.name,
+			Status:  operation.StatusSkipped,
+			Message: "no " + target.what + " settings folder on this machine",
+		}
+		if info, statErr := os.Lstat(target.path); statErr == nil && info.IsDir() {
+			component.Status = operation.StatusComplete
+			component.Message = target.what + " settings in " + c.ShowPath(target.path)
+		}
+		lines = append(lines, component)
+	}
+	return lines
 }
 
 // installed reports the active release, the last applied configuration and
