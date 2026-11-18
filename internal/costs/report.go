@@ -652,7 +652,7 @@ func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, er
 	return c, nil
 }
 
-// StatusInfo is what `workbench costs status` shows.
+// StatusInfo is what `workbench agent costs status` shows.
 type StatusInfo struct {
 	Ledger            string       `json:"ledger"`
 	LedgerBytes       int64        `json:"ledger_bytes"`

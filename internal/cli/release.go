@@ -36,17 +36,29 @@ func updateCommand(o *options) *cobra.Command {
 		Long: "Install the latest Workbench release, or VERSION (an older one goes back), and " +
 			"the chezmoi, uv, Python and TOML Kit it pins. It changes only Workbench's own " +
 			"files and keeps the previous release, so running it is the go-ahead. It never " +
-			"applies the machine; run workbench apply next.",
+			"applies the machine; run workbench apply next. A pre-release is installed only " +
+			"by naming it.\n\n" +
+			"--list shows the published full releases, marking the latest and the installed " +
+			"one, and installs nothing.",
+		Example: "  workbench update\n" +
+			"  workbench update --list\n" +
+			"  workbench update v0.2.0\n" +
+			"  workbench update --dry-run",
 		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
 			releaseAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+				if list, _ := cmd.Flags().GetBool("list"); list {
+					return listReleases(cmd, c)
+				}
 				return updateRelease(cmd, c, o)
 			},
 		),
 	}
 	cmd.Flags().
 		Bool("dry-run", false, "Show the install step only; apply --dry-run shows the machine plan")
+	cmd.Flags().
+		Bool("list", false, "List the published full releases, marking the installed and latest")
 	o.destinationFlag(cmd)
 	cmd.Flags().String("bundle", "", "Install this release archive, a local file or HTTPS URL")
 	_ = cmd.Flags().MarkHidden("bundle") // install.sh and offline installs
@@ -60,57 +72,77 @@ func updateCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// versionCommand prints this version, or with --list the published full
-// releases.
+// versionCommand prints this version.
 func versionCommand(o *options) *cobra.Command {
-	cmd := &cobra.Command{
+	return &cobra.Command{
 		Use:   "version",
-		Short: "Show this Workbench version; --list shows the published full releases",
-		Args:  cobra.NoArgs,
+		Short: "Show this Workbench version",
+		Long: "Print this Workbench's version, marked (local build) when the release workflow " +
+			"did not publish it. It reads no state, so it answers even when Workbench's state " +
+			"is damaged. workbench update --list shows the published releases.",
+		Example: "  workbench version\n" +
+			"  workbench version --json",
+		Args: cobra.NoArgs,
 		RunE: o.action(
 			versionAction,
-			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+			func(cmd *cobra.Command, _ operation.Context) (operation.Result, error) {
 				result := operation.NewResult(cmd.CommandPath())
-				if list, _ := cmd.Flags().GetBool("list"); !list {
-					if !o.json {
-						// The same line as --version.
-						_, err := fmt.Fprintln(
-							cmd.OutOrStdout(),
-							cmd.Root().Name()+" "+shownVersion(),
-						)
-						return result, err
-					}
-					result.Results = append(result.Results, operation.Component{
-						Name:    "workbench",
-						Status:  operation.StatusComplete,
-						Message: shownVersion(),
-					})
-					return result, nil
-				}
-				// Read the state first: a malformed one fails here, not after
-				// the network round trip.
-				installed, err := installedRelease(c)
-				if err != nil {
-					return result, err
-				}
-				stop := c.ShowProgress("Asking GitHub for releases")
-				published, err := release.Releases(cmd.Context(), c)
-				stop()
-				if err != nil {
+				if !o.json {
+					// The same line as --version.
+					_, err := fmt.Fprintln(
+						cmd.OutOrStdout(),
+						cmd.Root().Name()+" "+shownVersion(),
+					)
 					return result, err
 				}
 				result.Results = append(result.Results, operation.Component{
-					Name:    "releases",
+					Name:    "workbench",
 					Status:  operation.StatusComplete,
-					Details: releaseList{Releases: published, Installed: installed},
+					Message: shownVersion(),
 				})
 				return result, nil
 			},
 		),
 	}
-	cmd.Flags().
-		Bool("list", false, "List the published full releases, marking the installed and latest")
-	return cmd
+}
+
+// listReleases is update --list: the published full releases, newest first,
+// marking the installed one. The action has already read the state, so a
+// malformed one fails before the network round trip.
+func listReleases(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+	result := operation.NewResult(cmd.CommandPath())
+	if len(cmd.Flags().Args()) > 0 {
+		return result, operation.Fail(
+			operation.ExitInvalid,
+			"input",
+			"--list shows the releases; drop VERSION",
+		)
+	}
+	for _, name := range []string{"dry-run", "bundle", "runtime-ready", "local-build", "destination"} {
+		if cmd.Flags().Changed(name) {
+			return result, operation.Fail(
+				operation.ExitInvalid,
+				"input",
+				"--list shows the releases; drop --"+name,
+			)
+		}
+	}
+	installed, err := installedRelease(c)
+	if err != nil {
+		return result, err
+	}
+	stop := c.ShowProgress("Asking GitHub for releases")
+	published, err := release.Releases(cmd.Context(), c)
+	stop()
+	if err != nil {
+		return result, err
+	}
+	result.Results = append(result.Results, operation.Component{
+		Name:    "releases",
+		Status:  operation.StatusComplete,
+		Details: releaseList{Releases: published, Installed: installed},
+	})
+	return result, nil
 }
 
 // releaseList is the published full releases, newest first, and the installed
@@ -633,7 +665,7 @@ func installTools(
 }
 
 // setUp installs the pinned tools Workbench runs, when missing, and, with
-// questions, asks the machine questions that the saved answers lack or --ask
+// questions, asks the machine questions that the saved answers lack or `answers ask`
 // names. Running apply or update is the go-ahead: the tools go into
 // Workbench's own directory, and a question asks only once.
 func setUp(
@@ -654,7 +686,7 @@ func setUp(
 			return c, operation.Fail(
 				operation.ExitBlocked,
 				"terminal",
-				"--ask needs a terminal to ask at",
+				"answers ask needs a terminal to ask at",
 			)
 		}
 		saved, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
@@ -663,7 +695,7 @@ func setUp(
 				operation.ExitBlocked,
 				"answers",
 				"Without a terminal, setup needs saved answers; save them with "+
-					c.WorkbenchCommand()+" init --answers-from FILE",
+					c.WorkbenchCommand()+" answers import FILE",
 			)
 		}
 		// Native init cannot ask here, and a question it reaches fails with
@@ -707,7 +739,7 @@ func setUp(
 		}
 	}
 	// Setup plans the answers as an input only when they were saved complete,
-	// so without it, or with --ask, the questionnaire saved new ones.
+	// so without it, or with `answers ask`, the questionnaire saved new ones.
 	answered := !questions
 	for _, input := range setup.Inputs {
 		answered = answered || input.Name == "answers" && len(ask) == 0

@@ -64,15 +64,15 @@
         "SessionStart": [
           {
             "hooks": [
-              { "type": "command", "command": "workbench costs ingest", "timeout": 5 },
-              { "type": "command", "command": "workbench guard session claude || true", "timeout": 5 }
+              { "type": "command", "command": "workbench agent costs ingest", "timeout": 5 },
+              { "type": "command", "command": "workbench agent guard session claude || true", "timeout": 5 }
             ]
           }
         ],
         "SessionEnd": [
           {
             "hooks": [
-              { "type": "command", "command": "workbench costs ingest", "timeout": 5 }
+              { "type": "command", "command": "workbench agent costs ingest", "timeout": 5 }
             ]
           }
         ],
@@ -80,7 +80,7 @@
           {
             "matcher": "Bash",
             "hooks": [
-              { "type": "command", "command": "workbench guard pre || true", "timeout": 5 }
+              { "type": "command", "command": "workbench agent guard pre || true", "timeout": 5 }
             ]
           }
         ],
@@ -88,7 +88,7 @@
           {
             "matcher": "Bash|Monitor",
             "hooks": [
-              { "type": "command", "command": "workbench guard post || true", "timeout": 5 }
+              { "type": "command", "command": "workbench agent guard post || true", "timeout": 5 }
             ]
           }
         ],
@@ -96,7 +96,7 @@
           {
             "matcher": "Bash|Monitor",
             "hooks": [
-              { "type": "command", "command": "workbench guard post || true", "timeout": 5 }
+              { "type": "command", "command": "workbench agent guard post || true", "timeout": 5 }
             ]
           }
         ]

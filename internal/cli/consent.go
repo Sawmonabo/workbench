@@ -21,7 +21,7 @@ func consentFor(o *options, digest string) operation.Consent {
 	return consent
 }
 
-// checkConsent is the approval rule apply and migrate --apply share, checked
+// checkConsent is the approval rule apply and migrate share, checked
 // before anything happens. --yes and --approve-plan both approve, so both
 // together are an invalid invocation (exit 2). A run nobody approved is
 // refused (exit 3): it needs --approve-plan from a plan someone read, --yes

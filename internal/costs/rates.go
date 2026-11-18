@@ -466,7 +466,7 @@ func refreshOfficial(ctx context.Context, paths Paths, tool Tool, force bool) st
 func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 	card, err := loadCard(paths)
 	if err != nil {
-		return "rates: overrides file invalid, see `workbench costs rates`"
+		return "rates: overrides file invalid, see `workbench agent costs rates`"
 	}
 	var messages []string
 	for _, tool := range Tools {

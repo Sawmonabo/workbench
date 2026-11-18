@@ -14,10 +14,16 @@ func projectCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "project",
 		Short: "Inspect or configure an existing project; never generate one",
-		Args:  cobra.NoArgs,
-		RunE:  showHelp,
+		Long: "Workbench works on a project you already have: inspect lists what it finds, " +
+			"apply previews and applies Workbench's settings for its language, and revert " +
+			"restores the files an apply changed. PATH defaults to the current folder.",
+		Example: "  workbench project inspect .\n" +
+			"  workbench project apply ./apps/api --language python --dry-run\n" +
+			"  workbench project revert ./apps/api",
+		Args: cobra.NoArgs,
+		RunE: showHelp,
 	}
-	cmd.AddCommand(projectInspectCommand(o), projectConfigureCommand(o), projectRevertCommand(o))
+	cmd.AddCommand(projectInspectCommand(o), projectApplyCommand(o), projectRevertCommand(o))
 	return cmd
 }
 
@@ -25,7 +31,11 @@ func projectInspectCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "inspect [PATH]",
 		Short: "Inventory manifest, lockfile and configuration candidates",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "List the manifests, lockfiles and configuration files of the project at PATH, " +
+			"read-only and offline: no project code runs and nothing changes.",
+		Example: "  workbench project inspect\n" +
+			"  workbench project inspect ./apps/api --json",
+		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
 			projectAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
@@ -63,11 +73,21 @@ func projectInspectCommand(o *options) *cobra.Command {
 	}
 }
 
-func projectConfigureCommand(o *options) *cobra.Command {
+func projectApplyCommand(o *options) *cobra.Command {
 	configure := &cobra.Command{
-		Use:   "configure [PATH]",
+		Use:   "apply [PATH]",
 		Short: "Preview and configure existing uv Python projects",
-		Args:  cobra.MaximumNArgs(1),
+		Long: "Plan Workbench's Ruff, ty and basedpyright settings for the uv Python project at " +
+			"PATH, show the plan and apply it once approved, saving a checkpoint that project " +
+			"revert restores. --extensions, --gitignore and --ci add optional changes. " +
+			"--resolve-dependencies lets uv resolve missing check tools, an external effect, and " +
+			"--allow-build-hooks (only with it) lets that run project build code. --dry-run " +
+			"previews offline without changing anything. Without a terminal, or for a coding " +
+			"agent, pass --approve-plan DIGEST from a --dry-run --json plan.",
+		Example: "  workbench project apply ./apps/api --language python --dry-run\n" +
+			"  workbench project apply . --language python --extensions --gitignore\n" +
+			"  workbench project apply . --language python --resolve-dependencies",
+		Args: cobra.MaximumNArgs(1),
 	}
 	configure.Flags().
 		StringArray("language", nil, "Narrow configuration by language; repeat to select multiple")
@@ -156,8 +176,14 @@ func projectConfigureCommand(o *options) *cobra.Command {
 func projectRevertCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "revert [PATH]",
-		Short: "Undo a project configure's file changes from a saved checkpoint",
-		Args:  cobra.MaximumNArgs(1),
+		Short: "Undo a project apply's file changes from a saved checkpoint",
+		Long: "Restore the files an earlier project apply changed in the project at PATH, from " +
+			"the checkpoint it saved. Without --checkpoint it lists the checkpoints to choose " +
+			"from at a terminal. It restores files only: it does not undo dependency " +
+			"resolution or CI runs.",
+		Example: "  workbench project revert ./apps/api --dry-run\n" +
+			"  workbench project revert ./apps/api --checkpoint ID",
+		Args: cobra.MaximumNArgs(1),
 	}
 	cmd.Flags().
 		String("checkpoint", "", "Restore this checkpoint ID instead of choosing from a list")

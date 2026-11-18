@@ -214,7 +214,7 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"ledger",
-			"No ledger at "+path+"; run `workbench costs ingest --worker` first",
+			"No ledger at "+path+"; run `workbench agent costs ingest --worker` first",
 		)
 	}
 	if !exists {

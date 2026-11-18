@@ -375,5 +375,5 @@ func chooseStops(
 // listenFailed logs that the socket could not be served.
 func (w *watcher) listenFailed(err error) {
 	w.f.event(slog.LevelError, EventError,
-		"cannot serve the guard socket; guard memory will not connect", "error", err)
+		"cannot serve the guard socket; workbench agent guard will not connect", "error", err)
 }

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Read new Claude Code and Codex usage into the costs ledger at the end of
-# every apply, so `workbench costs` is complete without waiting for a hook.
+# every apply, so `workbench agent costs` is complete without waiting for a hook.
 # It runs the same installed binary the hooks run, so the ledger is always in
 # the format that binary reads; a first read of a large history takes a while.
 set -euo pipefail
@@ -24,5 +24,5 @@ if [ ! -x "$workbench" ]; then
 fi
 echo "==> costs: reading new usage into the ledger"
 {{ template "effect-report.sh" }}
-old_locations "$workbench" costs ingest --worker ||
+old_locations "$workbench" agent costs ingest --worker ||
     part_failed costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1

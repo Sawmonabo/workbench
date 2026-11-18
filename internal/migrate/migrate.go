@@ -317,7 +317,7 @@ func Probe(l Locations, wanted []string) []string {
 	return lines
 }
 
-// Plan is what `workbench migrate --apply` asks approval for: one fixed effect
+// Plan is what `workbench migrate` asks approval for: one fixed effect
 // per migration with something to do, named by its ID and described by the
 // paths it moves or deletes, and Workbench's folders they move into as an
 // input, so the digest changes when either does. A migration in conflict is

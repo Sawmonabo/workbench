@@ -14,54 +14,46 @@ import (
 )
 
 // migrateCommand lists and runs Workbench's migrations (internal/migrate).
-// Without flags it lists them and changes nothing. --apply runs the ones with
-// something to do, under the approval rules apply uses. The hidden --probe
-// and run are the apply's migrations step: they run inside an apply that
-// holds the locks, so they resolve paths only and print their own lines.
+// Bare, it runs the ones with something to do under the approval rules apply
+// uses; --dry-run lists them and changes nothing. The hidden --probe and run
+// are the apply's migrations step: they run inside an apply that holds the
+// locks, so they resolve paths only and print their own lines.
 func migrateCommand(o *options) *cobra.Command {
-	var apply, dryRun bool
+	var dryRun bool
 	cmd := &cobra.Command{
 		Use:   "migrate",
 		Short: "Move or clean up files earlier Workbench releases left behind",
-		Long: "Without flags, list each migration and whether it has anything to do; nothing " +
-			"changes. --apply runs every migration with something to do: at a terminal it shows " +
-			"the list and asks once; --dry-run --json prints it with a plan_digest that " +
-			"--approve-plan DIGEST runs exactly; without a terminal it needs --approve-plan or " +
-			"--yes, and a coding agent must use --approve-plan. Every apply runs them too, as its " +
-			"migrations step, and the costs import moves the costs files by itself.",
+		Long: "Run every migration that has something to do: at a terminal it shows what will " +
+			"run and asks once. --dry-run lists each migration and whether it has anything to " +
+			"do, and changes nothing; with --json it adds the plan_digest that --approve-plan " +
+			"DIGEST runs exactly.\n\n" +
+			"Without a terminal it runs only with --approve-plan DIGEST or --yes, and a coding " +
+			"agent must use --approve-plan (it is refused --yes); --yes and --approve-plan " +
+			"cannot be combined. Every apply runs the migrations too, as its migrations step, " +
+			"and the costs import moves the costs files by itself.",
+		Example: "  workbench migrate --dry-run\n" +
+			"  workbench migrate\n" +
+			"  workbench migrate --dry-run --json\n" +
+			"  workbench migrate --approve-plan DIGEST",
 		Args: cobra.NoArgs,
 	}
-	cmd.RunE = func(cmd *cobra.Command, _ []string) error {
-		switch {
-		case !apply && (dryRun || o.yes || o.approvePlan != ""):
-			return o.runPrinted(cmd, func(*operation.Result) error {
-				return operation.Fail(
-					operation.ExitInvalid,
-					"invocation",
-					"--dry-run, --yes and --approve-plan go with --apply",
-				)
-			})
-		case !apply:
-			return o.action(machineAction, migrateList)(cmd, nil)
-		}
-		return o.action(
-			machineAction,
-			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-				return o.migrateApply(cmd, c, dryRun)
-			},
-		)(
-			cmd,
-			nil,
-		)
-	}
+	cmd.RunE = o.action(
+		machineAction,
+		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+			if dryRun {
+				return migrateList(cmd, c)
+			}
+			return o.migrateApply(cmd, c)
+		},
+	)
 	flags := cmd.Flags()
-	flags.BoolVar(&apply, "apply", false, "Run every migration that has something to do")
-	flags.BoolVar(&dryRun, "dry-run", false, "With --apply, show what would run and exit")
-	flags.BoolVar(
+	flags.BoolVar(&dryRun, "dry-run", false, "List each migration and what it would do, and exit")
+	flags.BoolVarP(
 		&o.yes,
 		"yes",
+		"y",
 		false,
-		"With --apply, run without asking (refused for coding agents)",
+		"Run without asking (refused for coding agents)",
 	)
 	o.approveFlag(cmd)
 	// The step runs every migration with something to do. WORKBENCH_MIGRATIONS
@@ -71,7 +63,7 @@ func migrateCommand(o *options) *cobra.Command {
 		o,
 		cmd,
 		"migrations",
-		"migrate run is the apply's migrations step; run workbench migrate --apply",
+		"migrate run is the apply's migrations step; run workbench migrate",
 		migrateProbe,
 		func(cmd *cobra.Command) error {
 			locations, err := migrate.Locate()
@@ -102,15 +94,19 @@ func migrateProbe(out io.Writer) error {
 	return err
 }
 
-// migrateList shows each migration and where it stands.
-func migrateList(cmd *cobra.Command, _ operation.Context) (operation.Result, error) {
+// migrateList is migrate --dry-run: each migration and where it stands, and
+// the digest of the plan a bare migrate would ask approval for, which
+// --approve-plan takes.
+func migrateList(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
 	locations, err := migrate.Locate()
 	if err != nil {
 		return result, err
 	}
+	findings := migrate.Check(locations)
+	result.PlanDigest = migrate.Plan(c.Scope, locations, findings).Digest()
 	result.Warnings = append(result.Warnings, locations.Notes...)
-	for _, f := range migrate.Check(locations) {
+	for _, f := range findings {
 		component := operation.Component{Name: f.ID, Title: f.ID + " " + f.Title}
 		switch f.Status {
 		case migrate.Done:
@@ -125,10 +121,10 @@ func migrateList(cmd *cobra.Command, _ operation.Context) (operation.Result, err
 			component.Status, component.Message = operation.StatusConflict, f.Detail
 		case migrate.Unfinished:
 			component.Status = operation.StatusPending
-			component.Message = "unfinished: " + f.Detail + "; workbench migrate --apply finishes it"
+			component.Message = "unfinished: " + f.Detail + "; workbench migrate finishes it"
 		default:
 			component.Status = operation.StatusPending
-			component.Message = f.Detail + "; workbench migrate --apply runs it"
+			component.Message = f.Detail + "; workbench migrate runs it"
 		}
 		result.Results = append(result.Results, component)
 	}
@@ -140,13 +136,10 @@ func migrateList(cmd *cobra.Command, _ operation.Context) (operation.Result, err
 func (o *options) migrateApply(
 	cmd *cobra.Command,
 	c operation.Context,
-	dryRun bool,
 ) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
-	if !dryRun {
-		if err := checkConsent(o, "migrate --apply"); err != nil {
-			return result, err
-		}
+	if err := checkConsent(o, "migrate"); err != nil {
+		return result, err
 	}
 	stop := c.ShowProgress("Checking migrations")
 	locations, err := migrate.Locate()
@@ -159,13 +152,11 @@ func (o *options) migrateApply(
 	result.Warnings = append(result.Warnings, locations.Notes...)
 	result.Warnings = append(result.Warnings, plan.Warnings...)
 	result.PlanDigest = plan.Digest()
-	if !dryRun {
-		if err = operation.CheckApproval(o.approvePlan, result.PlanDigest); err != nil {
-			return result, err
-		}
+	if err = operation.CheckApproval(o.approvePlan, result.PlanDigest); err != nil {
+		return result, err
 	}
-	if dryRun || len(plan.Effects) == 0 {
-		return migrateShown(result, plan, dryRun)
+	if len(plan.Effects) == 0 {
+		return migrateShown(result, plan)
 	}
 	consent := consentFor(o, o.approvePlan)
 	if o.yes {
@@ -203,31 +194,22 @@ func (o *options) migrateApply(
 	return result, err
 }
 
-// migrateShown is the result of a dry run, or of a run with nothing to move:
-// the plan, "Nothing to migrate", or the conflicts that need the owner, which
-// the warnings name.
-func migrateShown(
-	result operation.Result,
-	plan operation.Plan,
-	dryRun bool,
-) (operation.Result, error) {
+// migrateShown is the result of a run with nothing to move: "Nothing to
+// migrate", or the conflicts that need the owner, which the warnings name.
+func migrateShown(result operation.Result, plan operation.Plan) (operation.Result, error) {
 	component := operation.Component{
 		Name:    "migrations",
-		Status:  operation.StatusComplete,
-		Details: plan,
+		Status:  operation.StatusUnchanged,
+		Message: "Nothing to migrate",
 	}
 	var err error
-	switch {
-	case dryRun:
-	case len(plan.Warnings) > 0:
-		component.Status, component.Details = operation.StatusConflict, nil
+	if len(plan.Warnings) > 0 {
+		component.Status, component.Message = operation.StatusConflict, ""
 		err = operation.Fail(
 			operation.ExitConflict,
 			"migrate",
 			"A migration needs you: deal with each file the warnings name as they say",
 		)
-	default:
-		component.Status, component.Message, component.Details = operation.StatusUnchanged, "Nothing to migrate", nil
 	}
 	result.Results = append(result.Results, component)
 	return result, err

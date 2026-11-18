@@ -40,40 +40,53 @@ func doctorCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// initCommand adopts machine answers from an existing chezmoi config once, so a
-// dotfiles machine switches without re-answering the questionnaire, or asks
-// saved answers again.
-func initCommand(o *options) *cobra.Command {
+// answersCommand groups the commands that change the saved machine answers
+// apply reads, outside the questions apply asks itself.
+func answersCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init",
-		Short: "Adopt answers from an existing chezmoi config, or ask a saved answer again",
-		Args:  cobra.NoArgs,
+		Use:   "answers",
+		Short: "Import machine answers from a chezmoi config, or ask a saved answer again",
+		Long: "apply asks the machine questions your saved answers lack and saves the answers " +
+			"in Workbench's private machine.toml. These commands change them outside apply: " +
+			"import adopts the answers of an existing chezmoi config once, so a dotfiles " +
+			"machine switches without answering again, and ask asks saved answers again.",
+		Example: "  workbench answers import ~/.config/chezmoi/chezmoi.toml --dry-run\n" +
+			"  workbench answers ask machine_role",
+		Args: cobra.NoArgs,
+		RunE: showHelp,
+	}
+	cmd.AddCommand(answersImportCommand(o), answersAskCommand(o))
+	return cmd
+}
+
+// answersImportCommand adopts machine answers from an existing chezmoi config
+// once, so a dotfiles machine switches without re-answering the questionnaire.
+func answersImportCommand(o *options) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "import FILE",
+		Short: "Adopt the answers of an existing chezmoi config, once",
+		Long: "Read the [data] table of an existing chezmoi config, such as " +
+			"~/.config/chezmoi/chezmoi.toml, show the machine answers it would save and save " +
+			"them once approved. It refuses a file that lacks an answer or holds one Workbench " +
+			"does not accept, naming it. At a terminal it asks; without one, or for a coding " +
+			"agent, pass --approve-plan DIGEST from a --dry-run --json plan.",
+		Example: "  workbench answers import ~/.config/chezmoi/chezmoi.toml --dry-run\n" +
+			"  workbench answers import ~/.config/chezmoi/chezmoi.toml\n" +
+			"  workbench answers import FILE --dry-run --json\n" +
+			"  workbench answers import FILE --approve-plan DIGEST",
+		Args: cobra.ExactArgs(1),
+		// FILE is any file: the shell's own completion.
+		ValidArgsFunction: func(*cobra.Command, []string, string) ([]cobra.Completion, cobra.ShellCompDirective) {
+			return nil, cobra.ShellCompDirectiveDefault
+		},
 	}
 	o.approveFlag(cmd)
-	cmd.Flags().
-		String("answers-from", "", "Existing chezmoi config, for example ~/.config/chezmoi/chezmoi.toml")
-	cmd.Flags().StringSlice(
-		"ask",
-		nil,
-		"Ask these saved machine answers again, for example --ask machine_role",
-	)
 	cmd.Flags().Bool("dry-run", false, "Show the plan without saving answers")
 	cmd.RunE = o.action(
 		machineAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			ask, _ := cmd.Flags().GetStringSlice("ask")
-			from, _ := cmd.Flags().GetString("answers-from")
-			if (from == "") == (len(ask) == 0) {
-				return result, operation.Fail(
-					operation.ExitInvalid,
-					"init",
-					"init takes --answers-from FILE or --ask KEY",
-				)
-			}
-			if len(ask) > 0 {
-				return askAnswers(cmd, c, o, result, ask)
-			}
+			from := cmd.Flags().Arg(0)
 			var encoded []byte
 			planner := func(_ context.Context, current operation.Context) (operation.Plan, error) {
 				plan, data, err := machine.AdoptionPlan(current, from)
@@ -125,6 +138,34 @@ func initCommand(o *options) *cobra.Command {
 	return cmd
 }
 
+// answersAskCommand asks saved machine answers again.
+func answersAskCommand(o *options) *cobra.Command {
+	return &cobra.Command{
+		Use:   "ask NAME...",
+		Short: "Ask saved machine answers again, for example machine_role",
+		Long: "Ask the named saved machine answers again at the terminal and save what you " +
+			"answer; run workbench apply next to apply the change. It needs a person at a " +
+			"terminal: it refuses --json, --non-interactive and coding agents. Tab completes " +
+			"the names this machine has saved.",
+		Example: "  workbench answers ask machine_role\n" +
+			"  workbench answers ask work_folder personal_folder",
+		Args:              cobra.MinimumNArgs(1),
+		ValidArgsFunction: completeAsk,
+		RunE: o.action(
+			machineAction,
+			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
+				return askAnswers(
+					cmd,
+					c,
+					o,
+					operation.NewResult(cmd.CommandPath()),
+					cmd.Flags().Args(),
+				)
+			},
+		),
+	}
+}
+
 // askAnswers asks the named saved machine answers again, at a terminal that a
 // person, not a coding agent, sits at.
 func askAnswers(
@@ -134,18 +175,11 @@ func askAnswers(
 	result operation.Result,
 	ask []string,
 ) (operation.Result, error) {
-	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
-		return result, operation.Fail(
-			operation.ExitInvalid,
-			"ask",
-			"--ask saves the answers it asks; drop --dry-run",
-		)
-	}
 	if !o.interactive() {
 		return result, operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"--ask asks at a terminal; drop --json and --non-interactive",
+			"answers ask asks at a terminal; drop --json and --non-interactive",
 		)
 	}
 	// An agent cannot answer the owner's machine questions, and what it typed

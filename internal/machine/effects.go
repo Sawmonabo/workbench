@@ -202,7 +202,7 @@ var sharedEffects = []operation.Effect{
 		Privilege:   "user; network for the official price pages",
 		Recovery:    "external; ledger rows are derived from the transcripts and not reverted",
 		Title:       "Record AI usage",
-		Summary:     "new usage shows up in workbench costs",
+		Summary:     "new usage shows up in workbench agent costs",
 		What:        "Reads your latest Claude Code and Codex sessions into the costs ledger, the same thing the session hooks do.",
 		RunsAs:      "you; downloads the official price pages",
 		Undo:        "Nothing to undo: rows already recorded stay, even after the session files they came from are deleted",

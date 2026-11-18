@@ -4,7 +4,7 @@ These files configure tooling in an existing uv project. They do not generate
 application metadata, source code, tests, a framework, or a Git repository.
 
 Inspect with `workbench project inspect PATH`. Preview with
-`workbench project configure PATH --language python --dry-run`. The selected
+`workbench project apply PATH --language python --dry-run`. The selected
 directory must include every affected workspace owner and shared lockfile.
 Selecting a workspace child never authorizes writes to its parent. Other detected
 languages remain visible and unchanged; explicitly selecting an unsupported

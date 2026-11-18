@@ -163,7 +163,7 @@ type watcher struct {
 	// calm is set by a tick that read memory calling for nothing, with no
 	// hold under way: a moment a handover may happen at.
 	calm bool
-	// server is the socket guard memory connects to, nil when it could not be
+	// server is the socket the agent guard view connects to, nil when it could not be
 	// served; view is the last snapshot a tick built for it.
 	server *server
 	view   Snapshot

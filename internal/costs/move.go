@@ -1158,7 +1158,7 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"migrate",
-			"The costs files are moving to Workbench's folders; run `workbench migrate --apply`",
+			"The costs files are moving to Workbench's folders; run `workbench migrate`",
 		)
 	}
 	var moveErr error

@@ -239,7 +239,7 @@ func TestUnitRootOnlyForWhatAnAgentCommandForked(t *testing.T) {
 			w.known[rootKey] = claude
 		}, tie{}, notUnit, true},
 		{"aWorkbenchProcess", func(w *unitWorld) {
-			w.procs[500] = process(500, 1, 500, 10, "/opt/workbench/bin/workbench", "guard", "watch")
+			w.procs[500] = process(500, 1, 500, 10, "/opt/workbench/bin/workbench", "agent", "guard", "watch")
 		}, tie{}, notUnit, true},
 		{"aProtectedProcess", func(w *unitWorld) {
 			w.protected[500] = rootKey.start

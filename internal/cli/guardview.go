@@ -25,60 +25,19 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// guardMemoryCommand opens the live view of the commands the guard tracks. It
-// is for a person: with --json, with --non-interactive or without a terminal
-// on stdin and stdout, or under a coding agent, it exits 3 before the screen
-// opens.
-func guardMemoryCommand(o *options) *cobra.Command {
-	return &cobra.Command{
-		Use:   "memory",
-		Short: "Watch the commands the guard tracks and stop one",
-		Long: "Show, live, each agent command the guard's watcher tracks: its status, how long it " +
-			"has run, its memory now and at its peak, its project, agent and subagent, and the " +
-			"commands that ended in the last minute, dimmed. A program that detached from a " +
-			"command and still runs has a row of its own, directly under the command that " +
-			"started it and joined to it by a tree line; that command's row stays, dimmed once " +
-			"the command has ended, for as long as a detached program shows under it. A " +
-			"detached program whose command is not known has a row among the commands. A " +
-			"detached program's ID is p and the process ID of its first program that still " +
-			"runs, which changes when that exits; its details show the call that started it " +
-			"when known and, when the guard will not stop it itself, why. A command line that " +
-			"might hold an environment string is shown shortened, on macOS to its program, and " +
-			"ends with …. The header counts the running and finished rows and shows the memory " +
-			"in use of the installed memory, the largest peak and the swap in use. " +
-			"↑ and ↓ move, as the mouse wheel does in most terminals; space tags a running " +
-			"row, enter or → opens the selected " +
-			"one's details (the full command, one step of a pipeline or && chain per line, its " +
-			"folder, processes and memory graph, which scroll with ↑, ↓, pgup, pgdn, home, end " +
-			"and the wheel), k opens the stop menu for the tagged rows or the selected one (a " +
-			"polite stop, force-killed after 5 s, or a forced kill now), esc or ← closes a menu " +
-			"or the details, and q, or esc on the list, quits. The watcher signals the row and " +
-			"logs the stop as by=you. A stop reaches only its own row: a command and a program " +
-			"that detached from it are stopped one by one, or together when both are tagged. " +
-			"It tells a command's call; a detached program's call only when it is known and " +
-			"its command still runs in the foreground. With WORKBENCH_GUARD=dry-run it only " +
-			"logs; it also only logs for a detached program whose setting cannot be read, " +
-			"when the agent's setting is dry-run or off. " +
-			"While no watcher runs, the view says so and reconnects on its own. It needs " +
-			"a terminal, has no --json output and refuses --non-interactive and coding agents; " +
-			"workbench guard logs --follow prints the same events.",
-		Args: cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd, o) })
-		},
-	}
-}
-
-// runGuardView refuses a caller that is not a person at a terminal, then runs
-// the view until it quits. It starts the program as the costs view does. A
-// full-screen view prints nothing a program could read, so --json is refused,
-// and --non-interactive counts as no terminal, as --choose treats it.
+// runGuardView opens the live view of the commands the guard tracks, which
+// bare `agent guard` runs. It is for a person: with --json, with
+// --non-interactive or without a terminal on stdin and stdout, or under a
+// coding agent, it exits 3 before the screen opens. Otherwise it runs the view
+// until it quits, starting the program as the costs view does. A full-screen
+// view prints nothing a program could read, so --json is refused, and
+// --non-interactive counts as no terminal, as --choose treats it.
 func runGuardView(cmd *cobra.Command, o *options) error {
 	if o.json {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"json",
-			"guard memory has no JSON output; use workbench guard logs --json",
+			"agent guard has no JSON output; use workbench agent guard logs --json",
 		)
 	}
 	if o.nonInteractive || !platform.IsTerminal(os.Stdin.Fd()) ||
@@ -86,14 +45,14 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"terminal",
-			"guard memory needs a terminal; use workbench guard logs --follow",
+			"agent guard needs a terminal; use workbench agent guard logs --follow",
 		)
 	}
 	if operation.AgentSession() {
 		return operation.Fail(
 			operation.ExitBlocked,
 			"agent",
-			"guard memory is for a person at a terminal",
+			"agent guard is for a person at a terminal",
 		)
 	}
 	// The color profile Bubble Tea reports arrives after the first frame:

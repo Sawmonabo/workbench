@@ -84,7 +84,15 @@ func TestMatchTracksOnlyTheAgentsCommandShell(t *testing.T) {
 		process(201, 100, 201, 0.2, "git", "status"),
 		process(202, 100, 202, 0.3, "rg", "--files", "."),
 		process(204, 100, 204, -5, claudeShell(`'git status'`)...),
-		process(205, 100, 205, 0.6, "/bin/sh", "-c", "~/.local/bin/workbench guard post || true"),
+		process(
+			205,
+			100,
+			205,
+			0.6,
+			"/bin/sh",
+			"-c",
+			"~/.local/bin/workbench agent guard post || true",
+		),
 		process(206, 100, 206, 0.7, claudeShell(`'echo '"'"'hi'"'"''`)...),
 		process(208, 100, 208, 0.8, claudeShell(`'echo'"'"'hi'"'"''`)...),
 		process(209, 100, 209, 0.9, claudeShell(`'git status'"'"' --short'"'"''`)...),
@@ -208,7 +216,7 @@ func TestMatchCodexThroughItsSandbox(t *testing.T) {
 			0.5,
 			"/bin/sh",
 			"-c",
-			"'/home/u/.local/bin/workbench' guard pre || true",
+			"'/home/u/.local/bin/workbench' agent guard pre || true",
 		),
 		process(412, 400, 412, 0.6, "/bin/zsh", "-c", "cargo test --release"),
 		// Every process from the launcher to the command must start after
@@ -503,7 +511,7 @@ func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 				process(700, 100, 700, 1, "zsh"),
 				process(701, 700, 701, 2, "claude"),
 				process(702, 701, 701, 3, "node", "mcp-server.js"),
-				process(703, 700, 700, 4, "workbench", "guard", "watch"),
+				process(703, 700, 700, 4, "workbench", "agent", "guard", "watch"),
 				process(704, 700, 704, 5, "pytest"),
 			},
 			root:      700,
@@ -657,7 +665,7 @@ func TestEscalationStaysInsideTheStoppedCommand(t *testing.T) {
 			stopped: []proc{process(900, 100, 900, 1, "zsh")},
 			now: []proc{
 				process(900, 100, 900, 1, "zsh"),
-				process(901, 900, 900, 2, "workbench", "guard", "watch"),
+				process(901, 900, 900, 2, "workbench", "agent", "guard", "watch"),
 				process(902, 900, 900, 3, "pytest"),
 			},
 			protected: map[int]uint64{100: start(-3600), 901: start(2)},
@@ -695,16 +703,16 @@ func TestManualStopsOnlyWhatAPersonMayStop(t *testing.T) {
 		process(1, 0, 1, -7200, "launchd"),
 		agent,
 		shell,
-		process(300, 200, 300, 0.5, "workbench", "guard", "memory"), // under the agent's command
+		process(300, 200, 300, 0.5, "workbench", "agent", "guard"), // under the agent's command
 		process(400, 1, 400, 0.6, "zsh"),
-		process(401, 400, 401, 0.7, "workbench", "guard", "memory"),
+		process(401, 400, 401, 0.7, "workbench", "agent", "guard"),
 		process(500, 1, 500, -3600, "claude"), // agent-named, left no note
 	)
 	protected := map[int]uint64{100: start(-3600)}
 	// An agent may be PID 1, in a container started without an init.
 	inContainer := snapshotOf(
 		process(1, 0, 1, -3600, "claude"),
-		process(600, 1, 600, 0.8, "workbench", "guard", "memory"),
+		process(600, 1, 600, 0.8, "workbench", "agent", "guard"),
 	)
 	containerAgent := map[int]uint64{1: start(-3600)}
 	for _, tc := range []struct {

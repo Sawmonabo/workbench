@@ -104,17 +104,16 @@ func newRoot(o *options) *cobra.Command {
 		doctorCommand(o),
 		revertCommand(o),
 		projectCommand(o),
-		initCommand(o),
+		answersCommand(o),
+		agentCommand(o),
 		releaseCheckCommand(o),
 		vscodeSettingsCommand(o),
 		terminalDefaultCommand(o),
 		askpassCommand(o),
-		costsCommand(o),
 		migrateCommand(o),
 		envFilesCommand(o),
 		mcpGateCommand(o),
 		claudeMCPCommand(o),
-		guardCommand(o),
 	)
 	registerCompletions(root)
 	return root
@@ -181,7 +180,7 @@ const (
 	releaseAction
 	// versionAction only resolves paths. It reads no state before the handler,
 	// so version still reports the version when state.json is malformed, which
-	// is when it is asked for; --list reads the state where it needs it.
+	// is when it is asked for.
 	versionAction
 )
 

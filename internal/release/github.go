@@ -104,7 +104,7 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 	if errors.Is(err, errNotFound) {
 		message := "No published Workbench release found"
 		if tag != "" {
-			message = "No Workbench release " + tag + "; see workbench version --list"
+			message = "No Workbench release " + tag + "; see workbench update --list"
 		}
 		return operation.Fail(operation.ExitBlocked, "release_unavailable", message)
 	}

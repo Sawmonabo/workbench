@@ -12,7 +12,7 @@ import (
 )
 
 // manualReason is what the agent is told of a stop a person asked for.
-const manualReason = "Stopped by you (workbench guard memory)."
+const manualReason = "Stopped by you (workbench agent guard)."
 
 // manualStop is a stop a person asked for, followed across ticks: the
 // processes to wait for, when it was sent, whether it was a forced one and

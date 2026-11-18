@@ -292,10 +292,10 @@ func (p *preparation) checkPrerequisites(
 	if err != nil {
 		command := c.WorkbenchCommand()
 		message := "Machine answers are missing; run " + command + " apply at a terminal to answer them, or " +
-			command + " init --answers-from FILE"
+			command + " answers import FILE"
 		if c.Native.Developer {
 			// apply --local-build never asks the questions.
-			message = "Machine answers are missing; save them with " + command + " init --answers-from FILE"
+			message = "Machine answers are missing; save them with " + command + " answers import FILE"
 		}
 		return nil, operation.Fail(operation.ExitBlocked, "answers", message)
 	}

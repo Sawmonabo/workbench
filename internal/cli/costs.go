@@ -23,7 +23,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// costsFlags are the report flags of `workbench costs`.
+// costsFlags are the report flags of `workbench agent costs`.
 type costsFlags struct {
 	by, tool, since, until, sort string
 	top                          int
@@ -44,6 +44,10 @@ func costsCommand(o *options) *cobra.Command {
 			"hooks keep, so it survives the tools deleting old transcripts. At a terminal the " +
 			"report opens in one tab per tool (Tab and Shift+Tab switch, q quits); otherwise " +
 			"--tool picks the tool to print. Figures are list-price equivalents, not subscription charges.",
+		Example: "  workbench agent costs\n" +
+			"  workbench agent costs --by model --since 2026-11-01\n" +
+			"  workbench agent costs --tool codex --by month --csv\n" +
+			"  workbench agent costs status",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(
@@ -400,14 +404,17 @@ func costsIngestCommand(o *options) *cobra.Command {
 	var worker, quiet bool
 	cmd := &cobra.Command{
 		Use:   "ingest [EVENT [TRANSCRIPT [SESSION]]]",
-		Short: "Hook entry: start a detached worker that copies new usage into the ledger",
-		Long: "Without --worker this is the hook command: it reads the hook's JSON from stdin " +
-			"(hook_event_name, transcript_path, session_id), starts " +
-			"`workbench costs ingest --worker` detached with them and returns at once, printing nothing on stdout " +
-			"whatever happens. When it can't start the worker, for example because a Workbench folder is not private, " +
-			"it says why on stderr and records nothing. " +
-			"--worker runs the ingest in the foreground.",
-		Args: cobra.MaximumNArgs(3),
+		Short: "Copy new usage into the ledger now (--worker); without it, the session hook entry",
+		Long: "workbench agent costs ingest --worker reads new Claude Code and Codex usage into " +
+			"the ledger here, in the foreground, with progress; that is the form to run " +
+			"yourself. The apply's costs step runs it too.\n\n" +
+			"Without --worker it is the command the SessionStart and SessionEnd hooks run: it " +
+			"reads the hook's JSON from stdin (hook_event_name, transcript_path, session_id), " +
+			"starts the worker detached with them and returns at once, printing nothing on " +
+			"stdout whatever happens. When it can't start the worker, for example because a " +
+			"Workbench folder is not private, it says why on stderr and records nothing.",
+		Example: "  workbench agent costs ingest --worker",
+		Args:    cobra.MaximumNArgs(3),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if !worker {
 				costs.Hook(stdinFile(cmd))
@@ -474,7 +481,13 @@ func costsRatesCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "rates",
 		Short: "Show the merged rate card and where each rate comes from",
-		Args:  cobra.NoArgs,
+		Long: "Show the USD price per million tokens of each model prefix and which source it " +
+			"comes from: the overrides file, the official price pages, the rates calibrated " +
+			"from the tools' own cost records, or the built-in card. --refresh fetches the official " +
+			"pages again first.",
+		Example: "  workbench agent costs rates\n" +
+			"  workbench agent costs rates --refresh",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(result *operation.Result) error {
 				card, err := costs.Rates(cmd.Context(), refresh)
@@ -573,7 +586,7 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	b.WriteString("\n")
 	writeFaint(&b, width, 2, fmt.Sprintf(
 		"A row from the overrides file always wins; otherwise the longest matching prefix, then this source order: "+
-			"official, calibrated, built-in. Overrides: %s. Refresh: workbench costs rates --refresh",
+			"official, calibrated, built-in. Overrides: %s. Refresh: workbench agent costs rates --refresh",
 		showPath(card.Overrides),
 	))
 	return b.String()
@@ -583,7 +596,12 @@ func costsStatusCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show ledger coverage, the last ingest, hooks and the rate card age",
-		Args:  cobra.NoArgs,
+		Long: "Show what the ledger covers for each tool, when usage was last read into it, " +
+			"whether each tool runs the session hooks that keep it, and how old the rate card " +
+			"is. Run it when a report looks short.",
+		Example: "  workbench agent costs status\n" +
+			"  workbench agent costs status --json",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(result *operation.Result) error {
 				ledger, _, err := openIngested(cmd, o)
@@ -823,7 +841,7 @@ func emptyReport(report costs.Statement) string {
 			report.Hidden,
 		)
 	}
-	return "no responses matched (check `workbench costs status`)"
+	return "no responses matched (check `workbench agent costs status`)"
 }
 
 // target is a row the tab view can open: a project or a model.
@@ -860,7 +878,7 @@ func costsPage(
 	opts := report.Options
 	c := report.Coverage
 	// The count and the days are the table's: the period and scope the total
-	// below is for, not everything the ledger holds (costs status shows that).
+	// below is for, not everything the ledger holds (agent costs status shows that).
 	period := fmt.Sprintf(
 		"%s responses · %s → %s",
 		commas(report.Total.Calls),

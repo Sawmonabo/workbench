@@ -744,7 +744,7 @@ func writeLog(paths Paths, message string) {
 
 // Hook is the hook entry. Claude Code and Codex pipe a JSON object
 // (hook_event_name, transcript_path, session_id) on stdin; Hook starts
-// `workbench costs ingest --worker` detached with those three values and
+// `workbench agent costs ingest --worker` detached with those three values and
 // returns. The hooks run synchronously (Claude Code stops a background hook
 // that is still running when a headless session ends), which costs a session
 // the few milliseconds of one process spawn. Hook writes only the new import
@@ -759,7 +759,7 @@ func Hook(stdin *os.File) {
 	defer func() { _ = recover() }()
 	event, transcript, session := readHookInput(stdin)
 	if err := startWorker(event, transcript, session); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "workbench costs: nothing recorded: "+err.Error())
+		_, _ = fmt.Fprintln(os.Stderr, "workbench agent costs: nothing recorded: "+err.Error())
 	}
 }
 
@@ -793,6 +793,7 @@ func startWorker(event, transcript, session string) error {
 	_, err = operation.StartDetached(operation.Detached{
 		Entry: self,
 		Args: []string{
+			"agent",
 			"costs",
 			"ingest",
 			"--worker",

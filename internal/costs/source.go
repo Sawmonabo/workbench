@@ -118,9 +118,9 @@ const (
 
 // ingestCommand matches the ingest hook's command as Workbench installs it:
 // the workbench executable, by name, by path or as a single-quoted path, then
-// "costs ingest" and nothing after. "claude-costs ingest", the replaced
+// "agent costs ingest" and nothing after. "claude-costs ingest", the replaced
 // script, is not it.
-var ingestCommand = regexp.MustCompile(`(^|/)workbench'? costs ingest$`)
+var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest$`)
 
 // isIngestHook reports whether command is the ingest hook's command.
 func isIngestHook(command string) bool { return ingestCommand.MatchString(command) }
@@ -169,7 +169,7 @@ func ConfigMoves(home string) []ConfigMove {
 }
 
 // Explain says what the move means and how to undo it, the same in the plan,
-// doctor and costs status.
+// doctor and agent costs status.
 func (m ConfigMove) Explain(home string) string {
 	var parts []string
 	if m.Source != "" {

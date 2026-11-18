@@ -72,7 +72,7 @@ func (p *Proposal) addCI(c operation.Context, owners []string) error {
 		p.Plan.Effects,
 		operation.Effect{
 			Name:        "ci-workflow-checks",
-			Description: "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code; configure does not run CI",
+			Description: "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code; project apply does not run CI",
 			Privilege:   "CI runner",
 			Recovery:    "Restoring the workflow file does not undo completed CI runs or their external effects",
 		},

@@ -131,7 +131,7 @@ func CheckAsk(c operation.Context, ask []string) error {
 				operation.ExitInvalid,
 				"ask",
 				fmt.Sprintf(
-					"%q is not one of this machine's answers; --ask takes %s",
+					"%q is not one of this machine's answers; answers ask takes %s",
 					key,
 					strings.Join(askable, ", "),
 				),
@@ -141,7 +141,7 @@ func CheckAsk(c operation.Context, ask []string) error {
 	return nil
 }
 
-// Askable lists, sorted, the saved answers --ask can ask again: every saved
+// Askable lists, sorted, the saved answers `answers ask` can ask again: every saved
 // answer except the derived and retired ones.
 func Askable(c operation.Context) ([]string, error) {
 	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
@@ -149,7 +149,7 @@ func Askable(c operation.Context) ([]string, error) {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
 			"ask",
-			"--ask changes saved answers, and this machine has none; "+
+			"answers ask changes saved answers, and this machine has none; "+
 				c.WorkbenchCommand()+" apply asks every question",
 		)
 	}
@@ -184,7 +184,7 @@ func validateAnswers(c operation.Context, a Answers) error {
 
 // answerMissing refuses, with code, the answer key of a, missing or invalid,
 // saying how to give it, or is nil when key is "". An apply at a terminal asks
-// only a missing answer; an invalid one is asked again with --ask, except a
+// only a missing answer; an invalid one is asked again with `answers ask`, except a
 // derived one, which follows the role and the host.
 func answerMissing(c operation.Context, code operation.Exit, a Answers, key string) error {
 	if key == "" {
@@ -192,14 +192,14 @@ func answerMissing(c operation.Context, code operation.Exit, a Answers, key stri
 	}
 	command := c.WorkbenchCommand()
 	message := "Machine answer " + key + " is missing; " + command + " apply at a terminal, " +
-		"without --local-build, asks it, or save it with " + command + " init --answers-from FILE"
+		"without --local-build, asks it, or save it with " + command + " answers import FILE"
 	if _, saved := a[key]; saved && slices.Contains(derivedAnswers, key) {
 		message = "Machine answer " + key + " does not match machine_role or this host; " +
-			"save the answers again with " + command + " init --answers-from FILE"
+			"save the answers again with " + command + " answers import FILE"
 	} else if saved {
-		message = "Machine answer " + key + " is invalid; " + command + " init --ask " + key +
+		message = "Machine answer " + key + " is invalid; " + command + " answers ask " + key +
 			" asks it again at a terminal, or save a valid one with " + command +
-			" init --answers-from FILE"
+			" answers import FILE"
 	}
 	return operation.Fail(code, "answers", message)
 }

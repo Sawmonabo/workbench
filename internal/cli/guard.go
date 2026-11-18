@@ -17,36 +17,41 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// guardCommand groups the agent command guard's entries. Claude Code and
-// Codex run pre, post and session as hooks, and pre starts watch with fixed
-// arguments; those four are hidden. Like askpass they are plain commands, not
-// actions, and print no result envelope. pre, post and session take any
-// arguments, flags included (flag parsing is off, so even the root's --json
-// is just an argument), so nothing an agent passes makes them exit non-zero,
-// and print only what the hook protocol reads. logs and memory are for
-// people.
+// guardCommand is `agent guard`: run bare, it opens the live view of what the
+// guard tracks (guardview.go), and logs prints what the guard did. Claude Code
+// and Codex run pre, post and session as hooks, and pre starts watch with
+// fixed arguments; those four are hidden. Like askpass they are plain
+// commands, not actions, and print no result envelope. pre, post and session
+// take any arguments, flags included (flag parsing is off, so even the root's
+// --json is just an argument), so nothing an agent passes makes them exit
+// non-zero, and print only what the hook protocol reads. The view and logs are
+// for people.
 func guardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
-		Short: "Show what the agent command memory guard did, and watch what it tracks",
+		Short: "Watch, live, the agent commands the memory guard tracks, and stop one",
 		Long: "The guard stops the largest shell command Claude Code or Codex started, or the " +
 			"largest program such a command left running detached, when the machine is about " +
-			"to run out of memory, and tells the agent why. It never stops an agent it knows " +
-			"(one whose session hook ran or that left a note) or the helpers an agent starts " +
-			"itself. Its hooks and watcher run by themselves. " +
-			"`workbench guard logs` shows what they did, one line per event. `workbench guard " +
-			"memory` shows, live, the commands and detached programs the guard tracks, and " +
-			"stops the ones you choose.",
-		Example: "  workbench guard logs --since 2h\n" +
-			"  workbench guard memory",
+			"to run out of memory, and tells the agent why. Its hooks and watcher run by " +
+			"themselves.\n\n" +
+			"Run bare, it opens a live, full-screen view of the commands and detached programs " +
+			"the watcher tracks, with their memory, project and agent. ↑ and ↓ move, space " +
+			"tags a row, enter opens its details, k stops the tagged or selected rows, and q " +
+			"quits. The view needs a terminal and refuses --json, --non-interactive and coding " +
+			"agents; workbench agent guard logs --follow prints the same events. docs/usage.md " +
+			"describes every row, key and kind of stop.",
+		Example: "  workbench agent guard\n" +
+			"  workbench agent guard logs --since 2h",
 		Args: cobra.NoArgs,
-		RunE: showHelp,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd, o) })
+		},
 	}
 	cmd.AddCommand(
 		guardLogsCommand(o),
-		guardMemoryCommand(o),
 		&cobra.Command{
 			Use:                "pre",
+			Short:              "Hook: Claude Code and Codex run this before each Bash call",
 			Hidden:             true,
 			DisableFlagParsing: true,
 			Args:               cobra.ArbitraryArgs,
@@ -57,6 +62,7 @@ func guardCommand(o *options) *cobra.Command {
 		},
 		&cobra.Command{
 			Use:                "post",
+			Short:              "Hook: Claude Code and Codex run this after each Bash call",
 			Hidden:             true,
 			DisableFlagParsing: true,
 			Args:               cobra.ArbitraryArgs,
@@ -67,6 +73,7 @@ func guardCommand(o *options) *cobra.Command {
 		},
 		&cobra.Command{
 			Use:                "session AGENT",
+			Short:              "Hook: Claude Code and Codex run this when a session starts",
 			Hidden:             true,
 			DisableFlagParsing: true,
 			Args:               cobra.ArbitraryArgs,
@@ -81,6 +88,7 @@ func guardCommand(o *options) *cobra.Command {
 		},
 		&cobra.Command{
 			Use:    "watch",
+			Short:  "The guard's watcher, which the pre hook starts detached",
 			Hidden: true,
 			Args:   cobra.NoArgs,
 			RunE: func(cmd *cobra.Command, _ []string) error {
@@ -92,8 +100,9 @@ func guardCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// guardLogsCommand prints the guard log. --json passes its records through as
-// they are, one per line, so only an error goes through the result envelope.
+// guardLogsCommand prints the guard log. The global --json passes its records
+// through as they are, one per line, so only an error goes through the result
+// envelope.
 func guardLogsCommand(o *options) *cobra.Command {
 	var follow bool
 	var since string
@@ -101,26 +110,19 @@ func guardLogsCommand(o *options) *cobra.Command {
 		Use:   "logs",
 		Short: "Show the commands the guard stopped, memory warnings and watcher errors",
 		Long: "Show the guard log, oldest first, one line per event: the time in this machine's " +
-			"time zone, the level and the event, then key=value fields in a fixed order (id, " +
-			"agent, subagent, project, kind, launched_by, by, dry_run, took, size, peak, " +
-			"floor, level, available, total, still_running, release, old_release, " +
-			"new_release, new_pid, msg, reason, error, process, cmd), a value with a space, quote, " +
-			"equals sign, backslash or control character in Go quotes. " +
-			"The events are each command or detached program that ended, matched no known " +
-			"shape or was stopped, low " +
-			"memory that stopped nothing, calls dropped without their post hook, the watcher " +
-			"starting, handing over and exiting, errors, and any line of the watcher's own " +
-			"output, such as a crash's trace, as a raw event placed at the start of the watcher " +
-			"that wrote it. With --follow, a command still running 5 seconds after the watcher " +
-			"found it gets one running line. --json prints the log's own records (JSON Lines) " +
-			"unchanged, the full call IDs, stop reasons and each tracked command included, and " +
-			"any other line as a raw record. The log is watch.log in the guard folder of " +
-			"Workbench's state folder, and the watcher's own output watch.err beside it.",
-		Example: "  workbench guard logs\n" +
-			"  workbench guard logs --since 2h\n" +
-			"  workbench guard logs --since \"2026-10-16 21:00\"\n" +
-			"  workbench guard logs --follow\n" +
-			"  workbench guard logs --json --since today",
+			"time zone, the level and the event, then key=value fields. With --follow it keeps " +
+			"printing new events, and a command still running 5 seconds after the watcher " +
+			"found it gets one running line.\n\n" +
+			"The global --json prints the log's own records unchanged, one JSON object per line " +
+			"(JSON Lines) rather than one result object, with the full call IDs, stop reasons " +
+			"and each tracked command, and any other line as a raw record. The log is watch.log " +
+			"in the guard folder of Workbench's state folder, and the watcher's own output " +
+			"watch.err beside it; docs/usage.md lists every event and field.",
+		Example: "  workbench agent guard logs\n" +
+			"  workbench agent guard logs --since 2h\n" +
+			"  workbench agent guard logs --since \"2026-10-16 21:00\"\n" +
+			"  workbench agent guard logs --follow\n" +
+			"  workbench agent guard logs --json --since today",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			err := showGuardLogs(cmd, o, follow, since)
@@ -131,14 +133,6 @@ func guardLogsCommand(o *options) *cobra.Command {
 		},
 	}
 	flags := cmd.Flags()
-	// This shadows the root's persistent --json, setting the same option, so
-	// help describes what it does here.
-	flags.BoolVar(
-		&o.json,
-		"json",
-		false,
-		"Print the log's records as JSON Lines, other lines as raw records",
-	)
 	flags.BoolVarP(&follow, "follow", "f", false, "Keep printing new events until interrupted")
 	flags.StringVar(
 		&since,

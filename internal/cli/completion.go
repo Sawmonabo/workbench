@@ -2,7 +2,6 @@ package cli
 
 import (
 	"slices"
-	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/costs"
 	"github.com/Sawmonabo/workbench/internal/machine"
@@ -18,11 +17,11 @@ import (
 // checkpoint) is read without changing anything.
 func registerCompletions(root *cobra.Command) {
 	paths := map[string]bool{
-		"workbench project inspect":   true,
-		"workbench project configure": true,
-		"workbench project revert":    true,
+		"workbench project inspect": true,
+		"workbench project apply":   true,
+		"workbench project revert":  true,
 	}
-	files := []string{"answers-from", "bundle", "bundle-directory"}
+	files := []string{"bundle", "bundle-directory"}
 	directories := []string{"destination"}
 	fixed := map[string][]string{
 		"by":       costsGroupings,
@@ -51,8 +50,6 @@ func registerCompletions(root *cobra.Command) {
 				return // the shell's own file completion
 			case slices.Contains(directories, name):
 				complete = completeDirectories
-			case name == "ask":
-				complete = completeAsk
 			case name == "checkpoint":
 				complete = completeCheckpoint
 			case fixed[name] != nil:
@@ -85,10 +82,10 @@ func completeDirectories(
 	return nil, cobra.ShellCompDirectiveFilterDirs
 }
 
-// completeAsk offers the saved answers --ask can ask again, skipping those
-// already named.
+// completeAsk offers the saved answers `answers ask` can ask again, skipping
+// those already named.
 func completeAsk(
-	_ *cobra.Command, _ []string, typed string,
+	_ *cobra.Command, args []string, _ string,
 ) ([]cobra.Completion, cobra.ShellCompDirective) {
 	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
@@ -98,17 +95,13 @@ func completeAsk(
 	if err != nil {
 		return nil, cobra.ShellCompDirectiveNoFileComp
 	}
-	// --ask is a list: "machine_role,ed" completes the last name after what
-	// is already there.
-	before, _ := cutLast(typed, ",")
-	named := strings.Split(before, ",")
 	var choices []cobra.Completion
 	for _, key := range askable {
-		if !slices.Contains(named, key) {
-			choices = append(choices, cobra.Completion(joinNonEmpty(before, key)))
+		if !slices.Contains(args, key) {
+			choices = append(choices, cobra.Completion(key))
 		}
 	}
-	return choices, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveNoSpace
+	return choices, cobra.ShellCompDirectiveNoFileComp
 }
 
 // completeCheckpoint offers the saved checkpoints of the scope the command
@@ -142,18 +135,4 @@ func completeCheckpoint(
 		)
 	}
 	return choices, cobra.ShellCompDirectiveNoFileComp | cobra.ShellCompDirectiveKeepOrder
-}
-
-func cutLast(s, sep string) (before, after string) {
-	if i := strings.LastIndex(s, sep); i >= 0 {
-		return s[:i], s[i+len(sep):]
-	}
-	return "", s
-}
-
-func joinNonEmpty(before, key string) string {
-	if before == "" {
-		return key
-	}
-	return before + "," + key
 }

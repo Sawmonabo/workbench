@@ -293,7 +293,7 @@ func callFolders(input hookInput) (cwd, folder string) {
 	return cwd, folder
 }
 
-// startWatcher starts `workbench guard watch` detached when the lock is free,
+// startWatcher starts `workbench agent guard watch` detached when the lock is free,
 // from the command this hook was run as, so the watcher knows the installed
 // command it is to follow to a new release (see watcher.handOver). The
 // watcher takes the lock itself; one that loses a race exits at once.
@@ -306,7 +306,7 @@ func startWatcher(f folders) {
 	entry, err := operation.Invoked()
 	if err == nil {
 		_, err = operation.StartDetached(operation.Detached{
-			Entry: entry, Args: []string{"guard", "watch"}, Output: f.output(),
+			Entry: entry, Args: []string{"agent", "guard", "watch"}, Output: f.output(),
 		})
 	}
 	if err != nil {

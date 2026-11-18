@@ -253,7 +253,7 @@ func (w *watcher) startHandover() *handover {
 	}
 	process, err := operation.StartDetached(operation.Detached{
 		Entry:  w.entry,
-		Args:   []string{"guard", "watch"},
+		Args:   []string{"agent", "guard", "watch"},
 		Output: w.f.output(),
 		Env:    env,
 		Files:  files,
