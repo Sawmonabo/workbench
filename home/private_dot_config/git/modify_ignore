@@ -5,9 +5,9 @@
        byte-code caches, a root tmp/ and .agents/tmp/ for an agent's scratch
        files, the .worktrees folder that holds a repository's worktrees and
        Claude Code's own .claude/worktrees, .claude/tmp where Claude Code
-       keeps its plans (plansDirectory), a .tickets folder of local ticket
-       notes, and the agents' personal local
-       files (.claude/settings.local.json, CLAUDE.local.md). The file stays the
+       keeps its plans (plansDirectory), a .tickets folder, and the agents'
+       personal local files (.claude/settings.local.json, CLAUDE.local.md).
+       The file stays the
        owner's: every line already in it is kept as it is, and only the
        entries below that it lacks are added at its end, so the file is
        untouched once it has them. A line that differs only by a trailing
