@@ -35,7 +35,10 @@ configuration does.
   for review, and so is a `members` pattern, or a member's path dependency,
   naming a folder discovery skips (hidden folders, `vendor`, `target`,
   `build`, `dist` and the other generated folders), whose members it could
-  not find. The members of a blocked root are not configured either.
+  not find. A member, listed or reached as a path dependency, that declares a
+  `[workspace]` of its own blocks the root too: Cargo refuses that workspace
+  ("multiple workspace roots found in the same workspace"). The members of a
+  blocked root are not configured either.
 - A `Cargo.toml` below the selected folder that no rule above covers, such as
   a separate fuzz workspace or an excluded crate, is reported and left
   untouched. A package with a `package.workspace` key is left for review.

@@ -290,6 +290,7 @@ combine their entries into one edit of each file.
 | A `Cargo.toml` that the root's `members` patterns list | Member, owned by the root. |
 | A path dependency of a member (normal, dev or build, also per target, or a `workspace = true` entry resolved through `[workspace.dependencies]`) inside the workspace folder | Member too, transitively: Cargo makes these members without listing them. A `[workspace.dependencies]` path entry that no member uses, and a `[patch]` path, make no member (`cargo metadata` on scratch workspaces). |
 | A package inside a workspace, selected alone | Blocked with "select the workspace root", as for uv workspaces: Cargo builds it only as that workspace's member. |
+| A member, listed or reached as a path dependency, whose `Cargo.toml` declares a `[workspace]` of its own | Blocked for review: `cargo metadata` exits 101 with "multiple workspace roots found in the same workspace". |
 | A `Cargo.toml` below the root that no rule covers, such as a separate fuzz workspace or an excluded crate | Reported as untouched. |
 
 Membership reuses `workspaceMember` in `discovery.go` for the `members`

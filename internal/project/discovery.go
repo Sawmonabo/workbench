@@ -697,6 +697,12 @@ func (r *Inventory) cargoMembers(root string, doc map[string]any) (map[string]bo
 			if manifest, err = decodeTOML(data); err != nil {
 				return nil, "", err
 			}
+			// Cargo refuses the whole workspace when a member is a workspace
+			// root too ("multiple workspace roots found in the same workspace").
+			if _, nested := manifest["workspace"]; nested {
+				return nil, "Workspace member " + dir +
+					" declares a [workspace] of its own, which Cargo refuses; exclude it or remove one [workspace]", nil
+			}
 		}
 		for _, dependency := range cargoPathDependencies(manifest, dir, shared, root) {
 			if members[dependency] {
