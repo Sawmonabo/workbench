@@ -4,7 +4,8 @@
 // empty files it wrote and of an old copy whose new copy holds the same
 // bytes, and 0005's move of the work tokens saved as machine answers into a
 // new work.env, deleting them from machine.toml only once work.env holds
-// them. A move of another package's files is done by that package; this
+// them, and 0006's rename of a step in machine.toml's saved choices. A move
+// of another package's files is done by that package; this
 // package holds the list, the check and run loop, and the run record.
 package migrate
 
@@ -76,7 +77,14 @@ type Migration struct {
 
 // Registry lists every migration in number order. A released migration is
 // never renumbered or removed; adding one is a numbered file and a line here.
-var Registry = []Migration{costsFolders, completionCache, oldCostsCache, oldGuardLog, WorkTokens}
+var Registry = []Migration{
+	costsFolders,
+	completionCache,
+	oldCostsCache,
+	oldGuardLog,
+	WorkTokens,
+	StepNames,
+}
 
 // OldLocationVariables are the variables the old locations were read from.
 // The apply passes their names to its scripts as WORKBENCH_OLD_NAMES and each

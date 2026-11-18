@@ -25,7 +25,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
   answers (empty when they are missing): it never replaces an existing `work.env`, deletes the two keys
   only once `work.env` holds the same tokens, and changes neither file when
   an existing `work.env` does not hold those same tokens; until it has run, the answers keep the two
-  keys as retired ones, never asked and carried through every write. The
+  keys as retired ones, never asked and carried through every write.
+  Migration 0006 may rename `costs-ingest` to `agent-costs-ingest` in the
+  `skip`, `select` and `decided` lists of `machine.toml`, changing nothing
+  else in the file; until it has run, the saved choices are read under that
+  name, so a step that was turned off stays off. The
   costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008). A third exception: a
   saved `restart_wsl_path` answer (the folder of the RestartWSL helpers

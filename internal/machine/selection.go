@@ -6,6 +6,7 @@ import (
 	"os"
 	"slices"
 
+	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/pelletier/go-toml/v2"
 )
@@ -81,6 +82,11 @@ func readSelection(raw []byte) (Selection, error) {
 			"Machine answers are not valid TOML; original input retained",
 		)
 	}
+	// Until migration 0006 has renamed them in the file, the saved choices
+	// read under the names the steps have, so a step turned off stays off.
+	config.Effects.Skip = migrate.RenameSteps(config.Effects.Skip)
+	config.Effects.Select = migrate.RenameSteps(config.Effects.Select)
+	config.Effects.Decided = migrate.RenameSteps(config.Effects.Decided)
 	slices.Sort(config.Effects.Skip)
 	slices.Sort(config.Effects.Select)
 	slices.Sort(config.Effects.Decided)
