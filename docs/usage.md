@@ -837,7 +837,8 @@ and patch updates into one pull request, and
 auto-merge for Dependabot's patch and minor pull requests and for no other
 pull request. Auto-merge is GitHub only and needs "Allow auto-merge" and a
 branch rule on the default branch that requires the CI check; Workbench sets
-neither. Each file is written only
+neither. Without a required check, the pull request merges at once, before CI
+finishes. Each file is written only
 when the repository has none: an existing lefthook configuration (any of the
 names lefthook reads) or Dependabot file is kept byte for byte, and the plan
 names the ecosystems an existing Dependabot file lacks and warns when Renovate

@@ -726,7 +726,8 @@ pull requests", so a major update gets its own pull request. The schema check
 above covers the groups, and refused an `update-types` value of `tiny`.
 
 `--dependabot` also writes `.github/workflows/dependabot-auto-merge.yml`,
-whole, only when no workflow of that name exists and no other workflow already
+whole, only when no workflow of that name (`.yml` or `.yaml`) exists and no
+other workflow already
 turns on auto-merge for Dependabot (a `dependabot` mention followed by
 `gh pr merge ... --auto` or the auto-merge GraphQL mutation); either is kept
 and listed. The Python `--ci` owner is chosen among the other workflows. The
@@ -751,12 +752,14 @@ tutorial:
 - **Merge.** `gh pr merge --auto --squash "$PR_URL"`. GitHub: "Auto-merge
   merges a pull request automatically after all required reviews and status
   checks pass. Before you use auto-merge, it must be enabled for the
-  repository." The gh CLI 2.104 source (`pkg/cmd/pr/merge/merge.go`) turns
-  on auto-merge only when the pull request is not immediately mergeable
-  (`isImmediatelyMergeable`: merge state `CLEAN`, `HAS_HOOKS` or
-  `UNSTABLE`), and otherwise merges it at once. With no required check, a
-  patch or minor pull request therefore merges as soon as the workflow runs,
-  even while other checks fail.
+  repository." The gh CLI source at tag v2.104.0
+  (`pkg/cmd/pr/merge/merge.go`, `autoMerge: opts.AutoMergeEnable &&
+  !isImmediatelyMergeable(pr.MergeStateStatus)`) turns on auto-merge only
+  when the pull request is not immediately mergeable (merge state `CLEAN`,
+  `HAS_HOOKS` or `UNSTABLE` is), and otherwise merges it at once, which needs
+  no "Allow auto-merge". With no required check, a patch or minor pull
+  request therefore merges when the workflow runs, before CI finishes and
+  whatever its result.
 
 The plan lists the `dependabot-auto-merge` effect and warns, each time it
 writes the workflow, that auto-merge is GitHub only and needs "Allow

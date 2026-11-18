@@ -454,7 +454,8 @@ var autoMergeElsewhere = regexp.MustCompile(
 
 // addAutoMerge plans the workflow that turns on GitHub auto-merge for
 // Dependabot's patch and minor pull requests, unless the repository has it
-// or another workflow that does the same, which is kept and reported.
+// (named .yml or .yaml) or another workflow that does the same, which is kept
+// and reported.
 func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 	root := c.Scope.Root
 	path := filepath.Join(root, autoMergeName)
@@ -474,13 +475,13 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 			return err
 		}
 		switch {
-		case workflow == path:
-			p.keep(root, path, autoMergeName, data, "Dependabot auto-merge")
+		case workflow == path || workflow == strings.TrimSuffix(path, ".yml")+".yaml":
+			p.keep(root, workflow, autoMergeName, data, "Dependabot auto-merge")
 			return nil
 		case autoMergeElsewhere.Match(existing):
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				"Kept the project's own Dependabot auto-merge: "+workflow,
+				"Kept the project's own Dependabot auto-merge configuration: "+workflow,
 			)
 			return nil
 		}
@@ -501,13 +502,14 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		"Dependabot auto-merge works on GitHub only and needs two repository settings Workbench does not make: "+
-			"\"Allow auto-merge\" turned on, and a branch rule on the default branch that requires the CI check. "+
-			"Without a required check, a patch or minor Dependabot pull request merges as soon as the workflow runs, even while other checks fail",
+		"Dependabot auto-merge works on GitHub only. Turn on \"Allow auto-merge\" in the repository settings "+
+			"and add a branch rule on the default branch that requires the CI check; Workbench sets neither. "+
+			"Without a required check, gh pr merge merges a patch or minor Dependabot pull request at once, "+
+			"when the workflow runs, before CI finishes and whatever its result, even with \"Allow auto-merge\" off",
 	)
 	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
 		Name:        "dependabot-auto-merge",
-		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once the default branch's required checks pass; a major update stays open",
+		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once the default branch's required checks pass, or at once when none is required; a major update stays open",
 		Privilege:   "CI runner",
 		Recovery:    "Restoring the workflow does not undo merges it made",
 	})
@@ -523,7 +525,8 @@ func renderAutoMerge(fetchMetadata string, ids []string) []byte {
 	return []byte(comment("Written by workbench project apply ("+strings.Join(ids, ", ")+
 		"). It turns on GitHub auto-merge for Dependabot's patch and minor pull requests and "+
 		"leaves every other pull request alone. Auto-merge needs \"Allow auto-merge\" in the "+
-		"repository settings and waits only for the checks a branch rule requires. The project "+
+		"repository settings and waits only for the checks a branch rule requires; with none "+
+		"required, the pull request merges at once. The project "+
 		"owns this file; Workbench never edits an existing one.") + `name: Dependabot auto-merge
 on: pull_request
 permissions:
