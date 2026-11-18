@@ -20,11 +20,11 @@ import (
 func doctorCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
-		Short: "Check Workbench, your runtimes, the agent hooks and the guard, without repair",
+		Short: "Check Workbench, your runtimes, and the agent costs and agent guard hooks, without repair",
 		Long: "Show what Workbench has installed and applied, the steps you skipped or " +
 			"selected, its tools and the host; then Node, Python, Rust, Go and bun against " +
-			"their pins, the costs and guard hooks in Claude Code and Codex, and whether the " +
-			"guard's watcher runs. It reads only this machine and repairs nothing. A missing " +
+			"their pins, the agent costs and agent guard hooks in Claude Code and Codex, and " +
+			"whether the agent guard's watcher runs. It reads only this machine and repairs nothing. A missing " +
 			"prerequisite returns nonzero; a missing runtime or hook does not, and workbench " +
 			"apply fixes it.",
 		Example: "  workbench doctor\n" +
@@ -74,61 +74,90 @@ func doctorSummary(components []operation.Component) string {
 }
 
 // agentHooks is one doctor line per agent: whether Claude Code and Codex run
-// the costs ingest hooks and the guard hooks Workbench installs, read the way
+// the agent costs and agent guard hooks Workbench installs, read the way
 // workbench agent costs status reads them. A missing hook is absent, and one
 // the agent does not run (Codex's untrusted or disabled) is a conflict;
-// neither blocks Workbench, and workbench apply installs and trusts them.
+// neither blocks Workbench, and workbench apply installs them and, in Codex,
+// trusts them.
 func agentHooks(home string) []operation.Component {
 	var lines []operation.Component
 	for _, tool := range costs.Tools {
 		if tool.Source == nil {
 			continue
 		}
-		hooks := slices.Concat(costs.IngestHooks, guard.Hooks(tool.Name))
-		states := tool.Source.Hooks(home, hooks)
-		var missing, idle []string
-		fixable := false
-		for i, state := range states {
-			part := "costs " + hooks[i].Event
-			if i >= len(costs.IngestHooks) {
-				part = "guard " + hooks[i].Event
+		groups := []struct {
+			command string
+			hooks   []costs.HookCommand
+		}{
+			{"agent costs", costs.IngestHooks},
+			{"agent guard", guard.Hooks(tool.Name)},
+		}
+		var absent, idling []string
+		none, untrusted := true, false
+		for _, group := range groups {
+			var missing, idle []string
+			for i, state := range tool.Source.Hooks(home, group.hooks) {
+				switch state {
+				case costs.HookOK:
+				case costs.HookMissing:
+					missing = append(missing, group.hooks[i].Event)
+				default:
+					untrusted = untrusted || state == costs.HookUntrusted
+					idle = append(idle, group.hooks[i].Event+" "+state)
+				}
 			}
-			switch state {
-			case costs.HookOK:
-			case costs.HookMissing:
-				missing = append(missing, part)
-				fixable = true
-			default:
-				fixable = fixable || state == costs.HookUntrusted
-				idle = append(idle, part+" "+state)
+			none = none && len(missing) == len(group.hooks)
+			if len(missing) > 0 {
+				absent = append(absent, fmt.Sprintf(
+					"%d of %d %s hooks (%s)",
+					len(missing), len(group.hooks), group.command, strings.Join(missing, ", "),
+				))
+			}
+			if len(idle) > 0 {
+				idling = append(idling, fmt.Sprintf(
+					"%d of %d %s hooks (%s)",
+					len(idle), len(group.hooks), group.command, strings.Join(idle, ", "),
+				))
 			}
 		}
 		line := operation.Component{
-			Name:    "hooks-" + tool.Name,
+			Name:    "agent-hooks-" + tool.Name,
 			Status:  operation.StatusComplete,
-			Message: "costs and guard hooks are installed and run",
+			Message: "agent costs and agent guard hooks are installed",
 		}
 		var problems []string
-		if len(missing) > 0 {
+		if len(absent) > 0 {
 			line.Status = operation.StatusAbsent
-			problems = append(problems, "missing "+strings.Join(missing, ", "))
+			problems = append(problems, "is missing "+strings.Join(absent, " and "))
 		}
-		if len(idle) > 0 {
+		if len(idling) > 0 {
 			if line.Status == operation.StatusComplete {
 				line.Status = operation.StatusConflict
 			}
-			problems = append(problems, strings.Join(idle, ", "))
+			problems = append(problems, "does not run "+strings.Join(idling, " and "))
 		}
-		if len(problems) > 0 {
-			line.Message = tool.Title + ": " + strings.Join(problems, "; ")
-			// Workbench installs nothing in a folder a variable moved, which
-			// doctor's own line for the move explains.
-			moved := slices.ContainsFunc(costs.ConfigMoves(home), func(m costs.ConfigMove) bool {
-				return m.Tool == tool.Title && m.Source != ""
-			})
-			if fixable && !moved {
-				line.Message += "; workbench apply installs and trusts them"
-			}
+		switch {
+		case none:
+			line.Message = tool.Title + " has no agent costs or agent guard hooks"
+		case len(problems) > 0:
+			line.Message = tool.Title + " " + strings.Join(problems, " and ")
+		}
+		// Codex runs a hook only once it is recorded as trusted, which the
+		// apply does for the hooks it installs.
+		var fixes []string
+		if len(absent) > 0 {
+			fixes = append(fixes, "installs")
+		}
+		if untrusted || (len(absent) > 0 && tool.Name == "codex") {
+			fixes = append(fixes, "trusts")
+		}
+		// Workbench installs nothing in a folder a variable moved, which
+		// doctor's own line for the move explains.
+		moved := slices.ContainsFunc(costs.ConfigMoves(home), func(m costs.ConfigMove) bool {
+			return m.Tool == tool.Title && m.Source != ""
+		})
+		if len(fixes) > 0 && !moved {
+			line.Message += "; workbench apply " + strings.Join(fixes, " and ") + " them"
 		}
 		lines = append(lines, line)
 	}
@@ -140,7 +169,7 @@ func agentHooks(home string) []operation.Component {
 // when idle, so one that is not running is no problem.
 func guardWatcher(ctx context.Context) operation.Component {
 	line := operation.Component{
-		Name:    "guard-watcher",
+		Name:    "agent-guard-watcher",
 		Status:  operation.StatusComplete,
 		Message: "running",
 	}

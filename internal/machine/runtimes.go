@@ -27,10 +27,10 @@ type runtimePins struct {
 
 // runtimeState is what doctor found for one runtime: whether it is installed,
 // the version in use ("" when none is installed or it cannot be read), what
-// installed it when the name alone does not say, the pin to show, what an
-// apply in pinned mode would still change ("" when nothing), a note that
-// replaces the pin when the pin does not apply here, and whether the step that
-// installs it is skipped.
+// installed it when the name alone does not say, the pin to show ("" where no
+// pin applies, as for the Go and bun Homebrew installs), what an apply in
+// pinned mode would still change ("" when nothing), a note that replaces the
+// pin, and whether the step that installs it is skipped.
 type runtimeState struct {
 	name, have, from, pin, off, note string
 	found, skipped                   bool
@@ -109,10 +109,12 @@ func (r runtimeState) component(mode string) operation.Component {
 		line.Message = shown + " (pinned " + r.pin + "); workbench apply " + r.off
 	case r.note != "":
 		line.Message = shown + " (" + r.note + ")"
+	case r.pin == "":
+		line.Message = shown
 	case mode == "pinned":
 		line.Message = shown + " (pinned " + r.pin + ")"
 	case mode == "latest":
-		line.Message = shown + " (latest mode; pin " + r.pin + ")"
+		line.Message = shown + " (latest mode)"
 	default:
 		line.Message = shown + " (pin " + r.pin + ")"
 	}
@@ -122,7 +124,7 @@ func (r runtimeState) component(mode string) operation.Component {
 // nodeState reads nvm's default Node (nvmDefaultBin). In pinned mode the
 // apply makes node_default the default and installs every pinned Node.
 func nodeState(home, mode string, pins runtimePins) runtimeState {
-	state := runtimeState{name: "node", pin: pins.NodeDefault}
+	state := runtimeState{name: "runtime-node", pin: pins.NodeDefault}
 	if bin := nvmDefaultBin(home); bin != "" {
 		state.found = true
 		state.have = strings.TrimPrefix(filepath.Base(filepath.Dir(bin)), "v")
@@ -156,7 +158,7 @@ var uvPython = regexp.MustCompile(`^cpython-([0-9]+\.[0-9]+\.[0-9]+)-`)
 // Python.
 func pythonState(home, mode string, pins runtimePins) runtimeState {
 	state := runtimeState{
-		name: "python", from: " from uv", pin: strings.Join(pins.PythonPinned, ", "),
+		name: "runtime-python", from: " from uv", pin: strings.Join(pins.PythonPinned, ", "),
 	}
 	folder := os.Getenv("UV_PYTHON_INSTALL_DIR")
 	if folder == "" {
@@ -210,7 +212,7 @@ var rustToolchainVersion = regexp.MustCompile(`^([0-9]+\.[0-9]+\.[0-9]+)-`)
 // toolchain. In pinned mode the apply installs the pinned toolchain and makes
 // it the default.
 func rustState(home, mode string, pins runtimePins) runtimeState {
-	state := runtimeState{name: "rust", pin: pins.Rust}
+	state := runtimeState{name: "runtime-rust", pin: pins.Rust}
 	root := rustupHome(home)
 	var settings struct {
 		Default string `toml:"default_toolchain"`
@@ -288,16 +290,11 @@ func findRuntime(home, name string) string {
 	return ""
 }
 
-// homebrewNote is what a Go or bun line says where Homebrew installs it.
-func homebrewNote(pin string) string {
-	return "from Homebrew, which keeps its current version; the pin " + pin + " is for Linux"
-}
-
 // goState reads the VERSION file of the Go the shell runs, as the Linux probe
 // does, without running go, which may download a toolchain. In pinned mode
 // the Linux apply installs the pin.
 func goState(home, mode string, pins runtimePins) runtimeState {
-	state := runtimeState{name: "go", pin: pins.Go}
+	state := runtimeState{name: "runtime-go", pin: pins.Go}
 	if path := findRuntime(home, "go"); path != "" {
 		state.found = true
 		if resolved, err := filepath.EvalSymlinks(path); err == nil {
@@ -309,7 +306,7 @@ func goState(home, mode string, pins runtimePins) runtimeState {
 	switch {
 	case state.have == "":
 	case platform.GoBunFromHomebrew:
-		state.note = homebrewNote(pins.Go)
+		state.from, state.pin = " from Homebrew", ""
 	case mode == "pinned" && state.have != pins.Go:
 		state.off = "installs " + pins.Go
 	}
@@ -325,7 +322,7 @@ func bunState(
 	mode string,
 	pins runtimePins,
 ) runtimeState {
-	state := runtimeState{name: "bun", pin: pins.Bun}
+	state := runtimeState{name: "runtime-bun", pin: pins.Bun}
 	if path := findRuntime(c.Home, "bun"); path != "" {
 		state.found = true
 		state.have, _ = probeVersion(ctx, c, "bun", path)
@@ -333,7 +330,7 @@ func bunState(
 	switch {
 	case state.have == "":
 	case platform.GoBunFromHomebrew:
-		state.note = homebrewNote(pins.Bun)
+		state.from, state.pin = " from Homebrew", ""
 	case mode == "pinned" && state.have != pins.Bun:
 		state.note = "pin " + pins.Bun + " is for a new install; workbench apply keeps an installed bun"
 	}

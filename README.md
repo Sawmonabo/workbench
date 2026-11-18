@@ -46,7 +46,7 @@ workbench update             # install the latest release and its tools; never a
 workbench update 0.2.0       # install that release (older goes back)
 workbench update --list      # published releases, marking yours
 workbench answers ask machine_role  # change personal/work/both, then run apply
-workbench doctor             # what is installed and applied, runtimes, agent hooks, guard
+workbench doctor             # what is installed and applied, runtimes, agent hooks, agent guard watcher
 workbench revert             # pick a checkpoint and restore its files
 workbench agent costs        # what Claude Code and Codex spent, one tab per tool
 workbench agent guard        # watch, live, the commands the memory guard tracks
