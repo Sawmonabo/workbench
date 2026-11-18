@@ -30,7 +30,7 @@ func projectCommand(o *options) *cobra.Command {
 func projectInspectCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "inspect [PATH]",
-		Short: "Inventory manifest, lockfile and configuration candidates",
+		Short: "List a project's manifests, lockfiles and configuration files",
 		Long: "List the manifests, lockfiles and configuration files of the project at PATH, " +
 			"read-only and offline: no project code runs and nothing changes.",
 		Example: "  workbench project inspect\n" +

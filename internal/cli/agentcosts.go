@@ -39,7 +39,7 @@ func agentCostsCommand(o *options) *cobra.Command {
 	f := &costsFlags{}
 	cmd := &cobra.Command{
 		Use:   "costs",
-		Short: "Report what AI coding tools cost, from a durable local ledger",
+		Short: "Report what Claude Code and Codex cost, from a ledger kept on this machine",
 		Long: "Show per-project, per-model spend from the ledger the SessionStart and SessionEnd " +
 			"hooks keep, so it survives the tools deleting old transcripts. At a terminal the " +
 			"report opens in one tab per tool (Tab and Shift+Tab switch, q quits); otherwise " +
@@ -408,10 +408,10 @@ func agentCostsIngestCommand(o *options) *cobra.Command {
 	var worker, quiet bool
 	cmd := &cobra.Command{
 		Use:   "ingest [EVENT [TRANSCRIPT [SESSION]]]",
-		Short: "Copy new usage into the ledger now (--worker); without it, the session hook entry",
+		Short: "Read new usage into the ledger: --worker reads now, bare is what the session hooks run",
 		Long: "workbench agent costs ingest --worker reads new Claude Code and Codex usage into " +
 			"the ledger here, in the foreground, with progress; that is the form to run " +
-			"yourself. The apply's costs step runs it too.\n\n" +
+			"yourself. The apply's agent-costs-ingest step runs it too.\n\n" +
 			"Without --worker it is the command the SessionStart and SessionEnd hooks run: it " +
 			"reads the hook's JSON from stdin (hook_event_name, transcript_path, session_id), " +
 			"starts the worker detached with them and returns at once, printing nothing on " +

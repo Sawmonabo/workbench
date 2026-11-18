@@ -29,7 +29,7 @@ import (
 func agentGuardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
-		Short: "Watch, live, the agent commands the memory guard tracks, and stop one",
+		Short: "Live view of the agent commands the memory usage guard tracks, where you can stop one",
 		Long: "The guard stops the largest shell command Claude Code or Codex started, or the " +
 			"largest program such a command left running detached, when the machine is about " +
 			"to run out of memory, and tells the agent why. Its hooks and watcher run by " +
