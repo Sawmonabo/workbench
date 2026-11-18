@@ -100,8 +100,15 @@ synthetic answers.
   the result lines. An update from a build without the view to one with it
   showed the old release's handoff line, then the view from its outcome
   line; going back, and an update to the published v0.1.32-rc.7, showed the
-  header, then that release's own lines. Not observed: the view on Linux,
-  and an exec that fails at the handoff. `install.sh` installs through
+  header, then that release's own lines. From the published v0.1.32-rc.8,
+  the `install.sh` one-liner at a terminal in a disposable home on macOS,
+  and as a normal user in Ubuntu 26.04 and AlmaLinux 10 containers
+  (linux/arm64), ended on `✓ Installed v0.1.32-rc.8` with the four tool
+  rows; there `update` then showed `· Up to date` and a file that is not a
+  release `✗ Update failed` with its reason (exit 2), and as root the view
+  showed the refusal to run as root. Not observed: an interruption that
+  lands between activation and the handoff, and an exec that fails at the
+  handoff. `install.sh` installs through
   `update` and applies nothing, and `update --dry-run` stops before
   installing. Observed on a WSL2 Ubuntu 26.04 host from a local bundle:
   install and the already-installed line; `install.sh` was not run there.
