@@ -1,0 +1,15 @@
+# Dependabot for this repository's Go modules only. The github-actions
+# ecosystem stays off: workflow actions are pinned by commit in
+# home/.chezmoidata/versions.toml [github_actions], and
+# scripts/check-action-pins.py fails any workflow pin that differs from it, so
+# every Dependabot action bump would fail CI. Bump an action in versions.toml
+# and the workflows together instead.
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directory: /
+    schedule:
+      interval: weekly
+    # Commit subjects become the changelog, so keep them conventional.
+    commit-message:
+      prefix: chore(deps)
