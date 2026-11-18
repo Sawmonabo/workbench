@@ -1,7 +1,8 @@
 # Go and Rust project policy and the mbx step
 
-Status: design, Nov 17, 2026. Step 1, the Go policy, is built (section 8);
-steps 2 to 4 are not. It adds two languages
+Status: design, Nov 17, 2026. Step 1, the Go policy, and step 4, the mbx
+machine step (section 5), are built (section 8); steps 2 and 3 are not. It adds
+two languages
 to `workbench project apply`, two new flags for every language (`--hooks`, `--dependabot`), and one
 new machine step that installs mbx, a shared Rust compile cache and scheduler.
 
@@ -414,10 +415,10 @@ requires an existing `rust-toolchain.toml`, just as Python requires
 | Builds | `aarch64-apple-darwin`, `x86_64` and `aarch64` Linux in both `gnu` and `musl`, Windows; **no `x86_64-apple-darwin`** | the release's assets |
 | Checksums | One `SHA256SUMS` file for all assets, plus a sigstore `packslip.sigstore.json` | the release's assets; one archive's hash was checked against `SHA256SUMS` |
 | Archive layout | `mbx`, `LICENSE` and `NOTICE` at the top level | `tar -t` |
-| glibc floor of the `gnu` builds | Highest symbol version `GLIBC_2.18` (x86_64 and aarch64), so Ubuntu 22.04 and 24.04, WSL and AlmaLinux 10 are covered | `strings` on both binaries; **never run on Linux** |
+| glibc floor of the `gnu` builds | Highest symbol version `GLIBC_2.18` (x86_64 and aarch64). Both builds run `mbx --version` on Ubuntu 22.04 (glibc 2.35), 24.04 (2.39), 26.04 (2.43) and AlmaLinux 10.3 (2.39) | `strings` on both binaries; containers, amd64 under emulation |
 | Shim folder | macOS `~/Library/Application Support/mbx/bin`; Linux `~/.local/share/mbx/bin`, under the data folder. This folder is not the `shims_dir` setting, which holds compiler shims under the cache. | `mbx setup --status`; mbx `docs/setup.md` |
 | Does `mbx setup` prompt? | Only at an interactive terminal *with mise active*. Without a terminal it picks no mise config and does not ask. `--yes` would accept a mise scope, so it must not be used. Workbench installs no mise (`rg mise home internal` finds nothing). | `mbx setup --help`; `docs/setup.md` |
-| What setup writes | The Cargo shim, and `check.overrideCommand` in rust-analyzer's *user* `rust-analyzer.toml`, unless that file already has check settings. It never edits shell startup files. | `mbx setup --help` |
+| What setup writes | The Cargo shim (`cargo` and `mbx-target` in the shim folder), and `check.overrideCommand` in rust-analyzer's *user* `rust-analyzer.toml`, unless that file already has check settings: `~/.config/rust-analyzer/rust-analyzer.toml` on Linux. It never edits shell startup files. Run with stdin from `/dev/null` or closed and `MISE_SHELL`/`MISE_CONFIG_FILE` unset it asks nothing, exits 0 and writes only those three files; it runs without `cargo` on `PATH`. `mbx --version`, `mbx setup --status` and `mbx settings get` write nothing. | `mbx setup --help`; files newer than a marker in a container |
 | The rust-analyzer warning | `check/overrideCommand: unexpected field` is expected and harmless. rust-analyzer checks its user file only against its global and local settings; the override is a workspace setting, and still applies. Upstream discusses it in rust-lang/rust-analyzer#23381. | `mbx setup --status`; `docs/setup.md` |
 | Config precedence | Environment (`MBX_*`) wins, then `.mbx.toml` at the workspace root, then the user config: `~/.config/mbx/config.toml` on Linux (honours `XDG_CONFIG_HOME`), `~/Library/Application Support/mbx/config.toml` on macOS. | mbx `docs/configuration.md` |
 | Default memory budget | 85% of physical memory, limited by the cgroup in a Linux container | mbx `docs/scheduling.md` |
@@ -425,26 +426,30 @@ requires an existing `rust-toolchain.toml`, just as Python requires
 | Upgrading | The shim runs the `mbx` that setup recorded while that file exists, then falls back to `mbx` on `PATH` | `docs/setup.md` |
 | Failure mode without the `PATH` line | `mbx setup --status` can pass while plain `cargo` still resolves to `~/.cargo/bin/cargo` and skips the cache: the status does not check which `cargo` the shell runs | `mbx setup --help` (`--status`); `mbx doctor` checks it |
 
-**Not established:**
-
-- whether the Linux `gnu` builds run on each distribution;
-- the rust-analyzer user file's path on Linux;
-- whether `mbx setup` with stdin closed and `MISE_SHELL` unset is silent.
+Not established: the rust-analyzer user file's path on macOS, and whether
+`mbx setup --status` writes nothing there (both checked on Linux only).
 
 ### 5.2 What the step does
 
 The new effect is `mbx`, titled "Rust build cache". Its script is
-`home/.chezmoiscripts/shared/run_after_32-mbx.sh.tmpl`. Like the
-`touch-id-sudo` script it is a plain `run_after_` script that runs on every
-apply and does nothing unless `WORKBENCH_EFFECT_MBX` says the step is ticked,
-so a tick given on a later apply still runs it. It compares `mbx --version`
-with the pin itself, instead of relying on `run_onchange_`. It runs after
+`home/.chezmoiscripts/shared/run_onchange_after_32-mbx.sh.tmpl`, rendered
+only for a target with a pinned hash. It runs when its content changes, as on
+a new pin, and does nothing unless `WORKBENCH_EFFECT_MBX` says the step is
+ticked. An unticked step's script is left out of the apply, so chezmoi never
+records it, and a tick given on a later apply runs it. Once it has run, the
+plan probes it with `WORKBENCH_PROBE_RAN=1`: the probe compares
+`mbx --version` with the pin and reads `mbx setup --status` and the user
+config file, and a ticked step whose check finds work (mbx missing or below
+the pin, the setup not current, a budget key unset) runs again, while one with
+nothing to do is not listed and its script is not run. A saved tick for a step
+left unlisted that way is not reported as a stale choice. It runs after
 global-tools, so rustup's Cargo already exists. The script:
 
 1. **Downloads the pinned archive** for this target into the run's private
    download folder. It checks the archive's SHA-256 against the pin before
-   extracting, using the same `shasum`/`sha256sum` split as
-   `claude_sha256` in `run_after_45-agent-updates.sh.tmpl`.
+   extracting, with `shasum -a 256` on macOS and `sha256sum` on Linux, the
+   split `claude_sha256` in `run_after_45-agent-updates.sh.tmpl` makes; a
+   mismatch deletes the archive and blocks the step.
    - Workbench's existing checked downloads are `acquireTool` (Go, for chezmoi
      and uv) and `claude_native` (shell). The `gh` block in
      `linux/run_onchange_before_00-packages.sh.tmpl` fetches the latest release
@@ -452,10 +457,11 @@ global-tools, so rustup's Cargo already exists. The script:
    - The script then installs `mbx` into `~/.local/bin` through a temporary
      name and `mv`.
    - An existing `mbx` at the pinned version or newer is kept and reported, as
-     the contract does for a newer borrowed chezmoi.
+     the contract does for a newer borrowed chezmoi. An older one is replaced;
+     a link there is never replaced.
 2. **Runs `mbx setup`** without flags. It unsets `MISE_SHELL` and
-   `MISE_CONFIG_FILE` and closes stdin, so mbx can neither prompt nor pick a
-   mise scope. Apply scripts never prompt.
+   `MISE_CONFIG_FILE` and gives it `/dev/null` as stdin, so mbx can neither
+   prompt nor pick a mise scope. Apply scripts never prompt.
 3. **Sets the machine budget** (section 5.4).
 
 Proposed pins in `home/.chezmoidata/versions.toml`. The hashes are the
@@ -465,32 +471,45 @@ v1.30.0 `SHA256SUMS` lines:
 [mbx]
 version = "1.30.0"
 sha256 = { "darwin-arm64" = "d5b957216c8b61c2df91c9e7aaf5febd45ec74274a60d3714ebe316edc144543", "linux-amd64" = "f4992b401fe65744b7c6e7400933d2106da205b499405621d088051a31a8f3f2", "linux-arm64" = "6317bb6780404e78c3b670d95e128c85871809dfc541882b2efaa34120f45e71" }
+memory_percent = 60
+reserve_cpus = 2
 ```
 
-`internal/machine` lists the effect only when `release.Target()` has a hash.
-An Intel Mac therefore never sees it, and `doctor` says "mbx publishes no
-Intel Mac build". The Linux builds are `gnu`; nothing found here needs the
+The same pin applies in latest mode. Workbench refuses a source whose
+`version` is not a plain `1.2.3`, a hash that is not 64 lowercase hex digits,
+a `memory_percent` outside 1 to 100 or a negative `reserve_cpus`, since the
+script is built from them. `internal/machine` lists the effect only when
+`release.Target()` has a hash. An Intel Mac therefore never sees it, and
+`doctor` says "mbx publishes no Intel Mac build, so the Rust build cache step
+is not offered". The Linux builds are `gnu`; nothing found here needs the
 `musl` ones.
 
 ### 5.3 `PATH`
 
-In `home/dot_zshrc.tmpl` and `home/private_dot_bashrc.tmpl`, put this right
-after the `. "$HOME/.cargo/env"` line:
+In `home/dot_zshrc.tmpl` (macOS only) and `home/private_dot_bashrc.tmpl`
+(Linux only), right after the `. "$HOME/.cargo/env"` line:
 
 ```sh
-# mbx: plain cargo runs through the shared Rust build cache. After ~/.cargo/env,
-# which puts rustup's cargo first.
-{{ if eq .chezmoi.os "darwin" }}mbx_shims="$HOME/Library/Application Support/mbx/bin"{{ else }}mbx_shims="${XDG_DATA_HOME:-$HOME/.local/share}/mbx/bin"{{ end }}
-[ -x "$mbx_shims/cargo" ] && export PATH="$mbx_shims:$PATH"
-unset mbx_shims
+# mbx: plain cargo runs through the shared Rust build cache once the Rust build
+# cache step has set it up. After ~/.cargo/env, which puts rustup's cargo first.
+if [ -x "$HOME/.local/share/mbx/bin/cargo" ]; then
+    export PATH="$HOME/.local/share/mbx/bin:$PATH"
+fi
 ```
+
+The zsh file names `$HOME/Library/Application Support/mbx/bin`. The folder is
+fixed, not `${XDG_DATA_HOME:-…}`: the step's scripts run without the person's
+`XDG_*` variables, so `mbx setup` puts the shim under `~/.local/share`
+whatever the shell sets, and the line must look there.
 
 Limits of this placement:
 
 - `~/.zshrc` covers interactive zsh only. mbx's docs recommend `~/.zshenv`
   for non-interactive zsh, and Workbench does not own that file.
-- `~/.bashrc` returns early for a non-interactive shell. The same three lines
-  also go into its non-interactive preamble, beside `~/.local/bin`.
+- `~/.bashrc` returns early for a non-interactive shell. The same lines also
+  go into its non-interactive preamble, beside `~/.local/bin`. `bash -lc`,
+  `bash -ic` and `bash -lic` then all find the shim first, on Ubuntu 24.04
+  and AlmaLinux 10.
 - A tool that inherits neither file still runs `mbx build` and the like.
 
 Which agent hosts read `~/.zshrc` is unverified. The step's plan text tells
@@ -510,9 +529,15 @@ decides from the file itself: it parses the user `mbx/config.toml` and looks
 for `[scheduler]` keys. Then:
 
 - **For each of `memory` and `reserve_cpus` absent from the file**, the step
-  runs `mbx settings set`: `scheduler.memory <N>GiB`, where N is 60% of
-  installed memory rounded down, and `scheduler.reserve_cpus 2`.
-- **A key already in the file** stays as the person left it.
+  runs `mbx settings set`: `scheduler.memory <N>GiB`, where N is
+  `memory_percent` (60) of installed memory rounded down, and
+  `scheduler.reserve_cpus` with `reserve_cpus` (2). Installed memory is
+  `MemTotal` on Linux and `hw.memsize` on macOS; under 2 GiB N is 0 and no
+  memory budget is written.
+- **A key already in the file** stays as the person left it, whether written
+  under `[scheduler]`, as a dotted key or as an inline table: the file is read
+  with the management Python's `tomllib`. A file that is not valid TOML
+  blocks the step and is not changed.
 
 A project's `.mbx.toml` still wins, and a person's own setting is never
 overwritten. Decision D2 covers the 60% figure.
@@ -534,8 +559,10 @@ overwritten. Decision D2 covers the 60% figure.
   again. `workbench update` installs only Workbench.
 - **Revert:** the binary, the shim, the rust-analyzer file and mbx's config
   file are outside the checkpoint, like the other tool installs. The undo
-  text is `mbx setup --uninstall`, then delete `~/.local/bin/mbx`. The
-  startup-file lines are checkpointed as usual.
+  text is `mbx setup --uninstall`, then delete `~/.local/bin/mbx` and the
+  shim folder: `--uninstall` keeps the shim, and while it is there the
+  startup-file lines put it first, so plain `cargo` would fail with "mbx is
+  not active on PATH". The startup-file lines are checkpointed as usual.
 
 ### 5.6 On by default, or optional?
 
@@ -710,7 +737,7 @@ There is no new framework. Each concern stays with its existing owner.
 | Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs |
 | Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` in `rust.go` |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
-| mbx step | `internal/machine/effects.go`, `source.go`, plus the shared script, the shell templates and `versions.toml` | One effect |
+| mbx step | `internal/machine/effects.go` (the effect, its source and the doctor line), `source.go` (the `[mbx]` pin and its checks), `plan.go` (stale choices judged against offered steps), plus the shared script, the shell templates and `versions.toml` | One effect |
 
 ## 8. Order of work
 

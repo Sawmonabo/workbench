@@ -63,8 +63,11 @@ default to GitHub's latest release; no production-qualified activation exists. W
 Linux scripts plus Windows host steps: WSL networking is on by default, and
 Windows setup, Terminal/PowerShell adoption and other host changes are optional
 effects, off until selected; none of it has run on a real Windows host yet. On
-macOS the one optional effect is `touch-id-sudo`, which turns on Touch ID for
-sudo; Linux has none.
+macOS the optional `touch-id-sudo` effect turns on Touch ID for sudo. The
+optional `mbx` effect, "Rust build cache", installs the pinned mbx compile
+cache and runs `mbx setup` wherever mbx publishes a build (macOS arm64, Linux
+amd64 and arm64), so it is the one optional effect on Linux outside WSL and is
+not offered on an Intel Mac.
 Do not infer native acceptance from code,
 cross-compilation or static WSL rendering.
 

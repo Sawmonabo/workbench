@@ -90,9 +90,15 @@ Distinguish implemented code, observed checks and unqualified release targets.
   Optional steps are off until ticked, each its own choice. On WSL, Windows
   setup and each of its parts (Terminal settings, PowerShell profile, font
   registry) are separate optional steps, and ticking Windows setup ticks none of
-  its parts; only WSL networking is on by default. On macOS the one optional
-  step is `touch-id-sudo`, which turns on Touch ID for sudo through
-  `/etc/pam.d/sudo_local`; Linux has none. `epel`, listed only where the
+  its parts; only WSL networking is on by default. On macOS `touch-id-sudo`
+  turns on Touch ID for sudo through `/etc/pam.d/sudo_local`. On every
+  platform mbx publishes a build for (macOS arm64, Linux amd64 and arm64; not
+  an Intel Mac) the optional `mbx` step, "Rust build cache", installs the
+  `[mbx]` pin into `~/.local/bin`, runs `mbx setup` and writes the machine's
+  compile budget into mbx's own config file, each key only when that file does
+  not set it; it is the one optional step on Linux outside WSL. Its script
+  runs on change, so once ticked and done it is listed again only when its
+  check finds work. `epel`, listed only where the
   package manager is dnf (AlmaLinux), is on by default like System packages,
   and so are `env-files` and `claude-mcp` on every platform. On WSL, a
   `take-over-<step>` effect, listed when another installed distribution is

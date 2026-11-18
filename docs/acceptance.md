@@ -1192,6 +1192,42 @@ synthetic answers.
   Latest mode, macOS (whose probes changed too), WSL, AlmaLinux and a shared
   script with an unticked step were not observed.
 
+- On November 18, 2026, the optional Rust build cache step (`mbx`, mbx
+  1.30.0), in Ubuntu 24.04 and AlmaLinux 10.3 arm64 containers (Docker
+  29.8.2) as a sudo user with a disposable home, from a local build with
+  synthetic personal/pinned answers, through `--dry-run --json` and
+  `--approve-plan`. The plan listed `Rust build cache` under `Optional`,
+  unticked, and an apply without the tick installed nothing of mbx's. With
+  `select = ['mbx']` in `machine.toml` the apply installed mbx and ran
+  `mbx setup`; `bash -lc`, `bash -ic` and `bash -lic` then found `cargo` at
+  `~/.local/share/mbx/bin/cargo`, `mbx setup --status` exited 0, `mbx doctor`
+  called the shim active, and `~/.config/mbx/config.toml` held exactly
+  `memory = "3GiB"` and `reserve_cpus = 2` under `[scheduler]` (60% of
+  `MemTotal` 6064496 kB, rounded down), in both containers; the next plan
+  did not list the step. From here on in Ubuntu only: the next apply did not
+  run the script; with `~/.local/bin/mbx` deleted it
+  was listed and the apply put it back. A `scheduler.memory 2GiB` set with
+  `mbx settings set` and a comment survived that apply, which added only the
+  unset `reserve_cpus`; a dotted `scheduler.memory` key counted as set; an
+  invalid file blocked the step (exit 3) and was left as it was. An mbx
+  reporting 1.29.0 was replaced (`mbx 1.29.0 → 1.30.0`). A wrong pinned
+  hash blocked the step (exit 3) with `the downloaded
+  mbx-aarch64-unknown-linux-gnu.tar.gz does not match its pinned SHA-256, so
+  it was removed without being unpacked`, and no mbx was left in
+  `~/.local/bin`. A pin without a Linux arm64 hash left the step out of the
+  plan, warned about the saved tick, and `doctor` read `mbx publishes no
+  build for linux-arm64`. After `mbx setup --uninstall` and deleting
+  `~/.local/bin/mbx`, plain `cargo` failed through the shim (exit 127) until
+  the shim folder was deleted too. Both Linux builds ran `mbx --version` on
+  Ubuntu 22.04, 24.04 and 26.04 and AlmaLinux 10.3 (amd64 under
+  emulation), and `scripts/render-check.sh` linted the Linux scripts there
+  for personal, work and both pinned, both latest and both pinned wsl. On
+  macOS the script was rendered and linted, and its check, run under bash
+  3.2 and 5 in an empty home, printed `scheduler.memory 9GiB (60% of
+  memory)` on a 16 GiB Mac. Not observed: the step applied on macOS, on WSL
+  or on amd64; an Intel Mac's plan and its `doctor` line; zsh startup; a
+  coding agent's shell finding the shim; a newer mbx kept.
+
 ## Unqualified release gates
 
 | Area | Remaining evidence or decision |
