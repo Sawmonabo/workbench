@@ -7,6 +7,23 @@
     defaultBranch = main
 [pull]
     rebase = false
+[push]
+    autoSetupRemote = true
+[fetch]
+    prune = true
+[rerere]
+    enabled = true
+{{- /* zdiff3 needs Git 2.35. Ubuntu 22.04 ships 2.34, which stops checkout,
+       merge, rebase and stash pop with "unknown style" on it, so there the
+       style is diff3, the same markers without zdiff3's trimming. Every other
+       supported system ships a newer Git. Ubuntu 22.04's 2.34 also ignores
+       push.autoSetupRemote (Git 2.37). */}}
+{{- $conflictStyle := "zdiff3" }}
+{{- if and (eq .chezmoi.os "linux") (eq (get .chezmoi.osRelease "id") "ubuntu") (eq (get .chezmoi.osRelease "versionID") "22.04") }}
+{{-   $conflictStyle = "diff3" }}
+{{- end }}
+[merge]
+    conflictStyle = {{ $conflictStyle }}
 
 {{- if eq .machine_role "both" }}
 

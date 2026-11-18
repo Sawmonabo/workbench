@@ -1,0 +1,20 @@
+{{- /* chezmoi:modify-template */ -}}
+{{- /* Git's global ignore file, which Git reads without any core.excludesFile
+       setting. The file stays the owner's: every line already in it is kept
+       as it is, and only the entries below that it lacks are added at its
+       end, so the file is untouched once it has them. */ -}}
+{{- $live := .chezmoi.stdin -}}
+{{- $lines := list -}}
+{{- range splitList "\n" $live -}}
+{{-   $lines = append $lines (trim .) -}}
+{{- end -}}
+{{- $out := $live -}}
+{{- range list ".DS_Store" "__pycache__/" -}}
+{{-   if not (or (has . $lines) (has (trimSuffix "/" .) $lines)) -}}
+{{-     if and $out (not (hasSuffix "\n" $out)) -}}
+{{-       $out = print $out "\n" -}}
+{{-     end -}}
+{{-     $out = print $out . "\n" -}}
+{{-   end -}}
+{{- end -}}
+{{- $out -}}
