@@ -7,6 +7,11 @@ case ":$PATH:" in
     *":$HOME/.local/bin:"*) ;;
     *) export PATH="$HOME/.local/bin:$PATH" ;;
 esac
+# mbx's Cargo shim, once the Rust build cache step has set it up, so plain cargo
+# runs through the shared Rust build cache in this shell too.
+if [ -x "$HOME/.local/share/mbx/bin/cargo" ]; then
+    export PATH="$HOME/.local/share/mbx/bin:$PATH"
+fi
 
 # If not running interactively, don't do anything
 case $- in
@@ -98,6 +103,11 @@ export PATH={{ . | replace "'" "'\"'\"'" | printf "'%s'" }}:"$PATH"
 
 # Cargo (Rust)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+# mbx: plain cargo runs through the shared Rust build cache once the Rust build
+# cache step has set it up. After ~/.cargo/env, which puts rustup's cargo first.
+if [ -x "$HOME/.local/share/mbx/bin/cargo" ]; then
+    export PATH="$HOME/.local/share/mbx/bin:$PATH"
+fi
 
 # nvm (Node.js)
 export NVM_DIR="$HOME/.nvm"

@@ -30,6 +30,11 @@ export PATH={{ . | replace "'" "'\"'\"'" | printf "'%s'" }}:"$PATH"
 
 # Cargo (Rust)
 [ -f "$HOME/.cargo/env" ] && . "$HOME/.cargo/env"
+# mbx: plain cargo runs through the shared Rust build cache once the Rust build
+# cache step has set it up. After ~/.cargo/env, which puts rustup's cargo first.
+if [ -x "$HOME/Library/Application Support/mbx/bin/cargo" ]; then
+    export PATH="$HOME/Library/Application Support/mbx/bin:$PATH"
+fi
 
 # nvm (Node.js)
 export NVM_DIR="$HOME/.nvm"
