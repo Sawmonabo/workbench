@@ -152,8 +152,7 @@ each language:
 - **Does a warning block a commit?** Only if the hook adds `-D warnings`.
   Without it, the Rust lint job never blocks: the commit goes through and CI
   fails later. With it, the hook matches CI, and "warnings locally" means
-  while editing. Decision D3 asks the owner to choose. The design recommends
-  `-D warnings` in the hook.
+  while editing. The hook adds `-D warnings` (decision D3).
 
 ### 2.6 External effects and consent
 
@@ -526,7 +525,7 @@ overwritten. Decision D2 covers the 60% figure.
 | Option | For | Against |
 | --- | --- | --- |
 | On wherever a build exists | Every Rust build gets the cache; a configured `.mbx.toml` works without another step | It changes what plain `cargo` does on the whole machine, writes the user rust-analyzer config, and adds a cache that grows to mbx's disk-scaled budgets (`mbx settings ls` describes the `gc.*` and `target.*` defaults) |
-| **Optional, off until ticked (recommended)** | Matches `touch-id-sudo`: a machine-wide change to how a common command behaves is opted into once and then saved in `select` | A machine without the tick gets `.mbx.toml` files that do nothing, which is harmless |
+| **Optional, off until ticked (chosen)** | Matches `touch-id-sudo`: a machine-wide change to how a common command behaves is opted into once and then saved in `select` | A machine without the tick gets `.mbx.toml` files that do nothing, which is harmless |
 
 This is decision D1.
 
@@ -738,25 +737,25 @@ section and `docs/usage.md`.
 - remote mbx caches;
 - Windows mbx.
 
-## 11. Owner decisions
+## 11. Decisions
 
 - **D1. mbx step default.**
   - Options: (a) on wherever a build exists; (b) optional, off until ticked.
-  - **Recommended: (b).** It changes every `cargo` on the machine and the
+  - **Decided: (b).** It changes every `cargo` on the machine and the
     user's rust-analyzer config, as `touch-id-sudo` changes every `sudo`.
 - **D2. Machine memory budget when the person has set none.**
   - Options: (a) leave mbx's default of 85% of memory; (b) write 60% of
     installed memory and `reserve_cpus = 2`.
-  - **Recommended: (b).** Agents, editors and the guard's critical-pressure
+  - **Decided: (b).** Agents, editors and the guard's critical-pressure
     stop share the same memory, and 85% leaves little for them.
 - **D3. Rust lint hook.**
   - Options: (a) `cargo clippy` with warnings only, which never blocks a
     commit; (b) with `-D warnings`, the same as CI.
-  - **Recommended: (b).** A commit that passes the hook should pass CI.
+  - **Decided: (b).** A commit that passes the hook should pass CI.
     Warnings stay warnings in the editor.
 - **D4. `--ci` workflow choice for Go and Rust.**
   - Options: (a) Python's exactly-one-workflow rule, which refuses every
     surveyed project; (b) the one workflow that already runs the language's
     tests.
-  - **Recommended: (b).** It still never invents a test job or a second
+  - **Decided: (b).** It still never invents a test job or a second
     workflow.
