@@ -732,7 +732,8 @@ synthetic answers.
   `ruff.line-length`, `tool.ruff.line-length` at the root) applied with every
   existing value at its own key in `cargo metadata` and `tomllib`, an inline
   `package.metadata` or `tool.ruff` blocked with a prerequisite naming it, an
-  excluded crate (`crates/*` with `exclude = ["crates/skip"]`, an excluded
+  excluded crate (`crates/*` with `exclude = ["crates/skip"]`, an exclude
+  naming the crate's `Cargo.toml`, an excluded
   parent folder, an excluded path dependency) was left untouched while a
   member named literally under an exclude was configured, each as `cargo
   metadata --no-deps` listed them, and CRLF `Cargo.toml` and `pyproject.toml`

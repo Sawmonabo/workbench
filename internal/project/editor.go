@@ -40,12 +40,18 @@ type adapterDocument struct {
 
 // checkRecord refuses a manifest's Workbench record that the adapter would
 // refuse, naming the record and what it needs: a table at provenance in doc,
-// the decoded manifest at path, with the integer schema_version = 1 and, when
-// present, a policies list.
+// the decoded manifest at path, below tables only, with the integer
+// schema_version = 1 and, when present, a policies list of names.
 func checkRecord(path string, doc map[string]any, provenance []string) error {
 	var record any = doc
+	valid := true
 	for _, key := range provenance {
-		value, ok := table(record)[key]
+		fields, isTable := record.(map[string]any)
+		if !isTable {
+			valid = false
+			break
+		}
+		value, ok := fields[key]
 		if !ok {
 			return nil
 		}
@@ -54,15 +60,19 @@ func checkRecord(path string, doc map[string]any, provenance []string) error {
 	fields, isTable := record.(map[string]any)
 	version, isInteger := fields["schema_version"].(int64)
 	policies, hasPolicies := fields["policies"]
-	_, isList := policies.([]any)
-	if isTable && isInteger && version == 1 && (!hasPolicies || isList) {
+	list, isList := policies.([]any)
+	names := !slices.ContainsFunc(list, func(policy any) bool {
+		_, isText := policy.(string)
+		return !isText
+	})
+	if valid && isTable && isInteger && version == 1 && (!hasPolicies || (isList && names)) {
 		return nil
 	}
 	return operation.Fail(
 		operation.ExitBlocked,
 		"provenance",
 		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+path+
-			" needs the integer schema_version = 1 and a policies list; correct it before planning",
+			" needs the integer schema_version = 1 and a policies list of names; correct it before planning",
 	)
 }
 

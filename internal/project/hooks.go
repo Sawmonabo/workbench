@@ -446,11 +446,32 @@ const dependabotGroup = "minor-and-patch"
 // Dependabot's patch and minor pull requests.
 var autoMergeName = filepath.Join(".github", "workflows", "dependabot-auto-merge.yml")
 
-// autoMergeElsewhere recognizes a workflow that already turns on auto-merge
-// for Dependabot's pull requests.
-var autoMergeElsewhere = regexp.MustCompile(
-	`(?is)dependabot.*(gh\s+pr\s+merge[^\n]*--auto|enablePullRequestAutoMerge|enable-pull-request-automerge)`,
+// The marks of a workflow that already turns on auto-merge for Dependabot's
+// pull requests: a condition that selects Dependabot (not one that leaves it
+// out) or the fetch-metadata action, with an auto-merge call or a general
+// auto-merge action; or an action made to merge Dependabot's pull requests.
+var (
+	selectsDependabot = regexp.MustCompile(
+		`(?i)==\s*['"]dependabot\[bot\]['"]|dependabot/fetch-metadata`,
+	)
+	turnsOnAutoMerge = regexp.MustCompile(
+		`(?i)gh\s+pr\s+merge\b[^\n]*--auto|enablePullRequestAutoMerge|` +
+			`uses:\s*['"]?(pascalgn/automerge-action|peter-evans/enable-pull-request-automerge)@`,
+	)
+	mergesDependabot = regexp.MustCompile(
+		`(?i)uses:\s*['"]?(fastify/github-action-merge-dependabot|ahmadnassri/action-dependabot-auto-merge)@`,
+	)
+	continuedLine = regexp.MustCompile(`\\\r?\n\s*`)
 )
+
+// autoMergeElsewhere reports whether the workflow text already turns on
+// auto-merge for Dependabot's pull requests. A command continued over
+// several lines is read as one.
+func autoMergeElsewhere(workflow []byte) bool {
+	text := continuedLine.ReplaceAll(workflow, []byte(" "))
+	return mergesDependabot.Match(text) ||
+		(selectsDependabot.Match(text) && turnsOnAutoMerge.Match(text))
+}
 
 // addAutoMerge plans the workflow that turns on GitHub auto-merge for
 // Dependabot's patch and minor pull requests, unless the repository has it
@@ -478,7 +499,7 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 		case workflow == path || workflow == strings.TrimSuffix(path, ".yml")+".yaml":
 			p.keep(root, workflow, autoMergeName, data, "Dependabot auto-merge")
 			return nil
-		case autoMergeElsewhere.Match(existing):
+		case autoMergeElsewhere(existing):
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				"Kept the project's own Dependabot auto-merge configuration: "+workflow,

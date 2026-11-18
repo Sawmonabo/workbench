@@ -302,7 +302,8 @@ combine their entries into one edit of each file.
 Membership reuses `workspaceMember` in `discovery.go` for the `members`
 patterns, cleaned first because Cargo accepts `./a/` for `a`, and that
 function already refuses `**` and `..` patterns for review. Cargo reads an
-`exclude` entry as a path prefix of whole folder names, not a glob, and it
+`exclude` entry as a path prefix of the package's manifest path, by whole
+names, not a glob, so it may name a folder or one `Cargo.toml`, and it
 applies to a path dependency as to a listed member. Only a `members` entry
 read as a plain path, one naming the package's folder or a folder above it,
 keeps a package a member under an excluded folder; a package that only a glob
@@ -728,9 +729,15 @@ above covers the groups, and refused an `update-types` value of `tiny`.
 `--dependabot` also writes `.github/workflows/dependabot-auto-merge.yml`,
 whole, only when no workflow of that name (`.yml` or `.yaml`) exists and no
 other workflow already
-turns on auto-merge for Dependabot (a `dependabot` mention followed by
-`gh pr merge ... --auto` or the auto-merge GraphQL mutation); either is kept
-and listed. The Python `--ci` owner is chosen among the other workflows. The
+turns on auto-merge for Dependabot; either is kept and listed. Such a
+workflow is recognized by its text, with a command continued over several
+lines read as one: a condition that selects Dependabot
+(`== 'dependabot[bot]'`) or the `dependabot/fetch-metadata` action, together
+with `gh pr merge ... --auto`, the auto-merge GraphQL mutation,
+`peter-evans/enable-pull-request-automerge` or `pascalgn/automerge-action`;
+or one of `fastify/github-action-merge-dependabot` and
+`ahmadnassri/action-dependabot-auto-merge`. A workflow that only leaves
+Dependabot out (`!= 'dependabot[bot]'`) is not one. The Python `--ci` owner is chosen among the other workflows. The
 workflow follows GitHub's "Automating Dependabot with GitHub Actions"
 tutorial:
 

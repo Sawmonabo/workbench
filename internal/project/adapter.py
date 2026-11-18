@@ -194,7 +194,14 @@ for index, document in enumerate(request["documents"]):
             del proposed_policy["tool"]["ruff"]["lint"]
     # What the result must mean: every value of the source, unchanged at its
     # own key, and exactly what the policy and the record add.
-    expected = tomllib.loads(source)
+    try:
+        expected = tomllib.loads(source)
+    except tomllib.TOMLDecodeError:
+        refuse(
+            "it uses syntax newer than TOML 1.0, such as an inline table written "
+            "over several lines, which the check of the merged result cannot read; "
+            "write it in TOML 1.0"
+        )
     plain_merge(expected, tomllib.loads(tomlkit.dumps(proposed_policy)))
     headers = []
     merge_missing(doc, doc, proposed_policy, [], headers)

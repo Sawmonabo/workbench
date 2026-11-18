@@ -800,7 +800,8 @@ runs no Cargo or rustup command but, like Python, needs the management Python
 and TOML Kit. For both, a table added among dotted keys gets a `[header]` of
 its own, and a manifest that would need a key added to an inline table, or
 whose merge would not read back with every existing value at its own key,
-blocks the plan with a prerequisite that names the file and key. Added lines
+blocks the plan with a prerequisite that names the file and key; so does a
+manifest using syntax newer than TOML 1.0, which that check cannot read. Added lines
 end the way the manifest's first line does, CRLF or LF; existing lines keep
 their own endings.
 

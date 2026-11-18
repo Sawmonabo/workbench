@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -115,6 +116,13 @@ func stringsOf(value any) []string {
 }
 
 func decodeTOML(data []byte) (map[string]any, error) {
+	if bytes.HasPrefix(data, []byte("\xef\xbb\xbf")) {
+		return nil, operation.Fail(
+			operation.ExitInvalid,
+			"toml",
+			"TOML metadata starts with a byte order mark, which Workbench does not edit; remove it before planning",
+		)
+	}
 	var doc map[string]any
 	if err := toml.Unmarshal(data, &doc); err != nil {
 		return nil, operation.Fail(
@@ -642,15 +650,16 @@ func cargoListed(workspace map[string]any, parent, root string) (bool, string, e
 }
 
 // cargoExcluded reports whether the workspace at parent excludes root, as
-// Cargo decides it: an exclude entry covers root when it names root's folder
-// or a folder above it, compared by whole folder names, not as a glob; and a
-// members entry that covers root the same way, read as a plain path, keeps
-// it a member. A members glob such as "crates/*" names no real folder that
-// way, so exclude wins over a package a glob lists, and a package named
-// literally wins over exclude.
+// Cargo decides it, against root's manifest path: an exclude entry covers
+// root when it names root's manifest, its folder or a folder above it,
+// compared by whole names, not as a glob; and a members entry that covers
+// root the same way, read as a plain path, keeps it a member. A members glob
+// such as "crates/*" names no real path that way, so exclude wins over a
+// package a glob lists, and a package named literally wins over exclude.
 func cargoExcluded(workspace map[string]any, parent, root string) bool {
+	manifest := filepath.Join(root, "Cargo.toml")
 	covers := func(entry string) bool {
-		return operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), root)
+		return operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), manifest)
 	}
 	return slices.ContainsFunc(stringsOf(workspace["exclude"]), covers) &&
 		!slices.ContainsFunc(stringsOf(workspace["members"]), covers)
@@ -798,8 +807,8 @@ func (r *Inventory) settleCargoMembers() {
 			project.Reason = "The Cargo workspace root needs review first: " + r.Directory
 		case !r.cargo[project.Root]:
 			project.Owner = project.Root
-			project.Reason = "Not a member of the Cargo workspace at " + r.Directory +
-				"; Cargo refuses to build it there, so it is left untouched"
+			project.Reason = "Not listed as a member of the Cargo workspace at " + r.Directory +
+				", so it is left untouched; a member listed only through a symbolic link is not followed"
 		default:
 			project.Supported, project.Reason = true, ""
 		}

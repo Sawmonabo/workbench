@@ -23,6 +23,7 @@ configuration does.
   dev or build, also per target, and a `workspace = true` entry resolved
   through `[workspace.dependencies]`) inside the workspace folder, as Cargo
   adds them. An `exclude` entry removes the folder and everything below it,
+  or the one package whose `Cargo.toml` it names,
   member or path dependency, unless a `members` entry written as a plain path
   names the package's folder or a folder above it: a package that only a glob
   such as `crates/*` lists stays excluded, as Cargo decides. An excluded
@@ -79,8 +80,12 @@ Nothing is added to an inline table (`metadata = { docs = { x = 1 } }`): the
 plan stops and names the key. Before anything is written, the adapter reads
 the result back and stops the plan, naming the manifest, unless every
 existing value is unchanged at its own key and the only new keys are the
-policy's and the record's. A record whose
-`schema_version` is not the integer 1 stops the plan, and so does a `[lints]`
+policy's and the record's. That check reads TOML 1.0, so a manifest using
+newer syntax, such as an inline table written over several lines, stops the
+plan with that reason, and so does a manifest that starts with a byte order
+mark. A record whose
+`schema_version` is not the integer 1, or whose `policies` is not a list of
+names, stops the plan, and so does a `[lints]`
 or `[workspace.lints]` that is not a table of lint groups, such as a single
 crate's `[lints] workspace = true`.
 
