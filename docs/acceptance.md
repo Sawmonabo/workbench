@@ -428,6 +428,12 @@ synthetic answers.
   matched `.claude/tmp/plans/x` and `.tickets/a.md` and not
   `.claude/settings.json`, and the render check found both entries in the
   rendered file for every role.
+- Latest mode's Node, on macOS, read-only (Nov 17): nodejs.org's release list
+  began with `v27.0.0-alpha.0.1.1` and `nvm version-remote node` resolved to
+  it. The runtimes step's check, rendered for latest mode, reported `Node is
+  26.10.0, the default will be 26.13.1`, the newest entry without a
+  pre-release suffix, and with an unreachable release list the lookup
+  returned nothing. Not observed: the step installing it.
 
 ### On a WSL2 host
 

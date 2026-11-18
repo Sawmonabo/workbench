@@ -7,6 +7,7 @@ set -uo pipefail
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/.bun/bin:$PATH"
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
+{{ template "node-latest.sh" }}
 failed=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{ template "runtimes-probe.sh" . }}
@@ -25,9 +26,15 @@ status=0
 {{- end }}
     nvm alias default {{ .versions.node_default }} || failed+=("Node {{ .versions.node_default }} could not be made the default")
 {{- else }}
-    # latest: one newest Node only; other versions are a `nvm install <ver>` away.
-    nvm install node || failed+=("the latest Node could not be installed")
-    nvm alias default node || failed+=("the latest Node could not be made the default")
+    # latest: the one newest Node that is not a pre-release; other versions
+    # are a `nvm install <ver>` away.
+    node_newest=$(node_latest)
+    if [ -z "$node_newest" ]; then
+        failed+=("the latest Node could not be looked up")
+    else
+        nvm install "$node_newest" || failed+=("Node $node_newest could not be installed")
+        nvm alias default "$node_newest" || failed+=("Node $node_newest could not be made the default")
+    fi
 {{- end }}
 else
     part_failed runtimes "Node was not installed: nvm is not installed (the Runtime managers step installs it)" || status=1

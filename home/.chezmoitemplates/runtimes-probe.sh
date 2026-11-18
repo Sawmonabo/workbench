@@ -16,11 +16,12 @@
 {{- end }}
 {{- else }}
         # nvm version-remote rewrites nvm's lts alias files, and a probe writes nothing:
-        # read the newest release from the same index instead.
+        # node_latest reads the newest release that is not a pre-release from
+        # the same index instead.
         if [ "${WORKBENCH_PROBE_RAN:-}" = 1 ] && [ -n "$node_have" ]; then
             node_want=$node_have
         else
-            node_want=$(curl -fsSL --max-time 3 "${NVM_NODEJS_ORG_MIRROR:-https://nodejs.org/dist}/index.tab" 2>/dev/null | awk -F'\t' 'NR==2 {print $1}' || true); node_want=${node_want#v}
+            node_want=$(node_latest 3)
         fi
         node_missing=()
 {{- end }}

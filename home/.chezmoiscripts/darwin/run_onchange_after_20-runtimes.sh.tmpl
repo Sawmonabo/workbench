@@ -13,6 +13,7 @@ elif [ -x /usr/local/bin/brew ]; then
 fi
 export NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
 {{ template "operation-context.sh" }}
+{{ template "node-latest.sh" }}
 failed=() missing=()
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
 {{ template "runtimes-probe.sh" . }}
@@ -28,9 +29,15 @@ status=0
 {{- end }}
     nvm alias default {{ .versions.node_default }} || failed+=("the default Node")
 {{- else }}
-    # latest: one newest Node only; other versions are a `nvm install <ver>` away.
-    nvm install node || failed+=("the latest Node")
-    nvm alias default node || failed+=("the default Node")
+    # latest: the one newest Node that is not a pre-release; other versions
+    # are a `nvm install <ver>` away.
+    node_newest=$(node_latest)
+    if [ -z "$node_newest" ]; then
+        failed+=("the latest Node (its release list could not be read)")
+    else
+        nvm install "$node_newest" || failed+=("Node $node_newest")
+        nvm alias default "$node_newest" || failed+=("the default Node")
+    fi
 {{- end }}
 else
     missing+=(nvm)
