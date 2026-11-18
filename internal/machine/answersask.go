@@ -160,7 +160,9 @@ func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) er
 // answersFile encodes answers for the machine.toml at config beside any saved
 // selection, keeping the retired answers saved there and not the dropped
 // ones, and reports whether the file already holds the same; saved answers it
-// can't read are refused, never replaced. A dropped answer alone is no change,
+// can't read are refused, never replaced. A saved answer that answers lacks,
+// a dropped one or one the questionnaire does not keep for this machine's
+// role and system (an imported file may hold such), is no change by itself,
 // so it goes with the next real one and setup never rewrites the file between
 // an approved plan and its apply.
 func answersFile(config string, answers Answers) (encoded []byte, unchanged bool, err error) {
@@ -180,9 +182,10 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 	}
 	if saved != nil {
 		kept := maps.Clone(saved)
-		for _, key := range droppedAnswers {
-			delete(kept, key)
-		}
+		maps.DeleteFunc(kept, func(key string, _ any) bool {
+			_, has := answers[key]
+			return !has
+		})
 		if current, encodeErr := encodeMachineConfig(kept, previous); encodeErr == nil &&
 			bytes.Equal(current, encoded) {
 			return encoded, true, nil
