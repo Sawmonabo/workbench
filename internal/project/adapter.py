@@ -1,5 +1,6 @@
 """Internal bounded text transform. Go owns reads, writes, consent and recovery."""
 import copy
+import difflib
 import json
 import sys
 import tomllib
@@ -95,6 +96,35 @@ def append_header(doc, path, value):
         at = rendered.find(header)
         if at >= 0 and rendered[at + len(header):].startswith("["):
             value.add(tomlkit.nl())
+
+
+def lines(text):
+    """Split text after each line feed, keeping it, so CRLF and LF lines stay
+    distinct."""
+    parts = text.split("\n")
+    return [part + "\n" for part in parts[:-1]] + ([parts[-1]] if parts[-1] else [])
+
+
+def own_line_endings(source, rendered):
+    """Give each line the merge added the source's line ending, the one its
+    first line ends with; TOML Kit writes them with LF. Existing lines keep
+    their own, also in a file whose endings are mixed."""
+    end = source.find("\n")
+    if end <= 0 or source[end - 1] != "\r":
+        return rendered
+    old, new = lines(source), lines(rendered)
+    result = []
+    matcher = difflib.SequenceMatcher(None, old, new, autojunk=False)
+    for tag, i1, i2, j1, j2 in matcher.get_opcodes():
+        for n, line in enumerate(new[j1:j2]):
+            if tag != "equal" and line.endswith("\n") and not line.endswith("\r\n"):
+                # An existing line TOML Kit changed, such as a record's
+                # policies list, keeps the ending it had.
+                paired = old[i1 + n] if tag == "replace" and i1 + n < i2 else ""
+                ending = "\n" if paired.endswith("\n") and not paired.endswith("\r\n") else "\r\n"
+                line = line[:-1] + ending
+            result.append(line)
+    return "".join(result)
 
 
 def plain_merge(target, policy):
@@ -203,7 +233,7 @@ for index, document in enumerate(request["documents"]):
                 provenance.add(tomlkit.nl())
     for path, value in headers:
         append_header(doc, path, value)
-    rendered = tomlkit.dumps(doc)
+    rendered = own_line_endings(source, tomlkit.dumps(doc))
     try:
         reparsed = tomlkit.dumps(tomlkit.parse(rendered))
     except TOMLKitError:

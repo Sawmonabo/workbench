@@ -727,6 +727,16 @@ synthetic answers.
   call; a uv project with a crate below it planned Python with a warning. A
   uv project, and a uv project with a Go module, each applied with
   `--extensions --gitignore --ci` and reverted exactly.
+  On 2026-11-18, manifests written as dotted keys (`package.name = "a"` at the
+  root, `metadata.docs.x = 1` under `[package]`, `[tool]` with
+  `ruff.line-length`, `tool.ruff.line-length` at the root) applied with every
+  existing value at its own key in `cargo metadata` and `tomllib`, an inline
+  `package.metadata` or `tool.ruff` blocked with a prerequisite naming it, an
+  excluded crate (`crates/*` with `exclude = ["crates/skip"]`, an excluded
+  parent folder, an excluded path dependency) was left untouched while a
+  member named literally under an exclude was configured, each as `cargo
+  metadata --no-deps` listed them, and CRLF `Cargo.toml` and `pyproject.toml`
+  gained only CRLF lines.
   Every second plan had no files or effects, and every `project revert` left
   every file, folder and mode as before. Not observed: a CI run of the
   `workbench-rust` job on GitHub (the runner's rustup, the musl cargo-deny

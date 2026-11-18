@@ -67,8 +67,9 @@ schema_version = 1
 policies = ["rust-v1"]
 ```
 
-Every existing value, comment and table is kept. A table added where the
-manifest writes its parent as dotted keys (`package.name = "a"`, or
+Every existing value, comment, table and line ending is kept, and added
+lines end the way the manifest's first line does (CRLF or LF). A table added
+where the manifest writes its parent as dotted keys (`package.name = "a"`, or
 `metadata.docs.x = 1` under `[package]`) gets a `[header]` of its own after
 them, because a header among dotted keys would take the keys after it.
 Nothing is added to an inline table (`metadata = { docs = { x = 1 } }`): the
