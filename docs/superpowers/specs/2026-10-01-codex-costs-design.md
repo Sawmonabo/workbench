@@ -378,10 +378,8 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 `SessionStart` and `SessionEnd` entries run `workbench costs ingest` on the
 installed `workbench`'s absolute, single-quoted path in the apply's bin folder
 (the `workbench-command` template; `SessionEnd` with `"timeout": 3`, its
-maximum), and the existing
-`UserPromptSubmit` entry stays inside `{{ if .has_work }}`. `render-check.sh`
-drops its "hooks.json deployed on personal" leak check; its personal-role
-`promptctl` grep catches the real leak. `.codex/hooks.json` is not listed in
+maximum). `render-check.sh`
+drops its "hooks.json deployed on personal" leak check. `.codex/hooks.json` is not listed in
 `home/.chezmoidata/role-targets.json`, so every role receives it.
 
 **Trust is written by Workbench, so Codex never asks.** Codex keys trust as

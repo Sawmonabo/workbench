@@ -1705,18 +1705,7 @@ git commit -m "feat(costs): the codex tab shows one cache-write column and names
           { "type": "command", "command": {{ $ingest | toJson }}, "timeout": 3 }
         ]
       }
-    ]{{ if .has_work }},
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ printf "%s/.promptctl/bin/codex-prefix-hook" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" | toJson }}
-          }
-        ]
-      }
-    ]{{ end }}
+    ]
   }
 }
 ```
@@ -1805,7 +1794,7 @@ At the top of `main()`, before `managed = tomllib.loads(MANAGED)`, add:
     [ -e "$dest/.codex/hooks.json" ] && { echo "LEAK: .codex/hooks.json deployed on personal"; fail=1; }
 ```
 
-(the personal-role grep for `promptctl` above it still catches the work hook), and before the `claude code status line` block add:
+and before the `claude code status line` block add:
 
 ```bash
 echo "==> [$role/$mode] codex ingest hooks are installed and trusted"
@@ -1816,7 +1805,7 @@ for event in session_start session_end; do
 done
 ```
 
-- [ ] **Step 5: Contracts row.** In `docs/superpowers/specs/workbench-contracts.md`, in the row naming `private_dot_codex/{AGENTS.md,modify_private_config.toml,private_hooks.json}`, change `All / costs hooks all, Codex hooks and work MCP only work` to `All / costs hooks all (Claude Code and Codex, Codex's trusted by the config merge), promptctl hook and work MCP only work`.
+- [ ] **Step 5: Contracts row.** In `docs/superpowers/specs/workbench-contracts.md`, in the row naming `private_dot_codex/{AGENTS.md,modify_private_config.toml,private_hooks.json}`, change `All / costs hooks all, Codex hooks and work MCP only work` to `All / costs hooks all (Claude Code and Codex, Codex's trusted by the config merge), work MCP only work`.
 
 - [ ] **Step 6: Render checks.**
 

@@ -417,9 +417,9 @@ move), `linux-packages` and `claude-mcp` (section 4.11). `epel` (EPEL was
 installed by hand) and `env-files` (migration 0005 creates `work.env`) have
 nothing to do there, so they sit under Already set and are not asked. `work-tools` is not planned on WSL
 (section 4.12). It plans the managed
-`.bashrc` and `.gitconfig` in place of the hand-written ones; the lines added
-there by hand (the promptctl hook, `clear-cache`) are already in the managed
-`.bashrc` for a work WSL machine. Commands already in `~/.local/bin` that
+`.bashrc` and `.gitconfig` in place of the hand-written ones; the
+`clear-cache` function added there by hand is already in the managed
+`.bashrc` for a WSL machine. Commands already in `~/.local/bin` that
 Workbench did not make are left alone, as now; `uv` already being there means
 the Runtime managers step finds it and does not install its own. The system
 `golang` package stays; the user-local Go comes first on `PATH`.

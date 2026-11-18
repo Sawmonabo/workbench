@@ -258,12 +258,6 @@ popd() { builtin popd "$@" || return; __workbench_folder_env; }
 # --- Editor ---
 export EDITOR="{{ includeTemplate "editor-command" .editor }}"
 
-{{- if .has_work }}
-
-# --- Work tooling ---
-# promptctl
-[ -f "$HOME/.promptctl/shell/aliases.sh" ] && source "$HOME/.promptctl/shell/aliases.sh"
-{{- end }}
 {{- if .is_wsl }}
 
 # WSL: hand the VM's file cache back to Windows on demand. Linux keeps
