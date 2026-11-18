@@ -23,15 +23,25 @@ ca-certificates fontconfig libatomic` with dnf (the Node builds nvm installs
 need `libatomic.so.1`, which AlmaLinux's gcc does not bring; its line lists
 `libatomic` while it is missing), only those `rpm -q --whatprovides` does
 not find, so a name an installed package already provides is not installed
-again; then `bat`, `fd-find`, tmux and, in Command-line tools, podman. `bat` and `fd` come only from EPEL:
+again; then `bat`, `fd-find`, `jq`, `tree`, `ripgrep`, `htop`, `ShellCheck`,
+tmux and, in Command-line tools, podman. `bat`, `fd`, `ripgrep`, `htop` and
+`ShellCheck` come only from EPEL (`jq` and `tree` from AlmaLinux's own
+repositories):
 the EPEL step (`epel`), listed only where the package manager is dnf and on by
 default, runs `sudo dnf install -y epel-release` from AlmaLinux's own `extras`
 repository when `rpm -q epel-release` fails (`epel: turn on EPEL (uses
 sudo)`, or `epel: = EPEL is on`), and changes no other repository, CRB
 included. When `dnf repolist --enabled` does not list EPEL, whatever the step
-says, the bat and fd parts fail saying EPEL is off, and the next apply tries
+says, the parts that need it fail saying EPEL is off, and the next apply tries
 them again. dnf waits for another dnf's package lock by itself and says so, so
 the scripts add no limit of their own; apt-get waits up to ten minutes.
+On every distribution the same step puts the GitHub CLI, golangci-lint,
+lefthook and gitleaks in `~/.local/bin` from each project's own GitHub
+releases (the last three checked against the release's checksums file, at the
+`[linux_binaries]` pins in pinned mode, the latest release in latest mode), and
+Command-line tools adds gofumpt and govulncheck with `go install`
+(`[linux_go_tools]`); the Mac gets all five from Homebrew. An installed copy
+in `~/.local/bin` is kept.
 Undo EPEL with `sudo dnf remove epel-release`. The package step creates the
 work folder on a machine with the work role and the personal folder on one
 with the personal role (see [roles and folders](usage.md#roles-folders-and-credentials), which also covers the

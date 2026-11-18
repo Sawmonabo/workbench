@@ -197,6 +197,7 @@ brew = [
   "gofumpt",
   "golangci-lint",
   "goreleaser",
+  "govulncheck",
   "htop",
   "jq",
   "lefthook",

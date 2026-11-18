@@ -1,8 +1,10 @@
 {{ if eq .chezmoi.os "linux" -}}
 #!/bin/bash
-# Bootstrap script for Linux/WSL — installs bat, fd, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh.
+# Bootstrap script for Linux/WSL — installs bat, fd, jq, ripgrep, htop, tree,
+# ShellCheck, oh-my-posh, JetBrains Mono Nerd Font, tmux, gh, golangci-lint,
+# lefthook and gitleaks.
 # System packages come from apt on Ubuntu and from dnf on AlmaLinux, where EPEL
-# (the epel step) is turned on first for bat and fd.
+# (the epel step) is turned on first for bat, fd, ripgrep, htop and ShellCheck.
 # Each tool is a part of its own: one that fails is reported on its step
 # (epel or linux-packages) and the others still install; the script then ends
 # nonzero, so the next apply runs it again.
@@ -24,18 +26,21 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     for tool in cc c++ curl unzip git fc-cache; do
         command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
     done
-    for tool in bat fd oh-my-posh tmux; do
-        command -v "$tool" >/dev/null 2>&1 || missing+=("$tool")
+    for tool in bat fd oh-my-posh tmux jq rg:ripgrep htop tree shellcheck:ShellCheck; do
+        command -v "${tool%%:*}" >/dev/null 2>&1 || missing+=("${tool#*:}")
     done
-    # gh is Workbench's own copy in ~/.local/bin, which apply installs even
-    # when a package's gh is on PATH.
+    # gh and the release binaries are Workbench's own copies in ~/.local/bin,
+    # which apply installs even when a package's copy is on PATH.
     [ -x "$HOME/.local/bin/gh" ] || missing+=("gh")
+{{- range $name, $version := .linux_binaries }}
+    [ -x "$HOME/.local/bin/{{ $name }}" ] || missing+=("{{ $name }}{{ if eq $.versions_mode "pinned" }} {{ $version }}{{ end }}")
+{{- end }}
     compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
     if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
         rpm -q --whatprovides libatomic >/dev/null 2>&1 || missing+=("libatomic")
     fi
     if [ ${#missing[@]} -eq 0 ]; then
-        echo "linux-packages: = bat, fd, tmux, gh, oh-my-posh and the Nerd Font are installed"
+        echo "linux-packages: = bat, fd, tmux, jq, ripgrep, htop, tree, ShellCheck, gh, {{ keys .linux_binaries | sortAlpha | join ", " }}, oh-my-posh and the Nerd Font are installed"
     else
         printf -v joined '%s, ' "${missing[@]}"; echo "linux-packages: install ${joined%, }"
     fi
@@ -44,13 +49,13 @@ fi
 {{ template "effect-report.sh" }}
 status=0
 why=
-# part EFFECT WHAT FUNCTION runs one part. set -e does not apply inside a
-# function called as a condition, so each part returns at its first failed
-# command itself, optionally saying why; the effect is then reported and the
-# script goes on with the next part.
+# part EFFECT WHAT FUNCTION [ARG...] runs one part. set -e does not apply
+# inside a function called as a condition, so each part returns at its first
+# failed command itself, optionally saying why; the effect is then reported and
+# the script goes on with the next part.
 part() {
     why=
-    "$3" && return 0
+    "${@:3}" && return 0
     part_failed "$1" "$2: ${why:-the output above says why}" || status=1
 }
 download_dir=$(mktemp -d)
@@ -125,8 +130,8 @@ install_cargo() {
     . "$HOME/.cargo/env" || return 1
 }
 
-# epel_enabled checks that dnf lists EPEL, where bat and fd come from, as
-# enabled, whatever the epel step's switch says.
+# epel_enabled checks that dnf lists EPEL, where bat, fd, ripgrep, htop and
+# ShellCheck come from, as enabled, whatever the epel step's switch says.
 epel_enabled() {
     local repos
     repos=$(dnf repolist --enabled) || repos=
@@ -196,6 +201,43 @@ if ! command -v fd &>/dev/null; then
 else
     echo "==> fd already installed, skipping."
 fi
+
+# --- jq, ripgrep, htop, tree, ShellCheck ---
+# Only the missing commands' packages are installed. Ubuntu has all five; on
+# AlmaLinux jq and tree come from its own repositories and ripgrep, htop and
+# ShellCheck from EPEL, so the EPEL three wait for it and the other two do not.
+install_cli_tools() {
+    local apt=() dnf=() epel=()
+    command -v jq &>/dev/null || { apt+=(jq); dnf+=(jq); }
+    command -v tree &>/dev/null || { apt+=(tree); dnf+=(tree); }
+    command -v rg &>/dev/null || { apt+=(ripgrep); epel+=(ripgrep); }
+    command -v htop &>/dev/null || { apt+=(htop); epel+=(htop); }
+    command -v shellcheck &>/dev/null || { apt+=(shellcheck); epel+=(ShellCheck); }
+    if [ ${#apt[@]} -eq 0 ]; then
+        echo "==> jq, ripgrep, htop, tree and ShellCheck already installed, skipping."
+        return 0
+    fi
+    if command -v apt-get &>/dev/null; then
+        echo "==> Installing ${apt[*]} via apt..."
+        sudo apt-get -o DPkg::Lock::Timeout=600 update -qq || return 1
+        sudo apt-get -o DPkg::Lock::Timeout=600 install -y -qq "${apt[@]}" || return 1
+    elif command -v dnf &>/dev/null; then
+        if [ ${#dnf[@]} -gt 0 ]; then
+            echo "==> Installing ${dnf[*]} via dnf..."
+            sudo dnf install -y "${dnf[@]}" || return 1
+        fi
+        if [ ${#epel[@]} -gt 0 ]; then
+            epel_enabled || { why="${epel[*]} need EPEL: ${why}"; return 1; }
+            echo "==> Installing ${epel[*]} via dnf..."
+            sudo dnf install -y "${epel[@]}" || return 1
+        fi
+    else
+        why="neither apt-get nor dnf was found; install ${apt[*]} with this system's package manager"
+        return 1
+    fi
+    echo "    ${apt[*]} installed."
+}
+part linux-packages "jq, ripgrep, htop, tree or ShellCheck was not installed" install_cli_tools
 
 # --- oh-my-posh ---
 install_omp() {
@@ -300,6 +342,72 @@ if [ ! -x "$HOME/.local/bin/gh" ]; then
 else
     echo "==> gh already installed ($("$HOME/.local/bin/gh" --version | head -1)), skipping."
 fi
+
+# --- golangci-lint, lefthook, gitleaks (release binaries) ---
+# The Mac gets them from Homebrew. Here neither apt nor dnf has them on every
+# distribution (Ubuntu 22.04 and AlmaLinux package none; Ubuntu 24.04's
+# gitleaks is a 2023 release), and golangci-lint advises against go install,
+# so each is its project's own release binary, checked against the checksums
+# file of the same release, in ~/.local/bin like gh: the version
+# .chezmoidata/versions.toml [linux_binaries] pins, or in latest mode the latest
+# release. Like gh, an installed copy is kept.
+install_release_tool() {
+    local name=$1 version=$2 repo asset member='' sums arch tag dir
+    require_unused_command "$name" || return 1
+    case "$name" in
+        golangci-lint) repo=golangci/golangci-lint ;;
+        lefthook) repo=evilmartians/lefthook ;;
+        gitleaks) repo=gitleaks/gitleaks ;;
+        *) why="Workbench does not know where $name is published"; return 1 ;;
+    esac
+    if [ -z "$version" ]; then
+        tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" \
+            | grep -o '"tag_name": *"v[^"]*"' | cut -d'"' -f4) || true
+        [ -n "$tag" ] || { why="its latest release could not be looked up on GitHub"; return 1; }
+        version=${tag#v}
+    fi
+    case "$(uname -m)" in
+        x86_64) arch=amd64 ;;
+        aarch64|arm64) arch=arm64 ;;
+        *) why="$repo publishes no $name for $(uname -m)"; return 1 ;;
+    esac
+    case "$name" in
+        golangci-lint)
+            asset="golangci-lint-$version-linux-$arch.tar.gz"
+            member="golangci-lint-$version-linux-$arch/golangci-lint"
+            sums="golangci-lint-$version-checksums.txt" ;;
+        lefthook)
+            [ "$arch" = amd64 ] && asset="lefthook_${version}_Linux_x86_64" || asset="lefthook_${version}_Linux_arm64"
+            sums=lefthook_checksums.txt ;;
+        gitleaks)
+            [ "$arch" = amd64 ] && asset="gitleaks_${version}_linux_x64.tar.gz" || asset="gitleaks_${version}_linux_arm64.tar.gz"
+            member=gitleaks
+            sums="gitleaks_${version}_checksums.txt" ;;
+    esac
+    echo "==> Installing $name $version to ~/.local/bin..."
+    dir="$download_dir/$name"
+    mkdir -p "$dir" || return 1
+    curl -fsSL "https://github.com/$repo/releases/download/v$version/$asset" -o "$dir/$asset" &&
+        curl -fsSL "https://github.com/$repo/releases/download/v$version/$sums" -o "$dir/sums" ||
+        { why="$name $version could not be downloaded"; return 1; }
+    grep -E "^[0-9a-f]{64}  $asset\$" "$dir/sums" > "$dir/expected" &&
+        (cd "$dir" && sha256sum --quiet -c expected) ||
+        { why="the download of $name $version does not match its published checksum"; return 1; }
+    if [ -n "$member" ]; then
+        tar -xzf "$dir/$asset" -C "$dir" "$member" || return 1
+        asset=$member
+    fi
+    mkdir -p "$HOME/.local/bin" || return 1
+    install -m 755 "$dir/$asset" "$HOME/.local/bin/$name" || return 1
+    echo "    $name installed."
+}
+{{- range $name, $version := .linux_binaries }}
+if [ ! -x "$HOME/.local/bin/{{ $name }}" ]; then
+    part linux-packages "{{ $name }} was not installed" install_release_tool {{ $name }} "{{ if eq $.versions_mode "pinned" }}{{ $version }}{{ end }}"
+else
+    echo "==> {{ $name }} already installed, skipping."
+fi
+{{- end }}
 
 # --- tmux ---
 install_tmux() {

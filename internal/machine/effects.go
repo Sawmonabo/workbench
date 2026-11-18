@@ -167,7 +167,7 @@ var sharedEffects = []operation.Effect{
 		Recovery:    "external; no tool rollback",
 		Title:       "Command-line tools",
 		Summary:     "Claude Code, Codex and the tools Workbench lists",
-		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and podman on Linux. Their install steps run.",
+		What:        "Installs the global npm, uv, cargo and Go tools Workbench lists, Claude Code and Codex through npm when they are missing (an installed copy is updated by its own update step), and on Linux podman and, through go install, gofumpt and govulncheck, which the Mac gets from Homebrew. Their install steps run.",
 		Touches:     "the global tool folders under your home folder",
 		RunsAs:      "you; downloads packages and runs their install steps; podman uses sudo",
 		Undo:        "Not reverted automatically: uninstall a tool with npm, uv, cargo or go",
@@ -212,28 +212,28 @@ var sharedEffects = []operation.Effect{
 // linuxPackagesEffect is the apt or dnf bootstrap of Linux and WSL.
 var linuxPackagesEffect = operation.Effect{
 	Name:        "linux-packages",
-	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/tmux/podman, ~/.local/bin, themes, fonts and your work and personal folders",
+	Description: "apt (Ubuntu) or dnf (AlmaLinux) base prerequisites/bat/fd/jq/ripgrep/htop/tree/ShellCheck/tmux, gh/golangci-lint/lefthook/gitleaks release binaries in ~/.local/bin, themes, fonts and your work and personal folders",
 	Privilege:   "sudo; network and font-cache effects",
 	Recovery:    "packages external; written files/links require checkpoints",
 	Title:       "System packages",
 	Summary:     "apt or dnf tools, fonts and your work and personal folders",
-	What:        "Installs a C toolchain, bat, fd and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, the oh-my-posh prompt and its themes and the Nerd Font, and creates your work and personal folders.",
+	What:        "Installs a C toolchain, bat, fd, jq, ripgrep, htop, tree, ShellCheck and tmux with apt on Ubuntu or dnf on AlmaLinux, the GitHub CLI, golangci-lint, lefthook and gitleaks from their own releases, the oh-my-posh prompt and its themes and the Nerd Font, and creates your work and personal folders.",
 	Touches:     "system packages, ~/.local/bin, ~/.local/share/fonts, your work and personal folders",
 	RunsAs:      "you, with sudo; downloads packages",
 	Undo:        "Not reverted automatically: remove packages with apt or dnf",
 }
 
-// epelEffect turns on EPEL where the package manager is dnf: bat and fd come
-// from it on AlmaLinux. It is a step of its own because it adds a package
-// source for the whole system.
+// epelEffect turns on EPEL where the package manager is dnf: bat, fd, ripgrep,
+// htop and ShellCheck come from it on AlmaLinux. It is a step of its own
+// because it adds a package source for the whole system.
 var epelEffect = operation.Effect{
 	Name:        "epel",
 	Description: "dnf epel-release from AlmaLinux extras when rpm does not find it; no other repository is changed",
 	Privilege:   "sudo; network",
 	Recovery:    "external; the package source stays on",
 	Title:       "EPEL",
-	Summary:     "Fedora's extra packages for AlmaLinux (bat, fd)",
-	What:        "Installs epel-release with dnf when it is missing, which turns on EPEL, the package source the System packages step installs bat and fd from. Other repositories, CRB included, are left as they are.",
+	Summary:     "Fedora's extra packages for AlmaLinux (bat, fd, ripgrep, htop, ShellCheck)",
+	What:        "Installs epel-release with dnf when it is missing, which turns on EPEL, the package source the System packages step installs bat, fd, ripgrep, htop and ShellCheck from. Other repositories, CRB included, are left as they are.",
 	Touches:     "the system's dnf repositories",
 	RunsAs:      "you, with sudo; downloads packages",
 	Undo:        "Not reverted automatically: sudo dnf remove epel-release",
