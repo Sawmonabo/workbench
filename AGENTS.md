@@ -50,6 +50,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Routine gates: `golangci-lint fmt`, `golangci-lint config verify`,
   `golangci-lint run ./...`, `go build ./...`; run the tiny safeguards with
   `go test ./...`. Pins are `go.mod` and `.golangci-lint-version`.
+  `python3 scripts/check-version-pins.py` names each stale runtime pin.
 - Apply decides once: the first approved apply saves `skip`, `select` and
   `decided` in `machine.toml`; later applies print the plan and apply the saved
   choices without asking unless an effect is new (with something to do) or a
@@ -124,7 +125,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Bundle verification/staging/activation | `internal/release/` |
 | Existing-project discovery/planning | `internal/project/` |
 | Machine questions | `home/.chezmoi.toml.tmpl` |
-| Package/extension names and pins | `home/.chezmoidata/packages.toml`, `versions.toml` |
+| Package/extension names and pins | `home/.chezmoidata/packages.toml`, `versions.toml` (including the Linux release binaries in `[linux_binaries]` and Go tools in `[linux_go_tools]`) |
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/pythonpolicy/` |

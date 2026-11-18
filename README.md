@@ -110,6 +110,7 @@ machinery beyond the numbered migrations of Workbench's own files
 
 ```sh
 python3 scripts/check-action-pins.py
+python3 scripts/check-version-pins.py
 golangci-lint fmt
 golangci-lint config verify
 golangci-lint run ./...
@@ -117,6 +118,14 @@ go build ./...
 go test ./...
 scripts/render-check.sh personal pinned
 ```
+
+A weekly `pins` workflow runs `scripts/check-version-pins.py`, which fails when
+a Node, Go or Python pin in `home/.chezmoidata/versions.toml` is past its end of
+life, `node_default` is not on the newest LTS line, the newest Python minor is
+missing, or Rust is more than four minor releases behind; exit 2 means the
+endoflife.date data could not be read. Dependabot opens weekly Go module
+updates. Workflow actions are bumped by hand, in `[github_actions]` in the same
+file and in the workflows, which `scripts/check-action-pins.py` holds to it.
 
 Use [.golangci-lint-version](.golangci-lint-version). Automated tests stay near
 zero: only explicit catastrophic data-loss, credential-exposure or unauthorized
