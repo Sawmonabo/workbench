@@ -418,7 +418,7 @@ installed by hand) and `env-files` (migration 0005 creates `work.env`) have
 nothing to do there, so they sit under Already set and are not asked. `work-tools` is not planned on WSL
 (section 4.12). It plans the managed
 `.bashrc` and `.gitconfig` in place of the hand-written ones; the
-`clear-cache` function added there by hand is already in the managed
+`clear-cache` alias added there by hand is already in the managed
 `.bashrc` for a WSL machine. Commands already in `~/.local/bin` that
 Workbench did not make are left alone, as now; `uv` already being there means
 the Runtime managers step finds it and does not install its own. The system
