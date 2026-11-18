@@ -687,6 +687,51 @@ synthetic answers.
   `version: 2` in `config verify` while `run` accepts it. Not observed: a CI
   run of the `workbench-go` job on GitHub (setup-go without a `go.sum`, the
   runner's tools), Linux, or a module with a real dependency graph.
+- On 2026-11-18, on macOS 27.2 arm64 (Rust 1.99.0, rustup 1.29.3, cargo-deny
+  0.20.2, actionlint 1.7.12, gitleaks 8.30.1), with a disposable home and
+  scratch Cargo crates and workspaces, using `--local-build` and the
+  `--dry-run --json` then `--approve-plan` pair: a crate with no
+  configuration got the policy lints, `[profile.dev] debug =
+  "line-tables-only"` and `[package.metadata.workbench]` in `Cargo.toml`,
+  `rustfmt.toml` (edition 2024), `deny.toml`, `.mbx.toml`,
+  `.vscode/extensions.json` and `target/` in `.gitignore`, and a warning that
+  no `rust-toolchain.toml` pins the toolchain. `cargo check` printed no
+  manifest warning, `cargo fmt --check` passed, rustfmt reported edition and
+  style edition 2024 with the file and 2015 without it, `cargo clippy` warned
+  on an added `unwrap()` and exited 0 (101 with `-D warnings`), and `cargo
+  deny check advisories bans sources` passed while bare `cargo deny check`
+  failed on the unlicensed crate (exit 4). A virtual workspace and one with a
+  root package each got `[workspace.lints]`, `[workspace.metadata.workbench]`
+  and `[lints] workspace = true` in each member without lints, including a
+  member reached only through a path dependency and, for the root package,
+  the root manifest; a member with its own `[lints]` was named and left
+  alone, and clippy passed with no manifest warning. A workspace with its own
+  `[workspace.lints]` (`unsafe_code = "forbid"`, `all = "deny"`, comments)
+  kept it unchanged, got only the record, the dev profile setting and the
+  three files, and named the member that does not opt in; adding the policy
+  lints beside `all = "deny"` instead was observed to fail clippy's
+  `lint_groups_priority`. An existing `rustfmt.toml`, `.rustfmt.toml`,
+  `deny.toml`, `.cargo/deny.toml` and `.mbx.toml` each stayed byte for byte
+  and was listed as kept; `rustfmt.toml` beside `.rustfmt.toml` stopped the
+  plan. Selecting a member, a `members` pattern naming `vendor/*`, and
+  `crates/**` or `../shared` patterns each blocked with their reason. `--ci`
+  without `rust-toolchain.toml`, or with two workflows running `cargo test`,
+  blocked; with one, beside a release workflow using anchors, only that
+  workflow gained `workbench-rust`, which actionlint passed and whose
+  commands (`rustup toolchain install`, `cargo fmt`, `cargo clippy -D
+  warnings`, `cargo-deny --locked check advisories bans sources`, gitleaks)
+  ran clean locally. A bumped `uses:` ref in the job was kept and reported; a
+  changed `run` line stopped the plan. A repository with Go and Rust, each
+  with its own test workflow, planned both jobs into their own workflows, and
+  a uv project with a crate at its root planned both policies in one adapter
+  call; a uv project with a crate below it planned Python with a warning. A
+  uv project, and a uv project with a Go module, each applied with
+  `--extensions --gitignore --ci` and reverted exactly.
+  Every second plan had no files or effects, and every `project revert` left
+  every file, folder and mode as before. Not observed: a CI run of the
+  `workbench-rust` job on GitHub (the runner's rustup, the musl cargo-deny
+  build), Linux, crates with registry dependencies, or `.mbx.toml` read by
+  mbx.
 
 ### Costs
 

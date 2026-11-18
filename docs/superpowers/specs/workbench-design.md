@@ -37,7 +37,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/operation/` | Context, bounded execution, plan revalidation, private state/locks and scoped checkpoints/recovery. |
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
-| `internal/project/`, `project/pythonpolicy/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
+| `internal/project/`, `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` | Bounded metadata discovery; configuration of existing uv Python projects/workspaces, Go modules and Cargo packages/workspaces, optional editor/ignore/CI edits and shared recovery. |
 | `internal/agent/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches and remove the guard log's old free-text lines; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
@@ -110,7 +110,9 @@ internal/migrate/                  Migrations of Workbench's own files
 internal/agent/guard/              Agent command memory guard
 internal/platform/                 Operating-system calls and platform facts
 home/                             Existing canonical machine configuration
-project/pythonpolicy/              Portable configuration policy, not app scaffolding
+project/pythonpolicy/              Portable Python configuration policy, not app scaffolding
+project/gopolicy/                  Portable Go configuration policy
+project/rustpolicy/                Portable Rust configuration policy
 scripts/                          Existing validation plus release tooling
 docs/superpowers/specs/            Product specifications
 docs/superpowers/plans/            Dependency-ordered implementation plans
@@ -360,7 +362,7 @@ A monorepo is not one language or necessarily one package manager. Compose one c
 
 A subdirectory selection must not silently authorize parent/sibling writes. Show required shared-root changes and ask the user to select an appropriate broader scope. Normalize paths safely, do not traverse escaping symlinks, and report ambiguous nested repositories/workspaces instead of guessing ownership.
 
-Implement existing uv-managed Python projects first. Manually verify a representative mixed-language workspace with non-Python packages left intact; automate only a qualifying destructive-scope safeguard. Detecting TypeScript/Rust/Go does not imply that configuration for those languages is implemented. Poetry, PDM, requirements-only layouts and additional language policies require their own explicit support decisions and verification.
+Implement existing uv-managed Python projects first. Manually verify a representative mixed-language workspace with non-Python packages left intact; automate only a qualifying destructive-scope safeguard. Go modules and Cargo packages/workspaces have their own policies (`project/gopolicy/`, `project/rustpolicy/`); detecting TypeScript does not imply that its configuration is implemented. Poetry, PDM, requirements-only layouts and additional language policies require their own explicit support decisions and verification.
 
 ### Reusable Python assets
 

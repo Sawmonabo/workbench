@@ -1,7 +1,7 @@
 # Go and Rust project policy and the mbx step
 
-Status: design, Nov 17, 2026. Step 1, the Go policy, and step 4, the mbx
-machine step (section 5), are built (section 8); steps 2 and 3 are not. It adds
+Status: design, Nov 17, 2026. Steps 1, 2 and 4, the Go and Rust policies and
+the mbx machine step (section 5), are built (section 8); step 3 is not. It adds
 two languages
 to `workbench project apply`, two new flags for every language (`--hooks`, `--dependabot`), and one
 new machine step that installs mbx, a shared Rust compile cache and scheduler.
@@ -18,20 +18,18 @@ depends on it must check it first.
 - **Discovery** (`internal/project/inspect.go`, `discovery.go`) already finds
   `go.mod`, `go.work`, `Cargo.toml` and `Cargo.lock`. It reads them without
   running anything. Each `go.mod` and each `Cargo.toml` becomes its own
-  project. A Go module is configurable as section 3.1 says; a Cargo project is
-  marked "Recognized; configuration is not supported for this language".
-  Nothing links a Cargo workspace member to its root.
-- **Planning** (`plan.go`) refuses any `--language` other than `python` and
-  `go`. Python settings go into `pyproject.toml` through the TOML Kit adapter
+  project. A Go module is configurable as section 3.1 says, and a Cargo
+  package or workspace root as section 4.1 says; a workspace member is linked
+  to its root.
+- **Planning** (`plan.go`) refuses any `--language` other than `python`,
+  `go` and `rust`. Python settings go into `pyproject.toml` through the TOML Kit adapter
   (`adapter.py`). That adapter **adds missing settings and keeps every existing
   value and rule list**. It also records `[tool.workbench]` with
   `schema_version = 1` and `policies = ["python-v1"]`.
 - **Python stops only for competing owners**: a standalone `ruff.toml`, `ty.toml`,
   `pyrightconfig.json` or `uv.toml`, a `[tool.pyright]` table, or `tool.ruff.extend`.
-  In each case a merged setting would be ignored or refused by the tool. The
-  approved matrix says "stop and report, as Python does". That describes Python
-  wrongly. Python merges, and stops only where merging would be dead or
-  rejected.
+  In each case a merged setting would be ignored or refused by the tool.
+  Python merges, and stops only where merging would be dead or rejected.
 - **`--extensions`** merges `.vscode/extensions.json` through HuJSON (`editor.go`).
   **`--gitignore`** appends entries, and stops on any negation line it does not
   know.
@@ -213,8 +211,9 @@ the repository root, like every other ownership walk.
 
 The blocks above stop a plan only when Go is requested with `--language go`
 or nothing else is selected. A uv project at the root with a Go module or a
-`go.work` below it still plans, and the Go module is named in a warning, so
-adding Go support never stops a Python plan that worked before.
+`go.work` below it still plans, and the Go module is named in a warning: a Go
+module a plan does not configure never stops another language's plan. Rust
+follows the same rule.
 
 ### 3.2 Files
 
@@ -252,9 +251,9 @@ formatters:
 
 `default: standard` is golangci-lint's own default set: errcheck, govet,
 ineffassign, staticcheck and unused (`golangci-lint help linters`, 2.15.0). That set
-holds the matrix's govet, staticcheck and errcheck, plus two cheap extras that
+holds the chosen govet, staticcheck and errcheck, plus two cheap extras that
 leaving them out would need `default: none` to drop. The four linters added to
-it complete the matrix's seven.
+it complete the chosen seven.
 
 ### 3.3 Optional files
 
@@ -281,17 +280,22 @@ combine their entries into one edit of each file.
 | --- | --- |
 | Root `Cargo.toml` with `[package]` and no `[workspace]` | Single crate. Lints go in `[lints.rust]` and `[lints.clippy]`; the record goes in `[package.metadata.workbench]`. |
 | Root `Cargo.toml` with `[workspace]`, virtual or not | Workspace. Lints go in `[workspace.lints.*]`; the record goes in `[workspace.metadata.workbench]`. |
-| A `Cargo.toml` that the root's `members` and `exclude` cover | Member, owned by the root. Selecting it alone is blocked with "select the workspace root", as for uv workspaces. |
-| A path dependency inside the workspace folder (in `[workspace.dependencies]` or the root package's dependencies) | Member too: Cargo makes path dependencies under the workspace folder members without listing them. |
-| A `Cargo.toml` below the root that neither rule covers, such as a separate fuzz workspace or a vendored crate | Reported as untouched. |
+| A `Cargo.toml` that the root's `members` patterns list | Member, owned by the root. |
+| A path dependency of a member (normal, dev or build, also per target, or a `workspace = true` entry resolved through `[workspace.dependencies]`) inside the workspace folder | Member too, transitively: Cargo makes these members without listing them. A `[workspace.dependencies]` path entry that no member uses, and a `[patch]` path, make no member (`cargo metadata` on scratch workspaces). |
+| A package inside a workspace, selected alone | Blocked with "select the workspace root", as for uv workspaces: Cargo builds it only as that workspace's member. |
+| A `Cargo.toml` below the root that no rule covers, such as a separate fuzz workspace or an excluded crate | Reported as untouched. |
 
-Membership reuses `workspaceMember` in `discovery.go`. Cargo and uv both use
-the keys `members` and `exclude`, and that function already refuses `**` and
-`..` patterns for review.
+Membership reuses `workspaceMember` in `discovery.go` for the `members`
+patterns, cleaned first because Cargo accepts `./a/` for `a`, and that
+function already refuses `**` and `..` patterns for review. Cargo reads an
+`exclude` entry as a path prefix, not a glob, and a package `members` lists
+explicitly stays a member under an excluded folder; Workbench does the same.
 
-One gap: discovery skips hidden folders and `vendor`, `target`, `build` and
-`dist`. A `members` pattern that names one of these folders is blocked for
-review, instead of silently missing a member.
+One gap: discovery skips hidden folders and `vendor`, `target`, `build`,
+`dist` and the other generated folders. A `members` pattern, or a member's
+path dependency, that names one of these folders is blocked for review,
+instead of silently missing a member. The members of a blocked root are not
+configured either.
 
 Other languages in the same repository (TypeScript, Python without `uv.lock`)
 stay untouched, with the existing warning.
@@ -300,7 +304,7 @@ stay untouched, with the existing warning.
 
 | Setting | Where | Rule |
 | --- | --- | --- |
-| Lints | `[workspace.lints.rust]` and `[workspace.lints.clippy]`, or `[lints.*]` in a single crate | Missing keys only |
+| Lints | `[workspace.lints.rust]` and `[workspace.lints.clippy]`, or `[lints.*]` in a single crate | Only when the manifest has no lint table there; an existing one is kept whole |
 | Member opt-in | `[lints]` with `workspace = true` in each member's `Cargo.toml` | Only when Workbench creates `[workspace.lints]` |
 | Dev profile | `[profile.dev] debug = "line-tables-only"` in the root manifest | Missing key only |
 | Format | `rustfmt.toml` | Whole file |
@@ -309,7 +313,13 @@ stay untouched, with the existing warning.
 | Build cache | `.mbx.toml` | Whole file |
 | Record | Section 2.4 | Adapter |
 
-**Lint settings** merged through `adapter.py`:
+**Lint settings** merged through `adapter.py`, only into a manifest without
+`[workspace.lints]` (or `[lints]` in a single crate). An existing lint table
+is the project's own selection, like an existing Ruff selection, and gets no
+key. Adding one beside a group breaks the build: on a scratch workspace with
+`[workspace.lints.clippy] all = "deny"`, adding `unwrap_used = "warn"` made
+`cargo clippy` 1.99.0 fail with "lint group `all` has the same priority (0)
+as a lint" (`clippy::lint_groups_priority`, deny by default), exit 101.
 
 ```toml
 [workspace.lints.rust]
@@ -336,18 +346,28 @@ does not opt in. The rule:
 Opting such a member in could break that project's `-D warnings` CI with
 lints it chose not to apply.
 
-**Toolchain report.** The plan warns when `rust-toolchain.toml` (or the older
-`rust-toolchain`) is missing, or does not list both `rustfmt` and `clippy` in
-`components`. It never writes this file.
+**Toolchain report.** The plan warns when neither `rust-toolchain.toml` nor
+`rust-toolchain` is at the root or above it in the repository, or when the
+file installs neither both `rustfmt` and `clippy` in `components` nor the
+`default` or `complete` profile. It never writes this file.
 
 **Competing owners that stop the run:**
 
-- both `rustfmt.toml` and `.rustfmt.toml`, or both `deny.toml` and
-  `.deny.toml` (the tool would read only one of each);
-- a `[lints]` table in a single crate that is not a table of lint groups.
+- both `rustfmt.toml` and `.rustfmt.toml`, or two of `deny.toml`,
+  `.deny.toml` and `.cargo/deny.toml`, in one folder (the tool would read
+  only one of each; cargo-deny 0.20.2 used `deny.toml` over `.deny.toml`);
+- a `[lints]` or `[workspace.lints]` table that is not a table of lint
+  groups, such as a single crate's `[lints] workspace = true`.
+
+rustfmt and cargo-deny read their file from the folder they run in and each
+parent: on a scratch crate, a `rustfmt.toml` or `.rustfmt.toml` in the parent
+folder changed `cargo fmt --check`, and a broken `deny.toml` in the parent,
+or `.deny.toml` or `.cargo/deny.toml` beside the manifest, was reported by
+`cargo deny check`. So a file at the root or above it inside the repository
+counts as existing, as for golangci-lint.
 
 **`rustfmt.toml`**, created only when neither `rustfmt.toml` nor
-`.rustfmt.toml` exists. The edition comes from `package.edition` or
+`.rustfmt.toml` exists at the root or above it. The edition comes from `package.edition` or
 `workspace.package.edition`. When neither is set, the file is not written and
 the plan says why.
 
@@ -392,7 +412,7 @@ share_workspace_root = true
 
 `share_workspace_root` is one of the settings mbx accepts in a tracked
 `.mbx.toml`; its configuration docs list these under "Workspace policy". The
-file does not hold the matrix's "reserved cores". mbx reads the environment
+file does not hold reserved cores. mbx reads the environment
 first, then `.mbx.toml`, then the user's `mbx/config.toml`. A tracked
 `scheduler.reserve_cpus` would therefore override every machine's own setting.
 Cores and memory are both machine facts, so both belong to the machine step
@@ -402,8 +422,8 @@ Cores and memory are both machine facts, so both belong to the machine step
 
 **`--extensions`** adds `rust-lang.rust-analyzer`. **`--gitignore`** appends
 `target/`. `--hooks`, `--dependabot` and `--ci` are in section 6; `--ci`
-requires an existing `rust-toolchain.toml`, just as Python requires
-`.python-version`, so Workbench never picks a toolchain.
+requires an existing `rust-toolchain.toml` (or `rust-toolchain`), just as
+Python requires `.python-version`, so Workbench never picks a toolchain.
 
 ## 5. The mbx machine step (`workbench apply`)
 
@@ -518,11 +538,9 @@ mbx docs advise.
 
 ### 5.4 The machine budget
 
-The matrix proposed exporting `MBX_SCHEDULER_MEMORY` in the shell. **This
-design drops that export.** The environment outranks `.mbx.toml`, so a
-shell-wide export would override a project's tracked budget.
-
-The budget goes in the user config file instead, which ranks below
+The budget goes in mbx's user config file, not in an `MBX_SCHEDULER_MEMORY`
+export: the environment outranks `.mbx.toml`, so a shell-wide export would
+override a project's tracked budget. The user config file ranks below
 `.mbx.toml`. `mbx settings get` cannot tell a default from a written value
 (`mbx settings ls` prints values for keys absent from the file), so the step
 decides from the file itself: it parses the user `mbx/config.toml` and looks
@@ -619,7 +637,7 @@ Checks behind these choices:
 - **`golangci-lint fmt --diff` exits 1 on a difference.** Tested on a
   scratch module: golangci-lint 2.15.0 printed the gofumpt diff and exited 1.
   It runs the formatters the project's own config names. That is why it
-  replaces the matrix's `gofumpt -l`: a project formatting with goimports or
+  is used rather than `gofumpt -l`: a project formatting with goimports or
   golines is checked by its own rules.
 - **`cargo metadata --locked` fails when `Cargo.lock` is stale or missing.**
   Tested on a scratch crate: exit 101.
@@ -649,8 +667,9 @@ lacks.
 
 The Python contract stays for Python. Go and Rust need one relaxation:
 **pick the one workflow that already runs the language's tests**. That means a
-`run` step containing `go test` (Go), or `cargo test` or `cargo nextest`
-(Rust). Exactly one such workflow must exist, and other workflows (such as
+`run` step running `go test` (Go), or `cargo test` or `cargo nextest`
+(Rust), each matched as a whole command, so `cargo test` is not taken for
+`go test`. Exactly one such workflow must exist, and other workflows (such as
 release workflows) are ignored.
 
 Everything else is unchanged:
@@ -694,17 +713,26 @@ and `install-only`. actionlint 1.7.12 passed a workflow with the job.
 
 The `workbench-rust` steps:
 
-- checkout;
+- checkout, as for Go;
 - `rustup toolchain install` with no name, which installs the active
-  toolchain, the one `rust-toolchain.toml` names (per `rustup toolchain
-  install --help` locally; the runner image's rustup version is unverified).
+  toolchain, the one `rust-toolchain.toml` names. rustup 1.29.3's help says
+  "Install or update the given toolchains, or by default the active
+  toolchain", and in a scratch crate it printed "the active toolchain
+  `1.99.0-aarch64-apple-darwin` has been installed ... overridden by
+  `.../rust-toolchain.toml`". The runner image's rustup version is
+  unverified;
+- `cargo fmt --all --check`;
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`, so
+  `--ci` also needs an existing `Cargo.lock` at the root;
 - the cargo-deny release archive (`x86_64-unknown-linux-musl`) is
-  downloaded, and its SHA-256 checked before use;
-- the three Cargo commands from section 4.3;
-- gitleaks.
+  downloaded, its SHA-256 checked, and `cargo-deny` unpacked from its one
+  top-level folder (`tar -t` lists `cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny`),
+  then `cargo-deny --locked check advisories bans sources`;
+- gitleaks, the same four steps as Go's.
 
-No Rust action needs a pin. The runner image's rustup is enough (its presence
-there is unverified).
+Each `run` is one line, for the reason Go's are. No Rust action needs a pin.
+The runner image's rustup is enough (its presence there is unverified).
+actionlint 1.7.12 passed a workflow with the job.
 
 Each tool keeps its one pin in `versions.toml`: golangci-lint and gitleaks in
 `[linux_binaries]`, govulncheck in `[linux_go_tools]`, the actions in
@@ -716,11 +744,14 @@ pins:
 ```toml
 [project_ci]
 gitleaks_linux_x64_sha256 = { "8.30.1" = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" }
+cargo_deny_linux_x64_sha256 = { "0.20.2" = "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f" }
 ```
 
-The hash is the `gitleaks_8.30.1_linux_x64.tar.gz` line of that release's
-`gitleaks_8.30.1_checksums.txt`. Rust's step adds the cargo-deny version and
-checksum here.
+The gitleaks hash is the `gitleaks_8.30.1_linux_x64.tar.gz` line of that
+release's `gitleaks_8.30.1_checksums.txt`. The cargo-deny hash is the content
+of the release's `cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz.sha256`
+asset, and matched the downloaded archive. cargo-deny's version is the one
+`[cargo_tools]` already pins.
 
 ## 7. Code layout
 
@@ -735,7 +766,7 @@ There is no new framework. Each concern stays with its existing owner.
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
 | `.vscode/extensions.json`, `.gitignore` | `editor.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
 | Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs |
-| Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` in `rust.go` |
+| Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` and the Rust pins in `rust.go`; the workflow choice (`testWorkflow`) and the pin reading (`readSourceVersions`) are shared |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
 | mbx step | `internal/machine/effects.go` (the effect, its source and the doctor line), `source.go` (the `[mbx]` pin and its checks), `plan.go` (stale choices judged against offered steps), plus the shared script, the shell templates and `versions.toml` | One effect |
 
@@ -752,8 +783,8 @@ apply, then a revert, on a real project.
 2. **Rust policy** (`rust-v1`): static workspace ownership, the adapter's
    provenance path, lints, member opt-in, profile, `rustfmt.toml`,
    `deny.toml`, `.mbx.toml`, `--extensions`, `--gitignore`, `--ci`.
-   - Try: a workspace with its own `[workspace.lints]` gets only the record
-     and the missing whole files.
+   - Try: a workspace with its own `[workspace.lints]` gets only the record,
+     the dev profile setting where it is missing, and the missing whole files.
 3. **`--hooks` and `--dependabot`** for Go, Rust and Python.
    - Try: commit a badly formatted file after `lefthook install`, and watch
      the hook refuse it.
@@ -766,21 +797,7 @@ apply, then a revert, on a real project.
 Docs follow each step: `project/*/README.md`, the contracts' project-editor
 section and `docs/usage.md`.
 
-## 9. Changes from the approved matrix
-
-| Matrix | Here | Why |
-| --- | --- | --- |
-| "Stop and report, as Python does" | Merge missing in manifests; keep existing whole files; go on | Python merges; stopping would make apply useless on configured projects (2.1) |
-| Export `MBX_SCHEDULER_MEMORY` | Set it in mbx's user config file, only when the key is unset | The environment outranks `.mbx.toml` (5.4) |
-| Reserved cores in `.mbx.toml` | In the user config | It is a machine fact, and a tracked value would override every machine |
-| Hook format check `gofumpt -l` | `golangci-lint fmt --diff ./...` | Follows the project's own formatter set |
-| Hook `cargo deny check` | `cargo metadata --locked` plus `cargo deny --offline check bans sources` | A dependency-file check like the other languages; bare `cargo deny check` fails on licences with this `deny.toml`, and advisories need the network |
-| CI `cargo audit` | Dropped | `cargo deny check advisories` reads the same RustSec database; one fewer tool to pin |
-| Ignore `bin/`, `coverage.out` | `/bin/`, `/coverage.out` | Go writes these at the module root |
-| `--ci` "as Python" | One workflow that runs the tests | Every surveyed project has several workflows |
-| mbx everywhere | Not on Intel Macs | No `x86_64-apple-darwin` build |
-
-## 10. Out of scope
+## 9. Out of scope
 
 - clippy pedantic, licence checks, nextest: each is used by only one of the
   surveyed projects;
@@ -792,7 +809,7 @@ section and `docs/usage.md`.
 - remote mbx caches;
 - Windows mbx.
 
-## 11. Decisions
+## 10. Decisions
 
 - **D1. mbx step default.**
   - Options: (a) on wherever a build exists; (b) optional, off until ticked.

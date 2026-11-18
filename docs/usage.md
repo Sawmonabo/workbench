@@ -746,13 +746,15 @@ workbench project apply ./apps/api --language python --dry-run
 workbench project apply . --language python --extensions --gitignore --dry-run
 workbench project apply . --language python --resolve-dependencies
 workbench project apply . --language go --extensions --gitignore --ci --dry-run
+workbench project apply . --language rust --extensions --gitignore --ci --dry-run
 workbench project revert . --dry-run
 workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID
 ```
 
-Existing uv Python projects/workspaces and the Go module at the selected folder
-are configurable. Inspection also recognizes JavaScript/TypeScript and Rust.
+Existing uv Python projects/workspaces, the Go module at the selected folder and
+the Cargo package or workspace root at the selected folder are configurable.
+Inspection also recognizes JavaScript/TypeScript.
 Without `--language` every configurable language found is planned;
 `--language` only narrows. Unsupported detected projects are reported and
 unchanged; explicitly requesting an unsupported language blocks before writes.
@@ -782,6 +784,20 @@ the module blocks the Go plan, and so does selecting a folder whose only
 `go.mod` is below it; select the module folder. Go planning runs no Go command
 and needs no management Python.
 
+A Cargo package or workspace root gets, in its `Cargo.toml`, Workbench's lints
+(only when it has no lint table of its own), `[profile.dev] debug =
+"line-tables-only"` when `debug` is missing, and a record in
+`[package.metadata.workbench]` or `[workspace.metadata.workbench]`. When the
+plan creates `[workspace.lints]`, each member without a `[lints]` table opts in
+with `[lints] workspace = true`; other members are named. `rustfmt.toml` (with
+the manifest's edition), `deny.toml` and `.mbx.toml` are written only when the
+project has none, and an existing one is kept byte for byte and named. The plan
+warns when no `rust-toolchain.toml` installs rustfmt and clippy, and never
+writes one. Members come from the manifests' text, as Cargo counts them;
+selecting a member is blocked with "select the workspace root". Rust planning
+runs no Cargo or rustup command but, like Python, needs the management Python
+and TOML Kit.
+
 `--extensions` merges portable recommendations; it does not install extensions.
 `--gitignore` appends relevant absent entries while retaining pattern order.
 Both combine every selected language's entries into one edit. `--ci` supports,
@@ -790,10 +806,15 @@ for Python, a conservative existing GitHub workflow with an explicit
 Ruff/basedpyright checks. For Go it needs the repository root, a `go` line in
 `go.mod` and exactly one workflow with a `go test` step, and adds a
 `workbench-go` job: golangci-lint, `go build`, govulncheck and gitleaks, at the
-pins in `versions.toml`. Existing jobs are preserved. Ambiguous owners and
+pins in `versions.toml`. For Rust it needs the repository root, an existing
+`rust-toolchain.toml` and `Cargo.lock` there and exactly one workflow with a
+`cargo test` or `cargo nextest` step, and adds a `workbench-rust` job:
+`rustup toolchain install`, `cargo fmt`, `cargo clippy -D warnings`,
+`cargo-deny check advisories bans sources` and gitleaks. Existing jobs are preserved. Ambiguous owners and
 unsupported YAML receive a manual proposal, not a second pipeline or fabricated
-tests. See the [Python policy](../project/pythonpolicy/README.md) and the
-[Go policy](../project/gopolicy/README.md).
+tests. See the [Python policy](../project/pythonpolicy/README.md), the
+[Go policy](../project/gopolicy/README.md) and the
+[Rust policy](../project/rustpolicy/README.md).
 
 ## Recovery and runtime storage
 
