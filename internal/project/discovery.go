@@ -656,10 +656,19 @@ func cargoListed(workspace map[string]any, parent, root string) (bool, string, e
 // root the same way, read as a plain path, keeps it a member. A members glob
 // such as "crates/*" names no real path that way, so exclude wins over a
 // package a glob lists, and a package named literally wins over exclude.
+// Cargo compares the entry as written, so one with a ".." part covers
+// nothing, and an absolute one stands for itself.
 func cargoExcluded(workspace map[string]any, parent, root string) bool {
 	manifest := filepath.Join(root, "Cargo.toml")
 	covers := func(entry string) bool {
-		return operation.Within(filepath.Join(parent, filepath.FromSlash(entry)), manifest)
+		if slices.Contains(strings.Split(entry, "/"), "..") {
+			return false
+		}
+		path := filepath.FromSlash(entry)
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(parent, path)
+		}
+		return operation.Within(path, manifest)
 	}
 	return slices.ContainsFunc(stringsOf(workspace["exclude"]), covers) &&
 		!slices.ContainsFunc(stringsOf(workspace["members"]), covers)

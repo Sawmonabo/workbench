@@ -303,7 +303,8 @@ Membership reuses `workspaceMember` in `discovery.go` for the `members`
 patterns, cleaned first because Cargo accepts `./a/` for `a`, and that
 function already refuses `**` and `..` patterns for review. Cargo reads an
 `exclude` entry as a path prefix of the package's manifest path, by whole
-names, not a glob, so it may name a folder or one `Cargo.toml`, and it
+names, not a glob, so it may name a folder or one `Cargo.toml`, an entry
+with a `..` part covers nothing because Cargo compares it as written, and it
 applies to a path dependency as to a listed member. Only a `members` entry
 read as a plain path, one naming the package's folder or a folder above it,
 keeps a package a member under an excluded folder; a package that only a glob
@@ -729,15 +730,19 @@ above covers the groups, and refused an `update-types` value of `tiny`.
 `--dependabot` also writes `.github/workflows/dependabot-auto-merge.yml`,
 whole, only when no workflow of that name (`.yml` or `.yaml`) exists and no
 other workflow already
-turns on auto-merge for Dependabot; either is kept and listed. Such a
-workflow is recognized by its text, with a command continued over several
-lines read as one: a condition that selects Dependabot
-(`== 'dependabot[bot]'`) or the `dependabot/fetch-metadata` action, together
-with `gh pr merge ... --auto`, the auto-merge GraphQL mutation,
+merges Dependabot's pull requests; either is kept and listed. Such a
+workflow is recognized job by job, from the values of the parsed YAML, so a
+comment or another job does not count (a file that is not valid YAML is read
+as one text): a job with a condition that selects Dependabot
+(`== 'dependabot[bot]'` on either side, or
+`startsWith(github.head_ref, 'dependabot/')`) or the
+`dependabot/fetch-metadata` action, together with `gh pr merge` (with or
+without `--auto`), a merge or auto-merge GraphQL mutation, `pulls.merge`,
 `peter-evans/enable-pull-request-automerge` or `pascalgn/automerge-action`;
-or one of `fastify/github-action-merge-dependabot` and
-`ahmadnassri/action-dependabot-auto-merge`. A workflow that only leaves
-Dependabot out (`!= 'dependabot[bot]'`) is not one. The Python `--ci` owner is chosen among the other workflows. The
+or a job using `fastify/github-action-merge-dependabot` or
+`ahmadnassri/action-dependabot-auto-merge`. A condition that only leaves
+Dependabot out (`!= 'dependabot[bot]'`, or a negated group) does not count.
+The Python `--ci` owner is chosen among the other workflows. The
 workflow follows GitHub's "Automating Dependabot with GitHub Actions"
 tutorial:
 
@@ -748,34 +753,44 @@ tutorial:
 - **Token.** "By default, GitHub Actions workflows triggered by Dependabot
   get a `GITHUB_TOKEN` with read-only permissions. You can use the
   `permissions` key in your workflow to increase the access for the token"
-  (Dependabot on Actions troubleshooting). The workflow declares only
+  (Dependabot on Actions troubleshooting). The workflow declares
   `contents: write` and `pull-requests: write`, as the tutorial does, plus
-  `checks: read` and `statuses: read` for the wait below: a `permissions`
-  block sets every scope it leaves out to none, and a private repository's
-  checks and statuses are read only with those two.
+  `actions: read`, `checks: read` and `statuses: read` for reading the
+  checks: a `permissions` block sets every scope it leaves out to none, and
+  `gh pr checks` asks for check runs, commit statuses and the workflow run
+  behind each check (`api/query_builder.go` at gh v2.104.0).
 - **Update type.** `dependabot/fetch-metadata` v3.1.0 (pinned by commit in
   `[github_actions]`) documents `update-type` as "The highest semver change
   being made by this PR", so a group holding a major change reports
   `version-update:semver-major`. The job goes on only for
   `version-update:semver-patch` or `version-update:semver-minor`; anything
   else, a major update or an empty value, stays open.
-- **Wait.** Before merging, the job polls `gh pr checks "$PR_URL" --json
-  bucket,workflow` every 20 seconds for up to 40 minutes, leaving out its own
-  workflow, and goes on only after two polls in a row show at least one
-  `pass` and no `fail`, `cancel` or `pending` (two, so a job that starts when
-  another ends is seen). A failed or cancelled check, nine polls in a row with
-  no other check, three failed lookups in a row (the job prints GitHub's
-  error, since its own run is a check and the list is never empty), or
-  checks that never finish fail the job with the reason
-  and leave the pull request open. This is what keeps a repository without a
-  required check from merging an update its CI has not passed (see Merge). A
-  check that starts after two clean polls is missed; the branch rule below
-  closes that gap.
-- **Merge.** `gh pr merge --auto --squash "$PR_URL"`. GitHub: "Auto-merge
-  merges a pull request automatically after all required reviews and status
-  checks pass. Before you use auto-merge, it must be enabled for the
-  repository." The gh CLI source at tag v2.104.0
-  (`pkg/cmd/pr/merge/merge.go`, `autoMerge: opts.AutoMergeEnable &&
+- **Required checks.** `gh pr checks "$PR_URL" --required --json name` lists
+  the checks a branch rule requires and fails with "no required checks
+  reported" when there is none. With at least one, the job runs the merge
+  command at once: GitHub's auto-merge "merges a pull request automatically
+  after all required reviews and status checks pass", also after a check is
+  run again, and needs "Allow auto-merge" in the repository settings. When
+  GitHub does not take it (auto-merge is off), the job falls back to the
+  wait.
+- **Wait.** With no required check, the job polls `gh pr checks "$PR_URL"
+  --json bucket,workflow` every 20 seconds for up to 40 minutes
+  (`$SECONDS`, under a 50-minute job timeout), leaving out its own workflow,
+  and merges only after two polls in a row show at least one `pass` and no
+  `fail`, `cancel` or `pending` (two, so a job that starts when another ends
+  is seen). With `--json`, gh prints the list and exits 0 whatever the
+  checks' state. A failed or cancelled check, nine polls in a row (about
+  three minutes) with no other check, three failed lookups in a row (the job
+  prints GitHub's error, since its own run is a check and the list is never
+  empty), or checks that never finish fail the job with the reason and leave
+  the pull request open; running the job again, or a new push, tries again.
+  This is what keeps a repository without a required check from merging an
+  update its CI has not passed (see Merge).
+- **Merge.** `gh pr merge --auto --squash --match-head-commit "$HEAD_SHA"
+  "$PR_URL"`, with the head commit of the event that started the run, so a
+  commit pushed during the wait is never merged unchecked; a `concurrency`
+  group per pull request cancels the older run. The gh CLI source at tag
+  v2.104.0 (`pkg/cmd/pr/merge/merge.go`, `autoMerge: opts.AutoMergeEnable &&
   !isImmediatelyMergeable(pr.MergeStateStatus)`) turns on auto-merge only
   when the pull request is not immediately mergeable (merge state `CLEAN`,
   `HAS_HOOKS` or `UNSTABLE` is), and otherwise merges it at once, which needs
@@ -784,11 +799,11 @@ tutorial:
   whatever its result, which is why the job waits first.
 
 The plan lists the `dependabot-auto-merge` effect and warns, each time it
-writes the workflow, that auto-merge is GitHub only, that the workflow waits
-for the other checks and keeps a pull request open when none ran, and that
+writes the workflow, that auto-merge is GitHub only, that it works best with
 "Allow auto-merge" and a branch rule on the default branch that requires the
-CI check, which Workbench sets neither of, close the gap of a check that
-starts late. The plan never runs `git remote`, so
+CI check, which Workbench sets neither of, and that without such a rule the
+workflow waits for the other checks, needs its job run again after a failed
+or slow check, and keeps a pull request open when no check ran. The plan never runs `git remote`, so
 the GitHub-only rule is stated in the flag's help, the warning and the docs.
 `actionlint` 1.7.12 accepted the written workflow.
 

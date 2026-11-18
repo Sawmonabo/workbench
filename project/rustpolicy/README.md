@@ -228,21 +228,26 @@ only when the pull request's author is `dependabot[bot]`, reads the update
 with `dependabot/fetch-metadata` (pinned by commit in `versions.toml`), and
 goes on only when the `update-type` it reports, the highest change in the
 pull request, is `version-update:semver-patch` or
-`version-update:semver-minor`; a major update stays open. It then waits for
-the pull request's other checks (`gh pr checks`, every 20 seconds for up to
-40 minutes) and runs `gh pr merge --auto --squash` only after two polls in a
-row show at least one passed check and none failed, cancelled or pending. A
-failed check, three minutes with no other check at all, or checks that do not
-finish leave the pull request open and fail the job with the reason. It asks
-for `contents: write` and `pull-requests: write` to merge and `checks: read`
-and `statuses: read` to read the other checks, which a Dependabot-triggered
-run gets only by declaring them; when the checks cannot be read, the job
-fails with GitHub's error and the pull request stays open. This works on
-GitHub only. A check that
-starts after the others have passed can be missed, so also turn on "Allow
-auto-merge" and add a branch rule on the default branch that requires the CI
-check, which GitHub then waits for itself; Workbench sets neither. The plan
-says so and lists the `dependabot-auto-merge` effect.
+`version-update:semver-minor`; a major update stays open. Where a branch
+rule requires checks (`gh pr checks --required` lists some), it runs
+`gh pr merge --auto --squash` at once and GitHub merges when they pass, also
+after a check is run again; that needs "Allow auto-merge" in the repository
+settings. Otherwise, or when GitHub does not take that merge, the job waits
+for the pull request's other checks itself (`gh pr checks`, every 20 seconds
+for up to 40 minutes) and merges only after two polls in a row show at least
+one passed check and none failed, cancelled or pending. A failed check, nine
+polls (about three minutes) with no other check at all, or checks that do not
+finish leave the pull request open and fail the job with the reason; running
+the job again, or a new push to the pull request, tries again. The merge
+names the commit the run started for (`--match-head-commit`), so a commit
+pushed meanwhile is never merged unchecked, and a new run for the same pull
+request cancels the old one. The job asks for `contents: write` and
+`pull-requests: write` to merge and `actions: read`, `checks: read` and
+`statuses: read` to read the other checks, which a Dependabot-triggered run
+gets only by declaring them; when the checks cannot be read, the job fails
+with GitHub's error and the pull request stays open. This works on GitHub
+only, and Workbench makes neither repository setting. The plan says so and
+lists the `dependabot-auto-merge` effect.
 
 Both need the selected folder to be the repository root (it holds `.git`) and
 every selected project to be at it.

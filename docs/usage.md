@@ -836,12 +836,13 @@ clone. `--dependabot` writes `.github/dependabot.yml` with weekly `gomod`,
 and patch updates into one pull request, and
 `.github/workflows/dependabot-auto-merge.yml`, which turns on GitHub
 auto-merge for Dependabot's patch and minor pull requests and for no other
-pull request. The workflow waits for the pull request's other checks first
-and merges only when at least one ran and none failed; a failed check, or a
-repository with no CI check, leaves the pull request open. It is GitHub only.
-A check that starts late can be missed, so also turn on "Allow auto-merge" and
-add a branch rule on the default branch that requires the CI check, which
-GitHub then waits for itself; Workbench sets neither. Each file is written only
+pull request. It is GitHub only and works best with "Allow auto-merge" turned
+on and a branch rule on the default branch that requires the CI check: GitHub
+then waits for that check itself, also when it is run again; Workbench sets
+neither. Without such a rule the workflow waits up to 40 minutes for the pull
+request's other checks and merges only when at least one ran and none failed;
+after a failed or slow check, run the workflow's job again. A repository with
+no CI check keeps its Dependabot pull requests open. Each file is written only
 when the repository has none: an existing lefthook configuration (any of the
 names lefthook reads) or Dependabot file is kept byte for byte, and the plan
 names the ecosystems an existing Dependabot file lacks and warns when Renovate

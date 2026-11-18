@@ -446,31 +446,74 @@ const dependabotGroup = "minor-and-patch"
 // Dependabot's patch and minor pull requests.
 var autoMergeName = filepath.Join(".github", "workflows", "dependabot-auto-merge.yml")
 
-// The marks of a workflow that already turns on auto-merge for Dependabot's
-// pull requests: a condition that selects Dependabot (not one that leaves it
-// out) or the fetch-metadata action, with an auto-merge call or a general
-// auto-merge action; or an action made to merge Dependabot's pull requests.
+// The marks of a job that already merges Dependabot's pull requests: a
+// condition that selects Dependabot (not one that leaves it out) or the
+// fetch-metadata action, with a merge call or a general auto-merge action;
+// or an action made to merge Dependabot's pull requests.
 var (
 	selectsDependabot = regexp.MustCompile(
-		`(?i)==\s*['"]dependabot\[bot\]['"]|dependabot/fetch-metadata`,
+		`(?i)==\s*['"]dependabot\[bot\]['"]|['"]dependabot\[bot\]['"]\s*==|dependabot/fetch-metadata|` +
+			`startsWith\(\s*github\.head_ref\s*,\s*['"]dependabot/`,
 	)
-	turnsOnAutoMerge = regexp.MustCompile(
-		`(?i)gh\s+pr\s+merge\b[^\n]*--auto|enablePullRequestAutoMerge|` +
-			`uses:\s*['"]?(pascalgn/automerge-action|peter-evans/enable-pull-request-automerge)@`,
+	mergesPullRequest = regexp.MustCompile(
+		`(?i)gh\s+pr\s+merge\b|enablePullRequestAutoMerge|mergePullRequest|pulls\.merge\b|` +
+			`uses: (pascalgn/automerge-action|peter-evans/enable-pull-request-automerge)@`,
 	)
 	mergesDependabot = regexp.MustCompile(
-		`(?i)uses:\s*['"]?(fastify/github-action-merge-dependabot|ahmadnassri/action-dependabot-auto-merge)@`,
+		`(?i)uses: (fastify/github-action-merge-dependabot|ahmadnassri/action-dependabot-auto-merge)@`,
 	)
-	continuedLine = regexp.MustCompile(`\\\r?\n\s*`)
+	negatedCondition = regexp.MustCompile(`!\s*\([^()]*\)`)
 )
 
-// autoMergeElsewhere reports whether the workflow text already turns on
-// auto-merge for Dependabot's pull requests. A command continued over
-// several lines is read as one.
+// autoMergeElsewhere reports whether a job of the workflow already merges
+// Dependabot's pull requests, at once or by auto-merge. Each job is read by
+// its values, so comments and other jobs do not count; a workflow that is not
+// valid YAML is read as one text.
 func autoMergeElsewhere(workflow []byte) bool {
-	text := continuedLine.ReplaceAll(workflow, []byte(" "))
-	return mergesDependabot.Match(text) ||
-		(selectsDependabot.Match(text) && turnsOnAutoMerge.Match(text))
+	var document struct {
+		Jobs map[string]any `yaml:"jobs"`
+	}
+	texts := []string{string(workflow)}
+	if yaml.Unmarshal(workflow, &document) == nil {
+		texts = nil
+		for _, job := range document.Jobs {
+			texts = append(texts, yamlText(job))
+		}
+	}
+	return slices.ContainsFunc(texts, func(text string) bool {
+		text = negatedCondition.ReplaceAllString(text, "")
+		return mergesDependabot.MatchString(text) ||
+			(selectsDependabot.MatchString(text) && mergesPullRequest.MatchString(text))
+	})
+}
+
+// yamlText writes a decoded YAML value as lines of "key: value", so a text
+// pattern sees each value beside its key, however the file laid it out.
+func yamlText(value any) string {
+	var text strings.Builder
+	var write func(value any)
+	write = func(value any) {
+		switch value := value.(type) {
+		case map[string]any:
+			for key, member := range value {
+				switch member.(type) {
+				case map[string]any, []any:
+					text.WriteString(key + ":\n")
+					write(member)
+				default:
+					fmt.Fprintf(&text, "%s: %v\n", key, member)
+				}
+			}
+		case []any:
+			for _, member := range value {
+				write(member)
+			}
+		default:
+			fmt.Fprintf(&text, "%v\n", value)
+		}
+	}
+	write(value)
+	return text.String()
 }
 
 // addAutoMerge plans the workflow that turns on GitHub auto-merge for
@@ -523,17 +566,18 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		"Dependabot auto-merge works on GitHub only. The workflow waits for the pull request's other checks "+
-			"and merges only when at least one ran and none failed; a repository with no CI check keeps its "+
-			"Dependabot pull requests open. Checks that start late can be missed, so also turn on \"Allow "+
-			"auto-merge\" in the repository settings and add a branch rule on the default branch that "+
-			"requires the CI check, which GitHub then waits for itself; Workbench sets neither",
+		"Dependabot auto-merge works on GitHub only. Best with \"Allow auto-merge\" turned on in the "+
+			"repository settings and a branch rule on the default branch that requires the CI check: GitHub "+
+			"then waits for that check itself, also when it is run again; Workbench sets neither. Without "+
+			"such a rule the workflow waits up to 40 minutes for the pull request's other checks and merges "+
+			"only when at least one ran and none failed; after a failed or slow check, run the workflow's "+
+			"job again. A repository with no CI check keeps its Dependabot pull requests open",
 	)
 	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
 		Name: "dependabot-auto-merge",
 		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once " +
-			"the pull request's other checks have passed; a failed check, no check at all or a major update " +
-			"leaves it open",
+			"the checks a branch rule requires have passed or, where none is required, once the pull " +
+			"request's other checks have; a failed check, no check at all or a major update leaves it open",
 		Privilege: "CI runner",
 		Recovery:  "Restoring the workflow does not undo merges it made",
 	})
@@ -548,24 +592,29 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 func renderAutoMerge(fetchMetadata string, ids []string) []byte {
 	return []byte(comment("Written by workbench project apply ("+strings.Join(ids, ", ")+
 		"). It turns on GitHub auto-merge for Dependabot's patch and minor pull requests and "+
-		"leaves every other pull request alone. It first waits for the pull request's other "+
-		"checks: a failed check, or no check at all, leaves the pull request open. With \"Allow "+
-		"auto-merge\" in the repository settings and a branch rule that requires the CI check, "+
-		"GitHub waits for that check itself as well. The project "+
+		"leaves every other pull request alone. Where a branch rule requires checks and \"Allow "+
+		"auto-merge\" is on in the repository settings, GitHub waits for those checks itself. "+
+		"Otherwise this job waits for the pull request's other checks: a failed check, or no "+
+		"check at all, leaves the pull request open, and running the job again tries again. The project "+
 		"owns this file; Workbench never edits an existing one.") + `name: Dependabot auto-merge
 on: pull_request
 permissions:
+  actions: read
   checks: read
   contents: write
   pull-requests: write
   statuses: read
+concurrency:
+  group: dependabot-auto-merge-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
 jobs:
   dependabot:
     if: github.event.pull_request.user.login == 'dependabot[bot]'
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 50
     env:
       PR_URL: ${{ github.event.pull_request.html_url }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
       - name: Read the Dependabot update
@@ -573,12 +622,19 @@ jobs:
         uses: ` + fetchMetadata + `
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-      - name: Wait for the other checks of a patch or minor update
-        id: checks
+      - name: Merge a patch or minor update once its checks pass
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
           steps.metadata.outputs.update-type == 'version-update:semver-minor'
         run: |
+          # Only the commit this run was started for is merged.
+          merge() { gh pr merge --auto --squash --match-head-commit "$HEAD_SHA" "$PR_URL"; }
+          # Where a branch rule requires checks, GitHub waits for them itself.
+          required=$(gh pr checks "$PR_URL" --required --json name --jq length 2>/dev/null) || required=0
+          if [ "$required" -gt 0 ]; then
+            if merge; then exit 0; fi
+            echo "GitHub did not take the merge, so this job waits for the checks itself."
+          fi
           # The state of every check but this workflow's: none, fail, pending or pass.
           others='[.[] | select(.workflow != "Dependabot auto-merge") | .bucket]
             | if length == 0 then "none"
@@ -590,7 +646,7 @@ jobs:
           missing=0
           unread=0
           errors="$RUNNER_TEMP/checks.err"
-          for _ in $(seq 1 120); do
+          while [ "$SECONDS" -lt 2400 ]; do
             # This job is a check itself, so a list that cannot be read is an error, not an empty one.
             state=$(gh pr checks "$PR_URL" --json bucket,workflow --jq "$others" 2>"$errors") || state=unread
             case "$state" in
@@ -601,10 +657,13 @@ jobs:
               *) passes=0; unread=$((unread + 1)) ;;
             esac
             # Two passing polls in a row, so a job that starts after another ends is seen.
-            [ "$passes" -lt 2 ] || exit 0
-            # Three minutes without any other check: the repository runs none for it.
+            if [ "$passes" -ge 2 ]; then
+              merge
+              exit 0
+            fi
+            # Nine polls, about three minutes, without any other check: the repository runs none.
             [ "$missing" -lt 9 ] || { echo "No other check ran for this pull request, so it stays open."; exit 1; }
-            # One minute of failed lookups: the checks cannot be read.
+            # Three failed lookups in a row: the checks cannot be read.
             if [ "$unread" -ge 3 ]; then
               echo "The checks of this pull request could not be read, so it stays open:"
               cat "$errors"
@@ -614,9 +673,6 @@ jobs:
           done
           echo "The other checks did not finish in 40 minutes, so this pull request stays open."
           exit 1
-      - name: Merge once GitHub's required checks pass too
-        if: steps.checks.outcome == 'success'
-        run: gh pr merge --auto --squash "$PR_URL"
 `)
 }
 

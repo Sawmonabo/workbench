@@ -770,11 +770,15 @@ synthetic answers.
   and the schema refused an `update-types` value of `tiny`. Every
   `--dependabot` run wrote `.github/workflows/dependabot-auto-merge.yml`,
   which `actionlint` 1.7.12 accepted, listed the `dependabot-auto-merge`
-  effect and gave the auto-merge settings warning. Its wait script, run with
-  a stand-in for `gh pr checks`, stopped with exit 1 on no other check, a
-  failed check and checks that never finished, went on after two passing
-  polls in a row, and its filter printed `pass` for a merged public pull
-  request with gh 2.104.0; an existing file of that
+  effect and gave the auto-merge settings warning. Its script, run with
+  a stand-in for `gh`, merged at once where checks were required, fell back
+  to waiting when that merge was refused, stopped with exit 1 on no other
+  check, a failed check, lookups that kept failing and checks that never
+  finished, and merged after two passing polls in a row, naming the head
+  commit. With gh 2.104.0 and a person's own token, its filter printed `pass`
+  for a merged public pull request and `--required` listed 3 checks there and
+  failed with "no required checks reported" on a pull request without a
+  rule; an existing file of that
   name, and another workflow running `gh pr merge --auto` for Dependabot, were
   kept and listed, and adding the file between the dry run and
   `--approve-plan` exited 4 with nothing written. With the workflow written,
@@ -792,8 +796,9 @@ synthetic answers.
   changed. A `pyproject.toml` or `Cargo.toml` record whose `schema_version`
   is `2`, `"1"`, `1.0` or missing stopped the plan naming the record's table
   and manifest. Not observed: Linux, a Dependabot run on GitHub (grouped pull
-  requests, the auto-merge workflow on a real pull request, or `gh pr merge
-  --auto` with and without a required check), a Go module
+  requests, the auto-merge workflow on a real pull request, its token
+  reading the checks of a private repository, or `gh pr merge --auto` with
+  and without a required check), a Go module
   or crate with registry dependencies in the hooks, or lefthook installed by
   the machine step.
 
