@@ -742,6 +742,44 @@ synthetic answers.
   `workbench-rust` job on GitHub (the runner's rustup, the musl cargo-deny
   build), Linux, crates with registry dependencies, or `.mbx.toml` read by
   mbx.
+- On 2026-11-18, on macOS 27.2 arm64 (Go 1.27.4, golangci-lint 2.15.0,
+  Rust 1.99.0, cargo-deny 0.20.2, uv 0.13.7, lefthook 2.2.2, gitleaks
+  8.30.1), with a disposable home and scratch Git repositories, using
+  `--local-build` and the `--dry-run --json` then `--approve-plan` pair:
+  `--hooks --dependabot` on a Go module, a Cargo crate and a uv project each
+  wrote `lefthook.yml` and `.github/dependabot.yml` (`gomod`, `cargo` or `uv`,
+  plus `github-actions`, weekly at `/`) and listed the `git-hook-checks`
+  effect, and the result line named `lefthook install`. Two and three
+  languages at one root got one file of each with every language's jobs and
+  one `secrets` job, and `--language go` on the three-language root wrote
+  only Go's. A uv project whose dev group has no pytest got no pre-push job
+  and a plan line saying so. `lefthook validate` accepted every written file,
+  and the written `dependabot.yml` files passed `check-jsonschema` 0.35.0's
+  Dependabot schema, which refused a made-up ecosystem. In copies of the
+  applied repositories with `lefthook install` run there, `git commit` exited
+  1 for a formatting difference, a lint finding and a stale dependency file
+  in each language and for a staged synthetic AWS key, and
+  `lefthook run pre-push` exited 1 on a failing test. Each of the fifteen
+  lefthook main configuration names stayed byte for byte and was listed as
+  kept, a second one was named, and a `lefthook-local.yml` was named as merged
+  over the written file. An existing `dependabot.yml` stayed byte for byte
+  and the plan named the ecosystems it lacked; `dependabot.yml` beside
+  `dependabot.yaml`, and an invalid one, stopped the plan. Each Renovate
+  location (`renovate.json*` at the root or in `.github/`, `.renovaterc*`, a
+  `renovate` key in `package.json`) gave the two-bots warning and the file was
+  still written. A selection below the repository root, and a uv project
+  below the selected root, blocked with their reasons. With every option
+  (`--extensions --gitignore --ci --hooks --dependabot`) each language
+  applied as one checkpoint. Every second plan had no files or effects, and
+  every `project revert` left every file, folder and mode as before.
+  lefthook's `*` matched across folders while `go.{mod,sum}` matched at the
+  root only; `go mod tidy -diff` failed offline with an empty module cache,
+  and `uv lock --check` passed offline with an empty cache until a manifest
+  changed. A `pyproject.toml` or `Cargo.toml` record whose `schema_version`
+  is `2`, `"1"`, `1.0` or missing stopped the plan naming the record's table
+  and manifest. Not observed: Linux, a Dependabot run on GitHub, a Go module
+  or crate with registry dependencies in the hooks, or lefthook installed by
+  the machine step.
 
 ### Costs
 

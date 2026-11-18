@@ -1,10 +1,10 @@
 # Go and Rust project policy and the mbx step
 
-Status: design, Nov 17, 2026. Steps 1, 2 and 4, the Go and Rust policies and
-the mbx machine step (section 5), are built (section 8); step 3 is not. It adds
-two languages
-to `workbench project apply`, two new flags for every language (`--hooks`, `--dependabot`), and one
-new machine step that installs mbx, a shared Rust compile cache and scheduler.
+Status: design, Nov 17, 2026. All four steps (section 8) are built: the Go and
+Rust policies, `--hooks` and `--dependabot`, and the mbx machine step
+(section 5). It adds two languages to `workbench project apply`, two new flags
+for every language (`--hooks`, `--dependabot`), and one new machine step that
+installs mbx, a shared Rust compile cache and scheduler.
 
 The work ships in four steps (section 8). Each step can be tried on a real
 project before the next starts.
@@ -71,7 +71,7 @@ There are two kinds of file, and each gets one rule:
    `clippy::all = "deny"` keeps `deny` with nothing added beside it.
 2. **Whole files a tool reads on its own**:
    - `.golangci.yml`
-   - `lefthook.yml`
+   - `lefthook.yml` (any lefthook main configuration counts, section 6.1)
    - `deny.toml`
    - `rustfmt.toml`
    - `.mbx.toml`
@@ -112,7 +112,10 @@ already happens for Python.
 
 `--hooks`, `--dependabot` and `--ci` write files that Git or GitHub read from
 the repository root. They need the selected folder to be the repository root
-(the folder that holds `.git`). Otherwise the plan is blocked with that reason.
+(the folder that holds `.git`), and `--hooks` and `--dependabot` also need
+every selected project's owner there, since the jobs run at the root and
+Dependabot reads `directory: /`. Otherwise the plan is blocked with that
+reason.
 When several languages are selected:
 
 - `lefthook.yml` gets one job per language and check, named `go-lint`,
@@ -610,14 +613,19 @@ This is decision D1.
 ### 6.1 `--hooks`: `lefthook.yml`
 
 Every language gets the same four pre-commit jobs, plus tests before push.
-The file is written whole, and only when absent. A project's existing
-`lefthook.yml` is kept and reported.
+The file is written whole, and only when the repository has no lefthook
+configuration. lefthook 2.2.2 (`internal/config/loader.go` at that tag) reads
+the first of `lefthook`, `.lefthook` and `.config/lefthook` with `.yml`,
+`.yaml`, `.json`, `.jsonc` or `.toml` at the repository root; any of these is
+kept and reported, and a second one is named. It merges `lefthook-local.*`
+over the main file, so the plan names such a file when it writes one. Each
+language's jobs live in its policy folder's `lefthook.yml`.
 
 | Job | Go | Rust | Python |
 | --- | --- | --- | --- |
 | format (`glob`) | `golangci-lint fmt --diff ./...` (`*.go`) | `cargo fmt --all --check` (`*.rs`) | `uv run --locked ruff format --check` (`*.py`) |
 | lint | `golangci-lint run` (`*.go`) | `cargo clippy --workspace --all-targets --locked -- -D warnings` (D3) (`*.rs`) | `uv run --locked ruff check` (`*.py`) |
-| dependency files | `go mod tidy -diff` (`go.{mod,sum}`) | `cargo metadata --locked --format-version 1 >/dev/null && cargo deny --offline check bans sources` (`Cargo.{toml,lock}`) | `uv lock --check` (`{pyproject.toml,uv.lock}`) |
+| dependency files | `go mod tidy -diff` (`go.{mod,sum}`) | `cargo metadata --locked --format-version 1 >/dev/null && cargo deny --offline check bans sources` (`{Cargo.toml,Cargo.lock,*/Cargo.toml}`) | `uv lock --check` (`{pyproject.toml,uv.lock,*/pyproject.toml}`) |
 | secrets | `gitleaks git --staged --redact --no-banner` | the same | the same |
 | pre-push tests | `go test ./...` | `cargo test --workspace --locked` | `uv run --locked pytest`, only when the dev group lists pytest; otherwise no pre-push job, and the plan says so (tests are never invented) |
 
@@ -625,7 +633,8 @@ Example for Go:
 
 ```yaml
 # Written by workbench project apply (go-v1). Run `lefthook install` once per
-# clone; the project owns this file from now on.
+# clone to turn on these Git hooks. The project owns this file; Workbench
+# never edits an existing one.
 pre-commit:
   parallel: true
   jobs:
@@ -657,25 +666,52 @@ Checks behind these choices:
   Tested on a scratch crate: exit 101.
 - **`cargo deny --offline check bans sources`** keeps the advisory database
   download out of every commit. The advisories check runs in CI.
-- **Glob matching across folders** is lefthook's default (unverified).
-- **`go mod tidy -diff` and `uv lock --check`** may need the network on a
-  cold module or index cache (unverified).
+- **Globs.** lefthook 2.2.2's default matcher lets `*` cross folders: on a
+  scratch repository `*.go` matched `top.go` and `a/b/deep.go`. A pattern
+  without `*` matches at the root only: `go.{mod,sum}` matched `go.mod` and
+  not `a/go.sum`, which suits Go, whose nested modules are separate. For a
+  workspace, a member manifest changes the lockfile too, so Rust and Python
+  list `*/Cargo.toml` and `*/pyproject.toml` in one brace group. Two brace
+  groups side by side are unreliable: `{*/,}{pyproject.toml,uv.lock}` missed
+  `a/b/pyproject.toml`, while `{pyproject.toml,uv.lock,*/pyproject.toml}`
+  matched it.
+- **The jobs block a commit.** In scratch repositories with the files
+  `project apply` wrote and `lefthook install` run there, `git commit` exited
+  1 for a gofumpt, rustfmt or Ruff formatting difference, an errcheck, clippy
+  (`-D warnings`) or Ruff finding, a `go.mod` that `go mod tidy -diff`
+  changes, a `Cargo.toml` that `cargo metadata --locked` refuses, a
+  `pyproject.toml` that `uv lock --check` (uv 0.13.7) refuses, and a staged
+  synthetic AWS key that gitleaks 8.30.1 found; `lefthook run pre-push` exited
+  1 on a failing test. `lefthook validate` accepted each written file.
+- **`go mod tidy -diff` needs the module cache**: with an empty cache and
+  `GOPROXY=off` it exited 1 ("module lookup disabled"), and with the cache
+  filled it exited 0 offline. **`uv lock --check`** exited 0 offline with an
+  empty cache while the manifest matched the lockfile, and exited 1 offline
+  once a manifest named a package missing from the cache.
+- **`cargo deny --offline check bans sources`** passed on a scratch crate
+  ("bans ok, sources ok").
 
 The machine supplies golangci-lint, gofumpt, lefthook, gitleaks and
-govulncheck on Linux through the Linux tools change already in progress. This
-design depends on it.
+govulncheck on Linux (`[linux_binaries]` and `[linux_go_tools]`).
 
 ### 6.2 `--dependabot`: `.github/dependabot.yml`
 
-The file is written whole, only when absent. It holds weekly entries for each
-selected language's ecosystem (`gomod`, `cargo` or `uv`, values checked
-against GitHub's Dependabot options reference) plus `github-actions`, all at
-`directory: /`.
+The file is written whole, only when neither `.github/dependabot.yml` nor
+`.github/dependabot.yaml` exists (GitHub reads either). It holds weekly
+entries for each selected language's ecosystem (`gomod`, `cargo` or `uv`)
+plus `github-actions`, all at `directory: /`. GitHub's Dependabot options
+reference lists these four YAML values and `weekly` as a `schedule.interval`;
+for `github-actions`, `/` makes Dependabot search `.github/workflows`. The
+written files passed `check-jsonschema` 0.35.0 against SchemaStore's
+`dependabot-2.0.json`.
 
-When a `renovate.json`, `renovate.json5` or `.github/renovate.json*` exists,
+Renovate reads `renovate.json`, `renovate.jsonc` and `renovate.json5` at the
+root or in `.github/` (or `.gitlab/`, only on GitLab), `.renovaterc`,
+`.renovaterc.json`, `.renovaterc.jsonc`, `.renovaterc.json5` and a `renovate`
+key in `package.json` (`lib/config/app-strings.ts`). When one of these exists,
 the plan warns that two update bots would compete, and still writes the file.
-An existing `dependabot.yml` is kept, and the plan names the ecosystems it
-lacks.
+An existing Dependabot file is kept, and the plan names the ecosystems it
+lacks; both names at once, or a file that is not valid YAML, stop the plan.
 
 ### 6.3 `--ci`
 
@@ -773,7 +809,7 @@ There is no new framework. Each concern stays with its existing owner.
 
 | Concern | Owner | New or changed |
 | --- | --- | --- |
-| Policy assets | `project/gopolicy/` and `project/rustpolicy/`, beside `project/pythonpolicy/` | Each has `assets.go` with `ID`, plus `README.md` and the embedded files above. `pythonpolicy` gains `lefthook.yml`. |
+| Policy assets | `project/gopolicy/` and `project/rustpolicy/`, beside `project/pythonpolicy/` | Each has `assets.go` with `ID`, plus `README.md` and the embedded files above. All three hold `lefthook.yml` (the language's jobs) and the `Ecosystem` constant for Dependabot. |
 | Discovery | `internal/project/discovery.go` | `goOwner` and `cargoOwner` beside `pythonOwner`; `manifestProject` calls them |
 | Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `_` (a release identifier allows no `,`), with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |

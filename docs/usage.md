@@ -747,6 +747,7 @@ workbench project apply . --language python --extensions --gitignore --dry-run
 workbench project apply . --language python --resolve-dependencies
 workbench project apply . --language go --extensions --gitignore --ci --dry-run
 workbench project apply . --language rust --extensions --gitignore --ci --dry-run
+workbench project apply . --hooks --dependabot --dry-run
 workbench project revert . --dry-run
 workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID
@@ -817,7 +818,24 @@ pins in `versions.toml`. For Rust it needs the repository root, an existing
 `rustup toolchain install`, `cargo fmt`, `cargo clippy -D warnings`,
 `cargo-deny check advisories bans sources` and gitleaks. Existing jobs are preserved. Ambiguous owners and
 unsupported YAML receive a manual proposal, not a second pipeline or fabricated
-tests. See the [Python policy](../project/pythonpolicy/README.md), the
+tests.
+
+`--hooks` and `--dependabot` need the selected folder to be the repository
+root and every selected project at it. `--hooks` writes one `lefthook.yml`
+for every selected language: before each commit a format, lint and
+dependency-file check per language (Go `golangci-lint fmt --diff`,
+`golangci-lint run`, `go mod tidy -diff`; Rust `cargo fmt --check`,
+`cargo clippy -D warnings`, `cargo metadata --locked` and
+`cargo deny --offline check bans sources`; Python `ruff format --check`,
+`ruff check`, `uv lock --check`) and one gitleaks scan of the staged changes,
+and before each push the tests (`go test`, `cargo test`, and `pytest` only when
+the dev group lists it). It never runs `lefthook install`; run that once per
+clone. `--dependabot` writes `.github/dependabot.yml` with weekly `gomod`,
+`cargo` or `uv` and `github-actions` entries at `/`. Each file is written only
+when the repository has none: an existing lefthook configuration (any of the
+names lefthook reads) or Dependabot file is kept byte for byte, and the plan
+names the ecosystems an existing Dependabot file lacks and warns when Renovate
+is configured too. See the [Python policy](../project/pythonpolicy/README.md), the
 [Go policy](../project/gopolicy/README.md) and the
 [Rust policy](../project/rustpolicy/README.md).
 
