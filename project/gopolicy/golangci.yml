@@ -1,0 +1,13 @@
+# Written by workbench project apply (go-v1). The project owns this file
+# from now on; Workbench never edits an existing one.
+version: "2"
+linters:
+  default: standard
+  enable:
+    - errorlint
+    - modernize
+    - revive
+    - unparam
+formatters:
+  enable:
+    - gofumpt

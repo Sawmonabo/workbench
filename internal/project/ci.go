@@ -21,68 +21,169 @@ import (
 
 var pythonVersion = regexp.MustCompile(`^3\.[0-9]{1,2}(\.[0-9]{1,2})?$`)
 
-// addCI proposes the Python check job. CI integration has one conservative
-// owner: one existing GitHub workflow at the selected workspace root, with an
-// existing test job and Python choice. All unowned AST nodes must serialize
-// identically before and after the merge.
-func (p *Proposal) addCI(c operation.Context, owners []string) error {
+// ownedJob is one Workbench check job proposed for a workflow.
+type ownedJob struct {
+	name     string
+	addition *ast.File
+	desired  *ast.MappingNode
+	// refsMayDiffer keeps an existing job that differs from the recipe only in
+	// its uses: refs, which Dependabot bumps, and reports it.
+	refsMayDiffer bool
+	// effect says what a future CI run of the job does.
+	effect string
+}
+
+// addCI proposes each selected language's owned check job. Jobs aimed at the
+// same workflow are merged into one edit of it. All unowned AST nodes must
+// serialize identically before and after the merge.
+func (p *Proposal) addCI(c operation.Context, selected []Project) error {
+	var paths []string
+	jobs := map[string][]ownedJob{}
+	if python := withLanguage(selected, "python"); len(python) > 0 {
+		path, job, err := p.pythonCI(c, ownersOf(python))
+		if err != nil {
+			return err
+		}
+		paths, jobs[path] = append(paths, path), append(jobs[path], job)
+	}
+	if modules := withLanguage(selected, "go"); len(modules) > 0 {
+		path, job, err := p.goCI(c, modules[0])
+		if err != nil {
+			return err
+		}
+		if !slices.Contains(paths, path) {
+			paths = append(paths, path)
+		}
+		jobs[path] = append(jobs[path], job)
+	}
+	var effects []string
+	for _, path := range paths {
+		added, err := p.addJobs(c, path, jobs[path])
+		if err != nil {
+			return err
+		}
+		effects = append(effects, added...)
+	}
+	if len(effects) > 0 {
+		p.Plan.Effects = append(
+			p.Plan.Effects,
+			operation.Effect{
+				Name:        "ci-workflow-checks",
+				Description: strings.Join(effects, ". ") + "; project apply does not run CI",
+				Privilege:   "CI runner",
+				Recovery:    "Restoring the workflow file does not undo completed CI runs or their external effects",
+			},
+		)
+	}
+	return nil
+}
+
+// pythonCI returns the Python check job and its workflow: the one existing
+// GitHub workflow at the selected workspace root, with an existing test job
+// and Python choice.
+func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, ownedJob, error) {
 	if len(owners) != 1 || owners[0] != c.Scope.Root {
-		return ciFailure(
+		return "", ownedJob{}, ciFailure(
 			"Automatic CI requires one Python workspace owner equal to the selected root",
 		)
 	}
 	python, err := p.pythonChoice(c.Scope.Root)
 	if err != nil {
-		return err
+		return "", ownedJob{}, err
 	}
-	path, file, err := p.readWorkflow(c.Scope.Root)
+	path, data, err := p.readWorkflow(c.Scope.Root)
 	if err != nil {
-		return err
+		return "", ownedJob{}, err
 	}
-	jobsPath, _ := yaml.PathString("$.jobs")
-	jobsNode, err := jobsPath.FilterFile(file)
+	file, err := parseWorkflow(data, ciFailure)
 	if err != nil {
-		return ciFailure("Workflow jobs ownership is missing")
+		return "", ownedJob{}, err
 	}
-	jobs, ok := jobsNode.(*ast.MappingNode)
-	if !ok {
-		return ciFailure("Workflow jobs must be a mapping")
+	jobs, err := workflowJobs(file, ciFailure)
+	if err != nil {
+		return "", ownedJob{}, err
 	}
 	if !slices.ContainsFunc(jobs.Values, runsTests) {
-		return ciFailure(
+		return "", ownedJob{}, ciFailure(
 			"An existing test/tests job with an identifiable test command is required; tests will not be invented",
 		)
 	}
 	requirements, err := machine.ManagementRequirements(c)
 	if err != nil {
-		return err
+		return "", ownedJob{}, err
 	}
 	addition, desired, err := checkJob(python, requirements)
 	if err != nil {
-		return err
+		return "", ownedJob{}, err
 	}
-	if existing := mappingValue(jobs, "workbench-python"); existing != nil {
-		return checkOwnedJob(existing, desired)
-	}
-	proposed, err := mergeJob(file, jobsPath, jobs, addition)
+	return path, ownedJob{
+		name:     "workbench-python",
+		addition: addition,
+		desired:  desired,
+		effect:   "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code",
+	}, nil
+}
+
+// addJobs merges jobs into the workflow at path as one edit and returns the
+// effects of the jobs it adds. An owned job already there is checked against
+// its recipe instead.
+func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([]string, error) {
+	data, err := p.Inventory.read(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	p.Plan.Effects = append(
-		p.Plan.Effects,
-		operation.Effect{
-			Name:        "ci-workflow-checks",
-			Description: "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code; project apply does not run CI",
-			Privilege:   "CI runner",
-			Recovery:    "Restoring the workflow file does not undo completed CI runs or their external effects",
-		},
-	)
-	return p.add(
-		c,
-		path,
-		proposed,
-		"Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments",
-	)
+	fail := ciFailure
+	if !slices.ContainsFunc(
+		jobs,
+		func(job ownedJob) bool { return job.name == "workbench-python" },
+	) {
+		fail = goCIFailure
+	}
+	file, err := parseWorkflow(data, fail)
+	if err != nil {
+		return nil, err
+	}
+	jobsPath, _ := yaml.PathString("$.jobs")
+	var effects, added []string
+	for _, job := range jobs {
+		node, err := workflowJobs(file, fail)
+		if err != nil {
+			return nil, err
+		}
+		if existing := mappingValue(node, job.name); existing != nil {
+			refs, problem := checkOwnedJob(existing, job.desired)
+			switch {
+			case problem != "":
+				return nil, fail(problem)
+			case refs && !job.refsMayDiffer:
+				return nil, fail("Existing Workbench check job differs from the proposed recipe")
+			case refs:
+				p.Plan.Warnings = append(
+					p.Plan.Warnings,
+					"Kept "+job.name+" in "+path+": it differs from the recipe only in its uses: refs",
+				)
+			}
+			continue
+		}
+		if err = mergeJob(file, jobsPath, node, job.addition, fail); err != nil {
+			return nil, err
+		}
+		effects, added = append(effects, job.effect), append(added, job.name)
+	}
+	if len(added) == 0 {
+		return nil, nil
+	}
+	var description string
+	switch {
+	case slices.Equal(added, []string{"workbench-python"}):
+		description = "Add one owned Python check job to the existing workflow; preserve existing test jobs, triggers and comments"
+	case slices.Equal(added, []string{"workbench-go"}):
+		description = "Add one owned Go check job to the workflow that runs go test; preserve existing jobs, triggers and comments"
+	default:
+		description = "Add the owned check jobs " + strings.Join(added, " and ") +
+			" to the existing workflow; preserve existing jobs, triggers and comments"
+	}
+	return effects, p.add(c, path, []byte(file.String()), description)
 }
 
 func ciFailure(message string) error {
@@ -113,16 +214,30 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 	return python, nil
 }
 
-// readWorkflow parses the single workflow under root. It must hold one
-// document that roundtrips exactly and uses no YAML feature the merge could
-// silently change.
-func (p *Proposal) readWorkflow(root string) (string, *ast.File, error) {
+// readWorkflow reads the single workflow under root and binds it as a plan
+// input.
+func (p *Proposal) readWorkflow(root string) (string, []byte, error) {
+	workflows, readable := workflowFiles(root)
+	if !readable {
+		return "", nil, ciFailure("No readable existing GitHub workflow owner")
+	}
+	if len(workflows) != 1 {
+		return "", nil, ciFailure(
+			"Multiple or missing workflows require an explicit integration decision",
+		)
+	}
+	data, err := p.readInput(workflows[0])
+	return workflows[0], data, err
+}
+
+// workflowFiles lists the regular workflow files under root; readable is
+// false when root has no readable workflow folder.
+func workflowFiles(root string) (workflows []string, readable bool) {
 	directory := filepath.Join(root, ".github", "workflows")
 	entries, err := os.ReadDir(directory)
 	if err != nil {
-		return "", nil, ciFailure("No readable existing GitHub workflow owner")
+		return nil, false
 	}
-	var workflows []string
 	for _, entry := range entries {
 		if !entry.Type().IsRegular() {
 			continue
@@ -131,35 +246,42 @@ func (p *Proposal) readWorkflow(root string) (string, *ast.File, error) {
 			workflows = append(workflows, filepath.Join(directory, entry.Name()))
 		}
 	}
-	if len(workflows) != 1 {
-		return "", nil, ciFailure(
-			"Multiple or missing workflows require an explicit integration decision",
-		)
-	}
-	path := workflows[0]
-	data, err := readMetadata(path)
-	if err != nil {
-		return "", nil, err
-	}
-	p.Plan.Inputs = append(
-		p.Plan.Inputs,
-		operation.Input{Name: path, Digest: operation.SHA256Hex(data)},
-	)
+	return workflows, true
+}
+
+// parseWorkflow parses a workflow that must hold one document that roundtrips
+// exactly and uses no YAML feature the merge could silently change. fail
+// words a refusal for the language whose job is being added.
+func parseWorkflow(data []byte, fail func(string) error) (*ast.File, error) {
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil || len(file.Docs) != 1 {
-		return "", nil, ciFailure("Workflow needs one valid YAML document without duplicate keys")
+		return nil, fail("Workflow needs one valid YAML document without duplicate keys")
 	}
 	guard := &yamlGuard{}
 	ast.Walk(guard, file.Docs[0])
 	if guard.unsupported {
-		return "", nil, ciFailure(
+		return nil, fail(
 			"Aliases, anchors, merge keys, tags or directives need manual workflow review",
 		)
 	}
 	if !bytes.Equal(data, []byte(file.String())) {
-		return "", nil, ciFailure("Workflow formatting cannot roundtrip without normalization")
+		return nil, fail("Workflow formatting cannot roundtrip without normalization")
 	}
-	return path, file, nil
+	return file, nil
+}
+
+// workflowJobs returns the workflow's jobs mapping.
+func workflowJobs(file *ast.File, fail func(string) error) (*ast.MappingNode, error) {
+	jobsPath, _ := yaml.PathString("$.jobs")
+	jobsNode, err := jobsPath.FilterFile(file)
+	if err != nil {
+		return nil, fail("Workflow jobs ownership is missing")
+	}
+	jobs, ok := jobsNode.(*ast.MappingNode)
+	if !ok {
+		return nil, fail("Workflow jobs must be a mapping")
+	}
+	return jobs, nil
 }
 
 // runsTests reports whether job is a test/tests job with a step that runs a
@@ -255,37 +377,63 @@ func checkJob(
 	return file, job, nil
 }
 
-// checkOwnedJob accepts an existing owned job only when it matches the recipe.
-// User changes are never guessed away; a differing recipe receives an explicit
-// integration proposal.
-func checkOwnedJob(existing ast.Node, desired *ast.MappingNode) error {
+// checkOwnedJob compares an existing owned job with its recipe. User changes
+// are never guessed away: problem names a difference that needs review, and
+// refsOnly reports a job that differs from the recipe only in its uses: refs.
+func checkOwnedJob(existing ast.Node, desired *ast.MappingNode) (refsOnly bool, problem string) {
 	want := desired.Values[0].Value.String()
 	have := existing.String()
 	if strings.TrimSpace(have) == strings.TrimSpace(want) {
-		return nil
+		return false, ""
 	}
 	var actual, expected any
 	if yaml.Unmarshal([]byte(have), &actual) != nil ||
 		yaml.Unmarshal([]byte(want), &expected) != nil {
-		return ciFailure("Existing Workbench check job needs review")
+		return false, "Existing Workbench check job needs review"
 	}
-	if !reflect.DeepEqual(actual, expected) {
-		return ciFailure("Existing Workbench check job differs from the proposed recipe")
+	if reflect.DeepEqual(actual, expected) {
+		return false, ""
 	}
-	return nil
+	if reflect.DeepEqual(withoutRefs(actual), withoutRefs(expected)) {
+		return true, ""
+	}
+	return false, "Existing Workbench check job differs from the proposed recipe"
 }
 
-// mergeJob adds the job to the workflow and returns the proposed file after
-// proving every unowned node serializes as before.
+// withoutRefs returns value with the @ref of every uses: entry removed.
+func withoutRefs(value any) any {
+	switch node := value.(type) {
+	case map[string]any:
+		result := make(map[string]any, len(node))
+		for key, item := range node {
+			if uses, ok := item.(string); ok && key == "uses" {
+				item, _, _ = strings.Cut(uses, "@")
+			}
+			result[key] = withoutRefs(item)
+		}
+		return result
+	case []any:
+		result := make([]any, len(node))
+		for i, item := range node {
+			result[i] = withoutRefs(item)
+		}
+		return result
+	}
+	return value
+}
+
+// mergeJob adds the job to the workflow file and proves every unowned node
+// serializes as before and the result parses again.
 func mergeJob(
 	file *ast.File,
 	jobsPath *yaml.Path,
 	jobs *ast.MappingNode,
 	addition *ast.File,
-) ([]byte, error) {
+	fail func(string) error,
+) error {
 	root, ok := file.Docs[0].Body.(*ast.MappingNode)
 	if !ok {
-		return nil, ciFailure("Workflow root must be a mapping")
+		return fail("Workflow root must be a mapping")
 	}
 	unowned := make(map[*ast.MappingValueNode]string)
 	for _, node := range root.Values {
@@ -297,21 +445,23 @@ func mergeJob(
 		unowned[node] = node.String()
 	}
 	if err := jobsPath.MergeFromFile(file, addition); err != nil {
-		return nil, err
+		return err
 	}
 	for node, before := range unowned {
 		if node.String() != before {
-			return nil, ciFailure(
+			return fail(
 				"Workflow edit did not preserve an unowned node and its attached comments",
 			)
 		}
 	}
-	proposed := []byte(file.String())
-	if reparsed, err := parser.ParseBytes(proposed, parser.ParseComments); err != nil ||
+	if reparsed, err := parser.ParseBytes(
+		[]byte(file.String()),
+		parser.ParseComments,
+	); err != nil ||
 		len(reparsed.Docs) != 1 {
-		return nil, ciFailure("Proposed workflow failed reparse validation")
+		return fail("Proposed workflow failed reparse validation")
 	}
-	return proposed, nil
+	return nil
 }
 
 func mappingValue(node *ast.MappingNode, key string) ast.Node {

@@ -76,17 +76,20 @@ func projectInspectCommand(o *options) *cobra.Command {
 func projectApplyCommand(o *options) *cobra.Command {
 	command := &cobra.Command{
 		Use:   "apply [PATH]",
-		Short: "Preview and apply Workbench's settings to an existing uv Python project",
-		Long: "Plan Workbench's Ruff, ty and basedpyright settings for the uv Python project at " +
-			"PATH, show the plan and apply it once approved, saving a checkpoint that project " +
-			"revert restores. --extensions, --gitignore and --ci add optional changes. " +
-			"--resolve-dependencies lets uv resolve missing check tools, an external effect, and " +
-			"--allow-build-hooks (only with it) lets that run project build code. --dry-run " +
-			"previews offline without changing anything. Without a terminal, or for a coding " +
-			"agent, pass --approve-plan DIGEST from a --dry-run --json plan.",
+		Short: "Preview and apply Workbench's settings to an existing uv Python project or Go module",
+		Long: "Plan Workbench's settings for the project at PATH: Ruff, ty and basedpyright for a " +
+			"uv Python project, and a golangci-lint configuration (only when the module has none) " +
+			"and a .workbench.toml record for a Go module. Show the plan and apply it once " +
+			"approved, saving a checkpoint that project revert restores. --extensions, " +
+			"--gitignore and --ci add optional changes. --resolve-dependencies lets uv resolve " +
+			"missing Python check tools, an external effect, and --allow-build-hooks (only with " +
+			"it) lets that run project build code. --dry-run previews offline without changing " +
+			"anything. Without a terminal, or for a coding agent, pass --approve-plan DIGEST " +
+			"from a --dry-run --json plan.",
 		Example: "  workbench project apply ./apps/api --language python --dry-run\n" +
 			"  workbench project apply . --language python --extensions --gitignore\n" +
-			"  workbench project apply . --language python --resolve-dependencies",
+			"  workbench project apply . --language python --resolve-dependencies\n" +
+			"  workbench project apply . --language go --extensions --gitignore --ci",
 		Args: cobra.MaximumNArgs(1),
 	}
 	command.Flags().
@@ -96,13 +99,13 @@ func projectApplyCommand(o *options) *cobra.Command {
 	command.Flags().
 		Bool("extensions", false, "Merge optional portable VS Code extension recommendations")
 	command.Flags().
-		Bool("gitignore", false, "Append relevant Python environment and cache ignore entries")
+		Bool("gitignore", false, "Append the selected languages' environment, cache and build output ignore entries")
 	command.Flags().
 		Bool("resolve-dependencies", false, "Approve native uv dependency resolution as an explicit external effect")
 	command.Flags().
 		Bool("allow-build-hooks", false, "Explicitly select potential native build-code execution during dependency resolution")
 	command.Flags().
-		Bool("ci", false, "Request CI integration; unsupported ownership receives a manual proposal")
+		Bool("ci", false, "Add Workbench's check job to the existing workflow that runs the tests; other layouts get a manual proposal")
 	o.localBuildFlag(command)
 	o.approveFlag(command)
 	command.RunE = o.action(

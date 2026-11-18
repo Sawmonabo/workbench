@@ -13,6 +13,7 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -195,8 +196,40 @@ func (r *Inventory) manifestProject(path, ecosystem string, data []byte) (Projec
 		_, err = decodeTOML(data)
 	case "go.mod":
 		project.Manager = "go"
+		err = r.goOwner(&project)
 	}
 	return project, err
+}
+
+// goOwner decides whether the Go module at p's root can be configured: only
+// the module at the selected folder, with no go.work at or above it up to the
+// repository root. A module below the selected folder is configured by
+// selecting its own folder; ./... at the selected module already stops at it.
+func (r *Inventory) goOwner(p *Project) error {
+	var workspace string
+	err := ancestors(p.Root, func(parent string) (bool, error) {
+		path := filepath.Join(parent, "go.work")
+		data, err := r.read(path)
+		if data != nil {
+			workspace = path
+		}
+		return data != nil, err
+	})
+	switch {
+	case err != nil:
+		return err
+	case workspace != "":
+		// go.work makes the go command treat several modules as one build, and
+		// ./... does not cross modules, so checks at one module would cover only
+		// part of the code.
+		p.Reason = "Go workspaces are discovery-only in " + gopolicy.ID + ": " + workspace
+	case p.Root != r.Directory:
+		p.Reason = "Go module below the selected folder; select the module folder to configure it"
+	default:
+		p.Supported = true
+		p.Reason = ""
+	}
+	return nil
 }
 
 // enclosingProject recognizes the Python manifest above a selected package

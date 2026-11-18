@@ -14,6 +14,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 )
 
@@ -41,28 +42,30 @@ type nativeRequest struct {
 	Missing []string
 }
 
-// Plan previews configuring the supported uv projects in c's scope. The
-// proposal is returned with any error so callers can show what blocked it.
+// Plan previews configuring the supported uv projects and Go modules in c's
+// scope. The proposal is returned with any error so callers can show what
+// blocked it.
 func Plan(
 	ctx context.Context,
 	c operation.Context,
 	options ApplyOptions,
 ) (proposal *Proposal, planErr error) {
 	defer operation.Annotate(&planErr, "plan project configuration")
-	p := newProposal(c)
+	p := &Proposal{Plan: operation.Plan{Scope: c.Scope, Complete: true}}
 	defer func() {
 		if planErr != nil {
 			p.Plan.Complete = false
 		}
 	}()
+	p.Plan.Source = policySource(c.Languages)
 	if slices.ContainsFunc(
 		c.Languages,
-		func(language string) bool { return language != "python" },
+		func(language string) bool { return !slices.Contains(configurable, language) },
 	) {
 		return p, operation.Fail(
 			operation.ExitBlocked,
 			"unsupported_language",
-			"Explicitly requested language is discovery-only; only Python configuration is supported",
+			"Explicitly requested language is discovery-only; only Python and Go configuration is supported",
 		)
 	}
 	inventory, err := Inspect(ctx, c.Scope.Root)
@@ -70,7 +73,15 @@ func Plan(
 	if err != nil {
 		return p, err
 	}
-	selected := p.selectProjects()
+	selected := p.selectProjects(c.Languages)
+	// A plan that selects nothing is named after the languages it found.
+	named := selected
+	if len(named) == 0 {
+		named = slices.DeleteFunc(slices.Clone(inventory.Projects), func(project Project) bool {
+			return len(c.Languages) > 0 && !slices.Contains(c.Languages, project.Language)
+		})
+	}
+	p.Plan.Source = policySource(languagesOf(named))
 	p.Plan.Inputs = inventory.inputsList()
 	if err = p.blocked(
 		"project_scope",
@@ -81,50 +92,143 @@ func Plan(
 	if p.applied, err = operation.LastApplied(c); err != nil {
 		return p, err
 	}
-	if err = p.addPolicy(ctx, c, options, selected); err != nil {
-		return p, err
+	python := withLanguage(selected, "python")
+	if len(python) > 0 {
+		if err = p.addPolicy(ctx, c, options, python); err != nil {
+			return p, err
+		}
 	}
-	owners := ownersOf(selected)
-	for _, owner := range owners {
-		if err = p.addOwner(c, owner, options); err != nil {
+	for _, module := range withLanguage(selected, "go") {
+		if err = p.addGoPolicy(c, module); err != nil {
+			return p, err
+		}
+	}
+	for _, owner := range ownersOf(selected) {
+		if err = p.addOwner(c, owner, languagesOf(ownedBy(selected, owner)), options); err != nil {
 			return p, err
 		}
 	}
 	if options.CI {
-		if err = p.addCI(c, owners); err != nil {
+		if err = p.addCI(c, selected); err != nil {
 			return p, err
 		}
 	}
 	return p, p.finish(c)
 }
 
-// newProposal identifies the source by policy rather than CLI release, so an
-// upgrade that keeps the policy proposes no project edits.
-func newProposal(c operation.Context) *Proposal {
-	policy := pythonpolicy.Policy + string(pythonpolicy.Extensions) + pythonpolicy.Ignore + adapter
-	return &Proposal{
-		Plan: operation.Plan{
-			Scope:    c.Scope,
-			Complete: true,
-			Source: operation.SourceIdentity{
-				Release:       pythonpolicy.ID,
-				ContentDigest: operation.SHA256Hex([]byte(policy)),
-			},
-		},
+// configurable lists the languages project apply configures, in the order
+// their policies are named.
+var configurable = []string{"go", "python"}
+
+// policyContent returns a configurable language's policy ID and the embedded
+// content that ID names.
+func policyContent(language string) (id, content string) {
+	switch language {
+	case "go":
+		return gopolicy.ID, string(gopolicy.Golangci) + string(gopolicy.Extensions) +
+			gopolicy.Ignore + gopolicy.RecordHeader
+	default:
+		return pythonpolicy.ID, pythonpolicy.Policy + string(pythonpolicy.Extensions) +
+			pythonpolicy.Ignore + adapter
 	}
 }
 
-// selectProjects returns the supported Python projects. Other components are
-// left untouched with a warning; unsupported uv projects block the plan.
-func (p *Proposal) selectProjects() []Project {
+// policySeparator joins the IDs of a plan's policies into its source's
+// release identifier, which allows only letters, digits, ".", "_" and "-".
+// Policy IDs hold no "_".
+const policySeparator = "_"
+
+// policySource identifies the plan's source by the policies of languages, the
+// selected configurable languages (all of them when none is selected), rather
+// than by CLI release, so an upgrade that keeps the policies proposes no
+// project edits. A single policy is named by its ID and digested alone.
+func policySource(languages []string) operation.SourceIdentity {
+	if !slices.ContainsFunc(
+		languages,
+		func(language string) bool { return slices.Contains(configurable, language) },
+	) {
+		languages = configurable
+	}
+	var ids, contents []string
+	for _, language := range configurable {
+		if slices.Contains(languages, language) {
+			id, content := policyContent(language)
+			ids, contents = append(ids, id), append(contents, content)
+		}
+	}
+	return operation.SourceIdentity{
+		Release:       strings.Join(ids, policySeparator),
+		ContentDigest: operation.SHA256Hex([]byte(strings.Join(contents, ""))),
+	}
+}
+
+// PolicyIDs returns the project policy IDs a source's release names, or nil
+// when it names a Workbench release instead, as a machine checkpoint does.
+func PolicyIDs(release string) []string {
+	ids := strings.Split(release, policySeparator)
+	for _, id := range ids {
+		if id != gopolicy.ID && id != pythonpolicy.ID {
+			return nil
+		}
+	}
+	return ids
+}
+
+// languagesOf returns the sorted distinct languages of projects.
+func languagesOf(projects []Project) []string {
+	languages := make([]string, 0, len(projects))
+	for _, project := range projects {
+		languages = append(languages, project.Language)
+	}
+	slices.Sort(languages)
+	return slices.Compact(languages)
+}
+
+// withLanguage returns the projects of one language.
+func withLanguage(projects []Project, language string) []Project {
+	var result []Project
+	for _, project := range projects {
+		if project.Language == language {
+			result = append(result, project)
+		}
+	}
+	return result
+}
+
+// ownedBy returns the projects whose configuration owner is owner.
+func ownedBy(projects []Project, owner string) []Project {
+	var result []Project
+	for _, project := range projects {
+		if project.Owner == owner {
+			result = append(result, project)
+		}
+	}
+	return result
+}
+
+// selectProjects returns the supported projects of the requested languages
+// (every configurable language when none is requested). Components of other
+// languages are left untouched with a warning, and so are the discovery-only
+// Python ones; unsupported uv projects block the plan. An unsupported Go
+// module blocks it only when Go was requested or nothing else is selected,
+// so a nested module or go.work never stops a Python project's plan.
+func (p *Proposal) selectProjects(languages []string) []Project {
 	var selected []Project
+	var goBlocked []string
 	for _, project := range p.Inventory.Projects {
 		switch {
-		case project.Language != "python":
+		case !slices.Contains(configurable, project.Language):
 			p.Warnings = append(
 				p.Warnings,
 				"Discovery-only component left untouched: "+project.Root,
 			)
+		case len(languages) > 0 && !slices.Contains(languages, project.Language):
+			p.Warnings = append(
+				p.Warnings,
+				"Component of a language not selected left untouched: "+project.Root,
+			)
+		case project.Language == "go" && !project.Supported:
+			goBlocked = append(goBlocked, unsupported(project))
 		case !project.Supported && project.Manager != "uv":
 			p.Warnings = append(
 				p.Warnings,
@@ -136,13 +240,35 @@ func (p *Proposal) selectProjects() []Project {
 			selected = append(selected, project)
 		}
 	}
+	goSelected := slices.ContainsFunc(
+		selected,
+		func(project Project) bool { return project.Language == "go" },
+	)
+	if !goSelected && (slices.Contains(languages, "go") || len(selected) == 0) {
+		p.Plan.Prerequisites = append(p.Plan.Prerequisites, goBlocked...)
+	} else {
+		for _, reason := range goBlocked {
+			p.Warnings = append(p.Warnings, "Go component left untouched: "+reason)
+		}
+	}
 	if len(selected) == 0 {
-		p.Plan.Prerequisites = append(
-			p.Plan.Prerequisites,
-			"Select an existing supported uv project or workspace with a shared lockfile",
-		)
+		p.Plan.Prerequisites = append(p.Plan.Prerequisites, noProject(languages))
 	}
 	return selected
+}
+
+// noProject says what to select when nothing configurable was found.
+func noProject(languages []string) string {
+	python := "an existing supported uv project or workspace with a shared lockfile"
+	golang := "an existing Go module's folder"
+	switch {
+	case slices.Equal(languages, []string{"python"}):
+		return "Select " + python
+	case slices.Equal(languages, []string{"go"}):
+		return "Select " + golang
+	default:
+		return "Select " + python + ", or " + golang
+	}
 }
 
 // blocked fails the plan while prerequisites remain.
@@ -206,39 +332,52 @@ func ownersOf(projects []Project) []string {
 	return slices.Compact(owners)
 }
 
-// addOwner plans what belongs to one policy owner: resolving its missing
-// checks and the optional extension and ignore merges.
-func (p *Proposal) addOwner(c operation.Context, owner string, options ApplyOptions) error {
-	data, err := p.Inventory.read(filepath.Join(owner, "pyproject.toml"))
-	if err != nil {
-		return err
-	}
-	doc, err := decodeTOML(data)
-	if err != nil {
-		return err
-	}
-	if missing := missingTools(doc); len(missing) > 0 {
-		if err = p.addResolution(c, owner, missing, options); err != nil {
+// addOwner plans what belongs to one policy owner, which configures
+// languages: resolving its missing Python checks and the optional extension
+// and ignore merges, which combine every language's entries into one edit.
+func (p *Proposal) addOwner(
+	c operation.Context,
+	owner string,
+	languages []string,
+	options ApplyOptions,
+) error {
+	if slices.Contains(languages, "python") {
+		data, err := p.Inventory.read(filepath.Join(owner, "pyproject.toml"))
+		if err != nil {
 			return err
+		}
+		doc, err := decodeTOML(data)
+		if err != nil {
+			return err
+		}
+		if missing := missingTools(doc); len(missing) > 0 {
+			if err = p.addResolution(c, owner, missing, options); err != nil {
+				return err
+			}
 		}
 	}
 	if options.Extensions {
-		if err = p.merge(
+		if err := p.merge(
 			c,
 			filepath.Join(owner, ".vscode", "extensions.json"),
-			mergeExtensions,
+			mergeExtensions(extensionPolicy(languages)),
 			"Merge reviewed unique extension recommendations; does not install extensions",
 		); err != nil {
 			return err
 		}
 	}
 	if options.Ignore {
-		return p.merge(
+		if err := p.merge(
 			c,
 			filepath.Join(owner, ".gitignore"),
-			mergeIgnore,
-			"Append relevant Python environment/cache ignore entries preserving order",
-		)
+			mergeIgnore(ignoreEntries(languages)),
+			ignoreDescription(languages),
+		); err != nil {
+			return err
+		}
+	}
+	if options.Extensions {
+		return p.warnIgnoredExtensions(owner)
 	}
 	return nil
 }
