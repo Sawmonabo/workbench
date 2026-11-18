@@ -343,17 +343,7 @@ type sourceVersions struct {
 // command uses: --local-build, else the active release.
 func readSourceVersions(c operation.Context) (machine.Requirements, sourceVersions, error) {
 	var versions sourceVersions
-	source := c.Native.Source
-	if source == "" {
-		state, err := operation.ReadState(c.Paths)
-		if err != nil {
-			return machine.Requirements{}, versions, err
-		}
-		if state != nil && state.ActiveRelease != nil {
-			source = state.ActiveRelease.Source
-		}
-	}
-	files, _, err := machine.SourceSnapshot(source, c.Native.Developer)
+	files, err := machine.SelectedSource(c)
 	if err != nil {
 		return machine.Requirements{}, versions, err
 	}

@@ -374,7 +374,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 	}
 	results = append(results, effects)
 	results = append(results, checkPlatform(ctx, c))
-	files, sourceErr := selectedSource(c)
+	files, sourceErr := SelectedSource(c)
 	var requirements Requirements
 	if sourceErr == nil {
 		requirements, sourceErr = SourceRequirements(files)

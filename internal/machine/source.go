@@ -76,16 +76,16 @@ func (r Requirements) Uses(name string) (string, error) {
 // uses: --local-build, else the active release. The source passes the same checks
 // as any other read, so a release's pins are the ones it was released with.
 func ManagementRequirements(c operation.Context) (Requirements, error) {
-	files, err := selectedSource(c)
+	files, err := SelectedSource(c)
 	if err != nil {
 		return Requirements{}, err
 	}
 	return SourceRequirements(files)
 }
 
-// selectedSource reads the machine source this command uses: --local-build,
+// SelectedSource reads the machine source this command uses: --local-build,
 // else the active release.
-func selectedSource(c operation.Context) (map[string][]byte, error) {
+func SelectedSource(c operation.Context) (map[string][]byte, error) {
 	source := c.Native.Source
 	if source == "" {
 		state, err := operation.ReadState(c.Paths)
