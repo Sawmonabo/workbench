@@ -6,10 +6,10 @@
 
 The agent command guard stops the largest command a coding agent started
 when the machine is about to run out of memory. A person watching an agent
-work could see what it ran only after the fact, in `workbench guard logs`,
+work could see what it ran only after the fact, in `workbench agent guard logs`,
 and could stop a runaway command only with `kill` or Activity Monitor, by a
 process number they had to find first, with nothing logged and nothing told
-to the agent. `workbench guard memory` shows, live, each command the guard
+to the agent. `workbench agent guard` shows, live, each command the guard
 tracks, with its memory, project, agent and subagent, and stops the ones a
 person chooses.
 
@@ -80,7 +80,7 @@ a row could show the wrong project and a stop could hit the other call.
   once the first signal is sent and follows the stop across later ticks, so
   the tick never waits on it; the view's row shows `stopping` and then
   `stopped`. It is logged `by=you`, the agent is told `Stopped by you
-  (workbench guard memory).`, and it starts no cooldown, so the guard's own
+  (workbench agent guard).`, and it starts no cooldown, so the guard's own
   stops for memory go on. Under dry-run it is only logged.
 - **The folder is a preference, never a rule.** Among the processes that
   claim a note, the watcher prefers one whose working folder is the note's

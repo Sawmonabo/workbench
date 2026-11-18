@@ -1,10 +1,10 @@
-# 14. The guard memory view leaves the mouse to the terminal
+# 14. The agent guard view leaves the mouse to the terminal
 
 - Status: Accepted, October 18, 2026
 
 ## Context
 
-`workbench guard memory` is a full-screen view on the terminal's alternate
+`workbench agent guard` is a full-screen view on the terminal's alternate
 screen (ADR 13). Two things a person reaches for there, the mouse wheel to
 scroll and a drag to select and copy text, pull against each other in a
 terminal:

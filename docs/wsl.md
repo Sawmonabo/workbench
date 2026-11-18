@@ -15,7 +15,7 @@ editor settings and Notepad++ themes) starts off on a new WSL machine, and ticki
 remembered. Workbench no longer writes the RestartWSL helpers (`restart-wsl.ps1`,
 `Restart WSL.bat`, `setup-task.ps1`) or asks for their folder: a saved
 `restart_wsl_path` answer is ignored and dropped the next time your answers
-are saved, and `init --answers-from` refuses a file that still has it. Copies an earlier
+are saved, and `answers import` refuses a file that still has it. Copies an earlier
 release wrote are yours and stay where they are, so delete them by hand if you
 no longer want them (and the scheduled task, if you created one). Existing Terminal settings and PowerShell profiles are left
 unchanged unless the matching step (`terminal-adoption`, `powershell-adoption`)
@@ -59,8 +59,8 @@ scheme, for every profile, is the `terminal_theme` answer, asked once on WSL:
 grey text) or `catppuccin-mocha` (Catppuccin Mocha). A machine saved before
 the question existed is asked it at its next `apply` at a terminal (not with
 `--local-build`); until then an unattended apply, or a coding agent's, is
-refused naming `terminal_theme`, and `init --answers-from FILE` with the key
-added saves it. Once saved, `init --ask terminal_theme` changes it. Windows
+refused naming `terminal_theme`, and `answers import FILE` with the key
+added saves it. Once saved, `answers ask terminal_theme` changes it. Windows
 Terminal and PowerShell open in the work folder on a machine with the work
 role, else in the personal folder.
 

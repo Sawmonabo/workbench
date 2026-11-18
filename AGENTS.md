@@ -31,7 +31,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
   saved `restart_wsl_path` answer (the folder of the RestartWSL helpers
   Workbench no longer writes) is left out whenever the answers are read, so
   it never blocks a run, and dropped the next time Workbench saves a change to
-  the answers or choices (migration 0005's own rewrite keeps it); `init --answers-from` still
+  the answers or choices (migration 0005's own rewrite keeps it); `answers import` still
   refuses it in its file.
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it.
@@ -100,7 +100,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Unattended runs (agents, scripts): `workbench apply --dry-run --json` prints
   the plan with `plan_digest`; `workbench apply --approve-plan DIGEST`
   applies exactly that plan and exits 4 if the machine, release or saved
-  selection changed since. `workbench init --answers-from FILE --dry-run --json`
+  selection changed since. `workbench answers import FILE --dry-run --json`
   and `--approve-plan` work the same way. `--yes` is for a person who trusts
   the saved selection, not for a caller that did not read the plan; it never
   asks, so use it only when new effects may take their defaults. A coding agent
@@ -130,7 +130,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Portable Python project policy | `project/pythonpolicy/` |
 | AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
-| Agent command memory guard | `internal/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench guard session`) |
+| Agent command memory guard | `internal/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are

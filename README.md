@@ -44,13 +44,14 @@ workbench apply --choose     # show the plan and choose again
 workbench apply --dry-run    # only show it
 workbench update             # install the latest release and its tools; never applies
 workbench update 0.2.0       # install that release (older goes back)
-workbench init --ask machine_role   # change personal/work/both, then run apply
-workbench version --list     # published releases, marking yours
+workbench update --list      # published releases, marking yours
+workbench answers ask machine_role  # change personal/work/both, then run apply
 workbench doctor             # what is installed and applied, tools, host
 workbench revert             # pick a checkpoint and restore its files
-workbench costs              # what Claude Code and Codex spent, one tab per tool
-workbench project configure ./apps/api --language python --dry-run
-workbench project configure ./apps/api --language python
+workbench agent costs        # what Claude Code and Codex spent, one tab per tool
+workbench agent guard        # watch, live, the commands the memory guard tracks
+workbench project apply ./apps/api --language python --dry-run
+workbench project apply ./apps/api --language python
 workbench project revert ./apps/api
 ```
 

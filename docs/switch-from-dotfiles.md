@@ -21,12 +21,12 @@ over the same files.
    are ignored and never run.
 
    ```sh
-   workbench init --answers-from ~/.config/chezmoi/chezmoi.toml
+   workbench answers import ~/.config/chezmoi/chezmoi.toml
    ```
 
    `apply` reads only `machine.toml`. A dotfiles config has no role folder
    answers, and on the work roles no work answers, which Workbench needs, so
-   `init --answers-from` refuses it naming the missing one: add
+   `answers import` refuses it naming the missing one: add
    `work_folder = "~/repos"` (work and both roles) and
    `personal_folder = "~/dev"` (personal and both), or the folders you use,
    and on the work roles `jira_url`, `gitlab_url` (each an `https://`

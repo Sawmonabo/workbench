@@ -28,7 +28,7 @@ WSL for its sizing inputs and Windows Terminal's color scheme
 no credentials: those go in the role env files (see
 [usage](usage.md#roles-folders-and-credentials)). Secrets never belong in source,
 public plans or project provenance. Change the role, or any answer, with
-`workbench init --ask machine_role`, then `workbench apply`. Role changes remove the files and the
+`workbench answers ask machine_role`, then `workbench apply`. Role changes remove the files and the
 Codex entries only the old role used, such as the work MCP servers and the
 default work folder's trust; the checklist lists those removals and they are
 checkpointed like any other file change, even with every effect unchecked.
@@ -53,7 +53,7 @@ versions_mode = "pinned"
 
 Save private runtime answers outside the repository with mode `0600`, replace
 the sample identity deliberately, and save it with
-`workbench init --answers-from FILE`. This example is not a WSL/work-role input
+`workbench answers import FILE`. This example is not a WSL/work-role input
 and does not authorize application.
 
 ## Local versus managed data
@@ -82,8 +82,8 @@ and does not authorize application.
   `PreToolUse`, `PostToolUse`, `PostToolUseFailure`): a hook you add survives
   next to the managed one. The managed hooks run the installed `workbench` in
   the apply's bin folder (`WORKBENCH_BIN_DIR`). A hook group that runs
-  `workbench costs` or `workbench guard`, by any path or quoting, counts as a
-  copy of the managed hook and is replaced by it, so editing the managed
+  `workbench agent costs` or `workbench agent guard`, by any path or quoting, counts
+  as a copy of the managed hook and is replaced by it, so editing the managed
   entry itself, for example its timeout, is undone. Keys
   the repo doesn't know are left alone, and malformed JSON fails the apply.
   Apply only adds and overwrites: an entry or key you drop from `enforced`

@@ -82,7 +82,7 @@ func TestRetiredTokensSurviveEveryAnswerWrite(t *testing.T) {
 		decoded, _ = readAnswers(encoded)
 		for key, want := range saved {
 			if decoded[key] != want {
-				t.Errorf("init --answers-from over a rejected machine.toml drops %s", key)
+				t.Errorf("answers import over a rejected machine.toml drops %s", key)
 			}
 		}
 	}

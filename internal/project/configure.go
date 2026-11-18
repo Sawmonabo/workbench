@@ -17,7 +17,7 @@ import (
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 )
 
-// ConfigureOptions selects what project configure changes.
+// ConfigureOptions selects what project apply changes.
 type ConfigureOptions struct {
 	Extensions          bool
 	Ignore              bool
@@ -26,7 +26,7 @@ type ConfigureOptions struct {
 	CI                  bool
 }
 
-// Proposal is a project configure plan with the exact changes it approves.
+// Proposal is a project apply plan with the exact changes it approves.
 type Proposal struct {
 	Plan      operation.Plan           `json:"plan"`
 	Inventory *Inventory               `json:"inventory"`

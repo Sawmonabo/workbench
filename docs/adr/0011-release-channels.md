@@ -54,7 +54,7 @@ every release's notes.
   keeps it while it is newer than the latest full release and installs
   `vX.Y.Z` once that is published, because semantic versioning orders
   `vX.Y.Z-rc.N` below `vX.Y.Z`.
-  `workbench version --list` lists full releases only, and adds an installed
+  `workbench update --list` lists full releases only, and adds an installed
   release it lacks on its own line; `gh release list -R Sawmonabo/workbench`
   and the repository's releases page also show pre-releases.
 - **Changelog.** `cliff.toml` matches only full release tags, so a

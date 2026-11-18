@@ -101,7 +101,7 @@ How to see a call that ends within a tick:
 
 ## Decision
 
-- **A stamp in every command.** A SessionStart hook, `workbench guard
+- **A stamp in every command.** A SessionStart hook, `workbench agent guard
   session`, for Claude Code and Codex, leaves a small file that says its
   agent runs, so the guard knows the agent from its start, and under Claude
   Code adds one line to the session's env file. Every later command then

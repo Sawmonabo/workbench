@@ -21,8 +21,8 @@ reads `CODEX_HOME`, "the root for Codex state, including config, auth, logs,
 sessions, skills".
 
 With either variable pointing elsewhere, the tool reads none of what Workbench
-installs, while the plan listed the files as installed. `workbench costs`
-already followed both variables, and `costs status` then reported the hooks
+installs, while the plan listed the files as installed. `workbench agent costs`
+already followed both variables, and `agent costs status` then reported the hooks
 missing with `(workbench apply)`, which would not install them where the tool
 looks. Workbench's managed shell files set neither variable.
 
@@ -55,13 +55,13 @@ replaced by the `env` of the user settings in that folder, replaced by the
 managed settings files. When the folder is not `~/.claude` or `~/.codex`
 (compared as the same file when both exist), the plan for the real home warns,
 `doctor` reports a `claude-config-dir` or `codex-home` conflict, and
-`costs status` checks the hooks in the folder the tool reads and adds a `config` line
+`agent costs status` checks the hooks in the folder the tool reads and adds a `config` line
 instead of the `(workbench apply)` hint. Each names the variable, where it is
 set, the folder, and the fix: unset it or point it at the default folder, or
 remove it from the settings file that sets it. Claude Code copies a settings
 file's value as written, so a path there must be absolute; a value that is not
 (`~/x`, `x`) names a folder that depends on where Claude Code starts, so
-Workbench ignores it and names it in the plan, `doctor` and `costs status`,
+Workbench ignores it and names it in the plan, `doctor` and `agent costs status`,
 asking for the absolute path. While the folder is moved, the costs ingest also
 reads `~/.claude/projects`, which can still hold transcripts written before
 the move; the ledger keys each response by its request ID, so one read from

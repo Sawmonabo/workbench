@@ -46,22 +46,23 @@ logged-in `gh`. Never run it as root.
 | `apply --dry-run` | Print the plan and exit; installs, asks and changes nothing. |
 | `update` | Install the latest release and its tools. Never applies; run `apply` next. `update --dry-run` shows only the install step. A local build is replaced by the latest published release, whatever their versions. |
 | `update VERSION` | The same for that release; an older one goes back. `0.2.0` and `v0.2.0` both work; an empty or malformed VERSION exits 2. |
-| `init --answers-from FILE` | One-time adoption of a chezmoi config's `[data]` table. |
-| `init --ask KEY` | Ask a saved machine answer again, for example `machine_role`. |
+| `update --list` | List the published full releases, marking the latest and the installed one; an installed pre-release or local build follows on its own line. Installs nothing, and refuses a VERSION or another `update` flag beside it. |
+| `answers import FILE` | One-time adoption of a chezmoi config's `[data]` table. |
+| `answers ask NAME...` | Ask saved machine answers again, for example `machine_role`. |
 | `version` | Print this Workbench version, the same as `--version`; a local build adds `(local build)`. |
-| `version --list` | List the published full releases, marking the latest and the installed one; an installed pre-release or local build follows on its own line. |
 | `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; no repair. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
-| `project inspect/configure/revert [PATH]` | Inspect or configure an existing project; see below. |
-| `costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, select text with your terminal's bypass: Terminal.app's View → Allow Mouse Reporting (⌘R) hands the mouse back until toggled again; other terminals use a held key such as Shift or Option. Without a terminal, `--tool NAME` prints one tool's report. |
-| `costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside your role folders, of those that exist; `~/dev` and `~/repos` when no folder answer is saved), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
-| `costs rates`, `costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
-| `costs ingest` | The hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts a detached worker. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. `--worker` ingests in the foreground. |
-| `migrate` | List the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)), and whether each has anything to do. `migrate --apply` runs them, asking the way `apply` does (`--dry-run --json`, `--approve-plan`, `--yes`); when only conflicts are left it exits 4 and names each file and what to do with it. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
+| `project inspect/apply/revert [PATH]` | Inspect or configure an existing project; see below. |
+| `agent costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, select text with your terminal's bypass: Terminal.app's View → Allow Mouse Reporting (⌘R) hands the mouse back until toggled again; other terminals use a held key such as Shift or Option. Without a terminal, `--tool NAME` prints one tool's report. |
+| `agent costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `agent guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside your role folders, of those that exist; `~/dev` and `~/repos` when no folder answer is saved), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
+| `agent costs rates`, `agent costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
+| `agent costs ingest --worker` | Read new usage into the ledger now, in the foreground, with progress; the apply's costs step runs it too. Without `--worker` it is the hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts the worker detached. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. |
+| `agent guard` | Watch, live, the agent commands the memory guard tracks, and stop one; see the guard paragraphs below the table. `agent guard logs` prints what the guard did. |
+| `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)). It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
 | `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
 
 Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
-`--language` offer their choices, `init --ask` the saved answers it can ask
+`--language` offer their choices, `answers ask` the saved answers it can ask
 again, `revert --checkpoint` the saved checkpoints with when each was saved,
 and a project `PATH` folders only; a flag that takes no file offers no files.
 A shell that was already open read its startup file before the apply changed
@@ -74,7 +75,7 @@ Workbench's cache folder (`~/Library/Caches/workbench` on macOS,
 package, which Ubuntu installs; without it the shell starts as before, with no
 Workbench completion.
 
-`update` and `version --list` read the releases from GitHub. They need no
+`update` and `update --list` read the releases from GitHub. They need no
 login; with a logged-in `gh`, Workbench asks `gh auth token` for its token, which
 raises GitHub's rate limit. A download fails when no data has arrived for a
 minute, not after a fixed total time, so a slow link works. A token GitHub
@@ -98,7 +99,7 @@ pre-release (`vX.Y.Z-rc.N`), so a machine moves to a pre-release only when it
 names one: `workbench update v0.2.1-rc.1`, or the installer with `| sh -s --
 --version v0.2.1-rc.1`. A pre-release is published, so `update` without a
 VERSION keeps it until `v0.2.1` is out, then installs that, since
-`v0.2.1-rc.1` sorts below `v0.2.1`. `version --list` shows full releases only,
+`v0.2.1-rc.1` sorts below `v0.2.1`. `update --list` shows full releases only,
 and an installed release it lacks, such as a pre-release, on its own line; `gh
 release list -R Sawmonabo/workbench` and the repository's releases page also
 show pre-releases. See [ADR 0011](adr/0011-release-channels.md).
@@ -118,7 +119,7 @@ files a revert replaced). Without a terminal it lists them with their IDs and
 asks for `--checkpoint ID`; `--dry-run` shows the restore plan.
 
 Developers inside a checkout add the hidden `--local-build` (no value) to
-`apply`, `update`, `doctor` and `project configure` to use that checkout instead
+`apply`, `update`, `doctor` and `project apply` to use that checkout instead
 of the installed release. With it, `update` installs the tools the checkout's
 `versions.toml` pins when they are missing, and nothing else: no release is
 downloaded, the machine is not applied, and it takes no VERSION or `--bundle`
@@ -130,18 +131,18 @@ ends with `[WorkBench] Installed this checkout's tools; run workbench apply
 workbench apply --local-build` when nothing was missing. `apply` installs the
 same tools when they are missing (at a terminal, or with `--yes`, as for any
 apply) and uses your saved answers as they are; save them with
-`init --answers-from FILE`. `apply`, `update` and `revert` take the hidden
+`answers import FILE`. `apply`, `update` and `revert` take the hidden
 `--destination PATH`, an existing folder to configure instead of your home.
 Full provisioning requires the real home destination because native scripts
 have external effects. See
-[configuration ownership](chezmoi-local-overrides.md). `init --answers-from FILE`
+[configuration ownership](chezmoi-local-overrides.md). `answers import FILE`
 saves the `[data]` table of an existing chezmoi config as machine answers (FILE
 must be private, mode 0600, like `machine.toml` itself), and
-`init --ask KEY` asks one saved answer again; see
-[switching from dotfiles](switch-from-dotfiles.md). `init --ask` needs a
+`answers ask KEY` asks one saved answer again; see
+[switching from dotfiles](switch-from-dotfiles.md). `answers ask` needs a
 terminal and refuses `--dry-run`, because it saves what it asks.
 
-`costs` figures are list-price equivalents, not subscription charges. The
+`agent costs` figures are list-price equivalents, not subscription charges. The
 ledger lives in Workbench's data folder, at `costs/ledger.sqlite`
 (`~/Library/Application Support/workbench/data` on macOS,
 `~/.local/share/workbench` on Linux; `WORKBENCH_DATA_DIR` or an absolute
@@ -150,11 +151,11 @@ transcripts after about 30 days and the ledger is the only lasting record;
 Workbench never deletes or rebuilds it, and only refines rows it recorded
 (attribution, service tier, duplicate copies). It is private: 0600, in a 0700
 folder. Earlier releases kept it in `~/.local/share/claude-costs`; the next
-`apply`, or the first import after an update, moves it, and `costs` asks for
-`workbench migrate --apply` until then. An old ledger that is a link is never
+`apply`, or the first import after an update, moves it, and `agent costs` asks for
+`workbench migrate` until then. An old ledger that is a link is never
 moved: the import stops and `workbench migrate` names it until you put the
-file it names in its place or remove the link. The first `costs` or
-`costs status` for a tool that has transcripts but no rows in the ledger
+file it names in its place or remove the link. The first `agent costs` or
+`agent costs status` for a tool that has transcripts but no rows in the ledger
 ingests them once inline. Manual rate overrides go in `costs/rates.json` in
 Workbench's config folder, keyed by model
 prefix, with any of `input`, `output`, `cache_write_5m`, `cache_write_1h` and
@@ -206,7 +207,7 @@ A program a command started that then left it (a double fork, `setsid`,
 `nohup … &`, or a background job left running when the call returns) is
 detached work: the guard shows it as a row of its own under the command that
 started it, measures it each tick and can stop it. It names no script or tool to find it. A SessionStart
-hook (`workbench guard session`, for Claude Code and Codex) leaves a small file
+hook (`workbench agent guard session`, for Claude Code and Codex) leaves a small file
 in the guard's state folder that says the agent runs, so the guard knows the
 agent from its start, and under Claude Code adds one line to the session's env
 file, which gives every later command a variable naming its agent and its own
@@ -279,7 +280,7 @@ environment; on Linux and WSL, any). See
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
 (`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
 once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks
-(pre, post and session) and the watcher are hidden `workbench guard` commands. After `workbench update` (or
+(pre, post and session) and the watcher are hidden `workbench agent guard` commands. After `workbench update` (or
 an apply) installs another release, the running watcher hands over to that
 release's watcher within about a second, once no stop is under way or
 settling: the new one keeps watching the same commands, and the log shows the
@@ -289,7 +290,7 @@ running its own code until it has been idle for 10 minutes; `kill` (its
 `SIGTERM`) stops it after any stop under way, and the next command's hook
 starts the installed release's.
 
-`workbench guard logs` shows what the guard did, oldest first, one line per
+`workbench agent guard logs` shows what the guard did, oldest first, one line per
 event: the time in the machine's time zone, the level, the event, then
 `key=value` fields in this order, each left out when it has no value:
 `id agent subagent project kind launched_by by dry_run took size peak floor
@@ -303,10 +304,10 @@ one label for its life; `launched_by` is the short ID of the call that started
 detached work, left out when that call is not proven; detached work is named by
 the process name the system keeps for its first program, never by its
 arguments, which may hold a token the shell expanded (its full command line
-is shown in `guard memory` only); `cmd` is the command as the log records it,
+is shown in `agent guard` only); `cmd` is the command as the log records it,
 on one line (backticks as `'`, blanks and newlines collapsed to one space) and
 cut at 120 characters with `…`, without a leading `cd PATH &&` or `cd PATH;`,
-last because it is the longest; `guard memory`'s details show it whole. Sizes are binary
+last because it is the longest; `agent guard`'s details show it whole. Sizes are binary
 (1 GB is 1024 MB) and whole `MB` below 1 GB; from 1 GB a reading that moves
 (`size`, `peak`, `available`) has two decimals (`2.41GB`) and a fixed total
 (`floor`, `total`) is whole (`16GB`), or has two decimals when it is not
@@ -348,11 +349,11 @@ and a `size` or `peak` is bold, gold from 1 GB and red from 4 GB; the event,
 plain text. With nothing to show it says so on stderr and exits 0.
 
 ```bash
-workbench guard logs                        # one line per event
-workbench guard logs --since 2h             # a Go duration before now
-workbench guard logs --since "2026-10-16 21:00"
-workbench guard logs -f                     # keep printing new events
-workbench guard logs --json --since today   # the log's own JSON Lines records
+workbench agent guard logs                       # one line per event
+workbench agent guard logs --since 2h            # a Go duration before now
+workbench agent guard logs --since "2026-10-16 21:00"
+workbench agent guard logs -f                    # keep printing new events
+workbench agent guard logs --json --since today  # the log's own JSON Lines records
 ```
 
 `--since` takes a duration (`10m`, `2h`), `today`, `yesterday`, a date, date
@@ -370,15 +371,15 @@ JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
 shows), and, by event, `call`, `agent`, `subagent`, `cwd`, `project`,
 `command`, `root_pid`, `kind`, `launched_by`, `by`, `took`, `size`, `peak`, `children`, `reason`,
 `memory`, `floor`, `dry_run`, `still_running`, `release`, `old_release`,
-`new_release`, `new_pid`, `process` and `error`; `--json` prints the matching
-records unchanged, one per line, `tracking` records and full call IDs
+`new_release`, `new_pid`, `process` and `error`; the global `--json` prints the matching
+records unchanged, as JSON Lines rather than one result object, one per line, `tracking` records and full call IDs
 included, and a
 line of the watcher's output as
 `{"level":"ERROR","msg":"<the line>","event":"raw","started":"<its watcher's start>"}`.
 See the [guard design](superpowers/specs/2026-10-14-agent-command-guard-design.md),
 section 4.1.
 
-`workbench guard memory` shows, live and full screen, each command the watcher
+`workbench agent guard` shows, live and full screen, each command the watcher
 tracks, newest first: its short ID, status (`● running`, `◌ stopping`), agent,
 subagent, run time, memory now and at its peak, project and command, then,
 dimmed for a minute, those that ended (`✓ done`, `? unmatched` for a call the
@@ -431,7 +432,7 @@ a `case … esac` and a command with a here-document stay whole.
 The details show every line and scroll when they are taller than the window: ↑
 and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends. The
 watcher stops the command the way it stops for memory, logs it `by=you` and
-tells the agent `Stopped by you (workbench guard memory).` (for detached work,
+tells the agent `Stopped by you (workbench agent guard).` (for detached work,
 the call that started it, when it is proven and its command still runs in the
 foreground; otherwise the stop is in the log only); the bottom line
 shows its answer for
@@ -444,14 +445,14 @@ SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it says so, keeps the
 last rows dimmed and reconnects on its own; the watcher starts with the next
 agent command. A command in a git worktree is labeled by its repository and
 worktree (`api/feature-login`). Without a terminal on stdin and stdout, or with
-`--non-interactive`, it exits 3 with `guard memory needs a terminal; use
-workbench guard logs --follow`; with `--json`, which it has no output for, it
-exits 3 and points at `guard logs --json`; and under a coding agent
-(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with `guard
-memory is for a person at a terminal`.
+`--non-interactive`, it exits 3 with `agent guard needs a terminal; use
+workbench agent guard logs --follow`; with `--json`, which it has no output for, it
+exits 3 and points at `agent guard logs --json`; and under a coding agent
+(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with `agent
+guard is for a person at a terminal`.
 
 ```bash
-workbench guard memory                      # watch, tag and stop agent commands
+workbench agent guard     # watch, tag and stop agent commands
 ```
 
 Workbench installs Claude Code's settings, instructions and hooks in
@@ -463,7 +464,7 @@ folder alone, as installing there would pick one of your accounts for you.
 When the variable points elsewhere, set in Workbench's environment or, for
 `CLAUDE_CONFIG_DIR`, in the `env` of Claude Code's user or managed settings
 files (where Claude Code also takes it from), the `apply` plan warns, `doctor`
-reports `claude-config-dir` or `codex-home` as a conflict, and `costs status`
+reports `claude-config-dir` or `codex-home` as a conflict, and `agent costs status`
 checks the hooks in that folder and adds a `config` line, each naming the
 variable, where it is set and how to undo it. A session started with the variable only
 in that session's environment, such as through the alias, is invisible to
@@ -474,7 +475,7 @@ transcript is in when the variable was stripped from the hook's environment
 
 ## Roles, folders and credentials
 
-Each role has a folder, asked once with the role: `Work folder (under your home)`, default `~/repos`, for `work` and `both`, and `Personal folder (under your home)`, default `~/dev`, for `personal` and `both`. An answer is saved as home-relative text such as `~/repos`; a trailing `/` is dropped, each part holds only letters, digits, `.`, `_` and `-` with no `.` or `..` part, the home folder itself is refused, and on `both` the two folders differ and neither is inside the other. Git's per-folder identity, Codex's trusted folders, the costs report's default view, the folders the System packages step creates and, on WSL, the folder Windows Terminal and PowerShell open in (the work folder, else the personal one) all follow the answers; when a role folder is a symlink, the shell hook and the gate resolve it, but git's per-folder identity and the costs report's scope follow the real path, not the link: git matches a repository by its real location, so one under a linked work folder gets the default email, and a session recorded under the real path counts as outside the folder. When `machine.toml` is there but cannot be read, the costs report says so once and groups projects under `~/dev` and `~/repos`. The `work` and `both` roles are also asked, once, `Jira site URL (e.g. https://yourcompany.atlassian.net)` and `GitLab URL (e.g. https://gitlab.com/yourgroup)`, with no default, saved as `jira_url` and `gitlab_url` (an `https://` address with no spaces; a trailing `/` is dropped), and `Folder in your work folder that holds the dispatch servers`, default `ai-devtools`, saved as `dispatch_folder` (one folder name: letters, digits, `.`, `_` and `-`, not `.` or `..`). They are not secrets and stay in `machine.toml` with the other answers; a new `work.env` starts with the two addresses. A machine whose answers were saved before the folder or work questions existed is asked the missing ones on its next `apply`, the folders with the defaults, which are the folders earlier releases used; that apply needs a terminal, and an unattended one is refused until `init --answers-from FILE` saves them. A personal-only machine is never asked the work questions. A `restart_wsl_path` answer an earlier release saved on WSL is ignored, so it blocks no run, and dropped the next time an answer or choice changes and they are saved. `init --answers-from` refuses a FILE that still has it. `init --ask work_folder` changes one.
+Each role has a folder, asked once with the role: `Work folder (under your home)`, default `~/repos`, for `work` and `both`, and `Personal folder (under your home)`, default `~/dev`, for `personal` and `both`. An answer is saved as home-relative text such as `~/repos`; a trailing `/` is dropped, each part holds only letters, digits, `.`, `_` and `-` with no `.` or `..` part, the home folder itself is refused, and on `both` the two folders differ and neither is inside the other. Git's per-folder identity, Codex's trusted folders, the costs report's default view, the folders the System packages step creates and, on WSL, the folder Windows Terminal and PowerShell open in (the work folder, else the personal one) all follow the answers; when a role folder is a symlink, the shell hook and the gate resolve it, but git's per-folder identity and the costs report's scope follow the real path, not the link: git matches a repository by its real location, so one under a linked work folder gets the default email, and a session recorded under the real path counts as outside the folder. When `machine.toml` is there but cannot be read, the costs report says so once and groups projects under `~/dev` and `~/repos`. The `work` and `both` roles are also asked, once, `Jira site URL (e.g. https://yourcompany.atlassian.net)` and `GitLab URL (e.g. https://gitlab.com/yourgroup)`, with no default, saved as `jira_url` and `gitlab_url` (an `https://` address with no spaces; a trailing `/` is dropped), and `Folder in your work folder that holds the dispatch servers`, default `ai-devtools`, saved as `dispatch_folder` (one folder name: letters, digits, `.`, `_` and `-`, not `.` or `..`). They are not secrets and stay in `machine.toml` with the other answers; a new `work.env` starts with the two addresses. A machine whose answers were saved before the folder or work questions existed is asked the missing ones on its next `apply`, the folders with the defaults, which are the folders earlier releases used; that apply needs a terminal, and an unattended one is refused until `answers import FILE` saves them. A personal-only machine is never asked the work questions. A `restart_wsl_path` answer an earlier release saved on WSL is ignored, so it blocks no run, and dropped the next time an answer or choice changes and they are saved. `answers import` refuses a FILE that still has it. `answers ask work_folder` changes one.
 
 Credentials live in one file per role in Workbench's config folder, `work.env` and `personal.env` (`~/.config/workbench` on Linux, `~/Library/Application Support/workbench/config` on macOS), not in the answers. Each line is `NAME=value`, a `#` comment or blank: no `export`, quotes, space or tab at either end of a value (other blanks count as part of the value), or Windows line ending, and not a name the shell hook runs through: `PATH`, `path`, `HOME`, `PWD`, `PROMPT_COMMAND`, `precmd_functions`, `chpwd_functions`, the regex match results `BASH_REMATCH`, `MATCH`, `MBEGIN`, `MEND`, `match`, `mbegin` and `mend`, or one of its own (`__workbench_*`, `_wb_*`); case counts, so `http_proxy` is fine; a value is taken as written, with no expansion. A line that is not that is skipped, and the plan names its number and why (`env-files: = work.env line 3 has a space or tab at the start or end of its value and is skipped`); a `NAME=` line with no value sets nothing, so an empty name never hides a tool's own setting. The Credential files step (`env-files`, on by default) creates each file a role of the machine uses when it is missing, mode 600; `work.env` starts with `JIRA_BASE_URL`, `JIRA_EMAIL`, `JIRA_API_TOKEN`, `CONFLUENCE_BASE_URL`, `CONFLUENCE_EMAIL`, `CONFLUENCE_API_TOKEN`, `TEMPO_API_TOKEN`, `GITLAB_URL` and `GITLAB_TOKEN`, with `JIRA_BASE_URL` and `GITLAB_URL` from the `jira_url` and `gitlab_url` answers, the work email (`work_email` on `both`) as `JIRA_EMAIL` and the rest empty, and `personal.env` with no names. After that the file is yours and Workbench never writes it again. Its plan lines say `env-files: create work.env`, or, with nothing to do, which listed names are still empty (`env-files: = work.env is there, empty: JIRA_API_TOKEN, TEMPO_API_TOKEN`), that a file without its role should be deleted (`= work.env holds work credentials without the work role: delete it`; Workbench does not delete it) or that it is waiting for the Move Workbench's files step. That step moves the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env`, with the work email as `JIRA_EMAIL` and the Jira and GitLab addresses from the `jira_url` and `gitlab_url` answers (empty when they are not answered yet), and deletes the two answers only once `work.env` holds them; a `work.env` that is already there without those same two tokens, or that cannot be read, is left as it is with the tokens still in `machine.toml`, and the plan says to copy them by hand. Values are never shown, logged or put in `--json`. To undo, delete a file by hand; it is not checkpointed.
 
@@ -488,7 +489,7 @@ Bitwarden. Workbench no longer installs the Bitwarden CLI or defines a `bw` wrap
 
 Each planned file carries a plain `title`, whether Workbench `merged` its settings into the file (your own keys are kept) or owns the whole file, its `added` and `removed` line counts, for a merged JSON or TOML file the number of `settings` that change, and a `summary`. A file Workbench owns that you edited since it last wrote it (by its last checkpoint, else chezmoi's own record of what it wrote) is marked `edited_outside`, and applying replaces your edit. The plan view also shows each file's diff (secrets masked); the diff text is for the screen only and is not in `--json` or the plan digest. For a merged JSON or TOML file whose old and new content both parse, the view lists the changed settings instead of lines (`~ hooks.SessionStart[0].hooks[0].timeout  10 → 5`, `+ … added`, `- … removed`; a list of plain values is compared as a set) and counts them as `N settings changed`, because the merge re-orders the whole file; any other file shows its line diff.
 
-Deciding once. The first approved `apply` shows the plan and saves two things in the `[effects]` table of the private `machine.toml`: the steps you turned off (`skip`, plus `select` for optional steps you turned on) and the steps it showed you something to decide about (`decided`; a step whose check found nothing to change sits on the `Already set` line, where it cannot be turned off, so it is not recorded until it has something to do). Later `apply` runs print the plan and apply your saved choices without asking, unless a step is new (not in `decided`, `skip` or `select`) and has something to do, or a file Workbench owns whole was edited outside it. Until a first approved apply has saved `decided`, no step is marked new and the first `apply` shows the plan once. Applying without asking needs a person at a terminal to read the plan on; with none (a cron job) `apply` refuses unless you pass `--approve-plan DIGEST` or `--yes`. A coding agent never counts as a person, even in a pseudo-terminal: when `CLAUDECODE=1` (Claude Code) or `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` (Codex) is set, `apply` shows nothing to answer and refuses with `An agent runs this; use --dry-run --json then --approve-plan`, `--yes` and `--choose` are refused the same way (an agent applies only with `--approve-plan DIGEST`), and so are `init --ask` and the Yes or No approval of `revert` and `project` (`revert` without `--checkpoint` still lists the checkpoint IDs). A run that nobody can approve (no `--approve-plan`, no `--yes`, no person at a terminal) is refused with exit 3 before Workbench downloads its tools or saves anything. Files Workbench merges into (Claude Code settings, Codex config, VS Code settings) never count as edited outside, since Claude Code and Codex rewrite them constantly. `apply --choose` always asks. `apply --reset` forgets `skip`, `select` and `decided` for this host's steps and asks again with the defaults; saved choices for steps this host does not list, such as a macOS step on Linux, are kept and ignored. A saved `select` for a step this host does not offer is shown as a plan warning and ignored; `--reset` forgets it. `--yes` never asks. `--choose`, `--reset` or `--approve-plan` with `--yes` is refused (`--reset` forgets what you turned off, so `--yes` would turn it all back on unasked, and `--approve-plan` already approves), and `--choose` needs a terminal (exit 3 without one; with `--json` or `--non-interactive` it is an invalid combination, exit 2). An isolated `--destination` never saves choices, so each interactive apply there asks. `--dry-run` never saves. Steps are gated one by one: a shared script with one step off still runs its other sections. On macOS that covers Mac apps and editor extensions and Work tools (the work editor extension); on Linux and WSL, EPEL and System packages (on AlmaLinux), and VS Code extensions and Work tools (the work editor extension); on WSL also Windows setup with WSL networking, default distribution and Windows PATH, and Windows setup with Terminal settings, PowerShell profile and Windows fonts.
+Deciding once. The first approved `apply` shows the plan and saves two things in the `[effects]` table of the private `machine.toml`: the steps you turned off (`skip`, plus `select` for optional steps you turned on) and the steps it showed you something to decide about (`decided`; a step whose check found nothing to change sits on the `Already set` line, where it cannot be turned off, so it is not recorded until it has something to do). Later `apply` runs print the plan and apply your saved choices without asking, unless a step is new (not in `decided`, `skip` or `select`) and has something to do, or a file Workbench owns whole was edited outside it. Until a first approved apply has saved `decided`, no step is marked new and the first `apply` shows the plan once. Applying without asking needs a person at a terminal to read the plan on; with none (a cron job) `apply` refuses unless you pass `--approve-plan DIGEST` or `--yes`. A coding agent never counts as a person, even in a pseudo-terminal: when `CLAUDECODE=1` (Claude Code) or `CODEX_CI`, `CODEX_THREAD_ID`, `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` (Codex) is set, `apply` shows nothing to answer and refuses with `An agent runs this; use --dry-run --json then --approve-plan`, `--yes` and `--choose` are refused the same way (an agent applies only with `--approve-plan DIGEST`), and so are `answers ask` and the Yes or No approval of `revert` and `project` (`revert` without `--checkpoint` still lists the checkpoint IDs). A run that nobody can approve (no `--approve-plan`, no `--yes`, no person at a terminal) is refused with exit 3 before Workbench downloads its tools or saves anything. Files Workbench merges into (Claude Code settings, Codex config, VS Code settings) never count as edited outside, since Claude Code and Codex rewrite them constantly. `apply --choose` always asks. `apply --reset` forgets `skip`, `select` and `decided` for this host's steps and asks again with the defaults; saved choices for steps this host does not list, such as a macOS step on Linux, are kept and ignored. A saved `select` for a step this host does not offer is shown as a plan warning and ignored; `--reset` forgets it. `--yes` never asks. `--choose`, `--reset` or `--approve-plan` with `--yes` is refused (`--reset` forgets what you turned off, so `--yes` would turn it all back on unasked, and `--approve-plan` already approves), and `--choose` needs a terminal (exit 3 without one; with `--json` or `--non-interactive` it is an invalid combination, exit 2). An isolated `--destination` never saves choices, so each interactive apply there asks. `--dry-run` never saves. Steps are gated one by one: a shared script with one step off still runs its other sections. On macOS that covers Mac apps and editor extensions and Work tools (the work editor extension); on Linux and WSL, EPEL and System packages (on AlmaLinux), and VS Code extensions and Work tools (the work editor extension); on WSL also Windows setup with WSL networking, default distribution and Windows PATH, and Windows setup with Terminal settings, PowerShell profile and Windows fonts.
 
 What the plan shows. One view serves the interactive list and `--dry-run`: a header with counts (files, steps that will run, new to decide), the files, then `Will run`, `Off` (steps you turned off), `Optional` and a faint `Already set` line, names only, for steps whose check found nothing to change (the cursor can rest on one to read what is already in place, but it cannot be turned off). Each step is its plain name with one faint line under it; the cursor row opens a detail panel (what it does, what it would do on this machine now, what it changes, who it runs as, how to undo it). A file's diff and a merged file's settings list have these masked: known secrets Workbench holds; the value of a key whose name contains token, secret, password, passwd, passphrase, api key, access key, private key, credential or authorization, or ends in key, pat, auth, cookie, session, pass or pwd (`DB_PASS`, `MYSQL_PWD`), judged on the key's last name however long the path, and everything under a table named that way; a `Bearer` value; the value after a command-line flag named like that (`--token x`, `--db-pass x`), and after `-p` or `-P` unless it is a path or variable (`mkdir -p ~/x` stays), with `-psecret` attached only on a line naming mysql, mariadb, sshpass or mongo; the password in `https://user:password@host`, and a key of 16 or more characters used as the user (a Sentry DSN); a Slack, Discord, Microsoft Teams or Zapier webhook path or any `/webhook/` path; a URL query value named like a credential (`?client_secret=`, `&sig=`); and token shapes (GitHub, GitLab, OpenAI, AWS, Slack, JWT, 40 or more hex characters, a 40 or more character letters-and-digits run). Other values are shown as they are, so a credential with none of these shapes under an ordinary key name is not masked. The diff is printed only at a terminal: never to a pipe or a file, not even with `--verbose`. A step that cannot apply on this host, such as EPEL on Ubuntu, is not listed. A step that runs from a script chezmoi reruns when it changes is listed again on the first apply after a release changes that script (the language runtimes, command-line tools and tmux plugin steps, for one), even when nothing else is new. Steps that always run with the files, such as AI safety settings, show without a box. Keys: up and down move, space turns a step on or off, enter opens the detail (a file's diff, full screen; `q` or esc to return), `a` applies, `q` or ctrl+c quits with nothing applied; a mouse click selects a row and clicking the selected row toggles it. Closing the list prints its final frame once. A saved plan run without a prompt prints a compact view headed `Applying your saved choices`. When the checked steps will need the Mac password, a line under the header says so and why (`Applying at a terminal asks for your Mac password once, before it starts, to install Homebrew.`, or, where sudo uses Touch ID, `Applying at a terminal asks for Touch ID (your Mac password where Touch ID cannot be used) before it starts, to install Homebrew.`); it follows the boxes. Add `--verbose` to see each row's detail panel and the recovery limits.
 
@@ -567,8 +568,8 @@ Unattended runs. Agents and scripts read the plan first, then apply exactly that
 ```sh
 workbench apply --dry-run --json      # read .plan_digest
 workbench apply --approve-plan DIGEST # applies exactly that plan, exit 4 if it changed
-workbench init --answers-from FILE --dry-run --json   # same pattern for init
-workbench init --answers-from FILE --approve-plan DIGEST
+workbench answers import FILE --dry-run --json   # same pattern for answers import
+workbench answers import FILE --approve-plan DIGEST
 ```
 
 The digest covers the files, the effects and which are checked, so a plan
@@ -591,13 +592,13 @@ files (on a Mac, `apply` also refreshes Homebrew's package list, below), and
 questions your saved answers lack; each asks once, so nothing already answered
 is asked again. Esc or ctrl+c at a question stops with nothing saved, and the
 next `workbench apply` asks again. To change an answer, name it with
-`workbench init --ask KEY`: `workbench init --ask machine_role` asks the role
+`workbench answers ask NAME`: `workbench answers ask machine_role` asks the role
 again, plus any question the new role needs (both emails for `both`, the folder
 of a role the machine did not have); the next `apply` shows the plan. Answers the
 new role doesn't use are dropped, except the Jira and GitLab tokens an earlier
 release saved, which stay until the Move Workbench's files step moves them, or,
 without the work role, until you delete them as its plan line says. Without a terminal, setup needs saved answers, which
-`init --answers-from FILE` provides. Nothing grants unspecified external
+`answers import FILE` provides. Nothing grants unspecified external
 effects: the plan's digest names the effects it runs.
 
 At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
@@ -605,7 +606,7 @@ done) in color, and a successful run ends with a green `[WorkBench]` line
 saying what it achieved, for example
 `[WorkBench] Applied: 3 files, 4 steps; 1 skipped`, or, when the files match and no effect is checked,
 `[WorkBench] Nothing to apply; this machine already matches`.
-Plans already shown at a prompt are not repeated; `init`, `project configure`
+Plans already shown at a prompt are not repeated; `answers import`, `project apply`
 and `project revert` with `--approve-plan` show no prompt, so their result keeps
 the plan. Piped output, and `NO_COLOR`,
 give the same lines without symbols or color.
@@ -730,9 +731,9 @@ the command reports partial mutation rather than implying nothing changed.
 
 ```sh
 workbench project inspect .
-workbench project configure ./apps/api --language python --dry-run
-workbench project configure . --language python --extensions --gitignore --dry-run
-workbench project configure . --language python --resolve-dependencies
+workbench project apply ./apps/api --language python --dry-run
+workbench project apply . --language python --extensions --gitignore --dry-run
+workbench project apply . --language python --resolve-dependencies
 workbench project revert . --dry-run
 workbench project revert .
 workbench project revert . --checkpoint CHECKPOINT_ID

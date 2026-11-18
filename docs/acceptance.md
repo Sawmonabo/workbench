@@ -48,7 +48,7 @@ synthetic answers.
   pre-release was checked locally with git-cliff). In a disposable home,
   `update v0.1.26-rc.1` and the `install.sh` one-liner with `--version
   v0.1.26-rc.1` each installed it, `update` without a version kept it, and
-  `version --list` showed it on its own line as installed.
+  `update --list` showed it on its own line as installed.
   git-cliff 2.14.2 with `cliff.toml`, run at a tag, rendered every release
   from the commit history with no unreleased section, and that tag's section
   alone for its release notes. The release workflow downloads git-cliff through
@@ -60,7 +60,7 @@ synthetic answers.
   observed).
   The `curl` one-liner without `gh`, the `gh` one-liner, and `update`
   downloading from GitHub each installed a release.
-  `version --list` marks the latest and installed releases; an installed
+  `update --list` marks the latest and installed releases; an installed
   release missing from the list, a pre-release or local build, follows on its
   own line (observed for a local build in a disposable home). Switching to an
   older bundle and back worked, and `update 9.9.9` names the missing release.
@@ -100,11 +100,11 @@ synthetic answers.
   (q exited 3). A merged file (Claude Code settings) with an added key
   planned no change. Unattended, `apply --dry-run --json` prints the plan with its digest, and
   `apply --approve-plan DIGEST` applies exactly that plan or exits 4 when the
-  machine, release or saved selection changed; `init --answers-from FILE`
+  machine, release or saved selection changed; `answers import FILE`
   works the same way. Observed on the WSL2 host: the approved digest applied
   exactly its checked effects, a digest taken before a saved-skip change exited
   4 with nothing applied and `machine.toml` byte-identical, and a stale digest
-  exits 4 even when nothing would apply; `init --answers-from` was not rerun.
+  exits 4 even when nothing would apply; `answers import` was not rerun.
 - Consent is checked before setup. In a scratch home with nothing installed
   and no terminal, a bare `apply` exited 3 with `Nothing approved this plan;
   read it with workbench apply --dry-run --json, then pass --approve-plan
@@ -115,7 +115,7 @@ synthetic answers.
   changed a file in the home. `apply --bogus` exited 2 naming
   `unknown flag: --bogus` (a JSON error with `--json=1`). `version` and
   `version --json` printed the version with a malformed `state.json`, and
-  `version --list` named the malformed state. With saved answers and
+  `update --list` named the malformed state. With saved answers and
   `select = ["no-such-effect"]`, `apply --dry-run --local-build` exited 0 with
   the warning `Saved choice no-such-effect is not offered here and is ignored;
   workbench apply --reset forgets it` and the same digest on two runs. With
@@ -127,7 +127,7 @@ synthetic answers.
   including with standard input piped as under `curl | sh`. Esc or ctrl+c at
   a question exits 3, saves no answers and names `workbench apply`, which
   then asks every question. Setup asks only the questions the saved answers
-  lack, and `init --ask KEY` asks a saved one again at a terminal without
+  lack, and `answers ask KEY` asks a saved one again at a terminal without
   network access: work → personal drops the tokens and the Codex work
   servers, coderabbit and `~/repos` trust, and personal → both asks both
   emails and writes the two per-directory Git files. An unknown key, or
@@ -135,7 +135,7 @@ synthetic answers.
   `apply --dry-run` with a missing answer asks nothing and names the fix. A
   `--local-build` apply installs the tools its checkout pins when they are
   missing and uses the saved answers without setup questions, and
-  `init --answers-from` adopts an existing chezmoi `[data]` table. It refuses a
+  `answers import` adopts an existing chezmoi `[data]` table. It refuses a
   FILE open to other users, naming the file, its mode and `chmod 600`, and
   answers with a missing, invalid or unknown key, naming the key and never its
   value (observed in a scratch home).
@@ -418,7 +418,7 @@ synthetic answers.
   the `.wslconfig` change) with no probe left unanswered, and probes
   wrote nothing under the home directory. The approved apply installed `fd`,
   switched the Node default, installed the missing tools, refreshed the tmux
-  plugins, moved the costs hooks to `workbench costs ingest` and removed the
+  plugins, moved the costs hooks to `workbench agent costs ingest` and removed the
   replaced `claude-costs` script and its completion. A skipped `run_once_`
   script was not recorded by chezmoi and ran on a later apply once unchecked.
   Saved skips held under `--yes`, `apply --dry-run --reset` showed every effect checked,
@@ -480,7 +480,7 @@ synthetic answers.
 - Coding agents: under a pseudo-terminal in a scratch home, a bare `apply`,
   `apply --yes` and `apply --choose` with `CLAUDECODE=1`, or with `CODEX_CI`, `CODEX_THREAD_ID`,
   `CODEX_SANDBOX` or `CODEX_SANDBOX_NETWORK_DISABLED` set, exited 3 with "An
-  agent runs this; use --dry-run --json then --approve-plan", as did `init --ask
+  agent runs this; use --dry-run --json then --approve-plan", as did `answers ask
   machine_role`, leaving `machine.toml` unchanged and downloading nothing; with
   `--json`, `--choose` exits 2. With `CLAUDECODE=1`, `--dry-run --json` and then
   `--approve-plan` with its digest applied exactly that plan to an isolated
@@ -615,7 +615,7 @@ synthetic answers.
 ### Projects
 
 - `project inspect` lists the candidate files and the projects they make.
-  `project configure` applied to a synthetic uv project, with extensions,
+  `project apply` applied to a synthetic uv project, with extensions,
   ignore entries, CI integration and native uv resolution. The next plan was
   unchanged; `project revert --dry-run` showed the restore plan and changed
   nothing, and `project revert` restored every file exactly. `--ci` requires
@@ -662,7 +662,7 @@ synthetic answers.
   rows took `session` evidence for both email and subscription; a second session
   with no hook took `observed`. The hook process returned in under a tenth of a
   second. A hook naming a Codex rollout bound a Codex session, and one naming a
-  path under neither tool logged that the session was not bound. `costs status`
+  path under neither tool logged that the session was not bound. `agent costs status`
   reported Claude Code hooks as `missing (workbench apply)` for a settings file
   with the old `async` hooks and `ok` for the synchronous ones. The real Claude
   Code sign-in was not read in this run (a synthetic `oauthAccount` stood in),
@@ -672,15 +672,15 @@ synthetic answers.
   row beats a family row except for a manual override, the ledger is created
   0600 in a 0700 folder, and the headline counts the rows the table shows
   (target; not yet observed on a real ledger).
-- `workbench migrate --apply` and the apply's **Move Workbench's files** step
+- `workbench migrate` and the apply's **Move Workbench's files** step
   move the costs files out of the `claude-costs` folders into Workbench's
   runtime folders with every ledger row, the import worker moves them by
   itself after an update, and the old completion and `claude-costs` script
   caches are deleted (target). On 2026-10-16, in a Linux container (kernel
   7.0.14-linuxkit, Docker 29.8.2, Ubuntu 24.04 arm64) with a disposable home
   whose old files v0.1.25 wrote by ingesting a synthetic transcript,
-  `workbench migrate` listed three pending migrations, `migrate --probe`
-  printed one line for each, and `migrate --apply --dry-run --json` then
+  `workbench migrate --dry-run` listed three pending migrations, `migrate --probe`
+  printed one line for each, and `migrate --dry-run --json` then
   `--approve-plan DIGEST` moved the ledger, both price caches and the
   overrides, deleted the old import log and lock, the completion cache and
   the old script's cache, removed every `claude-costs` folder, and wrote
@@ -690,7 +690,7 @@ synthetic answers.
   took the copy path across filesystems, with the same row counts and
   `integrity_check` ok. With old and new ledgers both present, both stayed
   unchanged, the output named them, the other migrations still ran, and
-  `migrate --apply` and `migrate run` exited 4. `apply --local-build
+  `migrate` and `migrate run` exited 4. `apply --local-build
   --dry-run` showed `checking migrations` and `migrations: 3 to run` (or `1
   needs attention` for the conflict), and with nothing pending `migrations:
   none to run` with the step under "Already set", on a home on ext4 and on
@@ -702,7 +702,7 @@ synthetic answers.
   values and the same digest for the same folder twice, and `apply
   --local-build --approve-plan DIGEST` with the digest from one folder, run
   under the other, exited 4 (`Approval digest does not match the current
-  plan; review a new plan`) before applying anything; `migrate --apply
+  plan; review a new plan`) before applying anything; `migrate
   --approve-plan` under another data folder exited 4 the same way.
 - On 2026-10-16, on macOS, the Claude Code and Codex hooks rendered with
   Workbench's bin folder: `render-check.sh` with the default bin folder rendered
@@ -711,7 +711,7 @@ synthetic answers.
   +4/−4 and `hooks.json` +4/−4, with the quoted path on every hook and Codex
   trusting each by its hash, and switching back rendered identical. Its stage
   "hooks follow a bin folder with a space" passed, and failed against hooks with
-  the fixed path (9 `BIN FAIL` lines). `costs status` with a spaced, quoted bin
+  the fixed path (9 `BIN FAIL` lines). `agent costs status` with a spaced, quoted bin
   path reported both tools' hooks `ok`, and `missing` when the Claude Code path
   was altered.
 
@@ -746,7 +746,7 @@ synthetic answers.
   bundles installed by `workbench update VERSION --bundle FILE` and
   `WORKBENCH_GUARD=dry-run`, a fake agent's `sleep` was tracked; installing
   the second release made the watcher hand over about a second after the
-  update finished (`handover` in `guard logs`), and the new watcher tracked
+  update finished (`handover` in `agent guard logs`), and the new watcher tracked
   the same command. `pgrep` sampled every 20 ms showed the new watcher beside
   the old one only for the hand-off, before the old exited. A dangling
   `workbench` link, a file that is not executable and a build without
@@ -766,14 +766,14 @@ synthetic answers.
   pinned wsl`; the macOS init plan differed only in the answers-file path it
   quotes.
 - On 2026-10-17, on macOS in disposable homes with a fake agent and
-  `WORKBENCH_GUARD=dry-run`, `workbench guard logs` printed one line per event
+  `WORKBENCH_GUARD=dry-run`, `workbench agent guard logs` printed one line per event
   (time, level, event, then `id=`, `agent=`, `subagent=`, `project=`, `by=`,
   `dry_run=`, `took=`, `size=`, `peak=` and `cmd=` where they apply, the
   command quoted when it holds a space), a `running` line for a command still
   running after 5 s under `--follow`, the log's own records under `--json`,
   and `No guard events since …` (exit 0) for an empty `--since` window.
   `NO_COLOR` and piped output dropped the color.
-- On 2026-10-17, on macOS in disposable homes, `workbench guard memory` ran
+- On 2026-10-17, on macOS in disposable homes, `workbench agent guard` ran
   against a fake agent's commands, dry run first. It listed four commands in
   four folders newest first with their project, the subagent of the one a
   subagent ran, their memory and peak, and kept the selection on its row as
@@ -787,7 +787,7 @@ synthetic answers.
   that ignores SIGTERM showed `◌ stopping`, then `✗ stopped` after the SIGKILL
   5 s later; a forced stop showed `✗ stopped` within two seconds; `k` on a
   finished row answered `already finished`; and each post hook returned
-  `Stopped by you (workbench guard memory).` as `additionalContext`. A stop
+  `Stopped by you (workbench agent guard).` as `additionalContext`. A stop
   sent by a command the agent ran was refused (`not allowed`). A client that
   stopped reading was disconnected while another kept receiving one snapshot a
   second. The view stayed connected through a handover, in which the socket
@@ -798,7 +798,7 @@ synthetic answers.
   update`. With `CLAUDECODE=1`, without a terminal, with `--non-interactive`
   or with `--json`, it exited 3 before opening the screen.
 - On 2026-10-18, on macOS in a disposable home with a fake agent under
-  `WORKBENCH_GUARD=dry-run`, `workbench guard memory` drew the four-line
+  `WORKBENCH_GUARD=dry-run`, `workbench agent guard` drew the four-line
   header: the brand, `● watching` and the clock on the first line, the counts
   with `mem 7.9/16 GB`, the largest peak and `swap 4.5/6.0 GB` on the third,
   and the dry-run notice on the fourth. The `mem` figure matched `vm_stat`
@@ -809,19 +809,19 @@ synthetic answers.
   dropped the swap; at 60×11 the stop menu drew below the header, and at 10
   lines the view asked for 11. The escape codes carried the pinned colors
   (the running mark and the INFO label green, the dry-run notice gold, the
-  agent clay) at 24-bit and 256-color depth, `guard logs` colored the level
+  agent clay) at 24-bit and 256-color depth, `agent guard logs` colored the level
   label alone with the agent in its hue and the event and `id` plain, and
   `NO_COLOR` printed plain text.
 - On 2026-10-18, in a Debian container (`python:3-slim`, arm64) capped at
   2 GiB as uid 1000 with the same fake agent, the view's header read `mem 63
   MB/2.0 GB`, the container's `memory.current` less its `inactive_file`
   over its limit, and `→`, `h`, the 60-column count line, the pinned colors
-  and `NO_COLOR` behaved as on macOS; `guard logs` colored the level and the
+  and `NO_COLOR` behaved as on macOS; `agent guard logs` colored the level and the
   agent the same way.
 - On 2026-10-17, in an Ubuntu 24.04 container (Docker 29.8.2, kernel
   7.0.14-linuxkit, arm64) capped at 2 GiB, as uid 1000 with a disposable home
   and Python added to the container for the stand-in agent, whose commands ran
-  in Claude Code's bash shape, `workbench guard memory` ran through `docker
+  in Claude Code's bash shape, `workbench agent guard` ran through `docker
   exec -it` with the same results as on macOS: four dry-run rows with project
   and subagent, a tagged pair stopped as `by=you dry_run=true` with the
   commands still running, details with the process tree, the narrow layouts,
@@ -833,7 +833,7 @@ synthetic answers.
   the home's `workbench` link at a second build while four commands ran and
   three finished rows were shown handed over about a second later: the
   header's release changed, every row, peak and the largest peak stayed, a
-  running row's memory graph kept its earlier readings, and `guard logs`
+  running row's memory graph kept its earlier readings, and `agent guard logs`
   showed one `handover` line naming both releases. Killing that watcher showed
   `○ not running`; the next hook started a fresh watcher, the view reconnected
   by itself, and the finished rows, which live only in the watcher's memory,
@@ -890,12 +890,12 @@ synthetic answers.
   command.
 - On 2026-11-14, on macOS, detached work was checked with Claude Code
   2.1.325 (`claude -p`) in throwaway sessions whose settings held only the
-  guard's hooks, with an isolated state folder, and `workbench guard memory`
+  guard's hooks, with an isolated state folder, and `workbench agent guard`
   driven in a private terminal. A command that double-forked a sleeper gave
   a `detached` row naming its agent and the call that started it, and,
   through a subagent, the subagent too; a person's stop from the view ended
   it (`◌ stopping`, then `✗ stopped`), and the session's reply quoted
-  `Stopped by you (workbench guard memory)`, from the main session and from
+  `Stopped by you (workbench agent guard)`, from the main session and from
   the subagent. A command that left `/bin/sleep` running when it returned
   gave a row with its call, held `young` for ten seconds and `unread` after;
   its details read "The guard will not stop this itself: its setting cannot be
@@ -1019,7 +1019,7 @@ synthetic answers.
   Claude Code's own sandbox and either agent on WSL2 with the guard enabled,
   where a command whose shape differs would go unguarded and be logged, not
   stopped wrongly; and a stop the guard itself chose reaching a real agent,
-  or a person's stop reaching Codex. `workbench guard memory` has been run
+  or a person's stop reaching Codex. `workbench agent guard` has been run
   against real Claude Code commands only (detached rows, through a
   subagent, and a person's stop of the chosen row), not against Codex's or
   the same command in two worktrees of one repository at once; nor has it
@@ -1042,12 +1042,12 @@ synthetic answers.
   macOS in a disposable home with synthetic answers, with `CLAUDE_CONFIG_DIR`
   unset, set to `~/.claude` or `~/.claude/`, `apply --local-build --dry-run
   --json` had no config-folder warning, `doctor` no `claude-config-dir` line
-  and `costs status` the `(workbench apply)` hint; set to `~/alt`, the plan
+  and `agent costs status` the `(workbench apply)` hint; set to `~/alt`, the plan
   warned `CLAUDE_CONFIG_DIR in the environment points Claude Code at ~/alt, so
   it does not read the settings, instructions and costs and guard hooks
   Workbench installs in ~/.claude; unset it, or set it to ~/.claude, for them
   to apply`, `doctor` reported it as `claude-config-dir: conflict` (exit 0) and
-  `costs status` showed the hooks of `~/alt` as missing without the hint, plus
+  `agent costs status` showed the hooks of `~/alt` as missing without the hint, plus
   a `config claude` line. The variable in `~/.claude/settings.json`'s `env` was
   named the same way with `remove it from that file`, and `CODEX_HOME` set to
   `~/codex-alt` gave `codex-home: conflict` and a `config codex` line. The
@@ -1065,6 +1065,24 @@ synthetic answers.
   `TERM=dumb` print plain lines, `NO_COLOR` drops color but keeps bold and
   faint, and a non-UTF-8 locale gets ASCII in place of ─ … → ✓ ✗. Tables fit
   the terminal from 20 columns up.
+- On November 17, 2026, on macOS with a local build in a disposable home,
+  `--help` printed a short description with examples for the root, `agent`,
+  `agent costs` and its `ingest`, `rates` and `status`, `agent guard`,
+  `agent guard logs`, `answers`, `answers import`, `answers ask`, `project
+  apply`, `migrate`, `update` and `version`; bare `agent` and `answers` print
+  their help. Bare `agent guard` with standard input from `/dev/null`
+  exited 3 with `agent guard needs a terminal`, with `--json` exited 3
+  pointing at `agent guard logs --json`, and `agent guard logs --json` in an
+  empty home exited 0. Bare `migrate` without a terminal exited 3 with
+  `Nothing approved this plan; read it with workbench migrate --dry-run
+  --json`, and under a coding agent exited 3 for bare `migrate`, `--yes` and
+  `-y`; `migrate --dry-run --json` listed the five migrations with a
+  `plan_digest`, and `migrate --approve-plan` with that digest exited 0 with
+  nothing to migrate. `update --list` with a VERSION or `--dry-run` exited 2.
+  `render-check.sh` passed for the personal, work and both roles in pinned
+  mode: the Claude Code settings merge replaced copies of the managed hooks
+  from another folder with the current `workbench agent costs ingest` and
+  `workbench agent guard pre`, keeping the user's own hooks.
 
 ## Unqualified release gates
 

@@ -90,7 +90,7 @@ rewrite the shared Windows Terminal settings, PowerShell profile,
 - A machine with saved answers is asked its folder questions, and on the work
   role the Jira, GitLab and dispatch-checkout questions, on the first apply
   after upgrading, with today's folders as defaults; that apply needs a
-  terminal, or `init --answers-from FILE`.
+  terminal, or `answers import FILE`.
 - Work names never reach a shell, command or agent started outside the work
   folder through Workbench's shell files, except a command that acts on
   another folder without changing to it (`git -C`) and an agent session

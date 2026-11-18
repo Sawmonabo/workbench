@@ -369,7 +369,7 @@ func readOfficial(paths Paths, tool Tool) officialFile {
 
 func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	path := officialPath(paths, tool)
-	// The ledger's folder and the tool's below it, which `costs rates
+	// The ledger's folder and the tool's below it, which `agent costs rates
 	// --refresh` can create first: private like the ledger. The cache holds
 	// public prices.
 	folder, err := operation.PrivateDirectory(paths.Runtime.Data, filepath.Join("costs", tool.Name))
