@@ -178,9 +178,15 @@ func reason(command string, detached bool, children int, size uint64, m memory) 
 		processes = ", a program this call started that had detached" +
 			strings.Replace(processes, " and", ", and", 1)
 	}
-	return fmt.Sprintf("workbench guard: stopped `%s`%s. The machine was nearly out of memory "+
-		"(%s) and this was the largest agent command, at %s. Retry with less parallelism or a "+
-		"smaller input.", clip(command), processes, state, Size(size))
+	return fmt.Sprintf(
+		"workbench agent guard: stopped `%s`%s. The machine was nearly out of memory "+
+			"(%s) and this was the largest agent command, at %s. Retry with less parallelism or a "+
+			"smaller input.",
+		clip(command),
+		processes,
+		state,
+		Size(size),
+	)
 }
 
 // clip makes a command fit one line of the reason: no newlines or

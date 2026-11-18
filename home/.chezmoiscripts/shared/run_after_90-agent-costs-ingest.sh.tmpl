@@ -19,10 +19,10 @@ if [[ "${WORKBENCH_EFFECT_AGENT_COSTS_INGEST:-}" != 1 ]]; then
     exit 0
 fi
 if [ ! -x "$workbench" ]; then
-    echo "==> costs: no installed workbench at $workbench; skipped"
+    echo "==> agent costs: no installed workbench at $workbench; skipped"
     exit 0
 fi
-echo "==> costs: reading new usage into the ledger"
+echo "==> agent costs: reading new usage into the ledger"
 {{ template "effect-report.sh" }}
 old_locations "$workbench" agent costs ingest --worker ||
-    part_failed agent-costs-ingest "reading new usage into the costs ledger failed (the output above says why); the next apply reads it" || exit 1
+    part_failed agent-costs-ingest "reading new usage into the agent costs ledger failed (the output above says why); the next apply reads it" || exit 1
