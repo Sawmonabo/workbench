@@ -21,16 +21,30 @@ import (
 )
 
 // Download fetches a bounded public HTTPS resource; callers verify its content.
-func Download(ctx context.Context, location string, limit int64) ([]byte, error) {
-	return get(ctx, location, limit, "application/octet-stream", "")
+// progress, when set, is told the bytes received and the size the server sent
+// (-1 when it sent none).
+func Download(
+	ctx context.Context,
+	location string,
+	limit int64,
+	progress func(done, total int64),
+) ([]byte, error) {
+	return get(ctx, location, limit, "application/octet-stream", "", progress)
 }
 
 // errNotFound is get's answer for a resource the server says does not exist.
 var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
 
 // get fetches a bounded HTTPS resource as accept, sending token as a bearer
-// credential when set. Redirects to another host drop the credential.
-func get(ctx context.Context, location string, limit int64, accept, token string) ([]byte, error) {
+// credential when set, and reports its bytes to progress when set. Redirects to
+// another host drop the credential.
+func get(
+	ctx context.Context,
+	location string,
+	limit int64,
+	accept, token string,
+	progress func(done, total int64),
+) ([]byte, error) {
 	u, err := url.Parse(location)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || limit < 1 ||
 		limit > MaxDownload {
@@ -50,24 +64,15 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 	}
 	// A stall limit, not a total-time limit: a slow link may take long as long
 	// as bytes keep arriving.
-	ctx, cancel := context.WithCancelCause(ctx)
+	download, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	request = request.WithContext(ctx)
-	client := &http.Client{
-		Transport: downloadTransport,
-		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 || req.URL.Scheme != "https" {
-				return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
-			}
-			return nil
-		},
-	}
+	request = request.WithContext(download)
 	stall := time.AfterFunc(stallLimit, func() { cancel(errStalled) })
 	defer stall.Stop()
-	response, err := client.Do(request)
+	response, err := downloadClient.Do(request)
 	if err != nil {
-		if errors.Is(context.Cause(ctx), errStalled) {
-			return nil, stalledDownload()
+		if err := cut(ctx, download); err != nil {
+			return nil, err
 		}
 		return nil, operation.Fail(
 			operation.ExitFailed,
@@ -112,11 +117,14 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 			"Release asset exceeds the download bound",
 		)
 	}
-	data, err := io.ReadAll(
-		io.LimitReader(&stallReader{body: response.Body, timer: stall}, limit+1),
+	body := counted(
+		&stallReader{body: response.Body, timer: stall},
+		response.ContentLength,
+		progress,
 	)
-	if errors.Is(context.Cause(ctx), errStalled) {
-		return nil, stalledDownload()
+	data, err := io.ReadAll(io.LimitReader(body, limit+1))
+	if err := cut(ctx, download); err != nil {
+		return nil, err
 	}
 	if err != nil || int64(len(data)) > limit {
 		return nil, operation.Fail(
@@ -130,6 +138,17 @@ func get(ctx context.Context, location string, limit int64, accept, token string
 
 // stallLimit is how long a download may go without receiving a byte.
 const stallLimit = time.Minute
+
+// downloadClient follows at most five redirects, each to HTTPS.
+var downloadClient = &http.Client{
+	Transport: downloadTransport,
+	CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || req.URL.Scheme != "https" {
+			return operation.Fail(operation.ExitInvalid, "download", "Unsafe download redirect")
+		}
+		return nil
+	},
+}
 
 // downloadTransport is the default transport's proxy, dial, TLS and idle
 // behavior plus a response-header deadline, shared so connections are reused.
@@ -171,24 +190,83 @@ func (r *stallReader) Read(p []byte) (int, error) {
 	return n, err
 }
 
-// ReadBundle verifies a release archive from a local file or HTTPS URL. A
-// non-empty version must match the archive's recorded release.
-func ReadBundle(ctx context.Context, location, version string) (_ Bundle, err error) {
+// cut is why a download stopped early, nil when it did not: the caller's
+// context ended (an interruption, which keeps its exit), or download was
+// cancelled after stallLimit without data.
+func cut(caller, download context.Context) error {
+	if errors.Is(context.Cause(download), errStalled) {
+		return stalledDownload()
+	}
+	return caller.Err()
+}
+
+// counted is body reporting its bytes to progress, or body when progress is
+// nil.
+func counted(body io.Reader, total int64, progress func(done, total int64)) io.Reader {
+	if progress == nil {
+		return body
+	}
+	return &countingReader{body: body, total: total, progress: progress}
+}
+
+// countingReader reports the bytes read so far and the expected total, -1 when
+// unknown; at the end of an unsized body it reports the count as the total.
+type countingReader struct {
+	body     io.Reader
+	done     int64
+	total    int64
+	progress func(done, total int64)
+}
+
+func (r *countingReader) Read(p []byte) (int, error) {
+	n, err := r.body.Read(p)
+	r.done += int64(n)
+	total := r.total
+	end := errors.Is(err, io.EOF) && total < 0
+	if end {
+		total = r.done
+	}
+	if n > 0 || end {
+		r.progress(r.done, total)
+	}
+	return n, err
+}
+
+// CheckBundleLocation refuses a --bundle that is neither an HTTPS URL nor an
+// existing regular file within the download bound.
+func CheckBundleLocation(location string) error {
+	if strings.HasPrefix(location, "https://") {
+		return nil
+	}
+	info, err := os.Lstat(location)
+	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxDownload {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"release",
+			"Bundle must be an existing bounded regular file or HTTPS URL",
+		)
+	}
+	return nil
+}
+
+// ReadBundle verifies a release archive from a local file or HTTPS URL, whose
+// bytes it reports to progress when set. A non-empty version must match the
+// archive's recorded release.
+func ReadBundle(
+	ctx context.Context,
+	location, version string,
+	progress func(done, total int64),
+) (_ Bundle, err error) {
 	defer operation.Annotate(&err, "read release bundle %s", location)
 	if strings.HasPrefix(location, "https://") {
-		data, err := Download(ctx, location, MaxDownload)
+		data, err := Download(ctx, location, MaxDownload, progress)
 		if err != nil {
 			return Bundle{}, err
 		}
 		return Verify(bytes.NewReader(data), version, Target())
 	}
-	info, err := os.Lstat(location)
-	if err != nil || !info.Mode().IsRegular() || info.Size() > MaxDownload {
-		return Bundle{}, operation.Fail(
-			operation.ExitInvalid,
-			"release",
-			"Bundle must be an existing bounded regular file or HTTPS URL",
-		)
+	if err = CheckBundleLocation(location); err != nil {
+		return Bundle{}, err
 	}
 	file, err := os.Open(location)
 	if err != nil {
@@ -717,6 +795,9 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 			OutputLimit: 1 << 20,
 		},
 	)
+	if interrupted := ctx.Err(); interrupted != nil {
+		return interrupted // a stop, not a candidate that failed its check
+	}
 	var checked operation.Result
 	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil ||
 		checked.Status != operation.StatusComplete ||

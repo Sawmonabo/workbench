@@ -54,7 +54,7 @@ every-run checklist are deleted, not aliased.
 
 | Command | Does | Flags |
 | --- | --- | --- |
-| `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. Prints `[WorkBench] Installed vX; run workbench apply`. Never applies. With `--local-build`, installs only the tools the checkout's `versions.toml` pins. | `--dry-run`, `--bundle` (hidden), `--local-build` (hidden) |
+| `workbench update [VERSION]` | Find, verify, install and activate the release and its pinned tools. At a terminal draws the [update view](2026-10-20-update-view-design.md); otherwise prints `[WorkBench] Installed vX and its tools; nothing was applied: run workbench apply`. Never applies. With `--local-build`, installs only the tools the checkout's `versions.toml` pins. | `--dry-run`, `--bundle` (hidden), `--local-build` (hidden) |
 | `workbench apply` | Ask the missing machine questions on a first run, plan files and effects, apply the saved choices, and show the checklist only when something needs deciding or the owner asks (section 5). | `--dry-run`, `--yes`, `--choose`, `--reset`, `--approve-plan DIGEST`; hidden: `--local-build`, `--destination` |
 | `workbench init` | One-time adoption (`--answers-from`) and re-asking a saved answer (`--ask NAME`, moved from `apply`). | `--answers-from`, `--ask`, `--dry-run` |
 | `workbench doctor` | Its checks, plus the saved skips and the last apply's release and date. | |
@@ -108,8 +108,9 @@ Already set  Lower swapping, Work tools
 Rules:
 
 - Every screen `apply`, `update` and `doctor` print starts with `[WorkBench]`,
-  including the result line, for example
-  `[WorkBench] Applied: 3 files, 4 steps; 1 skipped`.
+  and for `apply` and `doctor` the result line does too, for example
+  `[WorkBench] Applied: 3 files, 4 steps; 1 skipped`; `update` at a terminal
+  ends on its view's outcome line (ADR 18).
 - Header: `[WorkBench] Plan for this PC · vX`, or `Applying your saved choices ·
   vX` when nothing is asked, then the counts: files, steps that will run, new
   to decide.
@@ -345,8 +346,9 @@ refused it); `--approve-plan` is for a caller that read the plan first.
   lines and the checkpoint ID for the files; which effects ran is what
   chezmoi's script state says, and rerunning `apply` resumes from it.
 - `--local-build` outside a Workbench checkout: exit 2.
-- `update` with no newer release: `[WorkBench] v0.1.8 is already installed`,
-  exit 0, no apply.
+- `update` with no newer release: `· Up to date` at a terminal,
+  otherwise `[WorkBench] v0.1.8 is already installed; nothing was applied: run
+  workbench apply`, exit 0, no apply.
 
 ## 8. Testing
 

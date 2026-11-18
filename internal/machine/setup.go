@@ -150,37 +150,66 @@ func setupDependencies(
 		return nil, err
 	}
 	selected, _ := ResolveDependencies(ctx, c, requirements, state.Dependencies, os.Getenv("PATH"))
+	// A probe cut short by an interruption is not a missing tool.
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
+	pinned := map[string]string{
+		"chezmoi": requirements.Chezmoi,
+		"uv":      requirements.UV,
+		"python3": requirements.Python,
+	}
+	// Each tool is reported as setup reaches it: in place, or fetched and then
+	// in place, with the previous private copy it replaces.
 	for _, name := range []string{"chezmoi", "uv"} {
-		if dependency(selected, name) != "" {
+		if version := dependencyVersion(selected, name); version != "" {
+			c.Tool(name, operation.ToolReady, version, "")
 			continue
 		}
+		previous := replacedVersion(state.Dependencies, name, pinned[name])
+		c.Tool(name, operation.ToolDownloading, pinned[name], previous)
 		c.Step("downloading " + name)
 		acquired, acquireErr := acquireTool(ctx, c, name, requirements)
 		if acquireErr != nil {
 			return nil, acquireErr
 		}
 		selected = append(selected, acquired)
+		c.Tool(name, operation.ToolReady, acquired.Version, previous)
 	}
-	if dependency(selected, "python3") == "" {
+	if version := dependencyVersion(selected, "python3"); version != "" {
+		c.Tool("python3", operation.ToolReady, version, "")
+	} else {
+		previous := replacedVersion(state.Dependencies, "python3", requirements.Python)
+		c.Tool("python3", operation.ToolInstalling, requirements.Python, previous)
 		c.Step("installing Python " + requirements.Python)
 		python, pythonErr := acquirePython(ctx, c, m, dependency(selected, "uv"), requirements)
 		if pythonErr != nil {
 			return nil, pythonErr
 		}
 		selected = append(selected, python)
+		c.Tool("python3", operation.ToolReady, python.Version, previous)
 	}
-	if _, err = TomlkitPath(c, requirements); err != nil {
+	if _, err = TomlkitPath(c, requirements); err == nil {
+		c.Tool("tomlkit", operation.ToolReady, requirements.Tomlkit, "")
+	} else {
+		c.Tool("tomlkit", operation.ToolDownloading, requirements.Tomlkit, "")
 		c.Step("downloading TOML Kit")
 		if err = acquireTomlkit(ctx, c, requirements); err != nil {
 			return nil, err
 		}
+		c.Tool("tomlkit", operation.ToolReady, requirements.Tomlkit, "")
 	}
 	c.Step("checking the installed tools")
 	qualified, results := ResolveDependencies(ctx, c, requirements, selected, "")
+	// A check cut short by an interruption is not a failed tool.
+	if err = ctx.Err(); err != nil {
+		return nil, err
+	}
 	var failed []string
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
 			failed = append(failed, result.Name+": "+result.Message)
+			c.Tool(result.Name, operation.ToolFailed, "", "")
 		}
 	}
 	if len(failed) > 0 {
@@ -316,7 +345,7 @@ func acquireTool(
 			"No reviewed management artifact digest for this target",
 		)
 	}
-	data, err := release.Download(ctx, location, release.MaxDownload)
+	data, err := release.Download(ctx, location, release.MaxDownload, c.Transfer(name))
 	if err != nil {
 		return operation.Dependency{}, err
 	}
@@ -409,7 +438,7 @@ func acquirePython(
 // acquireTomlkit downloads the pinned TOML Kit wheel, checks its digest and
 // unpacks it privately for the project editor adapter.
 func acquireTomlkit(ctx context.Context, c operation.Context, requirements Requirements) error {
-	wheel, err := release.Download(ctx, requirements.TomlkitURL, 16<<20)
+	wheel, err := release.Download(ctx, requirements.TomlkitURL, 16<<20, c.Transfer("tomlkit"))
 	if err != nil {
 		return err
 	}

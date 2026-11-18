@@ -19,12 +19,14 @@ every other argument through:
 
 - `--dry-run` verifies the bundle and shows only the install plan.
 
-Installing never applies the machine; the CLI's last line says to run
-`workbench apply`. A fresh machine's shell does not have `~/.local/bin` on
-`PATH` yet, so that line and the other hints that name `workbench` give its full
-path, `~/.local/bin/workbench`, until it is. The first apply writes the shell
-setup that adds it and ends by telling you to open a new terminal, which finds
-`workbench` and the tools it installed.
+Installing never applies the machine; run `workbench apply` next. At a terminal
+the install ends on `✓ Installed vX` (or `· Up to date` when that release was
+already installed); piped, its last line says to run `workbench apply`. A fresh
+machine's shell does not have `~/.local/bin` on `PATH` yet, so run the first
+apply as `~/.local/bin/workbench apply`; that piped line and the other hints
+that name `workbench` give the full path until it is. The first apply writes
+the shell setup that adds it and ends by telling you to open a new terminal,
+which finds `workbench` and the tools it installed.
 
 Every install, update and apply puts Workbench's own tools in place first,
 without asking: chezmoi, uv, Python and TOML Kit, pinned by the release,
@@ -82,18 +84,32 @@ minute, not after a fixed total time, so a slow link works. A token GitHub
 refuses (HTTP 401 or 403) is reported as such and names `gh auth status`,
 `GH_TOKEN` and `GITHUB_TOKEN`; a used-up rate limit says so. VERSION must be a
 release tag such as `v0.2.0` (`0.2.0` is accepted); an empty or malformed value
-exits 2. `update` ends with
-`[WorkBench] Installed vX and its tools; nothing was applied: run workbench apply`.
-When that release is already installed it installs no release, still completes
-any missing tool, and says `[WorkBench] vX is already installed; nothing was
-applied: run workbench apply`, so rerunning it finishes a setup that was stopped.
+exits 2. At a terminal, `update` draws one live view: `[WorkBench] Update`
+and the release it starts from, then one line with a spinner that reads
+`Checking for a newer release`, `Downloading` with a bar and the megabytes so
+far, then `Installing tools`, and under it an indented row for each of
+Workbench's tools (chezmoi, uv, Python, TOML Kit) as it reaches it, with its
+version, its own download bar, or `PREVIOUS → NEW` when it replaced a previous
+copy. The line ends as `✓ Updated to vX` in green (`✓ Installed vX` on a
+machine that had no release), or as `✗ Update failed: NAME` in red with the
+reason under it; Ctrl-C leaves `· Update stopped`. With either output piped or
+redirected, at a terminal that reports no size, with `--json` or with
+`--non-interactive`, it prints component lines and ends with `[WorkBench]
+Installed vX and its tools; nothing was applied: run workbench apply`. When
+that release is already installed it installs no release, still completes any
+missing tool, and ends with `· Up to date`, listing only a tool it had to
+fetch, or piped `[WorkBench] vX is already installed; nothing was applied:
+run workbench apply`, so rerunning it finishes a setup that was stopped. It
+never applies the machine; run `workbench apply` next. See
+[ADR 18](adr/0018-update-draws-one-live-view.md).
 Without a VERSION, a published release only moves forward: one newer than
 GitHub's latest is kept. A local build, one not built by the release workflow,
 is not on the release channel, so when it is the installed release `update`
 replaces it with the latest published release whatever their versions, and
 says so: `Replacing local build v0.2.1-dev.1 with v0.2.0, the latest published
-release`. `--dry-run` shows it, with or without `--json`, and a real run prints
-it on stderr. Name a VERSION to install another published release.
+release`. `--dry-run` shows it, with or without `--json`, and a real run
+without a terminal prints it on stderr; at a terminal the view's header and
+last line show the move. Name a VERSION to install another published release.
 GitHub's latest release is the newest full release (`vX.Y.Z`), never a
 pre-release (`vX.Y.Z-rc.N`), so a machine moves to a pre-release only when it
 names one: `workbench update v0.2.1-rc.1`, or the installer with `| sh -s --
@@ -104,8 +120,9 @@ and an installed release it lacks, such as a pre-release, on its own line; `gh
 release list -R Sawmonabo/workbench` and the repository's releases page also
 show pre-releases. See [ADR 0011](adr/0011-release-channels.md).
 The installed release runs the update, so one older than v0.1.8 first prints its
-own `Installed Workbench vX; continuing with setup and apply`; the new release
-then installs only its tools, as above. A staged copy of a release that
+own `Installed Workbench vX; continuing with setup and apply`, and one without
+the live view its own handoff line; the new release then installs only its
+tools, as above. A staged copy of a release that
 was modified is replaced with the verified bundle, except the active release's
 own folder, which is left alone and reported as a conflict; reinstalling the
 active release removes no older release. The hidden
@@ -125,10 +142,12 @@ of the installed release. With it, `update` installs the tools the checkout's
 downloaded, the machine is not applied, and it takes no VERSION or `--bundle`
 (exit 2). `--dry-run` shows those tools and the plan digest. Running it is the
 go-ahead, as for any update, so a coding agent can run it after a pin changes;
-each tool is checked against the digest the checkout pins before it is kept. It
-ends with `[WorkBench] Installed this checkout's tools; run workbench apply
---local-build`, or with `[WorkBench] This checkout's tools are in place; run
-workbench apply --local-build` when nothing was missing. `apply` installs the
+each tool is checked against the digest the checkout pins before it is kept. At
+a terminal its view ends with `✓ Installed this checkout's tools`, or `· Up to
+date: this checkout's tools` when nothing was missing; piped, with `[WorkBench]
+Installed this checkout's tools; run workbench apply --local-build`, or with
+`[WorkBench] This checkout's tools are in place; run workbench apply
+--local-build`. `apply` installs the
 same tools when they are missing (at a terminal, or with `--yes`, as for any
 apply) and uses your saved answers as they are; save them with
 `answers import FILE`. `apply`, `update` and `revert` take the hidden
@@ -606,7 +625,8 @@ without the work role, until you delete them as its plan line says. Without a te
 effects: the plan's digest names the effects it runs.
 
 At a terminal, results mark each part ✓ (done), · (nothing to do) or ✗ (not
-done) in color, and a successful run ends with a green `[WorkBench]` line
+done) in color (`update` draws its own view instead, above), and a successful
+run ends with a green `[WorkBench]` line
 saying what it achieved, for example
 `[WorkBench] Applied: 3 files, 4 steps; 1 skipped`, or, when the files match and no effect is checked,
 `[WorkBench] Nothing to apply; this machine already matches`.

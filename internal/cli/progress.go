@@ -9,21 +9,43 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
+	"github.com/charmbracelet/x/term"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// newProgress shows progress on diagnostics: one live status line when it is
-// a terminal and the run is interactive, otherwise plain lines. The returned
-// function clears the status line.
-func newProgress(o *options, diagnostics io.Writer) (operation.Progress, func()) {
-	file, ok := diagnostics.(*os.File)
-	if ok && o.interactive() && platform.IsTerminal(file.Fd()) {
+// newProgress shows progress on diagnostics: when it is a terminal that
+// reports its size and the run is interactive, the update view for an update
+// and one live status line otherwise, else plain lines. The returned function
+// ends the live line or view.
+func newProgress(o *options, diagnostics io.Writer, update bool) (operation.Progress, func()) {
+	// A terminal with no size gets plain lines: there the status line and the
+	// update view would draw nothing.
+	if file, ok := diagnostics.(*os.File); ok && o.interactive() && isTerminal(file) &&
+		reportsSize(file) {
+		if update {
+			view := newUpdateView(file)
+			return view, view.close
+		}
 		status := &statusLine{output: file}
 		return status, status.Stop
 	}
 	return progressLines{diagnostics}, func() {}
+}
+
+// isTerminal reports whether w is a terminal.
+func isTerminal(w io.Writer) bool {
+	file, ok := w.(*os.File)
+	return ok && platform.IsTerminal(file.Fd())
+}
+
+// reportsSize reports whether the terminal file gives a width and a height.
+// A pseudo-terminal opened with no size (ssh -tt from a script, script
+// without a terminal of its own) reports 0.
+func reportsSize(file *os.File) bool {
+	width, height, err := term.GetSize(file.Fd())
+	return err == nil && width > 0 && height > 0
 }
 
 // progressLines prints each title and step on its own line.

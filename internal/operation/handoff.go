@@ -13,7 +13,10 @@ import (
 // later setup/apply. The runtime gets a rebuilt environment: Workbench's own
 // paths, the presentation settings, the proxy and CA settings and the
 // coding-agent markers (agentVariables), and nothing else of the caller's.
-func Handoff(c Context, expected ReleaseRecord, args []string) error {
+//
+// ready runs once every check has passed, just before the runtime replaces
+// this process, for the caller to finish with the terminal.
+func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) error {
 	state, err := ReadState(c.Paths)
 	if err != nil {
 		return err
@@ -68,6 +71,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string) error {
 	environment = append(environment, passedThrough(handoffVariables)...)
 	environment = append(environment, NetworkEnvironment()...)
 	environment = append(environment, passedThrough(agentVariables)...)
+	ready()
 	if err = syscall.Exec(
 		executable,
 		append([]string{executable}, args...),

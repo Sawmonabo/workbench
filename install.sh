@@ -4,7 +4,7 @@
 #   gh release download -R Sawmonabo/workbench -p install.sh -O - | sh
 # Options: --version vX.Y.Z (default: this release, or the latest). Every other
 # argument goes to `workbench update`, for example --dry-run. Installing never
-# applies the machine; the CLI's last line says to run `workbench apply`.
+# applies the machine; run `workbench apply` next.
 # The downloaded CLI verifies the whole bundle before it installs anything.
 set -eu
 repo=Sawmonabo/workbench

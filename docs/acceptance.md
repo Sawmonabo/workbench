@@ -76,17 +76,40 @@ synthetic answers.
   own line (observed for a local build in a disposable home). Switching to an
   older bundle and back worked, and `update 9.9.9` names the missing release.
 - `update` installs the release and its pinned tools and never applies the
-  machine. From an older release it installs the latest and says
-  `[WorkBench] Installed vX and its tools; run workbench apply`; when that
-  release is already active it says `[WorkBench] vX is already installed; run
-  workbench apply`. `install.sh` installs through `update` and applies nothing,
-  and `update --dry-run` stops before installing. Observed on a WSL2 Ubuntu
-  26.04 host from a local bundle: install and the already-installed line;
-  `install.sh` was not run there. Without a version, `update` replaces a local
-  build with the latest published release whatever their versions and says
-  `Replacing local build vX with vY, the latest published release`, and a
-  published build newer than the latest is kept. (observed on macOS in
-  disposable homes from local bundles, against GitHub's latest)
+  machine. From an older release it installs the latest and says `[WorkBench]
+  Installed vX and its tools; nothing was applied: run workbench apply`; when
+  that release is already active it says `[WorkBench] vX is already installed;
+  nothing was applied: run workbench apply`. At a terminal it draws its live
+  view instead (ADR 18): observed on macOS (Nov 18, 2026) in pseudo-terminals
+  in disposable homes from local bundles (`-dev.N`): a first install with
+  every tool downloaded (`[WorkBench] Install`, `✓ Installed vX`), an update
+  from one local release to another on one screen, with and without a tool
+  changing version (`0.13.6 → 0.13.7`), `· Up to date` in two lines, a
+  release that is not an archive and a tool download failing through a
+  refused proxy (`✗ Update failed`, the reason under it once, exits 2 and 5),
+  Ctrl-C at the start, in a tool download and in a release download over
+  HTTPS (`· Update stopped`, exit 130, cursor restored), a rerun finishing a
+  stopped install, a 4-row window keeping the whole outcome and a four-line
+  reason, 40- and 30-column windows with shorter bars, `NO_COLOR`, `LANG=C`
+  with the plain marks and bracket bars, and `--local-build` (`Update · this
+  checkout`). Piped and `--json` output for an install, an update, an
+  unchanged release and two failures was byte for byte what a build without
+  the view prints, with the same exit codes; `--json`, `--non-interactive`, a
+  piped stdout, `--dry-run` and `--list` at a terminal drew no view, and a
+  pseudo-terminal that reports no size (0 by 0) got plain progress lines and
+  the result lines. An update from a build without the view to one with it
+  showed the old release's handoff line, then the view from its outcome
+  line; going back, and an update to the published v0.1.32-rc.7, showed the
+  header, then that release's own lines. Not observed: the view on Linux,
+  and an exec that fails at the handoff. `install.sh` installs through
+  `update` and applies nothing, and `update --dry-run` stops before
+  installing. Observed on a WSL2 Ubuntu 26.04 host from a local bundle:
+  install and the already-installed line; `install.sh` was not run there.
+  Without a version, `update` replaces a local build with the latest published
+  release whatever their versions and says `Replacing local build vX with vY,
+  the latest published release`, and a published build newer than the latest
+  is kept. (observed on macOS in disposable homes from local bundles, against
+  GitHub's latest)
 - Installing Workbench and its pinned tools needs no separate approval: from a
   fresh home with no chezmoi or uv on `PATH`, `update` downloads chezmoi, uv,
   Python 3.12.12 and TOML Kit with a progress line and without a prompt, and

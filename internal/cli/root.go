@@ -175,9 +175,12 @@ const (
 	nativeAction
 	// projectAction selects the project at PATH, narrowed by --language.
 	projectAction
-	// releaseAction updates to or checks a release. It skips validating
-	// the current selection, which an interrupted update resumes to repair.
+	// releaseAction checks a release. It skips validating the current
+	// selection, which an interrupted update resumes to repair.
 	releaseAction
+	// updateAction is update: a releaseAction that, at a terminal, draws the
+	// update view.
+	updateAction
 	// versionAction only resolves paths. It reads no state before the handler,
 	// so version still reports the version when state.json is malformed, which
 	// is when it is asked for.
@@ -195,6 +198,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			selection.Languages, _ = cmd.Flags().GetStringArray("language")
 		}
 		result := operation.NewResult(cmd.CommandPath())
+		viewFailed := false // the update view showed the failure or the stop, with its reason
 		if o.localBuild {
 			checkout, err := localCheckout()
 			if err != nil {
@@ -208,7 +212,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 		resolved, err := operation.Resolve(selection)
 		switch {
 		case err != nil, kind == versionAction:
-		case kind == releaseAction:
+		case kind == releaseAction, kind == updateAction:
 			// Malformed state still stops a release command before any work.
 			_, err = operation.ReadState(resolved.Paths)
 		default:
@@ -218,13 +222,36 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			err = selectSource(&resolved)
 		}
 		if err == nil {
-			progress, stop := newProgress(o, cmd.ErrOrStderr())
+			// The update view stands for the result lines, which go to stdout,
+			// so it is drawn only when stdout is the terminal too.
+			dryRun, _ := cmd.Flags().GetBool("dry-run")
+			list, _ := cmd.Flags().GetBool("list") // lists releases, updates nothing
+			update := kind == updateAction && !dryRun && !list && isTerminal(cmd.OutOrStdout())
+			progress, stop := newProgress(o, cmd.ErrOrStderr(), update)
 			defer stop() // clears the status line on a panic
 			resolved.Progress = progress
 			result, err = run(cmd, resolved)
+			if view, ok := progress.(*updateView); ok {
+				interrupted := operation.ExitCode(err) == operation.ExitInterrupted
+				if err != nil {
+					var failure operation.Result
+					failure.SetError(err)
+					view.fail(interrupted, failure.Errors[0].Message)
+				}
+				stop()
+				// The view showed the outcome, or the failure or the stop with
+				// its reason.
+				if view.shown() {
+					result.Results, result.Summary = nil, ""
+					viewFailed = err != nil
+				}
+			}
 			stop()
 		}
 		result.SetError(err)
+		if viewFailed {
+			result.Errors = nil
+		}
 		o.rendered = true
 		if renderErr := render(
 			cmd.OutOrStdout(),

@@ -46,7 +46,7 @@ func updateCommand(o *options) *cobra.Command {
 			"  workbench update --dry-run",
 		Args: cobra.MaximumNArgs(1),
 		RunE: o.action(
-			releaseAction,
+			updateAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 				if list, _ := cmd.Flags().GetBool("list"); list {
 					return listReleases(cmd, c)
@@ -65,7 +65,7 @@ func updateCommand(o *options) *cobra.Command {
 	cmd.Flags().String(
 		"runtime-ready",
 		"",
-		"Continue the verified runtime handoff after an install that is new or unchanged",
+		"Continue the verified runtime handoff after an install that is first, new or unchanged",
 	)
 	_ = cmd.Flags().MarkHidden("runtime-ready")
 	o.localBuildFlag(cmd)
@@ -248,46 +248,31 @@ func updateRelease(
 	o *options,
 ) (result operation.Result, resultErr error) {
 	result = operation.NewResult(cmd.CommandPath())
-	defer func() {
-		if resultErr == nil || operation.ExitCode(resultErr) == operation.ExitInterrupted {
-			return
-		}
-		for _, component := range result.Results {
-			if component.Name == "release" && component.Status == operation.StatusComplete {
-				redacted := operation.NewResult(cmd.CommandPath())
-				redacted.SetError(resultErr)
-				problem := redacted.Errors[0]
-				resultErr = operation.Fail(
-					operation.ExitPartial,
-					problem.Category,
-					"Workbench is installed, but the rest of the update did not finish: "+problem.Message,
-				)
-				return
-			}
-		}
-	}()
+	defer partialUpdate(cmd.CommandPath(), &result, &resultErr)
+	// Input errors come before the view, which would call them a failed update.
+	ready, _ := cmd.Flags().GetString("runtime-ready")
+	tag, err := "", localBuildInput(cmd, c.Native.Developer)
+	if err == nil && !c.Native.Developer && ready == "" {
+		tag, err = releaseTag(cmd)
+	}
+	if location, _ := cmd.Flags().GetString("bundle"); err == nil && cmd.Flags().Changed("bundle") {
+		err = release.CheckBundleLocation(location) // refuses an empty one too
+	}
+	if err == nil && ready == "" {
+		err = startUpdateView(c)
+	}
+	if err != nil {
+		return result, err
+	}
 	if c.Native.Developer {
 		return installCheckoutTools(cmd, c, o, result)
 	}
 	c.ReadOnly = false
-	if ready, _ := cmd.Flags().GetString("runtime-ready"); ready != "" {
-		return continueInstall(cmd, c, o, result, ready == "unchanged")
+	if ready != "" {
+		return continueInstall(cmd, c, o, result, ready == "unchanged", ready == "first")
 	}
-	tag := ""
-	if args := cmd.Flags().Args(); len(args) > 0 {
-		tag = args[0]
-		// Release tags start with v; accept 0.2.0 for v0.2.0.
-		if tag != "" && tag[0] >= '0' && tag[0] <= '9' {
-			tag = "v" + tag
-		}
-		if !release.ValidTag(tag) {
-			return result, operation.Fail(
-				operation.ExitInvalid,
-				"input",
-				"VERSION must be a release tag such as v0.2.0",
-			)
-		}
-	}
+	// Read before the install: afterwards the state names the new release.
+	previous, _ := installedRelease(c)
 	bundle, replacing, err := readRelease(cmd, c, tag)
 	if err != nil {
 		return result, err
@@ -318,14 +303,19 @@ func updateRelease(
 	// Running update is the go-ahead to install Workbench itself: it changes
 	// only Workbench's own files and keeps the release it replaces. The
 	// recheck under the locks still refuses a plan that changed.
+	updateViewOf(c).phase(phaseInstalling)
 	stop := c.ShowProgress("Installing Workbench " + bundle.Metadata.Release)
+	// A removal warning prints once the view has ended: from the handoff when
+	// it goes ahead, else with the result's other warnings.
+	var warnings []string
+	defer func() { result.Warnings = append(result.Warnings, warnings...) }()
 	err = operation.WithMutation(
 		cmd.Context(),
 		c,
 		plan,
 		operation.Consent{ApprovedDigest: result.PlanDigest, CompleteInputs: true},
 		planner,
-		stageRelease(cmd, c, *bundle, plan),
+		stageRelease(cmd, c, *bundle, plan, &warnings),
 	)
 	stop()
 	if err != nil {
@@ -347,9 +337,33 @@ func updateRelease(
 	if err != nil {
 		return result, err
 	}
-	installed := cmp.Or(replacing, "Installed "+bundle.Metadata.Release)
-	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "[WorkBench] %s; continuing with its tools\n", installed)
-	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(o, "installed"))
+	announce := announceHandoff(
+		cmd,
+		c,
+		cmp.Or(replacing, "Installed "+bundle.Metadata.Release),
+		&warnings,
+	)
+	install := "installed"
+	if previous == "" {
+		install = "first"
+	}
+	if cmd.Context().Err() != nil {
+		return result, stoppedBeforeTools(c, bundle.Metadata.Release)
+	}
+	return result, operation.Handoff(c, *state.ActiveRelease, handoffArgs(o, install), announce)
+}
+
+// stoppedBeforeTools is an interruption that arrived between activating
+// release and handing over to it: the update stops there, since the activated
+// release would start with no memory of the interruption, and says that the
+// release is active.
+func stoppedBeforeTools(c operation.Context, release string) error {
+	return operation.Fail(
+		operation.ExitInterrupted,
+		"interrupted",
+		"Stopped after installing "+release+", before its tools: rerun "+
+			c.WorkbenchCommand()+" update to finish",
+	)
 }
 
 // installCheckoutTools is update --local-build: it puts the tools the checkout's
@@ -363,22 +377,6 @@ func installCheckoutTools(
 	o *options,
 	result operation.Result,
 ) (operation.Result, error) {
-	if len(cmd.Flags().Args()) > 0 {
-		return result, operation.Fail(
-			operation.ExitInvalid,
-			"input",
-			"--local-build installs the checkout's tools; drop VERSION",
-		)
-	}
-	for _, name := range []string{"bundle", "runtime-ready"} {
-		if cmd.Flags().Changed(name) {
-			return result, operation.Fail(
-				operation.ExitInvalid,
-				"input",
-				"--local-build installs the checkout's tools; drop --"+name,
-			)
-		}
-	}
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		plan, err := machine.ToolsPlan(cmd.Context(), c)
 		if err != nil {
@@ -401,12 +399,16 @@ func installCheckoutTools(
 	}
 	result.Summary = "[WorkBench] This checkout's tools are in place; run " +
 		c.WorkbenchCommand() + " apply --local-build"
-	if slices.ContainsFunc(result.Results, func(component operation.Component) bool {
+	outcome := "Up to date: this checkout's tools"
+	installed := slices.ContainsFunc(result.Results, func(component operation.Component) bool {
 		return component.Name == "setup" && component.Status == operation.StatusComplete
-	}) {
+	})
+	if installed {
 		result.Summary = "[WorkBench] Installed this checkout's tools; run " +
 			c.WorkbenchCommand() + " apply --local-build"
+		outcome = "Installed this checkout's tools"
 	}
+	updateViewOf(c).finish(outcome, installed)
 	return result, nil
 }
 
@@ -431,12 +433,15 @@ func continueInstalled(
 	if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 		return result, nil
 	}
-	_, _ = fmt.Fprintf(
-		cmd.ErrOrStderr(),
-		"[WorkBench] %s is already installed; continuing with its tools\n",
-		active.Identity.Release,
+	if err := cmd.Context().Err(); err != nil {
+		return result, err // as above
+	}
+	return result, operation.Handoff(
+		c,
+		active,
+		handoffArgs(o, "unchanged"),
+		announceHandoff(cmd, c, active.Identity.Release+" is already installed", nil),
 	)
-	return result, operation.Handoff(c, active, handoffArgs(o, "unchanged"))
 }
 
 // readRelease reads --bundle, or finds and downloads release tag (the latest
@@ -457,8 +462,11 @@ func readRelease(
 	current := func(found string) bool {
 		return found == installed && release.ValidateSelection(c) == nil
 	}
-	if location, _ := cmd.Flags().GetString("bundle"); location != "" {
-		bundle, err := release.ReadBundle(cmd.Context(), location, tag)
+	if location, _ := cmd.Flags().GetString("bundle"); cmd.Flags().Changed("bundle") {
+		if strings.HasPrefix(location, "https://") {
+			updateViewOf(c).phase(phaseDownloading)
+		}
+		bundle, err := release.ReadBundle(cmd.Context(), location, tag, c.Transfer("workbench"))
 		if err != nil || current(bundle.Metadata.Release) {
 			return nil, "", err
 		}
@@ -485,7 +493,8 @@ func readRelease(
 		return nil, "", nil
 	}
 	c.Step("downloading " + remote.Tag)
-	bundle, err := remote.Bundle(cmd.Context())
+	updateViewOf(c).phase(phaseDownloading)
+	bundle, err := remote.Bundle(cmd.Context(), c.Transfer("workbench"))
 	if err != nil {
 		return nil, "", err
 	}
@@ -508,12 +517,14 @@ func runsActive(c operation.Context) bool {
 }
 
 // stageRelease stages and activates bundle, then removes what the approved
-// plan lists as no longer needed.
+// plan lists as no longer needed, adding a warning for each removal that
+// failed to warnings.
 func stageRelease(
 	cmd *cobra.Command,
 	c operation.Context,
 	bundle release.Bundle,
 	plan operation.Plan,
+	warnings *[]string,
 ) func(*operation.Mutation) error {
 	return func(m *operation.Mutation) error {
 		directory, err := release.Stage(c, m, bundle)
@@ -523,7 +534,7 @@ func stageRelease(
 		if err = release.Activate(cmd.Context(), c, m, bundle, directory); err != nil {
 			return err
 		}
-		removeStale(m, plan, cmd.ErrOrStderr())
+		*warnings = removeStale(m, plan)
 		return nil
 	}
 }
@@ -569,17 +580,20 @@ func retentionEdits(c operation.Context, bundle release.Bundle) ([]operation.Edi
 	return append(releases, setup...), err
 }
 
-// removeStale deletes the approved removals after activation. A failure only
-// warns: the directory stays and the next activation lists it again.
-func removeStale(m *operation.Mutation, plan operation.Plan, diagnostics io.Writer) {
+// removeStale deletes the approved removals after activation and returns a
+// warning for each that failed: the directory stays and the next activation
+// lists it again.
+func removeStale(m *operation.Mutation, plan operation.Plan) []string {
+	var warnings []string
 	for _, edit := range plan.Edits {
 		if edit.Action != "remove" {
 			continue
 		}
 		if err := m.RemovePrivateDirectory(edit.Path); err != nil {
-			_, _ = fmt.Fprintf(diagnostics, "Warning: could not remove %s: %v\n", edit.Path, err)
+			warnings = append(warnings, fmt.Sprintf("could not remove %s: %v", edit.Path, err))
 		}
 	}
+	return warnings
 }
 
 // continueInstall runs in the activated runtime after the handoff. The parent
@@ -590,8 +604,16 @@ func continueInstall(
 	c operation.Context,
 	o *options,
 	result operation.Result,
-	unchanged bool,
+	unchanged, first bool,
 ) (operation.Result, error) {
+	// The view starts on the line the starting release cleared, before any
+	// check that can fail; with the release unchanged it is still checking
+	// until a tool is fetched.
+	phase := phaseInstalling
+	if unchanged {
+		phase = phaseChecking
+	}
+	updateViewOf(c).phase(phase)
 	state, stateErr := operation.ReadState(c.Paths)
 	actual, executableErr := os.Executable()
 	if stateErr != nil || executableErr != nil || state == nil || state.ActiveRelease == nil ||
@@ -621,7 +643,7 @@ func continueInstall(
 	}
 	result.Results = append(result.Results, installed)
 	c.Native.Source, c.Native.Developer = state.ActiveRelease.Source, false
-	return installTools(cmd, c, o, result, metadata.Release, unchanged)
+	return installTools(cmd, c, o, result, metadata.Release, unchanged, first)
 }
 
 // handoffArgs repeats the selections for the activated runtime, which
@@ -652,20 +674,25 @@ func installTools(
 	o *options,
 	result operation.Result,
 	version string,
-	unchanged bool,
+	unchanged, first bool,
 ) (operation.Result, error) {
 	_, err := setUp(cmd, c, o, nil, &result, false, nil)
 	if err != nil {
 		return result, err
 	}
-	// The line says outright that nothing was applied: a release before
-	// v0.1.8, which hands its update over to this one, first announces
-	// "continuing with setup and apply".
+	// The summary, printed where the view is not drawn, says outright that
+	// nothing was applied.
 	next := "; nothing was applied: run " + c.WorkbenchCommand() + " apply"
 	result.Summary = "[WorkBench] Installed " + version + " and its tools" + next
+	outcome := "Updated to " + version
+	if first {
+		outcome = "Installed " + version
+	}
 	if unchanged {
 		result.Summary = "[WorkBench] " + version + " is already installed" + next
+		outcome = "Up to date"
 	}
+	updateViewOf(c).finish(outcome, !unchanged)
 	return result, nil
 }
 
@@ -767,4 +794,137 @@ func setUp(
 	}
 	result.Results = append(result.Results, component)
 	return c, nil
+}
+
+// partialUpdate rewrites a failure after this release was installed as a
+// partial one, saying so; an interruption keeps its own exit.
+func partialUpdate(command string, result *operation.Result, resultErr *error) {
+	if *resultErr == nil || operation.ExitCode(*resultErr) == operation.ExitInterrupted {
+		return
+	}
+	for _, component := range result.Results {
+		if component.Name == "release" && component.Status == operation.StatusComplete {
+			redacted := operation.NewResult(command)
+			redacted.SetError(*resultErr)
+			problem := redacted.Errors[0]
+			*resultErr = operation.Fail(
+				operation.ExitPartial,
+				problem.Category,
+				"Workbench is installed, but the rest of the update did not finish: "+problem.Message,
+			)
+			return
+		}
+	}
+}
+
+// localBuildInput refuses what --local-build does not take: VERSION,
+// --bundle and --runtime-ready. It accepts anything without --local-build.
+func localBuildInput(cmd *cobra.Command, developer bool) error {
+	if !developer {
+		return nil
+	}
+	if len(cmd.Flags().Args()) > 0 {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"input",
+			"--local-build installs the checkout's tools; drop VERSION",
+		)
+	}
+	for _, name := range []string{"bundle", "runtime-ready"} {
+		if cmd.Flags().Changed(name) {
+			return operation.Fail(
+				operation.ExitInvalid,
+				"input",
+				"--local-build installs the checkout's tools; drop --"+name,
+			)
+		}
+	}
+	return nil
+}
+
+// releaseTag is update's VERSION, "" for the latest. Release tags start with
+// v; 0.2.0 is accepted for v0.2.0.
+func releaseTag(cmd *cobra.Command) (string, error) {
+	args := cmd.Flags().Args()
+	if len(args) == 0 {
+		return "", nil
+	}
+	tag := args[0]
+	if tag != "" && tag[0] >= '0' && tag[0] <= '9' {
+		tag = "v" + tag
+	}
+	if !release.ValidTag(tag) {
+		return "", operation.Fail(
+			operation.ExitInvalid,
+			"input",
+			"VERSION must be a release tag such as v0.2.0",
+		)
+	}
+	return tag, nil
+}
+
+// announceHandoff is what runs just before the activated release takes the
+// terminal, once every check has passed: it clears the update view's working
+// line, where the activated release draws on, then prints the warnings, or
+// without the view prints them and says in a line what happens next, so a
+// log stays readable. The warnings wait until the view has ended, which owns
+// the lines it draws. It empties warnings once printed.
+func announceHandoff(
+	cmd *cobra.Command,
+	c operation.Context,
+	done string,
+	warnings *[]string,
+) func() {
+	return func() {
+		view := updateViewOf(c)
+		if view != nil {
+			view.handoff()
+		}
+		if warnings != nil {
+			printWarnings(cmd, *warnings)
+			*warnings = nil
+		}
+		if view == nil {
+			_, _ = fmt.Fprintln(
+				cmd.ErrOrStderr(),
+				"[WorkBench] "+done+"; continuing with its tools",
+			)
+		}
+	}
+}
+
+// printWarnings prints each warning on its own line of stderr.
+func printWarnings(cmd *cobra.Command, warnings []string) {
+	warn := newPainter(cmd.ErrOrStderr())
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warn.style(yellow, "Warning:"), warning)
+	}
+}
+
+// startUpdateView heads the update view, if c's progress draws one, with the
+// release the update starts from (or the checkout, with --local-build), and
+// starts it checking.
+func startUpdateView(c operation.Context) error {
+	view := updateViewOf(c)
+	if view == nil {
+		return nil
+	}
+	installed, err := installedRelease(c)
+	if err != nil {
+		return err
+	}
+	if c.Native.Developer {
+		installed = "this checkout" // --local-build installs no release
+	}
+	view.header(installed)
+	view.phase(phaseChecking)
+	return nil
+}
+
+// updateViewOf is the update view c's progress draws, or nil when it draws
+// none (not a terminal, --json, --non-interactive or --dry-run). Its phase
+// and finish do nothing on nil.
+func updateViewOf(c operation.Context) *updateView {
+	view, _ := c.Progress.(*updateView)
+	return view
 }

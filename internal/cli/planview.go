@@ -3,7 +3,6 @@ package cli
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -13,7 +12,6 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/Sawmonabo/workbench/internal/project"
 )
 
@@ -162,7 +160,7 @@ func writePlanView(w io.Writer, plan operation.Plan, verbose, applying bool) err
 
 // printPlanView prints one frame with no blank line after it.
 func printPlanView(w io.Writer, plan operation.Plan, view planView) error {
-	if file, ok := w.(*os.File); !ok || !platform.IsTerminal(file.Fd()) {
+	if !isTerminal(w) {
 		view.NoDiff = true
 	}
 	frame := buildPlanFrame(plan, terminalWidth(w), view)

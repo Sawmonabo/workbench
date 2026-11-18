@@ -10,11 +10,10 @@ over the same files.
    curl -fsSL https://github.com/Sawmonabo/workbench/releases/latest/download/install.sh | sh
    ```
 
-   Installing never applies the machine; the CLI's last line says to run
-   `workbench apply` (with the full path `~/.local/bin/workbench` while that
-   folder is not on `PATH`). From a checkout instead, build with
-   `go build -o bin/workbench ./cmd/workbench` and add `--local-build` to every
-   `apply` below, run inside the checkout.
+   Installing never applies the machine; run `workbench apply` next, as
+   `~/.local/bin/workbench apply` while that folder is not on `PATH`. From a
+   checkout instead, build with `go build -o bin/workbench ./cmd/workbench`
+   and add `--local-build` to every `apply` below, run inside the checkout.
 
 2. **Adopt your existing answers.** This copies only the `[data]` table into
    Workbench's private `machine.toml`. `sourceDir`, hooks and any other keys

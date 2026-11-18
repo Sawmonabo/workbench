@@ -360,6 +360,11 @@ func WithMutation(
 	if err != nil {
 		return err
 	}
+	// Before the comparison: a planner cut short by an interruption can
+	// return a different plan, which is a stop, not changed inputs.
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	currentDigest := current.Digest()
 	if currentDigest != digest {
 		return Fail(
@@ -367,9 +372,6 @@ func WithMutation(
 			"plan",
 			"Inputs changed after approval; review a new plan before writing",
 		)
-	}
-	if err := ctx.Err(); err != nil {
-		return err
 	}
 	m := &Mutation{context: c, active: true}
 	defer func() { m.active = false }()

@@ -395,7 +395,7 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, costs.Paths, e
 // ingestProgress is the one live status line at a terminal, and nothing
 // otherwise: a transcript per line would drown a pipe or a log.
 func ingestProgress(o *options, diagnostics io.Writer) (operation.Progress, func()) {
-	progress, stop := newProgress(o, diagnostics)
+	progress, stop := newProgress(o, diagnostics, false)
 	if _, live := progress.(*statusLine); !live {
 		return nil, func() {}
 	}

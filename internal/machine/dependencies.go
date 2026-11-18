@@ -216,6 +216,29 @@ func dependency(dependencies []operation.Dependency, name string) string {
 	return ""
 }
 
+// dependencyVersion is the version of the dependency named name, or "".
+func dependencyVersion(dependencies []operation.Dependency, name string) string {
+	for _, dependency := range dependencies {
+		if dependency.Name == name {
+			return dependency.Version
+		}
+	}
+	return ""
+}
+
+// replacedVersion is the version of the previous private copy of name that
+// recorded lists and version replaces, or "" when there is none or it is
+// version.
+func replacedVersion(recorded []operation.Dependency, name, version string) string {
+	for _, dependency := range recorded {
+		if dependency.Name == name && dependency.Owner == "workbench" &&
+			dependency.Version != version {
+			return dependency.Version
+		}
+	}
+	return ""
+}
+
 // scriptEnvironment keeps privately selected tools ahead of package-manager PATH
 // edits. A tool in a system folder (python3 in /usr/bin) is found there at the
 // end of PATH and puts no system folder ahead: the scripts put the user's tool
