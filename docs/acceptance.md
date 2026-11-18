@@ -1096,6 +1096,15 @@ synthetic answers.
   uv 0.13.9 installed Python 3.12.16, 3.13.18, 3.14.10 and 3.15.2, and
   `cargo install --locked` built cargo-audit 0.22.2 and cargo-deny 0.20.2
   with Rust 1.100.0.
+- On November 17, 2026, in an Ubuntu 24.04 arm64 container as a sudo user
+  with a disposable home, in pinned mode with golangci-lint 2.14.0 installed
+  and its pin at 2.15.0, the packages probe printed `linux-packages:
+  golangci-lint 2.14.0 → 2.15.0`, the step replaced it, and a second run
+  skipped every part. Latest mode kept an installed 2.14.0. A pin with no
+  release exited 1 and kept the working copy, and a lefthook that reported no
+  version was replaced. With chezmoi 2.70.3 alone, a run-on-change script ran
+  again when its content went back to an earlier one, which a run-once script
+  did not; the packages script was not run again after it became run-on-change.
 
 ## Unqualified release gates
 

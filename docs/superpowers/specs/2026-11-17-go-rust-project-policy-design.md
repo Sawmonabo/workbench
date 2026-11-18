@@ -430,7 +430,7 @@ global-tools, so rustup's Cargo already exists. The script:
    `claude_sha256` in `run_after_45-agent-updates.sh.tmpl`.
    - Workbench's existing checked downloads are `acquireTool` (Go, for chezmoi
      and uv) and `claude_native` (shell). The `gh` block in
-     `linux/run_once_before_00-packages.sh.tmpl` fetches the latest release
+     `linux/run_onchange_before_00-packages.sh.tmpl` fetches the latest release
      with no checksum, so it is not the model.
    - The script then installs `mbx` into `~/.local/bin` through a temporary
      name and `mv`.
