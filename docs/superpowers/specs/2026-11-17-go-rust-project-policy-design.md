@@ -25,7 +25,12 @@ depends on it must check it first.
   `go` and `rust`. Python settings go into `pyproject.toml` through the TOML Kit adapter
   (`adapter.py`). That adapter **adds missing settings and keeps every existing
   value and rule list**. It also records `[tool.workbench]` with
-  `schema_version = 1` and `policies = ["python-v1"]`.
+  `schema_version = 1` and `policies = ["python-v1"]`. Before it returns a
+  document it parses the result and requires every existing value at its own
+  key and only the requested additions new; a table added among dotted keys
+  gets a `[header]` of its own, and a key that would go into an inline table
+  is refused. A refusal blocks the plan with a prerequisite naming the file,
+  for `Cargo.toml` as for `pyproject.toml`.
 - **Python stops only for competing owners**: a standalone `ruff.toml`, `ty.toml`,
   `pyrightconfig.json` or `uv.toml`, a `[tool.pyright]` table, or `tool.ruff.extend`.
   In each case a merged setting would be ignored or refused by the tool.

@@ -20,7 +20,10 @@ Native Ruff rule selections at either `tool.ruff` or `tool.ruff.lint` are retain
 `tool.ruff.extend` requires explicit inherited-policy ownership review.
 Unsupported syntax or competing ownership stops the operation. The private,
 pinned TOML Kit adapter preserves comments/order and rejects documents whose
-unchanged parse/serialize cycle alters their bytes. Preview requires the separately
+unchanged parse/serialize cycle alters their bytes. A table added under dotted
+keys (`tool.ruff.line-length = 100`) gets a `[header]` of its own, nothing is
+added to an inline table, and a merged `pyproject.toml` that does not read back
+with every existing value at its own key stops the plan and names the file. Preview requires the separately
 approved management setup; it never acquires dependencies.
 
 The required command-line checks are Ruff lint, Ruff formatting verification and

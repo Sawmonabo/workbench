@@ -25,6 +25,8 @@ var adapter string
 
 // adapterDocument is one manifest the TOML Kit adapter merges a policy into.
 type adapterDocument struct {
+	// Path names the manifest when its layout is refused; it is not sent.
+	Path   string `json:"-"`
 	Source string `json:"source"`
 	Policy string `json:"policy"`
 	// PolicyID is recorded at Provenance, the record's key path; a document
@@ -36,10 +38,12 @@ type adapterDocument struct {
 	Ruff bool `json:"ruff"`
 }
 
-// tomlAdapter is the private Python and TOML Kit that edit manifests.
+// tomlAdapter is the private Python and TOML Kit that edit manifests for
+// proposal.
 type tomlAdapter struct {
 	python           operation.Dependency
 	library, version string
+	proposal         *Proposal
 }
 
 // adapter returns the private TOML Kit adapter, found once per plan, and binds
@@ -67,12 +71,14 @@ func (p *Proposal) adapter(
 		operation.Input{Name: "tomlkit", Digest: operation.SHA256Hex([]byte(library + version))},
 		operation.Input{Name: "project-options", Digest: operation.SHA256Hex(optionsData)},
 	)
-	p.toml = &tomlAdapter{python: python, library: library, version: version}
+	p.toml = &tomlAdapter{python: python, library: library, version: version, proposal: p}
 	return p.toml, nil
 }
 
 // transform merges each document's policy through the adapter and returns the
-// rendered documents in order.
+// rendered documents in order. A document whose layout the adapter refuses,
+// because the merge would change the meaning of keys it already has or would
+// add to an inline table, blocks the plan with a prerequisite that names it.
 func (a *tomlAdapter) transform(
 	ctx context.Context,
 	c operation.Context,
@@ -106,6 +112,22 @@ func (a *tomlAdapter) transform(
 			operation.ExitBlocked,
 			"project_editor",
 			"TOML preservation adapter failed; review unsupported syntax or provenance before changing files",
+		)
+	}
+	var refusal struct {
+		Refused *int   `json:"refused"`
+		Reason  string `json:"reason"`
+	}
+	if strings.HasPrefix(output.Stdout, "{") &&
+		json.Unmarshal([]byte(output.Stdout), &refusal) == nil && refusal.Refused != nil &&
+		*refusal.Refused >= 0 && *refusal.Refused < len(documents) {
+		a.proposal.Plan.Prerequisites = append(
+			a.proposal.Plan.Prerequisites,
+			documents[*refusal.Refused].Path+": its layout cannot be merged safely: "+refusal.Reason,
+		)
+		return nil, a.proposal.blocked(
+			"project_editor",
+			"A manifest's layout needs review; no files changed",
 		)
 	}
 	var result []string

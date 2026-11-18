@@ -63,7 +63,15 @@ schema_version = 1
 policies = ["rust-v1"]
 ```
 
-Every existing value, comment and table is kept. A record whose
+Every existing value, comment and table is kept. A table added where the
+manifest writes its parent as dotted keys (`package.name = "a"`, or
+`metadata.docs.x = 1` under `[package]`) gets a `[header]` of its own after
+them, because a header among dotted keys would take the keys after it.
+Nothing is added to an inline table (`metadata = { docs = { x = 1 } }`): the
+plan stops and names the key. Before anything is written, the adapter reads
+the result back and stops the plan, naming the manifest, unless every
+existing value is unchanged at its own key and the only new keys are the
+policy's and the record's. A record whose
 `schema_version` is not the integer 1 stops the plan, and so does a `[lints]`
 or `[workspace.lints]` that is not a table of lint groups, such as a single
 crate's `[lints] workspace = true`.

@@ -167,6 +167,7 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 		path:        manifest,
 		description: description,
 		document: adapterDocument{
+			Path:       manifest,
 			Source:     string(p.Inventory.inputs[manifest]),
 			Policy:     policy,
 			PolicyID:   rustpolicy.ID,
@@ -181,7 +182,11 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 		result = append(result, rustManifest{
 			path:        path,
 			description: "Opt the workspace member into the workspace lints",
-			document:    adapterDocument{Source: string(p.Inventory.inputs[path]), Policy: optIn},
+			document: adapterDocument{
+				Path:   path,
+				Source: string(p.Inventory.inputs[path]),
+				Policy: optIn,
+			},
 		})
 	}
 	return result, nil

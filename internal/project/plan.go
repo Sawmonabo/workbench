@@ -319,6 +319,7 @@ func (p *Proposal) addPolicy(
 	documents := make([]adapterDocument, len(selected))
 	for i, project := range selected {
 		documents[i] = adapterDocument{
+			Path:       filepath.Join(project.Root, "pyproject.toml"),
 			Source:     string(p.Inventory.inputs[filepath.Join(project.Root, "pyproject.toml")]),
 			Policy:     pythonpolicy.Policy,
 			PolicyID:   pythonpolicy.ID,

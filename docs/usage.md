@@ -796,7 +796,10 @@ warns when no `rust-toolchain.toml` installs rustfmt and clippy, and never
 writes one. Members come from the manifests' text, as Cargo counts them;
 selecting a member is blocked with "select the workspace root". Rust planning
 runs no Cargo or rustup command but, like Python, needs the management Python
-and TOML Kit.
+and TOML Kit. For both, a table added among dotted keys gets a `[header]` of
+its own, and a manifest that would need a key added to an inline table, or
+whose merge would not read back with every existing value at its own key,
+blocks the plan with a prerequisite that names the file and key.
 
 `--extensions` merges portable recommendations; it does not install extensions.
 `--gitignore` appends relevant absent entries while retaining pattern order.
