@@ -3,11 +3,11 @@ package migrate
 import (
 	"context"
 
-	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 )
 
 // costsFolders moves the costs files out of the claude-costs folders. The
-// move belongs to internal/costs, which alone opens, checks and copies the
+// move belongs to internal/agent/costs, which alone opens, checks and copies the
 // ledger; the import worker runs the same move by itself (costs.Ingest), without
 // asking, because usage left unread could be lost.
 var costsFolders = Migration{

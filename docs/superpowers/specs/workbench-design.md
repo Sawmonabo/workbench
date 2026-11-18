@@ -38,9 +38,9 @@ Native qualification and final acceptance are tracked separately in
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/pythonpolicy/` | Bounded metadata discovery; existing uv Python project/workspace configuration, optional editor/ignore/CI edits and shared recovery. |
-| `internal/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
+| `internal/agent/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches and remove the guard log's old free-text lines; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
-| `internal/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
+| `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
 | `internal/platform/` | Every operating-system call and platform fact, in `_darwin.go`/`_linux.go` pairs with the same names; no other package asks which system it runs on (ADR 0012). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
@@ -102,9 +102,9 @@ internal/operation/                Shared plans, consent, state and checkpoints
 internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
 internal/project/                  Discovery and project configuration
-internal/costs/                    AI-tool cost ledger and reports
+internal/agent/costs/              AI-tool cost ledger and reports
 internal/migrate/                  Migrations of Workbench's own files
-internal/guard/                    Agent command memory guard
+internal/agent/guard/              Agent command memory guard
 internal/platform/                 Operating-system calls and platform facts
 home/                             Existing canonical machine configuration
 project/pythonpolicy/              Portable configuration policy, not app scaffolding
@@ -143,25 +143,27 @@ This table defines the command contract. Exact flags, install options and suppor
 | --- | --- |
 | `workbench apply` | Set up Workbench's own tools and ask missing machine questions, then preflight, preview the changed files and each provisioning effect's probed delta as a checklist, confirm the checked selection, checkpoint, execute approved operations, validate and record the result. Choices are saved (`skip`, `select`, `decided`) and a later apply with nothing new applies them without asking; `--choose` asks again, `--reset` forgets them and `--yes` never asks. A coding agent always needs `--approve-plan` from a `--dry-run --json` plan and is refused `--yes`. A `--local-build` checkout installs the tools its own `versions.toml` pins when they are missing and uses the saved answers as they are. |
 | `workbench apply --dry-run` | Show the same plan, with file changes, removals, prerequisites and planned external effects; no setup, application or provisioning. |
-| `workbench init` | One-time adoption of a chezmoi config's `[data]` answers (`--answers-from FILE`), or asking a saved answer again (`--ask KEY`). |
+| `workbench answers import FILE` | One-time adoption of a chezmoi config's `[data]` answers. |
+| `workbench answers ask NAME...` | Ask the named saved answers again at a terminal and save them. |
 | `workbench update [VERSION]` | Find the latest release, or VERSION, on GitHub (or read `--bundle`), verify it against its manifest, then compose shared staging and journaled activation, and hand off to the new runtime, which installs its pinned tools and stops. An older VERSION goes back. Without VERSION a published release only moves forward, while an active local build (an executable not stamped `--published` by the release workflow, running as the installed release) is replaced by the latest published release whatever their versions. A pre-release (`vX.Y.Z-rc.N`, a GitHub pre-release) is never GitHub's latest, so it is installed only by name and kept until `vX.Y.Z` is published. An already active release is not reinstalled; `apply` is a separate command. The hidden `--local-build` installs the tools a checkout's `versions.toml` pins instead, with no release, and takes no VERSION or `--bundle`. |
 | `workbench version [--list]` | Print this version, with `(local build)` for a build the release workflow did not publish; `--list` reads the published full releases from GitHub and marks the latest and the installed one, listing an installed pre-release or local build on its own line. |
 | `workbench doctor` | Local, read-only checks: the active release, the last applied configuration, any unfinished apply, tools, configuration, an agent config folder moved away from the one Workbench installs in, and available editor targets. Report missing, unsupported, warning and failure states. Do not repair, install, start servers or contact remote hosts. |
 | `workbench revert` | Preview and restore configuration from a retained operation checkpoint, chosen at a terminal or by `--checkpoint ID`. Never infer recoverable contents from a version number. |
 | `workbench project inspect [PATH]` | Read-only discovery of languages, project boundaries, tool ownership, shared configuration and unsupported cases. PATH defaults to `.` and must exist. |
-| `workbench project configure [PATH] [--language NAME ...]` | Preview and configure supported tooling in existing projects. Repeated language flags narrow selection; no flags means supported detected languages. |
-| `workbench project configure [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
-| `workbench project revert [PATH]` | Undo a project configure's file changes from a saved checkpoint of that project, chosen at a terminal or by `--checkpoint ID`. |
-| `workbench costs` | Usage figures for Claude Code and Codex from the local ledger the session hooks keep (see the [ledger design](2026-09-30-claude-costs-ledger-design.md)); `costs rates`, `costs status` and the hook command `costs ingest` belong to it. |
+| `workbench project apply [PATH] [--language NAME ...]` | Preview and configure supported tooling in existing projects. Repeated language flags narrow selection; no flags means supported detected languages. |
+| `workbench project apply [PATH] --dry-run` | Read-only configuration preview: no installs, dependency resolution, lockfile writes or execution of project code. |
+| `workbench project revert [PATH]` | Undo a project apply's file changes from a saved checkpoint of that project, chosen at a terminal or by `--checkpoint ID`. |
+| `workbench agent costs` | Usage figures for Claude Code and Codex from the local ledger the session hooks keep (see the [ledger design](2026-09-30-claude-costs-ledger-design.md)); `agent costs rates`, `agent costs status` and the hook command `agent costs ingest` belong to it. |
+| `workbench agent guard` | The live view of the agent commands and detached programs the memory guard tracks, where a person stops one; `agent guard logs` prints what the guard did, and the hooks run the hidden `agent guard pre`, `post` and `session`. |
 | `workbench migrate [--apply]` | List the numbered migrations that move files earlier releases wrote outside Workbench's runtime folders into them or remove what they left that nothing reads, and whether each has anything to do; `--apply` runs them under `apply`'s approval rules. Every `apply` runs them as its `migrations` step, and the costs import worker moves the costs files itself. |
 
 Examples:
 
 ```sh
 workbench project inspect .
-workbench project configure ./apps/api --language python --dry-run
-workbench project configure ./apps/api --language python
-workbench project configure . --language python --language typescript --dry-run
+workbench project apply ./apps/api --language python --dry-run
+workbench project apply ./apps/api --language python
+workbench project apply . --language python --language typescript --dry-run
 ```
 
 The last example specifies intended selection syntax, not implemented TypeScript support. An explicitly requested unsupported language fails before writes. Discovery must report unsupported detected components prominently rather than silently claiming that the entire repository is configured.

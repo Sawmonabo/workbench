@@ -17,8 +17,8 @@ import (
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
 )
 
-// ConfigureOptions selects what project apply changes.
-type ConfigureOptions struct {
+// ApplyOptions selects what project apply changes.
+type ApplyOptions struct {
 	Extensions          bool
 	Ignore              bool
 	ResolveDependencies bool
@@ -46,7 +46,7 @@ type nativeRequest struct {
 func Plan(
 	ctx context.Context,
 	c operation.Context,
-	options ConfigureOptions,
+	options ApplyOptions,
 ) (proposal *Proposal, planErr error) {
 	defer operation.Annotate(&planErr, "plan project configuration")
 	p := newProposal(c)
@@ -158,7 +158,7 @@ func (p *Proposal) blocked(category, message string) error {
 func (p *Proposal) addPolicy(
 	ctx context.Context,
 	c operation.Context,
-	options ConfigureOptions,
+	options ApplyOptions,
 	selected []Project,
 ) error {
 	python, library, version, deps, err := adapterDependency(ctx, c)
@@ -208,7 +208,7 @@ func ownersOf(projects []Project) []string {
 
 // addOwner plans what belongs to one policy owner: resolving its missing
 // checks and the optional extension and ignore merges.
-func (p *Proposal) addOwner(c operation.Context, owner string, options ConfigureOptions) error {
+func (p *Proposal) addOwner(c operation.Context, owner string, options ApplyOptions) error {
 	data, err := p.Inventory.read(filepath.Join(owner, "pyproject.toml"))
 	if err != nil {
 		return err
@@ -249,7 +249,7 @@ func (p *Proposal) addResolution(
 	c operation.Context,
 	owner string,
 	missing []string,
-	options ConfigureOptions,
+	options ApplyOptions,
 ) error {
 	if !options.ResolveDependencies {
 		p.Plan.Prerequisites = append(

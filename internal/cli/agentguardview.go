@@ -20,7 +20,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/spf13/cobra"
 
-	"github.com/Sawmonabo/workbench/internal/guard"
+	"github.com/Sawmonabo/workbench/internal/agent/guard"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )

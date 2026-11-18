@@ -18,6 +18,6 @@ func agentCommand(o *options) *cobra.Command {
 		Args: cobra.NoArgs,
 		RunE: showHelp,
 	}
-	cmd.AddCommand(costsCommand(o), guardCommand(o))
+	cmd.AddCommand(agentCostsCommand(o), agentGuardCommand(o))
 	return cmd
 }

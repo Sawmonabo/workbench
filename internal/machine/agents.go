@@ -20,7 +20,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )

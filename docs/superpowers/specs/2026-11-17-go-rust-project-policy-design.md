@@ -19,7 +19,7 @@ depends on it must check it first.
   running anything. Each `go.mod` and each `Cargo.toml` becomes its own
   project, marked "Recognized; configuration is not supported for this
   language". Nothing links a Cargo workspace member to its root.
-- **Planning** (`configure.go`) refuses any `--language` other than `python`.
+- **Planning** (`plan.go`) refuses any `--language` other than `python`.
   Python settings go into `pyproject.toml` through the TOML Kit adapter
   (`adapter.py`). That adapter **adds missing settings and keeps every existing
   value and rule list**. It also records `[tool.workbench]` with
@@ -508,7 +508,7 @@ overwritten. Decision D2 covers the 60% figure.
   `rust-toolchain.toml` still picks the compiler, and mbx never changes it.
   `cargo install` of `cargo-audit`, `cargo-deny` and `just` in global-tools
   runs before this step either way.
-- **The agent command guard** (`internal/guard/memory.go`) stops agent
+- **The agent command guard** (`internal/agent/guard/memory.go`) stops agent
   commands only at critical memory pressure (macOS) or by its Linux
   thresholds. mbx's scheduler queues compiles against its budget and backs
   off under pressure (`scheduler.pressure = true` by default), so parallel
@@ -676,7 +676,7 @@ There is no new framework. Each concern stays with its existing owner.
 | --- | --- | --- |
 | Policy assets | `project/gopolicy/` and `project/rustpolicy/`, beside `project/pythonpolicy/` | Each has `assets.go` with `ID`, plus `README.md` and the embedded files above. `pythonpolicy` gains `lefthook.yml`, and its ID moves to `python-v2`, because the ID changes whenever content does. |
 | Discovery | `internal/project/discovery.go` | `goOwner` and `cargoOwner` beside `pythonOwner`; `manifestProject` calls them |
-| Planning | `internal/project/configure.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `,`, with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
+| Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `,`, with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
 | `.vscode/extensions.json`, `.gitignore` | `editor.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |

@@ -109,7 +109,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 		projectAction,
 		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
 			result := operation.NewResult(cmd.CommandPath())
-			var options project.ConfigureOptions
+			var options project.ApplyOptions
 			options.Extensions, _ = cmd.Flags().GetBool("extensions")
 			options.Ignore, _ = cmd.Flags().GetBool("gitignore")
 			options.ResolveDependencies, _ = cmd.Flags().GetBool("resolve-dependencies")

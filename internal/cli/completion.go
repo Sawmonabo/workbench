@@ -3,7 +3,7 @@ package cli
 import (
 	"slices"
 
-	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"

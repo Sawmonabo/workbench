@@ -722,7 +722,7 @@ func Setup(
 	if err != nil {
 		return c, err
 	}
-	if _, err = initialize(ctx, c, m, terminal, ask); err != nil {
+	if _, err = askAnswers(ctx, c, m, terminal, ask); err != nil {
 		return c, err
 	}
 	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")

@@ -17,7 +17,7 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
 
-	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -33,9 +33,9 @@ type costsFlags struct {
 	roots                        []string  // the role folders, read once the ledger is open
 }
 
-// costsCommand reports what AI coding tools cost from the durable ledger, and
+// agentCostsCommand reports what AI coding tools cost from the durable ledger, and
 // owns the ledger's ingest hook.
-func costsCommand(o *options) *cobra.Command {
+func agentCostsCommand(o *options) *cobra.Command {
 	f := &costsFlags{}
 	cmd := &cobra.Command{
 		Use:   "costs",
@@ -88,7 +88,11 @@ func costsCommand(o *options) *cobra.Command {
 	)
 	flags.BoolVar(&f.noRollup, "no-rollup", false, "Keep every working directory separate")
 	flags.BoolVar(&f.csv, "csv", false, "Write the rows as CSV")
-	cmd.AddCommand(costsIngestCommand(o), costsRatesCommand(o), costsStatusCommand(o))
+	cmd.AddCommand(
+		agentCostsIngestCommand(o),
+		agentCostsRatesCommand(o),
+		agentCostsStatusCommand(o),
+	)
 	return cmd
 }
 
@@ -399,8 +403,8 @@ func ingestProgress(o *options, diagnostics io.Writer) (operation.Progress, func
 	return progress, stop
 }
 
-// costsIngestCommand is the hook entry, and with --worker the ingest itself.
-func costsIngestCommand(o *options) *cobra.Command {
+// agentCostsIngestCommand is the hook entry, and with --worker the ingest itself.
+func agentCostsIngestCommand(o *options) *cobra.Command {
 	var worker, quiet bool
 	cmd := &cobra.Command{
 		Use:   "ingest [EVENT [TRANSCRIPT [SESSION]]]",
@@ -476,7 +480,7 @@ type rateRow struct {
 	Disagrees    bool    `json:"calibrated_disagrees,omitempty"`
 }
 
-func costsRatesCommand(o *options) *cobra.Command {
+func agentCostsRatesCommand(o *options) *cobra.Command {
 	var refresh bool
 	cmd := &cobra.Command{
 		Use:   "rates",
@@ -592,7 +596,7 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	return b.String()
 }
 
-func costsStatusCommand(o *options) *cobra.Command {
+func agentCostsStatusCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:   "status",
 		Short: "Show ledger coverage, the last ingest, hooks and the rate card age",

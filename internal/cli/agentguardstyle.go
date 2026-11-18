@@ -5,7 +5,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
-	"github.com/Sawmonabo/workbench/internal/guard"
+	"github.com/Sawmonabo/workbench/internal/agent/guard"
 )
 
 // The guard's colors, pinned rather than the terminal's own green, yellow

@@ -12,7 +12,7 @@ import (
 )
 
 // The plan view's own styles, beside the ones `workbench agent costs` shares from
-// root.go and costs.go: the brand and key color is the costs default accent,
+// root.go and agentcosts.go: the brand and key color is the costs default accent,
 // and a new item wears the dark-on-yellow pill the costs tabs wear in their
 // own color.
 var (

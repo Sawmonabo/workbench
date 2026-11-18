@@ -13,12 +13,12 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
-	"github.com/Sawmonabo/workbench/internal/guard"
+	"github.com/Sawmonabo/workbench/internal/agent/guard"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// guardCommand is `agent guard`: run bare, it opens the live view of what the
-// guard tracks (guardview.go), and logs prints what the guard did. Claude Code
+// agentGuardCommand is `agent guard`: run bare, it opens the live view of what the
+// guard tracks (agentguardview.go), and logs prints what the guard did. Claude Code
 // and Codex run pre, post and session as hooks, and pre starts watch with
 // fixed arguments; those four are hidden. Like askpass they are plain
 // commands, not actions, and print no result envelope. pre, post and session
@@ -26,7 +26,7 @@ import (
 // --json is just an argument), so nothing an agent passes makes them exit
 // non-zero, and print only what the hook protocol reads. The view and logs are
 // for people.
-func guardCommand(o *options) *cobra.Command {
+func agentGuardCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "guard",
 		Short: "Watch, live, the agent commands the memory guard tracks, and stop one",
@@ -48,7 +48,7 @@ func guardCommand(o *options) *cobra.Command {
 		},
 	}
 	cmd.AddCommand(
-		guardLogsCommand(o),
+		agentGuardLogsCommand(o),
 		&cobra.Command{
 			Use:                "pre",
 			Short:              "Hook: Claude Code and Codex run this before each Bash call",
@@ -100,10 +100,10 @@ func guardCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// guardLogsCommand prints the guard log. The global --json passes its records
+// agentGuardLogsCommand prints the guard log. The global --json passes its records
 // through as they are, one per line, so only an error goes through the result
 // envelope.
-func guardLogsCommand(o *options) *cobra.Command {
+func agentGuardLogsCommand(o *options) *cobra.Command {
 	var follow bool
 	var since string
 	cmd := &cobra.Command{

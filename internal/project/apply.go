@@ -18,7 +18,7 @@ func Apply(
 	ctx context.Context,
 	c operation.Context,
 	p *Proposal,
-	options ConfigureOptions,
+	options ApplyOptions,
 	consent operation.Consent,
 ) (_ string, err error) {
 	defer operation.Annotate(&err, "configure project %s", c.Scope.Root)

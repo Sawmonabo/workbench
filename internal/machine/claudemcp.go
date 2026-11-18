@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Sawmonabo/workbench/internal/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 

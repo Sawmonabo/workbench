@@ -46,10 +46,10 @@ func selectPrivateContext(c operation.Context, source string) (operation.Context
 	return c, nil
 }
 
-// initialize reuses the native questionnaire and built-in Git in a verified
+// askAnswers asks the native questionnaire, with built-in Git, in a verified
 // private context. Acquiring/copying the verified payload belongs to setup.
 // Approval here saves answers only; it does not approve configuration apply.
-func initialize(
+func askAnswers(
 	ctx context.Context,
 	c operation.Context,
 	m *operation.Mutation,
@@ -84,7 +84,7 @@ func initialize(
 			"Native setup requires qualified chezmoi and Python before initialization",
 		)
 	}
-	seed, err := initSeed(c.Native.Config, terminal, ask)
+	seed, err := answersSeed(c.Native.Config, terminal, ask)
 	if err != nil {
 		return nil, err
 	}
@@ -191,11 +191,11 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 	return encoded, false, nil
 }
 
-// initSeed returns the saved answers to seed native init, complete or not, or
+// answersSeed returns the saved answers to seed native init, complete or not, or
 // an empty [data] table when a terminal can answer the questionnaire. Every
 // question asks once, so init asks only what the seed lacks, and the answers
 // named in ask are left out to be asked again.
-func initSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
+func answersSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
 	_, err := os.Lstat(config)
 	if errors.Is(err, fs.ErrNotExist) {
 		if terminal == nil {

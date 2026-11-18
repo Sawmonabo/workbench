@@ -10,7 +10,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 
 - Greenfield: update canonical code, callers and docs in place. No migrations,
   compatibility readers/flags, obsolete aliases or dual paths. One exception:
-  the costs ledger (`internal/costs/ledger.go`) upgrades older schema versions
+  the costs ledger (`internal/agent/costs/ledger.go`) upgrades older schema versions
   in place, in one transaction that keeps every row, because transcripts expire
   and the ledger is the only lasting record of spend. A second exception:
   numbered migrations in `internal/migrate/` may move files Workbench itself
@@ -128,9 +128,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python project policy | `project/pythonpolicy/` |
-| AI-tool cost ledger, ingest, rates and reports | `internal/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| AI-tool cost ledger, ingest, rates and reports | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
-| Agent command memory guard | `internal/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
+| Agent command memory guard | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
