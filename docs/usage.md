@@ -831,7 +831,13 @@ dependency-file check per language (Go `golangci-lint fmt --diff`,
 and before each push the tests (`go test`, `cargo test`, and `pytest` only when
 the dev group lists it). It never runs `lefthook install`; run that once per
 clone. `--dependabot` writes `.github/dependabot.yml` with weekly `gomod`,
-`cargo` or `uv` and `github-actions` entries at `/`. Each file is written only
+`cargo` or `uv` and `github-actions` entries at `/`, each grouping its minor
+and patch updates into one pull request, and
+`.github/workflows/dependabot-auto-merge.yml`, which turns on GitHub
+auto-merge for Dependabot's patch and minor pull requests and for no other
+pull request. Auto-merge is GitHub only and needs "Allow auto-merge" and a
+branch rule on the default branch that requires the CI check; Workbench sets
+neither. Each file is written only
 when the repository has none: an existing lefthook configuration (any of the
 names lefthook reads) or Dependabot file is kept byte for byte, and the plan
 names the ecosystems an existing Dependabot file lacks and warns when Renovate

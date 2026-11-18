@@ -76,6 +76,8 @@ There are two kinds of file, and each gets one rule:
    - `rustfmt.toml`
    - `.mbx.toml`
    - `.github/dependabot.yml`
+   - `.github/workflows/dependabot-auto-merge.yml` (another workflow that
+     turns on auto-merge for Dependabot counts, section 6.2)
 
    Workbench creates one only when it is absent. **An existing one is kept
    byte for byte.** The plan lists it as "kept: the project's own", and the
@@ -120,7 +122,8 @@ When several languages are selected:
 
 - `lefthook.yml` gets one job per language and check, named `go-lint`,
   `rust-format` and so on;
-- `dependabot.yml` gets one entry per ecosystem;
+- `dependabot.yml` gets one entry per ecosystem, and the auto-merge workflow
+  is the same for any languages;
 - the workflow gets one owned job per language.
 
 ### 2.4 Record of what was applied
@@ -715,6 +718,53 @@ An existing Dependabot file is kept, and the plan names the ecosystems it
 lacks, and with both names it names the ignored `.yaml`; a file that is not
 valid YAML stops the plan.
 
+Each entry has one group, `minor-and-patch`, with `patterns: ["*"]` and
+`update-types: [minor, patch]`. The options reference: "All updates for
+dependencies that match a rule are combined in a single pull request", and
+"Any outdated dependencies that do not match a rule are updated in individual
+pull requests", so a major update gets its own pull request. The schema check
+above covers the groups, and refused an `update-types` value of `tiny`.
+
+`--dependabot` also writes `.github/workflows/dependabot-auto-merge.yml`,
+whole, only when no workflow of that name exists and no other workflow already
+turns on auto-merge for Dependabot (a `dependabot` mention followed by
+`gh pr merge ... --auto` or the auto-merge GraphQL mutation); either is kept
+and listed. The Python `--ci` owner is chosen among the other workflows. The
+workflow follows GitHub's "Automating Dependabot with GitHub Actions"
+tutorial:
+
+- **Event and author.** It runs on `pull_request`, the tutorial's event, and
+  its one job only when `github.event.pull_request.user.login ==
+  'dependabot[bot]'`, the tutorial's condition, so no other pull request or
+  branch is touched.
+- **Token.** "By default, GitHub Actions workflows triggered by Dependabot
+  get a `GITHUB_TOKEN` with read-only permissions. You can use the
+  `permissions` key in your workflow to increase the access for the token"
+  (Dependabot on Actions troubleshooting). The workflow declares only
+  `contents: write` and `pull-requests: write`, as the tutorial does.
+- **Update type.** `dependabot/fetch-metadata` v3.1.0 (pinned by commit in
+  `[github_actions]`) documents `update-type` as "The highest semver change
+  being made by this PR", so a group holding a major change reports
+  `version-update:semver-major`. Auto-merge is turned on only for
+  `version-update:semver-patch` or `version-update:semver-minor`; anything
+  else, a major update or an empty value, stays open.
+- **Merge.** `gh pr merge --auto --squash "$PR_URL"`. GitHub: "Auto-merge
+  merges a pull request automatically after all required reviews and status
+  checks pass. Before you use auto-merge, it must be enabled for the
+  repository." The gh CLI 2.104 source (`pkg/cmd/pr/merge/merge.go`) turns
+  on auto-merge only when the pull request is not immediately mergeable
+  (`isImmediatelyMergeable`: merge state `CLEAN`, `HAS_HOOKS` or
+  `UNSTABLE`), and otherwise merges it at once. With no required check, a
+  patch or minor pull request therefore merges as soon as the workflow runs,
+  even while other checks fail.
+
+The plan lists the `dependabot-auto-merge` effect and warns, each time it
+writes the workflow, that auto-merge is GitHub only and needs "Allow
+auto-merge" and a branch rule on the default branch that requires the CI
+check, which Workbench sets neither of. The plan never runs `git remote`, so
+the GitHub-only rule is stated in the flag's help, the warning and the docs.
+`actionlint` 1.7.12 accepted the written workflow.
+
 ### 6.3 `--ci`
 
 The Python contract stays for Python. Go and Rust need one relaxation:
@@ -817,7 +867,7 @@ There is no new framework. Each concern stays with its existing owner.
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
 | `.vscode/extensions.json`, `.gitignore` | `editor.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
-| Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs |
+| Hooks and Dependabot | new `internal/project/hooks.go` | Renders and combines each language's jobs; writes the grouped `dependabot.yml` and the auto-merge workflow, its `dependabot/fetch-metadata` pin read from `[github_actions]` |
 | Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` and the Rust pins in `rust.go`; the workflow choice (`testWorkflow`) and the pin reading (`readSourceVersions`) are shared |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
 | mbx step | `internal/machine/effects.go` (the effect, its source and the doctor line), `source.go` (the `[mbx]` pin and its checks), `plan.go` (stale choices judged against offered steps), plus the shared script, the shell templates and `versions.toml` | One effect |

@@ -119,7 +119,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 	command.Flags().
 		Bool("hooks", false, "Write lefthook.yml with format, lint, dependency-file and secret checks before commit and tests before push, when the repository has no lefthook configuration")
 	command.Flags().
-		Bool("dependabot", false, "Write .github/dependabot.yml with weekly updates for the selected languages and GitHub Actions, when the repository has none")
+		Bool("dependabot", false, "GitHub only: write .github/dependabot.yml with weekly updates for the selected languages and GitHub Actions, minor and patch grouped, and a workflow that auto-merges Dependabot's patch and minor pull requests, each when the repository has none")
 	o.localBuildFlag(command)
 	o.approveFlag(command)
 	command.RunE = o.action(

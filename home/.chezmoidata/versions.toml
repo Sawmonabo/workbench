@@ -44,6 +44,7 @@ uv_sha256 = { "darwin-amd64" = "20c47e4c1f630b8abaff8c291fa9b9aa300fef92c4fbff95
 "actions/checkout" = { version = "v7.0.1", commit = "3d3c42e5aac5ba805825da76410c181273ba90b1" }
 "actions/setup-go" = { version = "v7.0.0", commit = "b7ad1dad31e06c5925ef5d2fc7ad053ef454303e" }
 "astral-sh/setup-uv" = { version = "v10.1.0", commit = "bec219d24cd3e171d82865faccec33120bb574f4" }
+"dependabot/fetch-metadata" = { version = "v3.1.0", commit = "25dd0e34f4fe68f24cc83900b1fe3fe149efef98" }
 "golangci/golangci-lint-action" = { version = "v9.3.0", commit = "ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a" }
 
 [corepack_globals]

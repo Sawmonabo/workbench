@@ -225,13 +225,18 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 	return python, nil
 }
 
-// readWorkflow reads the single workflow under root and binds it as a plan
-// input.
+// readWorkflow reads the single workflow under root, besides the Dependabot
+// auto-merge workflow, and binds it as a plan input.
 func (p *Proposal) readWorkflow(root string) (string, []byte, error) {
 	workflows, readable := workflowFiles(root)
 	if !readable {
 		return "", nil, ciFailure("No readable existing GitHub workflow owner")
 	}
+	// The Dependabot auto-merge workflow --dependabot writes runs no tests and
+	// is not a candidate.
+	workflows = slices.DeleteFunc(workflows, func(path string) bool {
+		return path == filepath.Join(root, autoMergeName)
+	})
 	if len(workflows) != 1 {
 		return "", nil, ciFailure(
 			"Multiple or missing workflows require an explicit integration decision",

@@ -763,8 +763,17 @@ synthetic answers.
   lefthook main configuration names stayed byte for byte and was listed as
   kept, a second one was named, and a `lefthook-local.yml` was named as merged
   over the written file. An existing `dependabot.yml` stayed byte for byte
-  and the plan named the ecosystems it lacked; `dependabot.yml` beside
-  `dependabot.yaml`, and an invalid one, stopped the plan. Each Renovate
+  and the plan named the ecosystems it lacked; with `dependabot.yaml` beside
+  it the plan named the ignored `.yaml`, and an invalid one stopped the plan.
+  Every written `dependabot.yml` has a `minor-and-patch` group per ecosystem,
+  and the schema refused an `update-types` value of `tiny`. Every
+  `--dependabot` run wrote `.github/workflows/dependabot-auto-merge.yml`,
+  which `actionlint` 1.7.12 accepted, listed the `dependabot-auto-merge`
+  effect and gave the auto-merge settings warning; an existing file of that
+  name, and another workflow running `gh pr merge --auto` for Dependabot, were
+  kept and listed, and adding the file between the dry run and
+  `--approve-plan` exited 4 with nothing written. With the workflow written,
+  the Python `--ci` second plan had no changes. Each Renovate
   location (`renovate.json*` at the root or in `.github/`, `.renovaterc*`, a
   `renovate` key in `package.json`) gave the two-bots warning and the file was
   still written. A selection below the repository root, and a uv project
@@ -777,7 +786,9 @@ synthetic answers.
   and `uv lock --check` passed offline with an empty cache until a manifest
   changed. A `pyproject.toml` or `Cargo.toml` record whose `schema_version`
   is `2`, `"1"`, `1.0` or missing stopped the plan naming the record's table
-  and manifest. Not observed: Linux, a Dependabot run on GitHub, a Go module
+  and manifest. Not observed: Linux, a Dependabot run on GitHub (grouped pull
+  requests, the auto-merge workflow on a real pull request, or `gh pr merge
+  --auto` with and without a required check), a Go module
   or crate with registry dependencies in the hooks, or lefthook installed by
   the machine step.
 

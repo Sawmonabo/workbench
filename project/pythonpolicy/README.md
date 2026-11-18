@@ -106,6 +106,24 @@ at the root or in `.github/`, `.renovaterc`, `.renovaterc.json`,
 `package.json`) makes the plan warn that two update bots would open pull
 requests for the same dependencies; the file is still written.
 
+Each `updates` entry has one group, `minor-and-patch` (`patterns: ["*"]`,
+`update-types: [minor, patch]`), so each ecosystem's minor and patch updates
+arrive as one weekly pull request, and each major update as its own.
+`--dependabot` also writes `.github/workflows/dependabot-auto-merge.yml`,
+whole, only when no workflow of that name exists and no other workflow
+already turns on auto-merge for Dependabot. On `pull_request`, its one job runs
+only when the pull request's author is `dependabot[bot]`, reads the update
+with `dependabot/fetch-metadata` (pinned by commit in `versions.toml`), and
+runs `gh pr merge --auto --squash` only when the `update-type` it reports, the
+highest change in the pull request, is `version-update:semver-patch` or
+`version-update:semver-minor`; a major update stays open. It asks for
+`contents: write` and `pull-requests: write`, which a Dependabot-triggered
+run gets only by declaring them. This works on GitHub only, and needs two
+repository settings Workbench does not make: "Allow auto-merge", and a branch
+rule on the default branch that requires the CI check. Without a required
+check, `gh pr merge --auto` merges at once, even while other checks fail; the
+plan says so and lists the `dependabot-auto-merge` effect.
+
 Both need the selected folder to be the repository root (it holds `.git`) and
 every selected project to be at it.
 

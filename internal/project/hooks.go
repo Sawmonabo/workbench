@@ -5,9 +5,11 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
@@ -348,14 +350,28 @@ func (p *Proposal) addDependabot(c operation.Context, languages []string) error 
 		}
 	}
 	if len(found) == 0 {
-		return p.add(
+		if err := p.add(
 			c,
 			filepath.Join(root, dependabotConfigs[0]),
 			data,
 			"Create the Dependabot configuration: weekly update pull requests for "+
-				listed(ecosystems)+" at the repository root",
-		)
+				listed(
+					ecosystems,
+				)+" at the repository root, with each ecosystem's minor and patch updates grouped into one",
+		); err != nil {
+			return err
+		}
+		return p.addAutoMerge(c, ids)
 	}
+	if err := p.checkDependabot(root, found, ecosystems, data); err != nil {
+		return err
+	}
+	return p.addAutoMerge(c, ids)
+}
+
+// checkDependabot reports the repository's own Dependabot configuration,
+// found, which is kept byte for byte, and the ecosystems it lacks.
+func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data []byte) error {
 	var config struct {
 		Updates []dependabotUpdate `yaml:"updates"`
 	}
@@ -398,7 +414,9 @@ type dependabotUpdate struct {
 }
 
 // renderDependabot writes the Dependabot configuration for ecosystems, all
-// at the repository root, for the policies ids.
+// at the repository root, for the policies ids. Each ecosystem's minor and
+// patch updates form one group, a single weekly pull request; a major update
+// matches no group and gets a pull request of its own.
 func renderDependabot(ecosystems, ids []string) []byte {
 	var text strings.Builder
 	text.WriteString(comment("Written by workbench project apply (" + strings.Join(ids, ", ") +
@@ -409,8 +427,128 @@ func renderDependabot(ecosystems, ids []string) []byte {
 		text.WriteString("    directory: /\n")
 		text.WriteString("    schedule:\n")
 		text.WriteString("      interval: weekly\n")
+		text.WriteString("    groups:\n")
+		text.WriteString("      " + dependabotGroup + ":\n")
+		text.WriteString("        patterns:\n")
+		text.WriteString("          - \"*\"\n")
+		text.WriteString("        update-types:\n")
+		text.WriteString("          - minor\n")
+		text.WriteString("          - patch\n")
 	}
 	return []byte(text.String())
+}
+
+// dependabotGroup names the group of minor and patch updates in branch
+// names and pull request titles; a group name starts and ends with a letter.
+const dependabotGroup = "minor-and-patch"
+
+// autoMergeName is the workflow --dependabot writes to turn on auto-merge for
+// Dependabot's patch and minor pull requests.
+var autoMergeName = filepath.Join(".github", "workflows", "dependabot-auto-merge.yml")
+
+// autoMergeElsewhere recognizes a workflow that already turns on auto-merge
+// for Dependabot's pull requests.
+var autoMergeElsewhere = regexp.MustCompile(
+	`(?is)dependabot.*(gh\s+pr\s+merge[^\n]*--auto|enablePullRequestAutoMerge|enable-pull-request-automerge)`,
+)
+
+// addAutoMerge plans the workflow that turns on GitHub auto-merge for
+// Dependabot's patch and minor pull requests, unless the repository has it
+// or another workflow that does the same, which is kept and reported.
+func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
+	root := c.Scope.Root
+	path := filepath.Join(root, autoMergeName)
+	requirements, err := machine.ManagementRequirements(c)
+	if err != nil {
+		return err
+	}
+	fetchMetadata, err := requirements.Uses("dependabot/fetch-metadata")
+	if err != nil {
+		return err
+	}
+	data := renderAutoMerge(fetchMetadata, ids)
+	workflows, _ := workflowFiles(root)
+	for _, workflow := range workflows {
+		existing, err := p.readInput(workflow)
+		if err != nil {
+			return err
+		}
+		switch {
+		case workflow == path:
+			p.keep(root, path, autoMergeName, data, "Dependabot auto-merge")
+			return nil
+		case autoMergeElsewhere.Match(existing):
+			p.Plan.Warnings = append(
+				p.Plan.Warnings,
+				"Kept the project's own Dependabot auto-merge: "+workflow,
+			)
+			return nil
+		}
+	}
+	if _, err = p.readInput(path); err != nil {
+		return err
+	}
+	if err = p.add(
+		c,
+		path,
+		data,
+		"Create the workflow that turns on GitHub auto-merge for Dependabot's patch and minor pull requests, and only for those",
+	); err != nil {
+		return err
+	}
+	if p.change(path) == nil {
+		return nil
+	}
+	p.Plan.Warnings = append(
+		p.Plan.Warnings,
+		"Dependabot auto-merge works on GitHub only and needs two repository settings Workbench does not make: "+
+			"\"Allow auto-merge\" turned on, and a branch rule on the default branch that requires the CI check. "+
+			"Without a required check, a patch or minor Dependabot pull request merges as soon as the workflow runs, even while other checks fail",
+	)
+	p.Plan.Effects = append(p.Plan.Effects, operation.Effect{
+		Name:        "dependabot-auto-merge",
+		Description: "GitHub merges Dependabot's patch and minor pull requests by squash, without review, once the default branch's required checks pass; a major update stays open",
+		Privilege:   "CI runner",
+		Recovery:    "Restoring the workflow does not undo merges it made",
+	})
+	return nil
+}
+
+// renderAutoMerge writes the auto-merge workflow for the policies ids, with
+// fetchMetadata, the pinned dependabot/fetch-metadata reference. Its one job
+// runs only for a pull request Dependabot opened, and turns on auto-merge
+// only when the update's highest change, which fetch-metadata reports for a
+// group too, is a semver patch or minor.
+func renderAutoMerge(fetchMetadata string, ids []string) []byte {
+	return []byte(comment("Written by workbench project apply ("+strings.Join(ids, ", ")+
+		"). It turns on GitHub auto-merge for Dependabot's patch and minor pull requests and "+
+		"leaves every other pull request alone. Auto-merge needs \"Allow auto-merge\" in the "+
+		"repository settings and waits only for the checks a branch rule requires. The project "+
+		"owns this file; Workbench never edits an existing one.") + `name: Dependabot auto-merge
+on: pull_request
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  dependabot:
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Read the Dependabot update
+        id: metadata
+        uses: ` + fetchMetadata + `
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Turn on auto-merge for a patch or minor update
+        if: >-
+          steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+          steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        run: gh pr merge --auto --squash "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+`)
 }
 
 // warnRenovate warns when the repository at root configures Renovate, which
