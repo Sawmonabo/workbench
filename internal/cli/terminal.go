@@ -29,6 +29,7 @@ func terminalDefaultCommand(o *options) *cobra.Command {
 	var current, lists bool
 	cmd := &cobra.Command{
 		Use:    "terminal-default [GUID [NAME]]",
+		Short:  "The WSL apply steps pipe Windows Terminal's settings.json through this filter",
 		Hidden: true,
 		Args:   cobra.MaximumNArgs(2),
 	}

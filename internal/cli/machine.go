@@ -15,7 +15,13 @@ func doctorCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Check what is installed and applied, tool versions and the host, without repair",
-		Args:  cobra.NoArgs,
+		Long: "Show Workbench's version, what is installed and last applied, any apply that " +
+			"did not finish, the steps you skipped or selected, tool versions and host checks, " +
+			"and a CLAUDE_CONFIG_DIR or CODEX_HOME that moves an agent away from the settings " +
+			"Workbench installs. It repairs nothing; workbench apply or workbench update does.",
+		Example: "  workbench doctor\n" +
+			"  workbench doctor --json",
+		Args: cobra.NoArgs,
 		RunE: o.action(
 			machineAction,
 			func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
@@ -209,32 +215,27 @@ func applyCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Show what would change on this machine as a checklist, then apply what is checked",
-		Long: "Install Workbench's tools when missing and ask the machine questions your saved " +
-			"answers lack, then plan every file change and provisioning effect for this machine. " +
-			"The first apply, and any apply that finds something new to decide or a file Workbench " +
-			"owns edited outside it, shows the checklist: space unchecks a step, a applies. Your " +
-			"choices are remembered, so a later apply with nothing new prints the plan and applies " +
-			"them without asking. --choose shows the checklist anyway; --reset forgets the " +
-			"remembered choices and asks again with the defaults; --yes never asks, taking the " +
-			"remembered choice or the default for what is new (it cannot be combined with --choose, " +
-			"--reset or --approve-plan, and a coding agent is refused it); --dry-run only shows the " +
-			"plan. When a coding agent runs it (Claude Code, Codex), apply never applies unasked: " +
-			"pass --approve-plan DIGEST from a --dry-run --json plan. Without a terminal it applies " +
-			"only with --approve-plan DIGEST or --yes. On a Mac, an apply that is not given " +
-			"--approve-plan DIGEST first refreshes Homebrew's package list, so the updates it " +
-			"plans are current; --dry-run and --approve-plan leave the list as it is. When the " +
-			"plan has to install Homebrew, an apply at a terminal asks for your Mac password " +
-			"once before it changes anything; otherwise it asks the first time an app that " +
-			"Homebrew installs or updates needs it, such as Docker Desktop, or the " +
-			"touch-id-sudo step's sudo does, and never twice in " +
-			"one apply. Workbench keeps the password in memory for that apply only and answers " +
-			"Homebrew's requests with it. Where Touch ID for sudo is on, Workbench reads no " +
-			"password: when the plan has to install Homebrew, sudo asks by Touch ID (or for " +
-			"its own password where Touch ID cannot be used) before anything changes, and " +
-			"Homebrew's own sudo asks again for each app that needs it. The optional " +
-			"touch-id-sudo step turns Touch ID for sudo on. Without a terminal nobody is " +
-			"asked, and installing Homebrew then needs a sudo ticket that is still valid; " +
-			"Homebrew asks for the password of apps itself.",
+		Long: "Install Workbench's tools when missing, ask the machine questions your saved " +
+			"answers lack, then plan every file change and setup step for this machine. The " +
+			"first apply, and any apply that finds something new to decide or a file Workbench " +
+			"owns edited outside it, shows the checklist: space unchecks a step, a applies. " +
+			"Your choices are remembered, so a later apply with nothing new prints the plan and " +
+			"applies them without asking.\n\n" +
+			"--choose shows the checklist anyway, --reset forgets your choices and asks again " +
+			"with the defaults, and --dry-run only shows the plan. --yes never asks, taking your " +
+			"choice or the default for anything new; it cannot be combined with --choose, " +
+			"--reset or --approve-plan. Without a terminal, apply runs only with --approve-plan " +
+			"DIGEST or --yes. A coding agent (Claude Code, Codex) is refused --yes and --choose " +
+			"and must pass --approve-plan DIGEST from a --dry-run --json plan.\n\n" +
+			"On a Mac, apply may ask once for your password, for Homebrew and the touch-id-sudo " +
+			"step, and keeps it in memory for that apply only; where Touch ID for sudo is on, " +
+			"sudo asks by Touch ID instead. docs/usage.md says when it asks and what an apply " +
+			"without a terminal needs.",
+		Example: "  workbench apply --dry-run\n" +
+			"  workbench apply\n" +
+			"  workbench apply --choose\n" +
+			"  workbench apply --dry-run --json\n" +
+			"  workbench apply --approve-plan DIGEST",
 		Args: cobra.NoArgs,
 		RunE: o.action(
 			nativeAction,

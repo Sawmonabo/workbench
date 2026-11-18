@@ -26,6 +26,7 @@ const maxVSCodeSettings = 16 << 20
 func vscodeSettingsCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:    "vscode-settings MANAGED_JSON",
+		Short:  "The apply's VS Code settings merge pipes settings.json through this filter",
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
 	}

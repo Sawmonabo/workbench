@@ -26,6 +26,7 @@ func mcpGateCommand(o *options) *cobra.Command {
 	var folder, envFile string
 	cmd := &cobra.Command{
 		Use:    "mcp-gate --folder DIR --env-file FILE -- COMMAND ARGS...",
+		Short:  "Claude Code and Codex start each dispatch MCP server through this gate",
 		Hidden: true,
 		Args:   cobra.MinimumNArgs(1),
 	}

@@ -11,7 +11,15 @@ func revertCommand(o *options) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "revert",
 		Short: "Undo an earlier apply's file changes from a saved checkpoint",
-		Args:  cobra.NoArgs,
+		Long: "Restore the files an earlier apply changed, from the checkpoint it saved. " +
+			"Without --checkpoint it lists the checkpoints to choose from at a terminal. It " +
+			"restores files only: what the apply's steps installed or ran stays. Without a " +
+			"terminal, or for a coding agent, pass --approve-plan DIGEST from a --dry-run " +
+			"--json plan.",
+		Example: "  workbench revert --dry-run\n" +
+			"  workbench revert\n" +
+			"  workbench revert --checkpoint ID --dry-run --json",
+		Args: cobra.NoArgs,
 	}
 	cmd.Flags().
 		String("checkpoint", "", "Restore this checkpoint ID instead of choosing from a list")

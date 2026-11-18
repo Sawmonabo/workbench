@@ -198,7 +198,12 @@ func installedRelease(c operation.Context) (string, error) {
 // releaseCheckCommand is how a newly staged executable proves, before
 // activation, that it accepts its own source.
 func releaseCheckCommand(o *options) *cobra.Command {
-	check := &cobra.Command{Use: "release-check", Hidden: true, Args: cobra.NoArgs}
+	check := &cobra.Command{
+		Use:    "release-check",
+		Short:  "update runs this in a newly staged release to prove it accepts its own source",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+	}
 	check.Flags().String("bundle-directory", "", "Verified private extracted bundle")
 	check.RunE = o.action(
 		releaseAction,

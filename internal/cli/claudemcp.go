@@ -18,7 +18,12 @@ import (
 // first run (else empty), then each command's arguments, each command ended
 // by an empty field.
 func claudeMCPCommand(o *options) *cobra.Command {
-	cmd := &cobra.Command{Use: "claude-mcp", Hidden: true, Args: cobra.NoArgs}
+	cmd := &cobra.Command{
+		Use:    "claude-mcp",
+		Short:  "The apply's claude-mcp step runs this for the claude commands that add the dispatch servers",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+	}
 	applyStep(
 		o,
 		cmd,

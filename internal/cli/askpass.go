@@ -18,6 +18,7 @@ import (
 func askpassCommand(o *options) *cobra.Command {
 	return &cobra.Command{
 		Use:    "askpass SOCKET",
+		Short:  "sudo runs this as SUDO_ASKPASS during an apply on a Mac, to get the password",
 		Hidden: true,
 		Args:   cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

@@ -14,7 +14,12 @@ import (
 // would do and run creates the roles' missing env files
 // (internal/machine/envfiles.go).
 func envFilesCommand(o *options) *cobra.Command {
-	cmd := &cobra.Command{Use: "env-files", Hidden: true, Args: cobra.NoArgs}
+	cmd := &cobra.Command{
+		Use:    "env-files",
+		Short:  "The apply's env-files step runs this to create the roles' missing env files",
+		Hidden: true,
+		Args:   cobra.NoArgs,
+	}
 	applyStep(
 		o,
 		cmd,
