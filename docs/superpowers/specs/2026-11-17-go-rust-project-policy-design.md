@@ -464,8 +464,8 @@ global-tools, so rustup's Cargo already exists. The script:
    prompt nor pick a mise scope. Apply scripts never prompt.
 3. **Sets the machine budget** (section 5.4).
 
-Proposed pins in `home/.chezmoidata/versions.toml`. The hashes are the
-v1.30.0 `SHA256SUMS` lines:
+The pins in `home/.chezmoidata/versions.toml`. The hashes are the v1.30.0
+`SHA256SUMS` lines:
 
 ```toml
 [mbx]
