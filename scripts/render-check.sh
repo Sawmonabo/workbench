@@ -386,8 +386,8 @@ sys.exit(bad)
 PY
 
 echo "==> [$role/$mode] worktree instructions and the global git ignore"
-grep -qF 'git worktree add .worktrees/<name> -b <branch>' "$dest/.claude/CLAUDE.md" || { echo 'WORKTREE FAIL: CLAUDE.md lacks the worktree instruction'; fail=1; }
-grep -qF 'git worktree add .worktrees/<name> -b <branch>' "$dest/.codex/AGENTS.md" || { echo 'WORKTREE FAIL: AGENTS.md lacks the worktree instruction'; fail=1; }
+grep -qF 'Always create git worktrees in the project' "$dest/.claude/CLAUDE.md" || { echo 'WORKTREE FAIL: CLAUDE.md lacks the worktree instruction'; fail=1; }
+grep -qF 'Always create git worktrees in the project' "$dest/.codex/AGENTS.md" || { echo 'WORKTREE FAIL: AGENTS.md lacks the worktree instruction'; fail=1; }
 for entry in .DS_Store __pycache__/ /tmp/ .agents/tmp/ .worktrees/ .claude/worktrees/ .claude/tmp/ .tickets/ .claude/settings.local.json CLAUDE.local.md; do
     grep -qxF -- "$entry" "$dest/.config/git/ignore" || { echo "IGNORE FAIL: the global git ignore lacks $entry"; fail=1; }
 done
