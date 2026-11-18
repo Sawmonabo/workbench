@@ -1,10 +1,7 @@
 # Merges Dependabot's patch and minor pull requests for this repository and
 # leaves every other pull request alone. It is the workflow that workbench
-# project apply --dependabot writes for a project. No branch rule requires
-# checks on main, because the release workflow commits CHANGELOG.md there
-# with the workflow token, so this job waits for the pull request's other
-# checks itself: a failed check, or no check at all, leaves the pull request
-# open, and running the job again tries again.
+# project apply --dependabot writes for a project. The main branch requires
+# the all-checks check (ADR 0017), so GitHub refuses a merge before it passed.
 name: Dependabot auto-merge
 on: pull_request
 permissions:

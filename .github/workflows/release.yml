@@ -68,8 +68,10 @@ jobs:
           gh release create "$VERSION" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease="$prerelease" \
             --notes-file "$RUNNER_TEMP/release-notes.md" dist/*.tar.gz dist/install.sh
   # Once a full release is published, commit the changelog through this tag
-  # to main. A pre-release gets no section and no commit. A push with the
-  # workflow token starts no other workflow.
+  # to main. A pre-release gets no section and no commit. The main branch
+  # accepts only commits whose all-checks check passed, which this new commit
+  # cannot have, so it is pushed with a deploy key the rule lets through
+  # (ADR 0017); the workflow token is not let through. That push starts ci.
   changelog:
     needs: release
     if: ${{ !contains(github.ref_name, '-') }}
@@ -82,11 +84,12 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+          ssh-key: ${{ secrets.CHANGELOG_DEPLOY_KEY }}
       # Generated at the tag, so commits after it on main stay out.
       - name: Generate the changelog
         run: scripts/git-cliff.sh --config cliff.toml -o "$RUNNER_TEMP/CHANGELOG.md"

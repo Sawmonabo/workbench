@@ -102,3 +102,19 @@ jobs:
           printf '%s  %s\n' '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb' "$gitleaks_dir/gitleaks.tar.gz" | sha256sum --check --strict
           tar -xzf "$gitleaks_dir/gitleaks.tar.gz" -C "$gitleaks_dir" gitleaks
           "$gitleaks_dir/gitleaks" git --redact --no-banner --no-color --exit-code 1 --log-opts=--all --config .gitleaks.toml
+  # The one check the main branch requires (ADR 0017): it passes only when
+  # every job above passed, so the rule names one check, not each job.
+  all-checks:
+    if: always()
+    needs: [go-quality, render-and-lint, secret-scan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Every job passed
+        env:
+          RESULTS: ${{ join(needs.*.result, ' ') }}
+        run: |
+          echo "$RESULTS"
+          for result in $RESULTS; do
+            [ "$result" = success ] || exit 1
+          done
