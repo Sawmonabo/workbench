@@ -441,6 +441,10 @@ synthetic answers.
   is upgraded)` from Homebrew's `opt` links alone, `postgresql` (an alias)
   counted as installed. Not observed: a formula removed after the step ran
   being reinstalled by an apply.
+- AlmaLinux 10 container, first apply in a new home (Nov 17): System packages
+  ended `blocked — oh-my-posh was not installed`, its installer refusing
+  `~/.local/bin` because the folder did not exist; a second apply installed
+  it. The step now creates the folder first (not rerun in a container).
 
 ### On a WSL2 host
 

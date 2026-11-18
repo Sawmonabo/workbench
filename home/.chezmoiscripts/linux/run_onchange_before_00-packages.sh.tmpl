@@ -284,6 +284,9 @@ install_omp() {
         why="its installer could not be downloaded"
         return 1
     fi
+    # The installer refuses a folder that does not exist, and on AlmaLinux
+    # nothing before this has made it (Ubuntu's bat link does).
+    mkdir -p "$HOME/.local/bin" || return 1
     bash "$download_dir/omp-install.sh" -d ~/.local/bin || return 1
     echo "    oh-my-posh installed."
 }
