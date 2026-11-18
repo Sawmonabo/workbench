@@ -424,6 +424,9 @@ synthetic answers.
   `CLAUDE.local.md`, and still listed `pkg/tmp/`, `.claude/settings.json`,
   `.claude/skills/`, `CLAUDE.md` and `AGENTS.override.md`. Not observed: an
   agent following the worktree instruction.
+  With `.claude/tmp/` added to the entries, `git check-ignore` matched
+  `.claude/tmp/plans/x` and not `.claude/settings.json`, and the render check
+  found the entry in the rendered file for every role.
 
 ### On a WSL2 host
 
