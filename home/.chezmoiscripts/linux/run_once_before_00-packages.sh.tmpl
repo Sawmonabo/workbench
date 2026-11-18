@@ -12,6 +12,23 @@
 # says it is waiting and goes on when that one ends, so no limit is added here.
 set -euo pipefail
 {{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
+# installed_version NAME prints the version ~/.local/bin/NAME reports through
+# its own offline `version` command, or nothing when it reports none.
+installed_version() {
+    local output
+    output=$(timeout 5 "$HOME/.local/bin/$1" version </dev/null 2>/dev/null) || output=
+    [[ $output =~ ([0-9]+\.[0-9]+\.[0-9]+[0-9A-Za-z.+-]*) ]] && printf '%s' "${BASH_REMATCH[1]}"
+    return 0
+}
+# pin_differs NAME PIN is true when ~/.local/bin/NAME is a file (not a link)
+# that reports a version other than PIN, or none. It sets $installed to the
+# version it reports.
+pin_differs() {
+    installed=
+    [ -f "$HOME/.local/bin/$1" ] && [ ! -L "$HOME/.local/bin/$1" ] || return 1
+    installed=$(installed_version "$1")
+    [ "$installed" != "$2" ]
+}
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     # EPEL puts nothing in ~/.local/bin, so it is answered before that is checked.
     if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
@@ -30,19 +47,37 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
         command -v "${tool%%:*}" >/dev/null 2>&1 || missing+=("${tool#*:}")
     done
     # gh and the release binaries are Workbench's own copies in ~/.local/bin,
-    # which apply installs even when a package's copy is on PATH.
+    # which apply installs even when a package's copy is on PATH. In pinned
+    # mode a release binary that reports another version than its pin is
+    # replaced, named as "NAME INSTALLED → PIN".
+    differ=()
     [ -x "$HOME/.local/bin/gh" ] || missing+=("gh")
 {{- range $name, $version := .linux_binaries }}
-    [ -x "$HOME/.local/bin/{{ $name }}" ] || missing+=("{{ $name }}{{ if eq $.versions_mode "pinned" }} {{ $version }}{{ end }}")
+{{- if eq $.versions_mode "pinned" }}
+    if [ ! -x "$HOME/.local/bin/{{ $name }}" ]; then
+        missing+=("{{ $name }} {{ $version }}")
+    elif pin_differs {{ $name }} "{{ $version }}"; then
+        differ+=("{{ $name }} ${installed:-(no version)} → {{ $version }}")
+    fi
+{{- else }}
+    [ -x "$HOME/.local/bin/{{ $name }}" ] || missing+=("{{ $name }}")
+{{- end }}
 {{- end }}
     compgen -G "$HOME/.local/share/fonts/JetBrainsMono*NerdFont*.ttf" >/dev/null || missing+=("nerd-font")
     if ! command -v apt-get >/dev/null 2>&1 && command -v dnf >/dev/null 2>&1; then
         rpm -q --whatprovides libatomic >/dev/null 2>&1 || missing+=("libatomic")
     fi
-    if [ ${#missing[@]} -eq 0 ]; then
+    if [ ${#missing[@]} -eq 0 ] && [ ${#differ[@]} -eq 0 ]; then
         echo "linux-packages: = bat, fd, tmux, jq, ripgrep, htop, tree, ShellCheck, gh, {{ keys .linux_binaries | sortAlpha | join ", " }}, oh-my-posh and the Nerd Font are installed"
     else
-        printf -v joined '%s, ' "${missing[@]}"; echo "linux-packages: install ${joined%, }"
+        changes=()
+        if [ ${#missing[@]} -gt 0 ]; then
+            printf -v joined '%s, ' "${missing[@]}"; changes+=("install ${joined%, }")
+        fi
+        if [ ${#differ[@]} -gt 0 ]; then
+            printf -v joined '%s, ' "${differ[@]}"; changes+=("${joined%, }")
+        fi
+        printf -v joined '%s; ' "${changes[@]}"; echo "linux-packages: ${joined%; }"
     fi
     exit 0
 fi
@@ -350,10 +385,20 @@ fi
 # so each is its project's own release binary, checked against the checksums
 # file of the same release, in ~/.local/bin like gh: the version
 # .chezmoidata/versions.toml [linux_binaries] pins, or in latest mode the latest
-# release. Like gh, an installed copy is kept.
+# release. In pinned mode an installed copy that reports another version than
+# its pin (pin_differs) is replaced by the pinned one; a link there is kept. In
+# latest mode, like gh, an installed copy is kept. The new copy is written
+# beside the old one and moved into its place (mv), so a failed download or check keeps
+# the working copy.
+# install_release_tool NAME VERSION [replace]: VERSION empty means the latest
+# release; replace lets it take the place of an installed copy.
 install_release_tool() {
-    local name=$1 version=$2 repo asset member='' sums arch tag dir
-    require_unused_command "$name" || return 1
+    local name=$1 version=$2 replace=${3:-} repo asset member='' sums arch tag dir staged
+    if [ "$replace" = replace ]; then
+        safe_user_directory "$HOME/.local/bin" || return 1
+    else
+        require_unused_command "$name" || return 1
+    fi
     case "$name" in
         golangci-lint) repo=golangci/golangci-lint ;;
         lefthook) repo=evilmartians/lefthook ;;
@@ -398,12 +443,19 @@ install_release_tool() {
         asset=$member
     fi
     mkdir -p "$HOME/.local/bin" || return 1
-    install -m 755 "$dir/$asset" "$HOME/.local/bin/$name" || return 1
-    echo "    $name installed."
+    staged="$HOME/.local/bin/.$name.workbench-new"
+    install -m 755 "$dir/$asset" "$staged" && mv -fT "$staged" "$HOME/.local/bin/$name" ||
+        { rm -f "$staged"; return 1; }
+    echo "    $name $version installed."
 }
 {{- range $name, $version := .linux_binaries }}
 if [ ! -x "$HOME/.local/bin/{{ $name }}" ]; then
     part linux-packages "{{ $name }} was not installed" install_release_tool {{ $name }} "{{ if eq $.versions_mode "pinned" }}{{ $version }}{{ end }}"
+{{- if eq $.versions_mode "pinned" }}
+elif pin_differs {{ $name }} "{{ $version }}"; then
+    echo "==> {{ $name }} ${installed:-(no version)} differs from its pin {{ $version }}, replacing."
+    part linux-packages "{{ $name }} was not replaced by {{ $version }}; the installed copy stays" install_release_tool {{ $name }} "{{ $version }}" replace
+{{- end }}
 else
     echo "==> {{ $name }} already installed, skipping."
 fi

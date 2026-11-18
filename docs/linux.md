@@ -40,8 +40,13 @@ lefthook and gitleaks in `~/.local/bin` from each project's own GitHub
 releases (the last three checked against the release's checksums file, at the
 `[linux_binaries]` pins in pinned mode, the latest release in latest mode), and
 Command-line tools adds gofumpt and govulncheck with `go install`
-(`[linux_go_tools]`); the Mac gets all five from Homebrew. An installed copy
-in `~/.local/bin` is kept.
+(`[linux_go_tools]`); the Mac gets all five from Homebrew. In pinned mode a
+golangci-lint, lefthook or gitleaks in `~/.local/bin` that reports a version
+other than its pin is replaced by the pinned release, and the plan names it
+(`golangci-lint 2.14.0 → 2.15.0`); the new copy takes the old one's place
+only once it is downloaded and checked, so a failed download keeps the working
+copy. A link there is kept. In latest mode an installed copy of the three is
+kept, and the GitHub CLI, which has no pin, is kept in both modes.
 Undo EPEL with `sudo dnf remove epel-release`. The package step creates the
 work folder on a machine with the work role and the personal folder on one
 with the personal role (see [roles and folders](usage.md#roles-folders-and-credentials), which also covers the
