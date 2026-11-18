@@ -620,7 +620,10 @@ script whose content has not changed) when its check finds something to do,
 for example `install lefthook 2.2.2` after `~/.local/bin/lefthook` was deleted.
 Every script is checked while planning. When a ticked step's check found
 something to do, its script runs in that apply even where chezmoi would skip
-it, and the next apply with nothing to do does not run it. On macOS, every full plan lists its
+it, and the next apply with nothing to do does not run it. On macOS the
+System packages check never runs `brew`: it looks for each listed tool's link
+in Homebrew's `opt` folder, so a tool removed with `brew uninstall` is listed
+as `install jq (nothing is upgraded)`. On macOS, every full plan lists its
 steps as effects, and checking them approves them. They include
 `brew-maintenance`, the Homebrew cleanup dotfiles ran on every apply, and an
 `update-<name>` effect for each app or command-line tool in `packages.toml`

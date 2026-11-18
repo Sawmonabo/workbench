@@ -35,16 +35,32 @@ write_brewfile() {
 }
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    # A probe writes nothing and fetches nothing. Checking what is installed
-    # would make brew download its formula data into ~/Library/Caches, so the
-    # probe only says what apply does, and, when chezmoi would not run this
-    # script (WORKBENCH_PROBE_RAN=1), that its last run installed them.
-    if [ ! -x /opt/homebrew/bin/brew ] && [ ! -x /usr/local/bin/brew ]; then
+    # A probe writes nothing and fetches nothing, so it never runs brew, which
+    # would download its formula data into ~/Library/Caches. Homebrew links
+    # every installed formula in its opt folder, under the formula's name and
+    # its aliases (postgresql for postgresql@N), so a listed tool is installed
+    # when that link is there.
+    brew_prefix=
+    if [ -x /opt/homebrew/bin/brew ]; then
+        brew_prefix=/opt/homebrew
+    elif [ -x /usr/local/bin/brew ]; then
+        brew_prefix=/usr/local
+    fi
+    if [ -z "$brew_prefix" ]; then
         echo "macos-packages: install Homebrew and the tools Workbench lists"
-    elif [ "${WORKBENCH_PROBE_RAN:-}" = 1 ]; then
-        echo "macos-packages: = Homebrew is installed, and the tools Workbench lists were installed when this step last ran"
+        exit 0
+    fi
+    missing=()
+    while IFS= read -r formula; do
+        [ -e "$brew_prefix/opt/${formula##*/}" ] || missing+=("${formula##*/}")
+    done < <(write_brewfile | sed -n 's/^brew "\(.*\)"$/\1/p')
+    if [ ${#missing[@]} -gt 0 ]; then
+        printf -v joined '%s, ' "${missing[@]}"
+        echo "macos-packages: install ${joined%, } (nothing is upgraded)"
+    elif [ ! -d "$HOME/.config/oh-my-posh" ]; then
+        echo "macos-packages: create the oh-my-posh config folder"
     else
-        echo "macos-packages: install the tools Workbench lists that are missing (nothing is upgraded)"
+        echo "macos-packages: = Homebrew and the tools Workbench lists are installed"
     fi
     exit 0
 fi

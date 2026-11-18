@@ -434,6 +434,13 @@ synthetic answers.
   26.10.0, the default will be 26.13.1`, the newest entry without a
   pre-release suffix, and with an unreachable release list the lookup
   returned nothing. Not observed: the step installing it.
+- macOS packages check, read-only (Nov 18): rendered and run with
+  `WORKBENCH_PROBE=1` under bash 3.2 and bash 5, with and without
+  `WORKBENCH_PROBE_RAN=1`, on a Mac that had every listed formula but the newly
+  listed govulncheck, it printed `macos-packages: install govulncheck (nothing
+  is upgraded)` from Homebrew's `opt` links alone, `postgresql` (an alias)
+  counted as installed. Not observed: a formula removed after the step ran
+  being reinstalled by an apply.
 
 ### On a WSL2 host
 
