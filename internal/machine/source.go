@@ -44,6 +44,17 @@ type Requirements struct {
 	PythonMinMinor int
 	PythonMaxMinor int
 	GitHubActions  map[string]Action
+	Mbx            MbxPin
+}
+
+// MbxPin is the [mbx] table: the mbx release the optional mbx step installs,
+// the SHA-256 of its archive for each Workbench target that has a build, and
+// the machine budget the step writes when the person has set none.
+type MbxPin struct {
+	Version       string            `toml:"version"`
+	SHA256        map[string]string `toml:"sha256"`
+	MemoryPercent int               `toml:"memory_percent"`
+	ReserveCPUs   int               `toml:"reserve_cpus"`
 }
 
 // Action is a GitHub Action pinned by commit, with the version it tags.
@@ -131,10 +142,27 @@ func (r Requirements) validate() error {
 		{"versions.uv", r.UV},
 		{"versions.python_pinned[0]", r.Python},
 		{"management.tomlkit", r.Tomlkit},
+		{"mbx.version", r.Mbx.Version},
 	} {
 		if !pinnedVersion.MatchString(pin.version) {
 			return fmt.Errorf("%s %q is not a version such as 1.2.3", pin.name, pin.version)
 		}
+	}
+	// The mbx step builds its download from these and renders the budget into
+	// its script.
+	for target, hash := range r.Mbx.SHA256 {
+		if !sha256Hex.MatchString(hash) {
+			return fmt.Errorf("mbx.sha256 %q is not a SHA-256 in lowercase hex", target)
+		}
+	}
+	if r.Mbx.MemoryPercent < 1 || r.Mbx.MemoryPercent > 100 {
+		return fmt.Errorf(
+			"mbx.memory_percent %d is not a percentage from 1 to 100",
+			r.Mbx.MemoryPercent,
+		)
+	}
+	if r.Mbx.ReserveCPUs < 0 {
+		return fmt.Errorf("mbx.reserve_cpus %d is below 0", r.Mbx.ReserveCPUs)
 	}
 	location, err := url.Parse(r.TomlkitURL)
 	if err != nil || location.Scheme != "https" || location.Host != tomlkitHost ||
@@ -169,6 +197,7 @@ func ParseRequirements(data []byte) (Requirements, error) {
 			TomlkitLicense string            `toml:"tomlkit_license"`
 		} `toml:"management"`
 		GitHubActions map[string]Action `toml:"github_actions"`
+		Mbx           MbxPin            `toml:"mbx"`
 	}
 	if err := toml.Unmarshal(data, &file); err != nil {
 		return Requirements{}, err
@@ -191,6 +220,7 @@ func ParseRequirements(data []byte) (Requirements, error) {
 		PythonMinMinor: m.PythonMinMinor,
 		PythonMaxMinor: m.PythonMaxMinor,
 		GitHubActions:  file.GitHubActions,
+		Mbx:            file.Mbx,
 	}, nil
 }
 

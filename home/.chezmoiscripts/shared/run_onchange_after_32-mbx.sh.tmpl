@@ -1,0 +1,230 @@
+{{- $target := printf "%s-%s" .chezmoi.os .chezmoi.arch -}}
+{{- if hasKey .mbx.sha256 $target -}}
+#!/bin/bash
+# Rust build cache, the optional mbx step (off until ticked): mbx, a shared
+# Rust compile cache and scheduler (github.com/jdx/mr-boxington), so plain
+# cargo and rust-analyzer's checks reuse a crate compiled in any checkout and
+# parallel builds share one CPU and memory budget. A target without a pinned
+# build, an Intel Mac, renders nothing.
+#
+# 1. The pinned release archive for this target is downloaded into a private
+#    folder and checked against its SHA-256 from versions.toml [mbx] before it
+#    is unpacked; mbx goes into ~/.local/bin through a temporary name and mv.
+#    An mbx there at the pin or newer is kept.
+# 2. mbx setup runs without flags, stdin from /dev/null and MISE_SHELL and
+#    MISE_CONFIG_FILE unset, so it can neither prompt nor pick a mise scope: it
+#    writes the Cargo shim and rust-analyzer's user check command, and never a
+#    shell startup file. The shell files put the shim folder first on PATH.
+# 3. The machine budget goes into mbx's user config file, below a project's
+#    .mbx.toml and the MBX_* environment: scheduler.memory, memory_percent of
+#    installed memory in whole GiB rounded down, and scheduler.reserve_cpus.
+#    Each is written with mbx settings set only when the file does not set it
+#    already, read with Python's tomllib, so a value the person set stays.
+#
+# It runs when its content changes, as on a new pin; a plan whose check finds
+# work (mbx missing, older than the pin, its setup not current or a budget key
+# not set) runs it again. Revert does not undo it: mbx setup --uninstall, then
+# delete ~/.local/bin/mbx.
+set -uo pipefail
+{{ template "effect-report.sh" }}
+{{ includeTemplate ".chezmoitemplates/user-bin-safety.sh" . }}
+version='{{ .mbx.version }}'
+expected='{{ index .mbx.sha256 $target }}'
+{{- if eq .chezmoi.os "darwin" }}
+asset='mbx-aarch64-apple-darwin.tar.gz'
+config="$HOME/Library/Application Support/mbx/config.toml"
+{{- else }}
+asset='mbx-{{ if eq .chezmoi.arch "arm64" }}aarch64{{ else }}x86_64{{ end }}-unknown-linux-gnu.tar.gz'
+config="$HOME/.config/mbx/config.toml"
+{{- end }}
+memory_percent={{ .mbx.memory_percent | int }}
+reserve_cpus={{ .mbx.reserve_cpus | int }}
+mbx="$HOME/.local/bin/mbx"
+
+# below A B is true when dotted version A is older than B.
+below() {
+    [ "$1" != "$2" ] &&
+        [ "$(printf '%s\n%s\n' "$1" "$2" | sort -t. -k1,1n -k2,2n -k3,3n | head -n 1)" = "$1" ]
+}
+
+# memory_gib prints memory_percent of installed memory in whole GiB, rounded
+# down.
+memory_gib() {
+    local bytes
+{{- if eq .chezmoi.os "darwin" }}
+    bytes=$(/usr/sbin/sysctl -n hw.memsize 2>/dev/null) || bytes=0
+{{- else }}
+    bytes=$(awk '/^MemTotal:/ { print $2 }' /proc/meminfo 2>/dev/null) || bytes=0
+    bytes=$(( ${bytes:-0} * 1024 ))
+{{- end }}
+    case "$bytes" in
+        '' | *[!0-9]*) bytes=0 ;;
+    esac
+    echo $(( bytes * memory_percent / 100 / 1073741824 ))
+}
+
+# state reads what the step would change, for the check and the run alike:
+# have (the version ~/.local/bin/mbx reports, empty without one), install (1
+# when it is missing or older than the pin), setup (1 when mbx setup --status
+# fails), memory (the GiB to write), unset (the budget keys mbx's config file
+# does not set and that have a value to write) and unreadable (why that file
+# could not be read, empty when it could; no key is written then).
+state() {
+    have='' install=0 setup=0 unset=() unreadable=''
+    if [ -x "$mbx" ]; then
+        have=$("$mbx" --version </dev/null 2>/dev/null | sed -n 's/^mbx \([0-9][0-9.]*\).*/\1/p' | head -n 1)
+    fi
+    if [ -z "$have" ] || below "$have" "$version"; then
+        install=1 setup=1
+    elif ! env -u MISE_SHELL -u MISE_CONFIG_FILE "$mbx" setup --status </dev/null >/dev/null 2>&1; then
+        setup=1
+    fi
+    memory=$(memory_gib)
+    local keys key code=0
+    keys=$(python3 -I - "$config" <<'PY'
+import sys
+import tomllib
+
+try:
+    with open(sys.argv[1], "rb") as file:
+        data = tomllib.load(file)
+except FileNotFoundError:
+    data = {}
+except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError):
+    sys.exit(3)
+scheduler = data.get("scheduler", {})
+if not isinstance(scheduler, dict):
+    sys.exit(3)
+print(" ".join(key for key in ("memory", "reserve_cpus") if key not in scheduler))
+PY
+    ) || code=$?
+    if [ "$code" = 3 ]; then
+        unreadable="$(shown "$config") is not valid TOML"
+        return
+    elif [ "$code" != 0 ]; then
+        unreadable="Python with tomllib, which reads $(shown "$config"), did not run"
+        return
+    fi
+    for key in $keys; do
+        # A machine with under 2 GiB gets no memory budget; mbx's own stays.
+        [ "$key" = memory ] && [ "$memory" -lt 1 ] && continue
+        unset+=("$key")
+    done
+}
+
+# budget_text names the budget keys state found unset, with their values.
+budget_text() {
+    local key parts=()
+    for key in "${unset[@]+"${unset[@]}"}"; do
+        case "$key" in
+            memory) parts+=("scheduler.memory ${memory}GiB (${memory_percent}% of memory)") ;;
+            reserve_cpus) parts+=("scheduler.reserve_cpus $reserve_cpus") ;;
+        esac
+    done
+    local joined
+    printf -v joined '%s, ' "${parts[@]}"
+    printf '%s' "${joined%, }"
+}
+
+if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
+    # A check writes nothing and downloads nothing: mbx --version and mbx setup
+    # --status only read.
+    user_bin_refused mbx
+    state
+    changes=()
+    if [ "$install" = 1 ] && [ -n "$have" ]; then
+        changes+=("mbx $have → $version")
+    elif [ "$install" = 1 ]; then
+        changes+=("install mbx $version into ~/.local/bin")
+    fi
+    [ "$setup" = 1 ] && changes+=("run mbx setup, so plain cargo and rust-analyzer's checks go through mbx")
+    [ ${#unset[@]} -gt 0 ] && changes+=("set the build budget in mbx's config file: $(budget_text) (change it with mbx settings set)")
+    [ -n "$unreadable" ] && echo "mbx: ? $unreadable, so the build budget was not checked"
+    if [ ${#changes[@]} -gt 0 ]; then
+        printf -v joined '%s; ' "${changes[@]}"
+        echo "mbx: ${joined%; }"
+    elif [ -z "$unreadable" ]; then
+        echo "mbx: = mbx $have is set up, and its build budget is in mbx's config file (change it with mbx settings set)"
+    fi
+    exit 0
+fi
+if [ "${WORKBENCH_EFFECT_MBX:-0}" != 1 ]; then
+    echo 'WORKBENCH_EFFECT mbx disabled (not selected)' >&2
+    exit 0
+fi
+user_bin_refused mbx
+
+status=0
+download_dir=$(mktemp -d)
+trap 'rm -rf "$download_dir"' EXIT
+
+# install_mbx downloads the pinned archive, checks it and puts mbx into
+# ~/.local/bin. A link there is left alone.
+install_mbx() {
+    local archive="$download_dir/$asset" actual staged="$HOME/.local/bin/.mbx.workbench-new"
+    if [ -L "$mbx" ] || { [ -e "$mbx" ] && [ ! -f "$mbx" ]; }; then
+        why="$(shown "$mbx") is not a plain file Workbench can replace, so it was left alone"
+        return 1
+    fi
+    echo "==> Installing mbx $version to ~/.local/bin..."
+    if ! curl -fsSL --connect-timeout 10 --speed-limit 1024 --speed-time 60 -o "$archive" \
+        "https://github.com/jdx/mr-boxington/releases/download/v$version/$asset"; then
+        why="mbx $version could not be downloaded"
+        return 1
+    fi
+{{- if eq .chezmoi.os "darwin" }}
+    actual=$(shasum -a 256 "$archive" | cut -d' ' -f1)
+{{- else }}
+    actual=$(sha256sum "$archive" | cut -d' ' -f1)
+{{- end }}
+    if [ "$actual" != "$expected" ]; then
+        rm -f "$archive"
+        why="the downloaded $asset does not match its pinned SHA-256, so it was removed without being unpacked"
+        return 1
+    fi
+    tar -xzf "$archive" -C "$download_dir" mbx || { why="$asset could not be unpacked"; return 1; }
+    mkdir -p "$HOME/.local/bin" &&
+        install -m 755 "$download_dir/mbx" "$staged" &&
+        mv -f "$staged" "$mbx" || { rm -f "$staged"; why="mbx could not be written to ~/.local/bin"; return 1; }
+    echo "    mbx $version installed."
+}
+
+# set_budget writes each budget key state found unset, through mbx itself.
+set_budget() {
+    local key
+    for key in "${unset[@]+"${unset[@]}"}"; do
+        case "$key" in
+            memory)
+                echo "==> Setting mbx's memory budget to ${memory}GiB (${memory_percent}% of this machine's memory)..."
+                "$mbx" settings set scheduler.memory "${memory}GiB" </dev/null ||
+                    { why="mbx settings set scheduler.memory ${memory}GiB failed"; return 1; } ;;
+            reserve_cpus)
+                echo "==> Keeping $reserve_cpus CPU cores free of mbx's compiles..."
+                "$mbx" settings set scheduler.reserve_cpus "$reserve_cpus" </dev/null ||
+                    { why="mbx settings set scheduler.reserve_cpus $reserve_cpus failed"; return 1; } ;;
+        esac
+    done
+}
+
+why=
+state
+if [ "$install" = 1 ]; then
+    install_mbx || { part_failed mbx "mbx was not installed: $why" || status=1; exit "$status"; }
+elif [ -n "$have" ] && [ "$have" != "$version" ]; then
+    echo "==> mbx $have is newer than the pin $version, kept."
+fi
+echo "==> Running mbx setup..."
+if ! env -u MISE_SHELL -u MISE_CONFIG_FILE "$mbx" setup </dev/null; then
+    part_failed mbx "mbx setup failed (the output above says why)" || status=1
+fi
+state
+if [ -n "$unreadable" ]; then
+    part_failed mbx "$unreadable, so the build budget was not set" || status=1
+elif [ ${#unset[@]} -gt 0 ]; then
+    set_budget || part_failed mbx "$why" || status=1
+else
+    echo "==> mbx's build budget is already in $(shown "$config"), kept."
+fi
+[ "$status" = 0 ] && echo "==> mbx is set up: plain cargo in a new shell runs through it."
+exit "$status"
+{{ end -}}

@@ -19,6 +19,11 @@ python_pinned = ["3.12.12"]
 chezmoi = "2.70.3"
 tomlkit = "0.15.1"
 tomlkit_url = "https://files.pythonhosted.org/packages/13/bc/tomlkit-0.15.1-py3-none-any.whl"
+
+[mbx]
+version = "1.30.0"
+memory_percent = 60
+reserve_cpus = 2
 `
 	read := func(old, replacement string) error {
 		_, err := SourceRequirements(map[string][]byte{

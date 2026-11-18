@@ -148,7 +148,7 @@ func prepare(
 		operation.Input{Name: "folders", Digest: operation.SHA256Hex([]byte(folders))},
 	)
 	effects := []operation.Effect{aiSecurityEffect}
-	effects = append(effects, provisioningEffects(c, answers)...)
+	effects = append(effects, provisioningEffects(c, answers, requirements)...)
 	prepared.active, err = prepared.activeSources(ctx, c)
 	if err != nil {
 		return prepared, err
@@ -213,6 +213,9 @@ func (p *preparation) selectEffects(
 		}
 		shown = &p.Plan
 	}
+	// A ticked step left unlisted for having nothing to do is still offered,
+	// so its saved tick is not stale.
+	offered := slices.Clone(p.Plan.Effects)
 	p.Plan.Effects = listDue(p.Plan.Effects, p.dormant, shown.Effects)
 	p.Plan.Effects = append(p.Plan.Effects, takeOverEffects(shown.Effects)...)
 	saved, err := ReadSelection(c.Native.Config)
@@ -220,7 +223,7 @@ func (p *preparation) selectEffects(
 		return err
 	}
 	if !selection.Forget {
-		p.Plan.Warnings = append(p.Plan.Warnings, staleSelectionWarnings(saved, p.Plan.Effects)...)
+		p.Plan.Warnings = append(p.Plan.Warnings, staleSelectionWarnings(saved, offered)...)
 	}
 	p.Plan.Effects = applySelection(p.Plan.Effects, selection, saved)
 	if c.Native.Destination != c.Home {

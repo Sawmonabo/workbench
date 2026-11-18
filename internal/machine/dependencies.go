@@ -394,6 +394,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 		}
 		results = append(results, resolved...)
 		results = append(results, checkRuntimes(ctx, c, files, selection.Skip)...)
+		results = append(results, checkMbx(ctx, c, requirements.Mbx, selection.Select))
 	}
 	// Plain chezmoi still pointed at another source, such as dotfiles, would
 	// reapply it over the same files Workbench manages.

@@ -90,3 +90,17 @@ yarn = "1.22.22"
 # release's own checksums file.
 [project_ci]
 gitleaks_linux_x64_sha256 = { "8.30.1" = "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" }
+
+# mbx (jdx/mr-boxington), the shared Rust build cache the optional mbx step
+# installs into ~/.local/bin, in pinned and latest mode alike. sha256 holds the
+# release's SHA256SUMS line of each build's archive, keyed by Workbench's
+# target; a target without one (an Intel Mac: mbx publishes no
+# x86_64-apple-darwin build) is not offered the step. The step writes the
+# machine's compile budget into mbx's own config file, each key only when the
+# file does not set it yet: scheduler.memory as memory_percent of installed
+# memory in whole GiB, rounded down, and scheduler.reserve_cpus.
+[mbx]
+version = "1.30.0"
+sha256 = { "darwin-arm64" = "d5b957216c8b61c2df91c9e7aaf5febd45ec74274a60d3714ebe316edc144543", "linux-amd64" = "f4992b401fe65744b7c6e7400933d2106da205b499405621d088051a31a8f3f2", "linux-arm64" = "6317bb6780404e78c3b670d95e128c85871809dfc541882b2efaa34120f45e71" }
+memory_percent = 60
+reserve_cpus = 2

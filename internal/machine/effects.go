@@ -1,12 +1,15 @@
 package machine
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // macOSEffects are the macOS-only script owners of a full apply.
@@ -75,6 +78,7 @@ var effectSources = map[string][]string{
 	"wsl-preferences":         {"10-deploy-windows-configs"},
 	"sysctl":                  {"20-sysctl"},
 	"touch-id-sudo":           {"70-touch-id-sudo"},
+	"mbx":                     {"32-mbx"},
 	"terminal-adoption":       {"00-packages-windows"},
 	"powershell-adoption":     {"00-packages-windows"},
 	"font-registry":           {"00-packages-windows"},
@@ -85,6 +89,48 @@ var effectSources = map[string][]string{
 	takeOverPrefix + "powershell-adoption": {"00-packages-windows"},
 	takeOverPrefix + "wsl-preferences":     {"10-deploy-windows-configs"},
 	takeOverPrefix + "default-distro":      {"10-deploy-windows-configs"},
+}
+
+// checkMbx is doctor's line for the optional Rust build cache step: why it is
+// not offered where mbx publishes no build for this target, else the mbx in
+// ~/.local/bin against the pin. It reads the version mbx reports and nothing
+// else; mbx setup --status, which checks the shim, is left to the step.
+func checkMbx(
+	ctx context.Context,
+	c operation.Context,
+	pin MbxPin,
+	selected []string,
+) operation.Component {
+	line := operation.Component{Name: "mbx", Status: operation.StatusSkipped}
+	if pin.SHA256[release.Target()] == "" {
+		line.Message = "mbx publishes no build for " + release.Target() + ", so the Rust build cache step is not offered"
+		if release.Target() == "darwin-amd64" {
+			line.Message = "mbx publishes no Intel Mac build, so the Rust build cache step is not offered"
+		}
+		return line
+	}
+	ticked := slices.Contains(selected, "mbx")
+	path := filepath.Join(c.Home, ".local", "bin", "mbx")
+	if _, err := os.Stat(path); err != nil {
+		line.Message = "not installed; the optional Rust build cache step installs it (workbench apply --choose ticks it)"
+		if ticked {
+			line.Status, line.Message = operation.StatusAbsent, "not installed; Rust build cache is ticked, so workbench apply installs it"
+		}
+		return line
+	}
+	have, _ := probeVersion(ctx, c, "mbx", path)
+	line.Status = operation.StatusComplete
+	switch {
+	case have == "":
+		line.Message = "in ~/.local/bin; its version cannot be read"
+	case ticked && newerVersion(pin.Version, have):
+		line.Status = operation.StatusPending
+		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + "); workbench apply installs " +
+			pin.Version
+	default:
+		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + ")"
+	}
+	return line
 }
 
 // activeEffects keeps the effects with an active source, and the effects
@@ -352,7 +398,12 @@ var windowsHostEffects = []operation.Effect{
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
 // agent-costs-ingest touches the ledger in the data folder this apply resolved.
-func provisioningEffects(c operation.Context, answers Answers) []operation.Effect {
+// The mbx step is listed only where its pin has a build for this target.
+func provisioningEffects(
+	c operation.Context,
+	answers Answers,
+	requirements Requirements,
+) []operation.Effect {
 	effects := slices.Clone(sharedEffects)
 	for i := range effects {
 		if effects[i].Name == "agent-costs-ingest" {
@@ -366,7 +417,50 @@ func provisioningEffects(c operation.Context, answers Answers) []operation.Effec
 	if answers["is_wsl"] == true {
 		effects = append(effects, windowsHostEffects...)
 	}
+	if mbx, ok := mbxEffect(requirements.Mbx); ok {
+		effects = append(effects, mbx)
+	}
 	return effects
+}
+
+// mbxEffect is the optional Rust build cache step, off until ticked: it changes
+// what plain cargo runs on the whole machine and writes rust-analyzer's user
+// file, as touch-id-sudo changes every sudo. Unlike the other optional steps,
+// whose scripts run on every apply, its script runs on change, so a ticked
+// step with nothing to do is not listed (see [listDue]). It is false where the
+// pin has no build for this target, an Intel Mac.
+func mbxEffect(pin MbxPin) (operation.Effect, bool) {
+	if pin.SHA256[release.Target()] == "" {
+		return operation.Effect{}, false
+	}
+	memory, cpus := strconv.Itoa(pin.MemoryPercent)+"%", strconv.Itoa(pin.ReserveCPUs)
+	return operation.Effect{
+		Name:     "mbx",
+		Optional: true,
+		Description: "mbx " + pin.Version + " from jdx/mr-boxington's release into ~/.local/bin, its archive checked " +
+			"against the pinned SHA-256; mbx setup with no mise scope and no prompt, which installs mbx's Cargo shim " +
+			"and rust-analyzer's check command; scheduler.memory (" + memory + " of installed memory, whole GiB) and " +
+			"scheduler.reserve_cpus (" + cpus + ") written to mbx's user config file, each only when the file does " +
+			"not set it",
+		Privilege: "user; network",
+		Recovery:  "external; revert does not undo it",
+		Title:     "Rust build cache",
+		Summary:   "plain cargo shares one compile cache and one CPU and memory budget",
+		What: "Installs mbx " + pin.Version + ", a shared Rust compile cache and scheduler, into ~/.local/bin and " +
+			"runs mbx setup, so plain cargo in a new shell, and rust-analyzer's checks, run through it: a crate " +
+			"compiled in one checkout is reused by every other checkout, and parallel builds share one CPU and " +
+			"memory budget. It sets that budget once, from this machine: " + memory + " of its memory and " + cpus +
+			" CPU cores left for other work. A value already in mbx's config file stays, and a project's .mbx.toml " +
+			"still wins over both. To change it, run mbx settings set scheduler.memory 24GiB or mbx settings set " +
+			"scheduler.reserve_cpus 4; Workbench never changes a value that is there. To see which cargo a coding " +
+			"agent's commands run, ask the agent to run command -v cargo.",
+		Touches: "~/.local/bin/mbx, mbx's Cargo shim, mbx's config file and rust-analyzer's user " +
+			"rust-analyzer.toml",
+		RunsAs: "you; downloads mbx from GitHub",
+		Undo: "Not reverted automatically: run mbx setup --uninstall, then delete ~/.local/bin/mbx and the " +
+			"shim folder it names (~/.local/share/mbx/bin on Linux, ~/Library/Application Support/mbx/bin on a " +
+			"Mac); while that folder holds the shim, plain cargo runs it",
+	}, true
 }
 
 // optionalEffects are the WSL host steps, which run only when selected by name.
@@ -463,9 +557,10 @@ var optionalEffects = []operation.Effect{
 	},
 }
 
-// staleSelectionWarnings names each saved select that is none of the plan's
-// effects: a choice saved before an optional step was renamed or removed, or
-// on another platform. It is ignored, not refused, so one stale name never
+// staleSelectionWarnings names each saved select that is none of the effects
+// this host offers, listed or left out for having nothing to do: a choice
+// saved before an optional step was renamed or removed, or on another
+// platform. It is ignored, not refused, so one stale name never
 // blocks a plan. The warnings follow the saved file, not the selection being
 // planned, so a plan and its recheck under the locks read them alike.
 func staleSelectionWarnings(saved Selection, effects []operation.Effect) []string {
