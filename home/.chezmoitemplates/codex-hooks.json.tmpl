@@ -32,17 +32,6 @@
           { "type": "command", "command": {{ printf "%s agent guard post || true" $workbench | toJson }}, "timeout": 5 }
         ]
       }
-    ]{{ if .has_work }},
-    "UserPromptSubmit": [
-      {
-        "matcher": "*",
-        "hooks": [
-          {
-            "type": "command",
-            "command": {{ printf "%s/.promptctl/bin/codex-prefix-hook" .chezmoi.homeDir | replace "'" "'\"'\"'" | printf "'%s'" | toJson }}
-          }
-        ]
-      }
-    ]{{ end }}
+    ]
   }
 }
