@@ -62,7 +62,9 @@ Anti-goals:
 
 1. The running commands come first, as today. The finished ones follow, dim,
    for as long as they are kept (3.4).
-2. The count line counts both, with a thousands separator.
+2. The count line counts both, with a thousands separator. Its `peak` stays
+   the largest since the watcher started, and with no watcher the line holds
+   the finished count alone.
 3. `ENDED` is a new column, right-aligned, empty for a running row. It holds
    the time a command ended (`5:07 PM`). When more than 24 hours are kept, a
    row that ended before today also holds its date (`Nov 18 5:07 PM`).
@@ -92,6 +94,10 @@ text, upper and lower case alike.
 | `enter` | closes the input and keeps the filter |
 | `esc` | closes the input and clears the filter |
 | `ctrl+c` | quits |
+
+The search runs beside the screen: typing never waits for it, the list keeps
+its rows until the answer comes, and only the answer to the latest text is
+shown.
 
 While a filter is kept, the count line says so
 (`5 running · 12 of 2,832 finished · find "cargo"`), `/` edits it, and `esc`
@@ -153,15 +159,20 @@ clears it; a second `esc` quits, as `esc` does today.
 keep 3d` sets it. It takes hours, days or weeks (`12h`, `3d`, `1w`) from one
 hour to 30 days, and is 24 hours until set.
 
-The oldest finished commands leave first, on two limits:
+The oldest finished commands leave first, on one limit a person sets and two
+fixed ones that bound the list and the disk:
 
 - **Time.** A command that ended longer ago than the time kept is deleted.
-- **Count.** At most 20,000 finished commands are kept; past that the oldest
-  are deleted even when they are younger than the time kept.
+- **Count.** At most 20,000 finished commands are kept.
+- **Size.** The history takes at most 256 MiB on disk.
 
-Shortening the time deletes the older commands for good at the watcher's
-next trim, within a minute; the command says so before it sets the value.
-Lengthening it brings nothing back.
+Past the count or the size, the oldest are deleted even when they are
+younger than the time kept.
+
+Setting a shorter time never asks: it sets the value and prints what
+follows, in one line (`Finished commands are kept 12 hours (was 3 days);
+older ones are deleted within a minute.`). The view hides them at once and
+the watcher deletes them for good. Lengthening the time brings nothing back.
 
 ## 4. Constraints
 
@@ -202,6 +213,14 @@ The watcher and a view started from another shell must read the same value.
 | The panel always open beside the facts | Half the window is spent on a part nobody asked for, and a short command leaves it empty. |
 | One column, every part whole | One long command or a hundred processes push the rest off the screen, which is the fault this design removes. |
 
+### 5.4 When the history is written
+
+| Approach | Trade-off |
+| --- | --- |
+| **One writer beside the tick, in the watcher.** Chosen. | The tick hands a finished command over and goes on. A slow disk, which is likely just when memory is short and the guard matters most, never delays a stop. |
+| Written by the tick itself | Simpler, and usually a tenth of a millisecond, but a commit can wait on the disk, a command with 10,000 processes took 23 ms and a large trim took longer. |
+| Written when the watcher exits | Nothing to see while the watcher runs, and everything lost if it is killed. |
+
 ## 6. The store
 
 ### 6.1 File
@@ -226,7 +245,7 @@ ledger is.
 PRAGMA user_version = 1;
 
 CREATE TABLE commands(
-  seq         INTEGER PRIMARY KEY,
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,  -- never given twice
   id          TEXT    NOT NULL UNIQUE,  -- the call's ID, or a detached program's
   kind        TEXT    NOT NULL,         -- '' or 'detached'
   launched_by TEXT    NOT NULL,         -- the call that started a detached program
@@ -270,27 +289,34 @@ and order them.
 
 ### 6.3 Rules
 
-1. **One writer.** Only the watcher inserts and deletes commands. `agent
-   guard keep` writes the one `settings` row. The view never writes: it opens
-   the file with `mode=rw` (a WAL reader must be able to write the `-shm`
-   file) and `query_only(1)`, and never creates it.
-2. **Writes never hold up guarding.** A command that finishes is queued in
-   the watcher's memory. The tick writes the queue in one transaction at its
-   end, before its snapshot goes out, so the view finds the row in the same
-   second. A stop, its polling and the reading of notes during it never
-   touch the file. The queue is also written before a handover and at exit.
-3. **A write that fails keeps the command in sight.** The queue holds at
-   most 1,000 commands and drops the oldest past that, counting them in the
-   log. The failure is logged once until a write succeeds. Each snapshot
-   carries the queued commands, so the view shows them while the watcher
-   lives and says `Guard history cannot be written: REASON`.
+1. **One writer.** In the watcher, one goroutine owns the only connection
+   that inserts and deletes commands; the tick never touches the file.
+   `agent guard keep` writes the one `settings` row from its own process.
+   The view never writes: it opens the file with `mode=rw` (a WAL reader
+   must be able to write the `-shm` file) and `query_only(1)`, and never
+   creates it.
+2. **The tick never waits.** `finish` puts the command, with its graph and
+   processes, on a pending list and hands it to the writer. The writer
+   writes each command in one transaction and reports its ID; the next tick
+   takes it off the list. Each snapshot carries the pending commands whole,
+   so the view shows a finished command, details included, in the second it
+   ends, written or not.
+3. **A write that fails keeps the command in sight.** The pending list holds
+   at most 2 MiB of command text, graphs and processes and drops its oldest
+   past that, counting them in the log. The writer tries again every ten
+   seconds and logs the failure once until a write succeeds. The snapshot
+   names the failure and the view says
+   `Guard history cannot be written: REASON`.
 4. **Twice is harmless.** Rows go in with
    `INSERT … ON CONFLICT(id) DO NOTHING`.
-5. **Trim.** At most once a minute, with the kill records (`expireKills`),
-   the watcher reads `keep`, deletes the commands that ended before
-   `now - keep`, then the oldest beyond 20,000, and runs
-   `incremental_vacuum`. The view leaves out rows older than `keep` too, so
-   a history no watcher trims shows no more than is kept.
+5. **Trim.** When it starts and then once a minute, the writer reads `keep`
+   and deletes, in steps of at most 200 commands with an
+   `incremental_vacuum` after each and other writes between them: the
+   commands that ended before `now - keep`; then those with the lowest `seq`
+   beyond 20,000; then those with the lowest `seq` while the pages in use
+   (`page_count - freelist_count`) take more than 256 MiB. The view leaves
+   out rows older than `keep` too, so a history no watcher trims shows no
+   more than is kept.
 6. **Every process.** A tracked command keeps each process it has had, by
    PID and start, with its name and its peak resident size: at most 10,000,
    counting the rest in `unlisted`. The details then say
@@ -311,6 +337,11 @@ and order them.
    fails with the same text. The time kept then reads 24 hours.
 10. **No file yet** is an empty history. The view tries again each second;
     `agent guard keep DURATION` creates the file as the watcher would.
+11. **Handover and exit.** A watcher hands over only when nothing is pending
+    or the last write failed; what is pending then crosses to the next
+    watcher, whose writer takes it. A watcher that exits while commands are
+    pending gives the writer one second, then logs how many were not
+    written.
 
 ### 6.4 Measured
 
@@ -330,29 +361,47 @@ average), not a measured one.
 The slowest single insert was 8 ms. Deleting half the rows and vacuuming took
 6 ms to 253 ms and halved each file. A command costs about 1.1 KB at 200
 characters and 5.3 KB at 4,000, so the length of the commands, not the number
-of processes, sets the size: 20,000 commands of 4,000 characters are about
-106 MB.
+of processes, sets the size.
+
+The largest case, 20,000 commands of 4,000 characters with 1 to 14 processes
+each, in a process set up as the watcher is (32 MiB limit, 50 GC percent,
+`cache_size(-64)`):
+
+| | |
+| --- | --- |
+| File | 107 MB |
+| Opening the file and making the schema | 0.2 to 0.7 MiB more counted against the limit, 2.4 MiB more resident |
+| After writing all 20,000 | 9.4 MiB counted, 15.7 MiB resident, the program's own text included (5.5 and 7.1 before the file was opened) |
+| Inserting one command with 10,000 processes | 23 ms |
+| A trim step of 200 commands | 8 ms to delete, 5 ms to vacuum |
+| A filter over every command's whole text | 72 to 226 ms |
 
 ## 7. The watcher, the socket and the view
 
 ### 7.1 Watcher (`internal/agent/guard`)
 
 - `usage` keeps the buckets and `per` of rule 7 in place of the latest 120
-  sizes, and the processes of rule 6.
-- `finish` queues the command for the store with its graph and processes.
-  The list of commands finished within a minute (`w.finished`,
-  `finishedShown`) goes, with its pruning in `buildView`.
+  sizes, the latest reading, which a stop by hand records when the tree can
+  no longer be read, and the processes of rule 6.
+- `finish` puts the command on the pending list of rule 2. The list of
+  commands finished within a minute (`w.finished`, `finishedShown`) goes,
+  with its pruning in `buildView`.
+- The watcher still calls `platform.ReleaseServiceTables`. That call's rule
+  becomes "a process that looks up no service or protocol by name": the
+  SQLite driver's library never does (its source for macOS and Linux names
+  neither `getservby…` nor `getprotoby…`), and the store opened and wrote
+  with the tables released.
 - A command whose call started a detached program is no longer held in the
   snapshot for that program's sake: the view finds it in the history.
-- What a watcher hands the next one (`carried`) loses `Finished`: the queue
-  is written before the handover, so no finished command crosses it.
-  `usage` crosses as it is kept.
+- What a watcher hands the next one (`carried`) holds the pending list in
+  place of `Finished` (rule 11). `usage` crosses as it is kept.
 
 ### 7.2 Socket
 
 `protocolVersion` becomes 2. A snapshot carries the tracked commands, each
-with the whole-run graph in `History`, and the queued finished commands of
-rule 3. A view and a watcher of two releases say so as they do today
+with the whole-run graph in `History`, the pending finished commands whole
+(at most 2 MiB, well under the 16 MiB a client reads in one line) and the
+store's failure, when it has one. A view and a watcher of two releases say so as they do today
 (`watcherOther`).
 
 ### 7.3 View (`internal/cli/agentguardview.go`)
@@ -362,9 +411,10 @@ rule 3. A view and a watcher of two releases say so as they do today
 - The view holds one summary per finished command: the `commands` columns
   with the first 300 characters of the command. Each second, and at once
   after a snapshot, it asks for the rows with a `seq` above the last it
-  has; it drops the rows older than `keep`.
+  has and for the lowest `seq` in the file; it drops the rows below that
+  one and the rows older than `keep`.
 - The filter of 3.2 runs in SQLite over the whole command text, so the view
-  never holds it.
+  never holds it, and as a Bubble Tea command, so the screen never waits.
 - Opening the details of a finished command loads its graph and processes
   by `seq`; opening the panel on its command loads the command whole.
 - Without a watcher the view reads the history each second as above.
@@ -374,7 +424,7 @@ rule 3. A view and a watcher of two releases say so as they do today
 | Concern | Owner |
 | --- | --- |
 | The history file: schema, open, writes, trim, reads, the `keep` setting | `internal/agent/guard/history.go` |
-| The steps both SQLite files share when they open (private create, WAL, the driver) | where the ledger has them today, moved to a shared owner only if the guard cannot call them there |
+| The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string and the switch to WAL with its retry when two creators meet | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file, its schema and `makePrivate` |
 | `agent guard keep` | `internal/cli/agentguard.go` |
 | The list, the filter, the details and the panel | `internal/cli/agentguardview.go` |
 
@@ -392,16 +442,18 @@ the watcher's first write, and says that risk beside it.
 
 ## 10. To render before it reaches `main`
 
-Three screens have no approved render yet: the list with the input of 3.2
-open and with a filter kept, an `ENDED` column with dates, and what
-`agent guard keep` prints when it shows and when it shortens the time.
+Four things have no approved render yet: the list with the input of 3.2
+open and with a filter kept, an `ENDED` column with dates, the two history
+warnings (cannot be written, unreadable), and what `agent guard keep` prints
+when it shows and when it shortens the time.
 
 ## 11. Left to the builder
 
 - The exact wording of each message, within the texts given here.
-- Whether the filter's query needs an index or a cap on its run time, by
-  measuring it on 20,000 commands of 4,000 characters; the list must stay
-  under 100 ms to redraw.
-- How the tracked processes are held so 10,000 of them stay inside the
-  watcher's memory limit.
+- Whether the filter is worth a full-text index; without one it answers in
+  72 to 226 ms on the largest case, which 3.2 allows.
+- How the tracked processes are held. The watcher must stay inside its
+  32 MiB limit, unchanged, under the two loads ADR 16 measured (a build
+  starting about 650 processes a second, and 1,400 held processes), with
+  the history written; the builder measures both.
 - The split of the work into commits and lanes.
