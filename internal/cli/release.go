@@ -394,7 +394,7 @@ func installCheckoutTools(
 		return result, nil
 	}
 	c.ReadOnly = false
-	if _, err := setUp(cmd, c, o, nil, &result, false, nil); err != nil {
+	if err := setUpTools(cmd, c, o, &result); err != nil {
 		return result, err
 	}
 	result.Summary = "[WorkBench] This checkout's tools are in place; run " +
@@ -676,8 +676,7 @@ func installTools(
 	version string,
 	unchanged, first bool,
 ) (operation.Result, error) {
-	_, err := setUp(cmd, c, o, nil, &result, false, nil)
-	if err != nil {
+	if err := setUpTools(cmd, c, o, &result); err != nil {
 		return result, err
 	}
 	// The summary, printed where the view is not drawn, says outright that
@@ -794,6 +793,22 @@ func setUp(
 	}
 	result.Results = append(result.Results, component)
 	return c, nil
+}
+
+// setUpTools is the setup step of an update, which installs the pinned tools
+// and applies nothing: its plan stays in --json and out of the text output,
+// whose setup line already names what was installed.
+func setUpTools(
+	cmd *cobra.Command,
+	c operation.Context,
+	o *options,
+	result *operation.Result,
+) error {
+	_, err := setUp(cmd, c, o, nil, result, false, nil)
+	if last := len(result.Results) - 1; err == nil && !o.json && last >= 0 {
+		result.Results[last].Details = nil
+	}
+	return err
 }
 
 // partialUpdate rewrites a failure after this release was installed as a
