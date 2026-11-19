@@ -858,9 +858,9 @@ and patch updates into one pull request, and
 auto-merge for Dependabot's patch and minor pull requests and for no other
 pull request. It is GitHub only and works best with "Allow auto-merge" turned
 on and a branch rule on the default branch that requires the CI check: GitHub
-then waits for that check itself, also when it is run again; Workbench sets
-neither. Without such a rule the workflow waits up to 40 minutes for the pull
-request's other checks and merges only when at least one ran and none failed;
+then refuses a merge before that check passed; Workbench sets neither. While
+GitHub lists no required check for the pull request, the workflow waits up to
+40 minutes for its other checks and merges only when at least one ran and none failed;
 after a failed or slow check, run the workflow's job again. A repository with
 no CI check keeps its Dependabot pull requests open. Each file is written only
 when the repository has none: an existing lefthook configuration (any of the
