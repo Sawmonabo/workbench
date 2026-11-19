@@ -308,7 +308,8 @@ and order them.
    names the failure and the view says
    `Guard history cannot be written: REASON`.
 4. **Twice is harmless.** Rows go in with
-   `INSERT … ON CONFLICT(id) DO NOTHING`.
+   `INSERT … ON CONFLICT(id) DO NOTHING`. A command that is already there
+   gets no graph or process rows and counts as written.
 5. **Trim.** When it starts and then once a minute, the writer reads `keep`
    and deletes, in steps of at most 200 commands with an
    `incremental_vacuum` after each and other writes between them: the
@@ -331,8 +332,9 @@ and order them.
    `… 12 KB more were not kept`.
 9. **Another version, or damage.** A file whose `user_version` is not 1,
    whose tables are not these, or that SQLite calls corrupt or not a
-   database is never deleted or rewritten. The watcher logs it once and
-   guards without history; the view says
+   database is never deleted or rewritten. The watcher logs it once,
+   guards without history and treats it as a write that fails (rule 3), so
+   the commands that just finished stay in sight while it runs; the view says
    `Guard history unreadable: REASON; move PATH aside`; `agent guard keep`
    fails with the same text. The time kept then reads 24 hours.
 10. **No file yet** is an empty history. The view tries again each second;
@@ -455,5 +457,7 @@ when it shows and when it shortens the time.
 - How the tracked processes are held. The watcher must stay inside its
   32 MiB limit, unchanged, under the two loads ADR 16 measured (a build
   starting about 650 processes a second, and 1,400 held processes), with
-  the history written; the builder measures both.
+  the history written; the builder measures both. If it does not hold,
+  building stops there: choosing between fewer processes kept for a command
+  and a higher limit is not the builder's call.
 - The split of the work into commits and lanes.
