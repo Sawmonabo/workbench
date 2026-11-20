@@ -459,7 +459,7 @@ Documents changed in place: the guard sections of `docs/usage.md` and
 guard row of the ownership table in `AGENTS.md`, one sentence in its
 development contract (the guard moves aside a history it cannot use and
 starts a new one, deleting the copy once it is older than the time kept),
-and a new ADR 19 for the store and its limits.
+and a new ADR 20 for the store and its limits.
 
 ## 9. The one safeguard
 
