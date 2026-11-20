@@ -14,27 +14,14 @@ the same path.
 
 ## 2. What moves
 
-`<config>`, `<data>` and `<state>` are Workbench's runtime folders
-(`internal/platform` `RuntimeFolders`).
+`<data>` and `<state>` are Workbench's runtime folders (`internal/platform`
+`RuntimeFolders`).
 
 | From | To | Holds |
 | --- | --- | --- |
 | `<data>/costs/` | `<data>/agent/costs/` | `ledger.sqlite` with its `-wal` and `-shm` |
 | `<state>/costs/` | `<state>/agent/costs/` | `ingest.log`, `ingest.err`, `ingest.lock` |
-| `<state>/guard/` | `<state>/agent/guard/` | `watch.log`, `watch.err`, `watch.lock`, `guard.sock`, `notes/`, `agents/`, `killed/` |
-
-Two things stop being files:
-
-- **The price overrides file** (`<config>/costs/rates.json`) is no longer
-  read. Only a person writing it by hand ever made one; prices come from the
-  list Workbench ships, the tools' own cost records and the official price
-  pages. Its reader, its layer in the price list and the hint that named it
-  go. A file a machine still has stays where it is, untouched, and
-  `0001-costs-folders` no longer moves one.
-- **The downloaded price lists** (`<data>/costs/<tool>/rates-official.json`)
-  become two tables in the ledger (rule 9). The costs move deletes the
-  files and their folders, which are caches: the import worker downloads
-  the lists again at its next run.
+| `<state>/guard/` | `<state>/agent/guard/` | `watch.log`, `watch.err`, `watch.lock`, `guard.sock`, `notes/`, `agents/`, `killed/`, the history |
 
 Nothing else moves: `machine.toml`, the env files, `state.json`,
 `activation.json`, `migrations.json`, `locks/`, `checkpoints/`, `chezmoi/`,
@@ -46,23 +33,25 @@ Nothing else moves: `machine.toml`, the env files, `state.json`,
 Goals:
 
 - Every path the code, the plan, `doctor` and the documents name is the new
-  one; the code names an old folder only in the migration.
+  one.
 - A machine with the old folders is moved once, without a question, with
-  every byte kept.
+  every byte kept, while agents work.
 
 Non-goals:
 
 - No change to a file's name or content.
 - No move of any folder section 2 does not list.
+- Going back to a release before this one: it does not find the moved
+  files.
 
 Anti-goals:
 
 - A new, empty ledger made beside the old one.
 - A ledger moved apart from its `-wal` file, which can hold commits the main
   file lacks.
-- Two watchers acting at once, or a running command that stops being
-  watched.
-- A reader for the old layout that outlives the move.
+- Two watchers acting at once, a moment with none while commands run, or a
+  running command or detached program that stops being watched.
+- A folder renamed under a process that still names it by its old path.
 
 ## 4. Approaches
 
@@ -74,116 +63,115 @@ Anti-goals:
 | The copy the first costs move makes (a vacuumed copy, checked, then the original set aside) | Built for an old ledger on another disk. Here it copies a ledger of any size for nothing. |
 | Moving file by file | A stop between two files leaves a ledger without its `-wal`, or half a guard folder with a watcher running in it. |
 
-### 4.2 What becomes of processes of the release before
+### 4.2 Who may move a folder that processes are using
 
-After an update, processes of the release before may still run for a while:
-a watcher, and import workers started just before. They name the old
-folders.
+After an update, processes of the release before may still run: a watcher,
+which checks each second that its lock file is still at its old path and
+exits when it is not, and import workers started just before.
 
 | Approach | Trade-off |
 | --- | --- |
-| **Move, then close the old path for ten minutes; the watcher is started anew.** Chosen. | A plain empty file is left at each old path, so a process of the release before fails there and makes nothing. The watcher of the release before exits by its own check within a second of the rename, and the move starts the new one, which reads the notes and tracks the running commands again. Their memory graphs start over, once. |
-| Hand the watch over across the move | Keeps the graphs, but the new watcher and the new hooks would have to work in the old folder until the handover ends: a second layout in the running code. |
-| Move only when nothing of the release before runs | The new release would have to use the old folders until then, which is the second layout again. |
+| **Only the holder of the folder's own lock moves it.** Chosen. | The watcher's lock guards the guard folder and the import lock the costs folders. Whoever holds the lock is the only process working in the folder, so nothing is renamed under a process that names the old path. The watcher of the release before hands the watch over as it does at every update, and the new watcher moves the folder before its first tick, so nothing it knows is lost. |
+| Move at once and start the watcher anew | The watcher of the release before exits when its folder goes. What only it knew is lost: the detached programs it follows, the calls it passed over, a stop under way. |
+| Move only when nothing runs | The new release would refuse to guard until then. |
 
 ## 5. Rules
 
-1. **Migration `0007-agent-folders`** holds the moves: the costs move (the
-   costs data and state folders) and the guard move. A move is pending while an old
-   folder exists and done when none does. An empty plain file at an old path
-   (rule 4) counts as no folder.
-2. **Nothing makes a new folder before its move.** Every costs entry runs
-   the costs gate, and every guard entry the guard gate, before it makes a
-   folder, takes a lock or opens a file: the import worker and the hook
-   that starts it, `status`, the reports and `rates`; the guard's hooks,
-   watcher, view and `logs`. A gate first looks at the old path and returns
-   at once when nothing is there.
-3. **A move** takes the migrate lock, then the lock of the part it moves at
-   its old path: the import lock (`ingest.lock`) for the costs move, so no
-   import is running, and nothing for the guard move, whose watcher is
-   meant to be running. It makes the private `agent/` folder, checks that
-   the new folder does not exist, and renames. It never replaces a folder.
-   An import lock that is held leaves the costs move for the next run: the
-   worker ends as it does when another import is running.
-4. **The old path is closed.** After a rename the move leaves an empty
-   plain file, mode 0600, at the old path of each state and data folder. A
-   process of the release before that then names the old folder fails,
-   where it would have made a new, empty one: an import worker cannot open
-   a ledger there, and a watcher cannot take a lock there. Any gate or run
-   that finds such a file older than ten minutes deletes it.
-5. **Who runs a move.** `workbench migrate` and the apply step run both.
-   The import worker runs the costs move itself, and every other costs
-   command is told to run `workbench migrate`, as for the first costs move.
-   Every guard entry runs the guard move itself: the pre hook runs before
-   every agent command and cannot wait for a person.
-6. **The watcher across the guard move.** A watcher of the release before
-   checks each second that its lock file is still at its path, and exits
-   when it is not, so it exits within a second of the rename. Whoever ran
-   the guard move then starts `agent guard watch` when the lock was held,
-   and a watcher that finds the lock held waits for it up to five seconds
-   before it gives up. The new watcher reads the notes, which moved with
-   the folder, and tracks the running commands again; their graphs and
-   peaks start from that moment. A watcher started by a handover while the
-   old folder still exists exits at once and changes nothing, so the
-   watcher of the release before keeps guarding until a move runs.
-7. **Old and new both exist.** The new folder is the one in use, and
-   nothing is merged into it. From the old one the move deletes what
-   Workbench may delete: logs, `.err` output files, price caches, sockets,
-   locks nobody holds and empty folders, then the folder when it is empty.
-   Anything else (a ledger, a note, a lock that is held)
-   stays, and `workbench migrate` and `doctor` name it.
-8. **Earlier migrations.** `0001-costs-folders` ends in the new folders,
-   since it moves into wherever the costs files live, and its text names
-   `agent/costs/`. `0004-old-guard-log` names the log at its new path.
-9. **Prices in the ledger.** Ledger schema version 6 adds two tables:
+### 5.1 Both moves
 
-   ```sql
-   CREATE TABLE prices(
-     tool           TEXT NOT NULL,   -- claude, codex
-     prefix         TEXT NOT NULL,   -- a model, or a family such as claude-opus
-     input          REAL NOT NULL,   -- USD per million tokens, as are the rest
-     output         REAL NOT NULL,
-     cache_write_5m REAL NOT NULL,
-     cache_write_1h REAL NOT NULL,
-     cache_read     REAL NOT NULL,
-     PRIMARY KEY(tool, prefix)) WITHOUT ROWID;
+1. **Migration `0008-agent-folders`** lists the guard move and the costs
+   move. A move is pending while an old folder exists and done when none
+   does. A closed path (rule 3) counts as no folder.
+2. **A rename** makes the private `agent/` folder, checks that the new
+   folder does not exist, and renames. It never replaces a folder.
+3. **The old path is closed in the same step.** The rename swaps the old
+   folder with an empty plain file, mode 0600, made at the new path, in one
+   system call (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np`
+   with `RENAME_SWAP` on macOS): the folder is then at the new path and the
+   file at the old. A process of the release before that names the old
+   folder fails there, where it would otherwise make a new, empty one: an
+   import worker cannot make a ledger, and a watcher cannot take a lock.
+   Where the file system cannot swap, the move renames and then makes the
+   file. Any entry that finds such a file older than ten minutes deletes
+   it.
+4. **Old and new both exist.** The new folder is the one in use, and
+   nothing is merged into it. From the old one a move deletes what
+   Workbench may delete: logs, `.err` output files, sockets, locks nobody
+   holds and empty folders, then the folder when it is empty. Anything else
+   (a ledger, a note, a lock that is held) stays, and `workbench migrate`
+   and `doctor` name it.
 
-   CREATE TABLE price_lists(
-     tool          TEXT PRIMARY KEY,
-     url           TEXT NOT NULL,
-     fetched_at    REAL NOT NULL,    -- when the list was last downloaded
-     checked_at    REAL NOT NULL,    -- when the page was last asked
-     etag          TEXT NOT NULL,
-     last_modified TEXT NOT NULL) WITHOUT ROWID;
-   ```
+### 5.2 The guard folder
 
-   The ledger upgrades a version 5 file in place, in one transaction that
-   keeps every row, as it does for earlier versions. A refresh replaces one
-   tool's rows in one transaction. Which price a model gets is still decided
-   in Go (`RateCard.Lookup`): a family row prices its versions, the most
-   specific row wins and a service tier must match, which a join on equal
-   names cannot say. A report sums tokens per model in SQL and prices each
-   sum from the list, as it does today; the list's official rows now come
-   from `prices`.
+5. **Where the guard folder is.** One function answers for every guard
+   entry (the hooks, the watcher, the view, `logs`, migration 0004): the
+   new folder once it exists, else the old one while it exists, else the
+   new one. An entry never makes a folder or a file's parent at the old
+   path. When the old folder goes away under an entry, the entry asks
+   again, once.
+6. **Only the holder of the watcher's lock renames the guard folder.**
+   - A watcher started by a handover holds the lock it was passed. It opens
+     nothing in the folder until the watcher before it has sent what it
+     carries and stopped. Then, before its first tick, it renames the
+     folder and works at the new path. Its lock and its socket are the
+     same files there.
+   - A hook, or `workbench migrate`, that finds the old folder takes the
+     watcher's lock at the old path without waiting. When it gets it, no
+     watcher runs: it renames, lets the lock go and carries on in the new
+     folder, where a hook then starts a watcher as it always does.
+   - When the lock is held, a watcher of the release before is running. The
+     hook writes its note in the old folder, where that watcher reads it,
+     and the command is guarded as before. `workbench migrate` says the
+     watcher moves the folder when it next hands over or stops.
+7. **A handover that does not happen.** A watcher of the release before
+   that cannot hand over keeps guarding in the old folder, as it does
+   today, until it has been idle for ten minutes and exits. The next hook
+   then finds the lock free and moves the folder.
+8. **The socket's path** is six bytes longer. On macOS a user name longer
+   than 26 characters puts it past the 100 bytes a socket path may have,
+   where 32 did before: the guard still guards, and `agent guard` says it
+   cannot reach the watcher.
+
+### 5.3 The costs folders
+
+9. **Only the holder of the import lock renames the costs folders.** Every
+   costs entry (the hook that starts the worker, the worker, `status`, the
+   reports, `rates`) first looks at the old data and state paths and
+   returns at once when nothing is there. Otherwise, before it makes a
+   folder, takes another lock or opens a file, it takes the import lock at
+   its old path (`<state>/costs/ingest.lock`) without waiting.
+   - When it gets it, no import runs: it renames the data folder, then the
+     state folder, and keeps the lock, which is the import lock at the new
+     path, for as long as it needs one.
+   - When the lock is held, an import of the release before is running. A
+     hook starts no worker and a worker ends, as when another import runs;
+     any other command says so and that it can be run again in a moment.
+
+   A stop between the two renames leaves the state folder pending, and the
+   next entry finishes it under the same lock.
+10. **Before the first costs move.** `0001-costs-folders` and the worker's
+    gate run the costs move of this design first, so the first costs move
+    finds any ledger already at its new path and never takes another for
+    the one in use. `0001`'s text names `agent/costs/`.
 
 ## 6. Ownership and documents
 
 | Concern | Owner |
 | --- | --- |
-| The list, the check and the run record | `internal/migrate/0007_agent_folders.go` |
-| The costs move and gate | `internal/agent/costs/move.go` |
-| The price tables, their refresh and the schema upgrade | `internal/agent/costs/rates.go`, `ledger.go` |
-| The guard move and gate, and starting the watcher after it | `internal/agent/guard/state.go` |
-| The rename itself (private parent, never replace, the file left at the old path and its removal) | one function in `internal/operation`, called by both |
+| The list, the check and the run record | `internal/migrate/0008_agent_folders.go` |
+| The costs move, and running it before anything else in costs | `internal/agent/costs/move.go` |
+| Where the guard folder is, the guard move, the watcher's move after a handover | `internal/agent/guard/state.go`, `handover.go` |
+| The rename with its closed old path, and deleting a closed path | one function in `internal/operation`; the two system calls in `internal/platform` |
 
 Changed in place: every current document that names a moved folder
 (`README.md`, `docs/usage.md`, `docs/acceptance.md`, the design and
 contracts specs), `AGENTS.md` (the ownership table, and the migration rules:
-a migration may rename a folder Workbench wrote inside its runtime folders
-and leave an empty file at the old path for ten minutes, and the guard's
-entries run the guard's move themselves, as the import worker runs the
-costs move), and a new ADR. Dated plans and specs of earlier work stay as
-written.
+a migration may rename a folder Workbench wrote inside its runtime folders,
+leave an empty file at the old path for ten minutes and delete a socket
+nobody serves; every costs and guard entry runs its own move, without
+asking, as the import worker runs the first costs move; guard entries use
+the guard folder where it is until it has moved), and a new ADR. Dated
+plans and specs of earlier work stay as written.
 
 ## 7. The one safeguard
 
@@ -191,15 +179,16 @@ The ledger is the only lasting record of spend. One test proves that a
 ledger whose newest rows are only in its `-wal` file holds every row after
 the move, that with an old and a new ledger both present neither changes,
 and that after the move nothing can make a ledger at the old path. It says
-that risk beside it. The ledger's existing upgrade safeguard covers
-version 6.
+that risk beside it.
 
 ## 8. Left to the builder
 
-- Proving rules 4 and 6 with the release before in a disposable home: its
-  watcher tracking a running command and its import worker started just
-  before, an update to the new build, then the command tracked and
-  stoppable again within five seconds, one watcher, one ledger, and
-  nothing at the old paths but the empty files. If the release before does
-  otherwise, building stops there.
+- Proving section 5 with the release before in a disposable home, before
+  anything else is built on it. Its watcher tracks a running command and a
+  detached program, and its import worker has just started; the new build
+  is installed over it. Then: the command and the program are still
+  tracked and can be stopped, one watcher runs, one ledger exists, and
+  nothing is at the old paths but the empty files. The same with a watcher
+  of the release before that is kept from handing over. If the release
+  before does otherwise, building stops there.
 - The messages' exact wording.
