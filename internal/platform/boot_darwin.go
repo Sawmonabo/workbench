@@ -1,17 +1,22 @@
 package platform
 
 import (
-	"time"
+	"errors"
+	"strings"
 
 	"golang.org/x/sys/unix"
 )
 
-// BootTime is the wall-clock time the system last started, kern.boottime.
-// The kernel moves it when the wall clock is set, so it is read at each call.
-func BootTime() (time.Time, error) {
-	boot, err := unix.SysctlTimeval("kern.boottime")
+// BootID identifies this start of the system: kern.bootsessionuuid, a new
+// UUID at each boot that no clock change moves.
+func BootID() (string, error) {
+	id, err := unix.Sysctl("kern.bootsessionuuid")
 	if err != nil {
-		return time.Time{}, err
+		return "", err
 	}
-	return time.Unix(boot.Sec, int64(boot.Usec)*int64(time.Microsecond)), nil
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", errors.New("kern.bootsessionuuid is empty")
+	}
+	return id, nil
 }

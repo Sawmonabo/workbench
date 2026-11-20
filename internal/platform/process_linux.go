@@ -21,31 +21,24 @@ import (
 // step, such as WSL2's resync after the host sleeps.
 const StartSecond = 100
 
-// bootTime reads the btime line of /proc/stat once, for BootTime and
-// StartTime.
-var bootTime = sync.OnceValues(func() (time.Time, error) {
+// bootTime is the wall-clock second the system booted, the btime line of
+// /proc/stat, read once; the zero time when it cannot be read.
+var bootTime = sync.OnceValue(func() time.Time {
 	data, err := os.ReadFile("/proc/stat")
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
 		if rest, ok := strings.CutPrefix(line, "btime "); ok {
 			second, err := strconv.ParseInt(strings.TrimSpace(rest), 10, 64)
 			if err != nil {
-				return time.Time{}, fmt.Errorf("/proc/stat btime: %w", err)
+				return time.Time{}
 			}
-			return time.Unix(second, 0), nil
+			return time.Unix(second, 0)
 		}
 	}
-	return time.Time{}, errors.New("/proc/stat has no btime line")
+	return time.Time{}
 })
-
-// BootTime is the wall-clock second the system last started, the btime line
-// of /proc/stat. It is read once, so a later step of the wall clock does not
-// move it.
-func BootTime() (time.Time, error) {
-	return bootTime()
-}
 
 // StartTime is a Process.Start as a wall-clock time: the boot time plus the
 // clock ticks since boot. It is the zero time when the boot time cannot be
@@ -53,8 +46,8 @@ func BootTime() (time.Time, error) {
 // early, and it is read once, so a later step of the wall clock shifts every
 // result by the size of that step.
 func StartTime(start uint64) time.Time {
-	boot, err := bootTime()
-	if err != nil {
+	boot := bootTime()
+	if boot.IsZero() {
 		return time.Time{}
 	}
 	return boot.Add(time.Duration(start) * (time.Second / StartSecond))
