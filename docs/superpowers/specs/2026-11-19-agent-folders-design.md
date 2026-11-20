@@ -19,10 +19,22 @@ the same path.
 
 | From | To | Holds |
 | --- | --- | --- |
-| `<data>/costs/` | `<data>/agent/costs/` | `ledger.sqlite` with its `-wal` and `-shm`, `claude/rates-official.json`, `codex/rates-official.json` |
+| `<data>/costs/` | `<data>/agent/costs/` | `ledger.sqlite` with its `-wal` and `-shm` |
 | `<state>/costs/` | `<state>/agent/costs/` | `ingest.log`, `ingest.err`, `ingest.lock` |
-| `<config>/costs/` | `<config>/agent/costs/` | `rates.json`, a person's price overrides |
 | `<state>/guard/` | `<state>/agent/guard/` | `watch.log`, `watch.err`, `watch.lock`, `guard.sock`, `notes/`, `agents/`, `killed/` |
+
+Two things stop being files:
+
+- **The price overrides file** (`<config>/costs/rates.json`) is no longer
+  read. Only a person writing it by hand ever made one; prices come from the
+  list Workbench ships, the tools' own cost records and the official price
+  pages. Its reader, its layer in the price list and the hint that named it
+  go. A file a machine still has stays where it is, untouched, and
+  `0001-costs-folders` no longer moves one.
+- **The downloaded price lists** (`<data>/costs/<tool>/rates-official.json`)
+  become two tables in the ledger (rule 9). The costs move deletes the
+  files and their folders, which are caches: the import worker downloads
+  the lists again at its next run.
 
 Nothing else moves: `machine.toml`, the env files, `state.json`,
 `activation.json`, `migrations.json`, `locks/`, `checkpoints/`, `chezmoi/`,
@@ -77,7 +89,7 @@ folders.
 ## 5. Rules
 
 1. **Migration `0007-agent-folders`** holds the moves: the costs move (the
-   three costs folders) and the guard move. A move is pending while an old
+   costs data and state folders) and the guard move. A move is pending while an old
    folder exists and done when none does. An empty plain file at an old path
    (rule 4) counts as no folder.
 2. **Nothing makes a new folder before its move.** Every costs entry runs
@@ -118,11 +130,41 @@ folders.
    nothing is merged into it. From the old one the move deletes what
    Workbench may delete: logs, `.err` output files, price caches, sockets,
    locks nobody holds and empty folders, then the folder when it is empty.
-   Anything else (a ledger, an overrides file, a note, a lock that is held)
+   Anything else (a ledger, a note, a lock that is held)
    stays, and `workbench migrate` and `doctor` name it.
 8. **Earlier migrations.** `0001-costs-folders` ends in the new folders,
    since it moves into wherever the costs files live, and its text names
    `agent/costs/`. `0004-old-guard-log` names the log at its new path.
+9. **Prices in the ledger.** Ledger schema version 6 adds two tables:
+
+   ```sql
+   CREATE TABLE prices(
+     tool           TEXT NOT NULL,   -- claude, codex
+     prefix         TEXT NOT NULL,   -- a model, or a family such as claude-opus
+     input          REAL NOT NULL,   -- USD per million tokens, as are the rest
+     output         REAL NOT NULL,
+     cache_write_5m REAL NOT NULL,
+     cache_write_1h REAL NOT NULL,
+     cache_read     REAL NOT NULL,
+     PRIMARY KEY(tool, prefix)) WITHOUT ROWID;
+
+   CREATE TABLE price_lists(
+     tool          TEXT PRIMARY KEY,
+     url           TEXT NOT NULL,
+     fetched_at    REAL NOT NULL,    -- when the list was last downloaded
+     checked_at    REAL NOT NULL,    -- when the page was last asked
+     etag          TEXT NOT NULL,
+     last_modified TEXT NOT NULL) WITHOUT ROWID;
+   ```
+
+   The ledger upgrades a version 5 file in place, in one transaction that
+   keeps every row, as it does for earlier versions. A refresh replaces one
+   tool's rows in one transaction. Which price a model gets is still decided
+   in Go (`RateCard.Lookup`): a family row prices its versions, the most
+   specific row wins and a service tier must match, which a join on equal
+   names cannot say. A report sums tokens per model in SQL and prices each
+   sum from the list, as it does today; the list's official rows now come
+   from `prices`.
 
 ## 6. Ownership and documents
 
@@ -130,6 +172,7 @@ folders.
 | --- | --- |
 | The list, the check and the run record | `internal/migrate/0007_agent_folders.go` |
 | The costs move and gate | `internal/agent/costs/move.go` |
+| The price tables, their refresh and the schema upgrade | `internal/agent/costs/rates.go`, `ledger.go` |
 | The guard move and gate, and starting the watcher after it | `internal/agent/guard/state.go` |
 | The rename itself (private parent, never replace, the file left at the old path and its removal) | one function in `internal/operation`, called by both |
 
@@ -148,7 +191,8 @@ The ledger is the only lasting record of spend. One test proves that a
 ledger whose newest rows are only in its `-wal` file holds every row after
 the move, that with an old and a new ledger both present neither changes,
 and that after the move nothing can make a ledger at the old path. It says
-that risk beside it.
+that risk beside it. The ledger's existing upgrade safeguard covers
+version 6.
 
 ## 8. Left to the builder
 
