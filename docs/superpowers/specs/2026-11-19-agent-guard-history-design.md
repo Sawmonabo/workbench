@@ -161,7 +161,7 @@ later. One command shows and changes it:
 ```
 $ workbench agent guard history
 Finished commands are kept 24 hours · 2,832 kept · 3.2 MB
-~/.local/state/workbench/guard/history.db
+~/.local/state/workbench/agent/guard/history.db
 
 $ workbench agent guard history --keep 12h
 Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
@@ -237,12 +237,12 @@ and a person who never sets it must never be asked.
 
 ### 6.1 File
 
-`<state>/guard/history.db`, with SQLite's `history.db-wal` and
+`<state>/agent/guard/history.db`, with SQLite's `history.db-wal` and
 `history.db-shm` beside it, opened through `modernc.org/sqlite` as the costs
 ledger is.
 
 - Created empty with mode 0600 before SQLite opens it, in the private
-  `guard/` folder, so the two files SQLite makes beside it take that mode.
+  `agent/guard/` folder (see the agent folders design), so the two files SQLite makes beside it take that mode.
 - `journal_mode=WAL`, so the view reads while the watcher writes.
 - `auto_vacuum=INCREMENTAL`, set before any table, and an
   `incremental_vacuum` after each trim, so deleted rows give their pages
