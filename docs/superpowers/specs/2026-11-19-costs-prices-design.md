@@ -69,21 +69,39 @@ Anti-goals:
 
    The ledger upgrades a version 5 file in place, in one transaction that
    keeps every row, as it does for earlier versions.
-2. **A refresh** replaces one tool's `prices` rows and its `price_lists`
-   row in one transaction. A page that cannot be read keeps the rows and
-   records the attempt, as today.
-3. **The price list** a report uses is built as today, with the official
+2. **The upgrade fills the tables from the list files.** In the same
+   transaction it reads each `<tool>/rates-official.json` beside the ledger
+   into `prices` and `price_lists`, so no report is priced from fewer
+   prices than before, not for a second. A file that is missing or that it
+   cannot read fills nothing for that tool, whose list the import worker
+   then downloads at its next run.
+3. **A refresh** downloads first, with no transaction open, then replaces
+   one tool's `prices` rows and its `price_lists` row in one short
+   transaction. A page that cannot be read, or that holds no price, keeps
+   the rows of any age and records the attempt, as today. It needs no
+   import lock, as a session's binding needs none.
+4. **The price list** a report uses is built as today, with the official
    rows read from `prices` and no overrides layer. A model without a price
    is named as unpriced, without a hint to a file.
-4. **Migration `0007-price-caches`** deletes the downloaded list files
-   (`<tool>/rates-official.json`) and their emptied folders from the costs
-   data folder. They are caches: the import worker downloads each list
-   again at its next run, which it does at once for a tool with no list.
-   Until then reports use the shipped list and the tools' own cost records.
-5. **An overrides file a machine still has** stays where it is, untouched
-   and unread. `0001-costs-folders` no longer moves one, and deletes the
-   downloaded lists of the old folders, which are caches, where it moved
-   them before.
+5. **`agent costs rates`** opens the ledger as a report does. Without a
+   ledger it shows the shipped list and the tools' own cost records and
+   says there is no ledger yet; `--refresh` then downloads nothing.
+6. **Migration `0008-price-lists`** deletes the list files and their
+   emptied folders from the costs data folder, after the folder move
+   (`0007-agent-folders`). It first opens the ledger, which upgrades it, so
+   a file is never deleted before its prices are rows. The files are
+   caches Workbench wrote.
+7. **The overrides file** is unread, and nothing names it: not `status`
+   (its "overrides present" line and `has_overrides` field go), not a
+   report, not a message. A file a machine still has stays where it is,
+   untouched. `0001-costs-folders` no longer knows it: it neither moves it
+   nor looks in its folder nor reads `CLAUDE_COSTS_RATES`, and it deletes
+   the list files of the old folders, which are caches, where it moved them
+   before.
+8. **A process of the release before** refuses a version 6 ledger and
+   writes nothing to it. An import worker of that release started in the
+   moment of the update ends there; the usage it would have read is read by
+   the next worker.
 
 ## 5. Ownership and documents
 
@@ -91,7 +109,7 @@ Anti-goals:
 | --- | --- |
 | The tables, the refresh, the price list | `internal/agent/costs/rates.go` |
 | The schema and its upgrade | `internal/agent/costs/ledger.go` |
-| The deletion of the list files | `internal/migrate/0007_price_caches.go` |
+| The deletion of the list files | `internal/migrate/0008_price_lists.go` |
 
 Changed in place: the costs sections of `docs/usage.md` and
 `docs/acceptance.md`, the costs specs' current description of prices, and
@@ -99,11 +117,13 @@ Changed in place: the costs sections of `docs/usage.md` and
 
 ## 6. Safeguard
 
-The ledger's existing upgrade safeguard covers version 6: a version 5
-ledger holds every row after the upgrade.
+The ledger is the only lasting record of spend. One test starts from a
+version 5 ledger with rows and a list file beside it, and proves that after
+the upgrade every row is there and the file's prices are in `prices`. It
+says that risk beside it. The two safeguards of the first costs move that
+expect the overrides file to move expect it left untouched.
 
 ## 7. Left to the builder
 
 - The messages' exact wording.
-- Whether `agent costs rates` shows anything in place of the overrides it
-  listed.
+- What `agent costs rates` shows where it listed the overrides.
