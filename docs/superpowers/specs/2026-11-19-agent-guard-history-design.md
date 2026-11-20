@@ -155,9 +155,13 @@ clears it; a second `esc` quits, as `esc` does today.
 
 ### 3.4 How long finished commands are kept
 
-`workbench agent guard keep` prints the time kept; `workbench agent guard
-keep 3d` sets it. It takes hours, days or weeks (`12h`, `3d`, `1w`) from one
-hour to 30 days, and is 24 hours until set.
+The time kept is a machine answer, `guard_history`. `workbench apply` asks it
+once with the other machine questions
+(`How long Agent Guard keeps finished commands (such as 12h, 3d, 1w)`), with
+`24h` offered, and `workbench answers ask guard_history` asks it again. It
+takes hours, days or weeks from one hour to 30 days. As for every new
+question, an apply nobody attends is refused until it has an answer. Until
+then, and whenever the answers cannot be read, the guard keeps 24 hours.
 
 The oldest finished commands leave first, on one limit a person sets and two
 fixed ones that bound the list and the disk:
@@ -169,10 +173,10 @@ fixed ones that bound the list and the disk:
 Past the count or the size, the oldest are deleted even when they are
 younger than the time kept.
 
-Setting a shorter time never asks: it sets the value and prints what
-follows, in one line (`Finished commands are kept 12 hours (was 3 days);
-older ones are deleted within a minute.`). The view hides them at once and
-the watcher deletes them for good. Lengthening the time brings nothing back.
+Answering with a shorter time deletes the older commands: the view hides
+them at once and the watcher deletes them for good within a minute. The
+question's text says so, and nothing asks a second time. A longer time
+brings nothing back.
 
 ## 4. Constraints
 
@@ -201,9 +205,10 @@ The watcher and a view started from another shell must read the same value.
 
 | Approach | Trade-off |
 | --- | --- |
-| **A row in the history file, set by `agent guard keep`.** Chosen. | One value for every process that opens the file, and no second file to keep in step. The value is lost with the file, which then reads 24 hours again. |
+| **A machine answer, asked by apply and again by `answers ask`.** Chosen. | The one place machine settings are asked, saved and carried to another machine (`answers import`). Each machine answers one new question at its next apply. |
+| A flag on `agent guard` that is saved | A flag elsewhere changes one run; one that changes every later run, and deletes history, reads as something else than it is. |
+| A command of its own under `agent guard`, saved in the history file | A second place for settings and a second way to set one. |
 | An environment variable, as `WORKBENCH_GUARD` is | The watcher is one shared process that takes the environment of whichever agent started it, so two shells can disagree and nothing shows which value holds. |
-| A table in `machine.toml` | Every writer of that file encodes it whole from the answers and the saved choices, so each would have to carry the new table through. |
 
 ### 5.3 How the details show a long part
 
@@ -276,10 +281,6 @@ CREATE TABLE processes(
   name TEXT    NOT NULL,
   peak INTEGER NOT NULL,                -- bytes
   PRIMARY KEY(seq, n)) WITHOUT ROWID;
-
-CREATE TABLE settings(
-  key   TEXT PRIMARY KEY,
-  value TEXT NOT NULL) WITHOUT ROWID;   -- keep: the seconds finished commands stay
 ```
 
 The list reads `commands` alone. A command's graph and processes are read by
@@ -290,9 +291,7 @@ and order them.
 ### 6.3 Rules
 
 1. **One writer.** In the watcher, one goroutine owns the only connection
-   that inserts and deletes commands; the tick never touches the file.
-   `agent guard keep` writes the one `settings` row from its own process.
-   The view never writes: it opens the file with `mode=rw` (a WAL reader
+   that writes; the tick never touches the file. The view never writes: it opens the file with `mode=rw` (a WAL reader
    must be able to write the `-shm` file) and `query_only(1)`, and never
    creates it.
 2. **The tick never waits.** `finish` puts the command, with its graph and
@@ -310,8 +309,8 @@ and order them.
 4. **Twice is harmless.** Rows go in with
    `INSERT … ON CONFLICT(id) DO NOTHING`. A command that is already there
    gets no graph or process rows and counts as written.
-5. **Trim.** When it starts and then once a minute, the writer reads `keep`
-   and deletes, in steps of at most 200 commands with an
+5. **Trim.** When it starts and then once a minute, the writer reads the
+   `guard_history` answer (`keep` below) and deletes, in steps of at most 200 commands with an
    `incremental_vacuum` after each and other writes between them: the
    commands that ended before `now - keep`; then those with the lowest `seq`
    beyond 20,000; then those with the lowest `seq` while the pages in use
@@ -330,15 +329,20 @@ and order them.
 8. **A long command.** Command text past 64 KiB is cut there, `cut` holding
    the bytes left out; the panel's last line says
    `… 12 KB more were not kept`.
-9. **Another version, or damage.** A file whose `user_version` is not 1,
-   whose tables are not these, or that SQLite calls corrupt or not a
-   database is never deleted or rewritten. The watcher logs it once,
-   guards without history and treats it as a write that fails (rule 3), so
-   the commands that just finished stay in sight while it runs; the view says
-   `Guard history unreadable: REASON; move PATH aside`; `agent guard keep`
-   fails with the same text. The time kept then reads 24 hours.
-10. **No file yet** is an empty history. The view tries again each second;
-    `agent guard keep DURATION` creates the file as the watcher would.
+9. **A history that cannot be used is moved aside.** A file that is not a
+   database, that SQLite calls corrupt, whose `user_version` is not 1 or
+   whose tables are not these is never repaired, merged or deleted in
+   place. The writer renames it and its `-wal` and `-shm` files to
+   `history.damaged.db` (and `-wal`, `-shm`), replacing a damaged copy
+   already there, starts an empty history, and logs both names once. While
+   the copy exists the view says
+   `Guard history was damaged and started again at TIME; the old file is
+   PATH`. A trim deletes the copy once it is older than `keep`, when all it
+   holds would have gone anyway. Only the writer moves a file: a view with
+   no watcher says `Guard history unreadable: REASON` and shows none.
+   A file that cannot be written for another reason (a full disk, a
+   permission) is left where it is and falls under rule 3.
+10. **No file yet** is an empty history. The view tries again each second.
 11. **Handover and exit.** A watcher hands over only when nothing is pending
     or the last write failed; what is pending then crosses to the next
     watcher, whose writer takes it. A watcher that exits while commands are
@@ -425,16 +429,18 @@ store's failure, when it has one. A view and a watcher of two releases say so as
 
 | Concern | Owner |
 | --- | --- |
-| The history file: schema, open, writes, trim, reads, the `keep` setting | `internal/agent/guard/history.go` |
+| The history file: schema, open, writes, trim, moving a damaged one aside, reads | `internal/agent/guard/history.go` |
+| The `guard_history` question, its check (a duration from 1h to 30d) and its reader | `home/.chezmoi.toml.tmpl` and `internal/machine/answers.go`, which the guard reads it through |
 | The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string and the switch to WAL with its retry when two creators meet | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file, its schema and `makePrivate` |
-| `agent guard keep` | `internal/cli/agentguard.go` |
 | The list, the filter, the details and the panel | `internal/cli/agentguardview.go` |
 
 Documents changed in place: the guard sections of `docs/usage.md` and
 `docs/acceptance.md`, the guard view rules in
 `docs/superpowers/specs/2026-10-17-platform-and-guard-view-design.md`, the
-guard row of the ownership table in `AGENTS.md`, and a new ADR 19 for the
-store and the two limits.
+guard row of the ownership table in `AGENTS.md`, one sentence in its
+development contract (the guard moves aside a history it cannot use and
+starts a new one, deleting the copy once it is older than the time kept),
+and a new ADR 19 for the store and its limits.
 
 ## 9. The one safeguard
 
@@ -445,9 +451,9 @@ the watcher's first write, and says that risk beside it.
 ## 10. To render before it reaches `main`
 
 Four things have no approved render yet: the list with the input of 3.2
-open and with a filter kept, an `ENDED` column with dates, the two history
-warnings (cannot be written, unreadable), and what `agent guard keep` prints
-when it shows and when it shortens the time.
+open and with a filter kept, an `ENDED` column with dates, the history
+warnings (cannot be written, damaged and started again, unreadable), and the
+`guard_history` question as apply asks it.
 
 ## 11. Left to the builder
 
