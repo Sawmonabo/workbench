@@ -52,11 +52,11 @@ Each line names the step that pins it.
 - Produces, in `internal/platform`:
   - `func SwapNames(a, b string) error`: `unix.Renameat2(AT_FDCWD, a, AT_FDCWD, b, RENAME_EXCHANGE)` on Linux, `unix.RenamexNp(a, b, RENAME_SWAP)` on macOS.
   - `var ErrSwapUnsupported error`: what `SwapNames` returns (wrapped) for `EINVAL`, `ENOTSUP`, `ENOSYS`.
-  - `func BootTime() (time.Time, error)`: `btime` of `/proc/stat` on Linux, `kern.boottime` on macOS.
+  - `func BootID() (string, error)`: `/proc/sys/kernel/random/boot_id` on Linux, `kern.bootsessionuuid` on macOS.
 - Produces, in `internal/operation`:
-  - `func MoveFolder(from, to string) (moved bool, err error)`: folders 5.1 rule 3. Makes `filepath.Dir(to)` private, makes an empty 0600 plain file at `to` (replacing a plain file there; an existing folder at `to` returns `moved=false, err=nil`), swaps, and returns `moved=false` with `errors.Is(err, platform.ErrSwapUnsupported)` when the file system cannot swap, after removing the file it made.
+  - `func MoveFolder(from, to string) (moved bool, err error)`: folders 5.1 rule 3. Makes `filepath.Dir(to)` private, makes a 0600 plain file at `to` holding `platform.BootID()` (replacing a plain file there; an existing folder at `to` returns `moved=false, err=nil`), swaps, and returns `moved=false` with `errors.Is(err, platform.ErrSwapUnsupported)` when the file system cannot swap, after removing the file it made.
   - `func IsFolder(path string) bool`: a folder, not a link and not a plain file.
-  - `func RemoveClosedPath(path string)`: deletes an empty plain file at `path` whose modification time is before `platform.BootTime()` (folders rule 4); does nothing otherwise.
+  - `func RemoveClosedPath(path string)`: deletes a plain file at `path` that holds another start's identifier (folders rule 4); does nothing otherwise.
 
 - [ ] **Step 1:** Write the two `SwapNames` files and `BootTime`.
 - [ ] **Step 2:** Write `movefolder.go`.
@@ -82,7 +82,7 @@ Each line names the step that pins it.
 - [ ] **Step 1:** `Root`, `openFolders`, `again`; route `client.go`, `logs.go` and `0004` through `Root`.
 - [ ] **Step 2:** `Move` and the hooks: each hook calls `Move` when the old folder exists, then proceeds; a pre hook that could not move because the lock is held writes its note where `Root` says.
 - [ ] **Step 3:** `Watch`: lock first, then `moveFolder`, then folders and the socket path.
-- [ ] **Step 4:** Find which name the socket's listener removes when a watcher that was handed it closes (folders 8, second item) and make the removal use the folder's current path.
+- [ ] **Step 4:** The watcher removes its socket file at the folder's current path itself (folders rule 8): a listener removes only the name it was bound with.
 - [ ] **Step 5:** Gates. Commit `feat(guard): keep the guard's files in agent/guard and move them under the watcher's lock`.
 
 ### Task 3: The costs folders
@@ -257,5 +257,5 @@ Nothing after this task is built until every step passes. If the release before 
 - [ ] **Step 1:** Review the branch's commits. Push `feat/guard-history`, wait for `all-checks`, fast-forward `main`.
 - [ ] **Step 2:** Tag `v0.1.32-rc.10`; wait for the release workflow (rerun a stalled macOS job with `gh run rerun --failed`; never re-tag).
 - [ ] **Step 3:** The owner decides first whether to keep a copy of the ledger folder: this pre-release is one-way, since the release before reads neither a version 6 ledger nor the moved folders. Then `workbench update v0.1.32-rc.10`, `workbench apply --dry-run --json`, `workbench apply --approve-plan DIGEST`, `workbench doctor`.
-- [ ] **Step 4:** Check on the machine: `agent guard` shows the history, `agent costs` totals match the totals noted before the update, the three old paths hold empty files.
+- [ ] **Step 4:** Check on the machine: `agent guard` shows the history, `agent costs` totals match the totals noted before the update, the three old paths hold the files the moves left.
 - [ ] **Step 5:** Remove the worktrees and branches of this work, including `.worktrees/guard-mock` and `spike/guard-mock`, the scratch folders, and any container, image or volume made for it.

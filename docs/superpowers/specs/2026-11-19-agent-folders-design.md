@@ -93,8 +93,10 @@ exits when it is not, and hooks and import workers started just before.
    makes a folder, or a file's parent, at an old path. An entry that fails
    in any read or write while the old path is no longer a folder asks again
    and does its work again, once.
-3. **A move swaps.** The mover makes the private `agent/` folder and an
-   empty plain file, mode 0600, at the new path, replacing a plain file a
+3. **A move swaps.** The mover makes the private `agent/` folder and a
+   plain file, mode 0600, at the new path, holding the identifier of this
+   start of the system (`/proc/sys/kernel/random/boot_id` on Linux,
+   `kern.bootsessionuuid` on macOS), replacing a plain file a
    stopped move left there, then swaps that file with the old folder in one
    system call (`renameat2` with `RENAME_EXCHANGE` on Linux, `renamex_np`
    with `RENAME_SWAP` on macOS). The folder is then at the new path and the
@@ -103,8 +105,10 @@ exits when it is not, and hooks and import workers started just before.
    new, empty one: an import worker cannot make a ledger, and a watcher
    cannot take a lock. A move never replaces a folder.
 4. **The file at the old path** stays until the machine has restarted: an
-   entry that finds one made before the last start of the system deletes
-   it, since no process from before can still run.
+   entry that finds one holding another start's identifier deletes it,
+   since no process from before can still run. The identifier, not a time,
+   decides: a clock set forward after a sleep moves the time a system says
+   it started.
 5. **A file system that cannot swap** two names moves nothing. The folders
    stay, every entry uses them where they are (rule 2), the migration
    counts as done, and `workbench migrate` and `doctor` say why.
@@ -127,7 +131,9 @@ exits when it is not, and hooks and import workers started just before.
      path. One handed the watch opens nothing in the folder until it has
      read the word to start; the watcher before it writes nothing by path
      after sending that word. Its lock and its socket are the same files
-     at the new path. When it cannot move (rule 5, or a new folder already
+     at the new path. A listener removes its socket file by the name it was
+     bound with, which is the old path, so the watcher removes the file at
+     the folder's current path itself. When it cannot move (rule 5, or a new folder already
      exists), it works in the old folder.
    - A hook, or `workbench migrate`, that finds the old folder takes the
      watcher's lock there without waiting. When it gets it, no watcher
@@ -179,7 +185,7 @@ Changed in place: every current document that names a moved folder
 (`README.md`, `docs/usage.md`, `docs/acceptance.md`, the design and
 contracts specs), `AGENTS.md` (the ownership table, and the migration rules:
 a migration may swap a folder Workbench wrote inside its runtime folders
-with an empty file, which stays at the old path until the machine restarts,
+with a small file, which stays at the old path until the machine restarts,
 and delete a socket; every costs and guard entry uses its folder where it is
 and moves it, without asking, when it holds the folder's lock), and a new
 ADR. Dated plans and specs of earlier work stay as written.
@@ -200,10 +206,8 @@ that risk beside it.
   worker has just started; the new build is installed over it. Then: the
   commands and the program are still tracked and can be stopped, every
   note has a watcher, one watcher runs, one ledger exists and a report
-  reads it, and nothing is at the old paths but the empty files. The same
+  reads it, and nothing is at the old paths but the files the moves left. The same
   with a watcher of the release before that is kept from handing over, and
   with the ledger open in another process while its folder moves. If the
   release before does otherwise, building stops there.
-- Which name the socket's listener removes when a watcher that was handed
-  it closes, so the socket file is removed at its new path and no other.
 - The messages' exact wording.
