@@ -95,9 +95,9 @@ Anti-goals:
    (its "overrides present" line and `has_overrides` field go), not a
    report, not a message. A file a machine still has stays where it is,
    untouched. `0001-costs-folders` no longer knows it: it neither moves it
-   nor looks in its folder nor reads `CLAUDE_COSTS_RATES`, and it deletes
-   the list files of the old folders, which are caches, where it moved them
-   before.
+   nor looks in its folder nor reads `CLAUDE_COSTS_RATES`. It still moves
+   the list files of the old folders beside the ledger, so the upgrade of
+   rule 2 finds them.
 8. **A process of the release before** refuses a version 6 ledger and
    writes nothing to it. An import worker of that release started in the
    moment of the update ends there; the usage it would have read is read by

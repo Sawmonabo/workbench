@@ -359,7 +359,10 @@ and order them.
    permission) is left where it is and falls under rule 3.
 10. **No file yet** is an empty history. The view tries again each second;
     `agent guard history --keep` creates the file as the watcher would.
-11. **Handover and exit.** A watcher hands over only when nothing is pending
+11. **After the folder's move.** The writer opens the file only once the
+    watcher works in the folder it will stay in (the agent folders design),
+    so it never holds the database open across the folder's move.
+12. **Handover and exit.** A watcher hands over only when nothing is pending
     or the last write failed; what is pending then crosses to the next
     watcher, whose writer takes it. A watcher that exits while commands are
     pending gives the writer one second, then logs how many were not
@@ -416,7 +419,7 @@ each, in a process set up as the watcher is (32 MiB limit, 50 GC percent,
 - A command whose call started a detached program is no longer held in the
   snapshot for that program's sake: the view finds it in the history.
 - What a watcher hands the next one (`carried`) holds the pending list in
-  place of `Finished` (rule 11). `usage` crosses as it is kept.
+  place of `Finished` (rule 12). `usage` crosses as it is kept.
 
 ### 7.2 Socket
 
