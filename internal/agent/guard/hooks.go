@@ -145,7 +145,7 @@ func Pre(stdin *os.File) {
 		return
 	}
 	var err error
-	if f, err = openFolders("pre"); err != nil {
+	if f, err = hookFolders("pre"); err != nil {
 		return
 	}
 	agent, err := findAgent(os.Getppid())
@@ -177,12 +177,48 @@ func Pre(stdin *os.File) {
 	if input.AgentID != "" {
 		n.Subagent = input.AgentType
 	}
-	if err = writeJSON(f.note(n.ToolUseID), n); err != nil {
+	wrote := false
+	work := func() error {
+		if !wrote {
+			if err := writeJSON(f.note(n.ToolUseID), n); err != nil {
+				return err
+			}
+			wrote = true
+		}
+		return startWatcher(f)
+	}
+	if err = work(); err != nil && f.again() {
+		err = work()
+	}
+	switch {
+	case !wrote:
 		f.event(slog.LevelError, EventError, "cannot write the note; the call is not guarded",
 			"call", n.ToolUseID, "error", err)
-		return
+	case err != nil:
+		f.event(slog.LevelError, EventError, "cannot start the watcher", "error", err)
 	}
-	startWatcher(f)
+}
+
+// hookFolders opens the guard folder for a hook's part: it first moves the
+// folder from its old path when no watcher holds it (see Move), and logs a
+// move that failed.
+func hookFolders(part string) (folders, error) {
+	state, err := stateFolder()
+	if err != nil {
+		return folders{}, err
+	}
+	moved, moveErr := Move(state)
+	f, err := openFolders(state, part)
+	if err != nil {
+		return f, err
+	}
+	if moved {
+		f.event(slog.LevelInfo, EventMoved, "moved the guard folder to "+f.root)
+	}
+	if moveErr != nil {
+		f.event(slog.LevelError, EventError, "cannot move the guard folder", "error", moveErr)
+	}
+	return f, nil
 }
 
 // Session is the SessionStart hook of Claude Code (agent "claude") and Codex
@@ -192,8 +228,9 @@ func Pre(stdin *os.File) {
 // stampLine to $CLAUDE_ENV_FILE, once, so every later Bash command of the
 // session carries its call stamp. Each of the three goes ahead when another
 // fails: a later note makes the agent known too, and a stamp of an agent the
-// guard does not know counts for nothing. It never starts the watcher, prints
-// nothing and never fails. WORKBENCH_GUARD=off turns it off.
+// guard does not know counts for nothing. It starts no watcher of its own,
+// only the one a move of the guard folder starts (see Move), prints nothing
+// and never fails. WORKBENCH_GUARD=off turns it off.
 func Session(stdin *os.File, agent string) {
 	var f folders
 	defer func() {
@@ -209,10 +246,11 @@ func Session(stdin *os.File, agent string) {
 		return
 	}
 	var err error
-	if f, err = openFolders("session"); err != nil {
+	if f, err = hookFolders("session"); err != nil {
 		return
 	}
-	if found, err := findAgent(os.Getppid()); err != nil {
+	found, err := findAgent(os.Getppid())
+	if err != nil {
 		f.event(
 			slog.LevelError,
 			EventError,
@@ -220,9 +258,26 @@ func Session(stdin *os.File, agent string) {
 			"error",
 			err,
 		)
-	} else if err = writeJSON(f.agent(found.PID, found.Start), agentFile{
-		PID: found.PID, Start: found.Start, Kind: agentType, At: time.Now(),
-	}); err != nil {
+	}
+	wrote, listed := err != nil, false
+	work := func() error {
+		var writeErr, listErr error
+		if !wrote {
+			writeErr = writeJSON(f.agent(found.PID, found.Start), agentFile{
+				PID: found.PID, Start: found.Start, Kind: agentType, At: time.Now(),
+			})
+			wrote = writeErr == nil
+		}
+		if !listed {
+			listErr = f.removeGoneAgents()
+			listed = listErr == nil
+		}
+		return errors.Join(writeErr, listErr)
+	}
+	if err = work(); err != nil && f.again() {
+		err = work()
+	}
+	if !wrote {
 		f.event(
 			slog.LevelError,
 			EventError,
@@ -231,7 +286,6 @@ func Session(stdin *os.File, agent string) {
 			err,
 		)
 	}
-	f.removeGoneAgents()
 	if path := os.Getenv("CLAUDE_ENV_FILE"); agentType == claude && path != "" {
 		if err = appendStampLine(path); err != nil {
 			f.event(
@@ -248,11 +302,11 @@ func Session(stdin *os.File, agent string) {
 // removeGoneAgents removes each agent file whose process has exited or is
 // another process reusing its PID, and each file whose name does not parse as
 // <pid>-<start>.json, which no agent file ever is. A file whose process cannot
-// be read for any other reason stays.
-func (f folders) removeGoneAgents() {
+// be read for any other reason stays. It gives the error listing the folder.
+func (f folders) removeGoneAgents() error {
 	entries, err := listFolder(f.agents)
 	if err != nil {
-		return
+		return err
 	}
 	for _, entry := range entries {
 		path := filepath.Join(f.agents, entry.Name())
@@ -266,6 +320,7 @@ func (f folders) removeGoneAgents() {
 			_ = os.Remove(path)
 		}
 	}
+	return nil
 }
 
 // agentFileName is the PID and start time an agent file's name holds, false
@@ -324,25 +379,25 @@ func callFolders(input hookInput) (cwd, folder string) {
 	return cwd, folder
 }
 
-// startWatcher starts `workbench agent guard watch` detached when the lock is free,
-// from the command this hook was run as, so the watcher knows the installed
-// command it is to follow to a new release (see watcher.handOver). The
-// watcher takes the lock itself; one that loses a race exits at once.
-func startWatcher(f folders) {
-	release, held, err := operation.TryLock(f.lock())
+// startWatcher starts `workbench agent guard watch` detached when the lock in
+// the guard folder f is free, from the command this process was run as, so
+// the watcher knows the installed command it is to follow to a new release
+// (see watcher.handOver). The watcher takes the lock itself; one that loses a
+// race exits at once. It makes no folder, and gives the error trying the
+// lock or starting the watcher.
+func startWatcher(f folders) error {
+	lock, held, err := operation.TryLockIn(f.lock())
 	if err != nil || held {
-		return
+		return err
 	}
-	release()
+	_ = lock.Close()
 	entry, err := operation.Invoked()
 	if err == nil {
 		_, err = operation.StartDetached(operation.Detached{
 			Entry: entry, Args: []string{"agent", "guard", "watch"}, Output: f.output(),
 		})
 	}
-	if err != nil {
-		f.event(slog.LevelError, EventError, "cannot start the watcher", "error", err)
-	}
+	return err
 }
 
 // Post is Codex's PostToolUse hook on Bash, and Claude Code's PostToolUse and
@@ -352,8 +407,9 @@ func startWatcher(f folders) {
 // hook runs when the monitor starts (the pre hook on Bash noted it as a Bash
 // call). It deletes no note: the watcher deletes it once it has kept the
 // call's record (see watcher.notes), so every call leaves one. It takes no
-// lock to ask whether a watcher runs: an ended note waits for the next
-// watcher, which the next pre hook starts. When the watcher stopped this
+// lock to ask whether a watcher runs, only the one a move of the guard
+// folder takes (see Move): an ended note waits for the next watcher, which
+// the next pre hook starts. When the watcher stopped this
 // call, it prints the reason as additionalContext, which the agent sees
 // beside the tool result. Otherwise it prints nothing. It never fails.
 func Post(stdin *os.File, stdout io.Writer) {
@@ -368,32 +424,63 @@ func Post(stdin *os.File, stdout io.Writer) {
 		return
 	}
 	var err error
-	if f, err = openFolders("post"); err != nil {
+	if f, err = hookFolders("post"); err != nil {
 		return
 	}
-	path := f.note(input.ToolUseID)
-	var n note
-	if readJSON(path, &n) == nil {
-		mark := "ended"
-		if input.Input.Background || input.Tool == "Monitor" {
-			n.Posted, mark = true, "posted"
-		} else {
-			n.Ended = true
-		}
-		if err = writeJSON(path, n); err != nil {
-			f.event(slog.LevelError, EventError, "cannot mark the note "+mark,
-				"call", input.ToolUseID, "error", err)
-		}
+	mark := "ended"
+	if input.Input.Background || input.Tool == "Monitor" {
+		mark = "posted"
 	}
+	var markErr error
+	marked, told := false, false
 	var record kill
-	if readJSON(f.record(input.ToolUseID), &record) != nil {
+	work := func() error {
+		var readErr error
+		if !marked {
+			marked, markErr, readErr = markNote(f.note(input.ToolUseID), mark)
+		}
+		if !told {
+			recordErr := readJSON(f.record(input.ToolUseID), &record)
+			if told = recordErr == nil; told {
+				_ = os.Remove(f.record(input.ToolUseID))
+			}
+			readErr = errors.Join(readErr, recordErr)
+		}
+		return errors.Join(readErr, markErr)
+	}
+	if work() != nil && f.again() {
+		_ = work()
+	}
+	if markErr != nil {
+		f.event(slog.LevelError, EventError, "cannot mark the note "+mark,
+			"call", input.ToolUseID, "error", markErr)
+	}
+	if !told {
 		return
 	}
-	_ = os.Remove(f.record(input.ToolUseID))
 	_ = json.NewEncoder(stdout).Encode(map[string]any{
 		"hookSpecificOutput": map[string]string{
 			"hookEventName":     input.Event,
 			"additionalContext": record.Reason,
 		},
 	})
+}
+
+// markNote marks the note at path ended, or posted with mark "posted". It
+// reports whether it marked it, the error writing it and the error reading
+// it, such as a call with no note.
+func markNote(path, mark string) (marked bool, writeErr, readErr error) {
+	var n note
+	if readErr = readJSON(path, &n); readErr != nil {
+		return false, nil, readErr
+	}
+	if mark == "posted" {
+		n.Posted = true
+	} else {
+		n.Ended = true
+	}
+	if writeErr = writeJSON(path, n); writeErr != nil {
+		return false, writeErr, nil
+	}
+	return true, nil, nil
 }

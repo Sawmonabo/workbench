@@ -107,15 +107,20 @@ func (w *watcher) listen() error {
 // closeServer stops serving, closing every client. With unlink it removes
 // the socket file, which only the lock holder may do: a watcher that lost
 // its lock, or handed the listener over, leaves the file to the one serving
-// it now. Go removes the file of a listener it made, and not of one it took
-// from a descriptor, unless told otherwise, so each close says which.
+// it now. It removes the file itself, at the guard folder's current path:
+// Go would remove a listener's file by the name it was bound with, which is
+// the old path once the folder has moved (see watcher.moveFolder), so it is
+// told to remove none.
 func (w *watcher) closeServer(unlink bool) {
 	s := w.server
 	if s == nil {
 		return
 	}
 	w.server = nil
-	s.listener.SetUnlinkOnClose(unlink)
+	s.listener.SetUnlinkOnClose(false)
+	if unlink {
+		_ = os.Remove(w.f.socket())
+	}
 	_ = s.listener.Close()
 	close(s.closed)
 	s.mu.Lock()

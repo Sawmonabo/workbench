@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 const logLimit = 1 << 20
@@ -40,31 +42,159 @@ type agentFile struct {
 	At    time.Time `json:"at"`
 }
 
-// folders is <state>/guard and its notes, killed and agents folders, each
-// private, with the part (pre, post, session or watch) that opened them and
-// its logger.
+// folders is the guard folder (see Root) and its notes, killed and agents
+// folders, with the state folder that holds it, the part (pre, post, session
+// or watch) that opened them and its logger.
 type folders struct {
-	root, notes, killed, agents, part string
-	logger                            *slog.Logger
+	state, root, notes, killed, agents, part string
+	logger                                   *slog.Logger
 }
 
-func openFolders(part string) (folders, error) {
+// stateFolder is Workbench's state folder. It reads nothing and creates
+// nothing.
+func stateFolder() (string, error) {
 	c, err := operation.Resolve(operation.Options{ReadOnly: true})
 	if err != nil {
-		return folders{}, err
+		return "", err
 	}
-	f := folders{root: filepath.Join(c.Paths.State, "guard"), part: part}
-	if f.notes, err = operation.PrivateDirectory(c.Paths.State, "guard/notes"); err != nil {
-		return folders{}, err
+	return c.Paths.State, nil
+}
+
+// Root is where the guard folder is in the state folder state, for every
+// guard entry: the folder at its old path, guard, while it is a folder and
+// either agent/guard is not one or a watcher holds the old folder's lock;
+// else agent/guard. It creates nothing, and tries the old folder's lock only
+// when both are folders.
+func Root(state string) string {
+	old, root := oldRoot(state), newRoot(state)
+	if operation.IsFolder(old) && (!operation.IsFolder(root) || lockHeld(old)) {
+		return old
 	}
-	if f.killed, err = operation.PrivateDirectory(c.Paths.State, "guard/killed"); err != nil {
-		return folders{}, err
+	return root
+}
+
+// oldRoot is the guard folder's old path, guard in the state folder, for
+// Root, the move and the entries that follow a move.
+func oldRoot(state string) string { return filepath.Join(state, "guard") }
+
+// newRoot is the guard folder's path, agent/guard in the state folder.
+func newRoot(state string) string { return filepath.Join(state, "agent", "guard") }
+
+// lockHeld reports whether a watcher holds the lock of the guard folder at
+// root; a lock that cannot be tried counts as free.
+func lockHeld(root string) bool {
+	held, err := operation.LockHeld(filepath.Join(root, "watch.lock"))
+	return err == nil && held
+}
+
+// locate is the guard folder where Root says, for part, with nothing opened
+// or made: the watcher takes its lock before it opens anything (see open).
+func locate(state, part string) folders {
+	return folders{state: state, part: part}.at(Root(state))
+}
+
+// at is f with the guard folder at root.
+func (f folders) at(root string) folders {
+	f.root = root
+	f.notes = filepath.Join(root, "notes")
+	f.killed = filepath.Join(root, "killed")
+	f.agents = filepath.Join(root, "agents")
+	return f
+}
+
+// openFolders opens the guard folder for part where Root says (see open).
+func openFolders(state, part string) (folders, error) {
+	f := locate(state, part)
+	return f, f.open()
+}
+
+// open makes the folder and its notes, killed and agents folders private
+// when the folder is at its new path; at its old path it makes nothing and
+// uses what is there. It deletes the file a move left at the old path once
+// the system has restarted since (see [operation.RemoveClosedPath]), and
+// starts the logger.
+func (f *folders) open() error {
+	if f.root != oldRoot(f.state) {
+		for _, folder := range []string{f.notes, f.killed, f.agents} {
+			name, err := filepath.Rel(f.state, folder)
+			if err != nil {
+				return err
+			}
+			if _, err := operation.PrivateDirectory(f.state, name); err != nil {
+				return err
+			}
+		}
 	}
-	if f.agents, err = operation.PrivateDirectory(c.Paths.State, "guard/agents"); err != nil {
-		return folders{}, err
-	}
+	operation.RemoveClosedPath(oldRoot(f.state))
 	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
-	return f, nil
+	return nil
+}
+
+// makeRoot makes the guard folder private when it is at its new path, before
+// its lock is taken; at its old path it makes nothing.
+func (f folders) makeRoot() error {
+	if f.root == oldRoot(f.state) {
+		return nil
+	}
+	name, err := filepath.Rel(f.state, f.root)
+	if err == nil {
+		_, err = operation.PrivateDirectory(f.state, name)
+	}
+	return err
+}
+
+// again is for an entry whose read or write in the guard folder failed:
+// when f is the folder at its old path and that path is no longer a folder,
+// the folder has moved, so f becomes the folder where Root says now and
+// again reports true, for the caller to do its work again, once. Otherwise,
+// or when the folder cannot be opened, it reports false.
+func (f *folders) again() bool {
+	old := oldRoot(f.state)
+	if f.root != old || operation.IsFolder(old) {
+		return false
+	}
+	g, err := openFolders(f.state, f.part)
+	if err != nil || g.root == old {
+		return false
+	}
+	*f = g
+	return true
+}
+
+// Move moves the guard folder from its old path to agent/guard for an entry
+// that is not the watcher (the hooks, and workbench migrate), when no watcher
+// holds it: it takes the watcher's lock in the old folder without waiting,
+// and when it gets it swaps the folder (see [operation.MoveFolder]), lets
+// the lock go, and then starts a watcher in the guard folder when that holds
+// a note, since a pre hook that found the lock held in that instant started
+// none. When the lock is held a watcher runs in the old folder, and Move
+// moves nothing: the notes go where that watcher reads them (see Root). A
+// file system that cannot swap moves nothing and is no error: the folder
+// stays in use where it is. With no folder at the old path, or a folder
+// already at the new one, it moves nothing.
+func Move(state string) (moved bool, err error) {
+	old := oldRoot(state)
+	if !operation.IsFolder(old) {
+		return false, nil
+	}
+	lock, held, err := operation.TryLockIn(filepath.Join(old, "watch.lock"))
+	if err != nil || held {
+		if err != nil && !operation.IsFolder(old) {
+			// Another entry moved it meanwhile.
+			err = nil
+		}
+		return false, err
+	}
+	moved, err = operation.MoveFolder(old, newRoot(state))
+	_ = lock.Close()
+	if errors.Is(err, platform.ErrSwapUnsupported) {
+		err = nil
+	}
+	f := locate(state, "")
+	if ids, _ := f.noteIDs(); len(ids) > 0 {
+		err = errors.Join(err, startWatcher(f))
+	}
+	return moved, err
 }
 
 func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }
@@ -143,6 +273,9 @@ func (path logWriter) Write(p []byte) (int, error) {
 // [EventStarted]), part and pid name the process writing it, and args are the
 // record's other attributes, as for [slog.Logger.Log].
 func (f folders) event(level slog.Level, event, msg string, args ...any) {
+	if f.logger == nil {
+		return
+	}
 	f.logger.Log(context.Background(), level, msg,
 		append([]any{"event", event, "part", f.part, "pid", os.Getpid()}, args...)...)
 }

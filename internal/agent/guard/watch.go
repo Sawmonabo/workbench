@@ -215,12 +215,14 @@ func Watch(ctx context.Context, version string) {
 	// The watcher never opens a database, so it lets go of what the SQLite
 	// driver's C library built at start-up for one (see platform).
 	platform.ReleaseServiceTables()
-	f, err := openFolders("watch")
+	state, err := stateFolder()
 	if err != nil {
 		return
 	}
 	w := &watcher{
-		f:         f,
+		// Only located: nothing in the folder is opened before the lock is
+		// this watcher's, and, handed the watch, before the word to start.
+		f:         locate(state, "watch"),
 		release:   func() {},
 		tracked:   map[string]command{},
 		usage:     map[string]*usage{},
@@ -263,9 +265,13 @@ func Watch(ctx context.Context, version string) {
 		w.closeServer(unlink && w.ownsLock())
 		w.release()
 	}()
-	detached, err := operation.RotateOutput(f.output(), logLimit)
+	moved, moveErr := w.moveFolder()
+	if err := w.f.open(); err != nil {
+		return
+	}
+	detached, err := operation.RotateOutput(w.f.output(), logLimit)
 	if err != nil {
-		f.event(
+		w.f.event(
 			slog.LevelError,
 			EventError,
 			"cannot rotate the watcher's output file",
@@ -279,14 +285,21 @@ func Watch(ctx context.Context, version string) {
 		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("watcher output",
 			"event", EventOutput, "part", "watch", "pid", os.Getpid())
 	}
-	f.event(slog.LevelInfo, EventStarted, "watcher started", "release", version)
+	w.f.event(slog.LevelInfo, EventStarted, "watcher started", "release", version)
+	if moved {
+		w.f.event(slog.LevelInfo, EventMoved, "moved the guard folder to "+w.f.root)
+	}
+	if moveErr != nil {
+		w.f.event(slog.LevelError, EventError,
+			"cannot move the guard folder; the watcher works in it where it is", "error", moveErr)
+	}
 	w.identify()
 	if err := w.listen(); err != nil {
 		w.listenFailed(err)
 	}
 	for ctx.Err() == nil {
 		if !w.ownsLock() {
-			f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
+			w.f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
 			unlink = false
 			return
 		}
@@ -305,11 +318,37 @@ func Watch(ctx context.Context, version string) {
 		}
 		w.wait(func() bool { return ctx.Err() != nil }, next)
 	}
-	f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
+	w.f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
 }
 
+// moveFolder moves the guard folder from its old path to agent/guard, when
+// this watcher holds the lock there, before its first tick and before it
+// opens anything in the folder: no watcher of another release runs in it
+// then, and a hook that finds the old path closed asks again where the
+// folder is (see folders.again). The lock and a socket handed over are the
+// same files at the new path. It reports whether the folder moved, and the
+// error of a move that failed or of a folder not synced after it; with a file
+// system that cannot swap, or a folder already at the new path, the watcher
+// works in the old folder.
+func (w *watcher) moveFolder() (moved bool, err error) {
+	old := oldRoot(w.f.state)
+	if w.f.root != old {
+		return false, nil
+	}
+	root := newRoot(w.f.state)
+	if moved, err = operation.MoveFolder(old, root); moved {
+		w.f = w.f.at(root)
+	}
+	return moved, err
+}
+
+// lock takes the lock in the guard folder anew, making the folder first only
+// at its new path.
 func (w *watcher) lock() bool {
-	f, held, err := operation.TryLockFile(w.f.lock())
+	if w.f.makeRoot() != nil {
+		return false
+	}
+	f, held, err := operation.TryLockIn(w.f.lock())
 	if err != nil || held {
 		return false
 	}

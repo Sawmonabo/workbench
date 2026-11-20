@@ -10,18 +10,19 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/agent/guard"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // oldGuardLog removes the free-text lines earlier builds of the agent command
 // guard wrote to its log, which is JSON Lines now: the viewer would show each
-// as raw watcher output. It removes those lines from guard/watch.log in place
-// and keeps every other line, records and raw output alike, because a running
-// watcher's stdout and stderr stay open on the file and its records may
-// follow the old lines; it rewrites the file with the log's own cut (see
-// [operation.RewriteLog]). It deletes guard/watch.log.1, the copy the first
-// builds rotated the log into, when that holds such a line. A file that holds
-// none is never touched.
+// as raw watcher output. It removes those lines from watch.log in the guard
+// folder (see guard.Root) in place and keeps every other line, records and
+// raw output alike, because a running watcher's stdout and stderr stay open
+// on the file and its records may follow the old lines; it rewrites the file
+// with the log's own cut (see [operation.RewriteLog]). It deletes
+// watch.log.1 beside it, the copy the first builds rotated the log into, when
+// that holds such a line. A file that holds none is never touched.
 var oldGuardLog = Migration{
 	ID:    "0004-old-guard-log",
 	Title: "Remove the old free-text lines from the guard log",
@@ -94,10 +95,10 @@ var oldGuardLine = regexp.MustCompile(
 		`(watch|pre|post)( [A-Za-z0-9_-]{1,128})?: `,
 )
 
-// guardLogPaths are the guard log and the copy the first builds rotated it
-// into.
+// guardLogPaths are the guard log, in the guard folder where guard.Root says,
+// and the copy the first builds rotated it into.
 func guardLogPaths(l Locations) []string {
-	log := filepath.Join(l.Runtime.State, "guard", "watch.log")
+	log := filepath.Join(guard.Root(l.Runtime.State), "watch.log")
 	return []string{log, log + ".1"}
 }
 

@@ -405,7 +405,9 @@ func (w *watcher) takeLock() bool {
 // It takes on the lock passed as descriptor 3, which must be the guard's lock
 // file with no other process's lock on it, says it is ready, with its
 // release, on descriptor 4, and waits on descriptor 5 for what the old
-// watcher carried, the word to start. With listener, it takes on the
+// watcher carried, the word to start. Until that word it opens nothing in
+// the guard folder: the lock and the pipes are descriptors, and the lock's
+// path is only compared with the one passed. With listener, it takes on the
 // listening socket passed as descriptor 6 (see listenerVariable). It reports
 // false, having acted on nothing, when the lock is not the guard's or the old
 // watcher closes the pipe without a word.

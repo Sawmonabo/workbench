@@ -35,6 +35,7 @@ const (
 	EventIdle      = "idle"      // a watcher exited, idle
 	EventExited    = "exited"    // a watcher exited because its lock file changed or on a signal
 	EventHandover  = "handover"  // a watcher handed over to the installed release's watcher
+	EventMoved     = "moved"     // the guard folder moved from its old path to agent/guard
 	EventTracking  = "tracking"  // a noted command was found
 	EventEnded     = "ended"     // a tracked command ended
 	EventUnmatched = "unmatched" // a note went away while its agent had run a command no shape matched
@@ -101,13 +102,14 @@ func logFile(root string) string { return filepath.Join(root, "watch.log") }
 // that starts while it is over the log's cap (see [operation.RotateOutput]).
 func outputFile(path string) string { return filepath.Join(filepath.Dir(path), "watch.err") }
 
-// LogPath is the guard log's path. It reads nothing and creates nothing.
+// LogPath is the guard log's path, in the guard folder where Root says. It
+// creates nothing.
 func LogPath() (string, error) {
-	c, err := operation.Resolve(operation.Options{ReadOnly: true})
+	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
-	return logFile(filepath.Join(c.Paths.State, "guard")), nil
+	return logFile(Root(state)), nil
 }
 
 // followPoll is how often a followed log is checked for new lines.

@@ -11,8 +11,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -39,21 +37,21 @@ var ErrProtocolVersion = errors.New("the watcher speaks no protocol version this
 // socketFile is the watcher's socket in the guard folder root.
 func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 
-// socketPath is the watcher's socket path. It reads nothing and creates
-// nothing. A path too long for a socket address is an error naming the state
-// folder, which holds it.
+// socketPath is the watcher's socket path, in the guard folder where Root
+// says. It creates nothing. A path too long for a socket address is an error
+// naming the state folder, which holds it.
 func socketPath() (string, error) {
-	c, err := operation.Resolve(operation.Options{ReadOnly: true})
+	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
-	path := socketFile(filepath.Join(c.Paths.State, "guard"))
+	path := socketFile(Root(state))
 	if len(path) > socketPathLimit {
 		return "", fmt.Errorf(
 			"the guard socket path %s is over %d bytes; the state folder %s is too deep for a socket",
 			path,
 			socketPathLimit,
-			c.Paths.State,
+			state,
 		)
 	}
 	return path, nil

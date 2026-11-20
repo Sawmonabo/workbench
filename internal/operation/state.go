@@ -667,6 +667,13 @@ func TryLockFile(path string) (f *os.File, held bool, err error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, false, err
 	}
+	return TryLockIn(path)
+}
+
+// TryLockIn is [TryLockFile] for a lock file whose folder must already
+// exist: it creates the file when missing but makes no folder, so a missing
+// folder, or a plain file in its place, fails it.
+func TryLockIn(path string) (f *os.File, held bool, err error) {
 	f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, false, err
@@ -677,6 +684,22 @@ func TryLockFile(path string) (f *os.File, held bool, err error) {
 		return nil, held, err
 	}
 	return f, false, nil
+}
+
+// LockHeld reports whether another process holds the lock [TryLockFile]
+// takes on the file at path. It opens the file without creating it, so a
+// missing file, which no process can hold, is free and nothing is made; a
+// free lock is taken for an instant and let go.
+func LockHeld(path string) (bool, error) {
+	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
+	if errors.Is(err, fs.ErrNotExist) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = f.Close() }()
+	return flockNonBlocking(f)
 }
 
 // InheritLock takes on the lock on the file at path that a parent holding it

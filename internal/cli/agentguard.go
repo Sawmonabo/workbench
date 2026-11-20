@@ -290,7 +290,7 @@ var guardLevelStyles = map[string]lipgloss.Style{
 // happened, so their line keeps the record's msg.
 var guardMessageEvents = map[string]bool{
 	guard.EventMemory: true, guard.EventRefused: true, guard.EventGaveUp: true,
-	guard.EventError: true, guard.EventRaw: true,
+	guard.EventError: true, guard.EventRaw: true, guard.EventMoved: true,
 }
 
 // guardLine is one event on one line, as logfmt readers parse it after its
