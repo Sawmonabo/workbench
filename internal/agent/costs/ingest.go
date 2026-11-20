@@ -40,8 +40,12 @@ type IngestOptions struct {
 // Every failure is also written to the log and, once the ledger is open, to
 // its last_error note; committed files are not reprocessed next time.
 //
-// It first runs the costs gate (see gate), which moves the costs files into
-// Workbench's folders when they still wait in the old ones.
+// It first runs the costs gate (see gate), which moves the costs folders under
+// agent/ and the costs files into Workbench's folders when they still wait in
+// the old ones. When another process moved the costs folders while it read or
+// wrote in them (see [Paths.moved]), it runs once more where they are now: a
+// session binding or a log line it lost there fails without an error, and
+// reading again only finishes what the first run left.
 //
 // A worker started by a hook first binds the hook's session to the tool's
 // current sign-in, before it contends for the lock, so a worker that skips
@@ -51,21 +55,28 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 	if err != nil {
 		return "", err
 	}
-	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
-		return "", err
+	summary, used, err := ingest(ctx, paths, opts)
+	if used.moved() {
+		summary, _, err = ingest(ctx, paths, opts)
 	}
+	return summary, err
+}
+
+// ingest is one run of [Ingest], which returns the paths it worked with.
+func ingest(ctx context.Context, paths Paths, opts IngestOptions) (string, Paths, error) {
 	// The worker moves the costs files itself when they still wait in the
 	// claude-costs folders; it must not open a new, empty ledger beside them.
-	if err = gate(ctx, paths, true); err != nil {
+	paths, err := gate(ctx, paths, true)
+	if err != nil {
 		writeLog(paths, "not read: "+err.Error())
-		return "", err
+		return "", paths, err
 	}
 	bindSession(ctx, paths, opts)
 	release, held, err := operation.TryLock(paths.lock())
 	for err == nil && held && opts.Wait {
 		select {
 		case <-ctx.Done():
-			return "", ctx.Err()
+			return "", paths, ctx.Err()
 		case <-time.After(200 * time.Millisecond):
 		}
 		release, held, err = operation.TryLock(paths.lock())
@@ -73,21 +84,21 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 	if err != nil {
 		err = fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
 		writeLog(paths, "error: "+err.Error())
-		return "", err
+		return "", paths, err
 	}
 	if held {
 		writeLog(paths, "skip: another worker holds the lock")
-		return "skipped: another worker holds the lock", nil
+		return "skipped: another worker holds the lock", paths, nil
 	}
 	defer release()
 	if _, err := operation.RotateOutput(paths.output(), logLimit); err != nil {
 		writeLog(paths, "error: cannot rotate the worker's output file: "+err.Error())
 	}
-	summary, err = ingestLocked(ctx, paths, opts)
+	summary, err := ingestLocked(ctx, paths, opts)
 	if err != nil {
 		writeLog(paths, "error: "+err.Error())
 	}
-	return summary, err
+	return summary, paths, err
 }
 
 // transcriptRooter is a source that says where its transcripts live, so a
@@ -737,7 +748,7 @@ func clipRunes(s string, n int) string {
 }
 
 // writeLog appends one timestamped line to the worker log, in the folder
-// [Ingest] made, cut once it is over 400 KB (see [operation.AppendLog]).
+// [Ingest] made or found, cut once it is over 400 KB (see [operation.AppendLog]).
 func writeLog(paths Paths, message string) {
 	operation.AppendLog(paths.log(), stamp(time.Now())+" "+message, logLimit)
 }
@@ -747,9 +758,10 @@ func writeLog(paths Paths, message string) {
 // `workbench agent costs ingest --worker` detached with those three values and
 // returns. The hooks run synchronously (Claude Code stops a background hook
 // that is still running when a headless session ends), which costs a session
-// the few milliseconds of one process spawn. Hook writes only the new import
-// log, which no migration moves or compares, so it needs no gate: the worker
-// runs it. Hook prints nothing on stdout and never fails: a terminal, a closed
+// the few milliseconds of one process spawn. Hook moves the costs folders under
+// agent/ when it may (see [MoveAgentFolders]) and writes only the import log,
+// which the costs move never compares, so it needs no gate: the worker runs it.
+// Hook prints nothing on stdout and never fails: a terminal, a closed
 // or empty stdin, or anything unreadable just means no event, and the worker
 // then sweeps everything. Reading stdin gives up after two seconds. When
 // it can't start the worker, for example because a runtime folder is not
@@ -764,13 +776,15 @@ func Hook(stdin *os.File) {
 }
 
 // startWorker starts the detached worker with the hook's values, its output
-// appended to the import log in a private <state>/costs.
+// appended to the import log in the private costs state folder. It first
+// moves the costs folders under agent/ when it may (see [MoveAgentFolders]),
+// and starts the worker where they are then; a move that failed leaves them
+// where they are, and the worker logs why. When the start fails because
+// another process moved them in between (see [Paths.moved]), it starts the
+// worker where they are now.
 func startWorker(event, transcript, session string) error {
 	paths, err := Locations()
 	if err != nil {
-		return err
-	}
-	if _, err = operation.PrivateDirectory(paths.Runtime.State, "costs"); err != nil {
 		return err
 	}
 	// Claude Code with CLAUDE_CODE_SUBPROCESS_ENV_SCRUB set runs its hooks
@@ -790,7 +804,7 @@ func startWorker(event, transcript, session string) error {
 		return err
 	}
 	// "--" keeps a value that starts with a dash from being read as a flag.
-	_, err = operation.StartDetached(operation.Detached{
+	worker := operation.Detached{
 		Entry: self,
 		Args: []string{
 			"agent",
@@ -803,9 +817,23 @@ func startWorker(event, transcript, session string) error {
 			transcript,
 			session,
 		},
-		Output: paths.output(),
-	})
+	}
+	used, err := spawn(paths, worker)
+	if err != nil && used.moved() {
+		_, err = spawn(paths, worker)
+	}
 	return err
+}
+
+// spawn is one try of [startWorker], which returns the paths it used.
+func spawn(paths Paths, worker operation.Detached) (Paths, error) {
+	paths, _ = locate(paths.Home, paths.Runtime)
+	if _, err := paths.stateFolder(); err != nil {
+		return paths, err
+	}
+	worker.Output = paths.output()
+	_, err := operation.StartDetached(worker)
+	return paths, err
 }
 
 func readHookInput(stdin *os.File) (event, transcript, session string) {

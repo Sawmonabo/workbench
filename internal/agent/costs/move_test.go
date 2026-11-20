@@ -354,7 +354,7 @@ func rerun(t *testing.T, old OldPaths, paths Paths) {
 
 func ensureLedgerFolder(t *testing.T, paths Paths) {
 	t.Helper()
-	if _, err := operation.PrivateDirectory(paths.Runtime.Data, "costs"); err != nil {
+	if _, err := paths.dataFolder(""); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -573,5 +573,128 @@ func refuseALinkAtTheOldLedgerPath(t *testing.T) {
 	}
 	if _, err := os.Lstat(paths.Ledger); !errors.Is(err, fs.ErrNotExist) {
 		t.Fatalf("something is at the new ledger path: %v", err)
+	}
+}
+
+// The ledger is the only lasting record of spend once the session files it
+// was read from are deleted. Moving its folder under agent/ must never lose a
+// row or split the record: not when the newest rows are only in its -wal file
+// and its writer still has it open, never by touching either ledger when an
+// old and a new one are both there, and never by letting a process that still
+// names the old path make a new, empty ledger there afterwards. Any of these
+// would lose spend history silently and for good.
+func TestAgentFoldersMoveKeepsTheLedger(t *testing.T) {
+	t.Run("the newest rows only in the -wal file", moveTheLedgerWithItsWAL)
+	t.Run("old and new ledgers both present", leaveBothLedgers)
+}
+
+func moveTheLedgerWithItsWAL(t *testing.T) {
+	_, fixture := moveFixture(t)
+	home, runtime := fixture.Home, fixture.Runtime
+	f := agentFoldersIn(runtime)
+	makeOldFolders(t, runtime)
+	before := LocationsIn(home, runtime)
+	if filepath.Dir(before.Ledger) != f.oldData || before.State != f.oldState {
+		t.Fatalf("the old folders resolve to %s and %s", before.Ledger, before.State)
+	}
+	want := seedLedger(t, before.Ledger, "req-1")
+	writer, err := OpenLedger(before.Ledger, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = writer.Close() }()
+	if err = writer.Transaction(context.Background(), nil, func(tx *Tx) error {
+		return tx.Upsert(Usage{
+			Tool: "claude", RequestID: "req-2", Model: "claude-opus-5", Project: "/w/a",
+			Session: "s1", Time: time.Date(2026, 9, 2, 10, 0, 0, 0, time.UTC),
+			Input: 100, Output: 200,
+		})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	want = append(want, "responses req-2")
+	slices.Sort(want)
+	// The main file alone lacks the new row: it is only in the -wal file.
+	mainOnly := filepath.Join(t.TempDir(), "main.sqlite")
+	writeFile(t, mainOnly, string(readBytes(t, before.Ledger)), 0o600)
+	if got := readLedger(t, mainOnly); slices.Contains(got, "responses req-2") {
+		t.Fatal("the new row is already in the main file, so this proves nothing")
+	}
+
+	if moved, err := MoveAgentFolders(home, runtime); err != nil || !moved {
+		t.Fatalf("the move gave %v, %v; want moved", moved, err)
+	}
+	after := LocationsIn(home, runtime)
+	if filepath.Dir(after.Ledger) != f.newData || after.State != f.newState {
+		t.Fatalf("after the move the folders resolve to %s and %s", after.Ledger, after.State)
+	}
+	if got := readLedger(t, after.Ledger); !slices.Equal(got, want) {
+		t.Fatalf("with its writer open the moved ledger holds %v, want %v", got, want)
+	}
+	if err = writer.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if got := readLedger(t, after.Ledger); !slices.Equal(got, want) {
+		t.Fatalf("once its writer closed the moved ledger holds %v, want %v", got, want)
+	}
+
+	// A process that still names the old path fails there and makes nothing.
+	closed := readAll(t, []string{f.oldData, f.oldState})
+	if ledger, err := before.open(); err == nil {
+		_ = ledger.Close()
+		t.Fatal("the ledger opened through the old path")
+	}
+	if ledger, err := OpenLedger(before.Ledger, true); err == nil {
+		_ = ledger.Close()
+		t.Fatal("a ledger was made at the old path")
+	}
+	for i, path := range []string{f.oldData, f.oldState} {
+		info, err := os.Lstat(path)
+		if err != nil || !info.Mode().IsRegular() ||
+			!bytes.Equal(closed[i], readBytes(t, path)) {
+			t.Fatalf("%s is no longer the file the move left: %v, %v", path, info, err)
+		}
+	}
+}
+
+func leaveBothLedgers(t *testing.T) {
+	_, fixture := moveFixture(t)
+	home, runtime := fixture.Home, fixture.Runtime
+	f := agentFoldersIn(runtime)
+	makeOldFolders(t, runtime)
+	for _, root := range []string{runtime.Data, runtime.State} {
+		if _, err := operation.PrivateDirectory(
+			root,
+			filepath.Join("agent", "costs"),
+		); err != nil {
+			t.Fatal(err)
+		}
+	}
+	seedLedger(t, filepath.Join(f.oldData, "ledger.sqlite"), "req-1")
+	seedLedger(t, filepath.Join(f.newData, "ledger.sqlite"), "req-9")
+	writeFile(t, filepath.Join(f.oldState, "ingest.log"), "old\n", 0o600)
+	writeFile(t, filepath.Join(f.newState, "ingest.log"), "new\n", 0o600)
+	files := []string{
+		filepath.Join(f.oldData, "ledger.sqlite"), filepath.Join(f.newData, "ledger.sqlite"),
+		filepath.Join(f.oldState, "ingest.log"), filepath.Join(f.newState, "ingest.log"),
+	}
+	before := readAll(t, files)
+	if moved, err := MoveAgentFolders(home, runtime); err != nil || moved {
+		t.Fatalf("the move gave %v, %v; want nothing moved", moved, err)
+	}
+	for i, after := range readAll(t, files) {
+		if !bytes.Equal(before[i], after) {
+			t.Fatalf("the move changed %s", files[i])
+		}
+	}
+}
+
+// makeOldFolders makes the private costs folders at their old paths.
+func makeOldFolders(t *testing.T, runtime operation.Paths) {
+	t.Helper()
+	for _, root := range []string{runtime.Data, runtime.State} {
+		if _, err := operation.PrivateDirectory(root, "costs"); err != nil {
+			t.Fatal(err)
+		}
 	}
 }

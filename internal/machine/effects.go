@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
 )
@@ -407,7 +408,7 @@ func provisioningEffects(
 	effects := slices.Clone(sharedEffects)
 	for i := range effects {
 		if effects[i].Name == "agent-costs-ingest" {
-			effects[i].Touches = c.ShowPath(filepath.Join(c.Paths.Data, "costs", "ledger.sqlite"))
+			effects[i].Touches = c.ShowPath(costs.LocationsIn(c.Home, c.Paths).Ledger)
 		}
 	}
 	effects = append(effects, platformEffects(answers)...)

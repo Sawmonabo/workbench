@@ -15,18 +15,213 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // LocationsIn is where the costs files live inside Workbench's runtime
-// folders: the ledger and the price caches in <data>/costs, the import log
-// and lock in <state>/costs, the owner's overrides in <config>/costs.
+// folders: the ledger and the price caches in <data>/agent/costs, the import
+// log and lock in <state>/agent/costs, the owner's overrides in
+// <config>/costs. Until [MoveAgentFolders] has moved them there, the data
+// folder and the state folder each stay in use at <data>/costs and
+// <state>/costs while that is a folder and either the folder under agent/ is
+// not or an import holds the lock in the old state folder; the two resolve
+// apart, since a move can stop between them. It looks at paths and that lock
+// only, and makes nothing.
 func LocationsIn(home string, runtime operation.Paths) Paths {
+	f := agentFoldersIn(runtime)
+	data, state := f.newData, f.newState
+	if f.inUse(f.oldData, f.newData) {
+		data = f.oldData
+	}
+	if f.inUse(f.oldState, f.newState) {
+		state = f.oldState
+	}
 	return Paths{
 		Home:      home,
 		Runtime:   runtime,
-		Ledger:    filepath.Join(runtime.Data, "costs", "ledger.sqlite"),
-		State:     filepath.Join(runtime.State, "costs"),
+		Ledger:    filepath.Join(data, "ledger.sqlite"),
+		State:     state,
 		Overrides: filepath.Join(runtime.Config, "costs", "rates.json"),
+	}
+}
+
+// agentFolders are the costs data and state folders under agent/ and the
+// paths they are at until they move there.
+type agentFolders struct {
+	oldData, newData, oldState, newState string
+}
+
+func agentFoldersIn(runtime operation.Paths) agentFolders {
+	return agentFolders{
+		oldData:  filepath.Join(runtime.Data, "costs"),
+		newData:  filepath.Join(runtime.Data, "agent", "costs"),
+		oldState: filepath.Join(runtime.State, "costs"),
+		newState: filepath.Join(runtime.State, "agent", "costs"),
+	}
+}
+
+func (f agentFolders) oldLock() string { return Paths{State: f.oldState}.lock() }
+
+// inUse reports whether the folder at old is the one in use rather than the
+// one at new. The lock is looked at only while both are folders, so an entry
+// that resolves its paths never makes an import starting at that moment find
+// the lock taken.
+func (f agentFolders) inUse(old, new string) bool {
+	return operation.IsFolder(old) && (!operation.IsFolder(new) || lockHeld(f.oldLock()))
+}
+
+// lockFile opens the import lock at path, made 0600 when create is set and
+// it is missing, and takes it without waiting. It never makes a folder, so in
+// a folder that is gone, or that moved and left a plain file at its path, the
+// open fails and nothing is made there. held is true, with no error, when
+// another open file holds the lock, in this process too.
+func lockFile(path string, create bool) (f *os.File, held bool, err error) {
+	flags := os.O_RDWR | syscall.O_NOFOLLOW
+	if create {
+		flags |= os.O_CREATE
+	}
+	if f, err = os.OpenFile(path, flags, 0o600); err != nil {
+		return nil, false, err
+	}
+	for {
+		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if !errors.Is(err, syscall.EINTR) {
+			break
+		}
+	}
+	switch {
+	case err == nil:
+		return f, false, nil
+	case errors.Is(err, syscall.EWOULDBLOCK):
+		_ = f.Close()
+		return nil, true, nil
+	default:
+		_ = f.Close()
+		return nil, false, err
+	}
+}
+
+// lockHeld reports whether an import holds the import lock at path. It opens
+// only a lock file that is there, so it makes nothing; a missing one is free.
+func lockHeld(path string) bool {
+	f, held, err := lockFile(path, false)
+	if err == nil && !held {
+		_ = f.Close()
+	}
+	return held
+}
+
+// MoveAgentFolders moves the costs data folder from <data>/costs to
+// <data>/agent/costs, then the state folder from <state>/costs to
+// <state>/agent/costs, each in one swap that leaves a plain file at the old
+// path (see [operation.MoveFolder]), so a process of the release before that
+// still names it fails there instead of making a new, empty ledger. It first
+// deletes such a file a move left before the system last started (see
+// [operation.RemoveClosedPath]).
+//
+// Only the holder of the import lock moves, so no import works in a folder
+// while it moves: it takes the lock in the old state folder without waiting.
+// When an import holds it, nothing moves and the entries go on using the old
+// folders (see [LocationsIn]). A move that stopped after the data folder
+// leaves the state folder, which the next call moves under the same lock. A
+// move whose new folder is already there leaves the old one where it is. It
+// lets the lock go before it returns, and the caller takes the locks it needs
+// anew at the new path. A file system that cannot swap two names moves
+// nothing and is no error: the old folders stay in use.
+func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error) {
+	f := agentFoldersIn(runtime)
+	operation.RemoveClosedPath(f.oldData)
+	operation.RemoveClosedPath(f.oldState)
+	if (!operation.IsFolder(f.oldData) || operation.IsFolder(f.newData)) &&
+		(!operation.IsFolder(f.oldState) || operation.IsFolder(f.newState)) {
+		return false, nil
+	}
+	release, closed, ok, err := f.lockToMove(runtime)
+	if err != nil || !ok {
+		return false, err
+	}
+	defer release()
+	for i, move := range [][2]string{{f.oldData, f.newData}, {f.oldState, f.newState}} {
+		done, err := operation.MoveFolder(move[0], move[1])
+		moved = moved || done
+		if i == 0 && closed && !done {
+			f.reopenState()
+		}
+		switch {
+		case errors.Is(err, platform.ErrSwapUnsupported):
+			return moved, nil
+		case err != nil:
+			return moved, fmt.Errorf("cannot move %s to %s: %w",
+				operation.ShowPath(home, move[0]), operation.ShowPath(home, move[1]), err)
+		}
+	}
+	return moved, nil
+}
+
+// lockToMove takes, without waiting, the import lock that an import working
+// in the old folders holds. ok is false when an import holds it, or when the
+// old state folder moved in between.
+//
+// That lock is in the old state folder. With no folder there, no import of
+// the release before can work in the old data folder, since an import makes
+// the state folder before it opens the ledger. lockToMove then closes the old
+// state path with the same empty private file a move leaves, made only where
+// nothing is (closed says it made one), so none can start, and takes the
+// import lock in the new state folder, where every import of this release
+// takes it while no old state folder is there. A folder an import made at the
+// old path in that instant is locked like any other.
+func (f agentFolders) lockToMove(
+	runtime operation.Paths,
+) (release func(), closed, ok bool, err error) {
+	if !operation.IsFolder(f.oldState) {
+		if _, err = operation.PrivateDirectory(
+			runtime.State,
+			filepath.Join("agent", "costs"),
+		); err != nil {
+			return nil, false, false, err
+		}
+		if closed, err = closePath(f.oldState); err != nil {
+			return nil, false, false, err
+		}
+		if !operation.IsFolder(f.oldState) {
+			var held bool
+			release, held, err = operation.TryLock(Paths{State: f.newState}.lock())
+			if ok = err == nil && !held; !ok && closed {
+				f.reopenState()
+			}
+			return release, closed && ok, ok, err
+		}
+	}
+	file, held, err := lockFile(f.oldLock(), true)
+	switch {
+	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
+		return nil, false, false, nil
+	case err != nil || held:
+		return nil, false, false, err
+	}
+	return func() { _ = file.Close() }, false, true, nil
+}
+
+// closePath puts an empty 0600 file at path when nothing is there, and says
+// whether it made one; whatever is there already stays.
+func closePath(path string) (closed bool, err error) {
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	switch {
+	case errors.Is(err, fs.ErrExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	return true, file.Close()
+}
+
+// reopenState deletes the file lockToMove closed the old state path with,
+// when the data folder did not move after all. It unlinks, so it never
+// removes a folder.
+func (f agentFolders) reopenState() {
+	if info, err := os.Lstat(f.oldState); err == nil && info.Mode().IsRegular() &&
+		info.Size() == 0 {
+		_ = syscall.Unlink(f.oldState)
 	}
 }
 
@@ -110,12 +305,13 @@ func oldOfficialPath(folder string, tool Tool) string {
 }
 
 // costsMove is one costs file other than the ledger that the migration moves
-// into the runtime folder root, as folder (relative to root). cache marks a
-// price cache, which is derived data: when the new path already holds one,
-// the old one is deleted instead of being a conflict.
+// into Workbench's folders, into the folder that folder makes private. cache
+// marks a price cache, which is derived data: when the new path already holds
+// one, the old one is deleted instead of being a conflict.
 type costsMove struct {
-	from, to, root, folder string
-	cache                  bool
+	from, to string
+	folder   func() (string, error)
+	cache    bool
 }
 
 func (o OldPaths) moves(p Paths) []costsMove {
@@ -125,13 +321,15 @@ func (o OldPaths) moves(p Paths) []costsMove {
 			if tool.Source != nil {
 				moves = append(moves, costsMove{
 					oldOfficialPath(filepath.Dir(o.Ledger), tool), officialPath(p, tool),
-					p.Runtime.Data, filepath.Join("costs", tool.Name), true,
+					func() (string, error) { return p.dataFolder(tool.Name) }, true,
 				})
 			}
 		}
 	}
 	if o.Overrides != "" {
-		moves = append(moves, costsMove{o.Overrides, p.Overrides, p.Runtime.Config, "costs", false})
+		moves = append(moves, costsMove{o.Overrides, p.Overrides, func() (string, error) {
+			return operation.PrivateDirectory(p.Runtime.Config, "costs")
+		}, false})
 	}
 	return slices.DeleteFunc(moves, func(m costsMove) bool { return aliased(m.from, m.to) })
 }
@@ -432,7 +630,27 @@ func conflictError(text string) error {
 // left names, home-relative, the files it found in an old claude-costs folder
 // and doesn't know; they stay, with their folder. An old folder it can't read
 // is an error once everything else is done.
+//
+// It first moves the costs folders under agent/ when it may (see
+// [MoveAgentFolders]) and moves the files to where the costs folders are
+// then, so it finds a ledger already in use where it is and never takes
+// another for it. A move of those folders that fails leaves them where they
+// are, which is the agent folders migration's to report.
 func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err error) {
+	p, _ = locate(p.Home, p.Runtime)
+	return moveFolders(ctx, old, p)
+}
+
+// locate moves the costs folders under agent/ when it may (see
+// [MoveAgentFolders]) and resolves the costs paths after that. A move that
+// failed leaves the folders where they are, and the paths name them there; its
+// error comes back beside them.
+func locate(home string, runtime operation.Paths) (Paths, error) {
+	_, err := MoveAgentFolders(home, runtime)
+	return LocationsIn(home, runtime), err
+}
+
+func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err error) {
 	old = old.apart(p)
 	check := CheckFolders(old, p)
 	switch check.State {
@@ -451,7 +669,7 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	check = CheckFolders(old, p)
 	var ledgerErr error
 	if check.Ledger == FoldersPending || check.Ledger == FoldersUnfinished {
-		if _, err = operation.PrivateDirectory(p.Runtime.Data, "costs"); err != nil {
+		if _, err = p.dataFolder(""); err != nil {
 			return nil, err
 		}
 		// A conflict or a ledger error leaves the ledger's files where they
@@ -535,7 +753,7 @@ func moveSmallFiles(old OldPaths, p Paths) error {
 		case exists(move.to):
 			continue
 		}
-		if _, err := operation.PrivateDirectory(move.root, move.folder); err != nil {
+		if _, err := move.folder(); err != nil {
 			return err
 		}
 		if err := moveFile(move.from, move.to); err != nil {
@@ -1133,29 +1351,44 @@ func removeDatabase(path string) error {
 // gate keeps the ledger closed at its new path while the costs ledger still
 // waits to move there, so nothing creates an empty ledger beside the old one.
 // [Paths.Open] runs it before every ledger open, and anything that writes
-// beside the ledger runs it first. move is for the import worker: it moves the
-// files itself, under the same locks as `workbench migrate run`, because usage
-// left unread is lost once the session files it is in are deleted; it then
-// reads into the new ledger once the ledger itself has moved, even when another
-// costs file is left in conflict or didn't move. Every other caller is told to
-// run the migration while any data waits to move, and stops on a ledger
-// conflict; a conflict over another file alone doesn't stop it, and neither
-// does an empty old folder, which holds nothing. `workbench migrate` names
-// both.
-func gate(ctx context.Context, paths Paths, move bool) error {
+// beside the ledger runs it first. It first moves the costs folders under
+// agent/ when it may (see [MoveAgentFolders]) and returns the costs paths as
+// they are after that, which the caller then works with, so the move below
+// finds a ledger already in use where it is and never takes another for it.
+//
+// move is for the import worker: it makes the state folder, once the costs
+// folders are where they stay, and logs there a move of them that failed; it
+// moves the files itself, under the same locks as `workbench migrate run`,
+// because usage left unread is lost once the session files it is in are
+// deleted; it then reads into the new ledger once the ledger itself has moved,
+// even when another costs file is left in conflict or didn't move. Every other
+// caller is told to run the migration while any data waits to move, and stops
+// on a ledger conflict; a conflict over another file alone doesn't stop it,
+// and neither does an empty old folder, which holds nothing. `workbench
+// migrate` names both.
+func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
+	paths, folders := locate(paths.Home, paths.Runtime)
+	if move {
+		if _, err := paths.stateFolder(); err != nil {
+			return paths, err
+		}
+		if folders != nil {
+			writeLog(paths, "the costs folders stay where they are: "+folders.Error())
+		}
+	}
 	old := OldLocations(paths.Home)
 	check := CheckFolders(old, paths)
 	switch {
 	case check.State == FoldersDone:
-		return nil
+		return paths, nil
 	case !move && check.Data == FoldersDone:
-		return nil
+		return paths, nil
 	case !move && check.Data == FoldersConflict && check.Ledger == FoldersDone:
-		return nil
+		return paths, nil
 	case !move && check.Data == FoldersConflict:
-		return conflictError(check.Text)
+		return paths, conflictError(check.Text)
 	case !move:
-		return operation.Fail(
+		return paths, operation.Fail(
 			operation.ExitBlocked,
 			"migrate",
 			"The costs files are moving to Workbench's folders; run `workbench migrate`",
@@ -1165,12 +1398,12 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 	if check.State != FoldersConflict {
 		release, held, err := operation.TryLock(paths.Runtime.MigrateLock())
 		if err != nil {
-			return err
+			return paths, err
 		}
 		if held {
-			return busy("another migration is running")
+			return paths, busy("another migration is running")
 		}
-		_, moveErr = MoveFolders(ctx, old, paths)
+		_, moveErr = moveFolders(ctx, old, paths)
 		release()
 	}
 	// Once the ledger has moved, nothing else the move left stops the import.
@@ -1179,12 +1412,12 @@ func gate(ctx context.Context, paths Paths, move bool) error {
 		// copy that differs from its set-aside original, which the check
 		// can't tell from a stopped copy.
 		if moveErr != nil {
-			return moveErr
+			return paths, moveErr
 		}
-		return conflictError(after.Text)
+		return paths, conflictError(after.Text)
 	}
 	if moveErr != nil {
 		writeLog(paths, "the ledger moved, but not every costs file: "+moveErr.Error())
 	}
-	return nil
+	return paths, nil
 }

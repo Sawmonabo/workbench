@@ -190,14 +190,26 @@ func longestPrefix(model string, card RateCard, tiers bool) (Rate, bool) {
 // Rates returns the merged card: built-in, then calibration, then the official
 // page, then the manual overrides. refresh refetches every official card first
 // and reports each outcome in Notes. A partial override completes itself from
-// the prefix-matched rate beneath it.
+// the prefix-matched rate beneath it. A price list that can't be read counts
+// as missing, so when another process moved the costs folders while it read
+// them (see [Paths.moved]) it reads them again where they are now.
 func Rates(ctx context.Context, refresh bool) (Card, error) {
 	paths, err := Locations()
 	if err != nil {
 		return Card{}, err
 	}
-	if err = gate(ctx, paths, false); err != nil {
-		return Card{}, err
+	card, used, err := rates(ctx, paths, refresh)
+	if used.moved() {
+		card, _, err = rates(ctx, paths, refresh)
+	}
+	return card, err
+}
+
+// rates is one run of [Rates], which returns the paths it read.
+func rates(ctx context.Context, paths Paths, refresh bool) (Card, Paths, error) {
+	paths, err := gate(ctx, paths, false)
+	if err != nil {
+		return Card{}, paths, err
 	}
 	var notes []string
 	if refresh {
@@ -209,7 +221,7 @@ func Rates(ctx context.Context, refresh bool) (Card, error) {
 	}
 	card, err := loadCard(paths)
 	card.Notes = notes
-	return card, err
+	return card, paths, err
 }
 
 func loadCard(paths Paths) (Card, error) {
@@ -354,7 +366,7 @@ func (f officialFile) rates() RateCard {
 }
 
 // officialPath is the cache of one tool's official card,
-// <data>/costs/<tool>/rates-official.json.
+// <tool>/rates-official.json in the ledger's folder.
 func officialPath(paths Paths, tool Tool) string {
 	return filepath.Join(filepath.Dir(paths.Ledger), tool.Name, "rates-official.json")
 }
@@ -372,7 +384,7 @@ func writeOfficial(paths Paths, tool Tool, file officialFile) error {
 	// The ledger's folder and the tool's below it, which `agent costs rates
 	// --refresh` can create first: private like the ledger. The cache holds
 	// public prices.
-	folder, err := operation.PrivateDirectory(paths.Runtime.Data, filepath.Join("costs", tool.Name))
+	folder, err := paths.dataFolder(tool.Name)
 	if err != nil {
 		return err
 	}

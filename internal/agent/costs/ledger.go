@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
@@ -53,23 +54,71 @@ func (p Paths) lock() string { return filepath.Join(p.State, "ingest.lock") }
 func (p Paths) output() string { return filepath.Join(p.State, "ingest.err") }
 
 // Open opens the ledger once the costs gate (see gate) lets it, so nothing
-// opens or creates a ledger while the costs files still wait to move.
+// opens or creates a ledger while the costs files still wait to move. The gate
+// first moves the costs folders under agent/ when it may, and the ledger is
+// opened where they are then. When the open fails because another process
+// moved them in between (see [Paths.moved]), it opens the ledger again where
+// they are now.
 func (p Paths) Open(ctx context.Context) (*Ledger, error) {
-	if err := gate(ctx, p, false); err != nil {
-		return nil, err
+	ledger, used, err := p.openGated(ctx)
+	if err != nil && used.moved() {
+		ledger, _, err = p.openGated(ctx)
 	}
-	return p.open()
+	return ledger, err
+}
+
+func (p Paths) openGated(ctx context.Context) (*Ledger, Paths, error) {
+	p, err := gate(ctx, p, false)
+	if err != nil {
+		return nil, p, err
+	}
+	ledger, err := p.open()
+	return ledger, p, err
 }
 
 // open opens the ledger, making a missing one (see [OpenLedger]), after making
-// its folder private (see [operation.PrivateDirectory]), which refuses one
-// that exists and isn't. Only the import calls it without [Paths.Open], after
-// its own gate has moved the ledger.
+// its folder private (see [Paths.dataFolder]), which refuses one that exists
+// and isn't. Only the import calls it without [Paths.Open], after its own gate
+// has moved the ledger.
 func (p Paths) open() (*Ledger, error) {
-	if _, err := operation.PrivateDirectory(p.Runtime.Data, "costs"); err != nil {
+	if _, err := p.dataFolder(""); err != nil {
 		return nil, err
 	}
 	return OpenLedger(p.Ledger, true)
+}
+
+// dataFolder makes the ledger's folder private, with the folder name below it
+// ("" for none), and returns that folder. stateFolder does the same for the
+// state folder. A folder under agent/ is made when missing (see
+// [operation.PrivateDirectory]). A costs folder still at its old path is used
+// only where it stands: it, and name in it, must already be folders, so
+// nothing is ever made at an old path, where a folder moved away left a file.
+func (p Paths) dataFolder(name string) (string, error) {
+	return p.folder(p.Runtime.Data, filepath.Join(filepath.Dir(p.Ledger), name))
+}
+
+func (p Paths) stateFolder() (string, error) { return p.folder(p.Runtime.State, p.State) }
+
+func (p Paths) folder(root, path string) (string, error) {
+	f := agentFoldersIn(p.Runtime)
+	if (operation.Within(f.oldData, path) || operation.Within(f.oldState, path)) &&
+		!operation.IsFolder(path) {
+		return "", fmt.Errorf("%s: %w", path, syscall.ENOTDIR)
+	}
+	name, err := filepath.Rel(root, path)
+	if err != nil {
+		return "", err
+	}
+	return operation.PrivateDirectory(root, name)
+}
+
+// moved reports whether p names a costs folder at its old path that is no
+// longer a folder: [MoveAgentFolders] moved it after p was resolved. An entry
+// that failed with such paths resolves them again and does its work once more.
+func (p Paths) moved() bool {
+	f := agentFoldersIn(p.Runtime)
+	return filepath.Dir(p.Ledger) == f.oldData && !operation.IsFolder(f.oldData) ||
+		p.State == f.oldState && !operation.IsFolder(f.oldState)
 }
 
 const (

@@ -43,11 +43,7 @@ func FocusOn(
 ) (Focus, error) {
 	focus := Focus{Kind: kind, Name: name}
 	tool, _ := Lookup(opts.Tool)
-	paths, err := Locations()
-	if err != nil {
-		return focus, err
-	}
-	card, err := loadCard(paths)
+	paths, card, err := cardNow()
 	if err != nil {
 		return focus, err
 	}

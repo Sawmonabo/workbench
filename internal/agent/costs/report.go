@@ -8,8 +8,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Tokens are summed token counts.
@@ -274,11 +272,7 @@ type group struct {
 // Report reads the ledger only and prints nothing: the rows of one tool by project, model,
 // account or month, priced from the current rate card.
 func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement, error) {
-	paths, err := Locations()
-	if err != nil {
-		return Statement{}, err
-	}
-	card, err := loadCard(paths)
+	paths, card, err := cardNow()
 	if err != nil {
 		return Statement{}, err
 	}
@@ -691,13 +685,45 @@ type ToolStatus struct {
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
+// cardNow is the rate card from the price lists where the costs folders are
+// now. A price list that can't be read counts as missing, so when another
+// process moved the costs folders while it read them (see [Paths.moved]) it
+// reads them again where they are then.
+func cardNow() (Paths, Card, error) {
+	paths, err := Locations()
+	if err != nil {
+		return paths, Card{}, err
+	}
+	card, err := loadCard(paths)
+	if paths.moved() {
+		if paths, err = Locations(); err == nil {
+			card, err = loadCard(paths)
+		}
+	}
+	return paths, card, err
+}
+
 // Status reads the open ledger (see [Paths.Open]) and the live hook settings;
-// it ingests and fetches nothing itself.
+// it ingests and fetches nothing itself, and makes nothing. A file it can't
+// read counts as missing, so when another process moved the costs folders
+// while it read them (see [Paths.moved]) it reads them again where they are
+// then.
 func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 	paths, err := Locations()
 	if err != nil {
 		return StatusInfo{}, err
 	}
+	info, err := status(ctx, ledger, paths)
+	if paths.moved() {
+		if paths, err = Locations(); err == nil {
+			info, err = status(ctx, ledger, paths)
+		}
+	}
+	return info, err
+}
+
+func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error) {
+	var err error
 	info := StatusInfo{Ledger: paths.Ledger, Overrides: paths.Overrides}
 	if stat, err := os.Stat(paths.Ledger); err == nil {
 		info.LedgerBytes = stat.Size()
@@ -711,13 +737,7 @@ func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 	}
 	info.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
 	info.LastError, _ = ledger.Meta("last_error")
-	if release, held, err := operation.TryLock(paths.lock()); err == nil {
-		if held {
-			info.WorkerRunning = true
-		} else {
-			release()
-		}
-	}
+	info.WorkerRunning = lockHeld(paths.lock())
 	for _, tool := range Tools {
 		status := ToolStatus{Name: tool.Name, Title: tool.Title, Implemented: tool.Source != nil}
 		if tool.Source != nil {
