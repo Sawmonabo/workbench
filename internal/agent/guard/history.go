@@ -809,8 +809,9 @@ func removeDamagedBefore(root string, since time.Time) {
 // copy already there, so there is one at most: each side file of the copy is
 // replaced, or deleted when the history has none, before the history itself
 // is moved, so no side file of another database is ever left beside a
-// history, where SQLite would read it as that history's. The history must
-// not be open.
+// history, where SQLite would read it as that history's. Its files are
+// then marked as written now, so the copy is kept for the time kept from the
+// moment it was set aside. The history must not be open.
 func MoveDamaged(root string) (to string, err error) {
 	from, to := historyFile(root), damagedFile(root)
 	if _, err := os.Lstat(from); err != nil {
@@ -827,6 +828,14 @@ func MoveDamaged(root string) (to string, err error) {
 	}
 	if err := os.Rename(from, to); err != nil {
 		return "", err
+	}
+	// The copy is kept for the time kept from now, when it was set aside,
+	// not from when it was last written (see removeDamagedBefore).
+	now := time.Now()
+	for _, name := range []string{to, to + sideFiles[0], to + sideFiles[1]} {
+		if err := os.Chtimes(name, now, now); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return to, err
+		}
 	}
 	return to, nil
 }
