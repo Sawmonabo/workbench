@@ -85,14 +85,32 @@ func Open(path string, o Options) (*sql.DB, error) {
 	return db, nil
 }
 
-// sqliteBusy is SQLite's SQLITE_BUSY result code, which an extended code keeps
+// SQLite's result codes this package tells apart, which an extended code keeps
 // in its low byte.
-const sqliteBusy = 5
+const (
+	sqliteBusy    = 5
+	sqliteCorrupt = 11
+	sqliteNotADB  = 26
+)
 
 // IsBusy reports whether err is SQLite's BUSY.
-func IsBusy(err error) bool {
+func IsBusy(err error) bool { return code(err) == sqliteBusy }
+
+// IsDamaged reports whether err is SQLite's NOTADB, a file that is not a
+// database, or its CORRUPT, a database whose content SQLite found malformed.
+func IsDamaged(err error) bool {
+	c := code(err)
+	return c == sqliteCorrupt || c == sqliteNotADB
+}
+
+// code is the primary result code of the SQLite error in err, 0 when err holds
+// none.
+func code(err error) int {
 	problem, ok := errors.AsType[*sqlite.Error](err)
-	return ok && problem.Code()&0xff == sqliteBusy
+	if !ok {
+		return 0
+	}
+	return problem.Code() & 0xff
 }
 
 // enableWAL switches db to WAL. Doing so for a new file takes the database
