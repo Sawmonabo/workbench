@@ -91,7 +91,7 @@ var Registry = []Migration{
 	oldGuardLog,
 	WorkTokens,
 	StepNames,
-	agentFolders,
+	AgentFolders,
 }
 
 // OldLocationVariables are the variables the old locations were read from.

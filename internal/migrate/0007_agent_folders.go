@@ -17,14 +17,14 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// agentFolders moves the costs folders of the data and state folders and the
+// AgentFolders moves the costs folders of the data and state folders and the
 // guard folder of the state folder under agent/, the path of the commands
 // that keep them. The moves belong to internal/agent/costs and
 // internal/agent/guard, whose entries also move them by themselves, each when
 // it holds the folder's lock (see [costs.MoveAgentFolders] and [guard.Move]);
 // this migration looks at where each folder stands, runs those moves, and
 // clears an old folder left beside one already in use.
-var agentFolders = Migration{
+var AgentFolders = Migration{
 	ID:    "0007-agent-folders",
 	Title: "Move the costs and guard folders under agent/",
 	Doing: "moving the costs and guard folders under agent/",

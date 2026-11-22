@@ -147,7 +147,8 @@ func (o *options) migrateApply(
 		stop()
 		return result, err
 	}
-	plan := migrate.Plan(c.Scope, locations, migrate.Check(locations))
+	findings := migrate.Check(locations)
+	plan := migrate.Plan(c.Scope, locations, findings)
 	stop()
 	result.Warnings = append(result.Warnings, locations.Notes...)
 	result.Warnings = append(result.Warnings, plan.Warnings...)
@@ -156,7 +157,7 @@ func (o *options) migrateApply(
 		return result, err
 	}
 	if len(plan.Effects) == 0 {
-		return migrateShown(result, plan)
+		return migrateShown(result, plan, findings)
 	}
 	consent := consentFor(o, o.approvePlan)
 	if o.yes {
@@ -195,8 +196,14 @@ func (o *options) migrateApply(
 }
 
 // migrateShown is the result of a run with nothing to move: "Nothing to
-// migrate", or the conflicts that need the owner, which the warnings name.
-func migrateShown(result operation.Result, plan operation.Plan) (operation.Result, error) {
+// migrate", or the conflicts that need the owner, which the warnings name,
+// and the old agent folders that stay and why (a watcher or an import works
+// in one, or its file system can't swap two names).
+func migrateShown(
+	result operation.Result,
+	plan operation.Plan,
+	findings []migrate.Finding,
+) (operation.Result, error) {
 	component := operation.Component{
 		Name:    "migrations",
 		Status:  operation.StatusUnchanged,
@@ -212,5 +219,15 @@ func migrateShown(result operation.Result, plan operation.Plan) (operation.Resul
 		)
 	}
 	result.Results = append(result.Results, component)
+	for _, f := range findings {
+		if f.ID == migrate.AgentFolders.ID && f.Status == migrate.Done && f.Detail != "" {
+			result.Results = append(result.Results, operation.Component{
+				Name:    f.ID,
+				Title:   f.ID + " " + f.Title,
+				Status:  operation.StatusUnchanged,
+				Message: f.Detail,
+			})
+		}
+	}
 	return result, err
 }
