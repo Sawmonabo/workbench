@@ -70,44 +70,10 @@ func (f agentFolders) inUse(old, new string) bool {
 	return operation.IsFolder(old) && (!operation.IsFolder(new) || lockHeld(f.oldLock()))
 }
 
-// lockFile opens the import lock at path, made 0600 when create is set and
-// it is missing, and takes it without waiting. It never makes a folder, so in
-// a folder that is gone, or that moved and left a plain file at its path, the
-// open fails and nothing is made there. held is true, with no error, when
-// another open file holds the lock, in this process too.
-func lockFile(path string, create bool) (f *os.File, held bool, err error) {
-	flags := os.O_RDWR | syscall.O_NOFOLLOW
-	if create {
-		flags |= os.O_CREATE
-	}
-	if f, err = os.OpenFile(path, flags, 0o600); err != nil {
-		return nil, false, err
-	}
-	for {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
-		if !errors.Is(err, syscall.EINTR) {
-			break
-		}
-	}
-	switch {
-	case err == nil:
-		return f, false, nil
-	case errors.Is(err, syscall.EWOULDBLOCK):
-		_ = f.Close()
-		return nil, true, nil
-	default:
-		_ = f.Close()
-		return nil, false, err
-	}
-}
-
-// lockHeld reports whether an import holds the import lock at path. It opens
-// only a lock file that is there, so it makes nothing; a missing one is free.
+// lockHeld reports whether an import holds the import lock at path. It makes
+// nothing; a lock file that is missing or cannot be opened counts as free.
 func lockHeld(path string) bool {
-	f, held, err := lockFile(path, false)
-	if err == nil && !held {
-		_ = f.Close()
-	}
+	held, _ := operation.LockHeld(path)
 	return held
 }
 
@@ -165,8 +131,8 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 // That lock is in the old state folder. With no folder there, no import of
 // the release before can work in the old data folder, since an import makes
 // the state folder before it opens the ledger. lockToMove then closes the old
-// state path with the same empty private file a move leaves, made only where
-// nothing is (closed says it made one), so none can start, and takes the
+// state path with the file a move leaves (see [operation.ClosePath]; closed
+// says it made one), so none can start, and takes the
 // import lock in the new state folder, where every import of this release
 // takes it while no old state folder is there. A folder an import made at the
 // old path in that instant is locked like any other.
@@ -180,7 +146,7 @@ func (f agentFolders) lockToMove(
 		); err != nil {
 			return nil, false, false, err
 		}
-		if closed, err = closePath(f.oldState); err != nil {
+		if closed, err = operation.ClosePath(f.oldState); err != nil {
 			return nil, false, false, err
 		}
 		if !operation.IsFolder(f.oldState) {
@@ -192,7 +158,7 @@ func (f agentFolders) lockToMove(
 			return release, closed && ok, ok, err
 		}
 	}
-	file, held, err := lockFile(f.oldLock(), true)
+	file, held, err := operation.TryLockIn(f.oldLock())
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		return nil, false, false, nil
@@ -202,25 +168,11 @@ func (f agentFolders) lockToMove(
 	return func() { _ = file.Close() }, false, true, nil
 }
 
-// closePath puts an empty 0600 file at path when nothing is there, and says
-// whether it made one; whatever is there already stays.
-func closePath(path string) (closed bool, err error) {
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	switch {
-	case errors.Is(err, fs.ErrExist):
-		return false, nil
-	case err != nil:
-		return false, err
-	}
-	return true, file.Close()
-}
-
 // reopenState deletes the file lockToMove closed the old state path with,
 // when the data folder did not move after all. It unlinks, so it never
 // removes a folder.
 func (f agentFolders) reopenState() {
-	if info, err := os.Lstat(f.oldState); err == nil && info.Mode().IsRegular() &&
-		info.Size() == 0 {
+	if info, err := os.Lstat(f.oldState); err == nil && info.Mode().IsRegular() {
 		_ = syscall.Unlink(f.oldState)
 	}
 }

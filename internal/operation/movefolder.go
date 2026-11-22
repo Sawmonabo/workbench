@@ -1,7 +1,9 @@
 package operation
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -54,6 +56,34 @@ func MoveFolder(from, to string) (moved bool, err error) {
 		if err := SyncDirectory(folder); err != nil {
 			return true, fmt.Errorf("moved %s to %s but cannot sync %s: %w", from, to, folder, err)
 		}
+	}
+	return true, nil
+}
+
+// ClosePath puts the file a [MoveFolder] leaves, 0600 and holding
+// [platform.BootID], at a path where nothing is, so a process that would make
+// a folder there fails. closed says it made the file; whatever is there
+// already stays, and so does a missing folder above path.
+func ClosePath(path string) (closed bool, err error) {
+	boot, err := platform.BootID()
+	if err != nil {
+		return false, err
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
+	switch {
+	case errors.Is(err, fs.ErrExist):
+		return false, nil
+	case err != nil:
+		return false, err
+	}
+	if _, err = file.WriteString(boot); err != nil {
+		_ = file.Close()
+		_ = syscall.Unlink(path)
+		return false, err
+	}
+	if err = file.Close(); err != nil {
+		_ = syscall.Unlink(path)
+		return false, err
 	}
 	return true, nil
 }
