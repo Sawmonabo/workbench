@@ -62,6 +62,25 @@ func agentFoldersIn(runtime operation.Paths) agentFolders {
 
 func (f agentFolders) oldLock() string { return Paths{State: f.oldState}.lock() }
 
+// AgentFolders are the costs folders for migration 0007: the data folder and
+// then the state folder, each as its old path and its path under agent/, and
+// the import lock an import working in an old one holds: the one in the old
+// state folder while that is a folder; once it is not, the one in the new
+// state folder while the old data folder is in use (see [LocationsIn] and
+// lockToMove); else "", since no import works in an old folder. It looks at
+// paths only.
+func AgentFolders(runtime operation.Paths) (folders [2][2]string, lock string) {
+	f := agentFoldersIn(runtime)
+	folders = [2][2]string{{f.oldData, f.newData}, {f.oldState, f.newState}}
+	switch {
+	case operation.IsFolder(f.oldState):
+		lock = f.oldLock()
+	case operation.IsFolder(f.oldData) && !operation.IsFolder(f.newData):
+		lock = Paths{State: f.newState}.lock()
+	}
+	return folders, lock
+}
+
 // inUse reports whether the folder at old is the one in use rather than the
 // one at new. The lock is looked at only while both are folders, so an entry
 // that resolves its paths never makes an import starting at that moment find

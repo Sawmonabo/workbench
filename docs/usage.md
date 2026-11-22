@@ -52,7 +52,7 @@ logged-in `gh`. Never run it as root.
 | `answers import FILE` | One-time adoption of a chezmoi config's `[data]` table. |
 | `answers ask NAME...` | Ask saved machine answers again, for example `machine_role`. |
 | `version` | Print this Workbench version, the same as `--version`; a local build adds `(local build)`. |
-| `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; then, as `runtime-` lines, Node, Python, Rust, Go and bun (in `pinned` mode against their `versions.toml` pins; on macOS Go and bun come from Homebrew), whether Claude Code and Codex run the `agent costs` and `agent guard` hooks, and whether the `agent guard` watcher runs. It reads only this machine, never the network, and repairs nothing. Only a missing prerequisite of Workbench's own returns nonzero; a missing runtime or hook is shown, and `apply` fixes it. |
+| `doctor` | Workbench's version (with `(local build)` for one), what is installed and last applied, any apply that did not finish, tool versions and host checks, and a `CLAUDE_CONFIG_DIR` or `CODEX_HOME` that moves an agent away from the settings Workbench installs; then, as `runtime-` lines, Node, Python, Rust, Go and bun (in `pinned` mode against their `versions.toml` pins; on macOS Go and bun come from Homebrew), whether Claude Code and Codex run the `agent costs` and `agent guard` hooks, whether the `agent guard` watcher runs, and, as `agent-folders`, a costs or guard folder still at its old path and why it stays. It reads only this machine, never the network, and repairs nothing. Only a missing prerequisite of Workbench's own returns nonzero; a missing runtime or hook is shown, and `apply` fixes it. |
 | `revert` | Pick a saved checkpoint, then restore its files after conflict checks. |
 | `project inspect/apply/revert [PATH]` | Inspect an existing project or apply Workbench's settings to it; see below. |
 | `agent costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, select text with your terminal's bypass: Terminal.app's View → Allow Mouse Reporting (⌘R) hands the mouse back until toggled again; other terminals use a held key such as Shift or Option. Without a terminal, `--tool NAME` prints one tool's report. |
@@ -60,7 +60,7 @@ logged-in `gh`. Never run it as root.
 | `agent costs rates`, `agent costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
 | `agent costs ingest --worker` | Read new usage into the ledger now, in the foreground, with progress; the apply's Record AI usage step (`agent-costs-ingest`) runs it too. Without `--worker` it is the hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts the worker detached. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. |
 | `agent guard` | A live view of the agent commands the memory usage guard tracks, where you can stop one; see the guard paragraphs below the table. `agent guard logs` prints what the guard did. |
-| `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)). It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
+| `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)), or move the `costs/` and `guard/` folders earlier releases kept in Workbench's data and state folders into `agent/` beside them (see `agent guard` below). It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
 | `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
 
 Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
@@ -162,7 +162,7 @@ must be private, mode 0600, like `machine.toml` itself), and
 terminal and refuses `--dry-run`, because it saves what it asks.
 
 `agent costs` figures are list-price equivalents, not subscription charges. The
-ledger lives in Workbench's data folder, at `costs/ledger.sqlite`
+ledger lives in Workbench's data folder, at `agent/costs/ledger.sqlite`
 (`~/Library/Application Support/workbench/data` on macOS,
 `~/.local/share/workbench` on Linux; `WORKBENCH_DATA_DIR` or an absolute
 `XDG_DATA_HOME` moves it with the rest), because Claude Code deletes
@@ -298,7 +298,22 @@ environment; on Linux and WSL, any). See
 `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
 (`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
-once that passes 1 MiB) are in Workbench's state folder under `guard/`. The hooks
+once that passes 1 MiB) are in Workbench's state folder under `agent/guard/`, and
+the costs import log and lock under `agent/costs/`. The `costs/` and `guard/`
+folders earlier releases kept at the top of the data and state folders move
+there whole, each in one swap that leaves a small file at the old path until
+the machine restarts, so a process of that release fails there instead of
+starting over in an empty folder. The **Move Workbench's files** step moves
+them, and so does every costs and guard entry that holds the folder's lock: a
+watcher of the earlier release hands over as at every update, and the new
+watcher moves the guard folder before its first look, so nothing it was
+watching is dropped; a folder a watcher or an import still works in waits for
+it. On a file system that cannot swap two names, such as HFS+, the folders
+stay and are used where they are. An old folder found beside one already in
+use is not merged: its logs, output files, locks, sockets, downloaded price
+lists and empty folders are deleted, and anything else, such as a ledger or a
+note, stays. `workbench migrate --dry-run` and `workbench doctor` name an old
+folder that stays and why. The hooks
 (pre, post and session) and the watcher are hidden `workbench agent guard` commands. After `workbench update` (or
 an apply) installs another release, the running watcher hands over to that
 release's watcher within about a second, once no stop is under way or
@@ -384,7 +399,7 @@ place by byte offset, so a cut of the log (to its newest half, or a
 migration's that drops lines from the middle) and a rotation of the output
 neither skip nor repeat a line, even lines that read the same. The log is
 JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
-`handover`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
+`handover`, `moved`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
 `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
 `pid` (a log that was cut starts with a `cut` record, which the viewer never
 shows), and, by event, `call`, `agent`, `subagent`, `cwd`, `project`,

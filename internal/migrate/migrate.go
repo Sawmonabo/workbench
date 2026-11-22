@@ -1,11 +1,13 @@
 // Package migrate holds Workbench's numbered, idempotent migrations: moves of
 // files Workbench itself wrote outside its runtime folders into them, and
-// deletes of the caches, logs (or a log's lines in an old format), locks and
-// empty files it wrote and of an old copy whose new copy holds the same
-// bytes, and 0005's move of the work tokens saved as machine answers into a
-// new work.env, deleting them from machine.toml only once work.env holds
-// them, and 0006's rename of a step in machine.toml's saved choices. A move
-// of another package's files is done by that package; this
+// deletes of the caches, logs (or a log's lines in an old format), locks,
+// sockets and empty files it wrote and of an old copy whose new copy holds the
+// same bytes, and 0005's move of the work tokens saved as machine answers into
+// a new work.env, deleting them from machine.toml only once work.env holds
+// them, 0006's rename of a step in machine.toml's saved choices, and 0007's
+// move of the costs and guard folders under agent/ inside the runtime folders,
+// each swapped with a small file that stays at its old path until the machine
+// restarts. A move of another package's files is done by that package; this
 // package holds the list, the check and run loop, and the run record.
 package migrate
 
@@ -29,7 +31,9 @@ import (
 type Status int
 
 // The statuses. A held lock or an open ledger is no status: Run says so and
-// fails, and the next apply tries again.
+// fails, and the next apply tries again. The exception is 0007's folders: one
+// a guard watcher or a costs import works in is moved by that watcher, or the
+// next import, so 0007 is Done and says so.
 const (
 	Done       Status = iota // no old file the migration knows remains
 	Pending                  // an old file exists and its new path does not, or a path can't be read
@@ -64,7 +68,9 @@ type Locations struct {
 // path it can't inspect counts as there, so nothing is called done that
 // isn't, and the run then says why. Run finishes whatever is left, and
 // running it twice only completes the remaining moves. Run returns the files,
-// home-relative, it found and left because Workbench didn't write them.
+// home-relative, it found and left because Workbench didn't write them, or,
+// for a migration with Leaves, what Leaves turns into the text naming what it
+// left and why.
 type Migration struct {
 	ID       string // "0001-costs-folders"; names it in the plan and output
 	Title    string // "Move the costs files into Workbench's folders"
@@ -73,6 +79,7 @@ type Migration struct {
 	Recovery string // how to undo it, for the plan
 	Check    func(Locations) (Status, string)
 	Run      func(context.Context, Locations) ([]string, error)
+	Leaves   func(left []string) string // nil: Run's files are named with keeps
 }
 
 // Registry lists every migration in number order. A released migration is
@@ -84,6 +91,7 @@ var Registry = []Migration{
 	oldGuardLog,
 	WorkTokens,
 	StepNames,
+	agentFolders,
 }
 
 // OldLocationVariables are the variables the old locations were read from.
@@ -248,7 +256,11 @@ func conflicts(findings []Finding, say func(string)) []string {
 func runOne(ctx context.Context, l Locations, f Finding, say func(string)) error {
 	say(f.ID + ": " + f.Doing)
 	left, err := f.Run(ctx, l)
-	if len(left) > 0 {
+	switch {
+	case len(left) == 0:
+	case f.Leaves != nil:
+		say(f.ID + ": " + f.Leaves(left))
+	default:
 		say(f.ID + ": " + keeps(left))
 	}
 	if err != nil {
@@ -345,8 +357,10 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 		Effects:       []operation.Effect{},
 		RecoveryLimits: []string{
 			"Migrations are not checkpointed; their moves keep every ledger row and every other file's bytes, and they delete only " +
-				"caches, logs or a log's old-format lines, locks and empty files Workbench wrote, and old copies whose new " +
+				"caches, logs or a log's old-format lines, locks, sockets and empty files Workbench wrote, and old copies whose new " +
 				"copy holds the same bytes",
+			"Migration 0007 moves each folder whole, in one swap with a small file that stays at the folder's old path until " +
+				"the machine restarts",
 			"Migration 0005 deletes the work tokens from machine.toml only once work.env holds them, and never " +
 				"replaces an existing work.env",
 		},

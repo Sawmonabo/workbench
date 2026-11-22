@@ -13,6 +13,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
 	"github.com/Sawmonabo/workbench/internal/machine"
+	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
 )
@@ -23,8 +24,9 @@ func doctorCommand(o *options) *cobra.Command {
 		Short: "Check Workbench, your runtimes, and the agent costs and agent guard hooks, without repair",
 		Long: "Show what Workbench has installed and applied, the steps you skipped or " +
 			"selected, its tools and the host; then Node, Python, Rust, Go and bun against " +
-			"their pins, the agent costs and agent guard hooks in Claude Code and Codex, and " +
-			"whether the agent guard's watcher runs. It reads only this machine and repairs nothing. A missing " +
+			"their pins, the agent costs and agent guard hooks in Claude Code and Codex, " +
+			"whether the agent guard's watcher runs, and an agent costs or guard folder still at " +
+			"its old path. It reads only this machine and repairs nothing. A missing " +
 			"prerequisite returns nonzero; a missing runtime or hook does not, and workbench " +
 			"apply fixes it.",
 		Example: "  workbench doctor\n" +
@@ -45,6 +47,7 @@ func doctorCommand(o *options) *cobra.Command {
 				)
 				result.Results = append(result.Results, agentHooks(c.Home)...)
 				result.Results = append(result.Results, guardWatcher(cmd.Context()))
+				result.Results = append(result.Results, oldAgentFolders(c)...)
 				// A check that found nothing wrong reads ok, not the complete
 				// or unchanged of a step that ran.
 				for i, line := range result.Results {
@@ -195,6 +198,21 @@ func guardWatcher(ctx context.Context) operation.Component {
 		_ = client.Close()
 	}
 	return line
+}
+
+// oldAgentFolders is the doctor line for an agent costs or guard folder still
+// at its old path, which migration 0007 moves under agent/: it names each and
+// why it stays (see [migrate.AgentFoldersLeft]). There is no line once every
+// folder has moved.
+func oldAgentFolders(c operation.Context) []operation.Component {
+	status, text := migrate.AgentFoldersLeft(migrate.Locations{Home: c.Home, Runtime: c.Paths})
+	if text == "" {
+		return nil
+	}
+	if status == operation.StatusPending {
+		text += "; workbench migrate, or the next apply, does it"
+	}
+	return []operation.Component{{Name: "agent-folders", Status: status, Message: text}}
 }
 
 // applyCommand makes this machine match the installed release, or the local

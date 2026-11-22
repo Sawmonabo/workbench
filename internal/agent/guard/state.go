@@ -80,6 +80,14 @@ func oldRoot(state string) string { return filepath.Join(state, "guard") }
 // newRoot is the guard folder's path, agent/guard in the state folder.
 func newRoot(state string) string { return filepath.Join(state, "agent", "guard") }
 
+// Folder is the guard folder for migration 0007: its old path in the state
+// folder state, its path under agent/, and the watcher's lock in the old
+// folder, which a watcher working there holds. It looks at nothing.
+func Folder(state string) (old, root, lock string) {
+	old = oldRoot(state)
+	return old, newRoot(state), folders{}.at(old).lock()
+}
+
 // lockHeld reports whether a watcher holds the lock of the guard folder at
 // root; a lock that cannot be tried counts as free.
 func lockHeld(root string) bool {

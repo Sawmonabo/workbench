@@ -29,7 +29,12 @@ Distinguish implemented code, observed checks and unqualified release targets.
   Migration 0006 may rename `costs-ingest` to `agent-costs-ingest` in the
   `skip`, `select` and `decided` lists of `machine.toml`, changing nothing
   else in the file; until it has run, the saved choices are read under that
-  name, so a step that was turned off stays off. The
+  name, so a step that was turned off stays off. A migration may also swap a
+  folder Workbench wrote inside its runtime folders with a small file, which
+  stays at the old path until the machine restarts, and delete a socket;
+  migration 0007 moves the costs and guard folders under `agent/` this way,
+  and every costs and guard entry uses its folder where it is and moves it,
+  without asking, when it holds the folder's lock (ADR 0019). The
   costs import worker runs the costs move itself, without asking,
   because usage left unread could be lost (ADR 0008). A third exception: a
   saved `restart_wsl_path` answer (the folder of the RestartWSL helpers
@@ -129,7 +134,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | CLI flags/output | `internal/cli/` |
 | The apply steps' hidden `--probe` and `run` (`applyStep`, on `migrate` and the hidden `env-files` and `claude-mcp`) and the hidden `mcp-gate` launch gate | `internal/cli/` |
 | Context, consent, locks, subprocesses, state, checkpoints | `internal/operation/` |
-| Private file writes (`ReplacePrivateFile`, and `CreatePrivateFile`, which never replaces a file) and the `Exec` that `mcp-gate` replaces itself through | `internal/operation/` |
+| Private file writes (`ReplacePrivateFile`, and `CreatePrivateFile`, which never replaces a file), the folder swap (`MoveFolder`) with the file it leaves at the old path, and the `Exec` that `mcp-gate` replaces itself through | `internal/operation/` |
 | Native machine planning/setup/apply | `internal/machine/` |
 | Role env files (`work.env`, `personal.env`), the `env-files` and `claude-mcp` effects and the dispatch server definition | `internal/machine/` (scripts `06-env-files` and `46-claude-mcp`; shell hook in `home/private_dot_bashrc.tmpl` and `home/dot_zshrc.tmpl`; read deny rules in `home/private_dot_claude/modify_private_settings.json`) |
 | Bundle verification/staging/activation | `internal/release/` |
@@ -139,9 +144,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python, Go and Rust project policies | `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` |
-| AI-tool cost ledger, ingest, rates and reports | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| AI-tool cost ledger, ingest, rates and reports, in `agent/costs/` of the data and state folders, and the move of those folders under the import lock (`move.go`) | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
-| Agent command memory guard | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
+| Agent command memory guard, in `agent/guard/` of the state folder, and the move of that folder under the watcher's lock (`state.go`, `handover.go`) | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are
