@@ -19,6 +19,6 @@ func SwapNames(a, b string) error {
 // Linux has no call that asks, so it is whether the file system is one
 // NativeFilesystem accepts: ext4, XFS, Btrfs, tmpfs and overlayfs each take
 // RENAME_EXCHANGE in their rename (overlayfs refuses a folder of a lower
-// layer with EXDEV, which SwapNames returns as it is). The error is a statfs
+// layer with EXDEV, which SwapNames returns as ErrSwapUnsupported). The error is a statfs
 // failure.
 func CanSwap(path string) (bool, error) { return NativeFilesystem(path) }

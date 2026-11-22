@@ -308,6 +308,9 @@ func readLedger(t *testing.T, path string) []string {
 			}
 			found = append(found, row)
 		}
+		if err = rows.Err(); err != nil {
+			t.Fatal(err)
+		}
 		if err = rows.Close(); err != nil {
 			t.Fatal(err)
 		}
