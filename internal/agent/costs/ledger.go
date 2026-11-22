@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io/fs"
 	"maps"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -18,9 +17,8 @@ import (
 	"syscall"
 	"time"
 
-	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
-
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // Paths are where the ledger and its companions live, inside Workbench's
@@ -266,32 +264,24 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 			"No ledger at "+path+"; run `workbench agent costs ingest --worker` first",
 		)
 	}
-	if !exists {
-		// SQLite gives the -wal and -shm files the database file's mode, so
-		// creating the file here, private, keeps them private from their first
-		// byte. O_CREATE without O_EXCL leaves a file another process made
-		// first, and its content, alone.
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-		if err := file.Close(); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
-	}
+	ledger := &Ledger{Path: path}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
 	// wait on the busy timeout instead of failing when a read turns into a write.
 	// In WAL mode synchronous=NORMAL skips the sync at each commit and keeps the
 	// ledger consistent; a crash can lose only the last commits, and each one
 	// stores its file's offset with its rows, so the next ingest reads them again.
-	query := "_pragma=busy_timeout(5000)&_pragma=synchronous(NORMAL)&_txlock=immediate"
-	db, err := sql.Open("sqlite", (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String())
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
-	}
-	ledger := &Ledger{Path: path, db: db}
-	if err := ledger.prepare(exists); err != nil {
-		_ = db.Close()
+	// The switch to WAL comes after prepare, so only a verified ledger is
+	// switched and a foreign database is never modified. WAL lets a report read
+	// the last committed state while a worker ingests.
+	if _, err := sqlitefile.Open(path, sqlitefile.Options{
+		Create:  !exists,
+		Pragmas: []string{"busy_timeout(5000)", "synchronous(NORMAL)"},
+		TxLock:  "immediate",
+		Prepare: func(db *sql.DB) error {
+			ledger.db = db
+			return ledger.prepare(exists)
+		},
+	}); err != nil {
 		return nil, err
 	}
 	makePrivate(path)
@@ -353,40 +343,7 @@ func (l *Ledger) prepare(exists bool) error {
 	} else if err := l.create(ctx); err != nil {
 		return fmt.Errorf("%s: %w", l.Path, err)
 	}
-	// Only a verified ledger is switched to WAL, so a foreign database is
-	// never modified. WAL lets a report read the last committed state while a
-	// worker ingests.
-	if err := l.enableWAL(ctx); err != nil {
-		return fmt.Errorf("%s: %w", l.Path, err)
-	}
 	return nil
-}
-
-// sqliteBusy is SQLite's SQLITE_BUSY result code, which an extended code keeps
-// in its low byte.
-const sqliteBusy = 5
-
-// isBusy reports whether err is SQLite's BUSY.
-func isBusy(err error) bool {
-	problem, ok := errors.AsType[*sqlite.Error](err)
-	return ok && problem.Code()&0xff == sqliteBusy
-}
-
-// enableWAL switches the ledger to WAL. Doing so for a new ledger takes the
-// database exclusively, which two creators doing it at once cannot both be
-// granted: SQLite fails one of them with BUSY at once, without waiting out the
-// busy timeout. The other has switched the journal by the time that one tries
-// again, and a ledger already in WAL needs no lock.
-func (l *Ledger) enableWAL(ctx context.Context) error {
-	var err error
-	for attempt := range 50 {
-		_, err = l.db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
-		if !isBusy(err) {
-			return err
-		}
-		time.Sleep(time.Duration(attempt+1) * time.Millisecond)
-	}
-	return err
 }
 
 // create writes the schema of a ledger that was missing when OpenLedger looked.

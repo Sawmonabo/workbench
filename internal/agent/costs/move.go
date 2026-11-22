@@ -16,6 +16,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // LocationsIn is where the costs files live inside Workbench's runtime
@@ -1120,7 +1121,7 @@ func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem st
 	defer func() { _ = ledger.Close() }()
 	tx, err := ledger.db.BeginTx(ctx, nil)
 	switch {
-	case isBusy(err):
+	case sqlitefile.IsBusy(err):
 		return fileStamp{}, "", busy("another process is writing the costs ledger")
 	case err != nil:
 		return fileStamp{}, "", err
@@ -1160,7 +1161,10 @@ const differs = "doesn't hold what it holds"
 // never deleted for it. It opens both without taking them over (see unowned),
 // so a ledger that turns out to be another one is left as it was.
 func checkCopy(ctx context.Context, path, original string) (string, error) {
-	db, err := sql.Open("sqlite", unowned(path))
+	db, err := sqlitefile.Open(
+		path,
+		sqlitefile.Options{ReadOnly: true, Pragmas: []string{"busy_timeout(5000)"}},
+	)
 	if err != nil {
 		return "", err
 	}
@@ -1227,12 +1231,11 @@ func integrityCheck(ctx context.Context, conn *sql.Conn) (string, error) {
 
 // unowned is the address that opens the database at path without taking it
 // over as OpenLedger does: no schema upgrade, journal mode or file mode
-// change, and no new file when none is there. A read-only connection can't
-// remove the -wal and -shm files it makes beside a WAL database, so the
-// connection may write. The check runs only queries, so the content never
-// changes, and query_only refuses an ordinary write besides; like any last
-// connection to close, it may fold a WAL ledger's log into the file when no
-// other process has the ledger open.
+// change, and no new file when none is there. checkCopy opens the copy with
+// the same address through sqlitefile.Open (ReadOnly and busy_timeout(5000))
+// and attaches the original with this one. The check runs only queries, so
+// the content never changes; like any last connection to close, it may fold a
+// WAL ledger's log into the file when no other process has the ledger open.
 func unowned(path string) string {
 	query := "mode=rw&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
 	return (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String()
