@@ -940,10 +940,31 @@ synthetic answers.
   took no lock and tried no swap, and `migrate --dry-run` listed the
   migration done, naming each folder as left in use where it is. The same
   folders made at run time in that container moved under `agent/` at the
-  first pre hook and `agent costs status`. Not observed: a move while a
-  watcher or an import works in an old folder, a watcher of the release
-  before handing over across it, an old folder beside one in use, HFS+ and
-  WSL2.
+  first pre hook and `agent costs status`. On 2026-11-23, on macOS (APFS)
+  in a disposable home and in that container, each rebuilt from nothing
+  twice with `v0.1.32-rc.9` installed by its published `install.sh`, with
+  its watcher guarding a command holding 200 MB and a detached program,
+  its costs hook and import worker running every second and another
+  process holding the ledger open, `update` installed a local bundle of
+  this build. Where the guard hooks ran the installed command, rc.9's
+  watcher handed over, the new watcher moved the guard folder before its
+  first tick, the first costs entry of the new build moved both costs
+  folders, all within half a second of the new link, and each old path then
+  held the 0600 file. Where they ran a copy of rc.9's executable, so its
+  watcher never handed over, and another process held the import lock at
+  the old path, the new build's hooks, `agent costs` and `agent costs
+  status` used the old folders, the new hooks' commands joined rc.9's
+  watcher, and `migrate --dry-run` named each folder as left to the import
+  or the watcher running in it; once the lock was let go, the next costs
+  entry moved both, and once that watcher ended, the next pre hook moved the
+  guard folder and started a watcher, which took over every command noted
+  in the old folder. The detached program, known only to the watcher that ended,
+  was held with no call on macOS and not tracked in the container, where a
+  stamp alone ties nothing. In every run the process holding the ledger
+  open kept reading it, with every row, across the move, and after the
+  moves rc.9's hooks exited 0 and its import worker exited 1, each meeting
+  the file at the old path and writing nothing. Not observed: an old folder
+  beside one in use, HFS+ and WSL2.
 - The official prices an import downloads are kept in the ledger (schema
   version 6, tables `prices` and `price_lists`). A version 5 ledger is
   upgraded in place in one transaction that keeps every row and fills those
@@ -951,11 +972,20 @@ synthetic answers.
   is missing or cannot be read fills nothing, and the import downloads that
   list. Migration
   `0008-price-lists` deletes the list files only after it has opened the
-  ledger, or when there is none (target; the upgrade of a real version 5
-  ledger, and the reports' totals across it, are not yet observed). On
+  ledger, or when there is none (target). On
   2026-11-22, in the same disposable home, with a price list and no ledger,
   `migrate --dry-run` listed `0008-price-lists` as pending, and the same
   `--approve-plan` run deleted the list and the tool folder it left empty.
+  On 2026-11-23, in each of the four updates from `v0.1.32-rc.9` above, the
+  version 5 ledger its import worker wrote from synthetic transcripts read
+  as version 6 within 2 seconds of the new link, with every row of every
+  table kept, compared row by row (on macOS two latest sign-ins moved
+  forward, as a repeated sign-in does), and 66 prices and both list addresses
+  taken from the two list files. `agent costs --until` a time before the
+  update, as text, `--csv` and `--by model --csv`, printed the same bytes
+  before and after. `migrate --dry-run --json` then `--approve-plan DIGEST`
+  deleted both lists and their folders, a second `migrate --dry-run` listed
+  the migration done, and `doctor` exited 0.
 - An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
   in a disposable home with synthetic answers, `apply --local-build --dry-run
   --json` gave a different `plan_digest` for each of two `WORKBENCH_DATA_DIR`
@@ -1250,6 +1280,25 @@ synthetic answers.
   bound, peaked at 27.5 MiB and 32.1 MiB. The release before,
   under the same two loads, peaked at 17.3 and 18.8 MiB counted and 31.7 and
   26.1 MiB resident.
+- On 2026-11-23, with the history of finished commands written, on macOS
+  27.2 arm64 in a disposable home and in a Linux container (kernel
+  7.0.14-linuxkit, Ubuntu 26.04 arm64), a fake agent's watcher ran the same
+  two loads one after the other: 650 shell loops of `/bin/sleep 1` for 75 s,
+  then one command whose bash started 1,400 `/bin/sleep 75` and waited for
+  them (bash, since zsh's job table holds about 1,000 jobs). The history
+  held about 1,000 finished commands on macOS and a few in the container,
+  and each load's command was written to it as it ended, the churn's 47,000
+  to 48,000 processes as 10,000 process rows. The watcher logged no `WARN`
+  or `ERROR` record. The memory the Go runtime counts against the 32 MiB
+  limit, its total less what it released, read once a second by a build of
+  the same source with a memory readout added, peaked at 25.6 MiB under the
+  churn and 24.6 MiB under the held processes on macOS, and at 15.4 and
+  12.7 MiB in the container. The resident size of the build as released,
+  read once a second with `ps`, peaked at 40.0 and 40.7 MiB on macOS and at
+  33.9 and 32.4 MiB in the container. SQLite's own allocations are outside
+  the counted figure and the limit: the driver's C library takes them from
+  memory it maps itself (`modernc.org/memory`), so only the resident size
+  holds them.
 - On 2026-11-14, on macOS with stand-in agents, the scenarios of the
   [detached work design](superpowers/specs/2026-11-13-guard-detached-work-design.md)
   (sections 5 and 10) gave what it says. Opt-out and hidden programs: a
@@ -1298,10 +1347,24 @@ synthetic answers.
   `history.db` (it and its `-wal` and `-shm` at 0600 while open) and logged
   both paths, and that it keeps 24 hours since the time kept was never read.
   That watcher could not serve its socket, whose path in the disposable home
-  was too long, so nothing connected to it. Not yet observed: the view
-  drawing the history (its list, find, details and side panel), a serving
-  watcher writing, trimming and handing over commands it has not written, a
-  write that fails, the copy's deletion, and Linux and WSL2.
+  was too long, so nothing connected to it. On 2026-11-23, after each of
+  the four updates of the agent folders entry, on macOS and in the Linux
+  container: `history.db` appeared under `agent/guard` within 30 ms of the
+  move, in the same 20 ms poll in the container, and never at the old
+  path. The serving watcher wrote each command as it finished, one stopped
+  by hand as `stopped` by you with its graph and processes; `agent guard
+  history` and its `--json` counted them, and `--keep 12h` said that none
+  was older, after which `agent guard history` gave 12 hours. The view
+  listed running and finished commands together and showed a finished
+  one's details. With the file's first 8 KiB overwritten under the serving
+  watcher, it moved the file to `history.damaged.db` within about a second,
+  logged both paths, and started a new history that took the next writes;
+  the watcher's snapshot and `agent guard history` named the copy. A second
+  such damage, found 17 to 21 seconds later, moved the first copy to
+  `history.damaged.2.db` and the damaged file to `history.damaged.db`, and
+  `doctor` still exited 0. Not yet observed: the view's find and side
+  panel, a trim, a watcher handing over commands it has not written, a
+  write that fails, the copy's deletion, and WSL2.
 - Not yet observed: a stop under real memory pressure on macOS or WSL2, or on
   Linux outside a memory-limited cgroup; either agent's interactive session,
   Claude Code's own sandbox and either agent on WSL2 with the guard enabled,
@@ -1463,8 +1526,8 @@ synthetic answers.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked, including the WSL VS Code server install. |
-| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose; the history of finished commands drawn in the view and kept by a serving watcher on each platform, and the guard folder moved under `agent/` while a watcher of the release before runs. |
-| Costs | A real version 5 ledger upgraded to version 6, with its price lists and report totals unchanged, and the costs folders moved under `agent/` while an import runs. |
+| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose; the history of finished commands drawn in the view and kept by a serving watcher on each platform, and the guard folder moved under `agent/` while a watcher of the release before runs (both observed only in a disposable macOS home and a Linux container). |
+| Costs | A real version 5 ledger upgraded to version 6, with its price lists and report totals unchanged, and the costs folders moved under `agent/` while an import runs (observed only with synthetic transcripts in a disposable macOS home and a Linux container). |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and
