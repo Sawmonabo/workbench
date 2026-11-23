@@ -43,8 +43,15 @@ var priceLists = Migration{
 		if len(lists) == 0 {
 			return Done, ""
 		}
+		// 0007, which runs first, moves a data folder it can move under
+		// agent/, where the run then deletes them.
+		data := agentFolderPaths(l)[0].inspect()
 		shown := make([]string, len(lists))
 		for i, path := range lists {
+			if rel, err := filepath.Rel(data.old, path); data.standing == movable && err == nil &&
+				operation.Within(data.old, path) {
+				path = filepath.Join(data.new, rel)
+			}
 			shown[i] = operation.ShowPath(l.Home, path)
 		}
 		return Pending, "deletes " + strings.Join(shown, ", ") +
