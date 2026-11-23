@@ -749,15 +749,16 @@ const (
 	lockPause = 20 * time.Millisecond
 )
 
-// TakeLockIn is [TryLockIn] for a process that runs only while it holds the
-// lock, for its life or its whole run (the guard watcher, the costs import
-// worker): a lock it finds held it tries again, lockTries times lockPause
-// apart, before it gives up. flock(2) has no call that only asks, so
-// whatever asks whether such a process runs takes a shared lock on a free
-// one for an instant (see [LockHeld]), and a process that met that instant
-// would otherwise give up, as if another held the lock, until something
-// starts it again. One that holds the lock still holds it at the last try,
-// so held then means another process runs.
+// TakeLockIn is [TryLockIn] for a process that must have the lock to do its
+// work: one that runs only while it holds the lock, for its life or its
+// whole run (the guard watcher, the costs import worker), and migration 0007,
+// which moves the folders those keep their locks in. A lock it finds held it
+// tries again, lockTries times lockPause apart, before it gives up. flock(2)
+// has no call that only asks, so whatever asks whether such a process runs
+// takes a shared lock on a free one for an instant (see [LockHeld]), and a
+// process that met that instant would otherwise give up, as if another held
+// the lock, until something starts it again. One that holds the lock still
+// holds it at the last try, so held then means another process runs.
 func TakeLockIn(path string) (f *os.File, held bool, err error) {
 	for try := 0; ; try++ {
 		f, held, err = TryLockIn(path)

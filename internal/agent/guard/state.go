@@ -242,30 +242,38 @@ func (f *folders) again() bool {
 // asking whether a watcher works in the old folder would take for one (see
 // Root).
 func Move(state string) (moved bool, err error) {
-	moved, _, err = move(state)
+	moved, _, err = move(state, operation.TryLockIn)
 	return moved, err
 }
 
 // MigrateMove is [Move] for migration 0007, which says why a folder stays:
 // when the move's only failure is a file system that cannot swap two names,
 // err matches platform.ErrSwapUnsupported and holds nothing else, and the
-// folder stays in use where it is.
+// folder stays in use where it is. A lock it finds held it tries again for
+// about 100 ms before it gives up (see [operation.TakeLockIn]): an entry
+// asking whether a watcher runs takes a shared lock on a free one for an
+// instant, and a migration that met that instant would otherwise stop as if
+// a watcher worked in the folder. The hooks never wait.
 func MigrateMove(state string) (moved bool, err error) {
-	moved, refused, err := move(state)
+	moved, refused, err := move(state, operation.TakeLockIn)
 	if err == nil {
 		err = refused
 	}
 	return moved, err
 }
 
-// move is [Move], with refused, apart from err, the error of a swap the
-// folder's file system refused (see platform.ErrSwapUnsupported).
-func move(state string) (moved bool, refused, err error) {
+// move is [Move], taking the watcher's lock with take, with refused, apart
+// from err, the error of a swap the folder's file system refused (see
+// platform.ErrSwapUnsupported).
+func move(
+	state string,
+	take func(string) (*os.File, bool, error),
+) (moved bool, refused, err error) {
 	old := oldRoot(state)
 	if !operation.IsFolder(old) || operation.IsFolder(newRoot(state)) {
 		return false, nil, nil
 	}
-	lock, held, err := operation.TryLockIn(filepath.Join(old, "watch.lock"))
+	lock, held, err := take(filepath.Join(old, "watch.lock"))
 	if err != nil || held {
 		if err != nil && !operation.IsFolder(old) {
 			// Another entry moved it meanwhile.

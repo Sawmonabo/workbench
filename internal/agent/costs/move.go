@@ -111,6 +111,25 @@ func (f agentFolders) inUse(old, new string) bool {
 // platform.ErrSwapUnsupported and holds nothing else: migration 0007 reads it
 // to say the folder stays, while every costs entry ignores it (see locate).
 func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error) {
+	return moveAgentFolders(home, runtime, operation.TryLockIn)
+}
+
+// MigrateMoveAgentFolders is [MoveAgentFolders] for migration 0007: a lock
+// it finds held it tries again for about 100 ms before it gives up (see
+// [operation.TakeLockIn]), since an entry asking whether an import runs takes
+// a shared lock on a free one for an instant, and a migration that met that
+// instant would otherwise stop as if an import worked in the folders. The
+// costs entries never wait.
+func MigrateMoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error) {
+	return moveAgentFolders(home, runtime, operation.TakeLockIn)
+}
+
+// moveAgentFolders is [MoveAgentFolders], taking the import lock with take.
+func moveAgentFolders(
+	home string,
+	runtime operation.Paths,
+	take func(string) (*os.File, bool, error),
+) (moved bool, err error) {
 	f := agentFoldersIn(runtime)
 	operation.RemoveClosedPath(f.oldData)
 	operation.RemoveClosedPath(f.oldState)
@@ -118,7 +137,7 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 		(!operation.IsFolder(f.oldState) || operation.IsFolder(f.newState)) {
 		return false, nil
 	}
-	release, closed, ok, err := f.lockToMove(runtime)
+	release, closed, ok, err := f.lockToMove(runtime, take)
 	if err != nil || !ok {
 		return false, err
 	}
@@ -141,9 +160,9 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 	return moved, errors.Join(refused...)
 }
 
-// lockToMove takes, without waiting, the import lock that an import working
-// in the old folders holds. ok is false when an import holds it, or when the
-// old state folder moved in between.
+// lockToMove takes with take the import lock that an import working in the
+// old folders holds. ok is false when an import holds it, or when the old
+// state folder moved in between.
 //
 // That lock is in the old state folder. With no folder there, no import of
 // the release before can work in the old data folder, since an import makes
@@ -156,6 +175,7 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 // new state folder was made beside it.
 func (f agentFolders) lockToMove(
 	runtime operation.Paths,
+	take func(string) (*os.File, bool, error),
 ) (release func(), closed, ok bool, err error) {
 	if !operation.IsFolder(f.oldState) {
 		// The state folder itself, which the closed path sits in.
@@ -166,18 +186,14 @@ func (f agentFolders) lockToMove(
 			return nil, false, false, err
 		}
 		if !operation.IsFolder(f.oldState) {
-			var held bool
-			_, err = operation.PrivateDirectory(runtime.State, filepath.Join("agent", "costs"))
-			if err == nil {
-				release, held, err = operation.TryLock(Paths{State: f.newState}.lock())
-			}
-			if ok = err == nil && !held; !ok && closed {
+			release, ok, err = f.lockNewState(runtime, take)
+			if !ok && closed {
 				f.reopenState()
 			}
 			return release, closed && ok, ok, err
 		}
 	}
-	file, held, err := operation.TryLockIn(f.oldLock())
+	file, held, err := take(f.oldLock())
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		return nil, false, false, nil
@@ -185,6 +201,25 @@ func (f agentFolders) lockToMove(
 		return nil, false, false, err
 	}
 	return func() { _ = file.Close() }, false, true, nil
+}
+
+// lockNewState makes the new state folder and takes with take the import
+// lock there, for lockToMove. ok is false when an import holds it.
+func (f agentFolders) lockNewState(
+	runtime operation.Paths,
+	take func(string) (*os.File, bool, error),
+) (release func(), ok bool, err error) {
+	if _, err = operation.PrivateDirectory(
+		runtime.State,
+		filepath.Join("agent", "costs"),
+	); err != nil {
+		return nil, false, err
+	}
+	file, held, err := take(Paths{State: f.newState}.lock())
+	if err != nil || held {
+		return nil, false, err
+	}
+	return func() { _ = file.Close() }, true, nil
 }
 
 // reopenState deletes the file lockToMove closed the old state path with,

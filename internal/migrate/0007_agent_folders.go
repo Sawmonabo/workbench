@@ -22,8 +22,10 @@ import (
 // that keep them. The moves belong to internal/agent/costs and
 // internal/agent/guard, whose entries also move them by themselves, each when
 // it holds the folder's lock (see [costs.MoveAgentFolders] and [guard.Move]);
-// this migration looks at where each folder stands, runs those moves, and
-// clears an old folder left beside one already in use.
+// this migration looks at where each folder stands, runs those moves, waiting
+// about 100 ms for a lock an entry asking about it holds for an instant (see
+// [costs.MigrateMoveAgentFolders] and [guard.MigrateMove]), and clears an old
+// folder left beside one already in use.
 var AgentFolders = Migration{
 	ID:    "0007-agent-folders",
 	Title: "Move the costs and guard folders under agent/",
@@ -62,7 +64,7 @@ var AgentFolders = Migration{
 		// trying, as an overlay file system refuses only a folder of a lower
 		// layer, so the migration stays pending there and each run says so.
 		var errs []error
-		_, costsErr := costs.MoveAgentFolders(l.Home, l.Runtime)
+		_, costsErr := costs.MigrateMoveAgentFolders(l.Home, l.Runtime)
 		costsRefused := errors.Is(costsErr, platform.ErrSwapUnsupported)
 		if costsErr != nil && !costsRefused {
 			errs = append(errs, costsErr)
