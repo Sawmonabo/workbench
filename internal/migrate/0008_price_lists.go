@@ -14,8 +14,9 @@ import (
 )
 
 // priceLists deletes the price lists the costs import downloaded into files
-// beside the ledger, whose prices the ledger keeps. It runs after 0007, so it
-// finds them where the ledger is. It opens the ledger first, as a report does
+// beside the ledger, whose prices the ledger keeps. It runs after 0001, which
+// moves there the lists of the claude-costs folders, and 0007, so it finds
+// them where the ledger is. It opens the ledger first, as a report does
 // (see [costs.Paths.OpenExisting]), which upgrades a ledger of an older schema
 // and fills its prices from those files in the same transaction, so a file is
 // never deleted before its prices are rows. With no ledger there is nothing
@@ -32,7 +33,13 @@ var priceLists = Migration{
 	Recovery: "nothing to undo: the prices are in the ledger, and the import downloads a " +
 		"list again once it is a week old",
 	Check: func(l Locations) (Status, string) {
-		lists := priceListFiles(costs.LocationsIn(l.Home, l.Runtime).Ledger)
+		p := costs.LocationsIn(l.Home, l.Runtime)
+		lists := priceListFiles(p.Ledger)
+		// 0001, which runs first, moves there the lists of the claude-costs
+		// folders, so the same run deletes them once the ledger has their prices.
+		if status, _ := costsFolders.Check(l); status == Pending || status == Unfinished {
+			lists = append(lists, costs.PriceListsMoving(l.OldCosts, p)...)
+		}
 		if len(lists) == 0 {
 			return Done, ""
 		}

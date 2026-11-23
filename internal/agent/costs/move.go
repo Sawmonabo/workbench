@@ -297,6 +297,19 @@ func (o OldPaths) moves(p Paths) []costsMove {
 	return slices.DeleteFunc(moves, func(m costsMove) bool { return aliased(m.from, m.to) })
 }
 
+// PriceListsMoving are the paths beside the ledger at p that [MoveFolders]
+// moves a price list of the old claude-costs folders to: each whose old file
+// is there, not a link, and whose new path is free. It looks at paths only.
+func PriceListsMoving(old OldPaths, p Paths) []string {
+	var lists []string
+	for _, move := range old.apart(p).moves(p) {
+		if exists(move.from) && !linked(move.from) && !exists(move.to) {
+			lists = append(lists, move.to)
+		}
+	}
+	return lists
+}
+
 // leftovers are the old files the migration deletes: price writes that
 // stopped part way, the import log (not moved, so a log the new release
 // already started is never a conflict) and the import lock.
@@ -564,9 +577,10 @@ func conflictError(text string) error {
 	)
 }
 
-// MoveFolders moves the costs files from old into p's folders, deletes the
-// old import log, its lock and unfinished price writes, and removes each old
-// claude-costs folder left empty. The caller holds
+// MoveFolders moves the costs files from old into p's folders, the price
+// lists before the ledger, deletes the old import log, its lock and
+// unfinished price writes, and removes each old claude-costs folder left
+// empty. The caller holds
 // [operation.Paths.MigrateLock]. While it works it holds both import locks, so
 // no worker of this or an older release writes the ledger mid-move, and it
 // moves the ledger only once nothing has it open (see moveLedger). It merges
@@ -617,21 +631,28 @@ func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 	defer release()
 	// Check again under the locks: an import may have finished in between.
 	check = CheckFolders(old, p)
+	// The price lists move first, beside where the ledger goes, so the first
+	// open of a ledger of an earlier version there upgrades it with their
+	// prices (see fillPrices); the move itself never upgrades it (see
+	// moveLedger). A list that can't move doesn't keep the ledger from
+	// moving: its upgrade then fills nothing for that tool, whose list the
+	// import downloads again.
+	listsErr := moveSmallFiles(old, p)
 	var ledgerErr error
 	if check.Ledger == FoldersPending || check.Ledger == FoldersUnfinished {
 		if _, err = p.dataFolder(""); err != nil {
-			return nil, err
+			return nil, errors.Join(listsErr, err)
 		}
 		// A conflict or a ledger error leaves the ledger's files where they
 		// were, and the other files don't depend on them, so they still move.
 		ledgerErr = moveLedger(ctx, p.Home, old.Ledger, p.Ledger, false)
 		if category := operation.Category(ledgerErr); ledgerErr != nil &&
 			category != "conflict" && category != "ledger" {
-			return nil, ledgerErr
+			return nil, errors.Join(listsErr, ledgerErr)
 		}
 	}
-	if err = moveSmallFiles(old, p); err != nil {
-		return nil, err
+	if listsErr != nil {
+		return nil, listsErr
 	}
 	for _, name := range old.leftovers() {
 		if err = operation.RemoveIfThere(name); err != nil {
@@ -841,11 +862,12 @@ func copyFile(from, to string) error {
 // moveLedger moves the ledger at from to to. It first finishes whatever a
 // stopped copy left (see resumeCopy). It never replaces a ledger at to: one
 // there with the old one gone is a finished move, and one there with the old
-// one still present is a conflict. Otherwise it opens the ledger the normal
-// way, which verifies it and upgrades an older schema in place, checkpoints
-// and closes it (see quiesce), and renames it, one atomic step. Across
-// filesystems it copies it (see copyLedger); alwaysCopy, the tests' switch,
-// copies it on one. A zero-byte ledger holds nothing and is deleted. One file
+// one still present is a conflict. Otherwise it opens the ledger, which
+// verifies it, checkpoints and closes it (see quiesce), and renames it, one
+// atomic step. It never upgrades a ledger of an earlier version: the first
+// open at to does, beside the price lists moved there first (see
+// moveFolders). Across filesystems it copies it (see copyLedger); alwaysCopy,
+// the tests' switch, copies it on one. A zero-byte ledger holds nothing and is deleted. One file
 // under both names is a move that linked the new name and stopped before the
 // unlink: the old name goes.
 func moveLedger(ctx context.Context, home, from, to string, alwaysCopy bool) error {
@@ -994,13 +1016,14 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 	return settle(moved, to)
 }
 
-// quiesce opens the ledger alone, folds its write-ahead log into it and closes
-// it. SQLite deletes the -wal and -shm files only when the last connection
-// closes, so either one left means another process has the ledger open, for
-// example a report from the release before the update: moving it then, or its
-// log apart from it, would corrupt it.
+// quiesce opens the ledger alone, without upgrading it (see openLedger),
+// folds its write-ahead log into it and closes it. SQLite deletes the -wal
+// and -shm files only when the last connection closes, so either one left
+// means another process has the ledger open, for example a report from the
+// release before the update: moving it then, or its log apart from it, would
+// corrupt it.
 func quiesce(ctx context.Context, path string) error {
-	ledger, err := OpenLedger(path, false)
+	ledger, err := openLedger(path, false, false)
 	if err != nil {
 		return err
 	}
@@ -1085,10 +1108,12 @@ func fileStampOf(path string) (fileStamp, error) {
 }
 
 // vacuumCopy writes the copy, checks it against the original and returns the
-// original's stamp, all while a transaction holds the write lock.
+// original's stamp, all while a transaction holds the write lock. It opens
+// the original without upgrading it (see openLedger), so the copy keeps its
+// version.
 // problem is what the check found wrong with the copy (see checkCopy).
 func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem string, err error) {
-	ledger, err := OpenLedger(from, false)
+	ledger, err := openLedger(from, false, false)
 	if err != nil {
 		return fileStamp{}, "", err
 	}

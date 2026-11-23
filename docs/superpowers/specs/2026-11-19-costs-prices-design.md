@@ -96,8 +96,9 @@ Anti-goals:
    report, not a message. A file a machine still has stays where it is,
    untouched. `0001-costs-folders` no longer knows it: it neither moves it
    nor looks in its folder nor reads `CLAUDE_COSTS_RATES`. It still moves
-   the list files of the old folders beside the ledger, so the upgrade of
-   rule 2 finds them.
+   the list files of the old folders beside the ledger, before the ledger,
+   whose first open at its new path is the upgrade of rule 2, so that
+   upgrade finds them.
 8. **A process of the release before** refuses a version 6 ledger and
    writes nothing to it. An import worker of that release started in the
    moment of the update ends there; the usage it would have read is read by

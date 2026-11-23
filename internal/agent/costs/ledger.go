@@ -295,7 +295,14 @@ type Ledger struct {
 // [Paths.Open]), the file is made 0600, and a ledger an earlier build left
 // readable by others is tightened to 0600 once it is verified (the mode only,
 // never the content).
-func OpenLedger(path string, create bool) (*Ledger, error) {
+func OpenLedger(path string, create bool) (*Ledger, error) { return openLedger(path, create, true) }
+
+// openLedger is [OpenLedger], which upgrades a ledger of an earlier version
+// only with upgrade. The move of the costs files opens a ledger without it,
+// to verify it and fold its write-ahead log in, so the ledger keeps its
+// version until it is first opened at its new path, beside the price lists
+// moved there before it, which that upgrade takes in (see fillPrices).
+func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, fmt.Errorf("%s: %w", path, err)
@@ -323,7 +330,7 @@ func OpenLedger(path string, create bool) (*Ledger, error) {
 		TxLock:  "immediate",
 		Prepare: func(db *sql.DB) error {
 			ledger.db = db
-			return ledger.prepare(exists)
+			return ledger.prepare(exists, upgrade)
 		},
 	}); err != nil {
 		return nil, err
@@ -345,7 +352,7 @@ func makePrivate(path string) {
 	}
 }
 
-func (l *Ledger) prepare(exists bool) error {
+func (l *Ledger) prepare(exists, upgrade bool) error {
 	ctx := context.Background()
 	if exists {
 		var tables int
@@ -369,6 +376,9 @@ func (l *Ledger) prepare(exists bool) error {
 		switch version {
 		case schemaVersion:
 		case "1", "2", "4", "5":
+			if !upgrade {
+				break
+			}
 			if err := l.upgrade(ctx); err != nil {
 				return fmt.Errorf("%s: %w", l.Path, err)
 			}
