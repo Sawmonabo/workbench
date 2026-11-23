@@ -952,11 +952,14 @@ func (m *guardView) readHistory() tea.Cmd {
 
 // read reads the history where the guard folder is now. A missing file, or
 // one without a history yet, is an empty history (design rule 10). A file
-// other than the one open, by path or identity, is opened and read whole: the
-// writer moves a damaged history aside and starts a new one at the same path,
-// whose seqs start at 1 again, and a reader that kept the old file open would
-// go on reading the one set aside. The file's identity is taken before it is
+// other than the one open, by identity, is opened and read whole: the writer
+// moves a damaged history aside and starts a new one at the same path, whose
+// seqs start at 1 again, and a reader that kept the old file open would go on
+// reading the one set aside. The file's identity is taken before it is
 // opened, so a file replaced in between is opened again at the next read.
+// The file open, found at another path once the guard folder moved, is read
+// through the connection already open: opening it a second time would hold
+// two connections to one file, which [sqlitefile.Open] must not.
 func (r historyRead) read() historyMsg {
 	out := historyMsg{from: r, keep: guard.HistoryKeepDefault, db: r.db, path: r.path, file: r.file}
 	root, err := guard.HistoryRoot()
@@ -974,7 +977,7 @@ func (r historyRead) read() historyMsg {
 	case err != nil:
 		out.err, out.reset, out.db, out.path = err, true, nil, path
 		return out
-	case r.db == nil || path != r.path || !os.SameFile(file, r.file):
+	case r.db == nil || !os.SameFile(file, r.file):
 		out.reset, out.path, out.file = true, path, file
 		out.db, err = guard.OpenHistory(root, false)
 		if errors.Is(err, fs.ErrNotExist) {
@@ -984,6 +987,8 @@ func (r historyRead) read() historyMsg {
 			out.err = err
 			return out
 		}
+	default:
+		out.path = path
 	}
 	if err := out.fill(r); err != nil {
 		out.err, out.rows = err, nil
