@@ -442,6 +442,13 @@ func waitSnapshot(ch <-chan guard.Snapshot) tea.Cmd {
 	}
 }
 
+// dialWatcher dials the watcher's socket. absent reports a missing or
+// refused socket, which means no watcher runs.
+func dialWatcher(ctx context.Context) (client *guard.Client, absent bool, err error) {
+	client, err = guard.Dial(ctx)
+	return client, errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED), err
+}
+
 // connectWatcher dials the watcher's socket and says hello. A missing or
 // refused socket means no watcher runs; a hello that times out means a
 // watcher of an older release took the socket over without serving it; a
@@ -450,9 +457,9 @@ func waitSnapshot(ch <-chan guard.Snapshot) tea.Cmd {
 func connectWatcher() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	client, err := guard.Dial(ctx)
+	client, absent, err := dialWatcher(ctx)
 	switch {
-	case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ECONNREFUSED):
+	case absent:
 		return connectedMsg{problem: watcherAbsent}
 	case err != nil:
 		return connectedMsg{problem: "Cannot reach the guard's watcher: " + err.Error()}

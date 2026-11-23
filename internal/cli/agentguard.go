@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -252,12 +253,13 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"the size of the history and its file. Finished commands are kept 24 hours " +
 			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
 			"to 30d. A shorter time deletes the older commands without asking: the view " +
-			"hides them at once and the watcher deletes them within a minute. A longer time " +
+			"hides them at once, and the watcher deletes them within a minute or, when no " +
+			"watcher runs, the command deletes them itself and says how many. A longer time " +
 			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
 			"The global --json prints the same facts as fields: path, keep_seconds, commands " +
-			"and bytes, or with --keep path, keep_seconds and was_seconds.",
+			"and bytes, or with --keep path, keep_seconds, was_seconds and deleted.",
 		Example: "  workbench agent guard history\n" +
 			"  workbench agent guard history --keep 3d\n" +
 			"  workbench agent guard history --json",
@@ -291,11 +293,14 @@ type guardHistoryFacts struct {
 }
 
 // guardHistoryKept is what `agent guard history --keep` did, as --json gives
-// it: the history's file and the time kept now and before, in seconds.
+// it: the history's file, the time kept now and before, in seconds, and how
+// many finished commands it deleted itself, which it does only when no
+// watcher serves the history.
 type guardHistoryKept struct {
 	Path        string `json:"path"`
 	KeepSeconds int64  `json:"keep_seconds"`
 	WasSeconds  int64  `json:"was_seconds"`
+	Deleted     int    `json:"deleted"`
 }
 
 // showGuardHistory prints the time kept, the count and size, and the file:
@@ -349,9 +354,15 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 
 // setGuardHistoryKeep sets the time kept to text, making the guard folder and
 // the history as the watcher would when they are missing, and prints the one
-// line that says so:
+// line that says so. A watcher that serves the history deletes the older
+// commands at its next trim, within a minute:
 //
 //	Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
+//
+// With none, the command trims the history itself, as the watcher would,
+// and says how many it deleted:
+//
+//	Finished commands are kept 12 hours (was 24 hours); 1,204 older ones were deleted.
 //
 // A history it cannot use fails as showGuardHistory does, and sets nothing.
 func setGuardHistoryKeep(
@@ -382,6 +393,15 @@ func setGuardHistoryKeep(
 		return operation.Fail(operation.ExitFailed, "guard-history",
 			"Cannot set how long finished commands are kept: "+shownError(err, path))
 	}
+	watching := guardWatcherServes(cmd.Context())
+	deleted := 0
+	if !watching {
+		if deleted, err = trimGuardHistory(cmd.Context(), history); err != nil {
+			return operation.Fail(operation.ExitFailed, "guard-history",
+				"Finished commands are kept "+keptText(keep)+", but the older ones cannot be "+
+					"deleted: "+shownError(err, path))
+		}
+	}
 	if o.json {
 		result.Results = append(result.Results, operation.Component{
 			Name: "guard-history", Status: operation.StatusComplete,
@@ -389,21 +409,76 @@ func setGuardHistoryKeep(
 				Path:        path,
 				KeepSeconds: int64(keep / time.Second),
 				WasSeconds:  int64(was / time.Second),
+				Deleted:     deleted,
 			},
 		})
 		return nil
 	}
 	line := "Finished commands are kept " + keptText(keep)
 	switch {
-	case keep < was:
+	case keep < was && watching:
 		line += " (was " + keptText(was) + "); older ones are deleted within a minute."
+	case keep < was:
+		line += " (was " + keptText(was) + "); " + deletedText(deleted) + "."
+	case keep > was && deleted > 0:
+		line += " (was " + keptText(was) + "); those already deleted do not come back, and " +
+			deletedText(deleted) + "."
 	case keep > was:
 		line += " (was " + keptText(was) + "); those already deleted do not come back."
+	case deleted > 0:
+		line += ", as before; " + deletedText(deleted) + "."
 	default:
 		line += ", as before."
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 	return err
+}
+
+// guardWatcherServes reports whether a watcher answers its socket and
+// shares a protocol version with this release, as the view connects to one
+// (see dialWatcher): such a watcher trims the history itself.
+func guardWatcherServes(ctx context.Context) bool {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	client, _, err := dialWatcher(ctx)
+	if err != nil {
+		return false
+	}
+	defer func() { _ = client.Close() }()
+	return client.Hello() == nil
+}
+
+// trimGuardHistory trims history as the watcher does, a step at a time until
+// none is due (see guard.History.Trim), and reports how many finished
+// commands it deleted.
+func trimGuardHistory(ctx context.Context, history *guard.History) (int, error) {
+	before, _, err := history.Count(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for again := true; again; {
+		if again, err = history.Trim(ctx, time.Now()); err != nil {
+			return 0, err
+		}
+	}
+	after, _, err := history.Count(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return max(before-after, 0), nil
+}
+
+// deletedText says how many finished commands were deleted for being older
+// than the time kept: "1,204 older ones were deleted", "1 older one was
+// deleted", or "none was older".
+func deletedText(n int) string {
+	switch n {
+	case 0:
+		return "none was older"
+	case 1:
+		return "1 older one was deleted"
+	}
+	return commas(int64(n)) + " older ones were deleted"
 }
 
 // textSize is a size of text or of a file as the guard shows memory (see
