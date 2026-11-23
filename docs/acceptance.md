@@ -941,7 +941,7 @@ synthetic answers.
   upgraded in place in one transaction that keeps every row and fills those
   tables from the `<tool>/rates-official.json` files beside it; a file that
   is missing or cannot be read fills nothing, and the import downloads that
-  list. A price overrides file (`rates.json`) is neither read nor moved. Migration
+  list. Migration
   `0008-price-lists` deletes the list files only after it has opened the
   ledger, or when there is none (target; the upgrade of a real version 5
   ledger, and the reports' totals across it, are not yet observed). On
