@@ -94,9 +94,11 @@ take from whichever agent started it, so two shells could disagree.
   its cache lacks a page, so once a minute the watcher also checks that the
   path still names the file it opened and that its 100-byte header is a
   database's, which takes microseconds where SQLite's own quick check took
-  54 ms on a 100 MB file. A history that cannot be written for another
-  reason, such as a full disk, stays where it is and the write is tried
-  again every ten seconds.
+  54 ms on a 100 MB file. Before it lets go of a file the path no longer
+  names, the writer checkpoints the WAL into it, since SQLite does not for
+  a moved database: a history moved elsewhere keeps every row. A history
+  that cannot be written for another reason, such as a full disk, stays
+  where it is and the write is tried again every ten seconds.
 
 ## Consequences
 

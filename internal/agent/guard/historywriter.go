@@ -424,9 +424,11 @@ func (r *writerRun) failed(err error) {
 // last read (24 hours when it read none) and the new one, starts a new
 // history with that time kept (logging that it keeps 24 hours when it read
 // none) and logs both paths, and the copy the move deleted. A history
-// that is no longer there is not moved: the -wal and -shm files left of it,
-// which SQLite would read as the new one's, are deleted, and the new one is
-// logged alone. It gives the error of a move or start that failed.
+// that is no longer there is not moved, and the new one is logged alone:
+// closing wrote the rows of its WAL into the file it held, wherever that is
+// now (see History.Close), and the -wal and -shm files left at its name, of
+// no database there, are deleted, since SQLite would read them as the new
+// one's. It gives the error of a move or start that failed.
 func (r *writerRun) replace(cause error) error {
 	r.close()
 	from := historyFile(r.root)

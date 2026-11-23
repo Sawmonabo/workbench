@@ -418,7 +418,13 @@ and order them.
    to 65536, file format versions 1 or 2, at least 480 usable bytes a page
    and payload fractions 64, 32 and 32, the values of the file format, which
    SQLite checks when it opens a file. A file that fails it, or is gone, is a
-   history that cannot be used.
+   history that cannot be used. SQLite neither checkpoints nor deletes the
+   WAL of a database its path no longer names, and the WAL is part of the
+   database's persistent state, so before it closes a file gone from the
+   path or replaced there the writer checkpoints the WAL into that file,
+   wherever it is now: a history moved elsewhere keeps every row. The
+   `-wal` and `-shm` left at the path of a file that is gone are deleted,
+   since SQLite would pair them with the next database there.
    The check reads 100 bytes whatever the size: about 12 µs on a 100 MB
    history, where `PRAGMA quick_check` takes 54 ms and `integrity_check`
    91 ms with the file in the system's cache.

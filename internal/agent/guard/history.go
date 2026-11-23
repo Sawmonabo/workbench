@@ -273,9 +273,23 @@ func (h *History) Check() error {
 	return err
 }
 
-// Close closes the history. The last connection to close removes the -wal and
-// -shm files.
-func (h *History) Close() error { return h.db.Close() }
+// Close closes the history. The last connection to close checkpoints the WAL
+// and removes the -wal and -shm files, but SQLite does neither once the path
+// no longer names the database it opened (sqlite3PagerClose checks
+// databaseIsUnmoved), and the WAL is part of the database's persistent state:
+// a history moved elsewhere would lose the rows written since the last
+// checkpoint. So a writer whose path names no file, or another file, first
+// checkpoints the WAL into the file it opened, wherever that is now, and
+// empties it. The checkpoint waits at most the busy timeout for another
+// connection to that file.
+func (h *History) Close() error {
+	if h.write && h.opened != nil {
+		if info, err := os.Stat(h.path); err != nil || !os.SameFile(info, h.opened) {
+			_, _ = h.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+		}
+	}
+	return h.db.Close()
+}
 
 // prepare checks the file is a history of version 1, before anything changes
 // it, and makes the schema of a writer's file that holds none yet.

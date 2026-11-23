@@ -644,7 +644,9 @@ likely holds the rows from before the first damage, stays. So the history
 always starts again, and the log names the copy deleted. SQLite
 reads from the file only what its cache lacks, so once a minute the watcher
 also checks that the file is still the one it opened and that its header is a
-database's. Only the watcher moves the file: with none running, the view says
+database's; a history moved elsewhere keeps every row, since the watcher
+writes the rows it holds in the WAL into the moved file before it starts a
+new one. Only the watcher moves the file: with none running, the view says
 the history cannot be read and shows none of it, and `agent guard history`
 fails the same way (exit 2) and sets nothing. A history that cannot be written
 for another reason, such as a full disk or a permission, stays where it is.
