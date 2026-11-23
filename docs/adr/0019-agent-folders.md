@@ -59,7 +59,11 @@ using.
   import works in, or one on a file system that cannot swap two names (HFS+,
   which `CanSwap` tells by the volume's `VOL_CAP_INT_RENAME_SWAP`), counts as
   done for the migration and blocks no apply; `migrate --dry-run` and
-  `doctor` say why it stays. An old folder beside one already in use is not
+  `doctor` say why it stays. An overlay file system refuses to swap only a
+  folder of an image's lower layer (`EXDEV`), which no call tells without
+  trying: such a folder stays listed as pending, and each run tries it,
+  leaves it in use where it is, says why and succeeds, so it blocks no apply
+  either. An old folder beside one already in use is not
   merged: its logs, output files, locks, sockets, downloaded price lists and
   empty folders are deleted, and anything else stays and is named.
 
@@ -70,7 +74,8 @@ using.
   and delete a socket; AGENTS.md records it beside the other migration rules.
 - Every costs and guard entry looks at both paths until its folder has moved,
   which is the one place the old names appear outside the move.
-- On HFS+ the folders stay at their old paths and are used there.
+- On HFS+, and for a folder in an image's lower layer on an overlay file
+  system, the folders stay at their old paths and are used there.
 - The guard's socket path is six bytes longer; on macOS a user name longer
   than 26 characters puts it past the 100 bytes Workbench accepts for one, and
   `agent guard` then says it cannot reach the watcher while the guard still

@@ -210,7 +210,7 @@ func oldAgentFolders(c operation.Context) []operation.Component {
 		return nil
 	}
 	if status == operation.StatusPending {
-		text += "; workbench migrate, or the next apply, does it"
+		text += "; workbench migrate, or the next apply, does it, or says why a folder stays"
 	}
 	return []operation.Component{{Name: "agent-folders", Status: status, Message: text}}
 }

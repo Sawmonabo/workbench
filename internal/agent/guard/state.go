@@ -181,9 +181,28 @@ func (f *folders) again() bool {
 // stays in use where it is. With no folder at the old path, or a folder
 // already at the new one, it moves nothing.
 func Move(state string) (moved bool, err error) {
+	moved, _, err = move(state)
+	return moved, err
+}
+
+// MigrateMove is [Move] for migration 0007, which says why a folder stays:
+// when the move's only failure is a file system that cannot swap two names,
+// err matches platform.ErrSwapUnsupported and holds nothing else, and the
+// folder stays in use where it is.
+func MigrateMove(state string) (moved bool, err error) {
+	moved, refused, err := move(state)
+	if err == nil {
+		err = refused
+	}
+	return moved, err
+}
+
+// move is [Move], with refused, apart from err, the error of a swap the
+// folder's file system refused (see platform.ErrSwapUnsupported).
+func move(state string) (moved bool, refused, err error) {
 	old := oldRoot(state)
 	if !operation.IsFolder(old) {
-		return false, nil
+		return false, nil, nil
 	}
 	lock, held, err := operation.TryLockIn(filepath.Join(old, "watch.lock"))
 	if err != nil || held {
@@ -191,18 +210,18 @@ func Move(state string) (moved bool, err error) {
 			// Another entry moved it meanwhile.
 			err = nil
 		}
-		return false, err
+		return false, nil, err
 	}
 	moved, err = operation.MoveFolder(old, newRoot(state))
 	_ = lock.Close()
 	if errors.Is(err, platform.ErrSwapUnsupported) {
-		err = nil
+		refused, err = err, nil
 	}
 	f := locate(state, "")
 	if ids, _ := f.noteIDs(); len(ids) > 0 {
 		err = errors.Join(err, startWatcher(f))
 	}
-	return moved, err
+	return moved, refused, err
 }
 
 func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }

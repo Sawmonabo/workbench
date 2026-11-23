@@ -109,8 +109,13 @@ func lockHeld(path string) bool {
 // leaves the state folder, which the next call moves under the same lock. A
 // move whose new folder is already there leaves the old one where it is. It
 // lets the lock go before it returns, and the caller takes the locks it needs
-// anew at the new path. A file system that cannot swap two names moves
-// nothing and is no error: the old folders stay in use.
+// anew at the new path.
+//
+// A folder whose file system cannot swap two names stays where it is, in use
+// there, and the other folder is still tried, since the data and state
+// folders can be on different file systems. err then matches
+// platform.ErrSwapUnsupported and holds nothing else: migration 0007 reads it
+// to say the folder stays, while every costs entry ignores it (see locate).
 func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error) {
 	f := agentFoldersIn(runtime)
 	operation.RemoveClosedPath(f.oldData)
@@ -124,6 +129,7 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 		return false, err
 	}
 	defer release()
+	var refused []error
 	for i, move := range [][2]string{{f.oldData, f.newData}, {f.oldState, f.newState}} {
 		done, err := operation.MoveFolder(move[0], move[1])
 		moved = moved || done
@@ -132,13 +138,13 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 		}
 		switch {
 		case errors.Is(err, platform.ErrSwapUnsupported):
-			return moved, nil
+			refused = append(refused, err)
 		case err != nil:
 			return moved, fmt.Errorf("cannot move %s to %s: %w",
 				operation.ShowPath(home, move[0]), operation.ShowPath(home, move[1]), err)
 		}
 	}
-	return moved, nil
+	return moved, errors.Join(refused...)
 }
 
 // lockToMove takes, without waiting, the import lock that an import working
@@ -582,9 +588,13 @@ func MoveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 // locate moves the costs folders under agent/ when it may (see
 // [MoveAgentFolders]) and resolves the costs paths after that. A move that
 // failed leaves the folders where they are, and the paths name them there; its
-// error comes back beside them.
+// error comes back beside them. A folder whose file system cannot swap two
+// names is no error here: it stays in use where it is.
 func locate(home string, runtime operation.Paths) (Paths, error) {
 	_, err := MoveAgentFolders(home, runtime)
+	if errors.Is(err, platform.ErrSwapUnsupported) {
+		err = nil
+	}
 	return LocationsIn(home, runtime), err
 }
 

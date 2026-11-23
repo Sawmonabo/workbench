@@ -111,7 +111,10 @@ exits when it is not, and hooks and import workers started just before.
    it started.
 5. **A file system that cannot swap** two names moves nothing. The folders
    stay, every entry uses them where they are (rule 2), the migration
-   counts as done, and `workbench migrate` and `doctor` say why.
+   counts as done, and `workbench migrate` and `doctor` say why. Where only
+   the swap tells, as on an overlay file system that keeps the folder in an
+   image's lower layer, the migration stays pending: each run tries, leaves
+   the folder in use where it is, says why and succeeds.
 6. **Old and new both exist, and the old folder's lock is free.** The new
    folder is in use and nothing is merged into it. From the old one a move
    deletes what Workbench may delete: logs, `.err` output files, downloaded

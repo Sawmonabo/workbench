@@ -316,7 +316,9 @@ watcher of the earlier release hands over as at every update, and the new
 watcher moves the guard folder before its first look, so nothing it was
 watching is dropped; a folder a watcher or an import still works in waits for
 it. On a file system that cannot swap two names, such as HFS+, the folders
-stay and are used where they are. An old folder found beside one already in
+stay and are used where they are, and so does a folder an overlay file
+system keeps in a container image's lower layer, which only the move finds
+out: each `workbench migrate` there tries it again and says why it stays. An old folder found beside one already in
 use is not merged: its logs, output files, locks, sockets, downloaded price
 lists and empty folders are deleted, and anything else, such as a ledger or a
 note, stays. `workbench migrate --dry-run` and `workbench doctor` name an old

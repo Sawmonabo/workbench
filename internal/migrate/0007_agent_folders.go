@@ -56,14 +56,23 @@ var AgentFolders = Migration{
 		return status, strings.Join(text, " and ")
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
+		// A move whose only failure is a file system that can't swap two
+		// names leaves its folders in use where they are: that is no error,
+		// and the run says why they stay. Check can't tell it without
+		// trying, as an overlay file system refuses only a folder of a lower
+		// layer, so the migration stays pending there and each run says so.
 		var errs []error
-		if _, err := costs.MoveAgentFolders(l.Home, l.Runtime); err != nil {
-			errs = append(errs, err)
+		_, costsErr := costs.MoveAgentFolders(l.Home, l.Runtime)
+		costsRefused := errors.Is(costsErr, platform.ErrSwapUnsupported)
+		if costsErr != nil && !costsRefused {
+			errs = append(errs, costsErr)
 		}
-		if _, err := guard.Move(l.Runtime.State); err != nil {
+		_, guardErr := guard.MigrateMove(l.Runtime.State)
+		guardRefused := errors.Is(guardErr, platform.ErrSwapUnsupported)
+		if guardErr != nil && !guardRefused {
 			old, root, _ := guard.Folder(l.Runtime.State)
 			errs = append(errs, fmt.Errorf("moving %s to %s: %w",
-				operation.ShowPath(l.Home, old), operation.ShowPath(l.Home, root), err))
+				operation.ShowPath(l.Home, old), operation.ShowPath(l.Home, root), guardErr))
 		}
 		failed := len(errs) > 0
 		var left []string
@@ -73,6 +82,11 @@ var AgentFolders = Migration{
 					errs = append(errs, err)
 				}
 				s = s.inspect()
+			}
+			// Every folder of a move that only met refusals was tried, so
+			// one still free to move is one its file system refused.
+			if s.standing == movable && (s.guard && guardRefused || !s.guard && costsRefused) {
+				s.standing = noSwap
 			}
 			switch {
 			case s.standing == unread:
