@@ -74,7 +74,10 @@ Anti-goals:
    into `prices` and `price_lists`, so no report is priced from fewer
    prices than before, not for a second. A file that is missing or that it
    cannot read fills nothing for that tool, whose list the import worker
-   then downloads at its next run.
+   then downloads at its next run. When the ledger's folder moves under
+   `agent/` while the upgrade reads the files, the upgrade fails and is
+   undone, and the open is done again where the ledger is then (agent
+   folders design, rule 2), beside the files.
 3. **A refresh** downloads first, with no transaction open, then replaces
    one tool's `prices` rows and its `price_lists` row in one short
    transaction. A page that cannot be read, or that holds no price, keeps

@@ -15,7 +15,10 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -317,6 +320,11 @@ func PriceLists(ledger string) []string {
 // for its tool, whose list the import then downloads. A list without one
 // complete row still fills its price_lists row, which keeps when the page was
 // last asked, so the import still asks at most once a day.
+//
+// The ledger's folder moving under agent/ while it reads (see
+// [MoveAgentFolders]) leaves a file where the lists were, which would fill
+// nothing for a list that is there: it then fails, which undoes the upgrade,
+// and the open is tried again where the ledger is now (see [Paths.moved]).
 func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
 	for _, tool := range Tools {
 		if tool.Source == nil {
@@ -337,6 +345,9 @@ func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
 		if err := storeOfficial(ctx, tx, tool.Name, file); err != nil {
 			return err
 		}
+	}
+	if folder := filepath.Dir(ledger); !operation.IsFolder(folder) {
+		return fmt.Errorf("%s moved while its price lists were read: %w", folder, syscall.ENOTDIR)
 	}
 	return nil
 }
