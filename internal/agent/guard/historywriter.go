@@ -69,6 +69,9 @@ type historyWriter struct {
 	// damaged are the copies kept of histories that could not be used, the
 	// newest first, none while no copy is kept.
 	damaged []DamagedCopy
+	// lasting are the records of the watcher's conditions that last, by name
+	// (see lasts).
+	lasting map[string]*lastingRecord
 	// wake tells the goroutine that a command was handed to it or that drain
 	// asks it to stop.
 	wake chan struct{}
@@ -235,28 +238,86 @@ func (h *historyWriter) wrote(id string) {
 // written again after a failure.
 func (h *historyWriter) succeeded() {
 	h.mu.Lock()
-	was := h.failed
 	h.failed = ""
 	h.mu.Unlock()
-	if was != "" {
+	if h.ended("history") {
 		h.f.event(slog.LevelInfo, EventError, "the guard history can be written again")
 	}
 }
 
 // fail marks the last write to the history in the guard folder root failed
-// with err, logged when the one before succeeded: the log's error and the
-// snapshot say it as people read it (see ShowPaths), and its path field
-// names the history in full.
+// with err, a condition that lasts until a write succeeds, logged when the
+// one before succeeded (see lasts): the log's error and the snapshot say it
+// as people read it (see ShowPaths), and its path field names the history in
+// full.
 func (h *historyWriter) fail(root string, err error) {
 	shown := ShowPaths(err.Error(), root)
 	h.mu.Lock()
-	was := h.failed
 	h.failed = shown
 	h.mu.Unlock()
-	if was == "" {
-		h.f.event(slog.LevelError, EventError,
-			"cannot write the guard history; trying again every ten seconds",
-			"error", shown, "path", historyFile(root))
+	h.lasts("history", slog.LevelError, EventError,
+		"cannot write the guard history; trying again every ten seconds",
+		"error", shown, "path", historyFile(root))
+}
+
+// lastingRecord is the record of a condition that lasts, and when it was
+// last logged.
+type lastingRecord struct {
+	level      slog.Level
+	event, msg string
+	args       []any
+	logged     time.Time
+}
+
+// lasts logs the record of the watcher's condition name, one that lasts
+// until ended, such as a socket it cannot serve, which doctor and the view
+// send people to the log for (see WatcherSilent). A condition that lasts
+// already is not logged again: its record becomes this one, unlogged. Each cut
+// of the log by the writer first logs again a record it would delete (see
+// relogLasting), so a condition that lasts longer than the time kept still
+// has its record in the log; a cut by another process waits for the writer's
+// (see CutLogUnwatched).
+func (h *historyWriter) lasts(name string, level slog.Level, event, msg string, args ...any) {
+	h.mu.Lock()
+	record, lasting := h.lasting[name]
+	if !lasting {
+		if h.lasting == nil {
+			h.lasting = map[string]*lastingRecord{}
+		}
+		record = &lastingRecord{logged: time.Now()}
+		h.lasting[name] = record
+	}
+	record.level, record.event, record.msg, record.args = level, event, msg, args
+	h.mu.Unlock()
+	if !lasting {
+		h.f.event(level, event, msg, args...)
+	}
+}
+
+// ended forgets the condition name, which no longer lasts, and reports
+// whether it lasted (see lasts).
+func (h *historyWriter) ended(name string) bool {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	_, lasting := h.lasting[name]
+	delete(h.lasting, name)
+	return lasting
+}
+
+// relogLasting logs again the record of each condition that lasts last
+// logged before since, so a cut of the log before since keeps one.
+func (h *historyWriter) relogLasting(since time.Time) {
+	h.mu.Lock()
+	var due []lastingRecord
+	for _, record := range h.lasting {
+		if record.logged.Before(since) {
+			record.logged = time.Now()
+			due = append(due, *record)
+		}
+	}
+	h.mu.Unlock()
+	for _, record := range due {
+		h.f.event(record.level, record.event, record.msg, record.args...)
 	}
 }
 
@@ -381,10 +442,11 @@ func (r *writerRun) trim(now time.Time) {
 // cutLog reads the time kept again, so a longer one set meanwhile keeps its
 // lines, and deletes the guard log's records older than it (see
 // CutLogBefore), or than the one last read when the history cannot be read
-// now; the next cut is due trimEvery later. Until a time kept was read it cuts
-// nothing, so a history that was never read never makes it guess one. It is
-// best effort, as a write of the log is: a log that cannot be cut is tried
-// again at the next cut.
+// now, after logging again each record of a condition that lasts that the
+// cut would delete (see lasts); the next cut is due trimEvery later. Until a
+// time kept was read it cuts nothing, so a history that was never read never
+// makes it guess one. It is best effort, as a write of the log is: a log that
+// cannot be cut is tried again at the next cut.
 func (r *writerRun) cutLog(now time.Time) {
 	r.cutAt = now.Add(trimEvery)
 	if r.history != nil {
@@ -392,7 +454,9 @@ func (r *writerRun) cutLog(now time.Time) {
 			r.keep = keep
 		}
 	}
-	_ = CutLogBefore(r.root, now.Add(-r.keep))
+	since := now.Add(-r.keep)
+	r.h.relogLasting(since)
+	_ = CutLogBefore(r.root, since)
 }
 
 // succeeded ends a failure: nothing waits out a retry any more.

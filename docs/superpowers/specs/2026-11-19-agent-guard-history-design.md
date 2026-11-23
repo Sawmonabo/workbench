@@ -364,8 +364,15 @@ and order them.
    history cannot be used, the writer reads `keep` again and deletes the
    guard log's records whose `time` is before `now - keep`, in place through
    `operation.RewriteLog`, behind a new `cut` record, so a follower keeps its
-   place; a line whose time cannot be read stays. `agent guard history
-   --keep` does the same after its trim.
+   place; a line whose time cannot be read stays. Before each cut it logs
+   again the record of each problem of the watcher that lasts (a socket it
+   cannot serve, a history it cannot write, a guard folder it cannot move)
+   whose last record the cut would delete: each is logged once, when it
+   begins, and doctor and the view send people to the log for the socket.
+   `agent guard history --keep` cuts the log the same way after its trim
+   while no watcher holds the lock; while one does, it leaves the cut to
+   that watcher's next one, within a minute, since it cannot know of those
+   problems.
 6. **Every process.** A tracked command keeps each process it has had, by
    PID and start, with its name and its peak resident size: at most 10,000,
    the largest peaks, counting the rest in `unlisted`. The details then say

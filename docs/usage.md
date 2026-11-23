@@ -426,8 +426,12 @@ lines from the middle) and a rotation of the output neither skip nor repeat a
 line, even lines that read the same. The log keeps a record no longer than the
 history keeps its command, so the start of a command a record holds goes with
 it: the watcher deletes the older records once a minute, and `agent guard
-history --keep` as it trims; a line with no time, such as a crash's trace,
-stays until the size cut. The log is
+history --keep` as it trims while no watcher runs (with one running, the
+watcher's next cut does it); a line with no time, such as a crash's trace,
+stays until the size cut. A problem the watcher logs once and that lasts (a
+socket it cannot serve, a history it cannot write, a guard folder it cannot
+move) is logged again before its record would go, so the log still says why
+for as long as it lasts. The log is
 JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
 `handover`, `moved`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
 `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
@@ -607,8 +611,9 @@ and sets nothing. The oldest leave first: a command that ended longer ago than
 the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
 when younger. A shorter time deletes the older commands at once, without
 asking, with any copy of a damaged history set aside longer ago (see below)
-and the guard log's records older than the time kept,
-whether a watcher runs or not, and says how many commands: the command trims the
+and the guard log's records older than the time kept (by the watcher within
+a minute, while one runs), whether a watcher runs or not, and says how many
+commands: the command trims the
 history itself in the watcher's small steps, each at most 200 commands, 2,000
 of their processes and 512 KB of their text, and leaves the history to the
 watcher between steps, so the watcher goes on writing meanwhile. A longer time

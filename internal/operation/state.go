@@ -820,6 +820,21 @@ func LockHeld(path string) (bool, error) {
 	return tryFlock(f, syscall.LOCK_SH)
 }
 
+// LockKept is [LockHeld] for a process that asks whether the lock is held by
+// one that holds it for its life or a whole run (see [TakeLockIn]), not by
+// one that holds it for an instant, such as a mover swapping the folder that
+// holds it: held is true only when the lock is held at each of lockTries
+// tries lockPause apart.
+func LockKept(path string) (held bool, err error) {
+	for try := 0; ; try++ {
+		held, err = LockHeld(path)
+		if err != nil || !held || try == lockTries-1 {
+			return held, err
+		}
+		time.Sleep(lockPause)
+	}
+}
+
 // IsLockHeld is [LockHeld] for an entry that only picks a folder or a line by
 // the answer: a lock that cannot be tried counts as free.
 func IsLockHeld(path string) bool {

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // The guard log is JSON Lines from [slog.JSONHandler]: each record has time,
@@ -132,6 +133,27 @@ func CutLogBefore(root string, since time.Time) error {
 		return nil
 	}
 	return err
+}
+
+// CutLogUnwatched is CutLogBefore for `agent guard history --keep`, while no
+// watcher holds its lock in the guard folder root (see [operation.LockKept],
+// which a mover holding it for an instant does not count as). While one does,
+// it cuts nothing and reports false: that watcher's writer
+// reads the time kept again and cuts the log itself within a minute, after
+// logging again each record of a condition that still lasts which the cut
+// would delete (see historyWriter.lasts), which another process cannot know
+// of. A lock that cannot be tried is named from the home folder in err (see
+// [sqlitefile.FileError]).
+func CutLogUnwatched(root string, since time.Time) (cut bool, err error) {
+	lock := folders{}.at(root).lock()
+	held, err := operation.LockKept(lock)
+	switch {
+	case err != nil:
+		return false, sqlitefile.FileError(lock, err)
+	case held:
+		return false, nil
+	}
+	return true, CutLogBefore(root, since)
 }
 
 // recordTime is the time a guard log record was written, the first field

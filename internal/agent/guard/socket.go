@@ -131,6 +131,7 @@ func (w *watcher) listen() error {
 		closed:   make(chan struct{}),
 	}
 	go w.server.serve()
+	w.history.ended("socket")
 	return nil
 }
 
@@ -411,8 +412,10 @@ func chooseStops(
 	return stop, results
 }
 
-// listenFailed logs that the socket could not be served.
+// listenFailed logs that the socket could not be served, a condition that
+// lasts until a listen succeeds, so its record stays in the guard log
+// meanwhile (see historyWriter.lasts).
 func (w *watcher) listenFailed(err error) {
-	w.f.event(slog.LevelError, EventError,
+	w.history.lasts("socket", slog.LevelError, EventError,
 		"cannot serve the guard socket; workbench agent guard will not connect", "error", err)
 }

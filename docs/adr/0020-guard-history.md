@@ -126,8 +126,14 @@ take from whichever agent started it, so two shells could disagree.
 - The guard log records the start of each command, so it keeps a record no
   longer than the history's time kept, whatever its size under the 1 MiB
   cap: the watcher's writer deletes the older records once a minute, once it
-  has read the time kept, and `--keep` as it trims, both in place through
-  `operation.RewriteLog`, so a follower keeps its place.
+  has read the time kept, and `--keep` as it trims while no watcher runs,
+  both in place through `operation.RewriteLog`, so a follower keeps its
+  place. A problem of the watcher that lasts (a socket it cannot serve,
+  which doctor and the view send people to the log for, a history it cannot
+  write, a guard folder it cannot move) is logged once, so before each cut
+  the writer logs it again when the cut would delete its last record; a
+  cut by `--keep` while a watcher runs, which cannot know of those, is left
+  to the watcher's next one.
 
 ## Sources
 

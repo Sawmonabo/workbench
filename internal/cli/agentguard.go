@@ -254,7 +254,8 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
 			"to 30d. A shorter time deletes the older commands at once, without asking, " +
 			"whether a watcher runs or not, and says how many, and the guard log's records " +
-			"older than the time kept go with them. A longer time " +
+			"older than the time kept go with them (within a minute, by the watcher, while " +
+			"one runs). A longer time " +
 			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
@@ -441,10 +442,10 @@ func setGuardHistoryKeep(
 		line += ", as before."
 	}
 	since := time.Now().Add(-keep)
-	err = guard.CutLogBefore(root, since)
+	_, err = guard.CutLogUnwatched(root, since)
 	if err != nil && guard.HistoryFolderMoved(root) {
 		if root, err = guard.HistoryRoot(); err == nil {
-			err = guard.CutLogBefore(root, since)
+			_, err = guard.CutLogUnwatched(root, since)
 		}
 	}
 	if err != nil {
