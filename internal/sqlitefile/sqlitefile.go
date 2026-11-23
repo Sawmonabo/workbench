@@ -112,11 +112,10 @@ func FileError(path string, err error) error {
 
 // ContainsFold is the SQL name of a function every connection the driver
 // opens has: contains_fold(needle, text, ...) is 1 when any text holds needle
-// with case ignored as Go's strings.EqualFold ignores it, by Unicode simple
-// case folding, not ASCII letters only as LIKE does: "É" holds "é", and
-// "\u212a" (the Kelvin sign) holds "k". A NULL text holds nothing; a NULL
-// needle is held by nothing. It is deterministic, so SQLite may run it once
-// for equal arguments, and reads its arguments in place, without a copy.
+// with case ignored as [HoldsFold] ignores it, through the same code. A NULL
+// text holds nothing; a NULL needle is held by nothing. It is deterministic,
+// so SQLite may run it once for equal arguments, and reads its arguments in
+// place, without a copy.
 const ContainsFold = "contains_fold"
 
 func init() {
@@ -128,11 +127,38 @@ func init() {
 	})
 }
 
-// foldBuffers are what containsFold folds its needle and each text into,
-// kept between calls.
-type foldBuffers struct{ want, have []byte }
+// HoldsFold reports whether any of texts holds needle with case ignored as
+// Go's strings.EqualFold ignores it, by Unicode simple case folding, not
+// ASCII letters only as LIKE does: "CAFÉ" holds "café", and "\u212a" (the
+// Kelvin sign) holds "k". It is the rule of [ContainsFold] too, so what is
+// searched in Go and in SQL matches alike.
+func HoldsFold(needle string, texts ...string) bool {
+	b := foldFor(needle)
+	defer folded.Put(b)
+	return slices.ContainsFunc(texts, b.holds)
+}
+
+// foldBuffers are what [HoldsFold] and containsFold fold their needle and
+// each text into, kept between calls: want is the needle folded (see
+// appendFolded), ascii whether it is all ASCII.
+type foldBuffers struct {
+	want, have []byte
+	ascii      bool
+}
 
 var folded = sync.Pool{New: func() any { return new(foldBuffers) }}
+
+// foldFor is buffers from the pool holding needle folded, to put back once
+// done with.
+func foldFor(needle string) *foldBuffers {
+	b, ok := folded.Get().(*foldBuffers)
+	if !ok {
+		b = new(foldBuffers)
+	}
+	b.want = appendFolded(b.want[:0], needle)
+	b.ascii = !slices.ContainsFunc(b.want, func(c byte) bool { return c >= utf8.RuneSelf })
+	return b
+}
 
 // containsFold is [ContainsFold]. Its strings are views into SQLite's memory,
 // valid only during the call, so nothing is kept of them: what the buffers
@@ -145,30 +171,24 @@ func containsFold(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value,
 	if !ok {
 		return int64(0), nil
 	}
-	b, ok := folded.Get().(*foldBuffers)
-	if !ok {
-		b = new(foldBuffers)
-	}
+	b := foldFor(needle)
 	defer folded.Put(b)
-	b.want = appendFolded(b.want[:0], needle)
-	ascii := !slices.ContainsFunc(b.want, func(c byte) bool { return c >= utf8.RuneSelf })
 	for _, arg := range args[1:] {
-		if text, ok := arg.(string); ok && b.holds(text, ascii) {
+		if text, ok := arg.(string); ok && b.holds(text) {
 			return int64(1), nil
 		}
 	}
 	return int64(0), nil
 }
 
-// holds reports whether text holds b.want, the needle folded (see
-// appendFolded), which ascii says is all ASCII. Only two characters past
-// ASCII have an ASCII key, U+017F (ſ, whose key is S) and U+212A (the Kelvin
-// sign, K), as a walk of every rune through foldKey shows; so an ASCII needle
-// can match only ASCII characters of a text without those two, which is
-// searched where it lies, with ASCII letters' case ignored, stopping at the
-// first match, as LIKE does. Any other text is folded whole and searched.
-func (b *foldBuffers) holds(text string, ascii bool) bool {
-	if ascii && !strings.ContainsRune(text, '\u017f') && !strings.ContainsRune(text, '\u212a') {
+// holds reports whether text holds b.want. Only two characters past ASCII
+// have an ASCII key, U+017F (ſ, whose key is S) and U+212A (the Kelvin sign,
+// K), as a walk of every rune through foldKey shows; so an ASCII needle can
+// match only ASCII characters of a text without those two, which is searched
+// where it lies, with ASCII letters' case ignored, stopping at the first
+// match, as LIKE does. Any other text is folded whole and searched.
+func (b *foldBuffers) holds(text string) bool {
+	if b.ascii && !strings.ContainsRune(text, '\u017f') && !strings.ContainsRune(text, '\u212a') {
 		return containsASCIIFold(text, b.want)
 	}
 	b.have = appendFolded(b.have[:0], text)

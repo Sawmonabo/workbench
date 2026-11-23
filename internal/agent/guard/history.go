@@ -630,9 +630,18 @@ func (h *History) Details(ctx context.Context, seq int64) (Finished, error) {
 }
 
 // findQuery reads the seq of each command whose agent, subagent, project, ID
-// or command holds ?1, case ignored (see [sqlitefile.ContainsFold]).
+// or command holds ?1, case ignored (see [sqlitefile.ContainsFold]): the
+// columns of the fields [CommandView.Holds] looks in.
 var findQuery = "SELECT seq FROM commands WHERE " + sqlitefile.ContainsFold +
 	"(?1, agent, subagent, project, id, command) ORDER BY seq"
+
+// Holds reports whether c's agent, subagent, project, ID or command holds
+// text, case ignored as [History.Find] ignores it (see
+// [sqlitefile.HoldsFold]), for the commands a view holds itself: it finds
+// them as Find finds those of the history.
+func (c *CommandView) Holds(text string) bool {
+	return sqlitefile.HoldsFold(text, c.Agent, c.Subagent, c.Project, c.ID, c.Command)
+}
 
 // Find is the seq of each finished command, lowest first, whose agent,
 // subagent, project, ID or whole command holds text, upper and lower case

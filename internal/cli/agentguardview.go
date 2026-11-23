@@ -687,7 +687,7 @@ func (m *guardView) collect(now time.Time) (running, finished []listRow) {
 				row.finished = &m.snap.Pending[at]
 			}
 		}
-		if text == "" || holds(c, text) {
+		if text == "" || c.Holds(text) {
 			running = append(running, row)
 		}
 	}
@@ -700,7 +700,7 @@ func (m *guardView) collect(now time.Time) (running, finished []listRow) {
 			return
 		}
 		m.total.finished++
-		if text == "" || holds(&f.CommandView, text) {
+		if text == "" || f.Holds(text) {
 			finished = append(finished, listRow{
 				view: &f.CommandView, finished: f,
 				cells: finishedCells(&f.CommandView, m.hist.dated, now),
@@ -723,29 +723,6 @@ func (m *guardView) collect(now time.Time) (running, finished []listRow) {
 		}
 	}
 	return running, finished
-}
-
-// holds reports whether a command's agent, subagent, project, ID or command
-// holds text, case ignored for ASCII letters only, as the history's find
-// matches (see guard.History.Find).
-func holds(c *guard.CommandView, text string) bool {
-	text = asciiLower(text)
-	for _, field := range []string{c.Agent, c.Subagent, c.Project, c.ID, c.Command} {
-		if strings.Contains(asciiLower(field), text) {
-			return true
-		}
-	}
-	return false
-}
-
-// asciiLower is s with its ASCII capitals lowercase, as SQLite's LIKE folds.
-func asciiLower(s string) string {
-	return strings.Map(func(r rune) rune {
-		if r >= 'A' && r <= 'Z' {
-			return r + 'a' - 'A'
-		}
-		return r
-	}, s)
 }
 
 // treeRows are rows in the order the list shows them, and the tree mark of
