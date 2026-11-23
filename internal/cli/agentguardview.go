@@ -166,7 +166,8 @@ type guardView struct {
 	// leaves the window and pgup and pgdn move by what shows.
 	first, page int
 	// moved is set once a key moved the selection or opened a row: until
-	// then the first row stays selected while the rows arrive.
+	// then the first running row, or the first row when none runs, stays
+	// selected while the rows arrive.
 	moved bool
 }
 
@@ -615,7 +616,9 @@ func (m *guardView) take(snap guard.Snapshot) {
 
 // rebuild makes the list's rows anew from the snapshot, the carried rows and
 // the history (design 7.3), in the list's order (see order). The selection
-// stays on its command once a key moved it, and on the first row before;
+// stays on its command once a key moved it, and before that on the first
+// running row, or the first row when none runs, so it starts on a bright
+// row even under a command that has ended;
 // details whose command left the list close, and
 // details that show a finished command keep the parts the snapshot sent, so
 // they stay once the history holds it.
@@ -636,7 +639,7 @@ func (m *guardView) rebuild() {
 	}
 	at := slices.IndexFunc(m.rows, func(r listRow) bool { return r.view.ID == selected })
 	if !m.moved && len(m.rows) > 0 {
-		at = 0
+		at = m.startRow()
 	}
 	if at < 0 {
 		m.cursor = max(min(m.cursor, len(m.rows)-1), 0)
@@ -650,6 +653,12 @@ func (m *guardView) rebuild() {
 	if r := m.rows[at]; r.finished != nil && m.detail.id == selected {
 		m.detail.parts = r.finished
 	}
+}
+
+// startRow is the row the selection starts on: the first running row, or
+// the first row when none runs.
+func (m *guardView) startRow() int {
+	return max(slices.IndexFunc(m.rows, func(r listRow) bool { return active(*r.view) }), 0)
 }
 
 // order puts the rows in the list's order: the running rows first, then the
@@ -1123,7 +1132,8 @@ func (m *guardView) ask(text string) tea.Cmd {
 }
 
 // found takes the answer to the latest ask: the list shows the rows that hold
-// its text, from the first row when the text is new and the list shows;
+// its text, from the row the selection starts on (see startRow) when the
+// text is new and the list shows;
 // details that show keep their row while the filter holds it. An answer
 // about rows held before they were read anew asks again.
 func (m *guardView) found(msg foundMsg) tea.Cmd {
@@ -1145,7 +1155,7 @@ func (m *guardView) found(msg foundMsg) tea.Cmd {
 	}
 	m.rebuild()
 	if fresh && !m.inDetails() {
-		m.cursor, m.first = 0, 0
+		m.cursor, m.first = m.startRow(), 0
 	}
 	return nil
 }
@@ -1251,7 +1261,7 @@ func (m *guardView) pressList(key string) tea.Cmd {
 	case "s":
 		m.byPeak = !m.byPeak
 		m.rebuild()
-		m.cursor, m.first = 0, 0
+		m.cursor, m.first = m.startRow(), 0
 	case "/":
 		m.find.open = true
 		m.find.input.SetValue(m.find.text)

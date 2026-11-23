@@ -384,12 +384,16 @@ A full-screen Bubble Tea program in the alternate screen.
   it cannot be read; it is blank when there is none of these. The dry-run
   texts fit 60 columns, and a longer text wraps onto another line, so no
   line is cut.
+- **Selection**: it starts on the first running row, or on the first row
+  when nothing runs, so a command that has ended above its detached work,
+  dimmed, is never selected first; it stays there while rows arrive and
+  leave until a key moves it or opens a row.
 - **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop), PgUp
   and PgDn move by a page and Home and End to the first or last row;
   Space tags or untags a running row and moves down; Enter, → or `l` opens
   details; `/` opens find; `s` sorts the finished rows by their peak,
   largest first, and again by newest, the running rows staying on top, and
-  goes to the first row; `k` opens the stop menu for the tagged rows, or the
+  goes to the first running row; `k` opens the stop menu for the tagged rows, or the
   selected one; Esc, ← or `h` closes a menu or details; `q` and ctrl+c
   quit, and so does Esc on the list, as the costs view's Esc does, once no
   filter is kept (it clears a kept filter first). Details and the side
@@ -427,7 +431,7 @@ A full-screen Bubble Tea program in the alternate screen.
   rule. The history's search runs beside the screen, a
   new text cancels the search before, the list keeps its rows until the
   answer comes and only the answer to the latest text is taken, so typing
-  never waits; a new text goes to the first row. While the input is open,
+  never waits; a new text goes to the first running row. While the input is open,
   Enter closes it and keeps the filter, Esc closes it and clears the
   filter, ↑, ↓, PgUp and PgDn move the selection, ctrl+c quits, and every
   other key edits the text, `k`, `q`, `s` and Space included. A filter that

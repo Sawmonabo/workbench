@@ -477,7 +477,11 @@ started and the swap in use; then a line that says `dry run: stops are logged,
 not sent` when every command the watcher tracks is a dry run, or `dry run on 2
 of 5 commands: …` when some are, each marked `(dry)` in its status, and a line
 when the history cannot be written, was found damaged and started again, or
-cannot be read (see below). The selected row lies on a slate band across the
+cannot be read (see below). The selection starts on the first running row,
+so a command that has ended, dimmed above its detached work, is never selected
+first, and on the first row when nothing runs; it stays there while rows come
+and go until a key moves it, and `s` and a new find text take it back there. The
+selected row lies on a slate band across the
 window, its `▸` and ID bold in a light steel; a light terminal gets a light
 band, and without color the row is bold instead. ↑ and ↓ move (there is no `j`
 or `k`, since `k` stops, as in htop), PgUp and PgDn move by a page and Home and
