@@ -2378,15 +2378,10 @@ func commandLines(command string, cut int64, width int) []string {
 	}
 	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 	if cut > 0 {
-		lines = append(lines, faint.Render(forTerm("… "+cutSize(cut)+" more were not kept")))
+		lines = append(lines, faint.Render(forTerm("… "+textSize(cut)+" more were not kept")))
 	}
 	return lines
 }
-
-// cutSize is the bytes of a command's text left out in whole kilobytes of
-// 1,024 bytes, as the history's 64 KiB limit counts them, rounded up, so a
-// cut is never 0 KB.
-func cutSize(bytes int64) string { return commas((bytes+1023)/1024) + " KB" }
 
 // split is the details with the side panel open, height lines tall (design
 // 3.3): the opened part whole on the right half under its title, scrolling,

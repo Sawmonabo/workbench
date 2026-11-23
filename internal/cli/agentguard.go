@@ -253,8 +253,9 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
 			"to 30d. A shorter time deletes the older commands without asking: the view " +
 			"hides them at once and the watcher deletes them within a minute. A longer time " +
-			"brings none back. At most 20,000 finished commands and 256 MiB are kept, the " +
-			"oldest leaving first.\n\n" +
+			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
+			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
+			"memory.\n\n" +
 			"The global --json prints the same facts as fields: path, keep_seconds, commands " +
 			"and bytes, or with --keep path, keep_seconds and was_seconds.",
 		Example: "  workbench agent guard history\n" +
@@ -299,7 +300,7 @@ type guardHistoryKept struct {
 
 // showGuardHistory prints the time kept, the count and size, and the file:
 //
-//	Finished commands are kept 24 hours · 2,832 kept · 3.2 MB
+//	Finished commands are kept 24 hours · 2,832 kept · 3 MB
 //	~/.local/state/workbench/agent/guard/history.db
 //
 // A history not made yet is empty and kept for the default time.
@@ -337,7 +338,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 		return nil
 	}
 	if held == "" {
-		held = commas(int64(facts.Commands)) + " kept · " + transferSize(facts.Bytes, facts.Bytes)
+		held = commas(int64(facts.Commands)) + " kept · " + textSize(facts.Bytes)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
 		forTerm("Finished commands are kept "+keptText(time.Duration(facts.KeepSeconds)*
@@ -403,6 +404,17 @@ func setGuardHistoryKeep(
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 	return err
+}
+
+// textSize is a size of text or of a file as the guard shows memory (see
+// guard.Size: binary MB and GB, as Activity Monitor counts them), and under
+// a MB in whole KB of 1,024 bytes, rounded up, so a size is never 0 KB
+// ("37 KB", "46 KB", "3 MB").
+func textSize(bytes int64) string {
+	if kb := (max(bytes, 0) + 1023) / 1024; kb < 1024 {
+		return commas(kb) + " KB"
+	}
+	return guard.Size(uint64(bytes))
 }
 
 // keepPattern is a --keep value: a whole number of hours, days or weeks.
