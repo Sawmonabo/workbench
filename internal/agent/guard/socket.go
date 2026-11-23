@@ -2,6 +2,7 @@ package guard
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -46,11 +47,40 @@ type server struct {
 	closed   chan struct{}
 }
 
-// client is one connection that said hello: the messages waiting for it,
-// which its own goroutine writes.
+// client is one connection that said hello: the lines waiting for it, which
+// its own goroutine writes.
 type client struct {
 	conn *net.UnixConn
-	send chan message
+	send chan *outgoing
+}
+
+// outgoing is one message as the JSON line a client is sent, encoded once, by
+// the first client's goroutine that writes it, and then shared by every
+// client it was offered to, so a snapshot, with its finished commands, is
+// encoded once a tick however many views watch, and never on the tick.
+type outgoing struct {
+	m    message
+	once sync.Once
+	data []byte
+	err  error
+}
+
+// bytes is o's JSON line, newline included, encoded the first time it is
+// asked for. Nothing appends to it: it is shared.
+func (o *outgoing) bytes() ([]byte, error) {
+	o.once.Do(func() { o.data, o.err = encodeLine(o.m) })
+	return o.data, o.err
+}
+
+// encodeLine is m as one JSON line: json.Marshal's bytes, which escape HTML
+// as it does, and a newline, encoded in one buffer, so the newline never
+// copies them.
+func encodeLine(m message) ([]byte, error) {
+	var buffer bytes.Buffer
+	if err := json.NewEncoder(&buffer).Encode(m); err != nil {
+		return nil, err
+	}
+	return buffer.Bytes(), nil
 }
 
 // stopRequest is a client's stop for the tick: the IDs, whether to kill at
@@ -182,7 +212,7 @@ func (s *server) handle(conn *net.UnixConn) {
 		return
 	}
 	_ = conn.SetDeadline(time.Time{})
-	c := &client{conn: conn, send: make(chan message, clientBuffer)}
+	c := &client{conn: conn, send: make(chan *outgoing, clientBuffer)}
 	if !s.add(c) {
 		_ = conn.Close()
 		return
@@ -222,11 +252,15 @@ func (s *server) read(c *client, lines *bufio.Scanner, peer procKey) {
 	}
 }
 
-// write sends c's messages until its buffer is closed or a write fails.
+// write sends c's lines until its buffer is closed or a write fails.
 func (c *client) write(s *server) {
-	for m := range c.send {
-		_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-		if writeMessage(c.conn, m) != nil {
+	for o := range c.send {
+		data, err := o.bytes()
+		if err == nil {
+			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+			_, err = c.conn.Write(data)
+		}
+		if err != nil {
 			s.remove(c)
 			return
 		}
@@ -235,13 +269,13 @@ func (c *client) write(s *server) {
 
 // broadcast sends snap to every client without waiting: a client whose
 // buffer is full is too slow and is dropped, so no client ever holds up a
-// tick.
+// tick. Every client shares the one encoded line (see outgoing).
 func (s *server) broadcast(snap Snapshot) {
-	m := message{Type: messageSnapshot, Snapshot: &snap}
+	o := &outgoing{m: message{Type: messageSnapshot, Snapshot: &snap}}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for c := range s.clients {
-		s.offer(c, m)
+		s.offer(c, o)
 	}
 }
 
@@ -249,17 +283,17 @@ func (s *server) broadcast(snap Snapshot) {
 func (s *server) send(c *client, m message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.offer(c, m)
+	s.offer(c, &outgoing{m: m})
 }
 
-// offer puts m in c's buffer, or drops c when it is full. The caller holds
+// offer puts o in c's buffer, or drops c when it is full. The caller holds
 // mu.
-func (s *server) offer(c *client, m message) {
+func (s *server) offer(c *client, o *outgoing) {
 	if _, ok := s.clients[c]; !ok {
 		return
 	}
 	select {
-	case c.send <- m:
+	case c.send <- o:
 	default:
 		s.drop(c)
 	}
@@ -296,13 +330,13 @@ func (s *server) drop(c *client) {
 	_ = c.conn.Close()
 }
 
-// writeMessage writes m to conn as one JSON line.
+// writeMessage writes m to conn as one JSON line (see encodeLine).
 func writeMessage(conn *net.UnixConn, m message) error {
-	data, err := json.Marshal(m)
+	data, err := encodeLine(m)
 	if err != nil {
 		return err
 	}
-	_, err = conn.Write(append(data, '\n'))
+	_, err = conn.Write(data)
 	return err
 }
 

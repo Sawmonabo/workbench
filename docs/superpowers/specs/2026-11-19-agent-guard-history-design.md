@@ -333,8 +333,9 @@ and order them.
    so the view shows a finished command, details included, in the second it
    ends, written or not.
 3. **A write that fails keeps the command in sight.** The pending list holds
-   at most 2 MiB of command text, graphs and processes and drops its oldest
-   past that, counting them in the log. The writer tries again every ten
+   at most 2 MiB in memory, counting each command's fields, text, graph and
+   processes as the heap holds them, and drops its oldest past that, counting
+   them in the log. The writer tries again every ten
    seconds and logs the failure once until a write succeeds. The snapshot
    names the failure and the view says
    `Guard history cannot be written: REASON`, where REASON names the file
@@ -472,8 +473,10 @@ each, in a process set up as the watcher is (32 MiB limit, 50 GC percent,
 
 `protocolVersion` becomes 2. A snapshot carries the tracked commands, each
 with the whole-run graph in `History`, the pending finished commands whole
-(at most 2 MiB, well under the 16 MiB a client reads in one line) and the
-store's failure, when it has one. A view and a watcher of two releases say so as they do today
+(at most 2 MiB in memory, a line of about as much, well under the 16 MiB a
+client reads in one line) and the store's failure, when it has one. Each
+snapshot is encoded once, by the first client's writer that sends it, never
+on the tick, and every client is sent the same bytes. A view and a watcher of two releases say so as they do today
 (`watcherOther`).
 
 ### 7.3 View (`internal/cli/agentguardview.go`)

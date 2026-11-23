@@ -173,13 +173,17 @@ func (u *usage) cut(tree []proc, outside map[procKey]bool) map[procKey]bool {
 
 // peaks are the processes kept, the largest peak first, at most
 // processesKept of them, and how many the command had that are not among
-// them.
+// them. Those it leaves out leave memory too: the list holds no more than it
+// shows, so a finished command takes what its size counts.
 func (u *usage) peaks() ([]ProcessPeak, int) {
 	all := make([]ProcessPeak, 0, len(u.Processes))
 	for _, p := range u.Processes {
 		all = append(all, *p)
 	}
 	kept, left := keptProcesses(all)
+	if left > 0 {
+		kept = slices.Clone(kept)
+	}
 	return kept, u.Unlisted + left
 }
 
