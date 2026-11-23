@@ -395,8 +395,11 @@ and order them.
    `history.damaged.db` (and `-wal`, `-shm`), after renaming a damaged copy
    already there to `history.damaged.2.db`, as logrotate numbers the
    generations it keeps, the higher the older; starts an empty history with
-   the time kept it last read (24 hours when it never read one, which it
-   logs), and logs both names once. While a copy exists the view and
+   the time kept it last read, reading it once more from the old file first
+   when that still answers (24 hours when it never read one), and logs both
+   names once with the time the new history keeps and, when the old file no
+   longer answered, when that time was read, since a `--keep` set after
+   that is in the old file alone. While a copy exists the view and
    `agent guard history` say
    `Guard history was damaged and started again at TIME; the old file is
    PATH`, or with two

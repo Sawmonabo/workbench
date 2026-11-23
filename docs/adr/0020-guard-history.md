@@ -80,10 +80,12 @@ take from whichever agent started it, so two shells could disagree.
   renames it and its `-wal` and `-shm` files to `history.damaged.db`, after
   renaming a copy already there to `history.damaged.2.db`, as logrotate
   numbers the generations it keeps, and starts an empty history with the
-  time kept it last read. Each copy is deleted once it is older than the
-  time kept, when all it held would have gone anyway: it may hold the only
-  record of rows the time kept still covers, which SQLite's recovery can
-  often rebuild. Two copies bound the disk. Where logrotate's count deletes
+  time kept it last read, read once more from the old file first when that
+  still answers; when it does not, the log says when that time was read,
+  since a time set after that is lost with the old file. Each copy is
+  deleted once it is older than the time kept, when all it held would have
+  gone anyway: it may hold the only record of rows the time kept still
+  covers, which SQLite's recovery can often rebuild. Two copies bound the disk. Where logrotate's count deletes
   the oldest whatever its age, a third history the guard cannot use while
   both copies are younger than the time kept takes the place of
   `history.damaged.db` and `history.damaged.2.db` stays: the oldest copy

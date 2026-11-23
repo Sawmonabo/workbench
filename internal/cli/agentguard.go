@@ -363,7 +363,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 		held = commas(int64(facts.Commands)) + " kept · " + textSize(facts.Bytes)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
-		forTerm("Finished commands are kept "+keptText(time.Duration(facts.KeepSeconds)*
+		forTerm("Finished commands are kept "+guard.KeepText(time.Duration(facts.KeepSeconds)*
 			time.Second)+" · "+held),
 		showPath(facts.Path))
 	if text := guard.HistoryDamaged(guard.HistoryDamagedCopies(root), time.Now()); err == nil &&
@@ -424,18 +424,18 @@ func setGuardHistoryKeep(
 	deleted, err := trimGuardHistory(cmd.Context(), history)
 	if err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
-			"Finished commands are kept "+keptText(keep)+", but the older ones cannot be "+
+			"Finished commands are kept "+guard.KeepText(keep)+", but the older ones cannot be "+
 				"deleted: "+guard.ShowPaths(err.Error(), root))
 	}
-	line := "Finished commands are kept " + keptText(keep)
+	line := "Finished commands are kept " + guard.KeepText(keep)
 	switch {
 	case keep < was:
-		line += " (was " + keptText(was) + "); " + deletedText(deleted) + "."
+		line += " (was " + guard.KeepText(was) + "); " + deletedText(deleted) + "."
 	case keep > was && deleted > 0:
-		line += " (was " + keptText(was) + "); those already deleted do not come back, and " +
+		line += " (was " + guard.KeepText(was) + "); those already deleted do not come back, and " +
 			deletedText(deleted) + "."
 	case keep > was:
-		line += " (was " + keptText(was) + "); those already deleted do not come back."
+		line += " (was " + guard.KeepText(was) + "); those already deleted do not come back."
 	case deleted > 0:
 		line += ", as before; " + deletedText(deleted) + "."
 	default:
@@ -542,28 +542,6 @@ func parseKeep(text string) (time.Duration, error) {
 		return 0, invalid
 	}
 	return keep, nil
-}
-
-// keptText is a time kept in words: whole weeks, else whole days from two
-// days, else whole hours ("1 week", "3 days", "24 hours"); any other time,
-// which only a settings row written by something else can hold, in Go's form.
-func keptText(keep time.Duration) string {
-	const day = 24 * time.Hour
-	unit := func(n time.Duration, word string) string {
-		if n != 1 {
-			word += "s"
-		}
-		return strconv.FormatInt(int64(n), 10) + " " + word
-	}
-	switch {
-	case keep%(7*day) == 0:
-		return unit(keep/(7*day), "week")
-	case keep%day == 0 && keep >= 2*day:
-		return unit(keep/day, "day")
-	case keep%time.Hour == 0:
-		return unit(keep/time.Hour, "hour")
-	}
-	return keep.String()
 }
 
 // guardHistoryUnreadable is the error of a history in the guard folder root

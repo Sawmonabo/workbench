@@ -637,14 +637,17 @@ finds damaged, or whose layout is not the guard history's) is never repaired
 or converted. The watcher moves it, with its `-wal` and `-shm` files, aside to
 `history.damaged.db`, after moving a copy already there to
 `history.damaged.2.db`, starts a new, empty history with the time kept it last
-read (24 hours when it read none) and logs both paths; while a copy is there,
-the view and `agent guard history` say the history was damaged and started
-again and name each copy. Each copy is deleted once it is older than the time
-kept, when all it held would have gone anyway, since it may hold rows SQLite's
-`.recover` can rebuild. At most two copies are kept: when both names hold
-copies younger than the time kept, a third history the guard cannot use takes
-the place of `history.damaged.db`, whose copy, of a history started after a
-damage, is deleted, while `history.damaged.2.db`, the oldest, which most
+read (24 hours when it read none), read once more from the old file first when
+that still answers, and logs both paths and the time the new one keeps; when
+the old file no longer answers, the log also says when that time was read,
+since a `--keep` set after that is lost with the old file. While a copy is
+there, the view and `agent guard history` say the history was damaged and
+started again and name each copy. Each copy is deleted once it is older than
+the time kept, when all it held would have gone anyway, since it may hold rows
+SQLite's `.recover` can rebuild. At most two copies are kept: when both names
+hold copies younger than the time kept, a third history the guard cannot use
+takes the place of `history.damaged.db`, whose copy, of a history started
+after a damage, is deleted, while `history.damaged.2.db`, the oldest, which most
 likely holds the rows from before the first damage, stays. So the history
 always starts again, and the log names the copy deleted. SQLite
 reads from the file only what its cache lacks, so once a minute the watcher

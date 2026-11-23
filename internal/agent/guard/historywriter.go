@@ -333,15 +333,17 @@ func (h *historyWriter) noteCopy(root string) {
 }
 
 // writerRun is one run of the writer's goroutine: the history it holds open,
-// nil until it opens it, and the time kept it last read, 0 before any; when to
-// try again after a failure, zero while none; when the last history it could
-// not use was moved aside by it; when the next trim starts and whether the
-// last trim step had more to delete; when the guard log is next cut.
+// nil until it opens it, and the time kept it last read, 0 before any, and
+// when it read it; when to try again after a failure, zero while none; when
+// the last history it could not use was moved aside by it; when the next trim
+// starts and whether the last trim step had more to delete; when the guard
+// log is next cut.
 type writerRun struct {
 	h        *historyWriter
 	root     string
 	history  *History
 	keep     time.Duration
+	keptAt   time.Time
 	retry    time.Time
 	replaced time.Time
 	trimAt   time.Time
@@ -390,13 +392,20 @@ func (r *writerRun) open() {
 		return
 	}
 	r.history = history
-	keep, err := history.Keep(context.Background())
-	if err != nil {
+	if err := r.readKeep(); err != nil {
 		r.failed(err)
 		return
 	}
-	r.keep = keep
 	r.h.noteCopy(r.root)
+}
+
+// readKeep reads the time kept from the history open, noting when.
+func (r *writerRun) readKeep() error {
+	keep, err := r.history.Keep(context.Background())
+	if err == nil {
+		r.keep, r.keptAt = keep, time.Now()
+	}
+	return err
 }
 
 // trim runs one trim step at now. The first step of a trim checks the file
@@ -416,12 +425,10 @@ func (r *writerRun) trim(now time.Time) {
 			r.failed(err)
 			return
 		}
-		keep, err := r.history.Keep(ctx)
-		if err != nil {
+		if err := r.readKeep(); err != nil {
 			r.failed(err)
 			return
 		}
-		r.keep = keep
 	}
 	_, again, err := r.history.Trim(ctx, now)
 	if err != nil {
@@ -450,9 +457,7 @@ func (r *writerRun) trim(now time.Time) {
 func (r *writerRun) cutLog(now time.Time) {
 	r.cutAt = now.Add(trimEvery)
 	if r.history != nil {
-		if keep, err := r.history.Keep(context.Background()); err == nil {
-			r.keep = keep
-		}
+		_ = r.readKeep()
 	}
 	since := now.Add(-r.keep)
 	r.h.relogLasting(since)
@@ -483,11 +488,15 @@ func (r *writerRun) failed(err error) {
 	r.h.fail(r.root, err)
 }
 
-// replace closes the history, which cause found it cannot use, moves it aside
-// (see MoveDamaged), keeping the oldest copy younger than the time kept it
-// last read (24 hours when it read none) and the new one, starts a new
-// history with that time kept (logging that it keeps 24 hours when it read
-// none) and logs both paths, and the copy the move deleted. A history
+// replace reads the time kept once more from the history, which cause found
+// it cannot use, then closes it and moves it aside (see MoveDamaged), keeping
+// the oldest copy younger than the time kept (24 hours when it read none) and
+// the new one. It starts a new history with the time kept it last read and
+// logs both paths, the copy the move deleted and the time the new one keeps:
+// as the old one did, when that last read answered, which it does when the
+// path names another file or none, or the damage left the setting readable;
+// else the time it read before and when, since a time set after that is in
+// the old file alone; 24 hours when it read none. A history
 // that is no longer there is not moved, and the new one is logged alone:
 // closing wrote the rows of the WAL into the file it held, wherever that is
 // now, and deleted that file's -wal and -shm (see History.Close), and any
@@ -495,6 +504,7 @@ func (r *writerRun) failed(err error) {
 // since SQLite would read it as the new one's. It gives the error of a move
 // or start that failed.
 func (r *writerRun) replace(cause error) error {
+	fresh := r.history != nil && r.readKeep() == nil
 	r.close()
 	from := historyFile(r.root)
 	to, replaced, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, historyKeepDefault)))
@@ -514,18 +524,27 @@ func (r *writerRun) replace(cause error) error {
 	if err != nil {
 		return err
 	}
-	kept := "it keeps the time kept the old one had"
-	switch r.keep {
-	case 0:
+	var kept string
+	switch {
+	case r.keep == 0:
 		kept = "the time kept was never read, so it keeps finished commands 24 hours"
-	case historyKeepDefault:
+	case fresh:
+		kept = "it keeps finished commands " + KeepText(r.keep) + ", as the old one did"
 	default:
+		kept = fmt.Sprintf(
+			"it keeps finished commands %s, the time kept the old one had when last read, at %s",
+			KeepText(r.keep), r.keptAt.Local().Format("Jan 2 3:04:05 PM"))
+	}
+	if r.keep != 0 && r.keep != historyKeepDefault {
 		if err := history.SetKeep(context.Background(), r.keep); err != nil {
 			_ = history.Close()
 			return err
 		}
 	}
 	r.history = history
+	if r.keep != 0 {
+		r.keptAt = time.Now()
+	}
 	why := ShowPaths(cause.Error(), r.root)
 	if gone {
 		r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
