@@ -56,14 +56,26 @@ func agentStyle(agent string) *lipgloss.Style {
 	return nil
 }
 
+// sizeStep is the step of [sizeStyle] a memory size falls on: 0 below a
+// gigabyte, 1 from there, 2 from four.
+func sizeStep(bytes uint64) int {
+	switch {
+	case bytes >= guardSizeLarge:
+		return 2
+	case bytes >= guardSizeNoted:
+		return 1
+	}
+	return 0
+}
+
 // sizeStyle is the style of a memory size: nil below a gigabyte, gold bold
 // from there, red bold from four.
 func sizeStyle(bytes uint64) *lipgloss.Style {
-	switch {
-	case bytes >= guardSizeLarge:
+	switch sizeStep(bytes) {
+	case 2:
 		s := guardRed.Bold(true)
 		return &s
-	case bytes >= guardSizeNoted:
+	case 1:
 		s := guardGold.Bold(true)
 		return &s
 	}
@@ -80,6 +92,14 @@ var (
 	guardAccentDark  = lipgloss.Color("#9ec1dc")
 	guardAccentLight = lipgloss.Color("#2f5c7e")
 )
+
+// guardAccent is the accent, bold, on a light background or a dark one: the
+// selected row's ▸ and ID, the chosen `… more` row of the details and the
+// side panel's title.
+func guardAccent(light bool) lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).
+		Foreground(lipgloss.LightDark(!light)(guardAccentLight, guardAccentDark))
+}
 
 // guardOnBand are the colors drawn on the selected row in place of the
 // pinned ones, for the dark band (false) and the light one (true): each

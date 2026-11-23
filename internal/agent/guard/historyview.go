@@ -33,3 +33,6 @@ func MakeHistoryRoot() (string, error) {
 
 // HistoryFile is the history's path in the guard folder root.
 func HistoryFile(root string) string { return historyFile(root) }
+
+// SummaryLength is how many characters of a command a [Summary] holds.
+const SummaryLength = summaryLength

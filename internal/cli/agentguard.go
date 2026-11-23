@@ -38,9 +38,12 @@ func agentGuardCommand(o *options) *cobra.Command {
 			"to run out of memory, and tells the agent why. Its hooks and watcher run by " +
 			"themselves.\n\n" +
 			"Run bare, it opens a live, full-screen view of the commands and detached programs " +
-			"the watcher tracks, with their memory, project and agent. ↑ and ↓ move, space " +
-			"tags a row, enter opens its details, k stops the tagged or selected rows, and q " +
-			"quits. The view needs a terminal and refuses --json, --non-interactive and coding " +
+			"the watcher tracks, with their memory, project and agent, and below them the " +
+			"commands that finished, for as long as workbench agent guard history keeps them. " +
+			"↑ and ↓ move, pgup, pgdn, home and end move by a page or to an end, space tags a " +
+			"row, enter opens its details, / finds the rows that hold a text, s sorts the " +
+			"finished rows by their peak, k stops the tagged or selected rows, and q quits. " +
+			"The view needs a terminal and refuses --json, --non-interactive and coding " +
 			"agents; workbench agent guard logs --follow prints the same events. docs/usage.md " +
 			"describes every row, key and kind of stop.",
 		Example: "  workbench agent guard\n" +
