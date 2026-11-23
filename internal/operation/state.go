@@ -694,6 +694,32 @@ func TryLockIn(path string) (f *os.File, held bool, err error) {
 	return tryLockIn(path, syscall.LOCK_EX)
 }
 
+// lockTries and lockPause bound how long [TakeLockIn] tries a lock it finds
+// held: about 100 ms in all.
+const (
+	lockTries = 6
+	lockPause = 20 * time.Millisecond
+)
+
+// TakeLockIn is [TryLockIn] for a process that runs only while it holds the
+// lock, for its life or its whole run (the guard watcher, the costs import
+// worker): a lock it finds held it tries again, lockTries times lockPause
+// apart, before it gives up. flock(2) has no call that only asks, so
+// whatever asks whether such a process runs takes a shared lock on a free
+// one for an instant (see [LockHeld]), and a process that met that instant
+// would otherwise give up, as if another held the lock, until something
+// starts it again. One that holds the lock still holds it at the last try,
+// so held then means another process runs.
+func TakeLockIn(path string) (f *os.File, held bool, err error) {
+	for try := 0; ; try++ {
+		f, held, err = TryLockIn(path)
+		if err != nil || !held || try == lockTries-1 {
+			return f, held, err
+		}
+		time.Sleep(lockPause)
+	}
+}
+
 // TryLockInShared is [TryLockIn] with a shared lock, kept until f closes,
 // for a process that must keep the lock's holder from starting while it
 // works, without being taken for that holder: the holder takes the lock
@@ -725,9 +751,9 @@ func tryLockIn(path string, how int) (f *os.File, held bool, err error) {
 // any number of processes hold shared ones at once, so two that ask at the
 // same moment never take each other for the holder, and the answer comes at
 // once either way. A process taking the lock exclusively in that instant is
-// refused, so one that must have it tries again (see the guard watcher's
-// lock). It opens the file without creating it, so a missing file, which no
-// process can hold, is free and nothing is made.
+// refused, so one that must have it tries again (see [TakeLockIn]). It opens
+// the file without creating it, so a missing file, which no process can
+// hold, is free and nothing is made.
 func LockHeld(path string) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, fs.ErrNotExist) {

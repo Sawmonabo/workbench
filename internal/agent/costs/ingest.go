@@ -64,9 +64,15 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 
 // lockIn takes the import lock in the state folder the gate made, without
 // making a folder: a costs folder moved away from its old path in between
-// leaves a file there, which fails it (see [Paths.moved]).
+// leaves a file there, which fails it (see [Paths.moved]). A lock it finds
+// held it tries again for about 100 ms before it gives up (see
+// [operation.TakeLockIn]): an entry asking whether an import runs (status,
+// and any costs entry that finds an old costs folder beside the new one, see
+// [LocationsIn]) takes a shared lock on a free one for an instant, and a
+// worker that met that instant would otherwise skip its import, as if
+// another worker held the lock, and leave the usage for a later hook.
 func lockIn(paths Paths) (release func(), held bool, err error) {
-	file, held, err := operation.TryLockIn(paths.lock())
+	file, held, err := operation.TakeLockIn(paths.lock())
 	if err != nil || held {
 		return nil, held, err
 	}

@@ -196,7 +196,11 @@ when a headless `claude -p` session ends, so the ingest would race the exit.
 
 The worker:
 
-1. Takes a non-blocking exclusive lock on `ingest.lock`. If held, exits.
+1. Takes a non-blocking exclusive lock on `ingest.lock`, up to six tries
+   20 ms apart when it finds it held, since an entry asking whether a
+   worker runs (`status`, and any costs entry that finds an old costs
+   folder beside the new one) takes a shared lock on it for an instant;
+   held at the last try, it exits.
 2. Keeps the log bounded: each write to a log over 400 KB first cuts it in
    place to its newest ~200 KB behind a `cut` record (`operation.AppendLog`,
    `operation.RewriteLog`).

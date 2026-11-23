@@ -392,8 +392,9 @@ wrote from the log (migrations design, section 6.4).
    the absolute path the hook names) resolves to, with that command as
    `argv[0]`, so the watcher knows the installed command to follow (section
    6.5) and the file it runs. Nothing waits for it.
-   The watcher takes the lock itself, and a second watcher that loses the race
-   exits.
+   The watcher takes the lock itself, exclusively, up to six tries 20 ms
+   apart when it finds it held, since an entry asking takes a shared
+   lock for an instant; a second watcher that loses the race exits.
 4. Exit 0 with no output, so the call proceeds unchanged.
 
 ## 6. Watcher
