@@ -351,8 +351,11 @@ and order them.
    more than is kept.
 6. **Every process.** A tracked command keeps each process it has had, by
    PID and start, with its name and its peak resident size: at most 10,000,
-   counting the rest in `unlisted`. The details then say
-   `10,000 of 12,400 kept`.
+   the largest peaks, counting the rest in `unlisted`. The details then say
+   `10,000 of 12,400 kept`. While it runs, a command that holds more than
+   12,500 drops the smallest of those that have exited and keeps every one
+   that still runs, which may yet grow past the rest; only when more than
+   12,500 run at once are running ones dropped by their peak so far.
 7. **The whole run in at most 120 bars.** A tracked command keeps at most
    120 buckets, each the largest of `per` readings. When all 120 are full,
    neighbors merge by their larger value and `per` doubles. The peak is

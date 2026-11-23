@@ -46,11 +46,13 @@ const (
 // each the largest of Per readings (Filled of them in the newest bucket so
 // far), the latest reading, the largest it has had, which is always in the
 // graph, and when it was first tracked. Processes are the processes it has
-// had, by PID and start, each with its latest name and its peak resident size,
-// at most processesKept of them after each cut (see cut); Unlisted counts the
-// ones cut, each once, and Outside are the ones cut that still ran at the last
-// reading, so they are not taken for new processes while they run. The zero
-// value, or one with only Since, is a command not measured yet.
+// had, by PID and start, each with its latest name and its peak resident size:
+// after each cut (see cut) those that run and the largest of those that have
+// exited, at most processesKept in all unless more run; Unlisted counts the
+// ones cut, each once, and Outside are the ones cut while they still ran,
+// only when more than processesCut ran at once, so they are not taken for new
+// processes while they run. The zero value, or one with only Since, is a
+// command not measured yet.
 type usage struct {
 	Buckets   []uint64                 `json:"buckets"`
 	Per       int                      `json:"per"`
@@ -85,9 +87,10 @@ func (u *usage) add(size uint64) {
 	u.Buckets = append(u.Buckets, size)
 }
 
-// processesCut is how many processes a command may hold before cut keeps the
-// largest processesKept: a quarter more, so the cut, which sorts them, runs
-// once for every few thousand new processes, not at every tick.
+// processesCut is how many processes a command may hold before cut drops the
+// smallest of those that have exited: a quarter more than processesKept, so
+// the cut, which sorts them, runs once for every few thousand new processes,
+// not at every tick.
 const processesCut = processesKept + processesKept/4
 
 // saw records the processes of one reading, tree with the resident sizes read
@@ -125,27 +128,37 @@ func (u *usage) saw(tree []proc, sizes map[int]uint64) {
 	u.Outside = outside
 }
 
-// cut keeps the processesKept processes with the largest peaks, counts each
-// other one in Unlisted and adds those of tree among them to outside, which it
-// gives.
+// cut drops the processes that have exited, those not in tree, with the
+// smallest peaks, so the processes kept are those that run and the largest of
+// those that have exited, at most processesKept in all unless more run: a
+// process still running may yet grow past every other, so it is never judged
+// by the peak it has so far. Only when more than processesCut run at once does
+// it keep the processesKept largest of all, and adds those of tree it drops to
+// outside, which it gives. Each process dropped counts once in Unlisted.
 func (u *usage) cut(tree []proc, outside map[procKey]bool) map[procKey]bool {
 	type entry struct {
 		key  procKey
 		peak uint64
 	}
+	live := make(map[procKey]bool, len(tree))
+	for _, p := range tree {
+		live[procKey{p.PID, p.Start}] = true
+	}
+	crowded := len(tree) > processesCut
 	entries := make([]entry, 0, len(u.Processes))
+	running := 0
 	for key, p := range u.Processes {
+		if !crowded && live[key] {
+			running++
+			continue
+		}
 		entries = append(entries, entry{key, p.Peak})
 	}
 	slices.SortFunc(entries, func(a, b entry) int {
 		return cmp.Or(cmp.Compare(b.peak, a.peak), cmp.Compare(a.key.pid, b.key.pid),
 			cmp.Compare(a.key.start, b.key.start))
 	})
-	live := make(map[procKey]bool, len(tree))
-	for _, p := range tree {
-		live[procKey{p.PID, p.Start}] = true
-	}
-	for _, e := range entries[processesKept:] {
+	for _, e := range entries[min(max(processesKept-running, 0), len(entries)):] {
 		delete(u.Processes, e.key)
 		u.Unlisted++
 		if live[e.key] {
