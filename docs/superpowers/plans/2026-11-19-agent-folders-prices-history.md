@@ -51,10 +51,13 @@ Each line names the step that pins it.
 **Interfaces:**
 - Produces, in `internal/platform`:
   - `func SwapNames(a, b string) error`: `unix.Renameat2(AT_FDCWD, a, AT_FDCWD, b, RENAME_EXCHANGE)` on Linux, `unix.RenamexNp(a, b, RENAME_SWAP)` on macOS.
-  - `var ErrSwapUnsupported error`: what `SwapNames` returns (wrapped) for `EINVAL`, `ENOTSUP`, `ENOSYS`.
+  - `var ErrSwapUnsupported error`: what `SwapNames` returns (wrapped) for `EINVAL`, `ENOTSUP`, `EOPNOTSUPP`, `ENOSYS`, and `EXDEV`, which an overlay returns for a folder of a lower layer.
   - `func BootID() (string, error)`: `/proc/sys/kernel/random/boot_id` on Linux, `kern.bootsessionuuid` on macOS.
+  - `func CanSwap(path string) (bool, error)`: whether the file system of the folder at `path` swaps two names (folders rule 5): false for a folder marked by `MarkCannotSwap` on the device it is on now, else the native file system check.
+  - `func MarkCannotSwap(path string)`: marks the folder at `path`, by the extended attribute `user.workbench.cannot-swap` holding its device number, as one whose swap the file system refused (an overlay's lower layer, which no read-only call tells apart); best effort.
 - Produces, in `internal/operation`:
-  - `func MoveFolder(from, to string) (moved bool, err error)`: folders 5.1 rule 3. Makes `filepath.Dir(to)` private, makes a 0600 plain file at `to` holding `platform.BootID()` (replacing a plain file there; an existing folder at `to` returns `moved=false, err=nil`), swaps, and returns `moved=false` with `errors.Is(err, platform.ErrSwapUnsupported)` when the file system cannot swap, after removing the file it made.
+  - `func MoveFolder(from, to string) (moved bool, err error)`: folders 5.1 rule 3. Makes `filepath.Dir(to)` private, makes a 0600 plain file at `to` holding `platform.BootID()` (replacing a plain file there; an existing folder at `to` returns `moved=false, err=nil`), swaps, and returns `moved=false` with `errors.Is(err, platform.ErrSwapUnsupported)` when the file system cannot swap, after removing the file it made and marking `from` with `platform.MarkCannotSwap`.
+  - `func CanMoveFolder(from, to string) (can bool, err error)`: whether `MoveFolder` can move, from paths and the file system only: a folder at `from`, none at `to`, and a file system that can swap or cannot be asked; `err` matches `platform.ErrSwapUnsupported` when `platform.CanSwap(from)` says it cannot. A mover that holds a lock asks first, so a move that cannot happen never takes it.
   - `func IsFolder(path string) bool`: a folder, not a link and not a plain file.
   - `func RemoveClosedPath(path string)`: deletes a plain file at `path` that holds another start's identifier (folders rule 4); does nothing otherwise.
 
@@ -73,11 +76,12 @@ Each line names the step that pins it.
 - Consumes: `operation.MoveFolder`, `operation.IsFolder`, `operation.RemoveClosedPath`, `operation.TryLockFile`.
 - Produces, in `internal/agent/guard`:
   - `func Root(state string) string`: folders rule 2 for the guard: `<state>/guard` while it is a folder and either `<state>/agent/guard` is not or `<state>/guard/watch.lock` is held; else `<state>/agent/guard`. The one place the old name appears outside the move.
-  - `openFolders(part string) (folders, error)` uses `Root`, makes folders only under the new root, and calls `RemoveClosedPath` on the old path.
-  - `func Move(state string) (moved bool, err error)`: folders rule 8, second bullet: takes the watcher's lock at the old path without waiting; when it gets it, `operation.MoveFolder`, release, then start `agent guard watch` when the folder holds a note. Used by the hooks and by migration 0007.
-  - `(w *watcher) moveFolder()`: rule 8, first bullet: called in `Watch` after the lock is held (taken or handed) and before the first tick; on success re-points `w.f`; when it cannot move, the watcher works where it is.
+  - `openFolders(state, part string) (folders, error)` uses `Root`, makes folders only under the new root, and calls `RemoveClosedPath` on the old path.
+  - `func Move(state string) (moved bool, err error)`: folders rule 8, second bullet: takes the watcher's lock at the old path without waiting; when it gets it, `operation.MoveFolder`, release, then start `agent guard watch` when the folder holds a note. Used by the hooks.
+  - `func MigrateMove(state string) (moved bool, err error)`: `Move` for migration 0007, which tries a held lock again for about 100 ms (`operation.TakeLockIn`) and returns an error matching `platform.ErrSwapUnsupported`, and nothing else, when the only failure is a file system that cannot swap.
+  - `(w *watcher) moveFolder() (moved bool, err error)`: rule 8, first bullet: called in `Watch` after the lock is held (taken or handed) and before the first tick; on success re-points `w.f`; when it cannot move, the watcher works where it is.
 - A watcher handed the watch opens nothing in the folder before it has read the word to start (today `Watch` calls `openFolders` first; move that after `takeLock`).
-- Every guard entry retries once through `Root` when a read or write fails and the old path is no longer a folder (rule 2): one helper, `func (f *folders) again() bool`, used by the three hooks.
+- Every guard entry retries once through `Root` when a read or write fails and the old path is no longer a folder (rule 2): one helper, `func (f *folders) again() bool`, used by the three hooks; `agent guard history`, which opens nothing it could hand to `again`, asks `func HistoryFolderMoved(root string) bool` and finds the folder again with `HistoryRoot` or `MakeHistoryRoot`, which retry their own checks the same way.
 
 - [ ] **Step 1:** `Root`, `openFolders`, `again`; route `client.go`, `logs.go` and `0004` through `Root`.
 - [ ] **Step 2:** `Move` and the hooks: each hook calls `Move` when the old folder exists, then proceeds; a pre hook that could not move because the lock is held writes its note where `Root` says.
@@ -95,6 +99,7 @@ Each line names the step that pins it.
 - Produces, in `internal/agent/costs`:
   - `LocationsIn(home string, runtime operation.Paths) Paths` answers folders rule 2 for costs: the ledger in `<data>/costs` and the state in `<state>/costs` while those are folders and either the new ones are not or the import lock there is held; else under `agent/costs`. Data and state resolve separately (a stop between the two moves).
   - `func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error)`: folders rule 11: import lock at the old path without waiting; data folder, then state folder; release (rule 7). Called first by every costs entry before it makes a folder, takes a lock or opens a file, by `gate` before the first costs move, and by `0001`'s check and run (rule 12).
+  - `func MigrateMoveAgentFolders(home string, runtime operation.Paths) (moved bool, err error)`: `MoveAgentFolders` for migration 0007, which tries a held lock again for about 100 ms (`operation.TakeLockIn`).
 - No costs entry makes `<state>/agent/costs` or `<data>/agent/costs` while an old folder exists (today `startWorker`, `Ingest` and `Status` make the state folder before the gate: reorder).
 
 - [ ] **Step 1:** `LocationsIn` and `MoveAgentFolders`; call it at the top of `startWorker`, `Ingest`, `Status`, `Paths.Open`, `Rates`.
@@ -109,7 +114,7 @@ Each line names the step that pins it.
 - Modify: `README.md`, `docs/usage.md`, `docs/acceptance.md`, `docs/superpowers/specs/workbench-design.md`, `workbench-contracts.md`, `AGENTS.md`
 - Create: `docs/adr/0019-agent-folders.md`
 
-- [ ] **Step 1:** `0007-agent-folders`: `Check` is pending while an old path holds a folder, done otherwise (a file system that cannot swap counts as done, with that reason in the text, folders rule 5); `Run` calls `costs.MoveAgentFolders` and `guard.Move`, deletes what folders rule 6 lists from an old folder left beside a new one, and returns what it left.
+- [ ] **Step 1:** `0007-agent-folders`: `Check` is pending while an old path holds a folder, done otherwise (a file system that cannot swap counts as done, with that reason in the text, folders rule 5); `Run` calls `costs.MigrateMoveAgentFolders` and `guard.MigrateMove`, deletes what folders rule 6 lists from an old folder left beside a new one, and returns what it left.
 - [ ] **Step 2:** `doctor` names an old folder that stays (rules 5 and 6).
 - [ ] **Step 3:** Documents and `AGENTS.md` as folders 6 says; ADR 19 with the three approaches of folders 4.2.
 - [ ] **Step 4:** Gates. Commit `feat(migrate): move the costs and guard folders under agent/`.
@@ -140,7 +145,7 @@ Nothing after this task is built until every step passes. If the release before 
 
 **Interfaces:**
 - Produces: `package sqlitefile`
-  - `type Options struct { Create bool; ReadOnly bool; Pragmas []string; TxLock string }`
+  - `type Options struct { Create bool; ReadOnly bool; Pragmas []string; TxLock string; Prepare func(*sql.DB) error }`: `Prepare` checks the file, and makes its schema, before the switch to WAL, which only a file it accepted gets.
   - `func Open(path string, o Options) (*sql.DB, error)`: with `Create`, makes the file empty and 0600 before SQLite opens it when it is missing (`O_CREATE` without `O_EXCL`); opens through the `sqlite` driver with each of `Pragmas` as `_pragma=` and `_txlock=TxLock`; switches to WAL, retrying up to 50 times while the error is busy. `ReadOnly` opens `mode=rw` with `query_only(1)` and never creates (history rule 1).
   - `func IsBusy(err error) bool`
   - The one import of `modernc.org/sqlite` outside the ledger's error handling.
@@ -158,12 +163,12 @@ Nothing after this task is built until every step passes. If the release before 
 
 **Interfaces:**
 - Consumes: Task 3 (`LocationsIn`), Task 6.
-- Produces: tables `prices` and `price_lists` exactly as prices rule 1; `(l *Ledger) officialRates(ctx, tool) (officialFile, error)` and `(l *Ledger) replaceOfficial(ctx, tool, officialFile) error` in place of `readOfficial` and `writeOfficial`; `loadCard(ctx, l *Ledger) (Card, error)` (no overrides layer; `Card.Overrides` and `HasOverrides` go).
+- Produces: tables `prices` and `price_lists` exactly as prices rule 1; `(l *Ledger) officialRates(ctx, tool) (officialFile, error)` and `(l *Ledger) replaceOfficial(ctx, tool, officialFile) error` in place of `readOfficial` and `writeOfficial`; `loadCard(ctx, home string, ledger *Ledger) (Card, error)` (no overrides layer; `Card.Overrides` and `HasOverrides` go).
 
 - [ ] **Step 1:** Schema 6 and the upgrade from 5: in the upgrade's transaction, read each `<tool>/rates-official.json` beside the ledger into the two tables; a file that is missing or unreadable fills nothing (prices rule 2).
 - [ ] **Step 2:** Safeguard `TestUpgradeToSixKeepsRowsAndPrices` in `ledger_test.go`, risk beside it: a version 5 ledger with rows, one valid list file, one missing and one unreadable; after opening, every row is there, the valid file's prices are in `prices`, and the open succeeded.
 - [ ] **Step 3:** Refresh (download with no transaction open, then one short transaction, prices rule 3), `loadCard`, the reports, `agent costs rates` through the ledger (rule 5), `status` without its overrides line and field (rule 7).
-- [ ] **Step 4:** `0001`: no overrides, no `CLAUDE_COSTS_RATES`, still moves the list files; change its two tests to expect the overrides file untouched.
+- [ ] **Step 4:** `0001`: no overrides, no `CLAUDE_COSTS_RATES`, still moves the list files; its safeguard proves that a file Workbench did not write in each old folder stays, byte for byte, and is named.
 - [ ] **Step 5:** `0008-price-lists` (rule 6): opens the ledger first, then deletes the list files and their emptied folders.
 - [ ] **Step 6:** Proof in a scratch home holding an rc.9 ledger with rows and both list files: `workbench agent costs` before and after the new build prints the same totals; after `migrate`, the costs data folder holds only the ledger. Documents. Gates. Commit `feat(costs): keep downloaded prices in the ledger and drop the overrides file`. **Chunk review.**
 
@@ -184,7 +189,8 @@ Nothing after this task is built until every step passes. If the release before 
   - `func OpenHistory(root string, write bool) (*History, error)`; schema and pragmas exactly as history 6.1 and 6.2.
   - `(h *History) Insert(ctx, Finished) error` (rule 4), `Trim(ctx, now time.Time) (deleted int, again bool, err error)` (rule 5: one step of at most 200 commands, 2,000 process rows and 512 KiB of command text), `Keep(ctx) (time.Duration, error)`, `SetKeep(ctx, time.Duration) error`
   - `(h *History) After(ctx, seq int64) ([]Summary, error)`, `Lowest(ctx) (int64, error)`, `Details(ctx, seq int64) (Finished, error)`, `Find(ctx, text string) ([]int64, error)`, `Count(ctx) (rows int, bytes int64, err error)`
-  - `func MoveDamaged(root string) (to string, err error)` (rule 9) and `var ErrHistoryUnusable error`
+  - `(h *History) Check() error`: the writer's look, once a minute, that the path names the file it opened and that its header is a database's (rule 9), noting the `-wal` and `-shm` beside it; `Close() error`: a writer whose path names no file, or another one, first checkpoints the WAL into the file it opened and then deletes that file's `-wal` and `-shm` still at the path.
+  - `func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, err error)` (rule 9: keeps at most two copies, deletes one older than `since` first, and returns when the copy it deleted to make room had been set aside) and `var ErrHistoryUnusable error`
   - Limits as constants: `historyKeepDefault = 24 * time.Hour`, `historyRows = 20000`, `historyBytes = 256 << 20`, `commandKept = 64 << 10`, `processesKept = 10000`, `graphBars = 120`.
 
 - [ ] **Step 1:** Write the store.
@@ -199,7 +205,7 @@ Nothing after this task is built until every step passes. If the release before 
 
 **Interfaces:**
 - Consumes: Task 8; Task 2 (`moveFolder` runs before the writer opens the file, history rule 11).
-- Produces: `protocolVersion = 2`; `Snapshot.Pending []Finished`, `Snapshot.HistoryError string`; `usage{ Buckets []uint64; Per int; Last uint64; Peak uint64; Since time.Time; Processes map[procKey]*ProcessPeak; Unlisted int }` (history rules 6 and 7); `carried.Pending []Finished` in place of `Finished`; `type historyWriter` with `start(root string)`, `submit(Finished)`, `done() []string`, `failure() string`, `drain(time.Duration) (left int)`.
+- Produces: `protocolVersion = 2`; `Snapshot.Pending []Finished`, `Snapshot.HistoryError string`; `usage{ Buckets []uint64; Per int; Filled int; Last uint64; Peak uint64; Since time.Time; Processes map[procKey]*ProcessPeak; Unlisted int; Outside map[procKey]bool }` (history rules 6 and 7); `carried.Pending []Finished` in place of `Finished`; `type historyWriter` with `start(root string)`, `submit(Finished)`, `done() []string`, `failure() string`, `drain(time.Duration) (left int)`, and `lasts(name string, level slog.Level, event, msg string, args ...any)` and `ended(name string) bool` for the record of a watcher's problem that lasts, which each cut of the log logs again before it would delete it.
 
 - [ ] **Step 1:** `usage`: the buckets that merge by their larger value and double `Per` at 120, the latest reading, each process's peak up to 10,000.
 - [ ] **Step 2:** `finish` builds a `Finished` and puts it on the pending list (at most 2 MiB, oldest dropped and counted in the log); `w.finished` and `finishedShown` go.
