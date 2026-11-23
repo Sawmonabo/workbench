@@ -267,6 +267,29 @@ func (a *ancestry) carry(now time.Time) []carriedOrigin {
 	return out
 }
 
+// chain is the entry of key and each entry on its chain of parents, key's
+// first, as carry gives them but without versions, for a unit's record on
+// disk (see unitRecord): a process is tied by version only within a minute
+// of when it was last seen, which a record written when it changes does not
+// tell. It is empty when key is not recorded.
+func (a *ancestry) chain(key procKey) []carriedOrigin {
+	var out []carriedOrigin
+	for seen := map[procKey]bool{}; !seen[key]; {
+		e := a.entries[key]
+		if e == nil {
+			break
+		}
+		seen[key] = true
+		c := carriedOrigin{Process: procRef{PID: key.pid, Start: key.start}, Owner: e.owner}
+		if _, ok := a.entries[e.parent]; ok {
+			c.Parent = &procRef{PID: e.parent.pid, Start: e.parent.start}
+		}
+		out = append(out, c)
+		key = e.parent
+	}
+	return out
+}
+
 // adopt merges what a watcher handing over carried into the store at now. An
 // entry the store does not hold is added with its owner; one it holds keeps
 // its own. A parent is set only on an entry that has none, so a parent, once

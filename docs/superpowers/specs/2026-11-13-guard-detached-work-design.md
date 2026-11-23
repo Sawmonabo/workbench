@@ -833,7 +833,8 @@ which it could only do by taking the watcher's lock for a moment: an ended
 note waits for the next watcher, and every pre hook starts one when none
 runs. Records outlive their calls while the agent runs, the newest 4,096 in
 all, and pass to the next watcher at a handover with the tracked commands. A
-watcher that starts fresh has none.
+watcher that starts fresh has none but the record of each call a unit it
+takes on names (5.6).
 
 The first of these that applies:
 
@@ -909,6 +910,35 @@ time passes: a wall clock that steps would make a root look older
 than it is, so each root's ten seconds start again at the handover. The old
 watcher gives what it carries 5 seconds to be read; a successor that does
 not read it in time is cancelled and the old watcher carries on.
+
+The watcher also keeps a record of each unit it tracks on disk, so a watcher
+that starts fresh, after one that was killed, takes on the work the last one
+tracked. The records are private files, one a unit, `units/<unit id>.json`
+in the guard folder, written when a unit is found or changes, at the end of
+the tick, and deleted when it is forgotten. A record holds the system start
+it was written in (the boot ID), the unit's row, each root's process ID and
+start time with the program it was judged in, whether it is settled and its
+name, the call it is tied to and whether by stamp alone, that call's record,
+whether it is passed over and who stopped it, and the store's entries for
+each root and the recorded processes above it, without versions. Neither
+form of a root's command line is written: the one the view shows is read
+again from the process, and the one a root was judged in on Linux may hold
+environment strings. A watcher that starts fresh reads the records at its
+first tick, where a handover's carried units are taken on, and takes on each
+unit with the roots that still run with their start time, in the same
+system start, as it takes on a carried unit, with the call's record and the
+unit's agent as a known agent while that agent is in the process table. It
+deletes the other records: one of another system start, one none of whose
+roots runs, one that does not parse. One it cannot read stays. A root taken
+on this way is judged again where its program cannot be compared: on Linux,
+since its judged command line was not written, every root is pending until
+it is judged again, as one that started another program is. No root's time
+passes, as at a handover, and the unit's memory starts anew. At a handover
+the units pass as above; the new watcher rewrites the record of each unit it
+was handed and deletes the rest. A watcher that starts fresh does not have
+what a handover carries beyond the records: what the old watcher measured,
+its follow of a person's stop under way (5 seconds to `SIGKILL`), the final
+verdicts, and the store's entries for processes that exited.
 
 ## 6. Measuring and stopping
 

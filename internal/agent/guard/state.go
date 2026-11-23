@@ -42,12 +42,13 @@ type agentFile struct {
 	At    time.Time `json:"at"`
 }
 
-// folders is the guard folder (see Root) and its notes, killed and agents
-// folders, with the state folder that holds it, the part (pre, post, session
-// or watch) that opened them and its logger.
+// folders is the guard folder (see Root) and its notes, killed, agents and
+// units folders, with the state folder that holds it, the part (pre, post,
+// session or watch) that opened them and its logger. Only the watcher uses
+// units (see unitRecord).
 type folders struct {
-	state, root, notes, killed, agents, part string
-	logger                                   *slog.Logger
+	state, root, notes, killed, agents, units, part string
+	logger                                          *slog.Logger
 }
 
 // stateFolder is Workbench's state folder. It reads nothing and creates
@@ -107,6 +108,7 @@ func (f folders) at(root string) folders {
 	f.notes = filepath.Join(root, "notes")
 	f.killed = filepath.Join(root, "killed")
 	f.agents = filepath.Join(root, "agents")
+	f.units = filepath.Join(root, "units")
 	return f
 }
 
@@ -137,6 +139,17 @@ func (f *folders) open() error {
 	}
 	operation.RemoveClosedPath(oldRoot(f.state))
 	return nil
+}
+
+// makeUnits makes the units folder private, for the watcher alone, which
+// holds the folder's lock, so the folder stays where it is meanwhile, at its
+// old path too (see Move).
+func (f folders) makeUnits() error {
+	name, err := filepath.Rel(f.state, f.units)
+	if err == nil {
+		_, err = operation.PrivateDirectory(f.state, name)
+	}
+	return err
 }
 
 // makeRoot makes the guard folder private when it is at its new path, before
@@ -231,6 +244,7 @@ func (f folders) output() string          { return outputFile(f.log()) }
 func (f folders) socket() string          { return socketFile(f.root) }
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
 func (f folders) record(id string) string { return filepath.Join(f.killed, id+".json") }
+func (f folders) unit(id string) string   { return filepath.Join(f.units, id+".json") }
 
 func (f folders) agent(pid int, start uint64) string {
 	return filepath.Join(f.agents, fmt.Sprintf("%d-%d.json", pid, start))

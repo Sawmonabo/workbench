@@ -790,7 +790,8 @@ parallelism or a smaller input.
   under dry-run it is only logged.
 - **Crash or reboot:**
   - Commands keep running, unguarded, until the next command's pre hook starts
-    a new watcher.
+    a new watcher, which takes on the detached work the last one tracked
+    from its records on disk (the detached work design, 5.6).
   - Nothing survives a reboot.
   - On start, a watcher deletes notes whose agent (PID plus start time) is
     gone, once absent from two rounds.

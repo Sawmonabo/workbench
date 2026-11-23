@@ -295,6 +295,16 @@ type watcher struct {
 	dropped   int
 	history   historyWriter
 	letGo     bool
+	// unitsSaved is what saveUnits last wrote of each unit's record, nil until
+	// it has listed the units folder; boot is the system start the records
+	// name, read once; unitSaveFailed is set once a failed read or save of
+	// them is logged, until a save goes through; unitsRead is set once a tick
+	// has taken on what the watcher before it left, carried or in the records
+	// (see restoreUnits).
+	unitsSaved     map[string][]byte
+	boot           string
+	unitSaveFailed bool
+	unitsRead      bool
 	// list, tickSnap and tickBelow are the process list, snapshot and parent
 	// index each tick builds again in the last tick's (see tickSnapshot,
 	// snapshot.belowInto). Only tick builds them, and nothing keeps them, or
@@ -686,10 +696,15 @@ func (w *watcher) tick() time.Duration {
 		return time.Second
 	}
 	w.forget(s)
-	if w.inherited != nil {
+	switch {
+	case w.inherited != nil:
 		w.adopt(s, notes)
-		w.inherited = nil
+		w.dropStrayUnits()
+		w.inherited, w.unitsRead = nil, true
+	case !w.unitsRead:
+		w.unitsRead = w.restoreUnits(s)
 	}
+	defer w.saveUnits()
 	agents, protected := w.agents(s, notes)
 	w.followManual(s, protected)
 	w.drainStops(s, notes, protected)

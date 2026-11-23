@@ -577,18 +577,18 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 	}
 }
 
-// adoptUnit takes on a carried unit with its made-up note, which is never on
-// disk, its roots, call, command line and memory, and whether it is passed
-// over. Its roots are children of the init process, not of its agent, so
-// none is asked to be the agent's child. No root's time crosses the
-// handover, since a clock that jumps would make it look older: each starts
-// its wait before the guard may stop it (see ownStop) again. Each live
-// root is marked judged, so it is not found again as a unit of its own, and
-// its stamps are read again, so an agent they name stays protected; the
-// roots carry the entries the ancestry store held for them, and their trees
-// are recorded by recordLineage in this same tick, before units
-// are found. One none of whose roots runs is tracked without a log, and
-// forget ends it.
+// adoptUnit takes on a carried unit, or one restoreUnits read from its
+// record, with its made-up note, which is never in the notes folder, its
+// roots, call, command line and memory, and whether it is passed over. Its
+// roots are children of the init process, not of its agent, so none is
+// asked to be the agent's child. No root's time crosses the handover, since
+// a clock that jumps would make it look older: each starts its wait before
+// the guard may stop it (see ownStop) again. Each live root is marked
+// judged, so it is not found again as a unit of its own, and its stamps are
+// read again, so an agent they name stays protected; the roots carry the
+// entries the ancestry store held for them, and their trees are recorded by
+// recordLineage in this same tick, before units are found. One none of whose
+// roots runs is tracked without a log, and forget ends it.
 func (w *watcher) adoptUnit(s snapshot, id string, unit detached, c *carried) {
 	n, ok := c.Notes[id]
 	if !ok {

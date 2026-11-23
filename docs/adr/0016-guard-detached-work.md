@@ -169,6 +169,11 @@ How to see a call that ends within a tick:
   that of a root the stop signals and that still runs.
 - **A Monitor command's note is cleared.** Claude Code's post hooks also
   match `Monitor`, whose post hook runs when the monitor starts.
+- **A record of each unit on disk.** The watcher keeps one private file a
+  unit in the guard folder, written when the unit is found or changes and
+  deleted when it is forgotten, so a watcher that starts fresh after one was
+  killed takes on each unit whose roots still run with the same start time
+  in the same system start. A handover still carries the units itself.
 
 ## Consequences
 
@@ -212,7 +217,13 @@ How to see a call that ends within a tick:
 - The ten seconds start again at a handover, so detached work is not chosen
   for ten seconds after an update; the store (about 4.1 MB when full), the
   call records and the processes stamps named as agents pass to the next
-  watcher.
+  watcher. They start again too when a watcher that starts fresh takes on a
+  unit from its record, which keeps the unit's call record and the store's
+  entries for its roots and what they came from, but not its memory, the
+  rest of the store or the records of other calls. On Linux and WSL each
+  root it takes on is pending until it is judged again, since the command
+  line it was judged in, which may hold environment strings, is never
+  written to disk.
 - The original-parent record and the versions come from a kernel call that
   is not in Apple's public SDK. If the kernel stops answering it, the guard
   makes no new detached rows, chooses none, and logs that once.

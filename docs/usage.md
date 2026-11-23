@@ -287,7 +287,11 @@ empty environment (`env -i`) reads as unreadable, like a hidden one.
 
 A detached row lasts while any of its processes runs and its agent does; when
 the agent exits, every row of that agent is forgotten, not stopped, and shows
-as finished. Not seen: work a program below
+as finished. It also outlasts the watcher: the watcher keeps a small private
+record of each detached row in `units/` beside its notes, so a watcher the
+next command starts after the last one was killed shows the row again, with
+its call, as long as its programs still run and the machine has not
+restarted; its memory graph starts again then. Not seen: work a program below
 the command's shell double-forks at once when nothing in it shows its
 environment, work handed to a service (a container engine, a launchd or
 systemd job), and another user's process. A command that names one of its own
