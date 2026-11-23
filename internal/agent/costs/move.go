@@ -166,7 +166,8 @@ func moveAgentFolders(
 
 // lockToMove takes with take the import lock that an import working in the
 // old folders holds. ok is false when an import holds it, or when the old
-// state folder moved in between.
+// state folder moved in between. A lock that cannot be taken is named from
+// the home folder in err (see [sqlitefile.FileError]).
 //
 // That lock is in the old state folder. With no folder there, no import of
 // the release before can work in the old data folder, since an import makes
@@ -201,8 +202,10 @@ func (f agentFolders) lockToMove(
 	switch {
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		return nil, false, false, nil
-	case err != nil || held:
-		return nil, false, false, err
+	case err != nil:
+		return nil, false, false, sqlitefile.FileError(f.oldLock(), err)
+	case held:
+		return nil, false, false, nil
 	}
 	return func() { _ = file.Close() }, false, true, nil
 }
@@ -219,8 +222,12 @@ func (f agentFolders) lockNewState(
 	); err != nil {
 		return nil, false, err
 	}
-	file, held, err := take(Paths{State: f.newState}.lock())
+	lock := Paths{State: f.newState}.lock()
+	file, held, err := take(lock)
 	if err != nil || held {
+		if err != nil {
+			err = sqlitefile.FileError(lock, err)
+		}
 		return nil, false, err
 	}
 	return func() { _ = file.Close() }, true, nil

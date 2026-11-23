@@ -265,7 +265,8 @@ func MigrateMove(state string) (moved bool, err error) {
 
 // move is [Move], taking the watcher's lock with take, with refused, apart
 // from err, the error of a swap the folder's file system refused (see
-// platform.ErrSwapUnsupported).
+// platform.ErrSwapUnsupported). A lock that cannot be taken is named from the
+// home folder in err (see [sqlitefile.FileError]).
 func move(
 	state string,
 	take func(string) (*os.File, bool, error),
@@ -274,11 +275,15 @@ func move(
 	if can, err := operation.CanMoveFolder(old, newRoot(state)); !can {
 		return false, err, nil
 	}
-	lock, held, err := take(filepath.Join(old, "watch.lock"))
+	path := folders{}.at(old).lock()
+	lock, held, err := take(path)
 	if err != nil || held {
-		if err != nil && !operation.IsFolder(old) {
+		switch {
+		case err != nil && !operation.IsFolder(old):
 			// Another entry moved it meanwhile.
 			err = nil
+		case err != nil:
+			err = sqlitefile.FileError(path, err)
 		}
 		return false, nil, err
 	}
