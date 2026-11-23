@@ -175,28 +175,43 @@ func agentHooks(home string) []operation.Component {
 	return lines
 }
 
-// guardWatcher is the doctor line for the guard's watcher: whether one
-// answers on its socket. The watcher starts with an agent session and exits
-// when idle, so one that is not running is no problem.
+// guardWatcher is the doctor line for the guard's watcher: whether one runs,
+// told from its lock, as every entry tells it (see guard.WatcherRuns), and,
+// when one does, whether it answers on its socket. The watcher starts with
+// an agent session and exits when idle, so one that is not running is no
+// problem. A lock held with no answer is a watcher that is starting, or one
+// that cannot serve, which the guard log says why; a hook moving the guard
+// folder holds the lock for an instant too.
 func guardWatcher(ctx context.Context) operation.Component {
 	line := operation.Component{
 		Name:    "agent-guard-watcher",
 		Status:  operation.StatusComplete,
 		Message: "running",
 	}
+	runs, err := guard.WatcherRuns()
+	switch {
+	case err != nil:
+		line.Status = operation.StatusConflict
+		line.Message = "cannot tell whether the watcher runs: " + err.Error()
+		return line
+	case !runs:
+		line.Status = operation.StatusSkipped
+		line.Message = "not running; the next agent session starts it, and it exits when idle"
+		return line
+	}
 	ctx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	client, err := guard.Dial(ctx)
-	switch {
-	case errors.Is(err, syscall.ENOENT), errors.Is(err, syscall.ECONNREFUSED):
-		line.Status = operation.StatusSkipped
-		line.Message = "not running; the next agent session starts it, and it exits when idle"
-	case err != nil:
+	if err != nil {
 		line.Status = operation.StatusConflict
-		line.Message = "cannot reach the watcher: " + err.Error()
-	default:
-		_ = client.Close()
+		line.Message = "its lock is held, but nothing answers on its socket: a watcher is " +
+			"starting, or one runs that cannot serve; workbench agent guard logs says why"
+		if !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED) {
+			line.Message += " (" + err.Error() + ")"
+		}
+		return line
 	}
+	_ = client.Close()
 	return line
 }
 

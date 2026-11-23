@@ -17,6 +17,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const logLimit = 1 << 20
@@ -88,6 +89,25 @@ func newRoot(state string) string { return filepath.Join(state, "agent", "guard"
 func Folder(state string) (old, root, lock string) {
 	old = oldRoot(state)
 	return old, newRoot(state), folders{}.at(old).lock()
+}
+
+// WatcherRuns reports whether a process holds the watcher's lock in the
+// guard folder where Root says, asked as every entry asks (see
+// [operation.LockHeld]): a watcher, from its start until it exits, or, for
+// an instant, a hook or `workbench migrate` moving the folder (see Move). It
+// creates nothing, and its error names the lock from the home folder (see
+// [sqlitefile.FileError]).
+func WatcherRuns() (bool, error) {
+	state, err := stateFolder()
+	if err != nil {
+		return false, err
+	}
+	lock := locate(state, "").lock()
+	held, err := operation.LockHeld(lock)
+	if err != nil {
+		return false, sqlitefile.FileError(lock, err)
+	}
+	return held, nil
 }
 
 // lockHeld reports whether a watcher holds the lock of the guard folder at
