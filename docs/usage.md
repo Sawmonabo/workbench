@@ -59,7 +59,7 @@ logged-in `gh`. Never run it as root.
 | `agent costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `agent guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside your role folders, of those that exist; `~/dev` and `~/repos` when no folder answer is saved), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
 | `agent costs rates`, `agent costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page into the ledger, and fetches nothing before there is one), and the ledger's coverage, last ingest, hooks and the age of the official prices it keeps. |
 | `agent costs ingest --worker` | Read new usage into the ledger now, in the foreground, with progress; the apply's Record AI usage step (`agent-costs-ingest`) runs it too. Without `--worker` it is the hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts the worker detached. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. |
-| `agent guard` | A live view of the agent commands the memory usage guard tracks, where you can stop one; see the guard paragraphs below the table. `agent guard logs` prints what the guard did. |
+| `agent guard` | A live view of the agent commands the memory usage guard tracks, where you can stop one, and of the commands that finished; see the guard paragraphs below the table. `agent guard logs` prints what the guard did, and `agent guard history` shows or sets how long finished commands are kept. |
 | `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)), or move the `costs/` and `guard/` folders earlier releases kept in Workbench's data and state folders into `agent/` beside them (see `agent guard` below), or delete the price list files earlier releases downloaded beside the ledger once the ledger holds their prices. It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
 | `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
 
@@ -308,8 +308,9 @@ environment; on Linux and WSL, any). See
 
 `WORKBENCH_GUARD=off` in the agent's environment turns it off;
 `WORKBENCH_GUARD=dry-run` only logs what it would stop. The notes, the log
-(`watch.log`) and the watcher's own output (`watch.err`, and `watch.err.1`
-once that passes 1 MiB) are in Workbench's state folder under `agent/guard/`, and
+(`watch.log`), the watcher's own output (`watch.err`, and `watch.err.1`
+once that passes 1 MiB) and the history of finished commands (`history.db`,
+see below) are in Workbench's state folder under `agent/guard/`, and
 the costs import log and lock under `agent/costs/`. The `costs/` and `guard/`
 folders earlier releases kept at the top of the data and state folders move
 there whole, each in one swap that leaves a small file at the old path until
@@ -322,8 +323,8 @@ watching is dropped; a folder a watcher or an import still works in waits for
 it. On a file system that cannot swap two names, such as HFS+, the folders
 stay and are used where they are, and so does a folder an overlay file
 system keeps in a container image's lower layer, which only the move finds
-out: each `workbench migrate` there tries it again and says why it stays. An old folder found beside one already in
-use is not merged: its logs, output files, locks, sockets, downloaded price
+out: each `workbench migrate` there tries it again and says why it stays. An
+old folder found beside one already in use is not merged: its logs, output files, locks, sockets, downloaded price
 lists and empty folders are deleted, and anything else, such as a ledger or a
 note, stays. `workbench migrate --dry-run` and `workbench doctor` name an old
 folder that stays and why. The hooks
@@ -428,16 +429,20 @@ section 4.1.
 
 `workbench agent guard` shows, live and full screen, each command the watcher
 tracks, newest first: its short ID, status (`● running`, `◌ stopping`), agent,
-subagent, run time, memory now and at its peak, project and command, then,
-dimmed for a minute, those that ended (`✓ done`, `? unmatched` for a call the
-guard never found, `✗ stopped`).
-Detached work has a row of its own, directly under the command that started
-it and joined to it by a tree line before its ID (`├`, and `└` for the last
-under a command), with the same statuses. A command and the detached work
-under it move as one block, and the command's row stays, dimmed once the
-command has ended, for as long as detached work shows under it. Detached work
-whose call is not proven, or whose command the view does not have, has a row
-among the commands. Its ID is `p` and a process ID; it is timed from the start
+subagent, run time, memory now and at its peak, project and command. Below
+them, dimmed, come the commands that finished, newest first, for as long as
+the history keeps them (see below), with their outcome (`✓ done`,
+`? unmatched` for a call the guard never found, `✗ stopped`) and, under ENDED,
+the time each ended (`5:07 PM`), with its date (`Nov 18 5:07 PM`) when more
+than 24 hours are kept and it ended before today.
+While the list is sorted by newest and has no filter, detached work has a row
+of its own directly under the command that started it, joined to it by a tree
+line before its ID (`├`, and `└` for the last under a command), with the same
+statuses. A command and the detached work under it move as one block, and a
+command that has ended stays above its detached work while that runs.
+Detached work whose call is not proven, or whose command is not in the list,
+has a row among the commands, and so does every row while the list is sorted
+by peak or filtered. Its ID is `p` and a process ID; it is timed from the start
 of the program that detached first and shows the command line and PID of its
 first program that still runs (they change when that program exits; the log
 keeps one label for the row, which its details show on an "In the log" line).
@@ -450,57 +455,164 @@ stopped one by one, or together when both are tagged. With
 `WORKBENCH_GUARD=dry-run` your stop only logs; it also only logs for a
 detached program whose setting cannot be read, when the agent's setting is
 `dry-run` or `off`.
+
 The header's first line gives the watcher's state (`● watching`, `○ not
 running`, `○ not connected`), a `memory low` or `memory critical` badge when
-memory runs short, and the clock; below a blank line, the counts (`3 running · 2
-finished`, commands and detached work alike) and, while a watcher answers,
-the memory in use of the installed memory (`mem 11.27/16 GB`), the largest
-peak and the swap in use; then a line that says `dry run: stops are logged,
-not sent` when every shown row, running or finished, is a dry run, or `dry run on 2 of 5 commands: …` when
-some are, each marked `(dry)` in its status. The selected row lies on a slate band across the window, its `▸`
-and ID bold in a light steel; a light terminal gets a light band, and without
-color the row is bold instead. ↑ and ↓ move (there is no `j` or `k`, since `k`
-stops, as in htop), space tags a running row and moves down, enter, → or `l`
-opens the selected one's details (the full command, folder, full ID, for
-detached work its log label, the call that started it when that is proven
-and, when the guard will not stop it itself, a "Note" line saying why, its
-processes and their memory, and a graph of its memory over the last 120
-readings), `k` opens the stop menu for the tagged rows or the selected one,
-with `Stop (polite, force-killed after 5 s)` chosen and `Force kill now` below
-it, esc, ← or `h` closes the menu or the details, and `q`, esc on the list or
-ctrl+c quits. The view never takes the mouse (it asks the terminal for no
-mouse events), so a plain drag selects text on every screen, and in most
-terminals the mouse wheel moves as ↑ and ↓ do: it moves the selection on the
-list, scrolls the details and moves the stop menu's choice (enter still
-sends). The details lay a long command out one step per line, each `|`, `&&`
-or `||` outside quotes starting a line two spaces in (`go test ./... 2>&1`,
-then `| tail -20`), and a `;` ends its line; a test in `[[ ]]`, a `{ }` group,
-a `case … esac` and a command with a here-document stay whole.
-The details show every line and scroll when they are taller than the window: ↑
-and ↓ scroll a line, PgUp and PgDn a page, Home and End go to the ends. The
-watcher stops the command the way it stops for memory, logs it `by=you` and
-tells the agent `Stopped by you (workbench agent guard).` (for detached work,
-the call that started it, when it is proven and its command still runs in the
-foreground; otherwise the stop is in the log only); the bottom line
-shows its answer for
-3 seconds (`stopped 4fQ8nX2a`, `logged 4fQ8nX2a (dry run)` or `4fQ8nX2a already
-finished`). The watcher serves the view on `guard.sock` beside its log, only to
-the same user, and never takes a stop from a process still under an agent with a
-guarded command. In a window under 60 columns or 11 lines the view asks to be
-widened or made taller; narrower windows first shorten COMMAND, then drop
-SUBAGENT, PROJECT, PEAK and AGENT. While no watcher runs it says so, keeps the
-last rows dimmed and reconnects on its own; the watcher starts with the next
+memory runs short, and the clock; below a blank line, the counts (`3 running ·
+2,832 finished`, commands and detached work alike; with no watcher, the
+finished count alone) and, while a watcher answers, the memory in use of the
+installed memory (`mem 11.27/16 GB`), the largest peak since the watcher
+started and the swap in use; then a line that says `dry run: stops are logged,
+not sent` when every command the watcher tracks is a dry run, or `dry run on 2
+of 5 commands: …` when some are, each marked `(dry)` in its status, and a line
+when the history cannot be written, was found damaged and started again, or
+cannot be read (see below). The selected row lies on a slate band across the
+window, its `▸` and ID bold in a light steel; a light terminal gets a light
+band, and without color the row is bold instead. ↑ and ↓ move (there is no `j`
+or `k`, since `k` stops, as in htop), PgUp and PgDn move by a page and Home and
+End to the first or last row, space tags a running row and moves down, enter,
+→ or `l` opens the selected one's details, `/` finds rows by their text, `s`
+sorts the finished rows by their peak, largest first, and again by newest
+(running rows stay on top in their own order), `k` opens the stop menu for the
+tagged rows or the selected one, with `Stop (polite, force-killed after 5 s)`
+chosen and `Force kill now` below it, esc, ← or `h` closes the menu or the
+details, and `q`, esc on the list or ctrl+c quits. The key line ends with the
+selected row's number and the row count (`1/2,837`). The view never takes the
+mouse (it asks the terminal for no mouse events), so a plain drag selects text
+on every screen, and in most terminals the mouse wheel moves as ↑ and ↓ do: it
+moves the selection on the list, scrolls the details and moves the stop menu's
+choice (enter still sends).
+
+`/` opens a one-line input on the bottom line, and the list then shows only
+the rows, running and finished, whose agent, subagent, project, ID or command
+holds the text. Upper and lower case count alike: for a finished command the
+history holds, in any script, by Unicode case folding (`é` finds `CAFÉ`); for
+a running row, or a finished one the history does not hold yet, in ASCII
+letters only. While the input is open every key types, `k`, `q`, `s` and space
+too, except ↑, ↓, PgUp and PgDn, which move the selection, enter, which closes
+the input and keeps the filter, esc, which closes it and clears the filter,
+and ctrl+c, which quits. Typing never waits for the search: the list keeps its
+rows until the answer comes and shows only the answer to the latest text.
+While a filter is kept, the counts say how many rows show and what was found
+(`5 running · 12 of 2,832 finished · find "cargo"`), `/` edits it, esc clears
+it and a second esc quits.
+
+The details show, in this order, the folder, agent, subagent and full ID, for
+detached work its log label ("In the log") and the call that started it when
+that is proven ("Started by"), the status with who stopped it and the run
+time, a "Note" line when the guard will not stop detached work itself, saying
+why, when it started and, once it has finished, when it ended, its memory (now
+and at its peak while it runs, the peak once it has finished), a one-line graph
+of its memory over its whole run (at most 120 bars, each the largest reading
+it stands for and colored by its size as the list colors a size), the command
+and its processes. The lines above the command keep their height while a
+command runs. A command shows whole when it takes at most 4 lines at the
+window's width, else its first 3 and a `… N more lines` row. The processes
+have a count line (`27 running`; for a finished command `143 in all`, or
+`10,000 of 12,400 kept` when it had more than the history keeps), their column
+heads and their rows: a running command's processes with their memory now, in
+the watcher's order, and every process a finished one had with its peak,
+largest first, or `none`. Up to 11 show whole; more show the first 10 and a
+`… N more processes` row. The details lay a long command out one step per
+line, each `|`, `&&` or `||` outside quotes starting a line two spaces in
+(`go test ./... 2>&1`, then `| tail -20`), and a `;` ends its line; a test in
+`[[ ]]`, a `{ }` group, a `case … esac` and a command with a here-document
+stay whole.
+
+In the details ↑ and ↓ choose among the `… more` rows, the chosen one marked
+`▸` and saying `· enter shows all`, and scroll a line when there are none;
+PgUp and PgDn scroll a page and Home and End go to the ends. Enter, → or `l`
+opens the chosen part whole in a side panel on the right half of the window,
+under its title (`Command`, or `Processes · 143 in all, largest first`), while
+the details stay on the left, wrapped to their half, the chosen row saying
+`· shown on the right`; a window under 100 columns gives the panel the whole
+width. In the panel ↑, ↓, PgUp, PgDn, Home and End scroll, a last line says
+which lines show when not all fit (`lines 30 to 58 of 144`), a command longer
+than the history keeps ends with how much was not kept (`… 12 KB more were not
+kept`), and esc, ← or `h` closes it; `k` still stops. The details always open
+with the panel closed. The watcher stops the command the way it stops for
+memory, logs it `by=you` and tells the agent `Stopped by you (workbench agent
+guard).` (for detached work, the call that started it, when it is proven and
+its command still runs in the foreground; otherwise the stop is in the log
+only); the bottom line shows its answer for 3 seconds (`stopped 4fQ8nX2a`,
+`logged 4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`). The watcher
+serves the view on `guard.sock` beside its log, only to the same user, and
+never takes a stop from a process still under an agent with a guarded
+command. In a window under 60 columns or 11 lines the view asks to be widened
+or made taller; narrower windows first shorten COMMAND, then drop SUBAGENT,
+PROJECT, PEAK, AGENT and TIME, in that order, and ENDED stays. While no watcher
+runs it says so, keeps the last rows dimmed, shows the finished commands the
+history holds and reconnects on its own; the watcher starts with the next
 agent command. A command in a git worktree is labeled by its repository and
-worktree (`api/feature-login`). Without a terminal on stdin and stdout, or with
-`--non-interactive`, it exits 3 with `agent guard needs a terminal; use
-workbench agent guard logs --follow`; with `--json`, which it has no output for, it
-exits 3 and points at `agent guard logs --json`; and under a coding agent
-(`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with `agent
-guard is for a person at a terminal`.
+worktree (`api/feature-login`). Without a terminal on stdin and stdout, or
+with `--non-interactive`, it exits 3 with `agent guard needs a terminal; use
+workbench agent guard logs --follow`; with `--json`, which it has no output
+for, it exits 3 and points at `agent guard logs --json`; and under a coding
+agent (`CLAUDECODE` or a Codex variable, as `apply` detects) it exits 3 with
+`agent guard is for a person at a terminal`.
 
 ```bash
 workbench agent guard     # watch, tag and stop agent commands
 ```
+
+The watcher keeps the commands that finished, detached work included, in a
+history: `history.db` in the guard folder, with SQLite's `history.db-wal` and
+`history.db-shm` beside it while it is open, all three readable by you alone,
+since a command's text may hold a token. A finished command keeps its folder,
+agent, subagent, project, ID, outcome and who stopped it, when it started and
+ended, its peak, its memory graph and every process it had with its peak, up
+to 10,000 processes (the largest) and 64 KiB of its command's text. A call
+that ran and returned between two of the watcher's looks, or before any
+watcher ran, is kept as done, without a graph or processes, since nothing was
+measured, and a call whose command was never found is kept as unmatched. A command shows among the
+finished ones, its details too, in the second it ends. The watcher writes the
+history beside its once-a-second look, so a slow disk never delays a stop.
+While a write fails it keeps up to 2 MiB of finished commands in memory,
+dropping the oldest past that, tries again every ten seconds, logs the failure
+once, and the view says the history cannot be written and why. A watcher that
+hands over passes on the commands it has not written, and one that exits waits
+up to a second for them to be written.
+
+Finished commands are kept 24 hours until you set another time; nothing asks
+for one.
+`workbench agent guard history` shows how long they are kept, how many there
+are, the history's size and its file. `--keep` sets the time, in whole hours,
+days or weeks from `1h` to `30d` (`12h`, `3d`, `1w`); any other value exits 2
+and sets nothing. The oldest leave first: a command that ended longer ago than
+the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
+when younger. A shorter time deletes the older commands without asking: the
+view hides them within a second, and the watcher deletes them within a minute
+or, when no watcher runs, the command deletes them itself and says how many. A
+longer time brings none back. The command shows sizes in KB, MB and GB of
+1,024, as the guard shows memory. The global `--json` prints the same facts as fields: `path`,
+`keep_seconds`, `commands` and `bytes`, or with `--keep` `path`,
+`keep_seconds`, `was_seconds` and `deleted`.
+
+On Linux:
+
+```text
+$ workbench agent guard history
+Finished commands are kept 24 hours · 2,832 kept · 3 MB
+~/.local/state/workbench/agent/guard/history.db
+$ workbench agent guard history --keep 12h
+Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
+```
+
+A history the guard cannot use (a file that is not a database, that SQLite
+finds damaged, or whose layout is not the guard history's) is never repaired
+or converted. The watcher moves it, with its `-wal` and `-shm` files, aside to
+`history.damaged.db`, replacing an earlier copy, starts a new, empty history
+with the time kept it last read (24 hours when it read none) and logs both
+paths; while the copy is there, the view says the history was damaged and
+started again and names the copy. The watcher deletes the copy once it is
+older than the time kept, when all it held would have gone anyway. SQLite
+reads from the file only what its cache lacks, so once a minute the watcher
+also checks that the file is still the one it opened and that its header is a
+database's. Only the watcher moves the file: with none running, the view says
+the history cannot be read and shows none of it, and `agent guard history`
+fails the same way (exit 2) and sets nothing. A history that cannot be written
+for another reason, such as a full disk or a permission, stays where it is.
+See [ADR 0020](adr/0020-guard-history.md).
 
 Workbench installs Claude Code's settings, instructions and hooks in
 `~/.claude` and Codex's in `~/.codex`, and never sets `CLAUDE_CONFIG_DIR` or

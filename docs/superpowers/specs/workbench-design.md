@@ -40,7 +40,9 @@ Native qualification and final acceptance are tracked separately in
 | `internal/project/`, `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` | Bounded metadata discovery; configuration of existing uv Python projects/workspaces, Go modules and Cargo packages/workspaces, optional editor/ignore/CI edits and shared recovery. |
 | `internal/agent/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches, remove the guard log's old free-text lines, move the costs and guard folders under `agent/` ([ADR 19](../../adr/0019-agent-folders.md)) and delete the downloaded price lists the costs ledger keeps; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
-| `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why; see the [guard design](2026-10-14-agent-command-guard-design.md). |
+| `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why, and keeps the commands that finished in a history the live view reads; see the [guard design](2026-10-14-agent-command-guard-design.md) and the [guard history design](2026-11-19-agent-guard-history-design.md). |
+| `internal/sqlitefile/` | Opening Workbench's private SQLite files, the costs ledger and the guard history, through the pure-Go driver: a missing file made private before SQLite opens it, the connection string and the switch to WAL. |
+| `internal/jsonc/` | Editing JSON with comments in place, the way an editor does, for the VS Code settings merge, the Windows Terminal default profile and the project editor files. |
 | `internal/platform/` | Every operating-system call and platform fact, in `_darwin.go`/`_linux.go` pairs with the same names; no other package asks which system it runs on (ADR 0012). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
@@ -108,6 +110,8 @@ internal/project/                  Discovery and project configuration
 internal/agent/costs/              AI-tool cost ledger and reports
 internal/migrate/                  Migrations of Workbench's own files
 internal/agent/guard/              Agent command memory guard
+internal/sqlitefile/               Private SQLite files: open, create, WAL
+internal/jsonc/                    JSON with comments edited in place
 internal/platform/                 Operating-system calls and platform facts
 home/                             Existing canonical machine configuration
 project/pythonpolicy/              Portable Python configuration policy, not app scaffolding

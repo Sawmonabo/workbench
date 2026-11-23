@@ -53,7 +53,7 @@ guard's own hooks with `WORKBENCH_GUARD=dry-run`:
   group, holding `<shell> -c '…; exec '<shell>' -c '<command>''` after its
   shell snapshot) → `bwrap` → `codex-linux-sandbox` → the command, in the
   group of the launcher that started it (`pgid` is its parent's PID). The
-  test `TestMatchCodexThroughItsSandbox` in `internal/guard/match_test.go`
+  test `TestMatchCodexThroughItsSandbox` in `internal/agent/guard/match_test.go`
   holds the observed layout. Codex starts its own helpers in groups of their
   own too.
 - **Codex 0.163.0 sets `CODEX_TOOL_CALL_ID`** in each command's environment
@@ -171,7 +171,7 @@ Not yet observed (section 10 step 1):
 ## 3. Parts
 
 The three parts are hidden subcommands of the one `workbench` CLI, in the
-`internal/guard/` package, beside `workbench guard logs`, which shows the
+`internal/agent/guard/` package, beside `workbench agent guard logs`, which shows the
 guard log (section 4.1); `internal/cli/` owns their flags. The guard reuses
 the owners the costs hook already uses: `operation.TryLock` for the
 one-watcher lock (`operation.TryLockFile` and `operation.InheritLock` when a
@@ -188,10 +188,10 @@ service, and it exits after 10 idle minutes (section 6.5).
 
 | Part | Runs | Job |
 |---|---|---|
-| `workbench guard pre` | `PreToolUse` hook on `Bash` | Leaves a note for the call; makes sure the watcher is running. Prints nothing. |
-| `workbench guard watch` | At most one per user, started by `pre`, detached | Finds each noted command, watches machine memory, stops the largest agent command near out-of-memory, records why. |
-| `workbench guard post` | `PostToolUse` (and `PostToolUseFailure` on Claude Code) on `Bash` | Gives the agent the reason if the watcher stopped this call; otherwise prints nothing. Drops the call's note, or marks a background call's posted. |
-| `workbench guard logs` | A person, by hand | Shows the guard log (section 4.1). |
+| `workbench agent guard pre` | `PreToolUse` hook on `Bash` | Leaves a note for the call; makes sure the watcher is running. Prints nothing. |
+| `workbench agent guard watch` | At most one per user, started by `pre`, detached | Finds each noted command, watches machine memory, stops the largest agent command near out-of-memory, records why. |
+| `workbench agent guard post` | `PostToolUse` (and `PostToolUseFailure` on Claude Code) on `Bash` | Gives the agent the reason if the watcher stopped this call; otherwise prints nothing. Drops the call's note, or marks a background call's posted. |
+| `workbench agent guard logs` | A person, by hand | Shows the guard log (section 4.1). |
 
 **Exit status.** `pre` and `post` always exit 0: they recover from panics and
 report errors only to the guard log. The hook commands also end in `|| true`,
@@ -203,13 +203,14 @@ start-up), so a guarded command pays roughly 60–160 ms in total.
 
 ## 4. State
 
-A `guard/` folder inside Workbench's own state folder, the one
+An `agent/guard/` folder inside Workbench's own state folder, the one
 `operation.Resolve` already returns as `Paths.State`, beside `activation.json`,
-`checkpoints/` and `locks/`:
+`checkpoints/` and `locks/`
+([agent folders design](2026-11-19-agent-folders-design.md)):
 
-- macOS: `~/Library/Application Support/workbench/state/guard/`
-- Linux and WSL: `~/.local/state/workbench/guard/` (`$XDG_STATE_HOME/workbench/`
-  or `WORKBENCH_STATE_DIR` when set)
+- macOS: `~/Library/Application Support/workbench/state/agent/guard/`
+- Linux and WSL: `~/.local/state/workbench/agent/guard/`
+  (`$XDG_STATE_HOME/workbench/` or `WORKBENCH_STATE_DIR` when set)
 
 It is made and checked by the operation layer's private-directory owner:
 `0700`, owned by the user, no symlinked parents. It is not in a shared temp
@@ -217,7 +218,7 @@ folder: those have predictable names other users could create first, and the
 macOS temp folder is pruned of files older than three days.
 
 ```
-<state>/guard/
+<state>/agent/guard/
   watch.lock                          held by the running watcher, passed
                                       on at a handover (section 6.5)
   watch.log                           JSON Lines (section 4.1), cut in place
@@ -227,13 +228,17 @@ macOS temp folder is pruned of files older than three days.
                                       watch.err is past 1 MiB renames it to
                                       watch.err.1
   guard.sock                          the watcher's socket for
-                                      `workbench guard memory` (section 6.5)
+                                      `workbench agent guard` (section 6.5)
   notes/<tool_use_id>.json            {agent pid, agent start, kind,
                                        session_id, tool_use_id, command,
                                        noted_start, noted_at, dry_run,
                                        posted, cwd, folder, subagent,
                                        project}
   killed/<tool_use_id>.json           {reason, ...}  written by the watcher
+  units/<unit id>.json                each detached unit the watcher tracks
+                                      (detached work design, 5.6)
+  history.db, -wal, -shm              the finished commands (guard history
+                                      design)
 ```
 
 - **Note fields.** `cwd` is the hook input's `cwd` (Claude Code and Codex)
@@ -288,8 +293,8 @@ empty, section 4), `command` (clipped as in the reason, section 6.4),
 `root_pid` and `size` in bytes; `ended` and `stopping` add `took` (seconds
 since the note, a float) and `peak` (the largest size measured, section
 6.3), `unmatched` adds `took` only, since its command was never measured,
-and `stopping` adds `by` (`guard`, or `you` for a stop from `workbench guard
-memory`); a stop adds `children`, `reason` (the text the agent is told)
+and `stopping` adds `by` (`guard`, or `you` for a stop from `workbench agent
+guard`); a stop adds `children`, `reason` (the text the agent is told)
 and `memory` (the reading: macOS's `level`, or Linux's `available`, `total`
 and `full_avg10`, each with `installed`, `swap_free` and `swap_total`, in
 bytes), and `dry_run` for a dry run; low memory under the floor adds `size`
@@ -313,9 +318,9 @@ PID) when one process could not be read.
 | `gave-up` | A stopped command still runs 10 seconds on (section 6.4). |
 | `refused` | A stop signalled nothing. |
 | `error` | Something could not be read or written, or a hook panicked. |
-| `cut` | The log's first line after a cut in place: `kept` lists the runs of bytes the cuts kept, each `[offset, length]` in bytes ever written to the log, and `next` is the offset of the byte after them. `workbench guard logs` never shows it. |
-| `output` | Only in `watch.err`: a watcher starts writing its output there. `workbench guard logs` never shows it. |
-| `raw` | Only from `workbench guard logs`: a line that is not a record. |
+| `cut` | The log's first line after a cut in place: `kept` lists the runs of bytes the cuts kept, each `[offset, length]` in bytes ever written to the log, and `next` is the offset of the byte after them. `workbench agent guard logs` never shows it. |
+| `output` | Only in `watch.err`: a watcher starts writing its output there. `workbench agent guard logs` never shows it. |
+| `raw` | Only from `workbench agent guard logs`: a line that is not a record. |
 
 The watcher's own stdout and stderr (a crash's trace) go to `watch.err`,
 not to the log: a write there takes no lock, so a cut of the log could lose
@@ -326,7 +331,7 @@ Nothing cuts `watch.err`: a watcher that holds the lock and finds it past
 stdout and stderr at a new `watch.err` (`operation.RotateOutput`); a rename
 moves no byte, so a process still writing to the old file writes on into
 `watch.err.1`. Each watcher then writes an `output` record there, the time
-it started. `workbench guard logs` reads `watch.err.1`, then `watch.err`,
+it started. `workbench agent guard logs` reads `watch.err.1`, then `watch.err`,
 and shows each line that is not a record as a `raw` event, the line in its
 `msg` and no time, placed among the log's records at its watcher's start (lines from
 before any `output` record come first); a line of the log that is not a
@@ -377,7 +382,7 @@ wrote from the log (migrations design, section 6.4).
    other call is not guarded.
 2. Find the agent (section 4) and write `notes/<tool_use_id>.json`.
 3. Try `watch.lock` without waiting. If it is free, release it and start
-   `workbench guard watch` with `operation.StartDetached`: a new session in
+   `workbench agent guard watch` with `operation.StartDetached`: a new session in
    `/`, with stdin on the null device and output appended to `watch.err`.
    It starts the file the hook's own command (`~/.local/bin/workbench`, or
    the absolute path the hook names) resolves to, with that command as
@@ -568,8 +573,8 @@ initial values until section 10 step 4 drives them.
     once.
 - **Measured every tick:** each tick the watcher also sums each tracked
   command's tree, the processes a stop would signal, and keeps per command
-  the last 120 sums (two minutes at the normal tick), its peak and the
-  largest peak of any command. macOS sums the physical footprint, as stops
+  a graph of its whole run in at most 120 bars, each the largest sum it
+  covers, its peak and the largest peak of any command. macOS sums the physical footprint, as stops
   do; Linux sums `/proc/<pid>/statm`'s resident pages, a counter, and reads
   `smaps_rollup`'s Pss, which the kernel builds by walking every mapping,
   only for the sizing above when memory calls for a stop. The sums give the
@@ -659,7 +664,7 @@ With `WORKBENCH_GUARD=dry-run` set for that agent, steps 5 and 6 only log.
 The reason names the command, its size, the machine's state and what to try:
 
 ```
-workbench guard: stopped `uv run pytest -n 8` and its 6 child processes. The
+workbench agent guard: stopped `uv run pytest -n 8` and its 6 child processes. The
 machine was nearly out of memory (1.12 GB of 32 GB available, swap 94 % used)
 and this was the largest agent command, at 9.31 GB. Retry with less
 parallelism or a smaller input.
@@ -730,13 +735,13 @@ parallelism or a smaller input.
   writes on descriptor 5 what lives only in its memory: each tracked
   command's root (PID and start time), note and memory readings, who stopped
   it (`guard` or `you`) when it was signalled, the calls whose command ended
-  or that are passed over, the commands that finished within the last minute
-  and the largest peak. It then closes its copy of the socket without
+  or that are passed over, the finished commands its history does not hold
+  yet and the largest peak. It then closes its copy of the socket without
   removing the file, and exits without another tick; the new one starts
   ticking only on that line, so two watchers never act at once. A stop under
-  way finishes first, since it runs within a tick. The new watcher keeps the
-  finished commands until a minute after each ended and the largest peak,
-  and takes on each carried command with its note, the one on disk or else
+  way finishes first, since it runs within a tick. The new watcher hands
+  those finished commands to its own history's writer, keeps the largest
+  peak, and takes on each carried command with its note, the one on disk or else
   the carried one, since a post hook may have removed it while the watch
   passed. A command whose root still runs as its agent's child is tracked
   again, with its memory and whether it is passed over, and logged
@@ -762,7 +767,7 @@ parallelism or a smaller input.
   - A watcher started by a build without handover runs that build until it
     is idle; `SIGTERM` stops it after any stop under way.
 - **The socket:** the watcher serves `guard.sock`, in this 0700 folder, to
-  `workbench guard memory`. The file itself is made 0600 before anything is
+  `workbench agent guard`. The file itself is made 0600 before anything is
   served, and again when a handover passes it on, so only its owner may
   connect even if the folder's mode changes. It creates it after taking the lock, removing a
   stale file first, takes it over at a handover (above), and removes it when
@@ -786,7 +791,7 @@ parallelism or a smaller input.
   over 5 seconds, is disconnected. A person's stop goes the path of section
   6.4 (`force` sends `SIGKILL` at once), is followed across ticks with the
   same 5-second escalation, is logged `stopping` with `by` `you`, tells the
-  agent `Stopped by you (workbench guard memory).`, and starts no cooldown;
+  agent `Stopped by you (workbench agent guard).`, and starts no cooldown;
   under dry-run it is only logged.
 - **Crash or reboot:**
   - Commands keep running, unguarded, until the next command's pre hook starts
@@ -829,7 +834,7 @@ day.
 
 - **Claude Code:** `home/.chezmoidata/claude.json` `enforced.hooks` gains
   `PreToolUse`, `PostToolUse` and `PostToolUseFailure` entries matching `Bash`.
-  They name `workbench guard pre || true` and `workbench guard post || true`,
+  They name `workbench agent guard pre || true` and `workbench agent guard post || true`,
   each with a 5-second timeout, and the settings merge
   (`modify_private_settings.json`) puts the installed `workbench` in front:
   `~/.local/bin/workbench` for the default bin folder, else its absolute
@@ -876,7 +881,7 @@ trampoline file, `internal/platform/libc_darwin.s`, with the ACL checks' `getatt
    `codex exec`, sandbox on and off, and a background command of each
    (section 2); WSL2, the interactive sessions and Claude Code's sandbox
    remain.
-2. **`internal/guard`:** platform readers, the watcher, the pre and post hooks,
+2. **`internal/agent/guard`:** platform readers, the watcher, the pre and post hooks,
    and the CLI.
 3. **Wiring** (section 8), with `scripts/render-check.sh` for the affected
    roles.
@@ -893,7 +898,7 @@ trampoline file, `internal/platform/libc_darwin.s`, with the ACL checks' `getatt
    - `docs/acceptance.md`: the support claims observed in step 4.
    - The design, contracts and README, where they list hooks.
    - The AGENTS.md ownership table gets a row: "Agent command memory guard |
-     `internal/guard/` (hooks in `home/.chezmoidata/claude.json` and the Codex
+     `internal/agent/guard/` (hooks in `home/.chezmoidata/claude.json` and the Codex
      hooks template)".
 
 Each new agent version can change the shapes in section 6.1. A changed shape

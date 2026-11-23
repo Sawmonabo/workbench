@@ -990,7 +990,9 @@ verdicts, and the store's entries for processes that exited.
   first, so a busy build does not make them anew at every tick. On macOS it
   lets go, at start, of the tables of network services and protocols that
   the SQLite driver's C library builds in every Workbench process; the
-  watcher never opens a database.
+  watcher looks up no service or protocol by name, and neither does the
+  driver, so it still opens its history of finished commands
+  ([guard history design](2026-11-19-agent-guard-history-design.md)).
 
 ## 7. Agents, helpers and unmatched commands
 
@@ -999,8 +1001,8 @@ verdicts, and the store's entries for processes that exited.
   command it could not match (one whose shape no note claims, or one a
   person typed with `!`; 2.1 fact 16).
 - None of them has a row. The view shows what the guard tracks: commands
-  and detached work, and for a minute what ended, an `unmatched` call among
-  them. A row for each agent, for each helper seen alive five seconds and
+  and detached work, and what ended, for as long as the history keeps it,
+  an `unmatched` call among them. A row for each agent, for each helper seen alive five seconds and
   for a running unmatched command, with a line splitting the memory in use
   by the kind of row, was built and dropped: the rows the guard never stops
   crowded the list, and a status column naming a row's kind no longer said
@@ -1032,12 +1034,13 @@ joined to it by a tree mark before its ID (`├`, and `└` for the last under a
 command; `|-` and `` `- `` where the terminal shows no such characters). The
 view builds that order from each unit's launching call: a command and the
 units under it move as one block, the blocks of which any row runs first,
-the newest command first, then the ones that ended. The watcher keeps a
-finished command in its snapshots, past the minute a finished row is shown,
-for as long as a unit its call started is tracked or was finished within
-that minute, so such a unit always has its command above it; it carries the
-finished commands at a handover. A unit whose call did not resolve, or whose
-command is not in the snapshot, is a row among the commands:
+the newest command first, then the ones that ended. A finished command
+stays in the list for as long as the history keeps it
+([guard history design](2026-11-19-agent-guard-history-design.md)), so a
+unit has its command above it while the list is sorted by newest and
+has no filter; the watcher carries the finished commands its history does
+not hold yet at a handover. A unit whose call did not resolve, or whose
+command is not in the list, is a row among the commands:
 
 ```
    ID        STATUS     AGENT   SUBAGENT        TIME   MEMORY     PEAK  PROJECT  COMMAND

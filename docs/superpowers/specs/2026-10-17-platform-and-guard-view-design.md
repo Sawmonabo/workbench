@@ -2,8 +2,8 @@
 
 Status: design, Oct 17, 2026. First, it gathers every operating-system call
 and platform fact into one package, `internal/platform`, so no other package
-asks which system it runs on. Then it changes how `workbench guard logs`
-prints the guard log and adds `workbench guard memory`, a live full-screen
+asks which system it runs on. Then it changes how `workbench agent guard logs`
+prints the guard log and adds `workbench agent guard`, a live full-screen
 view of the commands the guard tracks, from which a person can stop them,
 built on that package. The guard parts build on the
 [agent command guard design](2026-10-14-agent-command-guard-design.md); every
@@ -15,12 +15,16 @@ section number below that names "guard design" points there.
   every fact that differs between macOS and Linux (section 3). Other packages
   call it and never test `runtime.GOOS` or WSL themselves. It lands first,
   on its own, changing no behavior.
-- `workbench guard logs` prints one log line per event, the way log viewers
+- `workbench agent guard logs` prints one log line per event, the way log viewers
   do, with an ID that ties a command's lines together. It has no `--verbose`
   flag: every finished command is shown.
-- `workbench guard memory` shows, live, each command the guard tracks: its
-  status, run time, memory now and at its peak, project, agent and subagent.
-  Arrow keys move, Space tags, Enter opens details, `k` stops, `q` quits.
+- `workbench agent guard` shows, live, each command the guard tracks: its
+  status, run time, memory now and at its peak, project, agent and subagent,
+  and below them the commands that finished, for as long as the history of
+  finished commands keeps them
+  ([guard history design](2026-11-19-agent-guard-history-design.md)).
+  Arrow keys move, Space tags, Enter opens details, `/` finds, `s` sorts by
+  peak, `k` stops, `q` quits.
 - Shown are the commands the guard tracks and the work they started that
   detached, each detached program under its command
   ([detached work design](2026-11-13-guard-detached-work-design.md),
@@ -31,9 +35,8 @@ section number below that names "guard design" points there.
   signals commands, and is logged and told to the agent like the guard's own
   stops.
 - Not in scope: stopping or listing processes the guard does not show,
-  signals other than the polite stop and the forced kill, a history browser
-  inside the view (the log is the history), and keeping the watcher running
-  while nothing is guarded.
+  signals other than the polite stop and the forced kill, and keeping the
+  watcher running while nothing is guarded.
 
 ## 2. Facts this design rests on
 
@@ -222,7 +225,7 @@ home and on Linux in Docker (and the WSL simulation of `render-check.sh`):
 doctor` the same lines, the guard's existing tests pass, and both systems
 build and lint. No new test: AGENTS.md admits none for a move.
 
-## 4. `workbench guard logs`
+## 4. `workbench agent guard logs`
 
 One line per event: time, level, event, then `key=value` pairs in a fixed
 order, `cmd` last because it is the longest.
@@ -254,7 +257,7 @@ Oct 17 14:50:00 INFO  idle
 - **`cmd`** is the command as the guard log records it, clipped as the stop
   reason clips it (guard design 4.1 and 6.4): backticks as `'`, blanks and
   newlines collapsed to one space, at most 120 characters with `…`, so a
-  multi-line command shows on one line, shortened; `guard memory`'s details
+  multi-line command shows on one line, shortened; `agent guard`'s details
   show it whole. A leading `cd PATH &&` or `cd PATH;` is removed; the path
   went into `project`.
 - **Quoting**, as logfmt does: a value holding a space, `"`, `=`, `\` or a
@@ -301,40 +304,51 @@ Oct 17 14:50:00 INFO  idle
 - A stop's `reason` text, the message the agent is told, stays in `--json`
   and the live view's details.
 
-## 5. `workbench guard memory`
+## 5. `workbench agent guard`
 
 A full-screen Bubble Tea program in the alternate screen.
 
 ```
 [WorkBench] Agent Guard  ● watching · 11:33:32 PM
 
-5 running · 2 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
+5 running · 2,832 finished · mem 11.27/16 GB · peak 6.21 GB · swap 3.48/5 GB
 
-   ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK  PROJECT        COMMAND
-▸  7Kp3Rt9m  ● running  claude                8.0s   320 MB  2.48 GB  feature-login  pnpm vitest run
-   3Nd7Lp8z  ● running  codex                  15s   840 MB   910 MB  price-feed     cargo check -p feed
-   01HsQEPc  ● running  claude  implementer    24s  1.52 GB  1.52 GB  api-server     go test ./... 2>&1 | tail -20
-   01PnU61k  ● running  claude  implementer  5m16s     6 MB   166 MB  api-server     scripts/build.sh api
-   └ p87305  ● running  claude  implementer  4m36s  4.20 GB  4.20 GB  api-server     /bin/zsh scripts/build.sh --worker api
-   5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  api-server     rg -n -i digest src
-   2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  api-server     cargo test --workspace
-↑/↓ move  space tag  enter/→ details  k stop  q/esc quit
+   ID        STATUS     AGENT   SUBAGENT      TIME   MEMORY     PEAK     ENDED  PROJECT        COMMAND
+▸  7Kp3Rt9m  ● running  claude                8.0s   320 MB  2.48 GB            feature-login  pnpm vitest run
+   3Nd7Lp8z  ● running  codex                  15s   840 MB   910 MB            price-feed     cargo check -p feed
+   01HsQEPc  ● running  claude  implementer    24s  1.52 GB  1.52 GB            api-server     go test ./... 2>&1 | tail -20
+   01PnU61k  ● running  claude  implementer  5m16s     6 MB   166 MB            api-server     scripts/build.sh api
+   └ p87305  ● running  claude  implementer  4m36s  4.20 GB  4.20 GB            api-server     /bin/zsh scripts/build.sh --worker api
+   5Jx2Gm6r  ✓ done     claude  Explore       0.6s        —    18 MB  11:31 PM  api-server     rg -n -i digest src
+   2Bv6Yc1d  ✗ stopped  claude               1m12s        —  6.21 GB  11:20 PM  api-server     cargo test --workspace
+↑/↓ move  space tag  enter/→ details  / find  s sort  pgup/pgdn page  k stop  q/esc quit  1/2,837
 ```
 
-- **Rows** are the commands the watcher tracks, newest first, then finished
-  ones, dimmed, for 60 s after they end, with their outcome: `✓ done`,
+- **Rows** are the commands the watcher tracks, newest first, then the
+  commands that finished, dimmed, newest first by when they ended, for as
+  long as the history keeps them, with their outcome: `✓ done`,
   `? unmatched` (a call the guard never found: no tick tracked it and no
-  fork wake-up learned its shell), `✗ stopped` (by the guard or by you). A row stopping and
+  fork wake-up learned its shell), `✗ stopped` (by the guard or by you).
+  ENDED is when a finished row ended, on the machine's clock (`5:07 PM`),
+  with its date (`Nov 18 5:07 PM`) when more than 24 hours are kept and it
+  did not end today; a running row leaves it blank. A finished row comes
+  from the snapshot while the history does not hold it yet, and from the
+  history file after that, which the view reads beside the screen after
+  each snapshot, or each second while no watcher answers; each command is
+  one row, whichever holds it. A row stopping and
   waiting on its 5 s shows `◌ stopping`. A dry-run command's status ends in
   `(dry)` (`● running (dry)`), in the list and in its details. Detached work
   has a row of its own in the same columns
   ([detached work design](2026-11-13-guard-detached-work-design.md),
-  section 8), directly under the command whose call started it and joined
-  to it by a tree mark before its ID (`├`, and `└` for the last under a
+  section 8), while the list is sorted by newest and has no filter
+  directly under the command whose call started it and joined to it by a
+  tree mark before its ID (`├`, and `└` for the last under a
   command); a command and what is under it move as one block, and the
   command's row stays, dimmed once the command has ended, for as long as
   detached work shows under it. Detached work whose call is not proven, or
-  whose command the snapshot does not have, is a row among the commands.
+  whose command the list does not have, is a row among the commands, and so
+  is every row while the list is sorted by peak or filtered, the running
+  ones newest first.
   Its ID is `p` and a process ID; it is timed from the start of the program
   that detached first, and its command and its ID (the PID) are those of
   its first root that still runs, which change when that root exits. An
@@ -342,7 +356,8 @@ A full-screen Bubble Tea program in the alternate screen.
   command line read from a
   running process is shown in a form that never holds what may be an
   environment string; one shortened that way ends with ` …`.
-- **Header**, four lines. The first: the brand, bold; the watcher's state
+- **Header**, four lines, more when the fourth wraps or the history adds
+  one. The first: the brand, bold; the watcher's state
   (`●` green and ` watching` while connected, else `○` gold and ` not
   running` or ` not connected`); a badge after the state when memory runs
   short, `memory low` gold and bold or `memory critical` red and bold, and
@@ -350,7 +365,9 @@ A full-screen Bubble Tea program in the alternate screen.
   then a dim ` · ` and the clock (`3:04:05 PM`), inline, which a window too
   narrow for the badge and the clock drops. The second is blank. The third,
   dim: the counts, `N running · M finished`, commands and detached work
-  alike, and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
+  alike (with no watcher, `M finished` alone; with a filter kept, how many
+  of each show and the text, `5 running · 12 of 2,832 finished · find
+  "cargo"`), and, once a watcher has sent a snapshot, `mem USED/INSTALLED`: the
   snapshot's `memory.used`, the memory in use as the system's own monitor
   counts it (the used-memory figure `platform.Memory.Used` carries, section
   2), of the installed memory, bold and not dim, its unit written once when
@@ -361,16 +378,22 @@ A full-screen Bubble Tea program in the alternate screen.
   is no swap. The fourth says
   why no watcher answers or, when every shown command is a dry run (the
   count covering the same rows as the counts, running and finished), `dry run: stops are logged, not sent`, when only some
-  are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold, and
-  is blank otherwise; the dry-run texts fit 60 columns, and a longer text
-  wraps onto another line, so no line is cut.
-- **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop);
+  are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold,
+  then what is wrong with the history: that it cannot be written and why,
+  that it was damaged and started again and where the old file is, or that
+  it cannot be read; it is blank when there is none of these. The dry-run
+  texts fit 60 columns, and a longer text wraps onto another line, so no
+  line is cut.
+- **Keys**: ↑ and ↓ move (no `j`/`k`, since `k` stops, as in htop), PgUp
+  and PgDn move by a page and Home and End to the first or last row;
   Space tags or untags a running row and moves down; Enter, → or `l` opens
-  details; `k` opens the stop menu for the tagged rows, or the selected one;
-  Esc, ← or `h` closes a menu or details; `q`, Esc on the list and ctrl+c
-  quit, as the costs view's Esc does. In details ↑ and ↓ scroll a line,
-  PgUp and PgDn a page, Home and End go to the top and the bottom, `k`
-  stops, Esc, ← or `h` goes back and `q` quits. The view never takes the
+  details; `/` opens find; `s` sorts the finished rows by their peak,
+  largest first, and again by newest, the running rows staying on top, and
+  goes to the first row; `k` opens the stop menu for the tagged rows, or the
+  selected one; Esc, ← or `h` closes a menu or details; `q` and ctrl+c
+  quit, and so does Esc on the list, as the costs view's Esc does, once no
+  filter is kept (it clears a kept filter first). Details and the side
+  panel take the keys below. The view never takes the
   mouse (it reports no mouse events), so a plain drag selects text on every
   screen, and most terminals send a wheel step on the alternate screen as ↑
   or ↓, so the wheel moves the list, scrolls the details and moves the stop
@@ -386,9 +409,30 @@ A full-screen Bubble Tea program in the alternate screen.
   terminal with neither mode scrolls its own window under the wheel, as it
   does for `less`. A
   click on a row does nothing (ADR 14). The key line reads
-  `↑/↓ move  space tag  enter/→ details  k stop  q/esc quit` on the list,
-  `↑/↓ scroll  k stop  esc/← back  q quit` in details and
-  `↑/↓ choose  enter send  esc/← cancel` in the menu.
+  `↑/↓ move  space tag  enter/→ details  / find  s sort  pgup/pgdn page  k
+  stop  q/esc quit` on the list, `esc clear  q quit` in place of `q/esc
+  quit` while a filter is kept, and ends with the selected row's number and
+  the row count (`1/2,837`); a narrow window drops `pgup/pgdn`, `s`,
+  `space`, `enter/→`, `/` and `k` in that order. In details it reads
+  `↑/↓ choose  enter/→ open  pgup/pgdn scroll  k stop  esc/← back  q quit`
+  when a part is cut, else `↑/↓ scroll  k stop  esc/← back  q quit`; in the
+  side panel `↑/↓ scroll  pgup/pgdn page  esc/← close the panel  q quit`;
+  and in the menu `↑/↓ choose  enter send  esc/← cancel`.
+- **Find**: `/` opens a one-line input in place of the key line, holding
+  the text kept before. The list then shows only the rows whose agent,
+  subagent, project, ID or command holds the text, case ignored: the
+  history answers for the finished commands it holds, by Unicode simple
+  case folding, and the view itself for the rows it holds from the
+  snapshot, by ASCII case. The history's search runs beside the screen, a
+  new text cancels the search before, the list keeps its rows until the
+  answer comes and only the answer to the latest text is taken, so typing
+  never waits; a new text goes to the first row. While the input is open,
+  Enter closes it and keeps the filter, Esc closes it and clears the
+  filter, ↑, ↓, PgUp and PgDn move the selection, ctrl+c quits, and every
+  other key edits the text, `k`, `q`, `s` and Space included. A filter that
+  holds nothing says `No command holds "x".`; a search of the history that
+  fails says so on the bottom line, and the filter then holds only the rows
+  from the snapshot.
 - **Stop menu**: a box over the list titled with the command and its memory
   (or the number of tagged rows), with `Stop (polite, force-killed after 5
   s)` selected and `Force kill now` below it. The commands it names are
@@ -399,18 +443,30 @@ A full-screen Bubble Tea program in the alternate screen.
   4fQ8nX2a (dry run)` or `4fQ8nX2a already finished`. A stop reaches only
   its own row: a command and detached work under it are stopped one by one,
   or together when both are tagged.
-- **Details**, in this order: the full command, folder, agent, subagent,
-  full ID, for detached work its label in the log ("In the log", `p` and the
-  PID of its first root, which never changes) and the call that started it
-  when that call is proven ("Started by"), status and run time, a "Note"
-  line while the guard itself will not stop detached work ("The guard will
-  not stop this itself: … You can stop it here.", with why: no call is
-  proved to have started it; it was found, or started its program, less
-  than ten seconds ago; or its setting cannot be read), memory now and
-  peak, the number of processes and the process tree with each process's memory, and last a
-  one-line graph of the command's memory over the last 120 readings. The
-  command is laid out one step per line, as the Google Shell Style Guide
-  lays out a long pipeline
+- **Details**, in this order: the folder, agent, subagent, full ID, for
+  detached work its label in the log ("In the log", `p` and the PID of its
+  first root, which never changes) and the call that started it when that
+  call is proven ("Started by"), status with who stopped it and run time, a
+  "Note" line while the guard itself will not stop detached work ("The
+  guard will not stop this itself: … You can stop it here.", with why: no
+  call is proved to have started it; it was found, or started its program,
+  less than ten seconds ago; or its setting cannot be read), when it
+  started and, once finished, when it ended (each with its date when not
+  today), memory now and at its peak while it runs, its peak once it has
+  finished, a one-line graph of its memory over its whole run (at most 120
+  bars, each the largest reading it covers, colored by size as MEMORY and
+  PEAK are), the command, and its processes. The processes have a count
+  line (`27 running`; for a finished command `143 in all`, or `10,000 of
+  12,400 kept` when it had more than the history keeps), their column heads
+  and their rows: a running command's processes with their memory now, in
+  the watcher's order, and every process a finished one had with its peak,
+  largest first, or `none`. A command taking at most 4 lines at the pane's
+  width shows whole, a longer one its first 3 and a `… N more lines` row;
+  up to 11 processes show whole, more the first 10 and a `… N more
+  processes` row. For a finished command the history holds, the view reads
+  its whole command and processes from the history when the details open,
+  beside the screen. The command is laid out one step per line, as the
+  Google Shell Style Guide lays out a long pipeline
   ([Pipelines](https://google.github.io/styleguide/shellguide.html#s5.5-pipelines)),
   which it applies to `&&` and `||` too: a `|`, `&&` or `||` that stands as
   a token outside quotes starts the next line, two spaces in, and a `;`
@@ -423,15 +479,30 @@ A full-screen Bubble Tea program in the alternate screen.
   separator stays one wrapped line, and so does one that holds a newline
   outside quotes, such as one with a here-document: its author has laid it
   out already, and a here-document's body is data, not steps. The details
-  show every line and never cut one: they lie in a pane that fills the room
-  between the header and the key line and scrolls when they are taller
-  than it. They open at their top; a new snapshot redraws them and keeps
-  the scroll offset, pulled back to their end when they grew shorter. `k`
-  stops from here too; Esc, ← or `h` goes back.
-- **Narrow windows**: COMMAND shrinks first, then SUBAGENT, PROJECT, PEAK
-  and AGENT drop in that order; a project label is clipped at 32 columns, a
-  `REPO/WORKTREE` label from the worktree's start (`api/…ure-login`), so
-  the repository always reads.
+  lie in a pane that fills the room between the header and the key line and
+  scrolls when they are taller than it. They open at their top, with the
+  first `… more` row chosen and the side panel closed; a new snapshot
+  redraws them and keeps the scroll offset, pulled back to their end when
+  they grew shorter. ↑ and ↓ choose among the `… more` rows, the chosen one
+  marked `▸` and saying `· enter shows all`, and scroll a line when there
+  are none; PgUp and PgDn scroll a page, Home and End go to the top and the
+  bottom. `k` stops from here too; Esc, ← or `h` goes back, and `q` quits.
+- **Side panel**: Enter, → or `l` on a `… more` row opens that part whole in
+  a panel on the right half of the window, under its title (`Command`, or
+  `Processes · 143 in all, largest first`), while the details stay on the
+  left, wrapped to their half, the chosen row saying `· shown on the
+  right`; a window under 100 columns gives the panel the whole width. In
+  the panel ↑, ↓, PgUp, PgDn, Home and End scroll it, a last line says which
+  lines show when not all fit (`lines 30 to 58 of 144`), a command the
+  history cut ends with how much was not kept (`… 12 KB more were not
+  kept`), Esc, ← or `h` closes it, `k` stops and `q` quits.
+- **Narrow windows**: COMMAND shrinks first, to 20 cells, then SUBAGENT,
+  PROJECT, PEAK, AGENT and TIME drop in that order, then COMMAND shrinks
+  further; ID, STATUS, MEMORY and ENDED stay. TIME goes last of the columns
+  that drop: the details give it, and a window too narrow for it still shows
+  what runs, its memory now, when it ended and what it was. A project label
+  is clipped at 32 columns, a `REPO/WORKTREE` label from the worktree's
+  start (`api/…ure-login`), so the repository always reads.
   The counts line, about 72 columns in full, drops `· swap …` first, then
   `· peak …`, and is then clipped. Below 60 columns the view says `Widen the
   window to at least 60 columns`, and below 11 lines `Make the window at
@@ -484,19 +555,20 @@ A full-screen Bubble Tea program in the alternate screen.
   The band and the accent are color, so without color the selected row
   keeps its `▸` and is bold instead.
 - **Watcher not running**: the screen says so and that the watcher starts
-  with the next agent command, keeps the last rows dimmed, and reconnects
+  with the next agent command, keeps the last rows dimmed, shows the
+  finished commands the history holds, read each second, and reconnects
   every second without saying so: the screen states the fact, not the
   retry. When a watcher may run but cannot serve the view (another
   release, a socket it cannot reach, or a hello it did not finish, as when
   it is exiting), the header says `not connected`, its fourth line says why,
   and the view tries again each second.
 - **Refusals**, before the screen opens: with `--json` it exits 3 with
-  `guard memory has no JSON output; use workbench guard logs --json`.
+  `agent guard has no JSON output; use workbench agent guard logs --json`.
   Without a terminal on stdin and stdout, or with `--non-interactive`,
-  `guard memory` exits 3 with `guard memory needs a terminal; use
-  workbench guard logs --follow`. Under a coding agent (`CLAUDECODE=1` or
-  the Codex variables AGENTS.md lists, the detection `apply` uses) it exits 3
-  with `guard memory is for a person at a terminal`.
+  `agent guard` exits 3 with `agent guard needs a terminal; use
+  workbench agent guard logs --follow`. Under a coding agent (`CLAUDECODE=1`
+  or the Codex variables AGENTS.md lists, the detection `apply` uses) it
+  exits 3 with `agent guard is for a person at a terminal`.
 
 ## 6. Guard changes
 
@@ -535,8 +607,11 @@ Codex commands with a call ID pair by ID as today.
 ### 6.4 Memory every tick
 
 Each tick the watcher sums each tracked command's tree (guard design 6.3's
-tree, the same processes a stop would signal) and keeps per command the last
-120 sums and the peak. macOS uses the physical footprint, as stops do. Linux
+tree, the same processes a stop would signal) and keeps per command a graph
+of its whole run in at most 120 bars, each the largest sum it covers (when
+the bars are full, neighbors merge into the larger and each bar covers twice
+as many ticks), the peak, and each process it had with its peak resident
+size. macOS uses the physical footprint, as stops do. Linux
 uses `/proc/PID/statm`'s resident pages for this sum; the stop decision keeps
 `smaps_rollup`'s Pss, read only when memory calls for a stop. The `ended`
 and `stopping` records gain `took` (seconds, float), `peak` (bytes), `cwd`,
@@ -562,36 +637,43 @@ and whose processes are gone.
   is still under an agent that has a note (parents only: a detached command
   is not under it, and could use `kill` anyway).
 - **Messages.** JSON Lines in both directions. The view first sends
-  `{"type":"hello","versions":[1]}`; the watcher answers
-  `{"type":"hello","version":1,"release":"v0.1.26"}` with the highest
+  `{"type":"hello","versions":[2]}`; the watcher answers
+  `{"type":"hello","version":2,"release":"RELEASE"}` with the highest
   version both list, or `{"type":"error","error":"no protocol version in
-  common; the watcher speaks 1"}` and closes; the view then says the watcher
+  common; the watcher speaks 2"}` and closes; the view then says the watcher
   runs a different release and to run `workbench update`. Every message has
   one type, and each type uses only its own fields.
 - **Snapshot**, after each tick:
-  `{"type":"snapshot","snapshot":{"at":TIME,"memory":{"level":"normal","installed":N,"used":N,"available":N,"total":N,"swap_free":N,"swap_total":N},"largest_peak":N,"commands":[…]}}`,
+  `{"type":"snapshot","snapshot":{"at":TIME,"memory":{"level":"normal","installed":N,"used":N,"available":N,"total":N,"swap_free":N,"swap_total":N},"largest_peak":N,"commands":[…],"pending":[…],"history_error":""}}`,
   the snapshot nested under `snapshot`, each command with `id` (full),
   `agent`, `subagent`, `project`, `cwd`, `cmd`, `state` (`running`,
   `stopping`, `done`, `unmatched`, `stopped`), `by`, `dry_run` (the note's),
-  `started`, `ended`, `memory`, `peak`, `history` (the last readings),
+  `started`, `ended`, `memory`, `peak`, `history` (the graph of section
+  6.4, oldest bar first),
   `tree` (`pid`, `name`, `memory` per process) for running ones, and the
   row's `kind` (empty for a command, else `detached`),
   its first live root's `pid` and, for detached work, `launched_by`, the
   call that started it when that call is proven, and, on a running unit,
   `held`: why the guard itself will not choose it now (`no call`, `young`,
   `unread`, the first that applies), left out when it may. The commands
-  are those the watcher tracks, then the finished ones, a finished command
-  kept past its minute for as long as detached work its call started shows
-  ([detached work design](2026-11-13-guard-detached-work-design.md),
-  section 8). `kind`, `pid`, `launched_by` and `held` are additions an older
-  view ignores.
+  are those the watcher tracks, newest first by start, detached work
+  included ([detached work design](2026-11-13-guard-detached-work-design.md),
+  section 8); one whose processes are gone shows `done` or `stopped` until
+  the watcher stops tracking it, and is then among `pending` until the
+  history holds it. `pending` are the finished commands the history does not hold
+  yet, oldest first, each whole (its graph, its processes with their peaks,
+  how much of its command was cut and how many processes were not kept),
+  at most 2 MiB of them; and `history_error` is what the view says of the
+  history, empty when there is nothing to say: that it cannot be written
+  and why, or, while the copy of a history it could not use is kept, when
+  it started again and where the copy is.
 - **Stop**: `{"type":"stop","ids":[…],"force":false}`. The watcher answers
   `{"type":"stopped","results":[{"id":…,"ok":true}|{"id":…,"ok":false,"error":"already finished"}]}`.
   It looks each ID up among its tracked commands, never a process number,
   and stops each the way it stops for memory (guard design 6.4: the same
   targets, start-time checks, pidfd on Linux, 5 s escalation; `force` sends
-  SIGKILL at once), telling the agent `Stopped by you (workbench guard
-  memory).` when a call it can reach started what was stopped. In dry-run
+  SIGKILL at once), telling the agent `Stopped by you (workbench agent
+  guard).` when a call it can reach started what was stopped. In dry-run
   mode it logs `would stop` and signals
   nothing.
   A person's stop is asynchronous: the answer comes once the first signal
@@ -671,7 +753,7 @@ that nobody with the right to stop it chose:
 
 - AGENTS.md: the ownership row and the `runtime.GOOS` rule (section 3.5).
 - `docs/adr/0012-platform-package.md` (section 3.5).
-- `docs/usage.md`: the new `guard logs` format and the `guard memory`
+- `docs/usage.md`: the new `agent guard logs` format and the `agent guard`
   command, keys and refusals.
 - The guard design: note fields (section 4), log keys (4.1), pairing by
   folder (6.1), memory each tick and the socket (6.5).

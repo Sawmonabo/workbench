@@ -50,7 +50,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
   the answers or choices (migration 0005's own rewrite keeps it); `answers import` still
   refuses it in its file.
 - Preserve user data and native tool interoperability. Reject unsupported state
-  without deleting or converting it.
+  without deleting or converting it. One exception: the agent command guard
+  moves aside a history of finished commands it cannot use
+  (`history.damaged.db`, beside it), starts a new one, and deletes the copy
+  once it is older than the time kept, when all it held would have gone
+  anyway (ADR 0020).
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the
@@ -153,7 +157,8 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Portable Python, Go and Rust project policies | `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` |
 | AI-tool cost ledger, ingest, rates (the downloaded prices kept in the ledger) and reports, in `agent/costs/` of the data and state folders, and the move of those folders under the import lock (`move.go`) | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
-| Agent command memory guard, in `agent/guard/` of the state folder, and the move of that folder under the watcher's lock (`state.go`, `handover.go`) | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
+| Agent command memory guard, in `agent/guard/` of the state folder, the move of that folder under the watcher's lock (`state.go`, `handover.go`), and the history of finished commands (`history.db`: its schema, writes, trim, reads, the time kept and moving a damaged one aside, in `history.go`) | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`; `agent guard history` in `internal/cli/agentguard.go`, and the view's list, find, details and side panel in `internal/cli/agentguardview.go`) |
+| Opening Workbench's private SQLite files (the costs ledger and the guard history): the driver, the private create before SQLite opens a file, the connection string and the switch to WAL | `internal/sqlitefile/` (each file's own checks and schema stay with its owner) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |
 
 `.chezmoiroot` selects `home/`; application source, project policy and docs are

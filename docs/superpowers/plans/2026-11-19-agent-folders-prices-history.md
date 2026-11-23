@@ -239,7 +239,7 @@ Nothing after this task is built until every step passes. If the release before 
 - Modify: `docs/usage.md`, `docs/acceptance.md`, `docs/superpowers/specs/2026-10-17-platform-and-guard-view-design.md`, `AGENTS.md`
 - Create: `docs/adr/0020-guard-history.md`
 
-- [ ] **Step 1:** As history 8 says (the design's "ADR 19" is ADR 20, since the folders took 19; change that word in the design too).
+- [ ] **Step 1:** As history 8 says, with ADR 20 for the store and its limits.
 - [ ] **Step 2:** Gates. Commit `docs(guard): describe the history and its limits`. **Chunk review.**
 
 ---

@@ -35,9 +35,11 @@ synthetic answers.
   a project-controlled tool trusted, the Mac password staying out of files,
   sudo's arguments and environment, answered only to the apply's own processes
   and its sudo approval dropped when the apply ends, no password read or
-  helper made where sudo already uses Touch ID (all macOS), and the costs ledger keeping every response and upgrade
-  row, every row when its folder moves under `agent/`, and every row and
-  price list through its upgrade to version 6.
+  helper made where sudo already uses Touch ID (all macOS), the costs ledger
+  keeping every response and upgrade row, every row when its folder moves
+  under `agent/`, and every row and price list through its upgrade to version
+  6, and the guard's history of finished commands, with SQLite's WAL and
+  shared-memory files beside it, readable by its owner alone.
 
 ### Releases, install and update
 
@@ -1264,6 +1266,31 @@ synthetic answers.
   whose own pre hook started the watcher was not seen. The session hook, run
   for a stand-in agent, added its line to the env file once, and not again
   when it ran again for a resumed session.
+- The watcher keeps the commands that finished, detached work included, in
+  `history.db` in the guard folder, private like the folder's other files,
+  for 24 hours or the time `agent guard history --keep` sets (1h to 30d), and
+  at most 20,000 commands and 256 MiB; a history it cannot use is moved aside
+  to `history.damaged.db` by the watcher alone, a new one is started, and the
+  copy is deleted once it is older than the time kept (target). On
+  2026-11-22, on macOS in a disposable home: `agent guard history` with no
+  history printed `none kept yet` and the file's path and exited 0, and with
+  `--json` gave `keep_seconds` 86400, `commands` 0 and `bytes` 0. `--keep`
+  with `0h`, `31d` or `90m` exited 2. `--keep 12h` made `history.db` at 0600
+  in 0700 folders and said that none was older; `--keep 1w` said that those
+  already deleted do not come back, and, run again, `as before`; `--keep 3d
+  --json` gave `was_seconds` 604800 and `deleted` 0. With three commands
+  that ended two days before and one recent, `--keep 1d` with no watcher
+  said that 3 older ones were deleted, and one stayed. With the file
+  overwritten by other bytes, `agent guard history` and `--keep 12h` each
+  exited 2, saying the history is unreadable, and left the file in place; a
+  watcher started on it moved it to `history.damaged.db`, started a new
+  `history.db` (it and its `-wal` and `-shm` at 0600 while open) and logged
+  both paths, and that it keeps 24 hours since the time kept was never read.
+  That watcher could not serve its socket, whose path in the disposable home
+  was too long, so nothing connected to it. Not yet observed: the view
+  drawing the history (its list, find, details and side panel), a serving
+  watcher writing, trimming and handing over commands it has not written, a
+  write that fails, the copy's deletion, and Linux and WSL2.
 - Not yet observed: a stop under real memory pressure on macOS or WSL2, or on
   Linux outside a memory-limited cgroup; either agent's interactive session,
   Claude Code's own sandbox and either agent on WSL2 with the guard enabled,
@@ -1425,7 +1452,8 @@ synthetic answers.
 | Ubuntu | Native 22.04/24.04/26.04 amd64/arm64 bundle/provisioning checks. A container, cross-builds and CI rendering are insufficient. A 24.04 arm64 VM ran full provisioning from a local bundle once, with one step failed on the apt lock (since fixed), and later completed it from another local bundle after a blocked nvm download was reported and retried. |
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked, including the WSL VS Code server install. |
-| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose. |
+| Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose; the history of finished commands drawn in the view and kept by a serving watcher on each platform, and the guard folder moved under `agent/` while a watcher of the release before runs. |
+| Costs | A real version 5 ledger upgraded to version 6, with its price lists and report totals unchanged, and the costs folders moved under `agent/` while an import runs. |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and

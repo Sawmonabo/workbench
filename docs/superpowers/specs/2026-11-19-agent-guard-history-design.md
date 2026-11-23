@@ -68,9 +68,8 @@ Anti-goals:
 3. `ENDED` is a new column, right-aligned, empty for a running row. It holds
    the time a command ended (`5:07 PM`). When more than 24 hours are kept, a
    row that ended before today also holds its date (`Nov 18 5:07 PM`).
-4. Columns drop in a narrow window in today's order (SUBAGENT, PROJECT, PEAK,
-   AGENT). `ENDED` never drops. With times only, PROJECT shows from 128
-   columns; with dates, from 135.
+4. In a narrow window COMMAND shrinks first, to 20 cells, then SUBAGENT,
+   PROJECT, PEAK, AGENT and TIME drop in that order. `ENDED` never drops.
 5. `s` sorts the finished rows by largest peak, and again by newest. Running
    rows stay on top in their own order.
 6. `pgup`, `pgdn`, `home` and `end` move the selection by a page or to an
@@ -164,7 +163,7 @@ later. One command shows and changes it:
 
 ```
 $ workbench agent guard history
-Finished commands are kept 24 hours · 2,832 kept · 3.2 MB
+Finished commands are kept 24 hours · 2,832 kept · 3 MB
 ~/.local/state/workbench/agent/guard/history.db
 
 $ workbench agent guard history --keep 12h
@@ -172,7 +171,8 @@ Finished commands are kept 12 hours (was 24 hours); older ones are deleted withi
 ```
 
 `--keep` takes hours, days or weeks (`12h`, `3d`, `1w`) from one hour to
-30 days.
+30 days. Sizes are in KB, MB and GB of 1,024, whole below 1 GB, as the guard
+shows memory.
 
 The oldest finished commands leave first, on one limit a person sets and two
 fixed ones that bound the list and the disk:
@@ -185,8 +185,9 @@ Past the count or the size, the oldest are deleted even when they are
 younger than the time kept.
 
 A shorter time deletes the older commands without asking: the view hides
-them at once and the watcher deletes them for good within a minute. A longer
-time brings nothing back.
+them at once and the watcher deletes them for good within a minute; with no
+watcher serving its socket, `--keep` deletes them itself and says how many.
+A longer time brings nothing back.
 
 ## 4. Constraints
 
@@ -308,7 +309,9 @@ and order them.
 1. **One writer.** In the watcher, one goroutine owns the only connection
    that inserts and deletes commands; the tick never touches the file.
    `agent guard history --keep` writes the one `settings` row from its own
-   process. The view never writes: it opens the file with `mode=rw` (a WAL reader
+   process and, when no watcher serves its socket, trims the history itself
+   as the writer does (rule 5), since no writer would until a watcher
+   starts. The view never writes: it opens the file with `mode=rw` (a WAL reader
    must be able to write the `-shm` file) and `query_only(1)`, and never
    creates it.
 2. **The tick never waits.** `finish` puts the command, with its graph and
