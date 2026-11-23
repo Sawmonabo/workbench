@@ -163,12 +163,14 @@ type Summary struct {
 
 // History is the history file, opened for writing by the watcher's writer
 // and by the command that sets the time kept, and for reading by the view.
-// opened is the file a writer opened, for [History.Check].
+// opened is the file a writer opened, for [History.Check], and sides its -wal
+// and -shm files as last seen at its path, for [History.Close].
 type History struct {
 	root, path string
 	write      bool
 	db         *sql.DB
 	opened     os.FileInfo
+	sides      []os.FileInfo
 }
 
 // historyFile is the history in the guard folder root; damagedFile is where
@@ -243,8 +245,22 @@ func OpenHistory(root string, write bool) (*History, error) {
 			_ = db.Close()
 			return nil, sqlitefile.FileError(h.path, err)
 		}
+		// SQLite opens the -wal and -shm files at the first read after the
+		// switch to WAL, so one is made before they are noted.
+		_, _ = db.ExecContext(context.Background(), "PRAGMA user_version")
+		h.sides = sidesAt(h.path)
 	}
 	return h, nil
+}
+
+// sidesAt are the files at the -wal and -shm names of the database at path,
+// each nil where there is none.
+func sidesAt(path string) []os.FileInfo {
+	infos := make([]os.FileInfo, len(sideFiles))
+	for i, side := range sideFiles {
+		infos[i], _ = os.Lstat(path + side)
+	}
+	return infos
 }
 
 // Check is the writer's cheap look, once a minute, at the file it holds open:
@@ -253,10 +269,11 @@ func OpenHistory(root string, write bool) (*History, error) {
 // and the writer would go on writing into it until it next opened it. It
 // fails with an error matching fs.ErrNotExist when the path names no file,
 // and with [ErrHistoryUnusable] when it names another file (by device and
-// inode) than the one opened, beside which the -wal and -shm files are the
-// opened one's, or one whose header is not a database's (see
+// inode) than the one opened, or one whose header is not a database's (see
 // [sqlitefile.CheckHeader]). It reads the header alone, so it costs the same
-// whatever the history's size: a full integrity check reads every page.
+// whatever the history's size: a full integrity check reads every page. While
+// the path names the opened file, it notes the -wal and -shm files beside it
+// again, for [History.Close].
 func (h *History) Check() error {
 	info, err := os.Stat(h.path)
 	switch {
@@ -266,6 +283,7 @@ func (h *History) Check() error {
 		return fmt.Errorf("%w: %s is another file than the one the writer opened",
 			ErrHistoryUnusable, h.path)
 	}
+	h.sides = sidesAt(h.path)
 	err = sqlitefile.CheckHeader(h.path)
 	if errors.Is(err, sqlitefile.ErrNotADatabase) {
 		return fmt.Errorf("%w: %w", ErrHistoryUnusable, err)
@@ -278,17 +296,31 @@ func (h *History) Check() error {
 // no longer names the database it opened (sqlite3PagerClose checks
 // databaseIsUnmoved), and the WAL is part of the database's persistent state:
 // a history moved elsewhere would lose the rows written since the last
-// checkpoint. So a writer whose path names no file, or another file, first
-// checkpoints the WAL into the file it opened, wherever that is now, and
-// empties it. The checkpoint waits at most the busy timeout for another
-// connection to that file.
+// checkpoint, and the next file at the path would be read with the opened
+// one's side files, which SQLite lists among the ways to corrupt a database.
+// So a writer whose path names no file, or another file, first checkpoints
+// the WAL into the file it opened, wherever that is now, and empties it; then
+// it closes and deletes the -wal and -shm files at the path that are the ones
+// it last saw beside the file it opened (see [History.Check]). Side files that
+// came with another file stay with it. The checkpoint waits at most the busy
+// timeout for another connection to that file; a WAL it could not empty is
+// deleted all the same.
 func (h *History) Close() error {
-	if h.write && h.opened != nil {
-		if info, err := os.Stat(h.path); err != nil || !os.SameFile(info, h.opened) {
-			_, _ = h.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+	if !h.write || h.opened == nil {
+		return h.db.Close()
+	}
+	if info, err := os.Stat(h.path); err == nil && os.SameFile(info, h.opened) {
+		return h.db.Close()
+	}
+	_, _ = h.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
+	err := h.db.Close()
+	for i, side := range sideFiles {
+		info, statErr := os.Lstat(h.path + side)
+		if statErr == nil && h.sides[i] != nil && os.SameFile(info, h.sides[i]) {
+			err = cmp.Or(err, operation.RemoveIfThere(h.path+side))
 		}
 	}
-	return h.db.Close()
+	return err
 }
 
 // prepare checks the file is a history of version 1, before anything changes
@@ -964,7 +996,9 @@ func removeCopyBefore(copied string, since time.Time) {
 }
 
 // MoveDamaged moves the history in the guard folder root, a file that cannot
-// be used, aside to history.damaged.db with its -wal and -shm files, and
+// be used, aside to history.damaged.db with its -wal and -shm files (those at
+// its name are its own: a writer that finds another file there deletes the
+// side files of the one it opened when it closes, see [History.Close]), and
 // returns that path, for the writer to start an empty history, and the time
 // the copy it deleted to make room had been set aside, zero when it deleted
 // none. It keeps at most two copies. A copy whose files were all last written

@@ -96,9 +96,11 @@ take from whichever agent started it, so two shells could disagree.
   database's, which takes microseconds where SQLite's own quick check took
   54 ms on a 100 MB file. Before it lets go of a file the path no longer
   names, the writer checkpoints the WAL into it, since SQLite does not for
-  a moved database: a history moved elsewhere keeps every row. A history
-  that cannot be written for another reason, such as a full disk, stays
-  where it is and the write is tried again every ten seconds.
+  a moved database: a history moved elsewhere keeps every row. It then
+  deletes that file's `-wal` and `-shm` at the path, so a file put in its
+  place moves aside with its own side files only. A history that cannot be
+  written for another reason, such as a full disk, stays where it is and the
+  write is tried again every ten seconds.
 
 ## Consequences
 

@@ -422,9 +422,11 @@ and order them.
    WAL of a database its path no longer names, and the WAL is part of the
    database's persistent state, so before it closes a file gone from the
    path or replaced there the writer checkpoints the WAL into that file,
-   wherever it is now: a history moved elsewhere keeps every row. The
-   `-wal` and `-shm` left at the path of a file that is gone are deleted,
-   since SQLite would pair them with the next database there.
+   wherever it is now: a history moved elsewhere keeps every row. It then
+   deletes the `-wal` and `-shm` it last saw beside that file, where they
+   are still at the path, since SQLite would pair them with the database
+   there next; side files that came with a file put in its place stay, and
+   move aside with it.
    The check reads 100 bytes whatever the size: about 12 µs on a 100 MB
    history, where `PRAGMA quick_check` takes 54 ms and `integrity_check`
    91 ms with the file in the system's cache.
