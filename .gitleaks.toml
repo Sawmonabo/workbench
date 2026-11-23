@@ -26,3 +26,13 @@ condition = "AND"
 regexTarget = "secret"
 regexes = ['''^31ddde24ddfab679f42d7bd2baa929ff1a7ecace$''']
 paths = ['''^internal/machine/agents\.go$''']
+
+[[rules]]
+id = "curl-auth-header"
+
+[[rules.allowlists]]
+description = "Made-up bearer token the history privacy safeguard test writes as a command's text, never a real credential"
+condition = "AND"
+regexTarget = "secret"
+regexes = ['''^synthetic-token$''']
+paths = ['''^internal/agent/guard/history_test\.go$''']
