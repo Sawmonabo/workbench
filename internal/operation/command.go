@@ -35,7 +35,8 @@ func (c Context) BinOnPath() bool {
 // WorkbenchCommand is what to type to run the installed workbench, for a hint
 // such as "run <command> apply" to a person whose shell may not find it yet:
 // workbench when its directory is on PATH, otherwise its full path, written
-// from ~ under home. Where nothing is installed to name, it is workbench.
+// from ~ under home as one word a shell reads back (see [Context.ShellPath]).
+// Where nothing is installed to name, it is workbench.
 func (c Context) WorkbenchCommand() string {
 	if c.BinOnPath() {
 		return "workbench"
@@ -44,7 +45,7 @@ func (c Context) WorkbenchCommand() string {
 	if _, err := os.Lstat(entry); err != nil {
 		return "workbench"
 	}
-	return c.ShowPath(entry)
+	return c.ShellPath(entry)
 }
 
 // ShowPath writes path for a person with [ShowPath] from c.Home.
@@ -69,13 +70,21 @@ func userHome() string {
 	return home
 }
 
-// shellHomePath writes path as one word a POSIX shell reads back as path, for
+// ShellPath writes path as one word a POSIX shell reads back as path, for a
+// command a person pastes, from c.Home (see [ShellHomePath]).
+func (c Context) ShellPath(path string) string { return shellPath(c.Home, path) }
+
+// ShellHomePath writes path as one word a POSIX shell reads back as path, for
 // a command a person pastes: the current user's home folder, as
 // [ShowHomePath] finds it, as ~, a path under it as ~/ and the rest, any other
 // path as it is, all but the ~ quoted where a shell would read a character
-// (see shellWord).
-func shellHomePath(path string) string {
-	if home := userHome(); home != "" && filepath.Clean(home) != "/" && Within(home, path) {
+// (see shellWord). It is for a message made where no [Context] is at hand.
+func ShellHomePath(path string) string { return shellPath(userHome(), path) }
+
+// shellPath is path as one word a shell reads back, written from home as
+// [ShellHomePath] says. An empty home, or /, shortens nothing.
+func shellPath(home, path string) string {
+	if home != "" && filepath.Clean(home) != "/" && Within(home, path) {
 		if relative, err := filepath.Rel(home, path); err == nil {
 			if relative == "." {
 				return "~"

@@ -299,7 +299,7 @@ func safeParents(path string) error {
 					ExitInvalid,
 					"permissions",
 					ShowHomePath(current)+" is writable by other users; run chmod go-w "+
-						shellHomePath(current)+" and retry",
+						ShellHomePath(current)+" and retry",
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
@@ -351,10 +351,10 @@ func checkPrivateFile(path string) error {
 			ExitInvalid,
 			"permissions",
 			fmt.Sprintf(
-				"%s is open to other users (mode %04o); run chmod 600 %q and retry",
-				path,
+				"%s is open to other users (mode %04o); run chmod 600 %s and retry",
+				ShowHomePath(path),
 				mode,
-				path,
+				ShellHomePath(path),
 			),
 		)
 	}

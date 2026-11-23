@@ -756,7 +756,9 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 		return operation.Fail(
 			operation.ExitBlocked,
 			"scope",
-			"Native plan would replace or loosen "+target+", which holds Workbench's own files",
+			"Native plan would replace or loosen "+c.ShowPath(
+				target,
+			)+", which holds Workbench's own files",
 		)
 	}
 	// Revert must be able to restore the mode, so the checkpoint has to record
@@ -769,11 +771,11 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 			operation.ExitBlocked,
 			"scope",
 			fmt.Sprintf(
-				"%s holds Workbench's own files, and revert could not restore its mode (%v); run chmod %04o %q to match the configuration, then retry",
-				target,
+				"%s holds Workbench's own files, and revert could not restore its mode (%v); run chmod %04o %s to match the configuration, then retry",
+				c.ShowPath(target),
 				err,
 				desired.Perm,
-				target,
+				c.ShellPath(target),
 			),
 		)
 	}
