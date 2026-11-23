@@ -1262,8 +1262,14 @@ func (w *watcher) untracked(notes []note) []note {
 	return out
 }
 
-// expireKills deletes kill records over a day old, at most once a minute,
-// and stale temporary files (see listFolder).
+// expireKills deletes, at most once a minute, each kill record whose call's
+// note is no longer on disk, which no post hook will read: the post hook
+// takes a record before it marks the note (see Post), and a note goes only
+// once it is marked ended or posted, its agent is gone or it was abandoned,
+// so a record left after it is one a post hook could not take, having
+// looked for it at another path, or one written as its command ended. It
+// also deletes records over a day old, and stale temporary files (see
+// listFolder).
 func (w *watcher) expireKills() {
 	if time.Since(w.expired) < time.Minute {
 		return
@@ -1271,8 +1277,16 @@ func (w *watcher) expireKills() {
 	w.expired = time.Now()
 	entries, _ := listFolder(w.f.killed)
 	for _, entry := range entries {
+		path := filepath.Join(w.f.killed, entry.Name())
+		id, isRecord := strings.CutSuffix(entry.Name(), ".json")
+		if isRecord && idPattern.MatchString(id) {
+			if _, err := os.Lstat(w.f.note(id)); errors.Is(err, fs.ErrNotExist) {
+				_ = os.Remove(path)
+				continue
+			}
+		}
 		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > killKeep {
-			_ = os.Remove(filepath.Join(w.f.killed, entry.Name()))
+			_ = os.Remove(path)
 		}
 	}
 }

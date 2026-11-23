@@ -678,8 +678,10 @@ parallelism or a smaller input.
     process whose `/proc` entry it could not read.
   - A note that can't be read is kept, and logged once; when the notes folder
     can't be read, the watcher does nothing else that round.
-  - Kill records older than a day are deleted, and `.write-*` temporaries
-    over a minute old in `notes/` and `killed/`.
+  - Once a minute, kill records older than a day are deleted, and so is
+    each kill record whose call's note is gone, which no post hook will
+    read; and `.write-*` temporaries over a minute old in `notes/` and
+    `killed/`.
 - **A call runs once:** once a call's command has ended, its note never
   matches again, even if the note stays (a denied call's stays until it is
   abandoned, section 6.1). The watcher keeps this in memory only, so after a
@@ -803,12 +805,16 @@ parallelism or a smaller input.
 ## 7. Post hook
 
 1. Read the hook input; with an invalid `tool_use_id`, exit 0.
-2. Delete `notes/<tool_use_id>.json`, unless the call was sent to the
-   background (`tool_input.run_in_background`): then rewrite the note with
-   `posted: true`, and the watcher drops it (section 6.1).
-3. If `killed/<tool_use_id>.json` exists, print `{"hookSpecificOutput":
-   {"hookEventName": <event>, "additionalContext": <reason>}}`, delete the
-   record, and exit 0. Otherwise exit 0 with no output.
+2. Read `killed/<tool_use_id>.json` when it exists and delete it.
+3. Mark `notes/<tool_use_id>.json` ended for the watcher to
+   take into its call records and the history and then delete, unless the
+   call was sent to the background (`tool_input.run_in_background`): then
+   mark it `posted`, and the watcher drops it (section 6.1).
+4. With a record read in step 2, print `{"hookSpecificOutput":
+   {"hookEventName": <event>, "additionalContext": <reason>}}`; otherwise
+   print nothing. Exit 0. When a step fails because the guard folder moved
+   meanwhile, steps 2 and 3 are done again, once, where it is now, so a
+   record already read is still deleted and still told.
 
 **Background commands:** a command the agent sent to the background
 (`run_in_background`) reaches its post hook while it runs on (section 2), so

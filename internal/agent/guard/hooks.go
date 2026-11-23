@@ -401,17 +401,21 @@ func startWatcher(f folders) error {
 }
 
 // Post is Codex's PostToolUse hook on Bash, and Claude Code's PostToolUse and
-// PostToolUseFailure hooks on Bash and Monitor. It marks the call's note
-// ended, or, for a call whose command runs on after this hook, posted: one
-// sent to the background (run_in_background), and a Monitor call, whose post
-// hook runs when the monitor starts (the pre hook on Bash noted it as a Bash
-// call). It deletes no note: the watcher deletes it once it has kept the
+// PostToolUseFailure hooks on Bash and Monitor. It first takes the call's kill
+// record, when the watcher left one, reading and deleting it, and then marks
+// the call's note ended, or, for a call whose command runs on
+// after this hook, posted: one sent to the background (run_in_background),
+// and a Monitor call, whose post hook runs when the monitor starts (the pre
+// hook on Bash noted it as a Bash call). The record comes first because the
+// watcher deletes a kill record once its call's note is no longer on disk
+// (see watcher.expireKills), which it may be from the moment the note is
+// marked. It deletes no note: the watcher deletes it once it has kept the
 // call's record (see watcher.notes), so every call leaves one. It takes no
 // lock to ask whether a watcher runs, only the one a move of the guard
 // folder takes (see Move): an ended note waits for the next watcher, which
-// the next pre hook starts. When the watcher stopped this
-// call, it prints the reason as additionalContext, which the agent sees
-// beside the tool result. Otherwise it prints nothing. It never fails.
+// the next pre hook starts. When the watcher stopped this call, it prints the
+// reason as additionalContext, which the agent sees beside the tool result.
+// Otherwise it prints nothing. It never fails.
 func Post(stdin *os.File, stdout io.Writer) {
 	var f folders
 	defer func() {
@@ -432,21 +436,24 @@ func Post(stdin *os.File, stdout io.Writer) {
 		mark = "posted"
 	}
 	var markErr error
-	marked, told := false, false
+	marked, told, removed := false, false, false
 	var record kill
+	// A record read at the folder's old path just before a move is deleted at
+	// its new one: once read, the reason is told whatever the deletion does.
 	work := func() error {
-		var readErr error
+		var recordErr, removeErr, readErr error
+		if !told {
+			recordErr = readJSON(f.record(input.ToolUseID), &record)
+			told = recordErr == nil
+		}
+		if told && !removed {
+			removeErr = os.Remove(f.record(input.ToolUseID))
+			removed = removeErr == nil || errors.Is(removeErr, fs.ErrNotExist)
+		}
 		if !marked {
 			marked, markErr, readErr = markNote(f.note(input.ToolUseID), mark)
 		}
-		if !told {
-			recordErr := readJSON(f.record(input.ToolUseID), &record)
-			if told = recordErr == nil; told {
-				_ = os.Remove(f.record(input.ToolUseID))
-			}
-			readErr = errors.Join(readErr, recordErr)
-		}
-		return errors.Join(readErr, markErr)
+		return errors.Join(recordErr, removeErr, readErr, markErr)
 	}
 	if work() != nil && f.again() {
 		_ = work()
