@@ -84,14 +84,8 @@ func AgentFolders(runtime operation.Paths) (folders [2][2]string, lock string) {
 // that resolves its paths never makes an import starting at that moment find
 // the lock taken.
 func (f agentFolders) inUse(old, new string) bool {
-	return operation.IsFolder(old) && (!operation.IsFolder(new) || lockHeld(f.oldLock()))
-}
-
-// lockHeld reports whether an import holds the import lock at path. It makes
-// nothing; a lock file that is missing or cannot be opened counts as free.
-func lockHeld(path string) bool {
-	held, _ := operation.LockHeld(path)
-	return held
+	return operation.IsFolder(old) &&
+		(!operation.IsFolder(new) || operation.IsLockHeld(f.oldLock()))
 }
 
 // MoveAgentFolders moves the costs data folder from <data>/costs to

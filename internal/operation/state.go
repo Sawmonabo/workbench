@@ -814,6 +814,13 @@ func LockHeld(path string) (bool, error) {
 	return tryFlock(f, syscall.LOCK_SH)
 }
 
+// IsLockHeld is [LockHeld] for an entry that only picks a folder or a line by
+// the answer: a lock that cannot be tried counts as free.
+func IsLockHeld(path string) bool {
+	held, err := LockHeld(path)
+	return err == nil && held
+}
+
 // InheritLock takes on the lock on the file at path that a parent holding it
 // passed down as f (see [TryLockFile] and [Detached].Files). An flock lock
 // belongs to the open file description, which a passed descriptor shares, and

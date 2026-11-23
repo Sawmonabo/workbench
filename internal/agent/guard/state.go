@@ -70,7 +70,8 @@ func stateFolder() (string, error) {
 // when both are folders.
 func Root(state string) string {
 	old, root := oldRoot(state), newRoot(state)
-	if operation.IsFolder(old) && (!operation.IsFolder(root) || lockHeld(old)) {
+	if operation.IsFolder(old) &&
+		(!operation.IsFolder(root) || operation.IsLockHeld(folders{}.at(old).lock())) {
 		return old
 	}
 	return root
@@ -116,13 +117,6 @@ func WatcherRuns() (bool, error) {
 // hook moving the guard folder holds the lock for an instant too.
 const WatcherSilent = "the watcher's lock is held, but nothing answers on its socket: a " +
 	"watcher is starting, or one runs that cannot serve; workbench agent guard logs says why"
-
-// lockHeld reports whether a watcher holds the lock of the guard folder at
-// root; a lock that cannot be tried counts as free.
-func lockHeld(root string) bool {
-	held, err := operation.LockHeld(filepath.Join(root, "watch.lock"))
-	return err == nil && held
-}
 
 // locate is the guard folder where Root says, for part, with nothing opened
 // or made: the watcher takes its lock before it opens anything (see open).

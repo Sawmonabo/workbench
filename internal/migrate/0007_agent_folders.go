@@ -194,7 +194,7 @@ func (f agentFolder) inspect() folderState {
 	switch {
 	case !operation.IsFolder(f.old):
 		s.standing = moved
-	case f.lock != "" && lockHeld(f.lock):
+	case f.lock != "" && operation.IsLockHeld(f.lock):
 		s.standing = inUse
 	case operation.IsFolder(f.new):
 		s.standing = besideNew
@@ -209,13 +209,6 @@ func (f agentFolder) inspect() folderState {
 		}
 	}
 	return s
-}
-
-// lockHeld reports whether a process holds the lock at path; one that can't
-// be tried counts as free.
-func lockHeld(path string) bool {
-	held, err := operation.LockHeld(path)
-	return err == nil && held
 }
 
 // due reports whether a run has something to do with the folder. A lock is

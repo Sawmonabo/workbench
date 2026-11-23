@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Tokens are summed token counts.
@@ -723,7 +725,7 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 	}
 	info.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
 	info.LastError, _ = ledger.Meta("last_error")
-	info.WorkerRunning = lockHeld(paths.lock())
+	info.WorkerRunning = operation.IsLockHeld(paths.lock())
 	for _, tool := range Tools {
 		status := ToolStatus{Name: tool.Name, Title: tool.Title, Implemented: tool.Source != nil}
 		if tool.Source != nil {
