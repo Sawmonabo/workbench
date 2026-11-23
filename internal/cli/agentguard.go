@@ -1,9 +1,12 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -41,7 +44,8 @@ func agentGuardCommand(o *options) *cobra.Command {
 			"agents; workbench agent guard logs --follow prints the same events. docs/usage.md " +
 			"describes every row, key and kind of stop.",
 		Example: "  workbench agent guard\n" +
-			"  workbench agent guard logs --since 2h",
+			"  workbench agent guard logs --since 2h\n" +
+			"  workbench agent guard history --keep 3d",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(*operation.Result) error { return runGuardView(cmd, o) })
@@ -49,6 +53,7 @@ func agentGuardCommand(o *options) *cobra.Command {
 	}
 	cmd.AddCommand(
 		agentGuardLogsCommand(o),
+		agentGuardHistoryCommand(o),
 		&cobra.Command{
 			Use:                "pre",
 			Short:              "Hook: Claude Code and Codex run this before each Bash call",
@@ -230,6 +235,240 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 	}
 	_, err = fmt.Fprintln(cmd.ErrOrStderr(), text+".")
 	return err
+}
+
+// agentGuardHistoryCommand is `agent guard history`: it says how long the
+// guard keeps the commands that finished, how many it keeps and where, and
+// --keep sets that time.
+func agentGuardHistoryCommand(o *options) *cobra.Command {
+	var keep string
+	cmd := &cobra.Command{
+		Use:   "history",
+		Short: "Show or set how long the guard keeps the commands that finished",
+		Long: "Show how long the guard keeps the commands that finished, how many it keeps, " +
+			"the size of the history and its file. Finished commands are kept 24 hours " +
+			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
+			"to 30d. A shorter time deletes the older commands without asking: the view " +
+			"hides them at once and the watcher deletes them within a minute. A longer time " +
+			"brings none back. At most 20,000 finished commands and 256 MiB are kept, the " +
+			"oldest leaving first.\n\n" +
+			"The global --json prints the same facts as fields: path, keep_seconds, commands " +
+			"and bytes, or with --keep path, keep_seconds and was_seconds.",
+		Example: "  workbench agent guard history\n" +
+			"  workbench agent guard history --keep 3d\n" +
+			"  workbench agent guard history --json",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return o.runPrinted(cmd, func(result *operation.Result) error {
+				if cmd.Flags().Changed("keep") {
+					return setGuardHistoryKeep(cmd, o, result, keep)
+				}
+				return showGuardHistory(cmd, o, result)
+			})
+		},
+	}
+	cmd.Flags().StringVar(
+		&keep,
+		"keep",
+		"",
+		"Keep finished commands this long: hours, days or weeks from 1h to 30d (12h, 3d, 1w)",
+	)
+	return cmd
+}
+
+// guardHistoryFacts are what `agent guard history` says, as --json gives
+// them: the history's file, how long finished commands are kept in seconds,
+// how many it holds and its size in bytes.
+type guardHistoryFacts struct {
+	Path        string `json:"path"`
+	KeepSeconds int64  `json:"keep_seconds"`
+	Commands    int    `json:"commands"`
+	Bytes       int64  `json:"bytes"`
+}
+
+// guardHistoryKept is what `agent guard history --keep` did, as --json gives
+// it: the history's file and the time kept now and before, in seconds.
+type guardHistoryKept struct {
+	Path        string `json:"path"`
+	KeepSeconds int64  `json:"keep_seconds"`
+	WasSeconds  int64  `json:"was_seconds"`
+}
+
+// showGuardHistory prints the time kept, the count and size, and the file:
+//
+//	Finished commands are kept 24 hours · 2,832 kept · 3.2 MB
+//	~/.local/state/workbench/agent/guard/history.db
+//
+// A history not made yet is empty and kept for the default time.
+func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) error {
+	root, err := guard.HistoryRoot()
+	if err != nil {
+		return err
+	}
+	facts := guardHistoryFacts{
+		Path:        guard.HistoryFile(root),
+		KeepSeconds: int64(guard.HistoryKeepDefault / time.Second),
+	}
+	held := "none kept yet"
+	history, err := guard.OpenHistory(root, false)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+	case err != nil:
+		return guardHistoryUnreadable(err, facts.Path)
+	default:
+		defer func() { _ = history.Close() }()
+		held = ""
+		keep, err := history.Keep(cmd.Context())
+		if err != nil {
+			return guardHistoryUnreadable(err, facts.Path)
+		}
+		facts.KeepSeconds = int64(keep / time.Second)
+		if facts.Commands, facts.Bytes, err = history.Count(cmd.Context()); err != nil {
+			return guardHistoryUnreadable(err, facts.Path)
+		}
+	}
+	if o.json {
+		result.Results = append(result.Results, operation.Component{
+			Name: "guard-history", Status: operation.StatusComplete, Details: facts,
+		})
+		return nil
+	}
+	if held == "" {
+		held = commas(int64(facts.Commands)) + " kept · " + transferSize(facts.Bytes, facts.Bytes)
+	}
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
+		forTerm("Finished commands are kept "+keptText(time.Duration(facts.KeepSeconds)*
+			time.Second)+" · "+held),
+		showPath(facts.Path))
+	return err
+}
+
+// setGuardHistoryKeep sets the time kept to text, making the guard folder and
+// the history as the watcher would when they are missing, and prints the one
+// line that says so:
+//
+//	Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
+//
+// A history it cannot use fails as showGuardHistory does, and sets nothing.
+func setGuardHistoryKeep(
+	cmd *cobra.Command,
+	o *options,
+	result *operation.Result,
+	text string,
+) error {
+	keep, err := parseKeep(text)
+	if err != nil {
+		return err
+	}
+	root, err := guard.MakeHistoryRoot()
+	if err != nil {
+		return err
+	}
+	path := guard.HistoryFile(root)
+	history, err := guard.OpenHistory(root, true)
+	if err != nil {
+		return guardHistoryUnreadable(err, path)
+	}
+	defer func() { _ = history.Close() }()
+	was, err := history.Keep(cmd.Context())
+	if err != nil {
+		return guardHistoryUnreadable(err, path)
+	}
+	if err := history.SetKeep(cmd.Context(), keep); err != nil {
+		return operation.Fail(operation.ExitFailed, "guard-history",
+			"Cannot set how long finished commands are kept: "+shownError(err, path))
+	}
+	if o.json {
+		result.Results = append(result.Results, operation.Component{
+			Name: "guard-history", Status: operation.StatusComplete,
+			Details: guardHistoryKept{
+				Path:        path,
+				KeepSeconds: int64(keep / time.Second),
+				WasSeconds:  int64(was / time.Second),
+			},
+		})
+		return nil
+	}
+	line := "Finished commands are kept " + keptText(keep)
+	switch {
+	case keep < was:
+		line += " (was " + keptText(was) + "); older ones are deleted within a minute."
+	case keep > was:
+		line += " (was " + keptText(was) + "); those already deleted do not come back."
+	default:
+		line += ", as before."
+	}
+	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
+	return err
+}
+
+// keepPattern is a --keep value: a whole number of hours, days or weeks.
+var keepPattern = regexp.MustCompile(`^([1-9][0-9]{0,3})([hdw])$`)
+
+// The shortest and the longest time --keep takes.
+const (
+	keepShortest = time.Hour
+	keepLongest  = 30 * 24 * time.Hour
+)
+
+// parseKeep is a --keep value as a time: 12h, 3d or 1w, from an hour to 30
+// days.
+func parseKeep(text string) (time.Duration, error) {
+	invalid := operation.Fail(operation.ExitInvalid, "invocation",
+		fmt.Sprintf("--keep takes hours, days or weeks from 1h to 30d, such as 12h, 3d or 1w, "+
+			"not %q", text))
+	match := keepPattern.FindStringSubmatch(text)
+	if match == nil {
+		return 0, invalid
+	}
+	n, err := strconv.Atoi(match[1])
+	if err != nil {
+		return 0, invalid
+	}
+	unit := map[string]time.Duration{"h": time.Hour, "d": 24 * time.Hour, "w": 7 * 24 * time.Hour}
+	keep := time.Duration(n) * unit[match[2]]
+	if keep < keepShortest || keep > keepLongest {
+		return 0, invalid
+	}
+	return keep, nil
+}
+
+// keptText is a time kept in words: whole weeks, else whole days from two
+// days, else whole hours ("1 week", "3 days", "24 hours"); any other time,
+// which only a settings row written by something else can hold, in Go's form.
+func keptText(keep time.Duration) string {
+	const day = 24 * time.Hour
+	unit := func(n time.Duration, word string) string {
+		if n != 1 {
+			word += "s"
+		}
+		return strconv.FormatInt(int64(n), 10) + " " + word
+	}
+	switch {
+	case keep%(7*day) == 0:
+		return unit(keep/(7*day), "week")
+	case keep%day == 0 && keep >= 2*day:
+		return unit(keep/day, "day")
+	case keep%time.Hour == 0:
+		return unit(keep/time.Hour, "hour")
+	}
+	return keep.String()
+}
+
+// guardHistoryUnreadable is the error of a history at path that cannot be
+// read, as the view says it: "Guard history unreadable: REASON". A file that
+// is not a guard history is invalid state; any other reason a failure.
+func guardHistoryUnreadable(err error, path string) error {
+	code := operation.ExitFailed
+	if errors.Is(err, guard.ErrHistoryUnusable) {
+		code = operation.ExitInvalid
+	}
+	return operation.Fail(code, "guard-history", "Guard history unreadable: "+shownError(err, path))
+}
+
+// shownError is err's text with the history's path as output shows paths.
+func shownError(err error, path string) string {
+	return strings.ReplaceAll(err.Error(), path, showPath(path))
 }
 
 // runningAfter is how long a tracked command runs before a followed log
