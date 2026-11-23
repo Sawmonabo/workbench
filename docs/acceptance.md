@@ -1272,7 +1272,9 @@ synthetic answers.
   at most 20,000 commands and 256 MiB; a history it cannot use is moved aside
   to `history.damaged.db` by the watcher alone, a copy already there to
   `history.damaged.2.db`, a new one is started, and each copy is deleted once
-  it is older than the time kept, never sooner (target). On
+  it is older than the time kept; at a third damage within that time the
+  copy at `history.damaged.db` is deleted for the new one and
+  `history.damaged.2.db`, the oldest, stays (target). On
   2026-11-22, on macOS in a disposable home: `agent guard history` with no
   history printed `none kept yet` and the file's path and exited 0, and with
   `--json` gave `keep_seconds` 86400, `commands` 0 and `bytes` 0. `--keep`

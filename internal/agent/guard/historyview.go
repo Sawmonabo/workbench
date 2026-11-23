@@ -87,7 +87,8 @@ func HistoryUnwritable(reason string) string {
 // At (the copy's time, which [MoveDamaged] sets), "" while it keeps none:
 // "Guard history was damaged and started again at TIME; the old file is
 // PATH", or, with two, "Guard history was damaged and started again at TIME,
-// and before that at TIME; the old files are PATH and PATH", each TIME with
+// and earlier at TIME; the old files are PATH and PATH", the latest damage
+// and then the oldest whose copy is kept (see [MoveDamaged]), each TIME with
 // its date when it is not on the day of now, each PATH named from the home
 // folder.
 func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
@@ -105,7 +106,7 @@ func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
 			"; the old file is " + operation.ShowHomePath(copies[0].Path)
 	}
 	return "Guard history was damaged and started again at " + clock(copies[0].At) +
-		", and before that at " + clock(copies[1].At) + "; the old files are " +
+		", and earlier at " + clock(copies[1].At) + "; the old files are " +
 		operation.ShowHomePath(copies[0].Path) + " and " + operation.ShowHomePath(copies[1].Path)
 }
 

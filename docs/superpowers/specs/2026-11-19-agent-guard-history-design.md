@@ -381,15 +381,19 @@ and order them.
    `agent guard history` say
    `Guard history was damaged and started again at TIME; the old file is
    PATH`, or with two
-   `Guard history was damaged and started again at TIME, and before that at
-   TIME; the old files are PATH and PATH`, each PATH named from the home
-   folder. A trim, and the move itself, deletes each copy once it is older
-   than `keep`, when all it holds would have gone anyway, and never sooner:
-   a copy may hold the only record of rows the time kept still covers, which
-   SQLite's recovery can often rebuild. When both names hold copies younger
-   than `keep`, a third history that cannot be used stays where it is and
-   falls under rule 3, its reason naming the two copies and saying that
-   deleting one starts a new history. Only the writer moves a file: a view with
+   `Guard history was damaged and started again at TIME, and earlier at
+   TIME; the old files are PATH and PATH`, the latest damage and then the
+   oldest whose copy is kept, each PATH named from the home folder. A trim,
+   and the move itself, deletes each copy once it is older than `keep`,
+   when all it holds would have gone anyway: a copy may hold the only record
+   of rows the time kept still covers, which SQLite's recovery can often
+   rebuild. At most two copies are kept: when both names hold copies younger
+   than `keep`, a third history that cannot be used takes the place of
+   `history.damaged.db`, whose copy, of a history started after a damage,
+   is deleted with its `-wal` and `-shm`, and `history.damaged.2.db`, the
+   oldest, most likely holding the rows from before the first damage,
+   stays. The history always starts again, and the log names the copy
+   deleted. Only the writer moves a file: a view with
    no watcher says `Guard history unreadable: REASON` and shows none, and
    `agent guard history` fails with the same text and sets nothing.
    A file that cannot be written for another reason (a full disk, a

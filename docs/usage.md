@@ -623,12 +623,13 @@ or converted. The watcher moves it, with its `-wal` and `-shm` files, aside to
 read (24 hours when it read none) and logs both paths; while a copy is there,
 the view and `agent guard history` say the history was damaged and started
 again and name each copy. Each copy is deleted once it is older than the time
-kept, when all it held would have gone anyway, and never sooner, since it may
-hold rows SQLite's `.recover` can rebuild. When both names hold copies younger
-than the time kept, a third history the guard cannot use stays where it is:
-the view says the history cannot be written, names the two copies and says
-that deleting one starts a new history, which the watcher then does within ten
-seconds. SQLite
+kept, when all it held would have gone anyway, since it may hold rows SQLite's
+`.recover` can rebuild. At most two copies are kept: when both names hold
+copies younger than the time kept, a third history the guard cannot use takes
+the place of `history.damaged.db`, whose copy, of a history started after a
+damage, is deleted, while `history.damaged.2.db`, the oldest, which most
+likely holds the rows from before the first damage, stays. So the history
+always starts again, and the log names the copy deleted. SQLite
 reads from the file only what its cache lacks, so once a minute the watcher
 also checks that the file is still the one it opened and that its header is a
 database's. Only the watcher moves the file: with none running, the view says

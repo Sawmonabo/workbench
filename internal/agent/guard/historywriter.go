@@ -44,10 +44,10 @@ const (
 // between them (see History.Trim). After a failure it tries again every
 // writeRetry, and logs the failure once, until a write succeeds. A history it
 // cannot use (see ErrHistoryUnusable), found by any of its operations, it
-// moves aside (see MoveDamaged), starts a new one with the time kept it last
-// read, logs both paths, and writes the commands it has not written to the
-// new one; one it cannot move, since the two copies kept are younger than the
-// time kept, is a write that fails. Its zero value takes commands and writes nothing until start. Only
+// moves aside (see MoveDamaged), keeping at most two copies, starts a new one
+// with the time kept it last read, logs both paths, and writes the commands
+// it has not written to the new one. Its zero value takes commands and writes
+// nothing until start. Only
 // its own goroutine touches the history; the watcher's calls only take mu,
 // which no database call is made under.
 type historyWriter struct {
@@ -391,16 +391,17 @@ func (r *writerRun) failed(err error) {
 }
 
 // replace closes the history, which cause found it cannot use, moves it aside
-// (see MoveDamaged), keeping each copy younger than the time kept it last
-// read (24 hours when it read none), starts a new one with that time kept
-// (logging that it keeps 24 hours when it read none) and logs both paths. A history
+// (see MoveDamaged), keeping the oldest copy younger than the time kept it
+// last read (24 hours when it read none) and the new one, starts a new
+// history with that time kept (logging that it keeps 24 hours when it read
+// none) and logs both paths, and the copy the move deleted. A history
 // that is no longer there is not moved: the -wal and -shm files left of it,
 // which SQLite would read as the new one's, are deleted, and the new one is
 // logged alone. It gives the error of a move or start that failed.
 func (r *writerRun) replace(cause error) error {
 	r.close()
 	from := historyFile(r.root)
-	to, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, historyKeepDefault)))
+	to, replaced, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, historyKeepDefault)))
 	gone := to == "" && errors.Is(err, fs.ErrNotExist)
 	if to == "" && !gone {
 		return fmt.Errorf("cannot move the guard history that cannot be used aside: %w", err)
@@ -437,9 +438,18 @@ func (r *writerRun) replace(cause error) error {
 		return nil
 	}
 	r.h.noteCopy(r.root)
+	moved := "moved it to " + ShowPaths(to, r.root)
+	if !replaced.IsZero() {
+		moved += fmt.Sprintf(
+			" in place of the copy set aside at %s, keeping %s, the oldest,",
+			replaced.Local().
+				Format("Jan 2 3:04:05 PM"),
+			ShowPaths(olderDamagedFile(r.root), r.root),
+		)
+	}
 	r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
-		"the guard history %s cannot be used; moved it to %s and started a new one; %s",
-		ShowPaths(from, r.root), ShowPaths(to, r.root), kept),
+		"the guard history %s cannot be used; %s and started a new one; %s",
+		ShowPaths(from, r.root), moved, kept),
 		"error", why, "path", from, "moved_to", to)
 	return nil
 }

@@ -78,13 +78,16 @@ take from whichever agent started it, so two shells could disagree.
   renaming a copy already there to `history.damaged.2.db`, as logrotate
   numbers the generations it keeps, and starts an empty history with the
   time kept it last read. Each copy is deleted once it is older than the
-  time kept, when all it held would have gone anyway, and never sooner: it
-  may hold the only record of rows the time kept still covers, which
-  SQLite's recovery can often rebuild. Two copies bound the disk, where
-  logrotate's count deletes the oldest whatever its age: a third history
-  the guard cannot use while both copies are younger than the time kept
-  stays where it is, and the writer says it cannot be written, naming the
-  two copies and saying that deleting one starts a new history. SQLite reads the file only where
+  time kept, when all it held would have gone anyway: it may hold the only
+  record of rows the time kept still covers, which SQLite's recovery can
+  often rebuild. Two copies bound the disk. Where logrotate's count deletes
+  the oldest whatever its age, a third history the guard cannot use while
+  both copies are younger than the time kept takes the place of
+  `history.damaged.db` and `history.damaged.2.db` stays: the oldest copy
+  most likely holds the rows from before the first damage, while the newer
+  one holds a history started after a damage, at most the commands since.
+  The history always starts again, so the guard never stops keeping
+  finished commands for as long as a copy lasts. SQLite reads the file only where
   its cache lacks a page, so once a minute the watcher also checks that the
   path still names the file it opened and that its 100-byte header is a
   database's, which takes microseconds where SQLite's own quick check took
@@ -101,7 +104,8 @@ take from whichever agent started it, so two shells could disagree.
   checks and schema.
 - AGENTS.md records the one exception to rejecting unsupported state
   without deleting it: each damaged copy goes once it is older than the time
-  kept.
+  kept, and at a third damage within that time the newer of the two copies
+  goes for the new one.
 - One test proves that the history and its two side files are readable by
   their owner alone, made new or opened readable by others, since a
   command's text may hold a token.

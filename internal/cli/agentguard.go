@@ -260,8 +260,10 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
 			"A history the guard could not use is kept as history.damaged.db beside it, and " +
-			"the one damaged before as history.damaged.2.db, each deleted once it is older " +
-			"than the time kept; while one is kept, a last line names it.\n\n" +
+			"the one damaged before as history.damaged.2.db; at a third damage within the time " +
+			"kept, history.damaged.2.db, the oldest, stays and the new copy takes the place of " +
+			"history.damaged.db, so the history always starts again. Each copy is deleted once " +
+			"it is older than the time kept; while one is kept, a last line names it.\n\n" +
 			"The global --json prints the same facts as fields: path, keep_seconds, commands " +
 			"and bytes, or with --keep path, keep_seconds, was_seconds and deleted.",
 		Example: "  workbench agent guard history\n" +
