@@ -644,8 +644,15 @@ func acquireLocks(c Context) (*locks, error) {
 // flockNonBlocking takes an exclusive lock on f without waiting. held is true
 // when another process has it, which is not an error.
 func flockNonBlocking(f *os.File) (held bool, err error) {
+	return tryFlock(f, syscall.LOCK_EX)
+}
+
+// tryFlock takes the lock how (LOCK_EX or LOCK_SH) on f without
+// waiting. held is true when another process holds one it conflicts with,
+// which is not an error.
+func tryFlock(f *os.File, how int) (held bool, err error) {
 	for {
-		err = syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		err = syscall.Flock(int(f.Fd()), how|syscall.LOCK_NB)
 		switch {
 		case err == nil:
 			return false, nil
@@ -697,9 +704,15 @@ func TryLockIn(path string) (f *os.File, held bool, err error) {
 }
 
 // LockHeld reports whether another process holds the lock [TryLockFile]
-// takes on the file at path. It opens the file without creating it, so a
-// missing file, which no process can hold, is free and nothing is made; a
-// free lock is taken for an instant and let go.
+// takes on the file at path. flock(2) has no call that only asks, so it
+// takes a shared lock without waiting, for an instant, and lets it go: a
+// shared lock is refused only while a process holds the exclusive one, and
+// any number of processes hold shared ones at once, so two that ask at the
+// same moment never take each other for the holder, and the answer comes at
+// once either way. A process taking the lock exclusively in that instant is
+// refused, so one that must have it tries again (see the guard watcher's
+// lock). It opens the file without creating it, so a missing file, which no
+// process can hold, is free and nothing is made.
 func LockHeld(path string) (bool, error) {
 	f, err := os.OpenFile(path, os.O_RDWR|syscall.O_NOFOLLOW, 0)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -709,7 +722,7 @@ func LockHeld(path string) (bool, error) {
 		return false, err
 	}
 	defer func() { _ = f.Close() }()
-	return flockNonBlocking(f)
+	return tryFlock(f, syscall.LOCK_SH)
 }
 
 // InheritLock takes on the lock on the file at path that a parent holding it

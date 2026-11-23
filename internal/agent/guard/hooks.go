@@ -379,18 +379,22 @@ func callFolders(input hookInput) (cwd, folder string) {
 	return cwd, folder
 }
 
-// startWatcher starts `workbench agent guard watch` detached when the lock in
-// the guard folder f is free, from the command this process was run as, so
-// the watcher knows the installed command it is to follow to a new release
-// (see watcher.handOver). The watcher takes the lock itself; one that loses a
-// race exits at once. It makes no folder, and gives the error trying the
-// lock or starting the watcher.
+// startWatcher starts `workbench agent guard watch` detached unless a
+// watcher holds the lock in the guard folder f, from the command this process
+// was run as, so the watcher knows the installed command it is to follow to a
+// new release (see watcher.handOver). It asks as every entry asks whether a
+// watcher runs (see [operation.LockHeld]): a watcher's lock answers at once,
+// so the hook adds no wait before the agent's command, and an entry asking
+// in the same instant never answers for a watcher, so the hook that met it
+// still starts one. A move of the guard folder holds the lock too, and starts
+// a watcher itself once it lets go (see Move). The watcher takes the lock
+// itself; one that loses a race exits. It makes no folder and no file, and
+// gives the error asking or starting the watcher.
 func startWatcher(f folders) error {
-	lock, held, err := operation.TryLockIn(f.lock())
+	held, err := operation.LockHeld(f.lock())
 	if err != nil || held {
 		return err
 	}
-	_ = lock.Close()
 	entry, err := operation.Invoked()
 	if err == nil {
 		_, err = operation.StartDetached(operation.Detached{

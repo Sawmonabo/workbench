@@ -89,7 +89,10 @@ exits when it is not, and hooks and import workers started just before.
    folder; a plain file there is no folder.
 2. **Where a folder is.** One function per part answers for every entry of
    that part: the old folder while it exists and either the new one does
-   not or the old one's lock is held; else the new one. An entry never
+   not or the old one's lock is held; else the new one. It asks whether the
+   lock is held with a shared lock, taken without waiting for an instant:
+   only a holder of the exclusive lock refuses it, so two entries asking at
+   once never take each other for a watcher or an import. An entry never
    makes a folder, or a file's parent, at an old path. An entry that fails
    in any read or write while the old path is no longer a folder asks again
    and does its work again, once.
@@ -138,11 +141,12 @@ exits when it is not, and hooks and import workers started just before.
      bound with, which is the old path, so the watcher removes the file at
      the folder's current path itself. When it cannot move (rule 5, or a new folder already
      exists), it works in the old folder.
-   - A hook, or `workbench migrate`, that finds the old folder takes the
-     watcher's lock there without waiting. When it gets it, no watcher
-     runs: it moves, lets the lock go, and then starts a watcher when the
-     folder holds a note, as every mover does, since a pre hook that found
-     the lock held in that instant started none.
+   - A hook, or `workbench migrate`, that finds the old folder and no
+     folder at the new path takes the watcher's lock there without
+     waiting. When it gets it, no watcher runs: it moves, lets the lock
+     go, and then starts a watcher when the folder holds a note, as every
+     mover does, since a pre hook that found the lock held in that instant
+     started none.
    - When the lock is held, a watcher is running in the old folder. The
      hook writes its note there, where that watcher reads it, and the
      command is guarded as before. `workbench migrate` says the watcher

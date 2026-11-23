@@ -574,11 +574,11 @@ const (
 // lock takes the lock in the guard folder anew, making the folder first only
 // at its new path. A lock it finds held it tries again, lockTries times
 // lockPause apart, before it gives up: flock(2) has no call that only asks,
-// so whatever asks whether a watcher runs (doctor, migration 0007, Root)
-// takes a free lock for an instant (see [operation.LockHeld]), and a watcher
-// that met that instant would otherwise exit and leave the notes without
-// one until the next hook. A watcher holds the lock for its life, so one that
-// runs still holds it at the last try.
+// so whatever asks whether a watcher runs (each pre hook, doctor, migration
+// 0007, Root) takes a shared lock on a free one for an instant (see
+// [operation.LockHeld]), and a watcher that met that instant would otherwise
+// exit and leave the notes without one until the next hook. A watcher holds
+// the lock for its life, so one that runs still holds it at the last try.
 func (w *watcher) lock() bool {
 	if w.f.makeRoot() != nil {
 		return false

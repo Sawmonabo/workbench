@@ -381,7 +381,11 @@ wrote from the log (migrations design, section 6.4).
    Claude Code when it has none and the `tool_use_id` starts `toolu_`; any
    other call is not guarded.
 2. Find the agent (section 4) and write `notes/<tool_use_id>.json`.
-3. Try `watch.lock` without waiting. If it is free, release it and start
+3. Ask whether a watcher holds `watch.lock`, with a shared lock taken
+   without waiting for an instant, as every entry asks: a watcher's
+   exclusive lock refuses it at once, so the hook adds no wait before the
+   command, and another entry asking in the same instant never refuses it.
+   When none holds it, start
    `workbench agent guard watch` with `operation.StartDetached`: a new session in
    `/`, with stdin on the null device and output appended to `watch.err`.
    It starts the file the hook's own command (`~/.local/bin/workbench`, or
@@ -389,7 +393,7 @@ wrote from the log (migrations design, section 6.4).
    `argv[0]`, so the watcher knows the installed command to follow (section
    6.5) and the file it runs. Nothing waits for it.
    The watcher takes the lock itself, and a second watcher that loses the race
-   exits at once.
+   exits.
 4. Exit 0 with no output, so the call proceeds unchanged.
 
 ## 6. Watcher
