@@ -105,10 +105,11 @@ func (p Paths) open() (*Ledger, error) {
 
 // dataFolder makes the ledger's folder private, with the folder name below it
 // ("" for none), and returns that folder. stateFolder does the same for the
-// state folder. A folder under agent/ is made when missing (see
-// [operation.PrivateDirectory]). A costs folder still at its old path is used
-// only where it stands: it, and name in it, must already be folders, so
-// nothing is ever made at an old path, where a folder moved away left a file.
+// state folder. A folder is made when missing (see
+// [operation.PrivateDirectory]), but never a costs folder at its old path:
+// one still in use there, as where its file system can't swap two names,
+// must already be a folder, so nothing is ever made where a folder moved
+// away left a file. A folder in it, such as a price list's, is made.
 func (p Paths) dataFolder(name string) (string, error) {
 	return p.folder(p.Runtime.Data, filepath.Join(filepath.Dir(p.Ledger), name))
 }
@@ -117,9 +118,10 @@ func (p Paths) stateFolder() (string, error) { return p.folder(p.Runtime.State, 
 
 func (p Paths) folder(root, path string) (string, error) {
 	f := agentFoldersIn(p.Runtime)
-	if (operation.Within(f.oldData, path) || operation.Within(f.oldState, path)) &&
-		!operation.IsFolder(path) {
-		return "", fmt.Errorf("%s: %w", path, syscall.ENOTDIR)
+	for _, old := range []string{f.oldData, f.oldState} {
+		if operation.Within(old, path) && !operation.IsFolder(old) {
+			return "", fmt.Errorf("%s: %w", old, syscall.ENOTDIR)
+		}
 	}
 	name, err := filepath.Rel(root, path)
 	if err != nil {
