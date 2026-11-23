@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"testing"
 	"time"
 
@@ -23,7 +22,9 @@ import (
 // another process has the ledger open, never by replacing a ledger that is
 // already at the new path or one that came back at the old path, and never by
 // leaving the import stopped because another costs file conflicts. Any of
-// these would lose spend history silently and for good.
+// these would lose spend history silently and for good. The move clears the
+// old folders, so it must also never delete or move a file Workbench did not
+// write there, which would be lost the same way.
 func TestMovingTheLedgerKeepsEveryRow(t *testing.T) {
 	for _, c := range []struct {
 		name string
@@ -39,7 +40,6 @@ func TestMovingTheLedgerKeepsEveryRow(t *testing.T) {
 		{"opened by another process during the copy", refuseALedgerOpenedDuringTheCopy},
 		{"a link at the old ledger path", refuseALinkAtTheOldLedgerPath},
 		{"old and new ledgers both hold data", refuseTwoLedgers},
-		{"an old and a new price overrides file stay untouched", leaveTheOverridesUntouched},
 		{"one ledger under both names after a stopped link", finishALinkedMove},
 		{"a different ledger at the new path beside the set-aside original", refuseADifferentLedgerBesideTheOriginal},
 		{"old paths that name the new files", keepFilesOldPathsAlias},
@@ -56,19 +56,22 @@ func moveSameFilesystem(t *testing.T) {
 	folder := filepath.Dir(old.Ledger)
 	writeFile(t, filepath.Join(folder, "rates-official.json"), "{}", 0o644)
 	writeFile(t, filepath.Join(folder, "rates-official-codex.json"), "{}", 0o644)
-	writeFile(t, filepath.Join(folder, "notes.txt"), "mine", 0o644)
 	writeFile(t, filepath.Join(old.State, "ingest.log"), "log\n", 0o644)
 	writeFile(t, filepath.Join(old.State, "ingest.lock"), "", 0o644)
-	overrides := oldOverrides(paths)
-	writeFile(t, overrides, `{"claude-opus-5": {"input": 1}}`, 0o644)
+	// A file Workbench did not write, in each old folder the move clears.
+	theirs := map[string]string{
+		filepath.Join(folder, "notes.txt"):  "mine",
+		filepath.Join(old.State, "todo.md"): "also mine",
+	}
+	for path, text := range theirs {
+		writeFile(t, path, text, 0o644)
+	}
 	left, err := MoveFolders(ctx, old, paths)
 	if err != nil {
 		t.Fatal(err)
 	}
 	assertMoved(t, old, paths, want)
-	assertOverridesUntouched(t, paths, left, map[string]string{
-		overrides: `{"claude-opus-5": {"input": 1}}`,
-	})
+	assertTheirsStay(t, paths, left, theirs)
 }
 
 func moveAcrossFilesystems(t *testing.T) {
@@ -180,53 +183,16 @@ func refuseTwoLedgers(t *testing.T) {
 	}
 }
 
-// leaveTheOverridesUntouched is a price overrides file the owner wrote at the
-// old path and another in Workbench's config folder. Workbench reads neither:
-// the ledger moves, and both stay where they are, byte for byte, unnamed.
-func leaveTheOverridesUntouched(t *testing.T) {
-	ctx := context.Background()
-	old, paths := moveFixture(t)
-	want := seedLedger(t, old.Ledger, "req-1", "req-2")
-	overrides := oldOverrides(paths)
-	config := filepath.Join(paths.Runtime.Config, "costs", "rates.json")
-	writeFile(t, overrides, `{"old": {}}`, 0o644)
-	writeFile(t, config, `{"new": {}}`, 0o600)
-	left, err := MoveFolders(ctx, old, paths)
-	if err != nil {
-		t.Fatal(err)
-	}
-	assertMoved(t, old, paths, want)
-	assertOverridesUntouched(t, paths, left, map[string]string{
-		overrides: `{"old": {}}`,
-		config:    `{"new": {}}`,
-	})
-}
-
-// oldOverrides is where the claude-costs script kept the owner's price
-// overrides, under the fixture's home.
-func oldOverrides(paths Paths) string {
-	return filepath.Join(paths.Home, ".config", "claude-costs", "rates.json")
-}
-
-// assertOverridesUntouched checks that each overrides file holds its text and
-// that the move neither named one among the files it left nor put one in
-// Workbench's config folder.
-func assertOverridesUntouched(t *testing.T, paths Paths, left []string, files map[string]string) {
+// assertTheirsStay checks that each file Workbench did not write holds its
+// text, in its folder, and that the move named it among the files it left.
+func assertTheirsStay(t *testing.T, paths Paths, left []string, files map[string]string) {
 	t.Helper()
 	for path, text := range files {
 		if data, err := os.ReadFile(path); err != nil || string(data) != text {
 			t.Fatalf("%s changed: %q, %v", path, data, err)
 		}
-	}
-	for _, name := range left {
-		if strings.Contains(name, "rates.json") {
-			t.Fatalf("the move named %s, which it must not look at", name)
-		}
-	}
-	config := filepath.Join(paths.Runtime.Config, "costs", "rates.json")
-	if _, ok := files[config]; !ok {
-		if _, err := os.Lstat(config); !errors.Is(err, fs.ErrNotExist) {
-			t.Fatalf("an overrides file appeared at %s: %v", config, err)
+		if shown := operation.ShowPath(paths.Home, path); !slices.Contains(left, shown) {
+			t.Fatalf("the move left %v, not naming %s", left, shown)
 		}
 	}
 }

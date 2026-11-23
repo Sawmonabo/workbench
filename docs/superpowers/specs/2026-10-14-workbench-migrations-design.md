@@ -93,7 +93,6 @@ As v0.1.25 wrote them; the code column cites that release.
 | Path | Why it stays |
 |---|---|
 | `~/.config/Bitwarden CLI/session` | Bitwarden CLI's own file; Workbench's `bw` wrapper writes it where Bitwarden reads it |
-| `$CLAUDE_COSTS_RATES`, else `${XDG_CONFIG_HOME:-~/.config}/claude-costs/rates.json`, and `<config>/costs/rates.json` | Price overrides a person wrote, which Workbench neither reads nor moves ([costs prices design](2026-11-19-costs-prices-design.md), rule 7) |
 | `~/.local/share/go-versions`, `~/.local/bin/{go,gofmt,gh,bw,bat,fd}`, `~/.local/share/fonts`, `~/.local/share/man/man1` | The user's tools, installed by the Linux scripts |
 | `~/.cache/oh-my-posh`, `~/.tmux/plugins`, `~/.config/oh-my-posh` | oh-my-posh and tmux |
 | `~/.claude/**`, `~/.codex/**`, `~/.config/{ruff,ty,tmux}`, VS Code settings | The tools whose settings Workbench manages |
@@ -138,7 +137,6 @@ BEFORE
 ~/.local/state/claude-costs/                    0755
 ├── ingest.log                                  0644
 └── ingest.lock
-~/.config/claude-costs/rates.json               (only if made)
 ~/.cache/workbench-completion.zsh               0644
 ~/.cache/claude-costs/*.json.gz                 (only where the old script ran)
 ~/Library/Application Support/workbench/        0700
@@ -170,7 +168,6 @@ AFTER
 BEFORE
 ~/.local/share/claude-costs/{ledger.sqlite*,rates-official.json,rates-official-codex.json}
 ~/.local/state/claude-costs/{ingest.log,ingest.lock}
-~/.config/claude-costs/rates.json               (only if made)
 ~/.cache/workbench-completion.bash
 ~/.cache/claude-costs/*.json.gz                 (only where the old script ran)
 ~/.config/workbench/  ~/.local/share/workbench/  ~/.local/state/workbench/  ~/.cache/workbench/
@@ -572,8 +569,8 @@ again.
 - **Price caches:** beside that ledger file, wherever it is.
 - **Log and lock:** `<old state>/claude-costs/`.
 
-A price overrides file is not one of them: it is neither moved nor read, and
-`CLAUDE_COSTS_RATES` is not read. `<data>/costs` and `<state>/costs` below
+A file a person wrote in those folders is not one of them: it is neither
+moved nor deleted, and the run names it. `<data>/costs` and `<state>/costs` below
 are the costs folders in use, under `agent/` unless an old `costs/` folder is
 still in use there ([agent folders design](2026-11-19-agent-folders-design.md)).
 
@@ -899,7 +896,7 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 | `docs/usage.md` | Costs paths (126-133), `workbench migrate`, completion cache |
 | `docs/superpowers/specs/workbench-contracts.md` | Costs row (line 134): the new write paths; add `workbench migrate` |
 | `docs/superpowers/specs/workbench-design.md` | Runtime layout and migrations |
-| `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md` | Paths table, the variables paragraph after it, the overrides path in the rate order, and "Ledger compatibility" point to this design |
+| `docs/superpowers/specs/2026-09-30-claude-costs-ledger-design.md` | Paths table, the variables paragraph after it, and "Ledger compatibility" point to this design |
 | `AGENTS.md` | Section 1 sentence, including that the import worker runs the costs move without asking. New ownership row: "Migrations of Workbench's own files \| `internal/migrate/` (moves done by the package whose files move)". |
 | `docs/adr/0008-migrations-move-workbench-files.md` | New |
 
@@ -921,38 +918,40 @@ tools in a temporary home and runs `0001-costs-folders`:
    in place.
 5. **With a second connection holding the old ledger open.**
 6. **With old and new ledgers both present.**
-7. **With an old and a new price overrides file.**
-8. **One ledger under both names,** as a link-and-unlink fallback leaves it
+7. **One ledger under both names,** as a link-and-unlink fallback leaves it
    when it stops between the two.
-9. **A different ledger at the new path** beside a set-aside original and
+8. **A different ledger at the new path** beside a set-aside original and
    its `.part`, holding as many rows.
-10. **Old paths that name the new files:** `CLAUDE_COSTS_LEDGER` and
-    `CLAUDE_COSTS_STATE` set to the new ledger and state folder.
-11. **An old folder linked to the new one:** the old `claude-costs` data
+9. **Old paths that name the new files:** `CLAUDE_COSTS_LEDGER` and
+   `CLAUDE_COSTS_STATE` set to the new ledger and state folder.
+10. **An old folder linked to the new one:** the old `claude-costs` data
     folder a link to `<data>/costs`.
-12. **A link at the old ledger path,** relative, naming the ledger.
-13. **A writer that opens the old ledger during the copy,** on a second
+11. **A link at the old ledger path,** relative, naming the ledger.
+12. **A writer that opens the old ledger during the copy,** on a second
     connection, while the copy across filesystems runs.
+
+Case 1 also puts a file Workbench did not write in each old `claude-costs`
+folder.
 
 **What it asserts:**
 - **Cases 1–3:** the new ledger passes `integrity_check` and holds exactly the
   original's rows, read through the test's own connection rather than the
   code under test. The old ledger is gone only after that, and a further run
-  changes nothing, after which the check reports *Done*.
+  changes nothing, after which the check reports *Done*. In case 1 each file
+  Workbench did not write stays in its folder, byte for byte, and the run
+  names it among the files it left.
 - **Cases 4 and 6:** *Conflict*, with every ledger file byte-identical to
   before.
 - **Case 5:** refused as busy, with nothing moved.
-- **Case 7:** the ledger moves with every row, and both overrides files stay
-  where they are, byte for byte, unnamed among the files the move left.
-- **Case 8:** *Unfinished*, never *Conflict*; the run finishes the move with
+- **Case 7:** *Unfinished*, never *Conflict*; the run finishes the move with
   every row.
-- **Case 9:** *Conflict* on every run, with every file byte-identical to
+- **Case 8:** *Conflict* on every run, with every file byte-identical to
   before: the same row count never lets a run delete the original.
-- **Cases 10 and 11:** *Done*; a run succeeds and leaves every file
-  byte-identical, with the ledger's rows, and in case 11 the link stays.
-- **Case 12:** a conflict; the link stays, the ledger behind it is
+- **Cases 9 and 10:** *Done*; a run succeeds and leaves every file
+  byte-identical, with the ledger's rows, and in case 10 the link stays.
+- **Case 11:** a conflict; the link stays, the ledger behind it is
   byte-identical, and nothing is at the new path.
-- **Case 13:** refused as busy, with the original holding every row and no
+- **Case 12:** refused as busy, with the original holding every row and no
   copy left.
 
 ## 10. Order of work

@@ -124,8 +124,9 @@ Changed in place: the costs sections of `docs/usage.md` and
 The ledger is the only lasting record of spend. One test starts from a
 version 5 ledger with rows and a list file beside it, and proves that after
 the upgrade every row is there and the file's prices are in `prices`. It
-says that risk beside it. The two safeguards of the first costs move that
-expect the overrides file to move expect it left untouched.
+says that risk beside it. The first costs move's safeguard proves that a
+file Workbench did not write in each old folder stays where it is, byte for
+byte, and is named.
 
 ## 7. Left to the builder
 

@@ -906,8 +906,8 @@ synthetic answers.
   whose old files v0.1.25 wrote by ingesting a synthetic transcript,
   `workbench migrate --dry-run` listed three pending migrations, `migrate --probe`
   printed one line for each, and `migrate --dry-run --json` then
-  `--approve-plan DIGEST` moved the ledger, both price caches and the
-  overrides, deleted the old import log and lock, the completion cache and
+  `--approve-plan DIGEST` moved the ledger and both price caches, deleted
+  the old import log and lock, the completion cache and
   the old script's cache, removed every `claude-costs` folder, and wrote
   `migrations.json`. The new folders were 0700 and the files 0600, the
   ledger's row count in every table matched the count before the move, and

@@ -25,8 +25,8 @@ the same path.
 
 A folder moves with whatever is in it: the downloaded price lists in
 `<data>/costs/<tool>/` go along, and the costs prices design deletes them
-afterwards. `<config>/costs/`, which held only the price overrides that
-design stops reading, does not move.
+afterwards. `<config>/costs/` holds no file Workbench writes, and does not
+move.
 
 Nothing else moves: `machine.toml`, the env files, `state.json`,
 `activation.json`, `migrations.json`, `locks/`, `checkpoints/`, `chezmoi/`,
