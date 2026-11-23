@@ -121,25 +121,57 @@ func openFolders(state, part string) (folders, error) {
 
 // open starts the logger, first, so a failure here can be logged where the
 // folder holds its log, then makes the folder and its notes, killed and
-// agents folders private when the folder is at its new path; at its old path
-// it makes nothing and uses what is there. It deletes the file a move left at
-// the old path once the system has restarted since (see
+// agents folders private (see private), so a folder at either path that is
+// not private, or is a link, is refused in the same words. It deletes the
+// file a move left at the old path once the system has restarted since (see
 // [operation.RemoveClosedPath]).
 func (f *folders) open() error {
 	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
-	if f.root != oldRoot(f.state) {
-		for _, folder := range []string{f.notes, f.killed, f.agents} {
-			name, err := filepath.Rel(f.state, folder)
-			if err != nil {
-				return err
-			}
-			if _, err := operation.PrivateDirectory(f.state, name); err != nil {
-				return err
-			}
+	for _, folder := range []string{f.notes, f.killed, f.agents} {
+		if err := f.private(folder); err != nil {
+			return err
 		}
 	}
 	operation.RemoveClosedPath(oldRoot(f.state))
 	return nil
+}
+
+// check applies to the guard folder where Root put f, at either path, the
+// checks open applies there, making nothing (see
+// [operation.CheckPrivateDirectory]), for an entry that only reads the
+// folder: the state folder, the guard folder and its notes, killed and agents
+// folders, each that exists, must be private, so a reader refuses the folder
+// in the words a hook or the watcher does.
+func (f folders) check() error {
+	for _, folder := range []string{f.notes, f.killed, f.agents} {
+		name, err := filepath.Rel(f.state, folder)
+		if err != nil {
+			return err
+		}
+		if err := operation.CheckPrivateDirectory(f.state, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// private makes the folder at path, the guard folder or one in it, private
+// with the folders above it in the state folder (see
+// [operation.PrivateDirectory]) when the guard folder is at its new path. At
+// its old path, where nothing is ever made, it applies the same checks and
+// makes nothing (see [operation.CheckPrivateDirectory]): a folder the
+// release before made there passes them, and a missing one fails where it is
+// used.
+func (f folders) private(path string) error {
+	name, err := filepath.Rel(f.state, path)
+	if err != nil {
+		return err
+	}
+	if f.root == oldRoot(f.state) {
+		return operation.CheckPrivateDirectory(f.state, name)
+	}
+	_, err = operation.PrivateDirectory(f.state, name)
+	return err
 }
 
 // makeUnits makes the units folder private, for the watcher alone, which
@@ -153,18 +185,9 @@ func (f folders) makeUnits() error {
 	return err
 }
 
-// makeRoot makes the guard folder private when it is at its new path, before
-// its lock is taken; at its old path it makes nothing.
-func (f folders) makeRoot() error {
-	if f.root == oldRoot(f.state) {
-		return nil
-	}
-	name, err := filepath.Rel(f.state, f.root)
-	if err == nil {
-		_, err = operation.PrivateDirectory(f.state, name)
-	}
-	return err
-}
+// makeRoot makes the guard folder private before its lock is taken, or at
+// its old path checks it as private (see private).
+func (f folders) makeRoot() error { return f.private(f.root) }
 
 // again is for an entry whose read or write in the guard folder failed:
 // when f is the folder at its old path and that path is no longer a folder,

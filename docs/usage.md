@@ -320,7 +320,12 @@ them, and so does every costs and guard entry that holds the folder's lock: a
 watcher of the earlier release hands over as at every update, and the new
 watcher moves the guard folder before its first look, so nothing it was
 watching is dropped; a folder a watcher or an import still works in waits for
-it. An entry asks whether a watcher or an import works in a folder with a
+it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
+`agent guard history` and `agent guard logs` use it only while it, its
+`notes/`, `killed/` and `agents/` folders and the state folder above are
+real folders (not links) of mode 0700, yours, on the machine's own file
+system, and refuse it otherwise in the same words, such as `Existing …/notes
+must be a private directory (mode 0700); it was not changed`. An entry asks whether a watcher or an import works in a folder with a
 shared lock on that folder's lock file, which only the watcher's or the
 import's own exclusive lock refuses, so entries asking at the same moment
 never take each other for one. On a file system that cannot swap two names, such as HFS+, the folders

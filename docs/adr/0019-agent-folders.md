@@ -49,7 +49,14 @@ using.
   identifier is another start's. A move never replaces a folder.
 - One function per part says where its folder is: the old one while it is a
   folder and either the new one is not or the old one's lock is held, else the
-  new one. An entry never makes a folder at an old path. Every entry that asks
+  new one. An entry never makes a folder at an old path. Every guard entry
+  (the hooks, the watcher, the view, `agent guard history` and `agent guard
+  logs`) checks the guard folder where that function says it is, at either
+  path, as private: it, its notes, killed and agents folders and the state
+  folder above them must be real folders, not links, of mode 0700, the
+  user's, on the machine's own file system, and one that is not is refused
+  in the same words at both paths; at the old path the checks make nothing,
+  and a folder the release before made there passes them. Every entry that asks
   whether a watcher or an import holds a lock (that function, a pre hook,
   `workbench migrate` and `doctor`, `agent costs status`) asks with a shared
   lock taken without waiting for an instant: only the exclusive lock of a

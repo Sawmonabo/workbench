@@ -20,14 +20,16 @@ import (
 // set.
 const HistoryKeepDefault = historyKeepDefault
 
-// HistoryRoot is the guard folder where Root says, which holds the history.
+// HistoryRoot is the guard folder where Root says, which holds the history,
+// once it passes the checks every entry applies to it (see folders.check).
 // It creates nothing.
 func HistoryRoot() (string, error) {
 	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
-	return Root(state), nil
+	f := locate(state, "history")
+	return f.root, f.check()
 }
 
 // MakeHistoryRoot is HistoryRoot made private when it is missing, as the
@@ -40,7 +42,10 @@ func MakeHistoryRoot() (string, error) {
 		return "", err
 	}
 	f := locate(state, "history")
-	return f.root, f.makeRoot()
+	if err := f.makeRoot(); err != nil {
+		return f.root, err
+	}
+	return f.root, f.check()
 }
 
 // HistoryFile is the history's path in the guard folder root.

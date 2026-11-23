@@ -102,14 +102,16 @@ func logFile(root string) string { return filepath.Join(root, "watch.log") }
 // that starts while it is over the log's cap (see [operation.RotateOutput]).
 func outputFile(path string) string { return filepath.Join(filepath.Dir(path), "watch.err") }
 
-// LogPath is the guard log's path, in the guard folder where Root says. It
-// creates nothing.
+// LogPath is the guard log's path, in the guard folder where Root says, once
+// the folder passes the checks every entry applies to it (see
+// folders.check). It creates nothing.
 func LogPath() (string, error) {
 	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
-	return logFile(Root(state)), nil
+	f := locate(state, "logs")
+	return f.log(), f.check()
 }
 
 // followPoll is how often a followed log is checked for new lines.

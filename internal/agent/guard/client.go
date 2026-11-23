@@ -40,16 +40,21 @@ var ErrProtocolVersion = errors.New("the watcher speaks no protocol version this
 func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 
 // socketPath is the watcher's socket path, in the guard folder where Root
-// says. It creates nothing. A path too long for a socket address is an error
-// naming the state folder, which holds it. Both are named in full, unlike a
-// file error's path (see [sqlitefile.FileError]): their length is the
-// problem.
+// says, once the folder passes the checks every entry applies to it (see
+// folders.check). It creates nothing. A path too long for a socket address
+// is an error naming the state folder, which holds it. Both are named in
+// full, unlike a file error's path (see [sqlitefile.FileError]): their
+// length is the problem.
 func socketPath() (string, error) {
 	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
-	path := socketFile(Root(state))
+	f := locate(state, "view")
+	if err := f.check(); err != nil {
+		return "", err
+	}
+	path := f.socket()
 	if len(path) > socketPathLimit {
 		return "", fmt.Errorf(
 			"the guard socket path %s is over %d bytes; the state folder %s is too deep for a socket",

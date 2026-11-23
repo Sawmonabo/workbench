@@ -367,15 +367,25 @@ func removeWrites(folder string, age time.Duration) {
 	}
 }
 
-func ensurePrivateDirectory(path string) error {
+func ensurePrivateDirectory(path string) error { return privateDirectory(path, true) }
+
+// privateDirectory requires the folder at path to be private: no link and
+// no file from it up, nothing above it that another user owns or may write
+// (see safeParents), on a file system that keeps it private, a folder
+// itself, mode 0700 and this user's. With create it first makes it, 0700,
+// when it is missing; without, a missing folder fails with an error matching
+// fs.ErrNotExist and nothing is made.
+func privateDirectory(path string, create bool) error {
 	if err := safeParents(path); err != nil {
 		return err
 	}
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return err
+	if create {
+		if err := os.MkdirAll(path, 0o700); err != nil {
+			return err
+		}
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
@@ -429,6 +439,38 @@ func PrivateDirectory(root, name string) (string, error) {
 		}
 	}
 	return directory, nil
+}
+
+// CheckPrivateDirectory is [PrivateDirectory] making nothing, for an entry
+// that must not make a folder where it looks, or only reads: root and each
+// folder of name below it, down to the first one that is missing, must be
+// private as PrivateDirectory requires, and one that is not fails it with
+// PrivateDirectory's words. A missing folder ends the check with no error,
+// since it holds nothing; a caller that needs it fails when it uses it.
+// [PrivateTree] checks without creating too, but in other words, and fails
+// on a missing folder.
+func CheckPrivateDirectory(root, name string) error {
+	if name != "" && !filepath.IsLocal(name) {
+		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+root)
+	}
+	directory := root
+	folders := []string{root}
+	if name != "" {
+		for part := range strings.SplitSeq(filepath.ToSlash(filepath.Clean(name)), "/") {
+			directory = filepath.Join(directory, part)
+			folders = append(folders, directory)
+		}
+	}
+	for _, folder := range folders {
+		err := privateDirectory(folder, false)
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // PrivateTree rejects redirected, borrowed or permissive private trees: no

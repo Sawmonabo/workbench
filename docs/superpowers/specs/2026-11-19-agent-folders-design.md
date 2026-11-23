@@ -93,7 +93,15 @@ exits when it is not, and hooks and import workers started just before.
    lock is held with a shared lock, taken without waiting for an instant:
    only a holder of the exclusive lock refuses it, so two entries asking at
    once never take each other for a watcher or an import. An entry never
-   makes a folder, or a file's parent, at an old path. An entry that fails
+   makes a folder, or a file's parent, at an old path. Every guard entry
+   (the hooks, the watcher, the view, `agent guard history` and `agent
+   guard logs`) checks the guard folder where that function says it is as
+   private, at either path: it, its notes, killed and agents folders and
+   the state folder above them must be real folders, not links, of mode
+   0700, the user's, on the machine's own file system. One that is not is
+   refused in the same words at both paths; at the old path the checks
+   make nothing, and a folder the release before made there passes them,
+   so its watcher hands over there as at every update. An entry that fails
    in any read or write while the old path is no longer a folder asks again
    and does its work again, once.
 3. **A move swaps.** The mover makes the private `agent/` folder and a
