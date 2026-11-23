@@ -126,11 +126,7 @@ func (w *watcher) historyError(now time.Time) string {
 	if failure := w.history.failure(); failure != "" {
 		return HistoryUnwritable(failure)
 	}
-	at, copied := w.history.damaged()
-	if at.IsZero() {
-		return ""
-	}
-	return HistoryDamaged(at, copied, now)
+	return HistoryDamaged(w.history.damagedCopies(), now)
 }
 
 // buildView is the snapshot of this tick: s and m, the tracked commands with

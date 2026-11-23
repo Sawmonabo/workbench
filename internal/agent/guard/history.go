@@ -166,9 +166,32 @@ type History struct {
 }
 
 // historyFile is the history in the guard folder root; damagedFile is where
-// a history that cannot be used is moved.
-func historyFile(root string) string { return filepath.Join(root, "history.db") }
-func damagedFile(root string) string { return filepath.Join(root, "history.damaged.db") }
+// a history that cannot be used is moved, and olderDamagedFile where the copy
+// already there goes first (see [MoveDamaged]), numbered as logrotate numbers
+// the generations it keeps, the higher the older.
+func historyFile(root string) string      { return filepath.Join(root, "history.db") }
+func damagedFile(root string) string      { return filepath.Join(root, "history.damaged.db") }
+func olderDamagedFile(root string) string { return filepath.Join(root, "history.damaged.2.db") }
+
+// DamagedCopy is a copy of a history that could not be used, which the guard
+// folder keeps for the time kept from At, when it was set aside (see
+// [MoveDamaged]).
+type DamagedCopy struct {
+	Path string
+	At   time.Time
+}
+
+// damagedCopies are the copies the guard folder root keeps, the newest first:
+// history.damaged.db, then history.damaged.2.db.
+func damagedCopies(root string) []DamagedCopy {
+	var copies []DamagedCopy
+	for _, path := range []string{damagedFile(root), olderDamagedFile(root)} {
+		if info, err := os.Lstat(path); err == nil {
+			copies = append(copies, DamagedCopy{Path: path, At: info.ModTime()})
+		}
+	}
+	return copies
+}
 
 // sideFiles are the suffixes of the files SQLite keeps beside a WAL database.
 var sideFiles = []string{"-wal", "-shm"}
@@ -716,7 +739,7 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, keepSetting, strconv.For
 // the lowest seq while the pages in use take more than historyBytes, and then
 // gives the pages they freed back to the disk. again reports that it stopped
 // at trimStep with more to delete, for another step after other writes. It
-// also deletes the copy [MoveDamaged] made once its files were all last
+// also deletes each copy [MoveDamaged] made once its files were all last
 // written before now less the time kept, when all it holds would have gone
 // anyway.
 func (h *History) Trim(ctx context.Context, now time.Time) (again bool, err error) {
@@ -823,11 +846,18 @@ func deleteForSize(ctx context.Context, tx *sql.Tx, limit int) (int, error) {
 	return deleted, nil
 }
 
-// removeDamagedBefore deletes the copy [MoveDamaged] made in the guard folder
+// removeDamagedBefore deletes each copy [MoveDamaged] made in the guard folder
 // root once each of its files was last written before since. It is best
 // effort: a copy it cannot delete stays, and the view keeps naming it.
 func removeDamagedBefore(root string, since time.Time) {
-	copied := damagedFile(root)
+	for _, copied := range []string{damagedFile(root), olderDamagedFile(root)} {
+		removeCopyBefore(copied, since)
+	}
+}
+
+// removeCopyBefore deletes the copy at copied, with its -wal and -shm files,
+// once each of them was last written before since.
+func removeCopyBefore(copied string, since time.Time) {
 	names := []string{copied}
 	for _, side := range sideFiles {
 		names = append(names, copied+side)
@@ -850,28 +880,37 @@ func removeDamagedBefore(root string, since time.Time) {
 
 // MoveDamaged moves the history in the guard folder root, a file that cannot
 // be used, aside to history.damaged.db with its -wal and -shm files, and
-// returns that path, for the writer to start an empty history. It replaces a
-// copy already there, so there is one at most: each side file of the copy is
-// replaced, or deleted when the history has none, before the history itself
-// is moved, so no side file of another database is ever left beside a
-// history, where SQLite would read it as that history's. Its files are
-// then marked as written now, so the copy is kept for the time kept from the
-// moment it was set aside. The history must not be open.
-func MoveDamaged(root string) (to string, err error) {
+// returns that path, for the writer to start an empty history. A copy whose
+// files were all last written before since, when the time kept began, is
+// deleted first (see removeDamagedBefore). A copy at history.damaged.db
+// younger than that moves to history.damaged.2.db, keeping its time, so two
+// damages within the time kept keep both copies; with a copy younger than
+// since at each name it moves nothing and fails, so it never destroys a copy
+// that may hold rows the time kept still covers, which SQLite's recovery
+// can often rebuild. Each move replaces the side files at its new name, or
+// deletes them when the file moved has none, before the file itself, so no
+// side file of another database is ever left beside a history, where SQLite
+// would read it as that history's. The new copy's files are then marked as
+// written now, so it is kept for the time kept from the moment it was set
+// aside. The history must not be open.
+func MoveDamaged(root string, since time.Time) (to string, err error) {
 	from, to := historyFile(root), damagedFile(root)
 	if _, err := os.Lstat(from); err != nil {
 		return "", err
 	}
-	for _, side := range sideFiles {
-		err := os.Rename(from+side, to+side)
-		if errors.Is(err, fs.ErrNotExist) {
-			err = operation.RemoveIfThere(to + side)
+	removeDamagedBefore(root, since)
+	if _, err := os.Lstat(to); err == nil {
+		older := olderDamagedFile(root)
+		if _, err := os.Lstat(older); err == nil {
+			return "", fmt.Errorf("the two copies kept of damaged histories, %s and %s, are "+
+				"younger than the time kept; delete one to start a new history", to, older)
 		}
-		if err != nil {
+		// A copy deleted meanwhile has nothing to move.
+		if err := moveCopy(to, older); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return "", err
 		}
 	}
-	if err := os.Rename(from, to); err != nil {
+	if err := moveCopy(from, to); err != nil {
 		return "", err
 	}
 	// The copy is kept for the time kept from now, when it was set aside,
@@ -883,4 +922,19 @@ func MoveDamaged(root string) (to string, err error) {
 		}
 	}
 	return to, nil
+}
+
+// moveCopy renames the database at from, with its -wal and -shm files, to to,
+// each side file first, the side files at to deleted when from has none.
+func moveCopy(from, to string) error {
+	for _, side := range sideFiles {
+		err := os.Rename(from+side, to+side)
+		if errors.Is(err, fs.ErrNotExist) {
+			err = operation.RemoveIfThere(to + side)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	return os.Rename(from, to)
 }

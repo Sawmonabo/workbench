@@ -1,7 +1,7 @@
 package guard
 
 // This file is what the view and `agent guard history` need of the history
-// beyond its store (history.go): where it and the copy of a damaged one are,
+// beyond its store (history.go): where it and the copies of damaged ones are,
 // the guard folder made for the command that sets the time kept, the time
 // kept while none is set, how much of a command a summary holds, and what
 // is said of a history that cannot be written, was damaged or cannot be
@@ -54,9 +54,10 @@ func HistoryFile(root string) string { return historyFile(root) }
 // SummaryLength is how many characters of a command a [Summary] holds.
 const SummaryLength = summaryLength
 
-// HistoryDamagedFile is where the guard folder root keeps the copy of a
-// history that could not be used (see [MoveDamaged]).
-func HistoryDamagedFile(root string) string { return damagedFile(root) }
+// HistoryDamagedCopies are the copies the guard folder root keeps of
+// histories that could not be used, the newest first, each with the time it
+// was set aside (see [MoveDamaged]).
+func HistoryDamagedCopies(root string) []DamagedCopy { return damagedCopies(root) }
 
 // ShowPaths is text, which names paths in the folder root (the guard folder,
 // or the state folder that holds it), as people read it: each such path named
@@ -79,20 +80,35 @@ func HistoryUnwritable(reason string) string {
 	return "Guard history cannot be written: " + reason
 }
 
-// HistoryDamaged is what is said while the guard folder keeps the copy of a
-// history that could not be used, at copied, set aside at at (the copy's
-// time, which [MoveDamaged] sets): "Guard history was damaged and started
-// again at TIME; the old file is PATH", TIME with its date when it is not
-// on the day of now, PATH named from the home folder.
-func HistoryDamaged(at time.Time, copied string, now time.Time) string {
-	at, now = at.Local(), now.Local()
-	clock := at.Format("3:04 PM")
-	if at.Format(time.DateOnly) != now.Format(time.DateOnly) {
-		clock = at.Format("Jan 2 3:04 PM")
+// HistoryDamaged is what is said while the guard folder keeps copies of
+// histories that could not be used, the newest first, each set aside at its
+// At (the copy's time, which [MoveDamaged] sets), "" while it keeps none:
+// "Guard history was damaged and started again at TIME; the old file is
+// PATH", or, with two, "Guard history was damaged and started again at TIME,
+// and before that at TIME; the old files are PATH and PATH", each TIME with
+// its date when it is not on the day of now, each PATH named from the home
+// folder.
+func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
+	if len(copies) == 0 {
+		return ""
 	}
 	home, _ := os.UserHomeDir()
-	return "Guard history was damaged and started again at " + clock + "; the old file is " +
-		operation.ShowPath(home, copied)
+	clock := func(at time.Time) string {
+		if at.Local().Format(time.DateOnly) != now.Local().Format(time.DateOnly) {
+			return at.Local().Format("Jan 2 3:04 PM")
+		}
+		return at.Local().Format("3:04 PM")
+	}
+	if len(copies) == 1 {
+		return "Guard history was damaged and started again at " + clock(copies[0].At) +
+			"; the old file is " + operation.ShowPath(home, copies[0].Path)
+	}
+	return "Guard history was damaged and started again at " + clock(copies[0].At) +
+		", and before that at " + clock(copies[1].At) + "; the old files are " +
+		operation.ShowPath(
+			home,
+			copies[0].Path,
+		) + " and " + operation.ShowPath(home, copies[1].Path)
 }
 
 // HistoryUnreadable is what is said of a history in the guard folder root

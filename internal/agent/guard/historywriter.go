@@ -7,12 +7,12 @@ package guard
 // token, so nothing here logs it.
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"os"
 	"slices"
 	"sync"
 	"time"
@@ -45,7 +45,8 @@ const (
 // cannot use (see ErrHistoryUnusable), found by any of its operations, it
 // moves aside (see MoveDamaged), starts a new one with the time kept it last
 // read, logs both paths, and writes the commands it has not written to the
-// new one. Its zero value takes commands and writes nothing until start. Only
+// new one; one it cannot move, since the two copies kept are younger than the
+// time kept, is a write that fails. Its zero value takes commands and writes nothing until start. Only
 // its own goroutine touches the history; the watcher's calls only take mu,
 // which no database call is made under.
 type historyWriter struct {
@@ -62,10 +63,9 @@ type historyWriter struct {
 	// failed is why the last write failed, as people read it (see
 	// ShowPaths), "" once one succeeded.
 	failed string
-	// damagedAt is when a history that could not be used was moved aside to
-	// copied, zero while no such copy is kept.
-	damagedAt time.Time
-	copied    string
+	// damaged are the copies kept of histories that could not be used, the
+	// newest first, none while no copy is kept.
+	damaged []DamagedCopy
 	// wake tells the goroutine that a command was handed to it or that drain
 	// asks it to stop.
 	wake chan struct{}
@@ -127,12 +127,12 @@ func (h *historyWriter) failure() string {
 	return h.failed
 }
 
-// damaged is when a history that could not be used was moved aside, and
-// where to, while that copy is kept; zero when there is none.
-func (h *historyWriter) damaged() (time.Time, string) {
+// damagedCopies are the copies kept of histories that could not be used, the
+// newest first; none when there is none.
+func (h *historyWriter) damagedCopies() []DamagedCopy {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	return h.damagedAt, h.copied
+	return h.damaged
 }
 
 // drain asks the writer to stop: it writes what it has not, without waiting
@@ -257,25 +257,15 @@ func (h *historyWriter) fail(root string, err error) {
 	}
 }
 
-// setDamaged records when a history that could not be used was moved aside to
-// copied; zero when no copy is kept.
-func (h *historyWriter) setDamaged(at time.Time, copied string) {
+// noteCopy records the copies of histories that could not be used that the
+// guard folder root keeps, each with the time it was moved aside (see
+// MoveDamaged), so a watcher started since says it too; and each no more once
+// a trim deleted it.
+func (h *historyWriter) noteCopy(root string) {
+	copies := damagedCopies(root)
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	h.damagedAt, h.copied = at, copied
-}
-
-// noteCopy records the copy of a history that could not be used in the guard
-// folder root, when one is kept, with the time it was moved aside (see
-// MoveDamaged), so a watcher started since says it too; and none once a trim
-// deleted it.
-func (h *historyWriter) noteCopy(root string) {
-	copied := damagedFile(root)
-	if info, err := os.Lstat(copied); err == nil {
-		h.setDamaged(info.ModTime(), copied)
-	} else {
-		h.setDamaged(time.Time{}, "")
-	}
+	h.damaged = copies
 }
 
 // writerRun is one run of the writer's goroutine: the history it holds open,
@@ -322,7 +312,7 @@ func (r *writerRun) step(now time.Time) bool {
 }
 
 // open opens the history, making it when it is missing, reads the time kept
-// and notes a copy of a history that could not be used.
+// and notes the copies of histories that could not be used.
 func (r *writerRun) open() {
 	history, err := OpenHistory(r.root, true)
 	if err != nil {
@@ -342,9 +332,9 @@ func (r *writerRun) open() {
 // trim runs one trim step at now. The first step of a trim checks the file
 // (see History.Check) and reads the time kept, so a history started again
 // after damage keeps it (see replace); once a step has nothing more to
-// delete, the next trim is trimEvery later and the copy of a history that
-// could not be used, which a trim deletes once it is older than the time
-// kept, is noted again. A file the check fails, one that is gone, replaced
+// delete, the next trim is trimEvery later and the copies of histories that
+// could not be used, which a trim deletes once each is older than the time
+// kept, are noted again. A file the check fails, one that is gone, replaced
 // or whose header is not a database's, is a history that cannot be used (see
 // failed).
 func (r *writerRun) trim(now time.Time) {
@@ -400,15 +390,16 @@ func (r *writerRun) failed(err error) {
 }
 
 // replace closes the history, which cause found it cannot use, moves it aside
-// (see MoveDamaged), starts a new one with the time kept it last read (24
-// hours when it read none, which it logs) and logs both paths. A history
+// (see MoveDamaged), keeping each copy younger than the time kept it last
+// read (24 hours when it read none), starts a new one with that time kept
+// (logging that it keeps 24 hours when it read none) and logs both paths. A history
 // that is no longer there is not moved: the -wal and -shm files left of it,
 // which SQLite would read as the new one's, are deleted, and the new one is
 // logged alone. It gives the error of a move or start that failed.
 func (r *writerRun) replace(cause error) error {
 	r.close()
 	from := historyFile(r.root)
-	to, err := MoveDamaged(r.root)
+	to, err := MoveDamaged(r.root, time.Now().Add(-cmp.Or(r.keep, historyKeepDefault)))
 	gone := to == "" && errors.Is(err, fs.ErrNotExist)
 	if to == "" && !gone {
 		return fmt.Errorf("cannot move the guard history that cannot be used aside: %w", err)

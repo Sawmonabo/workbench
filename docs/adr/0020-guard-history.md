@@ -74,10 +74,17 @@ take from whichever agent started it, so two shells could disagree.
   each, so deleted rows give their pages back to the disk.
 - A history the guard cannot use (not a database, damaged, or of another
   layout) is never repaired, merged or deleted in place. The watcher alone
-  renames it and its `-wal` and `-shm` files to `history.damaged.db`,
-  replacing an earlier copy, and starts an empty history with the time kept
-  it last read. The copy is deleted once it is older than the time kept,
-  when all it held would have gone anyway. SQLite reads the file only where
+  renames it and its `-wal` and `-shm` files to `history.damaged.db`, after
+  renaming a copy already there to `history.damaged.2.db`, as logrotate
+  numbers the generations it keeps, and starts an empty history with the
+  time kept it last read. Each copy is deleted once it is older than the
+  time kept, when all it held would have gone anyway, and never sooner: it
+  may hold the only record of rows the time kept still covers, which
+  SQLite's recovery can often rebuild. Two copies bound the disk, where
+  logrotate's count deletes the oldest whatever its age: a third history
+  the guard cannot use while both copies are younger than the time kept
+  stays where it is, and the writer says it cannot be written, naming the
+  two copies and saying that deleting one starts a new history. SQLite reads the file only where
   its cache lacks a page, so once a minute the watcher also checks that the
   path still names the file it opened and that its 100-byte header is a
   database's, which takes microseconds where SQLite's own quick check took
@@ -93,7 +100,7 @@ take from whichever agent started it, so two shells could disagree.
   checks accepted, with its `-wal` and `-shm` files. Each keeps its own
   checks and schema.
 - AGENTS.md records the one exception to rejecting unsupported state
-  without deleting it: the damaged copy goes once it is older than the time
+  without deleting it: each damaged copy goes once it is older than the time
   kept.
 - One test proves that the history and its two side files are readable by
   their owner alone, made new or opened readable by others, since a
@@ -109,5 +116,9 @@ take from whichever agent started it, so two shells could disagree.
 
 - [Agent Guard history design](../superpowers/specs/2026-11-19-agent-guard-history-design.md),
   section 6.4 for the measurements
+- [logrotate(8)](https://man7.org/linux/man-pages/man8/logrotate.8.html),
+  `rotate count` and `maxage`, for the generations kept
+- [SQLite recovery](https://sqlite.org/recovery.html), for what a damaged
+  copy can still give back
 - [Costs ledger design](../superpowers/specs/2026-09-30-claude-costs-ledger-design.md),
   for the pure-Go SQLite driver

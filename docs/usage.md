@@ -583,14 +583,16 @@ up to a second for them to be written.
 Finished commands are kept 24 hours until you set another time; nothing asks
 for one.
 `workbench agent guard history` shows how long they are kept, how many there
-are, the history's size and its file. `--keep` sets the time, in whole hours,
+are, the history's size and its file, and, on a last line, the copies of
+damaged histories it keeps, in the view's words. `--keep` sets the time, in whole hours,
 days or weeks from `1h` to `30d` (`12h`, `3d`, `1w`); any other value exits 2
 and sets nothing. The oldest leave first: a command that ended longer ago than
 the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
-when younger. A shorter time deletes the older commands without asking: the
-view hides them within a second, and the watcher deletes them within a minute
-or, when no watcher runs, the command deletes them itself and says how many. A
-longer time brings none back. The command shows sizes in KB, MB and GB of
+when younger. A shorter time deletes the older commands without asking, with
+any copy of a damaged history set aside longer ago (see below): the view hides
+them within a second, and the watcher deletes them within a minute or, when no
+watcher runs, the command deletes them itself and says how many. A longer time
+brings none back. The command shows sizes in KB, MB and GB of
 1,024, as the guard shows memory. The global `--json` prints the same facts as fields: `path`,
 `keep_seconds`, `commands` and `bytes`, or with `--keep` `path`,
 `keep_seconds`, `was_seconds` and `deleted`.
@@ -608,11 +610,17 @@ Finished commands are kept 12 hours (was 24 hours); older ones are deleted withi
 A history the guard cannot use (a file that is not a database, that SQLite
 finds damaged, or whose layout is not the guard history's) is never repaired
 or converted. The watcher moves it, with its `-wal` and `-shm` files, aside to
-`history.damaged.db`, replacing an earlier copy, starts a new, empty history
-with the time kept it last read (24 hours when it read none) and logs both
-paths; while the copy is there, the view says the history was damaged and
-started again and names the copy. The watcher deletes the copy once it is
-older than the time kept, when all it held would have gone anyway. SQLite
+`history.damaged.db`, after moving a copy already there to
+`history.damaged.2.db`, starts a new, empty history with the time kept it last
+read (24 hours when it read none) and logs both paths; while a copy is there,
+the view and `agent guard history` say the history was damaged and started
+again and name each copy. Each copy is deleted once it is older than the time
+kept, when all it held would have gone anyway, and never sooner, since it may
+hold rows SQLite's `.recover` can rebuild. When both names hold copies younger
+than the time kept, a third history the guard cannot use stays where it is:
+the view says the history cannot be written, names the two copies and says
+that deleting one starts a new history, which the watcher then does within ten
+seconds. SQLite
 reads from the file only what its cache lacks, so once a minute the watcher
 also checks that the file is still the one it opened and that its header is a
 database's. Only the watcher moves the file: with none running, the view says

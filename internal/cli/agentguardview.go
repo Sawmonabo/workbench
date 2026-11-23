@@ -205,8 +205,8 @@ type rowCounts struct{ running, finished int }
 // it was last read; the time kept, whether the ENDED cells hold a date and
 // on which day they were made; the widest cell of each column of the held
 // rows; what is said when the file cannot be read (see
-// guard.HistoryUnreadable); the copy of a damaged history the guard
-// folder keeps, empty for none, and when it was set aside; the generation of
+// guard.HistoryUnreadable); the copies of damaged histories the guard
+// folder keeps, the newest first, each with when it was set aside; the generation of
 // the rows held, which
 // moves on each time they are read anew, so an answer about earlier ones is
 // dropped; and whether a read runs, and whether another was asked for
@@ -223,8 +223,7 @@ type viewHistory struct {
 	day          string
 	widths       []int
 	problem      string
-	damaged      string
-	damagedAt    time.Time
+	damaged      []guard.DamagedCopy
 	gen          int
 	reading      bool
 	again        bool
@@ -895,22 +894,21 @@ type historyRead struct {
 // and the widest cell of each column; the file's lowest seq; the time kept,
 // whether the ENDED cells hold dates and on which day they were made; why
 // the file cannot be read, nil when it can or does not exist yet; and the
-// copy of a damaged history the guard folder keeps, with its time.
+// copies of damaged histories the guard folder keeps, with their times.
 type historyMsg struct {
-	from      historyRead
-	db        *guard.History
-	path      string
-	file      os.FileInfo
-	reset     bool
-	rows      []*heldRow
-	widths    []int
-	lowest    int64
-	keep      time.Duration
-	dated     bool
-	day       string
-	err       error
-	damaged   string
-	damagedAt time.Time
+	from    historyRead
+	db      *guard.History
+	path    string
+	file    os.FileInfo
+	reset   bool
+	rows    []*heldRow
+	widths  []int
+	lowest  int64
+	keep    time.Duration
+	dated   bool
+	day     string
+	err     error
+	damaged []guard.DamagedCopy
 }
 
 // readHistory reads the history beside the screen (design 7.3), one read at
@@ -942,10 +940,7 @@ func (r historyRead) read() historyMsg {
 		out.err, out.reset, out.db = err, true, nil
 		return out
 	}
-	copied := guard.HistoryDamagedFile(root)
-	if info, err := os.Lstat(copied); err == nil {
-		out.damaged, out.damagedAt = copied, info.ModTime()
-	}
+	out.damaged = guard.HistoryDamagedCopies(root)
 	path := guard.HistoryFile(root)
 	file, err := os.Stat(path)
 	switch {
@@ -1030,7 +1025,7 @@ func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 	}
 	h.db, h.path, h.file = msg.db, msg.path, msg.file
 	h.keep, h.dated, h.day, h.problem = msg.keep, msg.dated, msg.day, ""
-	h.damaged, h.damagedAt = msg.damaged, msg.damagedAt
+	h.damaged = msg.damaged
 	if msg.err != nil {
 		h.problem = guard.HistoryUnreadable(msg.err, filepath.Dir(msg.path))
 	}
@@ -1612,10 +1607,10 @@ func (m *guardView) statusLines() []string {
 // historyWarnings are what is wrong with the history at now (design rules 3
 // and 9), each in the guard's own words: the watcher's while one answers and
 // has one, that it cannot write the history or found it damaged and started
-// it again; else that the view cannot read it, and, while the copy of a
-// damaged history is kept, the sentence the watcher says of it, from the
-// copy and its time, which the move sets (see guard.MoveDamaged) and a
-// watcher reads too.
+// it again; else that the view cannot read it, and, while copies of damaged
+// histories are kept, the sentence the watcher says of them, from the copies
+// and their times, which the move sets (see guard.MoveDamaged) and a watcher
+// reads too.
 func (m *guardView) historyWarnings(now time.Time) []string {
 	if text := m.snap.HistoryError; m.connected && text != "" {
 		return []string{text}
@@ -1624,8 +1619,8 @@ func (m *guardView) historyWarnings(now time.Time) []string {
 	if m.hist.problem != "" {
 		texts = append(texts, m.hist.problem)
 	}
-	if h := m.hist; h.damaged != "" {
-		texts = append(texts, guard.HistoryDamaged(h.damagedAt, h.damaged, now))
+	if text := guard.HistoryDamaged(m.hist.damaged, now); text != "" {
+		texts = append(texts, text)
 	}
 	return texts
 }

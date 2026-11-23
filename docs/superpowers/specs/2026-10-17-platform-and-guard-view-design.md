@@ -380,7 +380,7 @@ A full-screen Bubble Tea program in the alternate screen.
   count covering the same rows as the counts, running and finished), `dry run: stops are logged, not sent`, when only some
   are, `dry run on 2 of 5 commands: stops are logged, not sent`, in gold,
   then what is wrong with the history: that it cannot be written and why,
-  that it was damaged and started again and where the old file is, or that
+  that it was damaged and started again and where each old file is, or that
   it cannot be read; it is blank when there is none of these. The dry-run
   texts fit 60 columns, and a longer text wraps onto another line, so no
   line is cut.

@@ -258,6 +258,9 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
+			"A history the guard could not use is kept as history.damaged.db beside it, and " +
+			"the one damaged before as history.damaged.2.db, each deleted once it is older " +
+			"than the time kept; while one is kept, a last line names it.\n\n" +
 			"The global --json prints the same facts as fields: path, keep_seconds, commands " +
 			"and bytes, or with --keep path, keep_seconds, was_seconds and deleted.",
 		Example: "  workbench agent guard history\n" +
@@ -303,10 +306,13 @@ type guardHistoryKept struct {
 	Deleted     int    `json:"deleted"`
 }
 
-// showGuardHistory prints the time kept, the count and size, and the file:
+// showGuardHistory prints the time kept, the count and size, and the file,
+// and, while the guard folder keeps copies of damaged histories, the
+// sentence the view says of them:
 //
 //	Finished commands are kept 24 hours · 2,832 kept · 3 MB
 //	~/.local/state/workbench/agent/guard/history.db
+//	Guard history was damaged and started again at 3:04 PM; the old file is ~/…/history.damaged.db
 //
 // A history not made yet is empty and kept for the default time.
 func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) error {
@@ -349,6 +355,10 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 		forTerm("Finished commands are kept "+keptText(time.Duration(facts.KeepSeconds)*
 			time.Second)+" · "+held),
 		showPath(facts.Path))
+	if text := guard.HistoryDamaged(guard.HistoryDamagedCopies(root), time.Now()); err == nil &&
+		text != "" {
+		_, err = fmt.Fprintln(cmd.OutOrStdout(), forTerm(text))
+	}
 	return err
 }
 

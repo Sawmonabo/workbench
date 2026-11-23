@@ -371,13 +371,23 @@ and order them.
    database, that SQLite calls corrupt, whose `user_version` is not 1 or
    whose tables are not these is never repaired, merged or deleted in
    place. The writer renames it and its `-wal` and `-shm` files to
-   `history.damaged.db` (and `-wal`, `-shm`), replacing a damaged copy
-   already there, starts an empty history with the time kept it last read (24
-   hours when it never read one, which it logs), and logs both names once. While
-   the copy exists the view says
+   `history.damaged.db` (and `-wal`, `-shm`), after renaming a damaged copy
+   already there to `history.damaged.2.db`, as logrotate numbers the
+   generations it keeps, the higher the older; starts an empty history with
+   the time kept it last read (24 hours when it never read one, which it
+   logs), and logs both names once. While a copy exists the view and
+   `agent guard history` say
    `Guard history was damaged and started again at TIME; the old file is
-   PATH`, PATH named from the home folder. A trim deletes the copy once it is older than `keep`, when all it
-   holds would have gone anyway. Only the writer moves a file: a view with
+   PATH`, or with two
+   `Guard history was damaged and started again at TIME, and before that at
+   TIME; the old files are PATH and PATH`, each PATH named from the home
+   folder. A trim, and the move itself, deletes each copy once it is older
+   than `keep`, when all it holds would have gone anyway, and never sooner:
+   a copy may hold the only record of rows the time kept still covers, which
+   SQLite's recovery can often rebuild. When both names hold copies younger
+   than `keep`, a third history that cannot be used stays where it is and
+   falls under rule 3, its reason naming the two copies and saying that
+   deleting one starts a new history. Only the writer moves a file: a view with
    no watcher says `Guard history unreadable: REASON` and shows none, and
    `agent guard history` fails with the same text and sets nothing.
    A file that cannot be written for another reason (a full disk, a

@@ -52,9 +52,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Preserve user data and native tool interoperability. Reject unsupported state
   without deleting or converting it. One exception: the agent command guard
   moves aside a history of finished commands it cannot use
-  (`history.damaged.db`, beside it), starts a new one, and deletes the copy
-  once it is older than the time kept, when all it held would have gone
-  anyway (ADR 0020).
+  (`history.damaged.db`, beside it, the copy already there moving to
+  `history.damaged.2.db`), starts a new one, and deletes each copy once it
+  is older than the time kept, when all it held would have gone anyway,
+  never sooner (ADR 0020).
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the
