@@ -275,7 +275,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		return "", err
 	}
 	errs = append(errs, resolved...)
-	rates := refreshIfNeeded(ctx, ledger, paths)
+	rates := refreshIfNeeded(ctx, ledger, paths.Home)
 	event := opts.Event
 	if event == "" {
 		event = "manual"

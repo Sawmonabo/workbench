@@ -4,11 +4,13 @@
 // sockets and empty files it wrote and of an old copy whose new copy holds the
 // same bytes, and 0005's move of the work tokens saved as machine answers into
 // a new work.env, deleting them from machine.toml only once work.env holds
-// them, 0006's rename of a step in machine.toml's saved choices, and 0007's
-// move of the costs and guard folders under agent/ inside the runtime folders,
-// each swapped with a small file that stays at its old path until the machine
-// restarts. A move of another package's files is done by that package; this
-// package holds the list, the check and run loop, and the run record.
+// them, 0006's rename of a step in machine.toml's saved choices, 0007's move
+// of the costs and guard folders under agent/ inside the runtime folders, each
+// swapped with a small file that stays at its old path until the machine
+// restarts, and 0008's delete of the downloaded price lists once the ledger
+// holds their prices. A move of another package's files is done by that
+// package; this package holds the list, the check and run loop, and the run
+// record.
 package migrate
 
 import (
@@ -92,6 +94,7 @@ var Registry = []Migration{
 	WorkTokens,
 	StepNames,
 	AgentFolders,
+	priceLists,
 }
 
 // OldLocationVariables are the variables the old locations were read from.
@@ -101,7 +104,7 @@ var Registry = []Migration{
 // installed workbench only.
 var OldLocationVariables = []string{
 	"XDG_DATA_HOME", "XDG_STATE_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME",
-	"CLAUDE_COSTS_LEDGER", "CLAUDE_COSTS_STATE", "CLAUDE_COSTS_RATES", "CLAUDE_COSTS_CACHE",
+	"CLAUDE_COSTS_LEDGER", "CLAUDE_COSTS_STATE", "CLAUDE_COSTS_CACHE",
 }
 
 // IDs are the registry's IDs, which the apply passes to the installed binary

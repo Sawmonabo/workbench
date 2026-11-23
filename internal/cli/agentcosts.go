@@ -463,8 +463,10 @@ func agentCostsIngestCommand(o *options) *cobra.Command {
 	return cmd
 }
 
-// ratesView is the merged card as --json prints it.
+// ratesView is the merged card as --json prints it. Ledger is whether there
+// was a ledger to read the official prices from.
 type ratesView struct {
+	Ledger   bool              `json:"ledger"`
 	Official map[string]string `json:"official_fetched"`
 	Rows     []rateRow         `json:"rows"`
 }
@@ -486,9 +488,10 @@ func agentCostsRatesCommand(o *options) *cobra.Command {
 		Use:   "rates",
 		Short: "Show the merged rate card and where each rate comes from",
 		Long: "Show the USD price per million tokens of each model prefix and which source it " +
-			"comes from: the overrides file, the official price pages, the rates calibrated " +
-			"from the tools' own cost records, or the built-in card. --refresh fetches the official " +
-			"pages again first.",
+			"comes from: the official price pages, whose prices the ledger keeps, the rates " +
+			"calibrated from the tools' own cost records, or the built-in card. --refresh fetches " +
+			"the official pages again first. Without a ledger it shows the built-in and calibrated " +
+			"rates, and --refresh fetches nothing.",
 		Example: "  workbench agent costs rates\n" +
 			"  workbench agent costs rates --refresh",
 		Args: cobra.NoArgs,
@@ -518,7 +521,7 @@ func agentCostsRatesCommand(o *options) *cobra.Command {
 }
 
 func ratesCard(card costs.Card) ratesView {
-	view := ratesView{Official: map[string]string{}}
+	view := ratesView{Ledger: card.Ledger, Official: map[string]string{}}
 	for tool, fetched := range card.Fetched {
 		view.Official[tool] = fetched.Local().Format(time.DateOnly)
 	}
@@ -588,11 +591,14 @@ func costsRates(card costs.Card, view ratesView, width int) string {
 	}
 	writeTable(&b, width, 2, spec)
 	b.WriteString("\n")
-	writeFaint(&b, width, 2, fmt.Sprintf(
-		"A row from the overrides file always wins; otherwise the longest matching prefix, then this source order: "+
-			"official, calibrated, built-in. Overrides: %s. Refresh: workbench agent costs rates --refresh",
-		showPath(card.Overrides),
-	))
+	note := "The longest matching prefix wins, then this source order: official, calibrated, built-in."
+	if card.Ledger {
+		note += " Refresh: workbench agent costs rates --refresh"
+	} else {
+		note = "There is no ledger yet, which keeps the official prices, so --refresh fetches " +
+			"nothing until the first import makes it. " + note
+	}
+	writeFaint(&b, width, 2, note)
 	return b.String()
 }
 
@@ -671,24 +677,13 @@ func costsStatus(info costs.StatusInfo, width int) string {
 		worker = "running (lock held)"
 	}
 	add("worker", worker)
-	overrides := "none"
-	if info.HasOverrides {
-		overrides = "present"
-	}
 	for _, tool := range info.Tools {
 		if tool.Implemented {
 			suffix := ""
 			if implemented > 1 {
 				suffix = " " + tool.Name
 			}
-			add(
-				"rates"+suffix,
-				fmt.Sprintf(
-					"official card fetched %s; overrides %s",
-					tool.Coverage.RatesFetched,
-					overrides,
-				),
-			)
+			add("rates"+suffix, "official card fetched "+tool.Coverage.RatesFetched)
 			add("hooks"+suffix, hookStates(tool))
 			if tool.ConfigMove != nil {
 				home, _ := os.UserHomeDir()
@@ -1362,10 +1357,9 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 }
 
 // unpricedNotes name the models no rate prices, whose rows show a dash for
-// their cost: one note naming them and the overrides file to add a rate to,
-// and one for responses that name no model, which no rate could price. Why
-// each is unpriced is in the JSON and the ingest summary. writeFooter prints
-// each under a yellow "warning:" label.
+// their cost: one note naming them, and one for responses that name no model,
+// which no rate could price. Why each is unpriced is in the JSON and the
+// ingest summary. writeFooter prints each under a yellow "warning:" label.
 func unpricedNotes(tool costs.Tool, report costs.Statement) []string {
 	var models []string
 	unnamed := false
@@ -1380,7 +1374,7 @@ func unpricedNotes(tool costs.Tool, report costs.Statement) []string {
 	if len(models) > 0 {
 		notes = append(
 			notes,
-			"no rate for "+strings.Join(models, ", ")+" (add one to costs/rates.json)",
+			"no rate for "+strings.Join(models, ", "),
 		)
 	}
 	if unnamed {

@@ -891,9 +891,9 @@ synthetic answers.
   and a running session's behavior after a `/login` elsewhere is not observed.
 
 - Fast-mode Claude Code responses are priced at `@fast` rates, a specific rate
-  row beats a family row except for a manual override, the ledger is created
-  0600 in a 0700 folder, and the headline counts the rows the table shows
-  (target; not yet observed on a real ledger).
+  row beats a family row, the ledger is created 0600 in a 0700 folder, and the
+  headline counts the rows the table shows (target; not yet observed on a real
+  ledger).
 - `workbench migrate` and the apply's **Move Workbench's files** step
   move the costs files out of the `claude-costs` folders into Workbench's
   runtime folders with every ledger row, the import worker moves them by

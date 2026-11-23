@@ -57,10 +57,10 @@ logged-in `gh`. Never run it as root.
 | `project inspect/apply/revert [PATH]` | Inspect an existing project or apply Workbench's settings to it; see below. |
 | `agent costs` | What Claude Code and Codex spent, by project, from the local ledger the session hooks keep. At a terminal it opens one tab per tool (Claude Code and Codex): ←/→ or Tab and Shift+Tab switch tools, ↑/↓ select a project or model and Enter opens its page (by model or project, day and session), ← or Esc goes back, q quits and leaves the page printed. The mouse wheel moves the selection, a click selects a row and a click on the selected row opens it; the wheel scrolls a page, a report with no row to select and below the last row. With the mouse taken, select text with your terminal's bypass: Terminal.app's View → Allow Mouse Reporting (⌘R) hands the mouse back until toggled again; other terminals use a held key such as Shift or Option. Without a terminal, `--tool NAME` prints one tool's report. |
 | `agent costs --by model\|account\|month` | The same by another dimension. `--since`/`--until` (a duration ago such as `2h`, `today`, `yesterday`, or a date, date and time or time of today in this machine's time zone, or RFC 3339, as `agent guard logs --since` takes; a response counts from `--since` up to `--until`, and an `--until` day counts to its end), `--top N`, `--sort cost\|name\|calls`, `--all` (projects outside your role folders, of those that exist; `~/dev` and `~/repos` when no folder answer is saved), `--detail`, `--tokens`, `--no-rollup`, `--csv` and the global `--json` shape the report. |
-| `agent costs rates`, `agent costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page), and the ledger's coverage, last ingest, hooks and rate card age. |
+| `agent costs rates`, `agent costs status` | The merged price card with where each price comes from (`--refresh` refetches the official page into the ledger, and fetches nothing before there is one), and the ledger's coverage, last ingest, hooks and the age of the official prices it keeps. |
 | `agent costs ingest --worker` | Read new usage into the ledger now, in the foreground, with progress; the apply's Record AI usage step (`agent-costs-ingest`) runs it too. Without `--worker` it is the hook command Claude Code and Codex run on session start and end: prints nothing on stdout, exits 0, starts the worker detached. When it can't start one, for example because a Workbench folder isn't private, it says why on stderr and records nothing. |
 | `agent guard` | A live view of the agent commands the memory usage guard tracks, where you can stop one; see the guard paragraphs below the table. `agent guard logs` prints what the guard did. |
-| `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)), or move the `costs/` and `guard/` folders earlier releases kept in Workbench's data and state folders into `agent/` beside them (see `agent guard` below). It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
+| `migrate` | Run the migrations that move files earlier Workbench releases left outside Workbench's folders, or remove what they left that nothing reads (old caches, the guard log's old free-text lines), or move the Jira and GitLab tokens earlier releases saved in `machine.toml` into a new `work.env` (see [Roles, folders and credentials](#roles-folders-and-credentials)), or move the `costs/` and `guard/` folders earlier releases kept in Workbench's data and state folders into `agent/` beside them (see `agent guard` below), or delete the price list files earlier releases downloaded beside the ledger once the ledger holds their prices. It asks the way `apply` does: at a terminal it shows what will run and asks once; without one it needs `--approve-plan DIGEST` or `--yes` (`-y`), and a coding agent must use `--approve-plan`. When only conflicts are left it exits 4 and names each file and what to do with it. `migrate --dry-run` lists each migration and whether it has anything to do, and changes nothing; with `--json` it carries the `plan_digest` for `--approve-plan`. Every `apply` runs them too, as its **Move Workbench's files** step, and the costs import moves the costs files by itself. |
 | `completion bash\|zsh\|fish\|powershell` | Print the shell's Tab-completion script. The zsh (macOS) and bash (Linux) startup files Workbench applies load it already. |
 
 Tab completes commands, flags and their values: `--by`, `--sort`, `--tool` and
@@ -175,10 +175,17 @@ folder. Earlier releases kept it in `~/.local/share/claude-costs`; the next
 moved: the import stops and `workbench migrate` names it until you put the
 file it names in its place or remove the link. The first `agent costs` or
 `agent costs status` for a tool that has transcripts but no rows in the ledger
-ingests them once inline. Manual rate overrides go in `costs/rates.json` in
-Workbench's config folder, keyed by model
-prefix, with any of `input`, `output`, `cache_write_5m`, `cache_write_1h` and
-`cache_read` in USD per million tokens, each from 0 to 1,000.
+ingests them once inline. The ledger also keeps the official prices an import
+downloads from each tool's price page, at most once a day and only when the
+tool's list is over a week old or a model has no price; a page that cannot be
+read keeps the prices the ledger has. A model no price covers still counts its
+tokens, and its cost shows a dash. `agent costs rates` lists each price with
+where it comes from (the official page, the tools' own cost records or the
+built-in list); before there is a ledger it shows the last two, and
+`--refresh` downloads nothing. A ledger an earlier release wrote takes in the
+prices it kept in `claude/rates-official.json` and `codex/rates-official.json`
+beside it the first time it is opened, and the **Move Workbench's files** step
+then deletes those files.
 The account table names each row's email and plan only from what Claude Code
 and Codex wrote down; usage they never recorded shows `not recorded`, with a
 note saying since when each tool records it. A Claude Code row belongs to the

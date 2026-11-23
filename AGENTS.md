@@ -12,7 +12,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
   compatibility readers/flags, obsolete aliases or dual paths. One exception:
   the costs ledger (`internal/agent/costs/ledger.go`) upgrades older schema versions
   in place, in one transaction that keeps every row, because transcripts expire
-  and the ledger is the only lasting record of spend. A second exception:
+  and the ledger is the only lasting record of spend; the same transaction
+  fills the price tables a version 6 ledger adds from the price list files
+  Workbench downloaded beside it (`<tool>/rates-official.json`), and a file
+  that is missing or that it cannot read fills nothing. A second exception:
   numbered migrations in `internal/migrate/` may move files Workbench itself
   wrote into its runtime folders, without losing data, and delete caches,
   logs, locks and empty files Workbench itself wrote (or, in a log a running
@@ -29,7 +32,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
   Migration 0006 may rename `costs-ingest` to `agent-costs-ingest` in the
   `skip`, `select` and `decided` lists of `machine.toml`, changing nothing
   else in the file; until it has run, the saved choices are read under that
-  name, so a step that was turned off stays off. A migration may also swap a
+  name, so a step that was turned off stays off. Migration 0008 may delete
+  the price list files beside the ledger, and the tool folders they leave
+  empty, only after it has opened the ledger, which takes their prices in, or
+  when there is no ledger; a ledger it cannot open keeps every file. A
+  migration may also swap a
   folder Workbench wrote inside its runtime folders with a small file, which
   stays at the old path until the machine restarts, and delete a socket;
   migration 0007 moves the costs and guard folders under `agent/` this way,
@@ -144,7 +151,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | All personal VS Code settings | `home/.chezmoidata/vscode.json` plus the merge in `internal/machine/vscode.go` |
 | Claude Code settings | `home/.chezmoidata/claude.json` (`defaults`, `enforced`) plus its modify template |
 | Portable Python, Go and Rust project policies | `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` |
-| AI-tool cost ledger, ingest, rates and reports, in `agent/costs/` of the data and state folders, and the move of those folders under the import lock (`move.go`) | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
+| AI-tool cost ledger, ingest, rates (the downloaded prices kept in the ledger) and reports, in `agent/costs/` of the data and state folders, and the move of those folders under the import lock (`move.go`) | `internal/agent/costs/` (hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`) |
 | Operating-system calls and platform facts | `internal/platform/` |
 | Agent command memory guard, in `agent/guard/` of the state folder, and the move of that folder under the watcher's lock (`state.go`, `handover.go`) | `internal/agent/guard/` (pre, post and SessionStart hooks in `home/.chezmoidata/claude.json` and `home/.chezmoitemplates/codex-hooks.json.tmpl`; the SessionStart hook runs the hidden `workbench agent guard session`) |
 | Migrations of Workbench's own files | `internal/migrate/` (moves done by the package whose files move) |

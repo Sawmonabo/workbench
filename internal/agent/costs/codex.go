@@ -1139,7 +1139,7 @@ func (codex) PricingURL() string {
 // codexBuiltin is the OpenAI price page read on 2026-10-01, short-context
 // columns: input, output, cache write, cache read per million tokens; a "-"
 // price was filled with the input price. A tier row is "<model>@<tier>". The
-// official card overrides these at runtime and the overrides file wins.
+// official card overrides these at runtime.
 var codexBuiltin = map[string][4]float64{
 	"gpt-6-astra": {10, 50, 12.5, 1}, "gpt-6.1-sol": {2, 10, 2.5, 0.1},
 	"gpt-6-luna": {0.1, 0.5, 0.125, 0.01}, "gpt-6-sol": {2, 10, 2.5, 0.2},

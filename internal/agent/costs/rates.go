@@ -2,11 +2,11 @@ package costs
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"maps"
 	"math"
 	"net/http"
@@ -16,8 +16,6 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -28,10 +26,10 @@ const (
 
 // sourceOrder ranks where a rate came from, for rates that are equally
 // specific; see Lookup.
-var sourceOrder = []string{"override", "official", "calibrated", "builtin"}
+var sourceOrder = []string{"official", "calibrated", "builtin"}
 
-// rateFields are the keys of a rate in the overrides and the official cache,
-// in the order of the ledger's token columns.
+// rateFields are the keys of a rate in an official price list (see
+// officialFile), in the order of the ledger's token columns.
 var rateFields = []string{"input", "output", "cache_write_5m", "cache_write_1h", "cache_read"}
 
 func (r Rate) field(name string) float64 {
@@ -64,16 +62,14 @@ func matchesRate(model, prefix string, tiers bool) bool {
 }
 
 // Lookup returns the rate that prices model, a model id of a tool whose ids
-// carry a service tier when tiers is set. A rate from the manual overrides file
-// always wins: it is an explicit instruction, so an override keyed
-// "claude-opus" beats an official "claude-opus-5-5" row. Among the others the
-// row that names the model most specifically wins, wherever it comes from, so a
-// page that drops "claude-opus-4-5" and keeps the family row "claude-opus-4"
-// does not reprice the built-in "claude-opus-4-5" row away. Rows equally
-// specific fall to the source order.
+// carry a service tier when tiers is set. The row that names the model most
+// specifically wins, wherever it comes from, so a page that drops
+// "claude-opus-4-5" and keeps the family row "claude-opus-4" does not reprice
+// the built-in "claude-opus-4-5" row away. Rows equally specific fall to the
+// source order.
 func (c RateCard) Lookup(model string, tiers bool) (Rate, bool) {
 	var best Rate
-	var bestRank [4]int
+	var bestRank [3]int
 	found := false
 	for prefix, rate := range c {
 		if !matchesRate(model, prefix, tiers) {
@@ -86,17 +82,11 @@ func (c RateCard) Lookup(model string, tiers bool) (Rate, bool) {
 	return best, found
 }
 
-// rateRank orders the rates that match a model, best first: an override, then
-// the most specific prefix, then the earlier source, then the longer prefix (so
-// the order never depends on map iteration).
-func rateRank(prefix string, rate Rate) [4]int {
-	override := 1
-	if rate.Source == "override" {
-		override = 0
-	}
-	return [4]int{
-		override, -specificity(prefix), slices.Index(sourceOrder, rate.Source), -len(prefix),
-	}
+// rateRank orders the rates that match a model, best first: the most specific
+// prefix, then the earlier source, then the longer prefix (so the order never
+// depends on map iteration).
+func rateRank(prefix string, rate Rate) [3]int {
+	return [3]int{-specificity(prefix), slices.Index(sourceOrder, rate.Source), -len(prefix)}
 }
 
 // specificity is how much of a model id a prefix names: its length without a
@@ -137,13 +127,12 @@ func (r Rate) Cost(t Tokens) int64 {
 
 // Card is the merged rate card of every recorded tool.
 type Card struct {
-	Rows         RateCard
-	Official     map[string]RateCard  // per tool: the cached official rows
-	Calibrated   RateCard             // per model, from the tools' own cost records
-	Fetched      map[string]time.Time // per tool: when the official card was fetched
-	Overrides    string               // path of the manual overrides file
-	HasOverrides bool
-	Notes        []string // outcomes of the refresh this call made
+	Rows       RateCard
+	Official   map[string]RateCard  // per tool: the official rows the ledger keeps
+	Calibrated RateCard             // per model, from the tools' own cost records
+	Fetched    map[string]time.Time // per tool: when the official list was downloaded
+	Ledger     bool                 // whether there was a ledger to read the official rows from
+	Notes      []string             // outcomes of the refresh this call made
 }
 
 // Sources are the distinct sources the card's rows come from, sorted.
@@ -188,48 +177,46 @@ func longestPrefix(model string, card RateCard, tiers bool) (Rate, bool) {
 }
 
 // Rates returns the merged card: built-in, then calibration, then the official
-// page, then the manual overrides. refresh refetches every official card first
-// and reports each outcome in Notes. A partial override completes itself from
-// the prefix-matched rate beneath it. A price list that can't be read counts
-// as missing, so when another process moved the costs folders while it read
-// them (see [Paths.moved]) it reads them again where they are now.
+// price lists the ledger keeps. It opens the ledger as a report does (see
+// [Paths.Open]) but never makes one: without a ledger the card holds the
+// built-in and calibrated rows only, and refresh downloads nothing. With one,
+// refresh downloads every official list first and reports each outcome in
+// Notes.
 func Rates(ctx context.Context, refresh bool) (Card, error) {
 	paths, err := Locations()
 	if err != nil {
 		return Card{}, err
 	}
-	card, used, err := rates(ctx, paths, refresh)
-	if used.moved() {
-		card, _, err = rates(ctx, paths, refresh)
+	ledger, err := paths.OpenExisting(ctx)
+	if err != nil {
+		return Card{}, err
 	}
+	var notes []string
+	switch {
+	case ledger != nil:
+		defer func() { _ = ledger.Close() }()
+	case refresh:
+		notes = append(notes, "rates: there is no ledger yet, so nothing was downloaded")
+	}
+	for _, tool := range Tools {
+		if refresh && ledger != nil && tool.Source != nil && tool.Source.PricingURL() != "" {
+			notes = append(notes, refreshOfficial(ctx, ledger, tool, true))
+		}
+	}
+	card, err := loadCard(ctx, paths.Home, ledger)
+	card.Notes = notes
 	return card, err
 }
 
-// rates is one run of [Rates], which returns the paths it read.
-func rates(ctx context.Context, paths Paths, refresh bool) (Card, Paths, error) {
-	paths, err := gate(ctx, paths, false)
-	if err != nil {
-		return Card{}, paths, err
-	}
-	var notes []string
-	if refresh {
-		for _, tool := range Tools {
-			if tool.Source != nil && tool.Source.PricingURL() != "" {
-				notes = append(notes, refreshOfficial(ctx, paths, tool, true))
-			}
-		}
-	}
-	card, err := loadCard(paths)
-	card.Notes = notes
-	return card, paths, err
-}
-
-func loadCard(paths Paths) (Card, error) {
+// loadCard builds the merged card from the built-in rows, the rows calibrated
+// from the tools' own cost records in home, and the official rows ledger
+// keeps, none when ledger is nil.
+func loadCard(ctx context.Context, home string, ledger *Ledger) (Card, error) {
 	card := Card{
-		Rows:      RateCard{},
-		Official:  map[string]RateCard{},
-		Fetched:   map[string]time.Time{},
-		Overrides: paths.Overrides,
+		Rows:     RateCard{},
+		Official: map[string]RateCard{},
+		Fetched:  map[string]time.Time{},
+		Ledger:   ledger != nil,
 	}
 	for _, tool := range Tools {
 		if tool.Source == nil {
@@ -237,106 +224,36 @@ func loadCard(paths Paths) (Card, error) {
 		}
 		maps.Copy(card.Rows, tool.Source.Builtin())
 	}
-	card.Calibrated = calibrated(paths.Home)
+	card.Calibrated = calibrated(home)
 	maps.Copy(card.Rows, card.Calibrated)
+	if ledger == nil {
+		return card, nil
+	}
 	for _, tool := range Tools {
 		if tool.Source == nil {
 			continue
 		}
-		official := readOfficial(paths, tool)
+		official, err := ledger.officialRates(ctx, tool.Name)
+		if err != nil {
+			return card, err
+		}
 		card.Official[tool.Name] = official.rates()
 		if official.FetchedAt > 0 {
 			card.Fetched[tool.Name] = time.Unix(int64(official.FetchedAt), 0)
 		}
 		maps.Copy(card.Rows, card.Official[tool.Name])
 	}
-	overrides, err := readOverrides(paths.Overrides)
-	if err != nil {
-		return card, err
-	}
-	card.HasOverrides = len(overrides) > 0
-	for _, prefix := range slices.Sorted(maps.Keys(overrides)) {
-		// The key's tool is not known: a tier id completes from its tier's
-		// rate, anything else from the rate its plain prefix finds.
-		base, found := card.Rows.Lookup(prefix, true)
-		if !found {
-			base, _ = card.Rows.Lookup(prefix, false)
-		}
-		for field, value := range overrides[prefix] {
-			base.set(field, value)
-		}
-		base.Source = "override"
-		card.Rows[prefix] = base
-	}
 	return card, nil
-}
-
-// readOverrides reads the manual overrides file: {model prefix: {rate field:
-// USD per million tokens}}. A key outside the rate fields, a non-numeric
-// value or a rate outside 0 to 1,000 rejects the whole file; nothing is
-// converted or silently ignored.
-func readOverrides(path string) (map[string]map[string]float64, error) {
-	data, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	invalid := func(format string, args ...any) error {
-		return operation.Fail(
-			operation.ExitInvalid,
-			"rates",
-			path+": "+fmt.Sprintf(format, args...),
-		)
-	}
-	if err != nil {
-		return nil, invalid("%v", err)
-	}
-	var user map[string]any
-	if err := json.Unmarshal(data, &user); err != nil {
-		return nil, invalid("top level must be an object of model prefixes (%v)", err)
-	}
-	out := map[string]map[string]float64{}
-	for prefix, value := range user {
-		fields, ok := value.(map[string]any)
-		if !ok || len(fields) == 0 {
-			return nil, invalid("%q must map rate fields to numbers", prefix)
-		}
-		out[prefix] = map[string]float64{}
-		for name, v := range fields {
-			if !slices.Contains(rateFields, name) {
-				hint := ""
-				if name == "cache_write" {
-					hint = " (cache_write was split into cache_write_5m and cache_write_1h)"
-				}
-				return nil, invalid(
-					"%q has unknown field %q%s; fields are %s. Edit the file or move it aside.",
-					prefix, name, hint, strings.Join(rateFields, ", "),
-				)
-			}
-			number, ok := v.(float64)
-			if !ok {
-				return nil, invalid("%q.%s must be a number", prefix, name)
-			}
-			// A negative rate would print a malformed figure. The cap, far
-			// above any list rate, catches a mistyped one; it does not
-			// guarantee the int64 of picodollars a cost counts in (see
-			// [Rate.Cost]), which wraps past about 9.2 million dollars, at
-			// the cap about nine billion tokens of one kind in one group.
-			if number < 0 || number > 1000 {
-				return nil, invalid(
-					"%q.%s must be between 0 and 1000 USD per million tokens",
-					prefix, name,
-				)
-			}
-			out[prefix][name] = number
-		}
-	}
-	return out, nil
 }
 
 // ---------------------------------------------------------------- official card
 
-// officialFile is the cached official card. Its keys are those of the file the
-// Python script wrote, so the cache carries over.
+// officialFile is one tool's official price list: its rows by model prefix
+// and rate field, the page it came from, when it was downloaded and when the
+// page was last asked (seconds since the epoch), and the page's validators.
+// The ledger keeps it in prices and price_lists. Its JSON keys are those of
+// the list file beside a ledger of schema version 5, which the upgrade reads
+// (see fillPrices).
 type officialFile struct {
 	FetchedAt    float64                       `json:"fetched_at"`
 	CheckedAt    float64                       `json:"checked_at"`
@@ -346,7 +263,7 @@ type officialFile struct {
 	Rates        map[string]map[string]float64 `json:"rates"`
 }
 
-// rates are the cached rows that carry all five fields.
+// rates are the list's rows that carry all five fields.
 func (f officialFile) rates() RateCard {
 	card := RateCard{}
 	for model, fields := range f.Rates {
@@ -365,61 +282,191 @@ func (f officialFile) rates() RateCard {
 	return card
 }
 
-// officialPath is the cache of one tool's official card,
-// <tool>/rates-official.json in the ledger's folder.
-func officialPath(paths Paths, tool Tool) string {
-	return filepath.Join(filepath.Dir(paths.Ledger), tool.Name, "rates-official.json")
+// fields is the rate as a price list holds it, by rate field.
+func (r Rate) fields() map[string]float64 {
+	out := make(map[string]float64, len(rateFields))
+	for _, name := range rateFields {
+		out[name] = r.field(name)
+	}
+	return out
 }
 
-func readOfficial(paths Paths, tool Tool) officialFile {
-	var file officialFile
-	if data, err := os.ReadFile(officialPath(paths, tool)); err == nil {
-		_ = json.Unmarshal(data, &file) // a damaged cache is an absent one
-	}
-	return file
+// officialPath is one tool's price list file beside the ledger at ledger,
+// <tool>/rates-official.json in its folder, where a ledger of schema version 5
+// had its downloaded prices: its upgrade reads the file (see fillPrices), and
+// migration 0008 deletes it (see [PriceLists]).
+func officialPath(ledger string, tool Tool) string {
+	return filepath.Join(filepath.Dir(ledger), tool.Name, "rates-official.json")
 }
 
-func writeOfficial(paths Paths, tool Tool, file officialFile) error {
-	path := officialPath(paths, tool)
-	// The ledger's folder and the tool's below it, which `agent costs rates
-	// --refresh` can create first: private like the ledger. The cache holds
-	// public prices.
-	folder, err := paths.dataFolder(tool.Name)
+// PriceLists are the price list files beside the ledger at ledger, one per
+// recorded tool, whether they are there or not (see officialPath).
+func PriceLists(ledger string) []string {
+	var lists []string
+	for _, tool := range Tools {
+		if tool.Source != nil {
+			lists = append(lists, officialPath(ledger, tool))
+		}
+	}
+	return lists
+}
+
+// fillPrices reads each tool's price list file beside the ledger at ledger
+// into prices and price_lists, in tx, the transaction of the ledger's upgrade.
+// A file that is missing, is not a plain file or does not parse fills nothing
+// for its tool, whose list the import then downloads. A list without one
+// complete row still fills its price_lists row, which keeps when the page was
+// last asked, so the import still asks at most once a day.
+func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
+	for _, tool := range Tools {
+		if tool.Source == nil {
+			continue
+		}
+		path := officialPath(ledger, tool)
+		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		var file officialFile
+		if json.Unmarshal(data, &file) != nil {
+			continue
+		}
+		if err := storeOfficial(ctx, tx, tool.Name, file); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// officialRates is tool's official price list as the ledger keeps it: the
+// zero list, with no rows, when it keeps none.
+func (l *Ledger) officialRates(ctx context.Context, tool string) (officialFile, error) {
+	file := officialFile{Rates: map[string]map[string]float64{}}
+	err := l.db.QueryRowContext(
+		ctx,
+		"SELECT url, fetched_at, checked_at, etag, last_modified FROM price_lists WHERE tool = ?",
+		tool,
+	).Scan(&file.URL, &file.FetchedAt, &file.CheckedAt, &file.ETag, &file.LastModified)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return file, err
+	}
+	rows, err := l.db.QueryContext(
+		ctx,
+		`SELECT prefix, input, output, cache_write_5m, cache_write_1h, cache_read
+		   FROM prices WHERE tool = ?`,
+		tool,
+	)
 	if err != nil {
+		return file, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var prefix string
+		var rate Rate
+		if err := rows.Scan(
+			&prefix,
+			&rate.Input,
+			&rate.Output,
+			&rate.CacheWrite5m,
+			&rate.CacheWrite1h,
+			&rate.CacheRead,
+		); err != nil {
+			return file, err
+		}
+		file.Rates[prefix] = rate.fields()
+	}
+	return file, rows.Err()
+}
+
+// replaceOfficial makes file tool's official price list, in one short
+// transaction: its complete rows replace the tool's prices, and its times and
+// validators the tool's price_lists row.
+func (l *Ledger) replaceOfficial(ctx context.Context, tool string, file officialFile) error {
+	return l.transact(ctx, func(tx *sql.Tx) error { return storeOfficial(ctx, tx, tool, file) })
+}
+
+// storeOfficial is [Ledger.replaceOfficial] in tx.
+func storeOfficial(ctx context.Context, tx *sql.Tx, tool string, file officialFile) error {
+	if _, err := tx.ExecContext(ctx, "DELETE FROM prices WHERE tool = ?", tool); err != nil {
 		return err
 	}
-	operation.RemoveStaleWrites(folder)
-	data, err := json.MarshalIndent(file, "", " ")
-	if err != nil {
-		return err
+	for prefix, rate := range file.rates() {
+		if _, err := tx.ExecContext(
+			ctx,
+			`INSERT INTO prices (tool, prefix, input, output, cache_write_5m, cache_write_1h, cache_read)
+			 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+			tool,
+			prefix,
+			rate.Input,
+			rate.Output,
+			rate.CacheWrite5m,
+			rate.CacheWrite1h,
+			rate.CacheRead,
+		); err != nil {
+			return err
+		}
 	}
-	return operation.ReplacePrivateFile(path, data)
+	_, err := tx.ExecContext(
+		ctx,
+		`INSERT INTO price_lists (tool, url, fetched_at, checked_at, etag, last_modified)
+		 VALUES (?, ?, ?, ?, ?, ?)
+		 ON CONFLICT(tool) DO UPDATE SET url = excluded.url, fetched_at = excluded.fetched_at,
+		   checked_at = excluded.checked_at, etag = excluded.etag,
+		   last_modified = excluded.last_modified`,
+		tool, file.URL, file.FetchedAt, file.CheckedAt, file.ETag, file.LastModified,
+	)
+	return err
+}
+
+// recordAttempt records in tool's price_lists row that its page was asked at
+// checked and, when fetched is not zero, found unchanged then. The tool's
+// prices, and the rest of the row, stay as they are, whatever their age.
+func (l *Ledger) recordAttempt(ctx context.Context, tool string, checked, fetched float64) error {
+	_, err := l.db.ExecContext(
+		ctx,
+		`INSERT INTO price_lists (tool, url, fetched_at, checked_at, etag, last_modified)
+		 VALUES (?, '', ?, ?, '', '')
+		 ON CONFLICT(tool) DO UPDATE SET checked_at = excluded.checked_at,
+		   fetched_at = max(fetched_at, excluded.fetched_at)`,
+		tool, fetched, checked,
+	)
+	return err
 }
 
 func epoch(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
-// refreshOfficial is a conditional GET of the tool's pricing page. It is best
-// effort: any failure keeps the cached card, records the attempt time and
-// returns a one-line reason. Without force a fresh enough card is left alone.
-func refreshOfficial(ctx context.Context, paths Paths, tool Tool, force bool) string {
+// refreshOfficial is a conditional GET of the tool's pricing page, made with
+// no transaction open, and then one short transaction that stores the list it
+// brought (see [Ledger.replaceOfficial]); it needs no import lock. It is best
+// effort: any failure, or a page that holds no price, keeps the tool's prices,
+// records the attempt time and returns a one-line reason. Without force a
+// fresh enough list is left alone.
+func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool) string {
 	label := "rates"
 	if tool.Name != firstTool {
 		label += " " + tool.Name
 	}
-	cached := readOfficial(paths, tool)
+	cached, err := ledger.officialRates(ctx, tool.Name)
+	if err != nil {
+		return fmt.Sprintf("%s: the official card can't be read (%v)", label, err)
+	}
 	age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
 	if !force && len(cached.rates()) > 0 && age < ratesMaxAge {
 		return fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
 	}
-	cached.CheckedAt = epoch(time.Now())
+	checked, fetched := epoch(time.Now()), 0.0
 	keep := func(msg string) string {
-		_ = writeOfficial(paths, tool, cached)
+		_ = ledger.recordAttempt(ctx, tool.Name, checked, fetched)
 		return msg
 	}
 	url := tool.Source.PricingURL()
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+	// The timeout bounds the download only; the ledger is written with ctx.
+	download, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(download, http.MethodGet, url, nil)
 	if err != nil {
 		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
 	}
@@ -437,7 +484,7 @@ func refreshOfficial(ctx context.Context, paths Paths, tool Tool, force bool) st
 	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotModified && len(cached.rates()) > 0:
-		cached.FetchedAt = epoch(time.Now())
+		fetched = epoch(time.Now())
 		return keep(label + ": official card not modified")
 	case resp.StatusCode != http.StatusOK:
 		return keep(
@@ -461,12 +508,9 @@ func refreshOfficial(ctx context.Context, paths Paths, tool Tool, force bool) st
 		Rates:        map[string]map[string]float64{},
 	}
 	for model, rate := range parsed {
-		file.Rates[model] = map[string]float64{}
-		for _, name := range rateFields {
-			file.Rates[model][name] = rate.field(name)
-		}
+		file.Rates[model] = rate.fields()
 	}
-	if err := writeOfficial(paths, tool, file); err != nil {
+	if err := ledger.replaceOfficial(ctx, tool.Name, file); err != nil {
 		return fmt.Sprintf("%s: fetched but could not save the card (%v)", label, err)
 	}
 	return fmt.Sprintf("%s: official card updated (%d models)", label, len(parsed))
@@ -474,11 +518,12 @@ func refreshOfficial(ctx context.Context, paths Paths, tool Tool, force bool) st
 
 // refreshIfNeeded is the worker's refresh policy: fetch when a tool's official
 // card is missing or older than seven days, or when a ledger model has no rate
-// anywhere; in all cases at most once a day.
-func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
-	card, err := loadCard(paths)
+// anywhere; in all cases at most once a day. home holds the tools' own cost
+// records (see calibrated).
+func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
+	card, err := loadCard(ctx, home, ledger)
 	if err != nil {
-		return "rates: overrides file invalid, see `workbench agent costs rates`"
+		return fmt.Sprintf("rates: the prices can't be read (%v)", err)
 	}
 	var messages []string
 	for _, tool := range Tools {
@@ -489,8 +534,22 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 		if tool.Name != firstTool {
 			label += " " + tool.Name
 		}
-		unpriced := unpricedModels(ledger, card, tool)
-		cached := readOfficial(paths, tool)
+		unpriced, err := unpricedModels(ctx, ledger, card, tool)
+		if err != nil {
+			messages = append(
+				messages,
+				fmt.Sprintf("%s: the ledger's models can't be read (%v)", label, err),
+			)
+			continue
+		}
+		cached, err := ledger.officialRates(ctx, tool.Name)
+		if err != nil {
+			messages = append(
+				messages,
+				fmt.Sprintf("%s: the official card can't be read (%v)", label, err),
+			)
+			continue
+		}
 		age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
 		sinceCheck := time.Since(time.Unix(0, int64(cached.CheckedAt*1e9)))
 		var msg string
@@ -498,7 +557,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 		case len(cached.rates()) > 0 && age < ratesMaxAge && len(unpriced) == 0:
 			msg = fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
 		case sinceCheck >= ratesRetry:
-			msg = refreshOfficial(ctx, paths, tool, true)
+			msg = refreshOfficial(ctx, ledger, tool, true)
 		case len(cached.rates()) > 0:
 			msg = fmt.Sprintf(
 				"%s: cached (%.1fd old), retry in %.0fh",
@@ -518,8 +577,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 			for _, u := range unpriced {
 				names = append(names, fmt.Sprintf("%s (%s)", u.Model, u.Reason))
 			}
-			msg += "; unpriced: " + strings.Join(names, ", ") + "; add rates to " +
-				operation.ShowPath(paths.Home, paths.Overrides)
+			msg += "; unpriced: " + strings.Join(names, ", ")
 		}
 		messages = append(messages, msg)
 	}
@@ -527,7 +585,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, paths Paths) string {
 }
 
 // Unpriced is a model no rate prices, and why. Its tokens count; its cost
-// shows as 0 until a rate for it is added to the overrides file.
+// counts as 0 until an official price list prices it.
 type Unpriced struct {
 	Model  string `json:"model"`
 	Reason string `json:"reason"`
@@ -548,24 +606,33 @@ func (c Card) unpriced(tool Tool, model string) Unpriced {
 	return Unpriced{Model: model, Reason: reason}
 }
 
-// unpricedModels are the tool's ledger models no source prices.
-func unpricedModels(ledger *Ledger, card Card, tool Tool) []Unpriced {
-	rows, err := ledger.db.Query("SELECT DISTINCT model FROM responses WHERE tool = ?", tool.Name)
+// unpricedModels are the tool's ledger models no source prices. A read of the
+// ledger that fails is its error, never a shorter list.
+func unpricedModels(ctx context.Context, ledger *Ledger, card Card, tool Tool) ([]Unpriced, error) {
+	rows, err := ledger.db.QueryContext(
+		ctx,
+		"SELECT DISTINCT model FROM responses WHERE tool = ?",
+		tool.Name,
+	)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
 	var out []Unpriced
 	for rows.Next() {
 		var model string
-		if rows.Scan(&model) == nil {
-			if _, ok := card.Rows.Lookup(model, tool.Tiers); !ok {
-				out = append(out, card.unpriced(tool, model))
-			}
+		if err := rows.Scan(&model); err != nil {
+			return nil, err
+		}
+		if _, ok := card.Rows.Lookup(model, tool.Tiers); !ok {
+			out = append(out, card.unpriced(tool, model))
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Model < out[j].Model })
-	return out
+	return out, nil
 }
 
 // ---------------------------------------------------------------- calibration

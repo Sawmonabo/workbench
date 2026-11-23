@@ -43,7 +43,7 @@ func FocusOn(
 ) (Focus, error) {
 	focus := Focus{Kind: kind, Name: name}
 	tool, _ := Lookup(opts.Tool)
-	paths, card, err := cardNow()
+	paths, card, err := cardNow(ctx, ledger)
 	if err != nil {
 		return focus, err
 	}

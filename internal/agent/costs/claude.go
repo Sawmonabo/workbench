@@ -721,11 +721,10 @@ func (claude) PricingURL() string {
 // builtin is the list prices read from the pricing page on 2026-09-30:
 // input, output, 5m write, 1h write, cache read per million tokens. Longest
 // prefix wins, so a family row is the fallback for ids no specific row
-// covers. The official card and calibration override these at runtime; the
-// manual overrides file wins over everything. A "@fast" row, read from the
-// page on 2026-10-04, is the model's fast-mode price (the page's fast mode
-// table, with the caching multipliers applied on top of it); only the models
-// the page lists for fast mode have one.
+// covers. The official card and calibration override these at runtime. A
+// "@fast" row, read from the page on 2026-10-04, is the model's fast-mode
+// price (the page's fast mode table, with the caching multipliers applied on
+// top of it); only the models the page lists for fast mode have one.
 var builtin = map[string][5]float64{
 	"claude-fable-5-1":  {10, 50, 12.5, 20, 0.25},
 	"claude-fable-5":    {10, 50, 12.5, 20, 1},

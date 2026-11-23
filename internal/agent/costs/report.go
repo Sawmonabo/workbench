@@ -254,7 +254,6 @@ type Statement struct {
 	Scope      []string   `json:"scope"`           // the project folders the default view covers
 	Hidden     int        `json:"hidden_projects"` // projects the default scope left out
 	Unpriced   []Unpriced `json:"unpriced"`        // models without a rate, and why
-	Overrides  string     `json:"overrides"`       // the file a rate for them goes in
 	Sources    []string   `json:"rate_sources"`
 }
 
@@ -272,7 +271,7 @@ type group struct {
 // Report reads the ledger only and prints nothing: the rows of one tool by project, model,
 // account or month, priced from the current rate card.
 func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement, error) {
-	paths, card, err := cardNow()
+	paths, card, err := cardNow(ctx, ledger)
 	if err != nil {
 		return Statement{}, err
 	}
@@ -281,7 +280,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 	}
 	report := Statement{
 		Options: opts, Tool: opts.Tool, By: opts.By, Sources: card.Sources(),
-		Overrides: paths.Overrides, First: "none", Last: "none",
+		First: "none", Last: "none",
 	}
 	tool, _ := Lookup(opts.Tool)
 	groups, hidden, tally, err := loadGroups(ctx, ledger, card, paths.Home, opts)
@@ -654,8 +653,6 @@ type StatusInfo struct {
 	LastIngestSummary string       `json:"last_ingest_summary"`
 	LastError         string       `json:"last_error"`
 	WorkerRunning     bool         `json:"worker_running"` // a worker holds the lock
-	Overrides         string       `json:"overrides"`      // path of the manual rates file
-	HasOverrides      bool         `json:"has_overrides"`
 	Tools             []ToolStatus `json:"tools"`
 }
 
@@ -685,21 +682,14 @@ type ToolStatus struct {
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
-// cardNow is the rate card from the price lists where the costs folders are
-// now. A price list that can't be read counts as missing, so when another
-// process moved the costs folders while it read them (see [Paths.moved]) it
-// reads them again where they are then.
-func cardNow() (Paths, Card, error) {
+// cardNow is the rate card with the official prices the open ledger keeps,
+// and the paths whose home holds the tools' own cost records.
+func cardNow(ctx context.Context, ledger *Ledger) (Paths, Card, error) {
 	paths, err := Locations()
 	if err != nil {
 		return paths, Card{}, err
 	}
-	card, err := loadCard(paths)
-	if paths.moved() {
-		if paths, err = Locations(); err == nil {
-			card, err = loadCard(paths)
-		}
-	}
+	card, err := loadCard(ctx, paths.Home, ledger)
 	return paths, card, err
 }
 
@@ -723,13 +713,9 @@ func Status(ctx context.Context, ledger *Ledger) (StatusInfo, error) {
 }
 
 func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error) {
-	var err error
-	info := StatusInfo{Ledger: paths.Ledger, Overrides: paths.Overrides}
+	info := StatusInfo{Ledger: paths.Ledger}
 	if stat, err := os.Stat(paths.Ledger); err == nil {
 		info.LedgerBytes = stat.Size()
-	}
-	if _, err := os.Stat(paths.Overrides); err == nil {
-		info.HasOverrides = true
 	}
 	info.LastIngestAt = "never"
 	if v, _ := ledger.Meta("last_ingest_at"); v != "" {
@@ -741,9 +727,13 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 	for _, tool := range Tools {
 		status := ToolStatus{Name: tool.Name, Title: tool.Title, Implemented: tool.Source != nil}
 		if tool.Source != nil {
+			official, err := ledger.officialRates(ctx, tool.Name)
+			if err != nil {
+				return info, err
+			}
 			var fetched time.Time
-			if f := readOfficial(paths, tool).FetchedAt; f > 0 {
-				fetched = time.Unix(int64(f), 0)
+			if official.FetchedAt > 0 {
+				fetched = time.Unix(int64(official.FetchedAt), 0)
 			}
 			if status.Coverage, err = coverage(ctx, ledger, fetched, tool.Name); err != nil {
 				return info, err

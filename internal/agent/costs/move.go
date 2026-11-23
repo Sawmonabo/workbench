@@ -1,7 +1,6 @@
 package costs
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -20,9 +19,8 @@ import (
 )
 
 // LocationsIn is where the costs files live inside Workbench's runtime
-// folders: the ledger and the price caches in <data>/agent/costs, the import
-// log and lock in <state>/agent/costs, the owner's overrides in
-// <config>/costs. Until [MoveAgentFolders] has moved them there, the data
+// folders: the ledger in <data>/agent/costs, the import log and lock in
+// <state>/agent/costs. Until [MoveAgentFolders] has moved them there, the data
 // folder and the state folder each stay in use at <data>/costs and
 // <state>/costs while that is a folder and either the folder under agent/ is
 // not or an import holds the lock in the old state folder; the two resolve
@@ -38,11 +36,10 @@ func LocationsIn(home string, runtime operation.Paths) Paths {
 		state = f.oldState
 	}
 	return Paths{
-		Home:      home,
-		Runtime:   runtime,
-		Ledger:    filepath.Join(data, "ledger.sqlite"),
-		State:     state,
-		Overrides: filepath.Join(runtime.Config, "costs", "rates.json"),
+		Home:    home,
+		Runtime: runtime,
+		Ledger:  filepath.Join(data, "ledger.sqlite"),
+		State:   state,
 	}
 }
 
@@ -198,17 +195,17 @@ func (f agentFolders) reopenState() {
 }
 
 // OldPaths are where releases before the migrations design kept the costs
-// files: CLAUDE_COSTS_LEDGER, CLAUDE_COSTS_STATE and CLAUDE_COSTS_RATES when
-// set, else claude-costs under XDG_DATA_HOME, XDG_STATE_HOME and
-// XDG_CONFIG_HOME when set, else under ~/.local/share, ~/.local/state and
-// ~/.config, on macOS too. Only the costs migration reads them. A path is ""
-// when a relative value named it: that resolved against whatever folder the
-// old process started in and can't be found again. Notes says which, and
+// ledger, its price caches and the import log and lock: CLAUDE_COSTS_LEDGER
+// and CLAUDE_COSTS_STATE when set, else claude-costs under XDG_DATA_HOME and
+// XDG_STATE_HOME when set, else under ~/.local/share and ~/.local/state, on
+// macOS too. Only the costs migration reads them. A path is "" when a
+// relative value named it: that resolved against whatever folder the old
+// process started in and can't be found again. Notes says which, and
 // Unresolved names the variable that hides the ledger's own path.
 type OldPaths struct {
-	Ledger, State, Overrides string
-	Notes                    []string
-	Unresolved               string
+	Ledger, State string
+	Notes         []string
+	Unresolved    string
 }
 
 // ShellDefault is ${name:-fallback} as the old startup files, script and
@@ -252,13 +249,6 @@ func OldLocations(home string) OldPaths {
 	)
 	old.Unresolved = why
 	old.State = pick("CLAUDE_COSTS_STATE", "XDG_STATE_HOME", ".local/state", "claude-costs")
-	old.Overrides = pick(
-		"CLAUDE_COSTS_RATES",
-		"XDG_CONFIG_HOME",
-		".config",
-		"claude-costs",
-		"rates.json",
-	)
 	return old
 }
 
@@ -276,14 +266,12 @@ func oldOfficialPath(folder string, tool Tool) string {
 	return filepath.Join(folder, name)
 }
 
-// costsMove is one costs file other than the ledger that the migration moves
-// into Workbench's folders, into the folder that folder makes private. cache
-// marks a price cache, which is derived data: when the new path already holds
-// one, the old one is deleted instead of being a conflict.
+// costsMove is one price cache the migration moves beside the ledger, into
+// the folder that folder makes private. A cache is derived data: when the new
+// path already holds one, the old one is deleted instead of being a conflict.
 type costsMove struct {
 	from, to string
 	folder   func() (string, error)
-	cache    bool
 }
 
 func (o OldPaths) moves(p Paths) []costsMove {
@@ -292,16 +280,11 @@ func (o OldPaths) moves(p Paths) []costsMove {
 		for _, tool := range Tools {
 			if tool.Source != nil {
 				moves = append(moves, costsMove{
-					oldOfficialPath(filepath.Dir(o.Ledger), tool), officialPath(p, tool),
-					func() (string, error) { return p.dataFolder(tool.Name) }, true,
+					oldOfficialPath(filepath.Dir(o.Ledger), tool), officialPath(p.Ledger, tool),
+					func() (string, error) { return p.dataFolder(tool.Name) },
 				})
 			}
 		}
-	}
-	if o.Overrides != "" {
-		moves = append(moves, costsMove{o.Overrides, p.Overrides, func() (string, error) {
-			return operation.PrivateDirectory(p.Runtime.Config, "costs")
-		}, false})
 	}
 	return slices.DeleteFunc(moves, func(m costsMove) bool { return aliased(m.from, m.to) })
 }
@@ -383,10 +366,10 @@ func linked(path string) bool {
 }
 
 // apart drops each old path that is its new path itself (see aliased), as when
-// an owner set CLAUDE_COSTS_LEDGER, CLAUDE_COSTS_STATE or CLAUDE_COSTS_RATES
-// to the new file or folder, or linked an old claude-costs folder to the new
-// one. Such a file is already where it belongs; nothing moves, and nothing is
-// deleted or locked through it.
+// an owner set CLAUDE_COSTS_LEDGER or CLAUDE_COSTS_STATE to the new file or
+// folder, or linked an old claude-costs folder to the new one. Such a file is
+// already where it belongs; nothing moves, and nothing is deleted or locked
+// through it.
 func (o OldPaths) apart(p Paths) OldPaths {
 	if o.Ledger != "" && aliased(o.Ledger, p.Ledger) {
 		o.Ledger = ""
@@ -394,21 +377,7 @@ func (o OldPaths) apart(p Paths) OldPaths {
 	if o.State != "" && aliased(o.State, p.State) {
 		o.State = ""
 	}
-	if o.Overrides != "" && aliased(o.Overrides, p.Overrides) {
-		o.Overrides = ""
-	}
 	return o
-}
-
-// sameBytes reports whether two small files hold the same bytes: a move
-// across filesystems that stopped after the copy, before deleting the old one.
-func sameBytes(a, b string) bool {
-	left, err := os.ReadFile(a)
-	if err != nil {
-		return false
-	}
-	right, err := os.ReadFile(b)
-	return err == nil && bytes.Equal(left, right)
 }
 
 // FolderState is where the costs files, or the ledger alone, stand.
@@ -438,10 +407,9 @@ type FolderCheck struct {
 }
 
 // CheckFolders says what is left of the costs move. It looks at which paths
-// exist (Lstat), reads an old and a new overrides file only when both are
-// there, to tell a finished copy from two different files, and lists the old
-// claude-costs folders, to find one that is empty, one it can't read, and the
-// files it keeps there. It never opens the ledger, locks or changes anything.
+// exist (Lstat) and lists the old claude-costs folders, to find one that is
+// empty, one it can't read, and the files it keeps there. It never opens the
+// ledger, locks or changes anything.
 func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	old = old.apart(p)
 	var moved, deleted, conflicts []string
@@ -481,10 +449,8 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 		case !exists(move.from):
 		case linked(move.from):
 			link(move.from)
-		case exists(move.to) && (move.cache || sameBytes(move.from, move.to)):
-			deleted = append(deleted, operation.ShowPath(p.Home, move.from))
 		case exists(move.to):
-			conflict(move.from, move.to)
+			deleted = append(deleted, operation.ShowPath(p.Home, move.from))
 		default:
 			moved = append(moved, operation.ShowPath(p.Home, move.from))
 		}
@@ -708,21 +674,17 @@ func lockImports(old OldPaths, p Paths) (release func(), err error) {
 	return release, nil
 }
 
-// moveSmallFiles moves the price caches and the overrides. An old file whose
-// new path already holds a cache, or the same bytes, is deleted: a cache is
-// fetched again when stale, and the same bytes are a copy that finished. An old
-// file whose new path holds other data stays.
+// moveSmallFiles moves the price caches beside the ledger. An old cache whose
+// new path already holds one is deleted: a cache is fetched again when stale.
 func moveSmallFiles(old OldPaths, p Paths) error {
 	for _, move := range old.moves(p) {
 		switch {
 		case !exists(move.from), linked(move.from):
 			continue
-		case exists(move.to) && (move.cache || sameBytes(move.from, move.to)):
+		case exists(move.to):
 			if err := os.Remove(move.from); err != nil {
 				return err
 			}
-			continue
-		case exists(move.to):
 			continue
 		}
 		if _, err := move.folder(); err != nil {
@@ -738,7 +700,7 @@ func moveSmallFiles(old OldPaths, p Paths) error {
 // folders are the old claude-costs folders, each once.
 func (o OldPaths) folders() []string {
 	var folders []string
-	for _, folder := range []string{filepath.Dir(o.Ledger), o.State, filepath.Dir(o.Overrides)} {
+	for _, folder := range []string{filepath.Dir(o.Ledger), o.State} {
 		if filepath.Base(folder) == "claude-costs" && !slices.Contains(folders, folder) {
 			folders = append(folders, folder)
 		}

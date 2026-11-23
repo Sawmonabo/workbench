@@ -22,15 +22,13 @@ import (
 )
 
 // Paths are where the ledger and its companions live, inside Workbench's
-// runtime folders (see [LocationsIn]): WORKBENCH_{DATA,STATE,CONFIG}_DIR or
-// XDG_{DATA,STATE,CONFIG}_HOME relocate them with everything else Workbench
-// keeps.
+// runtime folders (see [LocationsIn]): WORKBENCH_{DATA,STATE}_DIR or
+// XDG_{DATA,STATE}_HOME relocate them with everything else Workbench keeps.
 type Paths struct {
-	Home      string
-	Runtime   operation.Paths // Workbench's runtime folders the paths below sit in
-	Ledger    string          // the durable record
-	State     string          // ingest.log, ingest.err (the worker's output) and ingest.lock
-	Overrides string          // manual per-model rates, highest priority
+	Home    string
+	Runtime operation.Paths // Workbench's runtime folders the paths below sit in
+	Ledger  string          // the durable record, which also keeps the downloaded prices
+	State   string          // ingest.log, ingest.err (the worker's output) and ingest.lock
 }
 
 // Locations resolves [Paths] from Workbench's runtime folders. It fails, with
@@ -57,18 +55,38 @@ func (p Paths) output() string { return filepath.Join(p.State, "ingest.err") }
 // opened where they are then. When the open fails because another process
 // moved them in between (see [Paths.moved]), it opens the ledger again where
 // they are now.
-func (p Paths) Open(ctx context.Context) (*Ledger, error) {
-	ledger, used, err := p.openGated(ctx)
+func (p Paths) Open(ctx context.Context) (*Ledger, error) { return p.openAgain(ctx, true) }
+
+// OpenExisting is [Paths.Open] for a caller that must not make a ledger: when
+// there is none yet (or only an empty file), it returns nil and no error, and
+// makes nothing.
+func (p Paths) OpenExisting(ctx context.Context) (*Ledger, error) {
+	return p.openAgain(ctx, false)
+}
+
+func (p Paths) openAgain(ctx context.Context, create bool) (*Ledger, error) {
+	ledger, used, err := p.openGated(ctx, create)
 	if err != nil && used.moved() {
-		ledger, _, err = p.openGated(ctx)
+		ledger, _, err = p.openGated(ctx, create)
 	}
 	return ledger, err
 }
 
-func (p Paths) openGated(ctx context.Context) (*Ledger, Paths, error) {
+func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, error) {
 	p, err := gate(ctx, p, false)
 	if err != nil {
 		return nil, p, err
+	}
+	if !create {
+		info, err := os.Stat(p.Ledger)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			return nil, p, nil
+		case err != nil:
+			return nil, p, fmt.Errorf("%s: %w", p.Ledger, err)
+		case info.Size() == 0:
+			return nil, p, nil
+		}
 	}
 	ledger, err := p.open()
 	return ledger, p, err
@@ -120,7 +138,7 @@ func (p Paths) moved() bool {
 }
 
 const (
-	schemaVersion = "5"
+	schemaVersion = "6"
 
 	// firstTool is the tool of every row written before the tool column
 	// existed, and the column's default: its request IDs are stored as they
@@ -172,7 +190,7 @@ CREATE TABLE tier_pending (
   root       TEXT NOT NULL
 );
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
-` + subscriptionSchema + markSchema
+` + subscriptionSchema + markSchema + priceSchema
 
 // subscriptionSchema is the part of the schema that attributes rows to a
 // subscription, also created by the upgrade of an older ledger. Every time is
@@ -233,6 +251,32 @@ CREATE TABLE account_marks (
 );
 `
 
+// priceSchema keeps each tool's official price list, the one a refresh
+// downloaded last (see refreshOfficial): prices holds its rows, which a
+// report's price list is built from (see loadCard), and price_lists where and
+// when it was downloaded, when the page was last asked, and the page's
+// validators for the next conditional request. Times are seconds since the
+// epoch.
+const priceSchema = `
+CREATE TABLE prices(
+  tool           TEXT NOT NULL,   -- claude, codex
+  prefix         TEXT NOT NULL,   -- a model, or a family such as claude-opus
+  input          REAL NOT NULL,   -- USD per million tokens, as are the rest
+  output         REAL NOT NULL,
+  cache_write_5m REAL NOT NULL,
+  cache_write_1h REAL NOT NULL,
+  cache_read     REAL NOT NULL,
+  PRIMARY KEY(tool, prefix)) WITHOUT ROWID;
+
+CREATE TABLE price_lists(
+  tool          TEXT PRIMARY KEY,
+  url           TEXT NOT NULL,
+  fetched_at    REAL NOT NULL,    -- when the list was last downloaded
+  checked_at    REAL NOT NULL,    -- when the page was last asked
+  etag          TEXT NOT NULL,
+  last_modified TEXT NOT NULL) WITHOUT ROWID;
+`
+
 // Ledger is the SQLite record of every response.
 type Ledger struct {
 	Path string
@@ -240,9 +284,9 @@ type Ledger struct {
 }
 
 // OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
-// an existing file: a version 1, 2 or 4 ledger is upgraded in one transaction
-// that keeps every row, any other version fails with the path and version and
-// writes nothing. A zero-byte file (a crash between creating the file and
+// an existing file: a version 1, 2, 4 or 5 ledger is upgraded in one
+// transaction that keeps every row, any other version fails with the path and
+// version and writes nothing. A zero-byte file (a crash between creating the file and
 // writing the schema) holds nothing and is treated as absent. create makes a
 // missing ledger, in a folder that must exist, instead of failing.
 //
@@ -324,7 +368,7 @@ func (l *Ledger) prepare(exists bool) error {
 		}
 		switch version {
 		case schemaVersion:
-		case "1", "2", "4":
+		case "1", "2", "4", "5":
 			if err := l.upgrade(ctx); err != nil {
 				return fmt.Errorf("%s: %w", l.Path, err)
 			}
@@ -386,11 +430,14 @@ func (l *Ledger) create(ctx context.Context) error {
 
 // upgrade is the only write to existing data, in one transaction that keeps
 // every row: version 1 gains the tool column, versions 1 and 2 gain the saved
-// file state, the tier tables and the subscription columns and tables, and
-// versions 1, 2 and 4 gain the account marks table. A row upgraded from
-// version 1 or 2 keeps its email, its subscription is unknown and its evidence
-// is unknown, as the earlier "session" and "sweep" sources are gone; a
-// Claude Code row's root is its session.
+// file state, the tier tables and the subscription columns and tables,
+// versions 1, 2 and 4 gain the account marks table, and versions 1, 2, 4 and 5
+// gain the price tables, filled in the same transaction from the price list
+// files beside the ledger (see fillPrices), so no report is priced from fewer
+// prices than before. A row upgraded from version 1 or 2 keeps its email, its
+// subscription is unknown and its evidence is unknown, as the earlier
+// "session" and "sweep" sources are gone; a Claude Code row's root is its
+// session.
 func (l *Ledger) upgrade(ctx context.Context) error {
 	return l.transact(ctx, func(tx *sql.Tx) error {
 		var version string
@@ -426,6 +473,9 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 			fallthrough
 		case "4":
 			statements = append(statements, markSchema)
+			fallthrough
+		case "5":
+			statements = append(statements, priceSchema)
 		default:
 			return nil // another process upgraded it first
 		}
@@ -433,6 +483,9 @@ func (l *Ledger) upgrade(ctx context.Context) error {
 			if _, err := tx.ExecContext(ctx, statement); err != nil {
 				return err
 			}
+		}
+		if err := fillPrices(ctx, tx, l.Path); err != nil {
+			return err
 		}
 		return setMeta(ctx, tx, "schema_version", schemaVersion)
 	})

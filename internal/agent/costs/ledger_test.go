@@ -3,7 +3,11 @@ package costs
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
+	"fmt"
+	"maps"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -415,6 +419,319 @@ func TestInferredAccountYieldsToEvidence(t *testing.T) {
 	// A mark found later pairs id-d with another organization too.
 	addMarks(AccountMark{Kind: MarkOrg, Time: at(4), Org: "unseen"})
 	check(map[string][4]string{"inferred": unknown})
+}
+
+// The ledger is the only lasting record of spend once the tools delete their
+// transcripts, and from schema version 6 it also keeps the downloaded prices
+// a report is priced from, which a version 5 ledger had in list files beside
+// it. An upgrade that lost a row, or dropped those prices so that a total
+// changed, would misstate spend silently and for good; one that failed on a
+// list file that is missing or damaged would leave the ledger unread.
+func TestUpgradeToSixKeepsRowsAndPrices(t *testing.T) {
+	// Two tools record usage, so a ledger has two list files beside it: one
+	// case puts a valid list beside it for each tool, with the other tool's
+	// list missing in one and unreadable in the other.
+	for _, c := range []struct {
+		name, valid, other, otherList string
+	}{
+		{"claude's list valid, codex's missing", "claude", "codex", ""},
+		{"codex's list valid, claude's unreadable", "codex", "claude", `{"rates": {`},
+	} {
+		t.Run(c.name, func(t *testing.T) { upgradeToSix(t, c.valid, c.other, c.otherList) })
+	}
+}
+
+// upgradeToSix opens a version 5 ledger with rows, a valid list file beside it
+// for the tool valid and otherList ("" for none) as the list file of the tool
+// other, and checks what the upgrade kept.
+func upgradeToSix(t *testing.T, valid, other, otherList string) {
+	privateHome(t) // a report reads the home for the tools' own cost records
+	path := oldLedger(
+		t,
+		versionFive,
+		`INSERT INTO meta VALUES ('schema_version', '5')`,
+		`INSERT INTO responses (request_id, ts, model, project, session_id, account,
+		   account_source, input, output, cache_write_5m, cache_write_1h, cache_read, tool)
+		 VALUES
+		   ('req-1', '2026-11-01T10:00:00Z', 'claude-opus-5-5', '/w/a', 's1', 'a@example.test',
+		    'transcript', 1000, 2000, 3000, 4000, 50000, 'claude'),
+		   ('req-2', '2026-11-02T10:00:00Z', 'claude-opus-5-5', '/w/b', 's2', 'a@example.test',
+		    'transcript', 7, 11, 13, 17, 19, 'claude'),
+		   ('codex:c-1', '2026-11-03T10:00:00Z', 'gpt-5.5', '/w/c', 'c1', 'b@example.test',
+		    'transcript', 3000, 5000, 0, 0, 70000, 'codex')`,
+		`INSERT INTO files VALUES ('/w/t.jsonl', 4096, 4096, 1, '2026-11-01T10:00:00+00:00', '', 'h')`,
+		`INSERT INTO subscriptions VALUES ('claude:personal', 'Max')`,
+		`INSERT INTO session_accounts VALUES ('claude', 's1', '2026-11-01T09:00:00Z',
+		   'a@example.test', 'claude:personal')`,
+	)
+	before := ledgerRows(t, path)
+	// The list prices differ from the built-in ones, so a total priced from
+	// anything but the file tells.
+	lists := map[string]officialFile{
+		"claude": {
+			FetchedAt:    1.7e9,
+			CheckedAt:    1.8e9,
+			ETag:         `"e-claude"`,
+			LastModified: "Mon, 02 Nov 2026",
+			URL:          "https://example.test/claude",
+			Rates: map[string]map[string]float64{
+				"claude-opus-5-5": {
+					"input": 7, "output": 31, "cache_write_5m": 9,
+					"cache_write_1h": 13, "cache_read": 0.7,
+				},
+				"claude-opus": {
+					"input": 6, "output": 29, "cache_write_5m": 8,
+					"cache_write_1h": 12, "cache_read": 0.6,
+				},
+			},
+		},
+		"codex": {
+			FetchedAt: 1.6e9, CheckedAt: 1.9e9, ETag: `"e-codex"`, LastModified: "Tue, 03 Nov 2026",
+			URL: "https://example.test/codex", Rates: map[string]map[string]float64{
+				"gpt-5.5": {
+					"input": 6, "output": 33, "cache_write_5m": 6,
+					"cache_write_1h": 6, "cache_read": 0.6,
+				},
+			},
+		},
+	}
+	validTool, _ := Lookup(valid)
+	otherTool, _ := Lookup(other)
+	data, err := json.Marshal(lists[valid])
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, officialPath(path, validTool), string(data), 0o600)
+	if otherList != "" {
+		writeFile(t, officialPath(path, otherTool), otherList, 0o600)
+	}
+
+	ledger, err := OpenLedger(path, false)
+	if err != nil {
+		t.Fatalf("the upgrade failed: %v", err)
+	}
+	defer func() { _ = ledger.Close() }()
+	if version, err := ledger.Meta("schema_version"); err != nil || version != schemaVersion {
+		t.Fatalf("the ledger is at version %q (%v), want %s", version, err, schemaVersion)
+	}
+	after := ledgerRows(t, path)
+	for table, rows := range before {
+		// meta's schema_version is the one row an upgrade changes.
+		if table != "meta" && !slices.Equal(after[table], rows) {
+			t.Errorf("%s holds %v after the upgrade, want %v", table, after[table], rows)
+		}
+	}
+	assertListKept(t, ledger, valid, lists[valid])
+	for _, table := range []string{"prices", "price_lists"} {
+		for _, row := range after[table] {
+			if strings.HasPrefix(row, other+" ") {
+				t.Errorf(
+					"%s holds %q for %s, whose list is missing or unreadable",
+					table,
+					row,
+					other,
+				)
+			}
+		}
+	}
+	// The totals are those the file's prices give, and the built-in ones for
+	// the tool without a list, as before the upgrade.
+	assertTotal(t, ledger, validTool, lists[valid].rates(), after["responses"])
+	assertTotal(t, ledger, otherTool, otherTool.Source.Builtin(), after["responses"])
+}
+
+// privateHome points the home and every folder Workbench or the tools read
+// from it at a new temporary home.
+func privateHome(t *testing.T) {
+	t.Helper()
+	home, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", home)
+	for _, name := range []string{
+		"WORKBENCH_CONFIG_DIR", "WORKBENCH_DATA_DIR", "WORKBENCH_STATE_DIR",
+		"WORKBENCH_CACHE_DIR", "WORKBENCH_BIN_DIR", "XDG_CONFIG_HOME", "XDG_DATA_HOME",
+		"XDG_STATE_HOME", "XDG_CACHE_HOME", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+	} {
+		t.Setenv(name, "")
+	}
+}
+
+// assertListKept checks that the ledger keeps want as tool's official list.
+func assertListKept(t *testing.T, ledger *Ledger, tool string, want officialFile) {
+	t.Helper()
+	kept, err := ledger.officialRates(context.Background(), tool)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(kept.Rates) == 0 || !maps.EqualFunc(kept.Rates, want.Rates, maps.Equal) ||
+		kept.URL != want.URL || kept.FetchedAt != want.FetchedAt ||
+		kept.CheckedAt != want.CheckedAt || kept.ETag != want.ETag ||
+		kept.LastModified != want.LastModified {
+		t.Errorf("the ledger keeps %+v for %s, want the file's %+v", kept, tool, want)
+	}
+}
+
+// assertTotal checks that a report's total for tool is what rates give the
+// tool's rows among responses (as ledgerRows lists them).
+func assertTotal(t *testing.T, ledger *Ledger, tool Tool, rates RateCard, responses []string) {
+	t.Helper()
+	var want int64
+	for _, row := range responses {
+		var id, model, name string
+		var tokens Tokens
+		if _, err := fmt.Sscan(row, &id, &model, &name, &tokens.Input, &tokens.Output,
+			&tokens.CacheWrite5m, &tokens.CacheWrite1h, &tokens.CacheRead); err != nil {
+			t.Fatal(err)
+		}
+		if name != tool.Name {
+			continue
+		}
+		rate, ok := rates.Lookup(model, tool.Tiers)
+		if !ok {
+			t.Fatalf("nothing prices %s", model)
+		}
+		want += rate.Cost(tokens)
+	}
+	report, err := Report(context.Background(), ledger, ReportOptions{Tool: tool.Name, All: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if report.Total.exact != want || !report.Total.Priced || want == 0 {
+		t.Errorf("the %s total is %d picodollars (priced %v), want %d",
+			tool.Name, report.Total.exact, report.Total.Priced, want)
+	}
+}
+
+// versionFive is the schema of a version 5 ledger, as that version wrote it.
+const versionFive = `
+CREATE TABLE responses (
+  request_id     TEXT PRIMARY KEY,
+  ts             TEXT NOT NULL,
+  model          TEXT NOT NULL,
+  project        TEXT NOT NULL,
+  session_id     TEXT NOT NULL,
+  account        TEXT NOT NULL,
+  account_source TEXT NOT NULL,
+  subscription   TEXT NOT NULL DEFAULT 'unknown',
+  subscription_source TEXT NOT NULL DEFAULT 'unknown',
+  root           TEXT NOT NULL DEFAULT '',
+  input          INTEGER NOT NULL,
+  output         INTEGER NOT NULL,
+  cache_write_5m INTEGER NOT NULL,
+  cache_write_1h INTEGER NOT NULL,
+  cache_read     INTEGER NOT NULL,
+  tool           TEXT NOT NULL DEFAULT 'claude'
+);
+CREATE INDEX responses_ts ON responses (ts);
+CREATE INDEX responses_project_model ON responses (project, model);
+CREATE INDEX responses_account ON responses (account);
+CREATE INDEX responses_tool ON responses (tool);
+CREATE INDEX responses_root ON responses (tool, root);
+CREATE TABLE files (
+  path      TEXT PRIMARY KEY,
+  offset    INTEGER NOT NULL,
+  size      INTEGER NOT NULL,
+  mtime_ns  INTEGER NOT NULL,
+  last_seen TEXT NOT NULL,
+  state     TEXT NOT NULL DEFAULT '',
+  head      TEXT NOT NULL DEFAULT ''
+);
+CREATE TABLE tier_changes (
+  thread_id TEXT NOT NULL,
+  ts        TEXT NOT NULL,
+  tier      TEXT NOT NULL,
+  PRIMARY KEY (thread_id, ts, tier)
+);
+CREATE TABLE tier_pending (
+  request_id TEXT PRIMARY KEY,
+  root       TEXT NOT NULL
+);
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+CREATE TABLE session_accounts (
+  tool         TEXT NOT NULL,
+  session      TEXT NOT NULL,
+  since        TEXT NOT NULL,
+  account      TEXT NOT NULL,
+  subscription TEXT NOT NULL,
+  PRIMARY KEY (tool, session, since)
+);
+CREATE TABLE sign_ins (
+  tool         TEXT NOT NULL,
+  at           TEXT NOT NULL,
+  account      TEXT NOT NULL,
+  subscription TEXT NOT NULL,
+  PRIMARY KEY (tool, at)
+);
+CREATE TABLE subscriptions (id TEXT PRIMARY KEY, label TEXT NOT NULL);
+CREATE TABLE thread_parents (
+  tool   TEXT NOT NULL,
+  thread TEXT NOT NULL,
+  parent TEXT NOT NULL,
+  PRIMARY KEY (tool, thread)
+);
+CREATE TABLE account_marks (
+  tool    TEXT NOT NULL,
+  kind    TEXT NOT NULL,
+  at      TEXT NOT NULL,
+  account TEXT NOT NULL,
+  org     TEXT NOT NULL,
+  PRIMARY KEY (tool, kind, at, account, org)
+);
+`
+
+// ledgerRows reads every table of the ledger at path through a plain
+// connection, each row as its values joined by spaces, sorted; a response row
+// leads with its request id, model, tool and five token counts. The prices
+// row of a tool leads with the tool.
+func ledgerRows(t *testing.T, path string) map[string][]string {
+	t.Helper()
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	read := func(query string) []string {
+		t.Helper()
+		rows, err := db.Query(query)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = rows.Close() }()
+		columns, err := rows.Columns()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out []string
+		for rows.Next() {
+			values := make([]any, len(columns))
+			pointers := make([]any, len(columns))
+			for i := range values {
+				pointers[i] = &values[i]
+			}
+			if err := rows.Scan(pointers...); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, strings.TrimSuffix(fmt.Sprintln(values...), "\n"))
+		}
+		if err := rows.Err(); err != nil {
+			t.Fatal(err)
+		}
+		slices.Sort(out)
+		return out
+	}
+	tables := map[string][]string{}
+	for _, table := range read("SELECT name FROM sqlite_master WHERE type = 'table'") {
+		query := "SELECT * FROM " + table
+		if table == "responses" {
+			query = `SELECT request_id, model, tool, input, output, cache_write_5m, cache_write_1h,
+			                cache_read, ts, project, session_id, account, account_source,
+			                subscription, subscription_source, root FROM responses`
+		}
+		tables[table] = read(query)
+	}
+	return tables
 }
 
 // oldLedger writes a ledger of an earlier schema with statements and returns
