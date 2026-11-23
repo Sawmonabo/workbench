@@ -147,8 +147,8 @@ exits when it is not, and hooks and import workers started just before.
      the folder's current path itself. When it cannot move (rule 5, or a new folder already
      exists), it works in the old folder.
    - A hook, or `workbench migrate`, that finds the old folder and no
-     folder at the new path takes the watcher's lock there without
-     waiting. When it gets it, no watcher runs: it moves, lets the lock
+     folder at the new path takes the watcher's lock there exclusively,
+     without waiting. When it gets it, no watcher runs: it moves, lets the lock
      go, and then starts a watcher when the folder holds a note, as every
      mover does, since a pre hook that found the lock held in that instant
      started none.
@@ -170,7 +170,8 @@ exits when it is not, and hooks and import workers started just before.
 11. **Only the holder of the import lock moves the costs folders.** A costs
     entry (the hook that starts the worker, the worker, `status`, the
     reports, `rates`) that finds an old costs folder takes the import lock
-    at its old path (`<state>/costs/ingest.lock`) without waiting.
+    at its old path (`<state>/costs/ingest.lock`) exclusively, without
+    waiting.
     - When it gets it, no import runs: it moves the data folder, then the
       state folder, and lets the lock go.
     - When the lock is held, an import is running in the old folders. The

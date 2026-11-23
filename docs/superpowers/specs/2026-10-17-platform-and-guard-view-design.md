@@ -420,10 +420,11 @@ A full-screen Bubble Tea program in the alternate screen.
   and in the menu `↑/↓ choose  enter send  esc/← cancel`.
 - **Find**: `/` opens a one-line input in place of the key line, holding
   the text kept before. The list then shows only the rows whose agent,
-  subagent, project, ID or command holds the text, case ignored: the
-  history answers for the finished commands it holds, by Unicode simple
-  case folding, and the view itself for the rows it holds from the
-  snapshot, by ASCII case. The history's search runs beside the screen, a
+  subagent, project, ID or command holds the text, case ignored by one
+  rule, Unicode simple case folding (`sqlitefile.HoldsFold`): the history
+  answers for the finished commands it holds, through `contains_fold`, and
+  the view itself for the rows it holds from the snapshot, by the same
+  rule. The history's search runs beside the screen, a
   new text cancels the search before, the list keeps its rows until the
   answer comes and only the answer to the latest text is taken, so typing
   never waits; a new text goes to the first row. While the input is open,

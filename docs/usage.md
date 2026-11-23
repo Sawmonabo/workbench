@@ -320,7 +320,10 @@ them, and so does every costs and guard entry that holds the folder's lock: a
 watcher of the earlier release hands over as at every update, and the new
 watcher moves the guard folder before its first look, so nothing it was
 watching is dropped; a folder a watcher or an import still works in waits for
-it. On a file system that cannot swap two names, such as HFS+, the folders
+it. An entry asks whether a watcher or an import works in a folder with a
+shared lock on that folder's lock file, which only the watcher's or the
+import's own exclusive lock refuses, so entries asking at the same moment
+never take each other for one. On a file system that cannot swap two names, such as HFS+, the folders
 stay and are used where they are, and so does a folder an overlay file
 system keeps in a container image's lower layer, which only the move finds
 out: each `workbench migrate` there tries it again and says why it stays. An
@@ -485,10 +488,9 @@ choice (enter still sends).
 
 `/` opens a one-line input on the bottom line, and the list then shows only
 the rows, running and finished, whose agent, subagent, project, ID or command
-holds the text. Upper and lower case count alike: for a finished command the
-history holds, in any script, by Unicode case folding (`é` finds `CAFÉ`); for
-a running row, or a finished one the history does not hold yet, in ASCII
-letters only. While the input is open every key types, `k`, `q`, `s` and space
+holds the text. Upper and lower case count alike, in any script, by Unicode
+case folding (`é` finds `CAFÉ`), for running and finished rows by the same
+rule. While the input is open every key types, `k`, `q`, `s` and space
 too, except ↑, ↓, PgUp and PgDn, which move the selection, enter, which closes
 the input and keeps the filter, esc, which closes it and clears the filter,
 and ctrl+c, which quits. Typing never waits for the search: the list keeps its

@@ -49,12 +49,18 @@ using.
   identifier is another start's. A move never replaces a folder.
 - One function per part says where its folder is: the old one while it is a
   folder and either the new one is not or the old one's lock is held, else the
-  new one. An entry never makes a folder at an old path.
+  new one. An entry never makes a folder at an old path. Every entry that asks
+  whether a watcher or an import holds a lock (that function, a pre hook,
+  `workbench migrate` and `doctor`, `agent costs status`) asks with a shared
+  lock taken without waiting for an instant: only the exclusive lock of a
+  watcher or an import refuses it, so two entries asking at once never take
+  each other for one.
 - A watcher of this release that holds the lock in the old folder moves it
   before its first tick. A hook, `workbench migrate` and every costs entry
-  take the lock without waiting and move only when they get it; when it is
-  held, they work in the old folder, and the holder, or the next entry after
-  it, moves it.
+  take the lock exclusively without waiting and move only when they get it;
+  when it is held, they work in the old folder, and the holder, or the next
+  entry after it, moves it. A watcher or an import worker taking its lock
+  tries six times 20 ms apart, so an asker's instant does not turn it away.
 - Migration `0007-agent-folders` lists the moves. A folder a watcher or an
   import works in, or one on a file system that cannot swap two names (HFS+,
   which `CanSwap` tells by the volume's `VOL_CAP_INT_RENAME_SWAP`), counts as
@@ -65,7 +71,9 @@ using.
   leaves it in use where it is, says why and succeeds, so it blocks no apply
   either. An old folder beside one already in use is not
   merged: its logs, output files, locks, sockets, downloaded price lists and
-  empty folders are deleted, and anything else stays and is named.
+  empty folders are deleted, under the old folder's lock held shared, which
+  keeps a watcher or an import from starting there and which no asker takes
+  for one, and anything else stays and is named.
 
 ## Consequences
 
