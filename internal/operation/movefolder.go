@@ -24,11 +24,15 @@ import (
 //
 // It never replaces a folder: with a folder already at to, or no folder at
 // from (nothing to move), it does nothing and returns moved false with no
-// error. Where the file system cannot swap two names it moves nothing,
-// removes the file it made and returns an error matching
-// platform.ErrSwapUnsupported; any other failed swap also removes that file.
-// moved is true with an error only when the swap happened and a folder could
-// not be synced. A start identifier that cannot be read moves nothing.
+// error. Where the file system cannot swap two names it moves nothing and
+// returns an error matching platform.ErrSwapUnsupported: when
+// [platform.CanSwap] says so it writes nothing at all, and when only the swap
+// tells (an overlay file system refusing a folder of a lower layer) it
+// removes the file it made. Any other failed swap also removes that file, and
+// a failed move removes the folder above to when it made that folder itself
+// and nothing else is in it. moved is true with an error only when the swap
+// happened and a folder could not be synced. A start identifier that cannot
+// be read moves nothing.
 func MoveFolder(from, to string) (moved bool, err error) {
 	if Within(from, to) || Within(to, from) {
 		return false, fmt.Errorf("cannot move %s to %s: one is inside the other", from, to)
@@ -36,11 +40,30 @@ func MoveFolder(from, to string) (moved bool, err error) {
 	if IsFolder(to) || !IsFolder(from) {
 		return false, nil
 	}
+	// A file system that can't be asked is tried: the swap says why it fails.
+	if swaps, err := platform.CanSwap(from); err == nil && !swaps {
+		return false, &os.LinkError{
+			Op:  "swap",
+			Old: from,
+			New: to,
+			Err: platform.ErrSwapUnsupported,
+		}
+	}
 	boot, err := platform.BootID()
 	if err != nil {
 		return false, err
 	}
-	if err := ensurePrivateDirectory(filepath.Dir(to)); err != nil {
+	parent := filepath.Dir(to)
+	_, err = os.Lstat(parent)
+	made := errors.Is(err, fs.ErrNotExist)
+	defer func() {
+		if made && !moved {
+			// Remove fails on a folder that holds anything, so one another
+			// process put a file in meanwhile stays.
+			_ = os.Remove(parent)
+		}
+	}()
+	if err := ensurePrivateDirectory(parent); err != nil {
 		return false, err
 	}
 	if err := ReplacePrivateFile(to, []byte(boot)); err != nil {
