@@ -214,7 +214,7 @@ func (f agentFolder) inspect() folderState {
 }
 
 // due reports whether a run has something to do with the folder. A lock is
-// no reason by itself: every guard hook makes one in an old folder it finds
+// no reason by itself: a guard hook that moves an old folder makes one in it
 // (see [guard.Move]).
 func (s folderState) due() bool {
 	switch s.standing {

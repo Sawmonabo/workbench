@@ -237,10 +237,11 @@ func (f *folders) again() bool {
 // none. When the lock is held a watcher runs in the old folder, and Move
 // moves nothing: the notes go where that watcher reads them (see Root). A
 // file system that cannot swap moves nothing and is no error: the folder
-// stays in use where it is. With no folder at the old path, or a folder
-// already at the new one, it moves nothing and takes no lock, which an entry
-// asking whether a watcher works in the old folder would take for one (see
-// Root).
+// stays in use where it is. With no folder at the old path, a folder already
+// at the new one, or a file system that [platform.CanSwap] says cannot swap,
+// it moves nothing and takes no lock (see [operation.CanMoveFolder]), which
+// an entry asking whether a watcher works in the old folder would take for
+// one (see Root).
 func Move(state string) (moved bool, err error) {
 	moved, _, err = move(state, operation.TryLockIn)
 	return moved, err
@@ -270,8 +271,8 @@ func move(
 	take func(string) (*os.File, bool, error),
 ) (moved bool, refused, err error) {
 	old := oldRoot(state)
-	if !operation.IsFolder(old) || operation.IsFolder(newRoot(state)) {
-		return false, nil, nil
+	if can, err := operation.CanMoveFolder(old, newRoot(state)); !can {
+		return false, err, nil
 	}
 	lock, held, err := take(filepath.Join(old, "watch.lock"))
 	if err != nil || held {

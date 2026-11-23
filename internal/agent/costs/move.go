@@ -103,7 +103,8 @@ func (f agentFolders) inUse(old, new string) bool {
 // leaves the state folder, which the next call moves under the same lock. A
 // move whose new folder is already there leaves the old one where it is. It
 // lets the lock go before it returns, and the caller takes the locks it needs
-// anew at the new path.
+// anew at the new path. With neither folder able to move (see
+// [operation.CanMoveFolder]) it takes no lock and writes nothing.
 //
 // A folder whose file system cannot swap two names stays where it is, in use
 // there, and the other folder is still tried, since the data and state
@@ -133,9 +134,12 @@ func moveAgentFolders(
 	f := agentFoldersIn(runtime)
 	operation.RemoveClosedPath(f.oldData)
 	operation.RemoveClosedPath(f.oldState)
-	if (!operation.IsFolder(f.oldData) || operation.IsFolder(f.newData)) &&
-		(!operation.IsFolder(f.oldState) || operation.IsFolder(f.newState)) {
-		return false, nil
+	// The lock is taken only when a folder can move: an entry asking whether
+	// an import runs would take a mover that holds it for an import.
+	dataCan, dataErr := operation.CanMoveFolder(f.oldData, f.newData)
+	stateCan, stateErr := operation.CanMoveFolder(f.oldState, f.newState)
+	if !dataCan && !stateCan {
+		return false, errors.Join(dataErr, stateErr)
 	}
 	release, closed, ok, err := f.lockToMove(runtime, take)
 	if err != nil || !ok {

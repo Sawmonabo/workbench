@@ -59,15 +59,19 @@ using.
   and a folder the release before made there passes them. Every entry that asks
   whether a watcher or an import holds a lock (that function, a pre hook,
   `workbench migrate` and `doctor`, `agent costs status`) asks with a shared
-  lock taken without waiting for an instant: only the exclusive lock of a
-  watcher or an import refuses it, so two entries asking at once never take
-  each other for one.
+  lock taken without waiting for an instant: only an exclusive lock refuses
+  it, the one a watcher or an import holds while it works or a mover holds
+  for an instant, so two entries asking at once never take each other for
+  one.
 - A watcher of this release that holds the lock in the old folder moves it
   before its first tick. A hook, `workbench migrate` and every costs entry
-  take the lock exclusively without waiting and move only when they get it;
-  when it is held, they work in the old folder, and the holder, or the next
-  entry after it, moves it. A watcher or an import worker taking its lock
-  tries six times 20 ms apart, so an asker's instant does not turn it away.
+  take the lock exclusively, only when a folder can move (it is there,
+  nothing is at its new path and `CanSwap` does not say its file system
+  cannot swap), and move only when they get it; when it is held, they work
+  in the old folder, and the holder, or the next entry after it, moves it.
+  A hook and a costs entry take it without waiting. A watcher, an import
+  worker or `workbench migrate` taking its lock tries six times 20 ms
+  apart, so an asker's instant does not turn it away.
 - Migration `0007-agent-folders` lists the moves. A folder a watcher or an
   import works in, or one on a file system that cannot swap two names (HFS+,
   which `CanSwap` tells by the volume's `VOL_CAP_INT_RENAME_SWAP`), counts as

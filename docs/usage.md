@@ -326,9 +326,11 @@ it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 real folders (not links) of mode 0700, yours, on the machine's own file
 system, and refuse it otherwise in the same words, such as `Existing …/notes
 must be a private directory (mode 0700); it was not changed`. An entry asks whether a watcher or an import works in a folder with a
-shared lock on that folder's lock file, which only the watcher's or the
-import's own exclusive lock refuses, so entries asking at the same moment
-never take each other for one. On a file system that cannot swap two names, such as HFS+, the folders
+shared lock on that folder's lock file, which only an exclusive lock
+refuses: the watcher's or the import's own, or, for an instant, that of an
+entry moving the folder, which takes it only when the folder can move. So
+entries asking at the same moment never take each other for one, and
+`workbench migrate` tries a lock it finds held again for about 100 ms. On a file system that cannot swap two names, such as HFS+, the folders
 stay and are used where they are, and so does a folder an overlay file
 system keeps in a container image's lower layer, which only the move finds
 out: each `workbench migrate` there tries it again and says why it stays. An

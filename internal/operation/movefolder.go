@@ -62,16 +62,30 @@ func moveReason(from, to string, err error) error {
 	return err
 }
 
+// CanMoveFolder reports whether [MoveFolder] from from to to can move a
+// folder, looking at paths and the file system only: from is a folder, to is
+// not, and the file system holding from can swap two names or cannot be
+// asked, since the swap then says why it fails. err matches
+// platform.ErrSwapUnsupported, and can is false, when [platform.CanSwap] says
+// that file system cannot. A caller that must hold a lock to move asks first,
+// so a move that cannot happen never takes it; MoveFolder asks again, under
+// that lock, where it decides.
+func CanMoveFolder(from, to string) (can bool, err error) {
+	if IsFolder(to) || !IsFolder(from) {
+		return false, nil
+	}
+	if swaps, err := platform.CanSwap(from); err == nil && !swaps {
+		return false, platform.ErrSwapUnsupported
+	}
+	return true, nil
+}
+
 func moveFolder(from, to string) (moved bool, err error) {
 	if Within(from, to) || Within(to, from) {
 		return false, errors.New("one is inside the other")
 	}
-	if IsFolder(to) || !IsFolder(from) {
-		return false, nil
-	}
-	// A file system that can't be asked is tried: the swap says why it fails.
-	if swaps, err := platform.CanSwap(from); err == nil && !swaps {
-		return false, platform.ErrSwapUnsupported
+	if can, err := CanMoveFolder(from, to); !can {
+		return false, err
 	}
 	boot, err := platform.BootID()
 	if err != nil {
