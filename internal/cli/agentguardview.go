@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -203,7 +204,9 @@ type rowCounts struct{ running, finished int }
 // lowest seq first and by ID, the highest seq read and the file's lowest when
 // it was last read; the time kept, whether the ENDED cells hold a date and
 // on which day they were made; the widest cell of each column of the held
-// rows; why the file cannot be read; the generation of the rows held, which
+// rows; why the file cannot be read; the copy of a damaged history the guard
+// folder keeps, empty for none, and when it was set aside; the generation of
+// the rows held, which
 // moves on each time they are read anew, so an answer about earlier ones is
 // dropped; and whether a read runs, and whether another was asked for
 // meanwhile.
@@ -219,6 +222,8 @@ type viewHistory struct {
 	day          string
 	widths       []int
 	problem      string
+	damaged      string
+	damagedAt    time.Time
 	gen          int
 	reading      bool
 	again        bool
@@ -903,21 +908,24 @@ type historyRead struct {
 // file not read before, ENDED cells made anew, or a file that cannot be
 // used); the rows read, above the last held unless reset, with their cells
 // and the widest cell of each column; the file's lowest seq; the time kept,
-// whether the ENDED cells hold dates and on which day they were made; and
-// why the file cannot be read, nil when it can or does not exist yet.
+// whether the ENDED cells hold dates and on which day they were made; why
+// the file cannot be read, nil when it can or does not exist yet; and the
+// copy of a damaged history the guard folder keeps, with its time.
 type historyMsg struct {
-	from   historyRead
-	db     *guard.History
-	path   string
-	file   os.FileInfo
-	reset  bool
-	rows   []*heldRow
-	widths []int
-	lowest int64
-	keep   time.Duration
-	dated  bool
-	day    string
-	err    error
+	from      historyRead
+	db        *guard.History
+	path      string
+	file      os.FileInfo
+	reset     bool
+	rows      []*heldRow
+	widths    []int
+	lowest    int64
+	keep      time.Duration
+	dated     bool
+	day       string
+	err       error
+	damaged   string
+	damagedAt time.Time
 }
 
 // readHistory reads the history beside the screen (design 7.3), one read at
@@ -948,6 +956,10 @@ func (r historyRead) read() historyMsg {
 	if err != nil {
 		out.err, out.reset, out.db = err, true, nil
 		return out
+	}
+	copied := guard.HistoryDamagedFile(root)
+	if info, err := os.Lstat(copied); err == nil {
+		out.damaged, out.damagedAt = copied, info.ModTime()
 	}
 	path := guard.HistoryFile(root)
 	file, err := os.Stat(path)
@@ -1033,6 +1045,7 @@ func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 	}
 	h.db, h.path, h.file = msg.db, msg.path, msg.file
 	h.keep, h.dated, h.day, h.problem = msg.keep, msg.dated, msg.day, ""
+	h.damaged, h.damagedAt = msg.damaged, msg.damagedAt
 	if msg.err != nil {
 		h.problem = shownError(msg.err, msg.path)
 	}
@@ -1597,9 +1610,7 @@ func (m *guardView) statusLines() []string {
 				dry, commands),
 		)
 	}
-	if text := m.historyWarning(); text != "" {
-		texts = append(texts, text)
-	}
+	texts = append(texts, m.historyWarnings(time.Now())...)
 	if len(texts) == 0 {
 		return []string{""}
 	}
@@ -1612,18 +1623,31 @@ func (m *guardView) statusLines() []string {
 	return lines
 }
 
-// historyWarning is what is wrong with the history (design rules 3 and 9):
-// the watcher's own word while one answers and has one, that it cannot write
-// the history or found it damaged and started it again; else why the view
-// cannot read it; else nothing.
-func (m *guardView) historyWarning() string {
-	switch {
-	case m.connected && m.snap.HistoryError != "":
-		return m.snap.HistoryError
-	case m.hist.problem != "":
-		return "Guard history unreadable: " + m.hist.problem
+// historyWarnings are what is wrong with the history at now (design rules 3
+// and 9): the watcher's own word while one answers and has one, that it
+// cannot write the history or found it damaged and started it again, with
+// the paths in the guard folder shown as output shows paths; else why the
+// view cannot read it, and, while the copy of a damaged history is kept, the
+// watcher's sentence for it: the time it was set aside is the copy's, which
+// the move sets (see guard.MoveDamaged) and a watcher started since reads
+// too.
+func (m *guardView) historyWarnings(now time.Time) []string {
+	if text := m.snap.HistoryError; m.connected && text != "" {
+		if m.hist.path != "" {
+			root := filepath.Dir(m.hist.path)
+			text = strings.ReplaceAll(text, root, showPath(root))
+		}
+		return []string{text}
 	}
-	return ""
+	var texts []string
+	if m.hist.problem != "" {
+		texts = append(texts, "Guard history unreadable: "+m.hist.problem)
+	}
+	if h := m.hist; h.damaged != "" {
+		texts = append(texts, "Guard history was damaged and started again at "+
+			endedText(h.damagedAt, true, now)+"; the old file is "+showPath(h.damaged))
+	}
+	return texts
 }
 
 // guardColumns are the list's columns. COMMAND shrinks first, to 20 cells,

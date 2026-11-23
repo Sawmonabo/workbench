@@ -1,8 +1,9 @@
 package guard
 
 // This file is what the view and `agent guard history` need of the history
-// beyond its store (history.go): where it is, the guard folder made for the
-// command that sets the time kept, and the time kept while none is set.
+// beyond its store (history.go): where it and the copy of a damaged one are,
+// the guard folder made for the command that sets the time kept, the time
+// kept while none is set, and how much of a command a summary holds.
 
 // HistoryKeepDefault is how long finished commands are kept while no time is
 // set.
@@ -36,3 +37,7 @@ func HistoryFile(root string) string { return historyFile(root) }
 
 // SummaryLength is how many characters of a command a [Summary] holds.
 const SummaryLength = summaryLength
+
+// HistoryDamagedFile is where the guard folder root keeps the copy of a
+// history that could not be used (see [MoveDamaged]).
+func HistoryDamagedFile(root string) string { return damagedFile(root) }
