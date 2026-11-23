@@ -7,8 +7,10 @@ package sqlitefile
 import (
 	"context"
 	"database/sql"
+	"encoding/binary"
 	"errors"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"strings"
@@ -83,6 +85,70 @@ func Open(path string, o Options) (*sql.DB, error) {
 		}
 	}
 	return db, nil
+}
+
+// headerSize is the size of the header that starts every SQLite database
+// file.
+const headerSize = 100
+
+// ErrNotADatabase is what [CheckHeader] returns, wrapped with the path and the
+// reason, for a file whose header is not an SQLite database's.
+var ErrNotADatabase = errors.New("not an SQLite database")
+
+// CheckHeader reads the first 100 bytes of the file at path, the database
+// header, and fails with [ErrNotADatabase] when they are not those of a
+// database the writer could open
+// (https://www.sqlite.org/fileformat2.html#the_database_header): the magic
+// string "SQLite format 3\x00", a page size that is a power of two from 512
+// to 65536 (65536 written as 1), file format versions of 1 (rollback
+// journal) or 2 (WAL), the only values the format defines, at least 480
+// usable bytes a page, and payload fractions of 64, 32 and 32. SQLite's own
+// check on open, lockBtree in src/btree.c, refuses a file that fails any of
+// these but the versions, of which it refuses a read version past 2 and opens
+// a file whose write version is past 2 read-only. It reads nothing else, so
+// it costs the same whatever the file's size; a page damaged past the header
+// is SQLite's to find, when it reads it. A file that cannot be read fails
+// with the error reading it.
+func CheckHeader(path string) error {
+	file, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = file.Close() }()
+	header := make([]byte, headerSize)
+	n, err := io.ReadFull(file, header)
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return fmt.Errorf("%s: %w: it holds %d bytes, less than a header", path, ErrNotADatabase, n)
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	if reason := headerProblem(header); reason != "" {
+		return fmt.Errorf("%s: %w: %s", path, ErrNotADatabase, reason)
+	}
+	return nil
+}
+
+// headerProblem is what is wrong with header, a database header's 100 bytes,
+// "" when nothing is.
+func headerProblem(header []byte) string {
+	pageSize := int(binary.BigEndian.Uint16(header[16:18]))
+	if pageSize == 1 {
+		pageSize = 1 << 16
+	}
+	switch {
+	case string(header[:16]) != "SQLite format 3\x00":
+		return "its header does not start with SQLite's magic string"
+	case pageSize < 512 || pageSize&(pageSize-1) != 0:
+		return "its page size is not a power of two from 512 to 65536"
+	case header[18] < 1 || header[18] > 2 || header[19] < 1 || header[19] > 2:
+		return "its file format versions are not 1 or 2"
+	case pageSize-int(header[20]) < 480:
+		return "its pages keep fewer than 480 usable bytes"
+	case header[21] != 64 || header[22] != 32 || header[23] != 32:
+		return "its payload fractions are not 64, 32 and 32"
+	}
+	return ""
 }
 
 // SQLite's result codes this package tells apart, which an extended code keeps

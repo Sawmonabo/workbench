@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
@@ -333,14 +334,21 @@ func (r *writerRun) open() {
 	r.h.noteCopy(r.root)
 }
 
-// trim runs one trim step at now. The first step of a trim reads the time
-// kept, so a history started again after damage keeps it (see replace); once
-// a step has nothing more to delete, the next trim is trimEvery later and the
-// copy of a history that could not be used, which a trim deletes once it is
-// older than the time kept, is noted again.
+// trim runs one trim step at now. The first step of a trim checks the file
+// (see History.Check) and reads the time kept, so a history started again
+// after damage keeps it (see replace); once a step has nothing more to
+// delete, the next trim is trimEvery later and the copy of a history that
+// could not be used, which a trim deletes once it is older than the time
+// kept, is noted again. A file the check fails, one that is gone, replaced
+// or whose header is not a database's, is a history that cannot be used (see
+// failed).
 func (r *writerRun) trim(now time.Time) {
 	ctx := context.Background()
 	if !r.trimming {
+		if err := r.history.Check(); err != nil {
+			r.failed(err)
+			return
+		}
 		keep, err := r.history.Keep(ctx)
 		if err != nil {
 			r.failed(err)
@@ -369,11 +377,13 @@ func (r *writerRun) succeeded() {
 }
 
 // failed handles err from any operation on the history: a history that cannot
-// be used is moved aside and a new one started at once (see replace), at most
-// once each writeRetry; any other failure, or one of that move, is tried again
-// after writeRetry and logged once.
+// be used, or one that is gone from under the writer, is moved aside, when it
+// is there, and a new one started at once (see replace), at most once each
+// writeRetry; any other failure, or one of that move, is tried again after
+// writeRetry and logged once.
 func (r *writerRun) failed(err error) {
-	unusable := errors.Is(err, ErrHistoryUnusable) || sqlitefile.IsDamaged(err)
+	unusable := errors.Is(err, ErrHistoryUnusable) || sqlitefile.IsDamaged(err) ||
+		r.history != nil && errors.Is(err, fs.ErrNotExist)
 	if unusable && time.Since(r.replaced) >= writeRetry {
 		r.replaced = time.Now()
 		if err = r.replace(err); err == nil {
@@ -386,18 +396,25 @@ func (r *writerRun) failed(err error) {
 
 // replace closes the history, which cause found it cannot use, moves it aside
 // (see MoveDamaged), starts a new one with the time kept it last read (24
-// hours when it read none, which it logs) and logs both paths. It gives the
-// error of a move or start that failed.
+// hours when it read none, which it logs) and logs both paths. A history
+// that is no longer there is not moved: the -wal and -shm files left of it,
+// which SQLite would read as the new one's, are deleted, and the new one is
+// logged alone. It gives the error of a move or start that failed.
 func (r *writerRun) replace(cause error) error {
 	r.close()
 	from := historyFile(r.root)
 	to, err := MoveDamaged(r.root)
-	switch {
-	case to == "" && errors.Is(err, fs.ErrNotExist):
-		// Nothing is there to move: the next step makes a history.
-		return nil
-	case to == "":
+	gone := to == "" && errors.Is(err, fs.ErrNotExist)
+	if to == "" && !gone {
 		return fmt.Errorf("cannot move the guard history that cannot be used aside: %w", err)
+	}
+	for _, side := range sideFiles {
+		if !gone {
+			break
+		}
+		if err := operation.RemoveIfThere(from + side); err != nil {
+			return err
+		}
 	}
 	history, err := OpenHistory(r.root, true)
 	if err != nil {
@@ -415,6 +432,11 @@ func (r *writerRun) replace(cause error) error {
 		}
 	}
 	r.history = history
+	if gone {
+		r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
+			"the guard history %s is gone; started a new one; %s", from, kept), "error", cause)
+		return nil
+	}
 	r.h.setDamaged(time.Now(), to)
 	r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
 		"the guard history %s cannot be used; moved it to %s and started a new one; %s",

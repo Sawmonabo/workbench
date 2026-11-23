@@ -157,10 +157,12 @@ type Summary struct {
 
 // History is the history file, opened for writing by the watcher's writer
 // and by the command that sets the time kept, and for reading by the view.
+// opened is the file a writer opened, for [History.Check].
 type History struct {
 	root, path string
 	write      bool
 	db         *sql.DB
+	opened     os.FileInfo
 }
 
 // historyFile is the history in the guard folder root; damagedFile is where
@@ -205,7 +207,39 @@ func OpenHistory(root string, write bool) (*History, error) {
 		return nil, err
 	}
 	h.db = db
+	if write {
+		if h.opened, err = os.Stat(h.path); err != nil {
+			_ = db.Close()
+			return nil, fmt.Errorf("%s: %w", h.path, err)
+		}
+	}
 	return h, nil
+}
+
+// Check is the writer's cheap look, once a minute, at the file it holds open:
+// SQLite reads a page from the file only when its page cache does not hold it,
+// so a small history that fits the cache could be overwritten or replaced
+// and the writer would go on writing into it until it next opened it. It
+// fails with an error matching fs.ErrNotExist when the path names no file,
+// and with [ErrHistoryUnusable] when it names another file (by device and
+// inode) than the one opened, beside which the -wal and -shm files are the
+// opened one's, or one whose header is not a database's (see
+// [sqlitefile.CheckHeader]). It reads the header alone, so it costs the same
+// whatever the history's size: a full integrity check reads every page.
+func (h *History) Check() error {
+	info, err := os.Stat(h.path)
+	switch {
+	case err != nil:
+		return fmt.Errorf("%s: %w", h.path, err)
+	case h.opened != nil && !os.SameFile(info, h.opened):
+		return fmt.Errorf("%w: %s is another file than the one the writer opened",
+			ErrHistoryUnusable, h.path)
+	}
+	err = sqlitefile.CheckHeader(h.path)
+	if errors.Is(err, sqlitefile.ErrNotADatabase) {
+		return fmt.Errorf("%w: %w", ErrHistoryUnusable, err)
+	}
+	return err
 }
 
 // Close closes the history. The last connection to close removes the -wal and
