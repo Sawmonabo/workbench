@@ -85,7 +85,11 @@ Anti-goals:
 
 `/` opens a one-line input on the bottom line. The list shows only the rows,
 running and finished, whose agent, subagent, project, ID or command holds the
-text, upper and lower case alike.
+text, upper and lower case alike in any script, as Go's `strings.EqualFold`
+tells them apart by Unicode simple case folding: `é` finds `CAFÉ` and `k`
+the Kelvin sign. The finished rows are found by `contains_fold`, a function
+`internal/sqlitefile` gives every connection, which folds each text the same
+way before it compares, since SQLite's `LIKE` folds ASCII letters only.
 
 | While the input is open | |
 | --- | --- |
@@ -420,7 +424,7 @@ each, in a process set up as the watcher is (32 MiB limit, 50 GC percent,
 | After writing all 20,000 | 9.4 MiB counted, 15.7 MiB resident, the program's own text included (5.5 and 7.1 before the file was opened) |
 | Inserting one command with 10,000 processes | 23 ms |
 | A trim step of 200 commands | 8 ms to delete, 5 ms to vacuum |
-| A filter over every command's whole text | 72 to 226 ms |
+| A filter over every command's whole text, by `contains_fold` | 35 to 157 ms, where `LIKE`, folding ASCII letters only, takes 29 to 128 ms |
 
 ## 7. The watcher, the socket and the view
 
@@ -499,7 +503,7 @@ output of `agent guard history`, alone and with `--keep`.
 
 - The exact wording of each message, within the texts given here.
 - Whether the filter is worth a full-text index; without one it answers in
-  72 to 226 ms on the largest case, which 3.2 allows.
+  35 to 157 ms on the largest case, which 3.2 allows.
 - How the tracked processes are held. The watcher must stay inside its
   32 MiB limit, unchanged, under the two loads ADR 16 measured (a build
   starting about 650 processes a second, and 1,400 held processes), with

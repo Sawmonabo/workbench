@@ -629,17 +629,17 @@ func (h *History) Details(ctx context.Context, seq int64) (Finished, error) {
 	return f, err
 }
 
-// likePattern escapes the wildcards of LIKE in text, for ESCAPE '\'.
-var likePattern = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+// findQuery reads the seq of each command whose agent, subagent, project, ID
+// or command holds ?1, case ignored (see [sqlitefile.ContainsFold]).
+var findQuery = "SELECT seq FROM commands WHERE " + sqlitefile.ContainsFold +
+	"(?1, agent, subagent, project, id, command) ORDER BY seq"
 
 // Find is the seq of each finished command, lowest first, whose agent,
-// subagent, project, ID or whole command holds text. Case is ignored for
-// ASCII letters only, as SQLite's LIKE does.
+// subagent, project, ID or whole command holds text, upper and lower case
+// alike in any script, as strings.EqualFold tells them (see
+// [sqlitefile.ContainsFold]).
 func (h *History) Find(ctx context.Context, text string) ([]int64, error) {
-	rows, err := h.db.QueryContext(ctx, `SELECT seq FROM commands
-WHERE agent LIKE ?1 ESCAPE '\' OR subagent LIKE ?1 ESCAPE '\' OR project LIKE ?1 ESCAPE '\'
-  OR id LIKE ?1 ESCAPE '\' OR command LIKE ?1 ESCAPE '\'
-ORDER BY seq`, "%"+likePattern.Replace(text)+"%")
+	rows, err := h.db.QueryContext(ctx, findQuery, text)
 	if err != nil {
 		return nil, h.fail(err)
 	}

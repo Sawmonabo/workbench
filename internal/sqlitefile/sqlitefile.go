@@ -5,16 +5,22 @@
 package sqlitefile
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
+	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
 )
@@ -85,6 +91,126 @@ func Open(path string, o Options) (*sql.DB, error) {
 		}
 	}
 	return db, nil
+}
+
+// ContainsFold is the SQL name of a function every connection the driver
+// opens has: contains_fold(needle, text, ...) is 1 when any text holds needle
+// with case ignored as Go's strings.EqualFold ignores it, by Unicode simple
+// case folding, not ASCII letters only as LIKE does: "É" holds "é", and
+// "\u212a" (the Kelvin sign) holds "k". A NULL text holds nothing; a NULL
+// needle is held by nothing. It is deterministic, so SQLite may run it once
+// for equal arguments, and reads its arguments in place, without a copy.
+const ContainsFold = "contains_fold"
+
+func init() {
+	sqlite.MustRegisterFunction(ContainsFold, &sqlite.FunctionImpl{
+		NArgs:         -1,
+		Deterministic: true,
+		VolatileArgs:  true,
+		Scalar:        containsFold,
+	})
+}
+
+// foldBuffers are what containsFold folds its needle and each text into,
+// kept between calls.
+type foldBuffers struct{ want, have []byte }
+
+var folded = sync.Pool{New: func() any { return new(foldBuffers) }}
+
+// containsFold is [ContainsFold]. Its strings are views into SQLite's memory,
+// valid only during the call, so nothing is kept of them: what the buffers
+// keep is folded copies, overwritten by the next call.
+func containsFold(_ *sqlite.FunctionContext, args []driver.Value) (driver.Value, error) {
+	if len(args) < 2 {
+		return nil, fmt.Errorf("%s takes a needle and at least one text", ContainsFold)
+	}
+	needle, ok := args[0].(string)
+	if !ok {
+		return int64(0), nil
+	}
+	b, ok := folded.Get().(*foldBuffers)
+	if !ok {
+		b = new(foldBuffers)
+	}
+	defer folded.Put(b)
+	b.want = appendFolded(b.want[:0], needle)
+	ascii := !slices.ContainsFunc(b.want, func(c byte) bool { return c >= utf8.RuneSelf })
+	for _, arg := range args[1:] {
+		if text, ok := arg.(string); ok && b.holds(text, ascii) {
+			return int64(1), nil
+		}
+	}
+	return int64(0), nil
+}
+
+// holds reports whether text holds b.want, the needle folded (see
+// appendFolded), which ascii says is all ASCII. Only two characters past
+// ASCII have an ASCII key, U+017F (ſ, whose key is S) and U+212A (the Kelvin
+// sign, K), as a walk of every rune through foldKey shows; so an ASCII needle
+// can match only ASCII characters of a text without those two, which is
+// searched where it lies, with ASCII letters' case ignored, stopping at the
+// first match, as LIKE does. Any other text is folded whole and searched.
+func (b *foldBuffers) holds(text string, ascii bool) bool {
+	if ascii && !strings.ContainsRune(text, '\u017f') && !strings.ContainsRune(text, '\u212a') {
+		return containsASCIIFold(text, b.want)
+	}
+	b.have = appendFolded(b.have[:0], text)
+	return bytes.Contains(b.have, b.want)
+}
+
+// containsASCIIFold reports whether text holds want, ASCII with its letters
+// upper case, with the case of text's ASCII letters ignored. A byte past
+// ASCII never equals one of want's, so it is never part of a match.
+func containsASCIIFold(text string, want []byte) bool {
+	n := len(want)
+	for i := 0; i+n <= len(text); i++ {
+		j := 0
+		for j < n && upperASCII(text[i+j]) == want[j] {
+			j++
+		}
+		if j == n {
+			return true
+		}
+	}
+	return false
+}
+
+// upperASCII is c with an ASCII lower-case letter made upper case.
+func upperASCII(c byte) byte {
+	if 'a' <= c && c <= 'z' {
+		return c - ('a' - 'A')
+	}
+	return c
+}
+
+// appendFolded appends text to dst with each character replaced by its key
+// under simple case folding (see foldKey): two texts strings.EqualFold calls
+// equal append the same bytes. A byte that is not UTF-8 appends U+FFFD, as
+// it reads in strings.EqualFold. ASCII, most of any command, takes the short
+// way.
+func appendFolded(dst []byte, text string) []byte {
+	for i := 0; i < len(text); {
+		if c := text[i]; c < utf8.RuneSelf {
+			dst = append(dst, upperASCII(c))
+			i++
+			continue
+		}
+		r, size := utf8.DecodeRuneInString(text[i:])
+		dst = utf8.AppendRune(dst, foldKey(r))
+		i += size
+	}
+	return dst
+}
+
+// foldKey is r's key under Unicode simple case folding: the smallest rune of
+// the orbit unicode.SimpleFold steps r through, which holds every rune
+// strings.EqualFold takes for r, so two runes it calls equal have one key.
+func foldKey(r rune) rune {
+	key := r
+	for f := unicode.SimpleFold(r); f != r; f = unicode.SimpleFold(f) {
+		key = min(key, f)
+	}
+	return key
 }
 
 // headerSize is the size of the header that starts every SQLite database
