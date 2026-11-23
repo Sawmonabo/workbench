@@ -376,16 +376,15 @@ const (
 
 // The view's sizes: the narrowest and the shortest window it draws in (the
 // four header lines and the six-line stop menu below them, with the key
-// line), how long a notice stays, the bars a memory graph shows at most, the
-// widest a project name is shown before it is clipped, the narrowest window
-// with room for the details beside the side panel, and the lines of a
-// command and the processes the details show whole, and how many of them
-// before a `… more` row when there are more.
+// line), how long a notice stays, the widest a project name is shown before
+// it is clipped, the narrowest window with room for the details beside the
+// side panel, and the lines of a command and the processes the details show
+// whole, and how many of them before a `… more` row when there are more. A
+// memory graph shows at most guard.GraphBars bars, as many as it keeps.
 const (
 	guardViewMinWidth  = 60
 	guardViewMinHeight = 11
 	noticeShown        = 3 * time.Second
-	graphBars          = 120
 	projectWidth       = 32
 	splitWidth         = 100
 	commandWhole       = 4
@@ -2149,7 +2148,7 @@ func (m *guardView) graph(r listRow, width int) string {
 	case r.seq > 0:
 		return faint.Render(forTerm("…"))
 	}
-	return memoryGraph(readings, r.view.Peak, min(graphBars, width-15))
+	return memoryGraph(readings, r.view.Peak, min(guard.GraphBars, width-15))
 }
 
 // memoryGraph is a one-line chart of readings fitted to at most bars bars,

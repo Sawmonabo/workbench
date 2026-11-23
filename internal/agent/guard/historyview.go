@@ -54,6 +54,10 @@ func HistoryFile(root string) string { return historyFile(root) }
 // SummaryLength is how many characters of a command a [Summary] holds.
 const SummaryLength = summaryLength
 
+// GraphBars is the most bars a command's memory graph has, running or
+// finished.
+const GraphBars = graphBars
+
 // HistoryDamagedCopies are the copies the guard folder root keeps of
 // histories that could not be used, the newest first, each with the time it
 // was set aside (see [MoveDamaged]).
