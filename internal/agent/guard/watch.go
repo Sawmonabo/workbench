@@ -473,9 +473,12 @@ func (w *watcher) rotateOutput() {
 // then, and a hook that finds the old path closed asks again where the
 // folder is (see folders.again). The lock and a socket handed over are the
 // same files at the new path. It reports whether the folder moved, and the
-// error of a move that failed or of a folder not synced after it; with a file
+// error of a move that failed or of a folder not synced after it. With a file
 // system that cannot swap, or a folder already at the new path, the watcher
-// works in the old folder.
+// works in the old folder, and that is no error: a file system that cannot
+// swap stays so, the folder is meant to be used where it is then, and
+// `workbench migrate --dry-run` and `workbench doctor` say why, so a watcher
+// that logged it would log the same line at every start.
 func (w *watcher) moveFolder() (moved bool, err error) {
 	old := oldRoot(w.f.state)
 	if w.f.root != old {
@@ -484,6 +487,9 @@ func (w *watcher) moveFolder() (moved bool, err error) {
 	root := newRoot(w.f.state)
 	if moved, err = operation.MoveFolder(old, root); moved {
 		w.f = w.f.at(root)
+	}
+	if errors.Is(err, platform.ErrSwapUnsupported) {
+		err = nil
 	}
 	return moved, err
 }
