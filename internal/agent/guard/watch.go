@@ -295,13 +295,15 @@ type watcher struct {
 	dropped   int
 	history   historyWriter
 	letGo     bool
-	// unitsSaved is what saveUnits last wrote of each unit's record, nil until
-	// it has listed the units folder; boot is the system start the records
-	// name, read once; unitSaveFailed is set once a failed read or save of
-	// them is logged, until a save goes through; unitsRead is set once a tick
-	// has taken on what the watcher before it left, carried or in the records
-	// (see restoreUnits).
+	// unitsSaved is each unit's record as it is on disk: what saveUnits last
+	// wrote of it, or what restoreUnits read of a record it took on;
+	// unitsMade is set once saveUnits has made the units folder; boot is the
+	// system start the records name, read once; unitSaveFailed is set once a
+	// failed read or save of them is logged, until a save goes through;
+	// unitsRead is set once a tick has taken on what the watcher before it
+	// left, carried or in the records (see restoreUnits).
 	unitsSaved     map[string][]byte
+	unitsMade      bool
 	boot           string
 	unitSaveFailed bool
 	unitsRead      bool
@@ -386,6 +388,7 @@ func Watch(ctx context.Context, version string) {
 		manual:    map[string]*manualStop{},
 		stoppedBy: map[string]string{},
 
+		unitsSaved:  map[string][]byte{},
 		setsCallIDs: map[procKey]bool{},
 		records:     &records{},
 		known:       map[procKey]kind{},

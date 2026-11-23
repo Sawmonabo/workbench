@@ -345,13 +345,23 @@ func writePrivateFile(path string, data []byte, create bool) error {
 // rename finished: those starting ".write-" and over a minute old, so a write
 // still in progress keeps its file. It is best effort; a folder it can't read
 // has nothing it deletes.
-func RemoveStaleWrites(folder string) {
+func RemoveStaleWrites(folder string) { removeWrites(folder, time.Minute) }
+
+// RemoveWrites is [RemoveStaleWrites] whatever the files' age, for the only
+// writer of folder, which holds the lock every writer there takes: none of
+// its own writes is in progress, so each such file is left by a write that
+// was killed.
+func RemoveWrites(folder string) { removeWrites(folder, 0) }
+
+// removeWrites deletes the temporary files of private writes in folder that
+// are over age old, every one when age is 0.
+func removeWrites(folder string, age time.Duration) {
 	entries, _ := os.ReadDir(folder)
 	for _, entry := range entries {
 		if !strings.HasPrefix(entry.Name(), ".write-") {
 			continue
 		}
-		if info, err := entry.Info(); err == nil && time.Since(info.ModTime()) > time.Minute {
+		if info, err := entry.Info(); err == nil && (age == 0 || time.Since(info.ModTime()) > age) {
 			_ = os.Remove(filepath.Join(folder, entry.Name()))
 		}
 	}

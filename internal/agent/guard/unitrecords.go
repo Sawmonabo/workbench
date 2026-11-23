@@ -68,10 +68,11 @@ func (w *watcher) unitRecordOf(id string, c command, boot string) unitRecord {
 
 // saveUnits brings the unit records on disk in step with the units tracked,
 // at the end of each tick: it writes the record of each unit whose record
-// changed (see unitRecordOf) and deletes the record of each unit no longer
-// tracked. Nothing is written when the system start cannot be read, since
-// nothing could be taken on from such a record. A failure is logged once,
-// until a save goes through, and the save is tried again at the next tick.
+// differs from the one on disk (see unitRecordOf and unitsSaved) and deletes
+// the record of each unit no longer tracked. Nothing is written when the
+// system start cannot be read, since nothing could be taken on from such a
+// record. A failure is logged once, until a save goes through, and the save
+// is tried again at the next tick.
 func (w *watcher) saveUnits() {
 	if w.boot == "" {
 		boot, err := platform.BootID()
@@ -81,12 +82,12 @@ func (w *watcher) saveUnits() {
 		}
 		w.boot = boot
 	}
-	if w.unitsSaved == nil {
+	if !w.unitsMade {
 		if err := w.f.makeUnits(); err != nil {
 			w.unitsFailed(err)
 			return
 		}
-		w.unitsSaved = map[string][]byte{}
+		w.unitsMade = true
 	}
 	var errs []error
 	for id, c := range w.tracked {
@@ -163,13 +164,18 @@ func removeUnit(units, name string) error {
 // as a handover carries the known agents: the unit was made only for a known
 // agent (see unitRootWhy), and a root judged again for an agent the guard
 // does not know would leave its unit. Each root's ten seconds start again,
-// as at a handover. A record that does not parse, of another system start,
-// of a unit none of whose roots runs, or that does not name a unit is
-// deleted, and one that cannot be read is left. Every record is left when
-// the folder cannot be listed or the system start read: restoreUnits then
-// reports false, and the next tick tries again, taking on no unit already
-// tracked.
+// as at a handover. A record taken on is kept as unitsSaved, so it is written
+// again only once it changes. A record that does not parse, of another
+// system start, of a unit none of whose roots runs, or that does not name its
+// unit is deleted, and one that cannot be read is left. The watcher, which
+// holds the lock, is the folder's only writer, so the temporary files of
+// writes in it are those of a watcher that was killed, and each is deleted
+// whatever its age (see [operation.RemoveWrites]); a file of any other name
+// is not Workbench's, and stays. Every record is left when the folder cannot
+// be listed or the system start read: restoreUnits then reports false, and
+// the next tick tries again, taking on no unit already tracked.
 func (w *watcher) restoreUnits(s snapshot) bool {
+	operation.RemoveWrites(w.f.units)
 	entries, err := listFolder(w.f.units)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
@@ -180,7 +186,10 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 		return false
 	}
 	for _, entry := range entries {
-		id, _ := strings.CutSuffix(entry.Name(), ".json")
+		id, ok := unitFile(entry.Name())
+		if !ok {
+			continue
+		}
 		if _, tracked := w.tracked[id]; tracked {
 			continue
 		}
@@ -193,8 +202,7 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 			w.unitsFailed(err)
 			continue
 		}
-		if !idPattern.MatchString(id) || !strings.HasPrefix(id, unitPrefix) ||
-			json.Unmarshal(data, &rec) != nil || rec.Boot != boot || rec.Note.ToolUseID != id {
+		if json.Unmarshal(data, &rec) != nil || rec.Boot != boot || rec.Note.ToolUseID != id {
 			_ = removeUnit(w.f.units, entry.Name())
 			continue
 		}
@@ -224,6 +232,15 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 		if rec.StoppedBy != "" {
 			w.stoppedBy[id] = rec.StoppedBy
 		}
+		w.unitsSaved[id] = data
 	}
 	return true
+}
+
+// unitFile is the unit ID the name of a file in the units folder holds, as
+// saveUnits names a record: a unit's ID (see unitID) then ".json". ok is
+// false for any other name, which is not a record.
+func unitFile(name string) (id string, ok bool) {
+	id, ok = strings.CutSuffix(name, ".json")
+	return id, ok && idPattern.MatchString(id) && strings.HasPrefix(id, unitPrefix)
 }
