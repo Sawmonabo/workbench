@@ -315,18 +315,27 @@ type guardHistoryKept struct {
 //	~/.local/state/workbench/agent/guard/history.db
 //	Guard history was damaged and started again at 3:04 PM; the old file is ~/…/history.damaged.db
 //
-// A history not made yet is empty and kept for the default time.
+// A history not made yet is empty and kept for the default time. A history
+// that cannot be opened because the guard folder moved meanwhile is opened
+// where the folder is now (see guard.HistoryFolderMoved); once open, it is
+// read wherever the folder goes.
 func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) error {
 	root, err := guard.HistoryRoot()
 	if err != nil {
 		return err
+	}
+	history, err := guard.OpenHistory(root, false)
+	if err != nil && guard.HistoryFolderMoved(root) {
+		if root, err = guard.HistoryRoot(); err != nil {
+			return err
+		}
+		history, err = guard.OpenHistory(root, false)
 	}
 	facts := guardHistoryFacts{
 		Path:        guard.HistoryFile(root),
 		KeepSeconds: int64(guard.HistoryKeepDefault / time.Second),
 	}
 	held := "none kept yet"
-	history, err := guard.OpenHistory(root, false)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
@@ -373,7 +382,11 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 // The history is in WAL mode and each trim step is short, so a watcher's
 // writer and this command both write meanwhile, each waiting for the other's
 // step within the busy timeout (see guard.History.Trim). A history it cannot
-// use fails as showGuardHistory does, and sets nothing.
+// use fails as showGuardHistory does, and sets nothing. Opening the history
+// and cutting the log, which find their files by path, are done again where
+// the guard folder is now when they fail because it moved meanwhile (see
+// guard.HistoryFolderMoved); the history once open is written wherever the
+// folder goes.
 func setGuardHistoryKeep(
 	cmd *cobra.Command,
 	o *options,
@@ -388,8 +401,13 @@ func setGuardHistoryKeep(
 	if err != nil {
 		return err
 	}
-	path := guard.HistoryFile(root)
 	history, err := guard.OpenHistory(root, true)
+	if err != nil && guard.HistoryFolderMoved(root) {
+		if root, err = guard.MakeHistoryRoot(); err != nil {
+			return err
+		}
+		history, err = guard.OpenHistory(root, true)
+	}
 	if err != nil {
 		return guardHistoryUnreadable(err, root)
 	}
@@ -422,7 +440,14 @@ func setGuardHistoryKeep(
 	default:
 		line += ", as before."
 	}
-	if err := guard.CutLogBefore(root, time.Now().Add(-keep)); err != nil {
+	since := time.Now().Add(-keep)
+	err = guard.CutLogBefore(root, since)
+	if err != nil && guard.HistoryFolderMoved(root) {
+		if root, err = guard.HistoryRoot(); err == nil {
+			err = guard.CutLogBefore(root, since)
+		}
+	}
+	if err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
 			strings.TrimSuffix(line, ".")+", but the guard log's older records cannot be "+
 				"deleted: "+guard.ShowPaths(err.Error(), root))
@@ -431,7 +456,7 @@ func setGuardHistoryKeep(
 		result.Results = append(result.Results, operation.Component{
 			Name: "guard-history", Status: operation.StatusComplete,
 			Details: guardHistoryKept{
-				Path:        path,
+				Path:        guard.HistoryFile(root),
 				KeepSeconds: int64(keep / time.Second),
 				WasSeconds:  int64(was / time.Second),
 				Deleted:     deleted,

@@ -21,14 +21,10 @@ const HistoryKeepDefault = historyKeepDefault
 
 // HistoryRoot is the guard folder where Root says, which holds the history,
 // once it passes the checks every entry applies to it (see folders.check).
-// It creates nothing.
+// It creates nothing. A check that fails because the folder moved meanwhile
+// is made again, once, where the folder is now (see HistoryFolderMoved).
 func HistoryRoot() (string, error) {
-	state, err := stateFolder()
-	if err != nil {
-		return "", err
-	}
-	f := locate(state, "history")
-	return f.root, f.check()
+	return historyRoot(folders.check)
 }
 
 // MakeHistoryRoot is HistoryRoot made private when it is missing, as the
@@ -36,15 +32,39 @@ func HistoryRoot() (string, error) {
 // command that sets the time kept, which makes the history as the watcher's
 // writer would (see OpenHistory). At its old path it makes nothing.
 func MakeHistoryRoot() (string, error) {
+	return historyRoot(func(f folders) error {
+		if err := f.makeRoot(); err != nil {
+			return err
+		}
+		return f.check()
+	})
+}
+
+// historyRoot is the guard folder where Root says once prepare, which checks
+// or makes it, accepts it; when prepare fails because the folder moved
+// meanwhile, it is the folder where Root says now, prepared once more.
+func historyRoot(prepare func(folders) error) (string, error) {
 	state, err := stateFolder()
 	if err != nil {
 		return "", err
 	}
 	f := locate(state, "history")
-	if err := f.makeRoot(); err != nil {
-		return f.root, err
+	err = prepare(f)
+	if err != nil && HistoryFolderMoved(f.root) {
+		f = locate(state, "history")
+		err = prepare(f)
 	}
-	return f.root, f.check()
+	return f.root, err
+}
+
+// HistoryFolderMoved is for `agent guard history`, whose read or write in the
+// guard folder root failed: it reports whether root is the folder at its old
+// path and that path is no longer a folder, so the folder has moved meanwhile
+// (see Move), and the command finds it again (see HistoryRoot) and does that
+// work there again, once, as the hooks do (see folders.again).
+func HistoryFolderMoved(root string) bool {
+	state, err := stateFolder()
+	return err == nil && root == oldRoot(state) && !operation.IsFolder(root)
 }
 
 // HistoryFile is the history's path in the guard folder root.
