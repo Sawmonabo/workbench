@@ -8,7 +8,7 @@
 
 The files of `workbench agent costs` and `workbench agent guard` sat in
 `costs/` and `guard/` at the top of Workbench's data and state folders, where
-top-level commands of those names would keep them. They now live under
+top-level commands of those names would keep them. They live under
 `agent/`: `agent/costs/` in the data and state folders and `agent/guard/` in
 the state folder. A machine updated from a release before has the old
 folders, and processes of that release may still run in them for a while
@@ -69,7 +69,7 @@ using.
 
 ## Consequences
 
-- A migration may now swap a folder Workbench wrote inside its runtime folders
+- A migration may swap a folder Workbench wrote inside its runtime folders
   with a small file, which stays at the old path until the machine restarts,
   and delete a socket; AGENTS.md records it beside the other migration rules.
 - Every costs and guard entry looks at both paths until its folder has moved,

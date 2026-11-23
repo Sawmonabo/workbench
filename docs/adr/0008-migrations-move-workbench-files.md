@@ -6,9 +6,10 @@
 ## Context
 
 Workbench and the `claude-costs` script before it wrote some files outside
-Workbench's runtime folders: the costs ledger, its price caches, the import
-log and lock and the owner's price overrides under `claude-costs/` folders,
-the shell completion cache in `~/.cache`, and the old script's parse cache.
+Workbench's runtime folders: the costs ledger, its price caches, and the
+import log and lock under `claude-costs/` folders, the shell completion cache
+in `~/.cache`, and the old script's parse cache. A price overrides file a
+person wrote there is not Workbench's, and no migration moves or reads it.
 The ledger is the only lasting record of spend: Claude Code deletes transcripts
 after 30 days by default (`cleanupPeriodDays`). A release that only changed the
 paths would start an empty ledger and leave the old one unread.

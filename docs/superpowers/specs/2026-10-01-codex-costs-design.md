@@ -334,8 +334,9 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 ## 5. Rates
 
 - `PricingURL` is the page above; `CODEX_COSTS_PRICING_URL` replaces it for
-  checks that must not reach the network. Refresh policy, overrides and the
-  `official`/`builtin`/`override` labels are unchanged.
+  checks that must not reach the network. The refresh policy and the
+  `official`, `calibrated` and `builtin` labels are Claude Code's, and the
+  ledger keeps Codex's official prices beside Claude Code's.
 - `ParsePricing` reads the table under the "Standard pricing data" heading
   and every other "<Tier> pricing data" table (one word) except Batch, which
   Codex does not use. The model cell's note in parentheses is dropped
@@ -365,11 +366,10 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   until the first refresh and when the page cannot be reached. A model on
   neither card (such as `gpt-5.3-codex-spark` on 2026-10-01) is reported unpriced, as
   for Claude. A note under the report, after the other notes and labelled
-  `warning:` in yellow, names each unpriced model and the overrides file a
-  rate for it goes in (`warning: no rate for gpt-5.3-codex-spark (add one to
-  costs/rates.json)`; responses that name no model get a note of their
-  own); the ingest summary and the report's JSON `unpriced` (`{model,
-  reason}`) say why (not on the tool's price page, no price at its tier, or
+  `warning:` in yellow, names each unpriced model (`warning: no rate for
+  gpt-5.3-codex-spark`; responses that name no model get a note of their
+  own), and its cost shows a dash; the ingest summary and the report's JSON
+  `unpriced` (`{model, reason}`) say why (not on the tool's price page, no price at its tier, or
   no model named in the transcript).
 
 ## 6. Hooks

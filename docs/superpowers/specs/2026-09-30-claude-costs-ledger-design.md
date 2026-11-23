@@ -73,12 +73,10 @@ one rate source inside `rates`, and there is no cache to clean.
 
 | Path on the machine | Role |
 | --- | --- |
-| `<data>/costs/ledger.sqlite` | The durable record. User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
-| `<data>/costs/<tool>/rates-official.json` | Cached rate card parsed from the pricing page, with ETag, Last-Modified and fetch time. Replaced whole through `operation.ReplacePrivateFile`, so an existing cache must be a private regular file with one link, or the refresh fails and leaves it. |
-| `<config>/costs/rates.json` | Manual per-model overrides, highest priority. Each entry maps a model prefix to any of the five rate fields, each a number from 0 to 1,000 USD per million tokens; any other key, or a rate outside that range, rejects the whole file with a message naming it. The removed `cache_write` key is not translated. |
-| `<state>/costs/ingest.log` | Bounded worker log. |
-| `<state>/costs/ingest.err`, `ingest.err.1` | The detached worker's stdout and stderr, never cut (`operation.RotateOutput`). |
-| `<state>/costs/ingest.lock` | Single-instance lock. |
+| `<data>/agent/costs/ledger.sqlite` | The durable record, which also keeps the official prices the import downloads (section 6). User data; the tool never deletes or recreates it, and migration 0001 moves it into Workbench's data folder. Private: created 0600 in a 0700 directory, and an older ledger left readable by others is tightened to 0600 (mode only) once it is verified. |
+| `<state>/agent/costs/ingest.log` | Bounded worker log. |
+| `<state>/agent/costs/ingest.err`, `ingest.err.1` | The detached worker's stdout and stderr, never cut (`operation.RotateOutput`). |
+| `<state>/agent/costs/ingest.lock` | Single-instance lock. |
 
 `<data>`, `<state>` and `<config>` are Workbench's runtime folders
 (`WORKBENCH_{DATA,STATE,CONFIG}_DIR`, else `XDG_{DATA,STATE,CONFIG}_HOME/workbench`
@@ -86,8 +84,8 @@ when absolute, else the platform default). Only the costs move's check and
 move (migration 0001 of the
 [migrations design](2026-10-14-workbench-migrations-design.md), and the gate
 that runs it before a ledger opens) read `CLAUDE_COSTS_LEDGER`,
-`CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES` and the `claude-costs` folders, to
-find the files to move there. Migration 0003
+`CLAUDE_COSTS_STATE` and the `claude-costs` folders, to find the files to move
+there. Migration 0003
 deletes the old script's per-file cache under `~/.cache/claude-costs`
 (`CLAUDE_COSTS_CACHE`), which nothing reads.
 
@@ -250,33 +248,42 @@ row is the dot product of its five token columns with those fields. Fast-mode
 prices are `@fast` rows; a model with no `@fast` row is reported unpriced when it
 has fast-mode responses, never priced at the standard rate.
 
-Matching: an override row with a matching prefix always wins, so an override
-keyed `claude-opus` beats an official `claude-opus-5-5` row. Among the other
-sources the longest matching prefix wins, wherever it comes from, so
+Matching: the longest matching prefix wins, wherever it comes from, so
 `claude-opus-5-5` beats `claude-opus`; a dated snapshot suffix (`-20251101`)
 does not make a prefix longer, so Claude Code's dated calibration key ties the
 page's undated row for the same model. Rows equally specific go by this source
 order:
 
-1. `<config>/costs/rates.json`, the manual override file.
-2. `rates-official.json`, parsed from
-   `https://platform.claude.com/docs/en/about-claude/pricing.md`.
-3. Calibration from `projects.*.lastModelUsage` in `.claude.json`, which pairs
+1. The official prices, parsed from
+   `https://platform.claude.com/docs/en/about-claude/pricing.md` and kept in
+   the ledger (below).
+2. Calibration from `projects.*.lastModelUsage` in `.claude.json`, which pairs
    per-model token counts with the `costUSD` Claude Code computed. Ordinary
    least squares in pure Python, used only for models with at least four
    observations and a non-negative solution.
-4. The built-in table, maintained at current list prices in the script.
+3. The built-in table, maintained at current list prices in Workbench.
 
 ### Refresh policy
 
 Only an ingest run fetches (the background worker, or the inline first run of
-section 5), after ingesting, and only when the cached
-card is older than seven days or the ledger contains a model that no source
-prices, and at most one attempt per day whatever the outcome. The request is a conditional GET carrying the stored ETag and
-Last-Modified, with a five-second timeout. A 304 updates only the fetch time.
-Any network error, non-200 status or parse failure leaves the existing card
-untouched and writes one log line. `rates --refresh` runs the same fetch inline
-and reports the outcome.
+section 5), after ingesting, and only when the official prices the ledger
+keeps for a tool are older than seven days or the ledger contains a model that
+no source prices, and at most one attempt per day whatever the outcome. The
+request is a conditional GET carrying the stored ETag and Last-Modified, with a
+five-second timeout, made with no ledger transaction open. The ledger keeps
+each tool's prices in `prices` (one row per model or family prefix, the five
+fields in USD per million tokens) and the page they came from in `price_lists`
+(its address, when it was last downloaded and last asked, and its ETag and
+Last-Modified); a download replaces that tool's rows of both in one short
+transaction, and a 304 keeps the prices and updates only the two times. Any
+network error, non-200 status or parse failure leaves the prices the ledger
+keeps untouched, records the attempt and writes one log line. `agent costs rates --refresh`
+runs the same fetch inline and reports the outcome; without a ledger it shows
+the built-in and calibrated rows and fetches nothing. A model no source prices
+is named as unpriced. The ledger's upgrade to version 6 fills both tables from
+the `<tool>/rates-official.json` files beside a version 5 ledger, in the
+upgrade's transaction, and migration `0008-price-lists` then deletes those
+files ([costs prices design](2026-11-19-costs-prices-design.md)).
 
 ### Page parsing
 
@@ -547,7 +554,7 @@ internal/costs/
   claude.go   Claude Code: transcripts, record parsing, advisor rows, account, prices
   ledger.go   SQLite ledger: open, schema check, max-wins upsert, files, meta
   ingest.go   worker over every source: offsets, lock, log, rate refresh
-  rates.go    card resolution: override first, then the most specific prefix, then official, calibrated, built-in
+  rates.go    card resolution: the most specific prefix, then official, calibrated, built-in; the official prices the ledger keeps
   report.go   groups, rollup, scope, totals; returns rows and prints nothing
 internal/cli/
   costs.go      the four commands and their flags; the plain report
@@ -604,8 +611,7 @@ Rules:
   `cwd` for Claude) and the fallback project decoded from the path.
 - Each source owns its built-in prices, its official pricing-page parser and
   its calibration observations; fetching, caching (ETag, back-off) and solving
-  are generic. Each source caches to `<data>/costs/<tool>/rates-official.json`.
-  Overrides stay one `rates.json` keyed by model prefix.
+  are generic. The ledger keeps each source's official prices.
 - The hook passes `transcript_path`; ingest asks each source (`Session`) whether
   a file belongs to the session that transcript names, to tag that file's rows
   `session`.

@@ -72,7 +72,6 @@ As v0.1.25 wrote them; the code column cites that release.
 | Codex price cache | `rates-official-codex.json` beside the ledger | same |
 | A price write stopped part way | `rates-official*.json.tmp` beside the ledger | `rates.go:356-367` |
 | Import log and lock | `$CLAUDE_COSTS_STATE`, else `${XDG_STATE_HOME:-~/.local/state}/claude-costs`, holding `ingest.log` and `ingest.lock` | `ledger.go:62,73-74`; `ingest.go:52, 725-762` |
-| Manual price overrides (the owner's file) | `$CLAUDE_COSTS_RATES`, else `${XDG_CONFIG_HOME:-~/.config}/claude-costs/rates.json` | `ledger.go:63-69` |
 | zsh completion cache (macOS) | `${XDG_CACHE_HOME:-~/.cache}/workbench-completion.zsh` | `home/dot_zshrc.tmpl:74-85` |
 | bash completion cache (Linux, WSL) | `${XDG_CACHE_HOME:-~/.cache}/workbench-completion.bash` | `home/private_dot_bashrc.tmpl:85-96` |
 | Old `claude-costs` script's parse cache | `${CLAUDE_COSTS_CACHE:-~/.cache/claude-costs}/<32 hex>.json.gz` and `.json.tmp` | Script at `d75cfaa` (lines 25, 103-108, 161-178); not read since `76c3f71` |
@@ -94,6 +93,7 @@ As v0.1.25 wrote them; the code column cites that release.
 | Path | Why it stays |
 |---|---|
 | `~/.config/Bitwarden CLI/session` | Bitwarden CLI's own file; Workbench's `bw` wrapper writes it where Bitwarden reads it |
+| `$CLAUDE_COSTS_RATES`, else `${XDG_CONFIG_HOME:-~/.config}/claude-costs/rates.json`, and `<config>/costs/rates.json` | Price overrides a person wrote, which Workbench neither reads nor moves ([costs prices design](2026-11-19-costs-prices-design.md), rule 7) |
 | `~/.local/share/go-versions`, `~/.local/bin/{go,gofmt,gh,bw,bat,fd}`, `~/.local/share/fonts`, `~/.local/share/man/man1` | The user's tools, installed by the Linux scripts |
 | `~/.cache/oh-my-posh`, `~/.tmux/plugins`, `~/.config/oh-my-posh` | oh-my-posh and tmux |
 | `~/.claude/**`, `~/.codex/**`, `~/.config/{ruff,ty,tmux}`, VS Code settings | The tools whose settings Workbench manages |
@@ -106,11 +106,10 @@ As v0.1.25 wrote them; the code column cites that release.
 
 | What | New path |
 |---|---|
-| Ledger (one database, both tools) | `<data>/costs/ledger.sqlite` (+ `-wal`, `-shm` while open) |
-| Claude price cache | `<data>/costs/claude/rates-official.json` |
-| Codex price cache | `<data>/costs/codex/rates-official.json` |
-| Import log and lock | `<state>/costs/ingest.log`, `<state>/costs/ingest.lock` |
-| Manual price overrides | `<config>/costs/rates.json` |
+| Ledger (one database, both tools), which also keeps the downloaded prices | `<data>/agent/costs/ledger.sqlite` (+ `-wal`, `-shm` while open) |
+| Claude price cache, until `0008-price-lists` deletes it once the ledger holds its prices | `<data>/agent/costs/claude/rates-official.json` |
+| Codex price cache, the same | `<data>/agent/costs/codex/rates-official.json` |
+| Import log and lock | `<state>/agent/costs/ingest.log`, `<state>/agent/costs/ingest.lock` |
 | Completion cache | `<cache>/completion.zsh` (macOS), `<cache>/completion.bash` (Linux, WSL) |
 | Migration record | `<state>/migrations.json` |
 
@@ -151,19 +150,16 @@ BEFORE
 AFTER
 ~/Library/Application Support/workbench/        0700
 ├── config/
-│   ├── machine.toml
-│   └── costs/rates.json                        (only if made)
+│   └── machine.toml
 ├── data/
 │   ├── releases/  tools/  application-contexts/
-│   └── costs/                                  0700
-│       ├── ledger.sqlite                       0600
-│       ├── claude/rates-official.json          0600
-│       └── codex/rates-official.json           0600
+│   └── agent/costs/                            0700
+│       └── ledger.sqlite                       0600
 └── state/
     ├── state.json  activation.json  migrations.json
     ├── checkpoints/  chezmoi/  locks/
-    ├── costs/{ingest.log,ingest.lock}          0700 / 0600
-    └── guard/                                  (agent command guard design)
+    ├── agent/costs/{ingest.log,ingest.lock}    0700 / 0600
+    └── agent/guard/                            (agent command guard design)
 ~/Library/Caches/workbench/                     0700
 └── completion.zsh                              0600
 ```
@@ -181,19 +177,16 @@ BEFORE
 
 AFTER
 ~/.config/workbench/
-├── machine.toml
-└── costs/rates.json                            (only if made)
+└── machine.toml
 ~/.local/share/workbench/
 ├── releases/  tools/  application-contexts/
-└── costs/
-    ├── ledger.sqlite
-    ├── claude/rates-official.json
-    └── codex/rates-official.json
+└── agent/costs/
+    └── ledger.sqlite
 ~/.local/state/workbench/
 ├── state.json  activation.json  migrations.json
 ├── checkpoints/  chezmoi/  locks/
-├── costs/{ingest.log,ingest.lock}
-└── guard/
+├── agent/costs/{ingest.log,ingest.lock}
+└── agent/guard/
 ~/.cache/workbench/
 ├── uv/
 └── completion.bash
@@ -246,9 +239,8 @@ control character, so one path never splits a probe line (5.2).
 
 `Check` never locks or changes a file, and never opens the ledger. It looks
 at which paths exist (`Lstat`), with these small reads:
-- `0001` reads an old and a new overrides file, only when both exist, to tell
-  a copy that finished from two different files (6.1). When nothing is left,
-  it lists the old `claude-costs` folders, to name the files it keeps there.
+- `0001`, when nothing is left, lists the old `claude-costs` folders of the
+  ledger and the import log, to name the files it keeps there.
 - `0002` reads the first line of an old completion file that `Lstat` shows is
   a regular file, to tell Workbench's marker from someone else's file (6.2).
 - `0003` reads the old cache folder's listing, only when `Lstat` shows a real
@@ -311,7 +303,7 @@ script's environment, for its probe and its run:
   pass them. Only Workbench reads these.
 - **The old locations' variables, under another name.** Each of
   `XDG_{DATA,STATE,CONFIG,CACHE}_HOME`, `CLAUDE_COSTS_LEDGER`,
-  `CLAUDE_COSTS_STATE`, `CLAUDE_COSTS_RATES` and `CLAUDE_COSTS_CACHE` that is
+  `CLAUDE_COSTS_STATE` and `CLAUDE_COSTS_CACHE` that is
   set in the apply's own environment is passed as `WORKBENCH_OLD_<NAME>`.
   Passed under its own name, an `XDG_*_HOME` would change where installers
   such as nvm or uv put things. The shared template
@@ -518,9 +510,8 @@ While anything of `0001-costs-folders` is left, the gate acts by caller:
   - The first hook after `workbench update` moves the files.
   - No session expires unread while an apply is pending.
   - It moves only Workbench's own files, so it needs no further approval.
-  - **Only a ledger conflict stops the import.** A conflict over the
-    overrides file leaves that file for the owner; the ledger still moves and
-    the import goes on. Once the ledger has moved, whatever else the move left
+  - **Only a ledger conflict stops the import.** Once the ledger has moved,
+    whatever else the move left
     or failed on is only written to the import log. A ledger conflict (old and new ledgers both present,
     a set-aside original with a ledger back at the old path, or a link at the
     old ledger's path, 6.1) stops it, and the worker logs why and opens no
@@ -580,7 +571,11 @@ again.
 - **Ledger:** `$CLAUDE_COSTS_LEDGER` or `<old data>/claude-costs/ledger.sqlite`.
 - **Price caches:** beside that ledger file, wherever it is.
 - **Log and lock:** `<old state>/claude-costs/`.
-- **Overrides:** `$CLAUDE_COSTS_RATES` or `<old config>/claude-costs/rates.json`.
+
+A price overrides file is not one of them: it is neither moved nor read, and
+`CLAUDE_COSTS_RATES` is not read. `<data>/costs` and `<state>/costs` below
+are the costs folders in use, under `agent/` unless an old `costs/` folder is
+still in use there ([agent folders design](2026-11-19-agent-folders-design.md)).
 
 | Old | New |
 |---|---|
@@ -590,15 +585,13 @@ again.
 | `rates-official*.json.tmp` | deleted (an unfinished price write) |
 | `ingest.log` | deleted (a trimmed diagnostic log); not moved, so a log the new release already started is never a conflict |
 | `ingest.lock` | deleted by every run, while it holds it |
-| overrides | `<config>/costs/rates.json`, byte for byte |
 
 **Which files can conflict.** A price cache never does: it is derived from
 the public price pages and fetched again when stale, so an old cache whose new
 path already holds one is deleted. An old file whose new path holds the same
 bytes is a copy that finished before its original was deleted, and the
-original is deleted. Only the ledger, an overrides file whose old and new
-paths hold different bytes, and a link at any old file's path (below) can
-conflict. Each conflict is per file: every
+original is deleted. Only the ledger and a link at any old file's path
+(below) can conflict. Each conflict is per file: every
 other file still moves (section 4, Run).
 
 **No rename replaces a file.** Every rename that puts a ledger or another
@@ -619,15 +612,14 @@ bytes, and the run removes the old name (for `<old>.moved`, that extra name,
 and the copy starts again).
 
 **An old path that is the new file is already moved.** When an old path names
-the new file or folder itself (`CLAUDE_COSTS_LEDGER`, `CLAUDE_COSTS_STATE` or
-`CLAUDE_COSTS_RATES` set to it, or an old `claude-costs` folder linked to the
-new one), the check and the run drop that old path (`OldPaths.apart`): nothing
+the new file or folder itself (`CLAUDE_COSTS_LEDGER` or `CLAUDE_COSTS_STATE`
+set to it, or an old `claude-costs` folder linked to the new one), the check and the run drop that old path (`OldPaths.apart`): nothing
 is moved, deleted or locked through it. Two paths are one when they are the
 same path, resolve through their links to the same path, or name the same
 folder or single-link file (a name differing only in case, say).
 
 **A link is never moved or read through.** A link at an old file's path (the
-ledger, the overrides or a price cache) that doesn't name the new file is a
+ledger or a price cache) that doesn't name the new file is a
 conflict, "leaves X, a link (put the file it names in its place, or remove
 it)", whether or not a ledger is at the new path. Moving it could leave a
 relative link pointing nowhere, and the file it names isn't one Workbench
@@ -720,8 +712,7 @@ know stays and is named, and once nothing is
 left `0001`'s check is *Done* with the same list ("keeps X (Workbench didn't
 write it)", or "them" for several). Files the
 migration knows are never on that list: the old ledger, its marks and
-journals, and every price cache, overrides file, log and lock it moves or
-deletes. One left in conflict is reported as a conflict only.
+journals, and every price cache, log and lock it moves or deletes. One left in conflict is reported as a conflict only.
 
 **A relative old variable.** When `CLAUDE_COSTS_LEDGER` or `XDG_DATA_HOME` is
 relative, the old ledger can't be found again. `0001` is then a *Conflict*
@@ -930,14 +921,13 @@ tools in a temporary home and runs `0001-costs-folders`:
    in place.
 5. **With a second connection holding the old ledger open.**
 6. **With old and new ledgers both present.**
-7. **With old and new overrides files holding different data.**
+7. **With an old and a new price overrides file.**
 8. **One ledger under both names,** as a link-and-unlink fallback leaves it
    when it stops between the two.
 9. **A different ledger at the new path** beside a set-aside original and
    its `.part`, holding as many rows.
-10. **Old paths that name the new files:** `CLAUDE_COSTS_LEDGER`,
-    `CLAUDE_COSTS_STATE` and `CLAUDE_COSTS_RATES` set to the new ledger,
-    state folder and overrides.
+10. **Old paths that name the new files:** `CLAUDE_COSTS_LEDGER` and
+    `CLAUDE_COSTS_STATE` set to the new ledger and state folder.
 11. **An old folder linked to the new one:** the old `claude-costs` data
     folder a link to `<data>/costs`.
 12. **A link at the old ledger path,** relative, naming the ledger.
@@ -952,8 +942,8 @@ tools in a temporary home and runs `0001-costs-folders`:
 - **Cases 4 and 6:** *Conflict*, with every ledger file byte-identical to
   before.
 - **Case 5:** refused as busy, with nothing moved.
-- **Case 7:** a conflict over the overrides only: the ledger still moves with
-  every row, and the ledger itself checks as *Done*.
+- **Case 7:** the ledger moves with every row, and both overrides files stay
+  where they are, byte for byte, unnamed among the files the move left.
 - **Case 8:** *Unfinished*, never *Conflict*; the run finishes the move with
   every row.
 - **Case 9:** *Conflict* on every run, with every file byte-identical to

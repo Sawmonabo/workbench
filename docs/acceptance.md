@@ -36,7 +36,8 @@ synthetic answers.
   sudo's arguments and environment, answered only to the apply's own processes
   and its sudo approval dropped when the apply ends, no password read or
   helper made where sudo already uses Touch ID (all macOS), and the costs ledger keeping every response and upgrade
-  row.
+  row, every row when its folder moves under `agent/`, and every row and
+  price list through its upgrade to version 6.
 
 ### Releases, install and update
 
@@ -918,6 +919,33 @@ synthetic answers.
   none to run` with the step under "Already set", on a home on ext4 and on
   the container's overlay root. The apply's migrations script, the import
   worker's own move and macOS were not observed.
+- The costs files live in `agent/costs/` of the data and state folders and
+  the guard's in `agent/guard/` of the state folder. Migration
+  `0007-agent-folders`, and every costs and guard entry that holds the
+  folder's lock, moves an old `costs/` or `guard/` folder there whole, in one
+  swap with a 0600 file holding the identifier of the system's start, which
+  stays at the old path until the machine restarts (target). On 2026-11-22,
+  on macOS (APFS) in a disposable home holding `costs/` in the data folder
+  and `costs/` and `guard/` (a log and an empty `notes/` folder) in the state
+  folder, `migrate --dry-run` listed the three moves as pending, and
+  `migrate --dry-run --json` then `--approve-plan DIGEST` moved each folder
+  whole under `agent/` and left at each old path a 0600 file holding
+  `kern.bootsessionuuid`; a second `migrate --dry-run` listed the migration
+  done. Not observed: a move while a watcher or an import works in an old
+  folder, a watcher of the release before handing over across it, an old
+  folder beside one in use, HFS+, an overlay file system, Linux and WSL2.
+- The official prices an import downloads are kept in the ledger (schema
+  version 6, tables `prices` and `price_lists`). A version 5 ledger is
+  upgraded in place in one transaction that keeps every row and fills those
+  tables from the `<tool>/rates-official.json` files beside it; a file that
+  is missing or cannot be read fills nothing, and the import downloads that
+  list. A price overrides file (`rates.json`) is neither read nor moved. Migration
+  `0008-price-lists` deletes the list files only after it has opened the
+  ledger, or when there is none (target; the upgrade of a real version 5
+  ledger, and the reports' totals across it, are not yet observed). On
+  2026-11-22, in the same disposable home, with a price list and no ledger,
+  `migrate --dry-run` listed `0008-price-lists` as pending, and the same
+  `--approve-plan` run deleted the list and the tool folder it left empty.
 - An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
   in a disposable home with synthetic answers, `apply --local-build --dry-run
   --json` gave a different `plan_digest` for each of two `WORKBENCH_DATA_DIR`
