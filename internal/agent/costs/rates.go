@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const (
@@ -347,7 +348,8 @@ func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
 		}
 	}
 	if folder := filepath.Dir(ledger); !operation.IsFolder(folder) {
-		return fmt.Errorf("%s moved while its price lists were read: %w", folder, syscall.ENOTDIR)
+		return sqlitefile.FileError(folder,
+			fmt.Errorf("moved while its price lists were read: %w", syscall.ENOTDIR))
 	}
 	return nil
 }

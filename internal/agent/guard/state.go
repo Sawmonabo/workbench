@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -315,11 +316,25 @@ func (path logWriter) Write(p []byte) (int, error) {
 
 // event appends one record to the guard log: event names it (see
 // [EventStarted]), part and pid name the process writing it, and args are the
-// record's other attributes, as for [slog.Logger.Log].
+// record's other attributes, as for [slog.Logger.Log]. The message and the
+// error attribute name the paths in the state folder from the home folder
+// (see ShowPaths), as people read them; a path attribute stays in full.
 func (f folders) event(level slog.Level, event, msg string, args ...any) {
 	if f.logger == nil {
 		return
 	}
-	f.logger.Log(context.Background(), level, msg,
+	args = slices.Clone(args)
+	for i := 0; i+1 < len(args); i += 2 {
+		if args[i] != "error" {
+			continue
+		}
+		switch value := args[i+1].(type) {
+		case error:
+			args[i+1] = ShowPaths(value.Error(), f.state)
+		case string:
+			args[i+1] = ShowPaths(value, f.state)
+		}
+	}
+	f.logger.Log(context.Background(), level, ShowPaths(msg, f.state),
 		append([]any{"event", event, "part", f.part, "pid", os.Getpid()}, args...)...)
 }

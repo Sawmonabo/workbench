@@ -120,7 +120,7 @@ func (p Paths) folder(root, path string) (string, error) {
 	f := agentFoldersIn(p.Runtime)
 	for _, old := range []string{f.oldData, f.oldState} {
 		if operation.Within(old, path) && !operation.IsFolder(old) {
-			return "", fmt.Errorf("%s: %w", old, syscall.ENOTDIR)
+			return "", sqlitefile.FileError(old, syscall.ENOTDIR)
 		}
 	}
 	name, err := filepath.Rel(root, path)
@@ -311,11 +311,8 @@ func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 	}
 	exists := err == nil && info.Size() > 0
 	if !exists && !create {
-		return nil, operation.Fail(
-			operation.ExitBlocked,
-			"ledger",
-			"No ledger at "+path+"; run `workbench agent costs ingest --worker` first",
-		)
+		return nil, ledgerProblem(operation.ExitBlocked, path,
+			"no ledger yet; run `workbench agent costs ingest --worker` first")
 	}
 	ledger := &Ledger{Path: path}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
@@ -362,18 +359,15 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 			ctx,
 			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
 		).Scan(&tables); err != nil {
-			return fmt.Errorf("%s: %w", l.Path, err)
+			return sqlitefile.FileError(l.Path, err)
 		}
 		if tables == 0 {
-			return operation.Fail(
-				operation.ExitInvalid,
-				"ledger",
-				l.Path+" exists but is not a Workbench costs ledger; move it aside",
-			)
+			return ledgerProblem(operation.ExitInvalid, l.Path,
+				"not a Workbench costs ledger; move it aside")
 		}
 		version, err := l.Meta("schema_version")
 		if err != nil {
-			return fmt.Errorf("%s: %w", l.Path, err)
+			return sqlitefile.FileError(l.Path, err)
 		}
 		switch version {
 		case schemaVersion:
@@ -382,24 +376,27 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 				break
 			}
 			if err := l.upgrade(ctx); err != nil {
-				return fmt.Errorf("%s: %w", l.Path, err)
+				return sqlitefile.FileError(l.Path, err)
 			}
 		default:
-			return operation.Fail(
-				operation.ExitInvalid,
-				"ledger",
-				fmt.Sprintf(
-					"%s: schema version %q, this tool needs %s",
-					l.Path,
-					version,
-					schemaVersion,
-				),
-			)
+			return ledgerProblem(operation.ExitInvalid, l.Path,
+				fmt.Sprintf("schema version %q, this tool needs %s", version, schemaVersion))
 		}
 	} else if err := l.create(ctx); err != nil {
-		return fmt.Errorf("%s: %w", l.Path, err)
+		if _, named := errors.AsType[*operation.Error](err); named {
+			return err
+		}
+		return sqlitefile.FileError(l.Path, err)
 	}
 	return nil
+}
+
+// ledgerProblem is the error of the file at path that is not a ledger this
+// release can use, for reason. Its message names path first, from the home
+// folder, as every file error does (see [sqlitefile.FileError]): an
+// [operation.Error] is shown by its message alone, so the path is in it.
+func ledgerProblem(code operation.Exit, path, reason string) error {
+	return operation.Fail(code, "ledger", sqlitefile.FileError(path, errors.New(reason)).Error())
 }
 
 // create writes the schema of a ledger that was missing when OpenLedger looked.
@@ -424,12 +421,9 @@ func (l *Ledger) create(ctx context.Context) error {
 			if err := tx.QueryRowContext(
 				ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
 			).Scan(&version); err != nil || version != schemaVersion {
-				return operation.Fail(
-					operation.ExitInvalid,
-					"ledger",
-					"a database appeared here that is not a Workbench costs ledger of schema version "+
-						schemaVersion+"; move it aside",
-				)
+				return ledgerProblem(operation.ExitInvalid, l.Path,
+					"a database appeared that is not a Workbench costs ledger of schema version "+
+						schemaVersion+"; move it aside")
 			}
 			return nil
 		}

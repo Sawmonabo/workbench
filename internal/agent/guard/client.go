@@ -11,6 +11,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const (
@@ -39,7 +41,9 @@ func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 
 // socketPath is the watcher's socket path, in the guard folder where Root
 // says. It creates nothing. A path too long for a socket address is an error
-// naming the state folder, which holds it.
+// naming the state folder, which holds it. Both are named in full, unlike a
+// file error's path (see [sqlitefile.FileError]): their length is the
+// problem.
 func socketPath() (string, error) {
 	state, err := stateFolder()
 	if err != nil {
@@ -68,7 +72,10 @@ type Client struct {
 	stopping sync.Mutex
 }
 
-// Dial connects to the watcher's socket. It fails when no watcher listens.
+// Dial connects to the watcher's socket. It fails when no watcher listens,
+// with an error that names the socket once, from the home folder (see
+// [sqlitefile.FileError]), and matches the reason, such as syscall.ENOENT
+// for a missing socket or syscall.ECONNREFUSED for one nothing serves.
 func Dial(ctx context.Context) (*Client, error) {
 	path, err := socketPath()
 	if err != nil {
@@ -77,7 +84,12 @@ func Dial(ctx context.Context) (*Client, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		return nil, err
+		// The net package's error names the socket by its full path, after
+		// the operation; only the reason follows the path here.
+		if op, ok := errors.AsType[*net.OpError](err); ok {
+			err = op.Err
+		}
+		return nil, sqlitefile.FileError(path, err)
 	}
 	unixConn, ok := conn.(*net.UnixConn)
 	if !ok {

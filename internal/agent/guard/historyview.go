@@ -53,10 +53,11 @@ const SummaryLength = summaryLength
 // history that could not be used (see [MoveDamaged]).
 func HistoryDamagedFile(root string) string { return damagedFile(root) }
 
-// ShowPaths is text, which names paths in the guard folder root, as people
-// read it: each such path named from the home folder, as [operation.ShowPath]
-// names one (~/…/history.db). A root that is not in the home folder, or that
-// ShowPath would quote, is left as it is.
+// ShowPaths is text, which names paths in the folder root (the guard folder,
+// or the state folder that holds it), as people read it: each such path named
+// from the home folder, as [operation.ShowPath] names one (~/…/history.db). A
+// root that is not in the home folder, or that ShowPath would quote, is left
+// as it is.
 func ShowPaths(text, root string) string {
 	home, _ := os.UserHomeDir()
 	if shown := operation.ShowPath(home, root); strings.HasPrefix(shown, "~") {
