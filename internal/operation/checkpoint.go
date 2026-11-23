@@ -1019,7 +1019,9 @@ func checkpointStorageBytes(directory string) (int64, error) {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					"Existing "+path+" must be a private directory (mode 0700); it was not changed",
+					"Existing "+ShowHomePath(
+						path,
+					)+" must be a private directory (mode 0700); it was not changed",
 				)
 			}
 			return owned(path, info)

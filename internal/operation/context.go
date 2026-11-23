@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"syscall"
 
@@ -215,7 +214,9 @@ func runtimePaths(home string) (Paths, error) {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"runtime_path",
-					value+" is not a directory, so Workbench can't keep its files there",
+					ShowHomePath(
+						value,
+					)+" is not a directory, so Workbench can't keep its files there",
 				)
 			}
 			if err := owned(value, info); err != nil {
@@ -225,14 +226,16 @@ func runtimePaths(home string) (Paths, error) {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"permissions",
-					"Existing "+value+" must be a private directory (mode 0700); it was not changed",
+					"Existing "+ShowHomePath(
+						value,
+					)+" must be a private directory (mode 0700); it was not changed",
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"Cannot inspect the Workbench runtime directory "+value,
+				"Cannot inspect the Workbench runtime directory "+ShowHomePath(value),
 			)
 		}
 		defaults[i] = value
@@ -267,14 +270,18 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"path",
-					current+" is a link; Workbench keeps its own files only in real folders, so make it one",
+					ShowHomePath(
+						current,
+					)+" is a link; Workbench keeps its own files only in real folders, so make it one",
 				)
 			}
 			if current != path && !info.IsDir() {
 				return Fail(
 					ExitInvalid,
 					"path",
-					current+" is a file, not a folder, so Workbench cannot keep its files under it",
+					ShowHomePath(
+						current,
+					)+" is a file, not a folder, so Workbench cannot keep its files under it",
 				)
 			}
 			stat, ok := info.Sys().(*syscall.Stat_t)
@@ -282,16 +289,18 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					current+" belongs to another user; Workbench keeps its files only under folders you or root own",
+					ShowHomePath(
+						current,
+					)+" belongs to another user; Workbench keeps its files only under folders you or root own",
 				)
 			}
 			if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					current+" is writable by other users; run chmod go-w "+strconv.Quote(
+					ShowHomePath(
 						current,
-					)+" and retry",
+					)+" is writable by other users; run chmod go-w on it and retry",
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
@@ -309,7 +318,7 @@ func owned(path string, info os.FileInfo) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			path+" must belong to the current user; it was not changed",
+			ShowHomePath(path)+" must belong to the current user; it was not changed",
 		)
 	}
 	return nil
@@ -321,7 +330,11 @@ func checkPrivateFile(path string) error {
 	}
 	info, err := os.Lstat(path)
 	if err != nil || !info.Mode().IsRegular() {
-		return Fail(ExitInvalid, "state", path+" must be an existing regular private file")
+		return Fail(
+			ExitInvalid,
+			"state",
+			ShowHomePath(path)+" must be an existing regular private file",
+		)
 	}
 	if err := owned(path, info); err != nil {
 		return err
@@ -331,7 +344,7 @@ func checkPrivateFile(path string) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			path+" has other hard links; a private file must have exactly one",
+			ShowHomePath(path)+" has other hard links; a private file must have exactly one",
 		)
 	}
 	if mode := info.Mode().Perm(); mode&0o077 != 0 {

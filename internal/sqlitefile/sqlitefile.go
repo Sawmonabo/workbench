@@ -138,7 +138,8 @@ func makePrivate(path string) {
 }
 
 // FileError is err, which an operation on the file at path returned, as an
-// error that names path once, first, as people read it (see shownPath),
+// error that names path once, first, as people read it (see
+// [operation.ShowHomePath]: ~/.local/state/…/history.db),
 // then the reason: an error of the os package names the path itself, after
 // the operation (open, stat, read), so only its reason follows path, and the
 // error still matches what that reason matches, such as [fs.ErrNotExist] or
@@ -150,18 +151,7 @@ func FileError(path string, err error) error {
 		problem.Error() == err.Error() {
 		err = problem.Err
 	}
-	return fmt.Errorf("%s: %w", shownPath(path), err)
-}
-
-// shownPath is path as this package's errors name it: from the home folder,
-// as [operation.ShowPath] names a path there (~/.local/state/…/history.db),
-// else, or when ShowPath would quote it, as it is.
-func shownPath(path string) string {
-	home, _ := os.UserHomeDir()
-	if shown := operation.ShowPath(home, path); strings.HasPrefix(shown, "~") {
-		return shown
-	}
-	return path
+	return fmt.Errorf("%s: %w", operation.ShowHomePath(path), err)
 }
 
 // openProblem is the operating system's reason SQLite could not open the
@@ -352,14 +342,17 @@ func CheckHeader(path string) error {
 	n, err := io.ReadFull(file, header)
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return fmt.Errorf(
-			"%s: %w: it holds %d bytes, less than a header", shownPath(path), ErrNotADatabase, n,
+			"%s: %w: it holds %d bytes, less than a header",
+			operation.ShowHomePath(path),
+			ErrNotADatabase,
+			n,
 		)
 	}
 	if err != nil {
 		return FileError(path, err)
 	}
 	if reason := headerProblem(header); reason != "" {
-		return fmt.Errorf("%s: %w: %s", shownPath(path), ErrNotADatabase, reason)
+		return fmt.Errorf("%s: %w: %s", operation.ShowHomePath(path), ErrNotADatabase, reason)
 	}
 	return nil
 }

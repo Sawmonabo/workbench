@@ -9,7 +9,6 @@ package guard
 // watcher, say in the same words.
 
 import (
-	"os"
 	"strings"
 	"time"
 
@@ -65,12 +64,11 @@ func HistoryDamagedCopies(root string) []DamagedCopy { return damagedCopies(root
 
 // ShowPaths is text, which names paths in the folder root (the guard folder,
 // or the state folder that holds it), as people read it: each such path named
-// from the home folder, as [operation.ShowPath] names one (~/…/history.db). A
-// root that is not in the home folder, or that ShowPath would quote, is left
+// from the home folder, as [operation.ShowHomePath] names one (~/…/history.db).
+// A root that is not in the home folder, or that ShowPath would quote, is left
 // as it is.
 func ShowPaths(text, root string) string {
-	home, _ := os.UserHomeDir()
-	if shown := operation.ShowPath(home, root); strings.HasPrefix(shown, "~") {
+	if shown := operation.ShowHomePath(root); strings.HasPrefix(shown, "~") {
 		return strings.ReplaceAll(text, root, shown)
 	}
 	return text
@@ -96,7 +94,6 @@ func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
 	if len(copies) == 0 {
 		return ""
 	}
-	home, _ := os.UserHomeDir()
 	clock := func(at time.Time) string {
 		if at.Local().Format(time.DateOnly) != now.Local().Format(time.DateOnly) {
 			return at.Local().Format("Jan 2 3:04 PM")
@@ -105,14 +102,11 @@ func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
 	}
 	if len(copies) == 1 {
 		return "Guard history was damaged and started again at " + clock(copies[0].At) +
-			"; the old file is " + operation.ShowPath(home, copies[0].Path)
+			"; the old file is " + operation.ShowHomePath(copies[0].Path)
 	}
 	return "Guard history was damaged and started again at " + clock(copies[0].At) +
 		", and before that at " + clock(copies[1].At) + "; the old files are " +
-		operation.ShowPath(
-			home,
-			copies[0].Path,
-		) + " and " + operation.ShowPath(home, copies[1].Path)
+		operation.ShowHomePath(copies[0].Path) + " and " + operation.ShowHomePath(copies[1].Path)
 }
 
 // HistoryUnreadable is what is said of a history in the guard folder root

@@ -96,7 +96,7 @@ func outsideProjects(directory string, excluded []string) error {
 					ExitBlocked,
 					"tool",
 					"Project-controlled management executable lookup is forbidden because "+
-						parent+" contains "+marker,
+						ShowHomePath(parent)+" contains "+marker,
 				)
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return Fail(

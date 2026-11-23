@@ -66,9 +66,11 @@ func socketPath() (string, error) {
 	return path, nil
 }
 
-// Client is a connection to the watcher's socket. Call Hello first; then
-// Snapshots gives what the watcher sees and Stop asks it to stop commands.
+// Client is a connection to the watcher's socket at path. Call Hello first;
+// then Snapshots gives what the watcher sees and Stop asks it to stop
+// commands.
 type Client struct {
+	path    string
 	conn    *net.UnixConn
 	lines   *bufio.Scanner
 	snaps   chan Snapshot
@@ -89,21 +91,17 @@ func Dial(ctx context.Context) (*Client, error) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, "unix", path)
 	if err != nil {
-		// The net package's error names the socket by its full path, after
-		// the operation; only the reason follows the path here.
-		if op, ok := errors.AsType[*net.OpError](err); ok {
-			err = op.Err
-		}
-		return nil, sqlitefile.FileError(path, err)
+		return nil, socketError(path, err)
 	}
 	unixConn, ok := conn.(*net.UnixConn)
 	if !ok {
 		_ = conn.Close()
-		return nil, fmt.Errorf("%s is not a Unix socket", path)
+		return nil, sqlitefile.FileError(path, errors.New("not a Unix socket"))
 	}
 	lines := bufio.NewScanner(unixConn)
 	lines.Buffer(make([]byte, 0, 64<<10), lineLimit)
 	return &Client{
+		path:    path,
 		conn:    unixConn,
 		lines:   lines,
 		snaps:   make(chan Snapshot, 1),
@@ -111,19 +109,36 @@ func Dial(ctx context.Context) (*Client, error) {
 	}, nil
 }
 
+// socketError is err, of an operation on the socket at path, naming the
+// socket once, from the home folder (see [sqlitefile.FileError]): the net
+// package's error names it by its full path, after the operation, so only the
+// reason follows the path here, and it still matches what that reason
+// matches, such as os.ErrDeadlineExceeded.
+func socketError(path string, err error) error {
+	if op, ok := errors.AsType[*net.OpError](err); ok {
+		err = op.Err
+	}
+	return sqlitefile.FileError(path, err)
+}
+
 // Hello says which protocol versions this client speaks and checks that the
-// watcher shares one. It fails after three seconds without an answer:
-// a watcher of an older release that took the socket over never answers.
-// Once it succeeds the client starts reading snapshots.
+// watcher shares one. It fails after three seconds without an answer, with an
+// error matching os.ErrDeadlineExceeded: a watcher of an older release that
+// took the socket over never answers. An error of the connection names the
+// socket once, from the home folder (see socketError). Once it succeeds the
+// client starts reading snapshots.
 func (c *Client) Hello() error {
 	if err := c.conn.SetDeadline(time.Now().Add(helloWait)); err != nil {
-		return err
+		return socketError(c.path, err)
 	}
 	if err := c.write(message{Type: messageHello, Versions: []int{protocolVersion}}); err != nil {
-		return err
+		return socketError(c.path, err)
 	}
 	reply, err := c.read()
 	if err != nil {
+		if _, ok := errors.AsType[*net.OpError](err); ok {
+			return socketError(c.path, err)
+		}
 		return err
 	}
 	switch {
@@ -135,7 +150,7 @@ func (c *Client) Hello() error {
 			ErrProtocolVersion, reply.Type, reply.Version)
 	}
 	if err := c.conn.SetDeadline(time.Time{}); err != nil {
-		return err
+		return socketError(c.path, err)
 	}
 	go c.receive()
 	return nil
@@ -157,10 +172,10 @@ func (c *Client) Stop(ids []string, force bool) ([]StopResult, error) {
 	default:
 	}
 	if err := c.conn.SetWriteDeadline(time.Now().Add(stopWait)); err != nil {
-		return nil, err
+		return nil, socketError(c.path, err)
 	}
 	if err := c.write(message{Type: messageStop, IDs: ids, Force: force}); err != nil {
-		return nil, err
+		return nil, socketError(c.path, err)
 	}
 	timer := time.NewTimer(stopWait)
 	defer timer.Stop()

@@ -50,6 +50,21 @@ func (c Context) WorkbenchCommand() string {
 // ShowPath writes path for a person with [ShowPath] from c.Home.
 func (c Context) ShowPath(path string) string { return ShowPath(c.Home, path) }
 
+// ShowHomePath writes path for a person with [ShowPath] from the current
+// user's home folder, resolved as [Resolve] resolves it, for a message made
+// where no [Context] is at hand: a check of Workbench's own folders, a file
+// error. Without a home it shortens nothing.
+func ShowHomePath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ShowPath("", path)
+	}
+	if canonical, err := ExistingDirectory(home); err == nil {
+		home = canonical
+	}
+	return ShowPath(home, path)
+}
+
 // ShowPath writes path for a person: home itself as ~, a path under home as
 // ~/..., any other path as it is. A path holding "; " or a control character
 // is shown quoted, with "; " as ";\x20", so it stays on one line and a plan's

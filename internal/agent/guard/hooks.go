@@ -216,7 +216,8 @@ func hookFolders(part string) (folders, error) {
 		f.event(slog.LevelInfo, EventMoved, "moved the guard folder to "+f.root)
 	}
 	if moveErr != nil {
-		f.event(slog.LevelError, EventError, "cannot move the guard folder", "error", moveErr)
+		f.event(slog.LevelError, EventError, fmt.Sprintf("cannot move the guard folder %s to %s",
+			oldRoot(state), newRoot(state)), "error", moveErr)
 	}
 	return f, nil
 }

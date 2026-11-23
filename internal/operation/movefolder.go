@@ -34,21 +34,44 @@ import (
 // wrote in it makes it once more. moved is true with an error only when the swap
 // happened and a folder could not be synced. A start identifier that cannot
 // be read moves nothing.
+//
+// Its errors say why, naming neither from nor to, which the caller names
+// once, from the home folder, as people read them ("cannot move ~/a to ~/b:
+// REASON"); another path in a reason is named from the home folder too (see
+// [ShowHomePath]).
 func MoveFolder(from, to string) (moved bool, err error) {
+	moved, err = moveFolder(from, to)
+	return moved, moveReason(from, to, err)
+}
+
+// moveReason is err, of [MoveFolder] from from to to, without the two paths
+// an error of the os package names around its reason, and with any other path
+// it names shown from the home folder. Only an error that says no more than
+// the os package's is cut so; it still matches what it matched.
+func moveReason(from, to string, err error) error {
+	if link, ok := errors.AsType[*os.LinkError](err); ok && link.Error() == err.Error() &&
+		link.Old == from && link.New == to {
+		return link.Err
+	}
+	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Error() == err.Error() {
+		if problem.Path == from || problem.Path == to {
+			return problem.Err
+		}
+		return fmt.Errorf("%s: %w", ShowHomePath(problem.Path), problem.Err)
+	}
+	return err
+}
+
+func moveFolder(from, to string) (moved bool, err error) {
 	if Within(from, to) || Within(to, from) {
-		return false, fmt.Errorf("cannot move %s to %s: one is inside the other", from, to)
+		return false, errors.New("one is inside the other")
 	}
 	if IsFolder(to) || !IsFolder(from) {
 		return false, nil
 	}
 	// A file system that can't be asked is tried: the swap says why it fails.
 	if swaps, err := platform.CanSwap(from); err == nil && !swaps {
-		return false, &os.LinkError{
-			Op:  "swap",
-			Old: from,
-			New: to,
-			Err: platform.ErrSwapUnsupported,
-		}
+		return false, platform.ErrSwapUnsupported
 	}
 	boot, err := platform.BootID()
 	if err != nil {
@@ -88,7 +111,7 @@ func MoveFolder(from, to string) (moved bool, err error) {
 	}
 	for _, folder := range []string{filepath.Dir(from), filepath.Dir(to)} {
 		if err := SyncDirectory(folder); err != nil {
-			return true, fmt.Errorf("moved %s to %s but cannot sync %s: %w", from, to, folder, err)
+			return true, fmt.Errorf("it moved, but cannot sync %w", moveReason(from, to, err))
 		}
 	}
 	return true, nil

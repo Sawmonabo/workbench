@@ -86,7 +86,7 @@ its own step, the other steps still run, the apply ends with exit 3 and the next
 apply tries again.
 Workbench keeps its own command in `~/.local/bin`, so when that folder or
 `~/.local` is a link (into a dotfiles repository, say) or a file, it stops before
-planning and names it (`/home/you/.local/bin is a link; Workbench keeps its own
+planning and names it (`~/.local/bin is a link; Workbench keeps its own
 files only in real folders, so make it one`). The System packages and Runtime
 managers steps check the same before they install programs there, and name it in
 the plan and on their result lines. A command already in

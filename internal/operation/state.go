@@ -395,7 +395,9 @@ func privateDirectory(path string, create bool) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			"Existing "+path+" must be a private directory (mode 0700); it was not changed",
+			"Existing "+ShowHomePath(
+				path,
+			)+" must be a private directory (mode 0700); it was not changed",
 		)
 	}
 	return owned(path, info)
@@ -423,7 +425,11 @@ func ensureRoot(root string) error {
 // [Mutation].
 func PrivateDirectory(root, name string) (string, error) {
 	if name != "" && !filepath.IsLocal(name) {
-		return "", Fail(ExitInvalid, "private_path", name+" is not a folder inside "+root)
+		return "", Fail(
+			ExitInvalid,
+			"private_path",
+			name+" is not a folder inside "+ShowHomePath(root),
+		)
 	}
 	if err := ensureRoot(root); err != nil {
 		return "", err
@@ -451,7 +457,7 @@ func PrivateDirectory(root, name string) (string, error) {
 // on a missing folder.
 func CheckPrivateDirectory(root, name string) error {
 	if name != "" && !filepath.IsLocal(name) {
-		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+root)
+		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+ShowHomePath(root))
 	}
 	directory := root
 	folders := []string{root}
