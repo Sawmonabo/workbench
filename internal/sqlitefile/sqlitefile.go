@@ -99,9 +99,12 @@ func Open(path string, o Options) (*sql.DB, error) {
 // error that names path once, first, then the reason: an error of the os
 // package names the path itself, after the operation (open, stat, read), so
 // only its reason follows path, and the error still matches what that reason
-// matches, such as [fs.ErrNotExist] or [fs.ErrPermission].
+// matches, such as [fs.ErrNotExist] or [fs.ErrPermission]. Only an error that
+// says no more than the os package's is cut so: one that wraps it in words of
+// its own is kept whole, with what it matches besides.
 func FileError(path string, err error) error {
-	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path {
+	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path &&
+		problem.Error() == err.Error() {
 		err = problem.Err
 	}
 	return fmt.Errorf("%s: %w", path, err)
