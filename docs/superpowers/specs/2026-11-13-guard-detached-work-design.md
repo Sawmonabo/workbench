@@ -935,7 +935,11 @@ since its judged command line was not written, every root is pending until
 it is judged again, as one that started another program is. No root's time
 passes, as at a handover, and the unit's memory starts anew. At a handover
 the units pass as above; the new watcher rewrites the record of each unit it
-was handed and deletes the rest. A watcher that starts fresh does not have
+was handed and deletes the other records. At either start the watcher, which
+holds the lock and so is the folder's only writer, deletes the temporary file
+of every write there, whatever its age, since each is that of a watcher that
+was killed, and leaves a file of any other name than a record's, which is not
+Workbench's. A watcher that starts fresh does not have
 what a handover carries beyond the records: what the old watcher measured,
 its follow of a person's stop under way (5 seconds to `SIGKILL`), the final
 verdicts, and the store's entries for processes that exited.

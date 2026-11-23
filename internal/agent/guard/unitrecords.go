@@ -121,18 +121,41 @@ func (w *watcher) saveUnits() {
 // dropStrayUnits deletes, for a watcher handed the watch, at its first tick
 // once it has taken on what was carried, the record of each unit it does not
 // track: the records are the watcher's before it, and what it carried is
-// what it tracked last. A folder that cannot be listed deletes nothing.
+// what it tracked last. It sorts the folder as a fresh start does (see
+// unitRecordIDs). A folder that cannot be listed deletes nothing.
 func (w *watcher) dropStrayUnits() {
-	entries, err := listFolder(w.f.units)
+	ids, err := unitRecordIDs(w.f.units)
 	if err != nil {
 		return
 	}
-	for _, entry := range entries {
-		id, _ := strings.CutSuffix(entry.Name(), ".json")
+	for _, id := range ids {
 		if c, ok := w.tracked[id]; !ok || c.Detached == nil {
-			_ = removeUnit(w.f.units, entry.Name())
+			_ = removeUnit(w.f.units, id+".json")
 		}
 	}
+}
+
+// unitRecordIDs are the IDs of the unit records in the units folder units,
+// for the watcher at its first tick, fresh or handed the watch (see
+// restoreUnits and dropStrayUnits). The watcher holds the lock, so it is the
+// folder's only writer, and none of its own writes is under way then: the
+// temporary file of each write there is that of a watcher that was killed,
+// and is deleted whatever its age (see [operation.RemoveWrites]). A file of
+// any other name than a record's (see unitFile) is not Workbench's: it is
+// neither listed nor deleted.
+func unitRecordIDs(units string) ([]string, error) {
+	operation.RemoveWrites(units)
+	entries, err := os.ReadDir(units)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, entry := range entries {
+		if id, ok := unitFile(entry.Name()); ok {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
 }
 
 // unitsFailed logs, once until a save goes through, that the unit records
@@ -167,16 +190,14 @@ func removeUnit(units, name string) error {
 // as at a handover. A record taken on is kept as unitsSaved, so it is written
 // again only once it changes. A record that does not parse, of another
 // system start, of a unit none of whose roots runs, or that does not name its
-// unit is deleted, and one that cannot be read is left. The watcher, which
-// holds the lock, is the folder's only writer, so the temporary files of
-// writes in it are those of a watcher that was killed, and each is deleted
-// whatever its age (see [operation.RemoveWrites]); a file of any other name
-// is not Workbench's, and stays. Every record is left when the folder cannot
-// be listed or the system start read: restoreUnits then reports false, and
-// the next tick tries again, taking on no unit already tracked.
+// unit is deleted, and one that cannot be read is left. The folder is sorted
+// as at a handover (see unitRecordIDs): the temporary files of killed writes
+// go, and a file of any other name than a record's stays. Every record is
+// left when the folder cannot be listed or the system start read:
+// restoreUnits then reports false, and the next tick tries again, taking on
+// no unit already tracked.
 func (w *watcher) restoreUnits(s snapshot) bool {
-	operation.RemoveWrites(w.f.units)
-	entries, err := listFolder(w.f.units)
+	ids, err := unitRecordIDs(w.f.units)
 	if errors.Is(err, fs.ErrNotExist) {
 		return true
 	}
@@ -185,11 +206,7 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 		w.unitsFailed(err)
 		return false
 	}
-	for _, entry := range entries {
-		id, ok := unitFile(entry.Name())
-		if !ok {
-			continue
-		}
+	for _, id := range ids {
 		if _, tracked := w.tracked[id]; tracked {
 			continue
 		}
@@ -203,7 +220,7 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 			continue
 		}
 		if json.Unmarshal(data, &rec) != nil || rec.Boot != boot || rec.Note.ToolUseID != id {
-			_ = removeUnit(w.f.units, entry.Name())
+			_ = removeUnit(w.f.units, id+".json")
 			continue
 		}
 		unit := rec.Detached
@@ -211,7 +228,7 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 			return !s.alive(r.PID, r.Start)
 		})
 		if len(unit.Roots) == 0 {
-			_ = removeUnit(w.f.units, entry.Name())
+			_ = removeUnit(w.f.units, id+".json")
 			continue
 		}
 		if rec.Call != nil && rec.Call.ID == unit.Call {
