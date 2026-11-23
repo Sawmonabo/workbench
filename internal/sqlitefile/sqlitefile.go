@@ -70,6 +70,11 @@ type Options struct {
 // the caller without one, which meets it again on its own first connection
 // and says it as it says its other errors. Its errors name path once (see
 // [FileError]), except those of o.Prepare.
+//
+// The calling process must hold no other connection to the file at path:
+// the private create, and the look for the reason of a file SQLite cannot
+// open, open and close it outside the driver, which would drop that
+// connection's locks (see [CheckHeader]).
 func Open(path string, o Options) (*sql.DB, error) {
 	query := make([]string, 0, len(o.Pragmas)+3)
 	if o.ReadOnly {
@@ -318,9 +323,9 @@ const headerSize = 100
 // reason, for a file whose header is not an SQLite database's.
 var ErrNotADatabase = errors.New("not an SQLite database")
 
-// CheckHeader reads the first 100 bytes of the file at path, the database
-// header, and fails with [ErrNotADatabase] when they are not those of a
-// database the writer could open
+// CheckHeader reads the first 100 bytes of the database file open as file,
+// the database header, and fails with [ErrNotADatabase] when they are not
+// those of a database the writer could open
 // (https://www.sqlite.org/fileformat2.html#the_database_header): the magic
 // string "SQLite format 3\x00", a page size that is a power of two from 512
 // to 65536 (65536 written as 1), file format versions of 1 (rollback
@@ -331,16 +336,21 @@ var ErrNotADatabase = errors.New("not an SQLite database")
 // a file whose write version is past 2 read-only. It reads nothing else, so
 // it costs the same whatever the file's size; a page damaged past the header
 // is SQLite's to find, when it reads it. A file that cannot be read fails
-// with the error reading it, which names path once (see [FileError]).
-func CheckHeader(path string) error {
-	file, err := os.Open(path)
-	if err != nil {
-		return FileError(path, err)
-	}
-	defer func() { _ = file.Close() }()
+// with the error reading it, which names the file once (see [FileError]).
+//
+// It reads through file and never opens the path: closing any descriptor of
+// a file drops every POSIX advisory lock the process holds on it, SQLite's
+// included, after which another process that closes the database, one built
+// on SQLite before 3.51.0 such as Python's sqlite3, takes itself for its last
+// user and deletes the -wal and -shm files from under the connection
+// (https://sqlite.org/howtocorrupt.html#_posix_advisory_locks_canceled_by_a_separate_thread_doing_close_).
+// So a process that holds a connection to the file reads it only through one
+// descriptor it opens once and closes only after that connection has closed.
+func CheckHeader(file *os.File) error {
+	path := file.Name()
 	header := make([]byte, headerSize)
-	n, err := io.ReadFull(file, header)
-	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+	n, err := file.ReadAt(header, 0)
+	if errors.Is(err, io.EOF) {
 		return fmt.Errorf(
 			"%s: %w: it holds %d bytes, less than a header",
 			operation.ShowHomePath(path),

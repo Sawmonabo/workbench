@@ -163,12 +163,16 @@ type Summary struct {
 
 // History is the history file, opened for writing by the watcher's writer
 // and by the command that sets the time kept, and for reading by the view.
-// opened is the file a writer opened, for [History.Check], and sides its -wal
-// and -shm files as last seen at its path, for [History.Close].
+// A writer holds file, a descriptor of the file it opened, from just after
+// SQLite opened it until after the connection has closed, for
+// [History.Check], which reads the header through it (see
+// [sqlitefile.CheckHeader]); opened is that file's identity, and sides its
+// -wal and -shm files as last seen at its path, for [History.Close].
 type History struct {
 	root, path string
 	write      bool
 	db         *sql.DB
+	file       *os.File
 	opened     os.FileInfo
 	sides      []os.FileInfo
 }
@@ -241,10 +245,21 @@ func OpenHistory(root string, write bool) (*History, error) {
 	}
 	h.db = db
 	if write {
-		if h.opened, err = os.Stat(h.path); err != nil {
+		// The one descriptor of the file this process opens beside SQLite's
+		// (see History.Check); it closes only after the connection.
+		file, err := os.Open(h.path)
+		var info os.FileInfo
+		if err == nil {
+			info, err = file.Stat()
+		}
+		if err != nil {
 			_ = db.Close()
+			if file != nil {
+				_ = file.Close()
+			}
 			return nil, sqlitefile.FileError(h.path, err)
 		}
+		h.file, h.opened = file, info
 		// SQLite opens the -wal and -shm files at the first read after the
 		// switch to WAL, so one is made before they are noted.
 		_, _ = db.ExecContext(context.Background(), "PRAGMA user_version")
@@ -270,21 +285,26 @@ func sidesAt(path string) []os.FileInfo {
 // fails with an error matching fs.ErrNotExist when the path names no file,
 // and with [ErrHistoryUnusable] when it names another file (by device and
 // inode) than the one opened, or one whose header is not a database's (see
-// [sqlitefile.CheckHeader]). It reads the header alone, so it costs the same
-// whatever the history's size: a full integrity check reads every page. While
-// the path names the opened file, it notes the -wal and -shm files beside it
-// again, for [History.Close].
+// [sqlitefile.CheckHeader]). It reads the header alone, through the
+// descriptor the writer holds, never opening the path, so the writer's
+// SQLite locks stay its own; and so it costs the same whatever the history's
+// size: a full integrity check reads every page. While the path names the
+// opened file, it notes the -wal and -shm files beside it again, for
+// [History.Close].
 func (h *History) Check() error {
+	if !h.write {
+		return fmt.Errorf("%s: a history opened for reading is never checked", h.path)
+	}
 	info, err := os.Stat(h.path)
 	switch {
 	case err != nil:
 		return sqlitefile.FileError(h.path, err)
-	case h.opened != nil && !os.SameFile(info, h.opened):
+	case !os.SameFile(info, h.opened):
 		return fmt.Errorf("%w: %s is another file than the one the writer opened",
 			ErrHistoryUnusable, h.path)
 	}
 	h.sides = sidesAt(h.path)
-	err = sqlitefile.CheckHeader(h.path)
+	err = sqlitefile.CheckHeader(h.file)
 	if errors.Is(err, sqlitefile.ErrNotADatabase) {
 		return fmt.Errorf("%w: %w", ErrHistoryUnusable, err)
 	}
@@ -304,9 +324,19 @@ func (h *History) Check() error {
 // it last saw beside the file it opened (see [History.Check]). Side files that
 // came with another file stay with it. The checkpoint waits at most the busy
 // timeout for another connection to that file; a WAL it could not empty is
-// deleted all the same.
+// deleted all the same. A writer's descriptor of the file it opened closes
+// last, once the connection has (see [sqlitefile.CheckHeader]).
 func (h *History) Close() error {
-	if !h.write || h.opened == nil {
+	err := h.closeDB()
+	if h.file != nil {
+		err = cmp.Or(err, h.file.Close())
+	}
+	return err
+}
+
+// closeDB is [History.Close] but for the writer's descriptor.
+func (h *History) closeDB() error {
+	if !h.write {
 		return h.db.Close()
 	}
 	if info, err := os.Stat(h.path); err == nil && os.SameFile(info, h.opened) {

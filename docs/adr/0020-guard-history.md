@@ -94,7 +94,14 @@ take from whichever agent started it, so two shells could disagree.
   its cache lacks a page, so once a minute the watcher also checks that the
   path still names the file it opened and that its 100-byte header is a
   database's, which takes microseconds where SQLite's own quick check took
-  54 ms on a 100 MB file. Before it lets go of a file the path no longer
+  54 ms on a 100 MB file. It reads the header through a descriptor it opens
+  beside SQLite's and closes only after the connection, never by opening
+  the path: closing any descriptor of a file drops every POSIX lock the
+  process holds on it, SQLite's too, and a program built on SQLite before
+  3.51.0 (Python's `sqlite3`, for one) that then opens and closes the
+  history takes itself for its last user and deletes the `-wal` and `-shm`
+  from under the writer, whose later rows then reach no reader and are lost
+  if it is killed. Before it lets go of a file the path no longer
   names, the writer checkpoints the WAL into it, since SQLite does not for
   a moved database: a history moved elsewhere keeps every row. It then
   deletes that file's `-wal` and `-shm` at the path, so a file put in its

@@ -425,11 +425,21 @@ and order them.
    to 65536, file format versions 1 or 2, at least 480 usable bytes a page
    and payload fractions 64, 32 and 32, the values of the file format, which
    SQLite checks when it opens a file. A file that fails it, or is gone, is a
-   history that cannot be used. SQLite neither checkpoints nor deletes the
-   WAL of a database its path no longer names, and the WAL is part of the
-   database's persistent state, so before it closes a file gone from the
-   path or replaced there the writer checkpoints the WAL into that file,
-   wherever it is now: a history moved elsewhere keeps every row. It then
+   history that cannot be used. The writer reads the header through a
+   descriptor of the file it opens once, just after SQLite opened it, and
+   closes only after the connection has closed, never by opening the path:
+   closing any descriptor of a file drops every POSIX lock the process holds on
+   it, SQLite's included (sqlite.org/howtocorrupt.html, section 2.2), and a
+   program built on SQLite before 3.51.0, such as Python's `sqlite3`, that then
+   opens and closes the history takes itself for its last user and deletes the
+   `-wal` and `-shm` from under the writer, whose later rows reach no reader
+   and are lost if it is killed. So no process that holds a connection to a
+   history or the ledger opens and closes that file, or its `-wal` or `-shm`,
+   outside the driver. SQLite neither checkpoints nor deletes the WAL of a
+   database its path no longer names, and the WAL is part of the database's
+   persistent state, so before it closes a file gone from the path or replaced
+   there the writer checkpoints the WAL into that file, wherever it is now: a
+   history moved elsewhere keeps every row. It then
    deletes the `-wal` and `-shm` it last saw beside that file, where they
    are still at the path, since SQLite would pair them with the database
    there next; side files that came with a file put in its place stay, and
