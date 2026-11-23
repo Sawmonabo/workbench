@@ -80,11 +80,12 @@ type handover struct {
 }
 
 // carried is what the old watcher hands over beside the notes on disk, which
-// the new one reads itself: the tracked commands' roots, notes and memory,
-// the calls whose command ended or that are passed over, the largest peak,
-// the commands that finished within finishedShown, who stopped each tracked
-// command that was signalled, the call records, the agents the guard knows
-// and the processes stamps named as agents, which live only in memory. The
+// the new one reads itself: the tracked commands' roots, notes and memory
+// (see usage), the calls whose command ended or that are passed over, the
+// largest peak, the finished commands the history does not hold yet, which the
+// new watcher's writer writes, who stopped each tracked command that was
+// signalled, the call records, the agents the guard knows and the processes
+// stamps named as agents, which live only in memory. The
 // notes let the new watcher end a command whose note was deleted, ended,
 // while the watch passed. A unit is
 // carried with its made-up note, its roots and call (Detached) and its
@@ -100,7 +101,7 @@ type carried struct {
 	Passed      []string            `json:"passed"`
 	Usage       map[string]usage    `json:"usage"`
 	LargestPeak uint64              `json:"largest_peak"`
-	Finished    []CommandView       `json:"finished"`
+	Pending     []Finished          `json:"pending"`
 	StoppedBy   map[string]string   `json:"stopped_by"`
 	Records     []callRecord        `json:"records"`
 	Known       []agentFile         `json:"known"`
@@ -154,16 +155,20 @@ func (w *watcher) identify() {
 // runs. Called after each tick, it starts that release's watcher with this
 // one's lock, so the lock is never free and no hook starts a third, and keeps
 // watching until the new watcher says it is ready. Then, at a calm moment
-// with no stop cooling down, whose memory the new watcher would not have, it
-// logs the handover, sends what it carries, which tells the new watcher to
-// start, and reports true: the caller exits without another tick, so two
-// watchers never act at once. A stop under way finishes first, because it
-// runs within a tick. A command that cannot be read, a file that does not
-// start, a watcher that is not ready within readyWait, such as one of a
-// release without handover, which finds the lock held and exits, or one that
-// does not take what is carried within startWait, leaves this watcher
-// running, logged once; it tries again only once the command resolves to
-// another file.
+// with no stop cooling down, whose memory the new watcher would not have, and
+// with every finished command written to the history, or its last write
+// failed, it stops the history writer, so only the new watcher's writes the
+// history from then on, logs the handover, sends what it carries, which tells
+// the new watcher to start, and reports true: the caller exits without
+// another tick, so two watchers never act at once. The commands not written
+// cross, and the new watcher's writer writes them; one written meanwhile is
+// written once all the same (see History.Insert). A stop under way finishes
+// first, because it runs within a tick. A command that cannot be read, a file
+// that does not start, a watcher that is not ready within readyWait, such as
+// one of a release without handover, which finds the lock held and exits, or
+// one that does not take what is carried within startWait, leaves this
+// watcher running, logged once, its history writer started again; it tries
+// again only once the command resolves to another file.
 func (w *watcher) handOver() bool {
 	h := w.pending
 	// A person's stop still owed its SIGKILL is not carried, so it holds the
@@ -189,6 +194,12 @@ func (w *watcher) handOver() bool {
 	if !quiet {
 		return false
 	}
+	// A writer that is not failing writes what it has within a poll or two.
+	if w.takeWritten(); len(w.unwritten) > 0 && w.history.failure() == "" {
+		return false
+	}
+	w.history.drain(drainWait)
+	w.takeWritten()
 	w.f.event(slog.LevelInfo, EventHandover,
 		fmt.Sprintf("watcher handing over from %s to %s", w.version, h.release),
 		"old_release", w.version, "new_release", h.release, "new_pid", h.process.Pid)
@@ -203,6 +214,7 @@ func (w *watcher) handOver() bool {
 	}
 	if err != nil {
 		w.cancelHandover(err)
+		w.history.start(w.f.root)
 		return false
 	}
 	_ = h.start.Close()
@@ -348,7 +360,7 @@ func (w *watcher) carried() carried {
 		Shown:       map[string]string{},
 		Usage:       map[string]usage{},
 		LargestPeak: w.largestPeak,
-		Finished:    w.finished,
+		Pending:     w.unwritten,
 		StoppedBy:   map[string]string{},
 		Records:     w.records.all(),
 		Ancestry:    w.ancestry.carry(time.Now()),
@@ -469,8 +481,8 @@ func takeListener() *net.UnixListener {
 }
 
 // adopt takes on what the old watcher carried: the largest peak, the
-// finished commands, which buildView drops finishedShown after they ended as
-// it does its own, who stopped each tracked command, the call records, each in
+// finished commands the history does not hold yet, which this watcher's
+// writer writes, who stopped each tracked command, the call records, each in
 // place of the one this watcher made from the note on disk, which holds no
 // shell, the known agents and the processes stamps named as agents that are
 // still in the process table, before this tick builds its protected set, the
@@ -481,14 +493,17 @@ func takeListener() *net.UnixListener {
 // tracked again with its memory, whether it is passed over, and logged. One
 // whose root is gone is tracked without a log, so forget ends it as it ends
 // any command, once its root has been absent for two rounds: it logs the end
-// once and keeps it among the finished commands with who stopped it, and the
-// note on disk is never matched again. A tracked command carried without
-// memory starts it anew. A unit is taken on as adoptUnit says. Other notes
-// are matched as a new watcher matches them (see match).
+// once and puts it, with who stopped it, on the finished commands the history
+// does not hold yet, and the note on disk is never matched again. A tracked
+// command carried without memory starts it anew. A unit is taken on as
+// adoptUnit says. Other notes are matched as a new watcher matches them (see
+// match).
 func (w *watcher) adopt(s snapshot, notes []note) {
 	c := w.inherited
 	w.largestPeak = max(w.largestPeak, c.LargestPeak)
-	w.finished = append(w.finished, c.Finished...)
+	for _, f := range c.Pending {
+		w.addFinished(f)
+	}
 	maps.Copy(w.stoppedBy, c.StoppedBy)
 	for _, rec := range c.Records {
 		w.records.keep(rec)

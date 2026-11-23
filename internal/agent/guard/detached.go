@@ -729,7 +729,7 @@ func (w *watcher) forgetUnit(s snapshot, id string, c command) {
 	if w.stoppedBy[id] != "" {
 		state = stateStopped
 	}
-	w.finish(w.commandView(id, c, state))
+	w.finish(w.commandView(id, c, state), w.usage[id])
 	w.untrack(id)
 }
 

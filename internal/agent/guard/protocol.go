@@ -4,7 +4,7 @@ import "time"
 
 // protocolVersion is the version of the messages the watcher's socket speaks:
 // JSON Lines, one message per line, each with its type.
-const protocolVersion = 1
+const protocolVersion = 2
 
 // The message types. A client says hello with the versions it speaks; the
 // watcher answers hello with the highest it shares and its release, or error
@@ -17,11 +17,6 @@ const (
 	messageStop     = "stop"
 	messageStopped  = "stopped"
 )
-
-// finishedShown is how long a finished command stays in the snapshots; one
-// whose call started a detached program stays for as long as that program
-// does (see buildView).
-const finishedShown = 60 * time.Second
 
 // The states of a command in a snapshot.
 const (
@@ -47,15 +42,24 @@ type message struct {
 }
 
 // Snapshot is what the watcher sees at one tick: the machine's memory, the
-// largest peak any command reached since the watcher started, and the
-// commands and detached programs it tracks, newest first, then those that
-// finished, the latest first: within the last minute, or earlier for a
-// command while a detached program its call started still shows.
+// largest peak any command reached since the watcher started, the commands
+// and detached programs it tracks, newest first, and the commands that
+// finished that the history does not hold yet, oldest first, each whole, at
+// most pendingLimit bytes of them (see keepWithin); the history holds every
+// other finished command.
+// HistoryError is what the view says of the history, empty when there is
+// nothing to say: "Guard history cannot be written: REASON" while the last
+// write failed (the writer tries again every ten seconds), else, while the
+// copy of a history that could not be used is kept, "Guard history was
+// damaged and started again at TIME; the old file is PATH": the history the
+// writer started then is a new file, whose commands are numbered from 1 again.
 type Snapshot struct {
-	At          time.Time     `json:"at"`
-	Memory      MemoryView    `json:"memory"`
-	LargestPeak uint64        `json:"largest_peak"`
-	Commands    []CommandView `json:"commands"`
+	At           time.Time     `json:"at"`
+	Memory       MemoryView    `json:"memory"`
+	LargestPeak  uint64        `json:"largest_peak"`
+	Commands     []CommandView `json:"commands"`
+	Pending      []Finished    `json:"pending"`
+	HistoryError string        `json:"history_error"`
 }
 
 // MemoryView is the machine's memory, in bytes, as the guard reads it. Level
@@ -78,12 +82,14 @@ type MemoryView struct {
 // project, folder and command text, its state (running, stopping, done,
 // unmatched or stopped), who stopped it (guard or you), whether its note is a
 // dry run, when it was noted and when it ended, its memory now and at its
-// peak in bytes, its latest sizes, oldest first, and its process tree with
-// each process's memory. Kind is empty for a command, else detached for a
-// program that detached from a command; PID is a detached program's first
-// root that runs, and LaunchedBy the ID of the call that started it, empty
-// when unknown. Held is, for a detached program that runs,
-// why the guard itself will not choose it now: "no call" (no call is proved
+// peak in bytes, the graph of its memory over its whole run in bytes per bar,
+// oldest first, at most graphBars bars, each the largest of the readings it
+// covers (see usage), and its process tree with each process's memory. Kind
+// is empty for a command, else detached for a program that detached from a
+// command; PID is a detached program's first root that runs, and LaunchedBy
+// the ID of the call that started it, empty when unknown. Held is, for a
+// detached program that runs, why the guard itself will not choose it now:
+// "no call" (no call is proved
 // to have started it), "young" (none of its roots has been tracked ten
 // seconds since it was found or started its program) or "unread" (none of
 // those is settled: its setting cannot be read, or it is being judged

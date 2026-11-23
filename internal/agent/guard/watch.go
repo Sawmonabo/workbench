@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"runtime/debug"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"golang.org/x/sys/unix"
@@ -36,28 +38,136 @@ const (
 	abandonAfter = 10 * time.Minute
 
 	refusalLimit = 3
-
-	// samplesKept is how many of a command's latest sizes are kept: two
-	// minutes at the normal tick.
-	samplesKept = 120
 )
 
 // usage is a tracked command's memory, measured each tick over the processes
-// a stop would signal: its latest sizes in bytes, oldest first, at most
-// samplesKept of them, the largest it has had, and when it was first tracked.
+// a stop would signal, kept for as long as it is tracked and handed over as it
+// is: the graph of its whole run in at most graphBars buckets, oldest first,
+// each the largest of Per readings (Filled of them in the newest bucket so
+// far), the latest reading, the largest it has had, which is always in the
+// graph, and when it was first tracked. Processes are the processes it has
+// had, by PID and start, each with its latest name and its peak resident size,
+// at most processesKept of them after each cut (see cut); Unlisted counts the
+// ones cut, each once, and Outside are the ones cut that still ran at the last
+// reading, so they are not taken for new processes while they run. The zero
+// value, or one with only Since, is a command not measured yet.
 type usage struct {
-	Samples []uint64  `json:"samples"`
-	Peak    uint64    `json:"peak"`
-	Since   time.Time `json:"since"`
+	Buckets   []uint64                 `json:"buckets"`
+	Per       int                      `json:"per"`
+	Filled    int                      `json:"filled"`
+	Last      uint64                   `json:"last"`
+	Peak      uint64                   `json:"peak"`
+	Since     time.Time                `json:"since"`
+	Processes map[procKey]*ProcessPeak `json:"processes"`
+	Unlisted  int                      `json:"unlisted"`
+	Outside   map[procKey]bool         `json:"outside,omitempty"`
 }
 
-// add records one size, dropping the oldest beyond samplesKept.
+// add records one reading: in the newest bucket until it holds Per readings,
+// else in a new one. When graphBars buckets are full, neighbors merge into
+// the larger first and Per doubles, so the graph covers the whole run.
 func (u *usage) add(size uint64) {
-	u.Samples = append(u.Samples, size)
-	if extra := len(u.Samples) - samplesKept; extra > 0 {
-		u.Samples = slices.Delete(u.Samples, 0, extra)
+	u.Last, u.Peak = size, max(u.Peak, size)
+	per := max(u.Per, 1)
+	if n := len(u.Buckets); n > 0 && u.Filled < per {
+		u.Buckets[n-1] = max(u.Buckets[n-1], size)
+		u.Filled++
+		return
 	}
-	u.Peak = max(u.Peak, size)
+	if len(u.Buckets) >= graphBars {
+		merged := u.Buckets[:0]
+		for i := 0; i < len(u.Buckets); i += 2 {
+			merged = append(merged, slices.Max(u.Buckets[i:min(i+2, len(u.Buckets))]))
+		}
+		u.Buckets, per = merged, per*2
+	}
+	u.Per, u.Filled = per, 1
+	u.Buckets = append(u.Buckets, size)
+}
+
+// processesCut is how many processes a command may hold before cut keeps the
+// largest processesKept: a quarter more, so the cut, which sorts them, runs
+// once for every few thousand new processes, not at every tick.
+const processesCut = processesKept + processesKept/4
+
+// saw records the processes of one reading, tree with the resident sizes read
+// for it by PID (a zombie, not read, counts 0): each one's peak, and its name
+// as it is now, since a process that execs keeps its PID and start. A process
+// cut before (see cut) is not taken again while it runs.
+func (u *usage) saw(tree []proc, sizes map[int]uint64) {
+	if u.Processes == nil {
+		u.Processes = map[procKey]*ProcessPeak{}
+	}
+	var outside map[procKey]bool
+	for _, p := range tree {
+		key := procKey{p.PID, p.Start}
+		size := sizes[p.PID]
+		if kept := u.Processes[key]; kept != nil {
+			kept.Peak = max(kept.Peak, size)
+			if p.Name != "" && p.Name != kept.Name {
+				kept.Name = strings.Clone(p.Name)
+			}
+			continue
+		}
+		if u.Outside[key] {
+			if outside == nil {
+				outside = map[procKey]bool{}
+			}
+			outside[key] = true
+			continue
+		}
+		// A clone, so the name never holds on to the text it was read from.
+		u.Processes[key] = &ProcessPeak{PID: p.PID, Name: strings.Clone(p.Name), Peak: size}
+	}
+	if len(u.Processes) > processesCut {
+		outside = u.cut(tree, outside)
+	}
+	u.Outside = outside
+}
+
+// cut keeps the processesKept processes with the largest peaks, counts each
+// other one in Unlisted and adds those of tree among them to outside, which it
+// gives.
+func (u *usage) cut(tree []proc, outside map[procKey]bool) map[procKey]bool {
+	type entry struct {
+		key  procKey
+		peak uint64
+	}
+	entries := make([]entry, 0, len(u.Processes))
+	for key, p := range u.Processes {
+		entries = append(entries, entry{key, p.Peak})
+	}
+	slices.SortFunc(entries, func(a, b entry) int {
+		return cmp.Or(cmp.Compare(b.peak, a.peak), cmp.Compare(a.key.pid, b.key.pid),
+			cmp.Compare(a.key.start, b.key.start))
+	})
+	live := make(map[procKey]bool, len(tree))
+	for _, p := range tree {
+		live[procKey{p.PID, p.Start}] = true
+	}
+	for _, e := range entries[processesKept:] {
+		delete(u.Processes, e.key)
+		u.Unlisted++
+		if live[e.key] {
+			if outside == nil {
+				outside = map[procKey]bool{}
+			}
+			outside[e.key] = true
+		}
+	}
+	return outside
+}
+
+// peaks are the processes kept, the largest peak first, at most
+// processesKept of them, and how many the command had that are not among
+// them.
+func (u *usage) peaks() ([]ProcessPeak, int) {
+	all := make([]ProcessPeak, 0, len(u.Processes))
+	for _, p := range u.Processes {
+		all = append(all, *p)
+	}
+	kept, left := keptProcesses(all)
+	return kept, u.Unlisted + left
 }
 
 // seenNote is a note the watcher has read: its command, agent with its kind
@@ -169,11 +279,17 @@ type watcher struct {
 	view   Snapshot
 	// manual are the stops people asked for, by call, while they are followed
 	// (see followManual); stoppedBy names who stopped each tracked command
-	// that was signalled, guard or you; finished are the commands that ended
-	// within finishedShown, for the snapshots.
+	// that was signalled, guard or you.
 	manual    map[string]*manualStop
 	stoppedBy map[string]string
-	finished  []CommandView
+	// unwritten are the commands that finished, oldest first, until the
+	// history writer reports them written, at most pendingLimit of them (see
+	// keepWithin); dropped counts those dropped since the list was last
+	// empty. history is the writer, which runs while this watcher holds the
+	// lock.
+	unwritten []Finished
+	dropped   int
+	history   historyWriter
 	// list, tickSnap and tickBelow are the process list, snapshot and parent
 	// index each tick builds again in the last tick's (see tickSnapshot,
 	// snapshot.belowInto). Only tick builds them, and nothing keeps them, or
@@ -190,6 +306,25 @@ type watcher struct {
 type procKey struct {
 	pid   int
 	start uint64
+}
+
+// MarshalText writes a procKey as "PID-START", so a map keyed by processes
+// (see usage) is carried to the next watcher; as a value it is written by
+// MarshalJSON.
+func (k procKey) MarshalText() ([]byte, error) {
+	return fmt.Appendf(nil, "%d-%d", k.pid, k.start), nil
+}
+
+// UnmarshalText reads a procKey written by MarshalText.
+func (k *procKey) UnmarshalText(text []byte) error {
+	pid, start, ok := strings.Cut(string(text), "-")
+	p, err1 := strconv.Atoi(pid)
+	s, err2 := strconv.ParseUint(start, 10, 64)
+	if !ok || err1 != nil || err2 != nil {
+		return fmt.Errorf("%q does not name a process", text)
+	}
+	*k = procKey{p, s}
+	return nil
 }
 
 // Watch is the watcher, at most one per user, started detached by the pre
@@ -212,8 +347,10 @@ func Watch(ctx context.Context, version string) {
 	// the ancestry store full.
 	debug.SetMemoryLimit(32 << 20)
 	debug.SetGCPercent(50)
-	// The watcher never opens a database, so it lets go of what the SQLite
-	// driver's C library built at start-up for one (see platform).
+	// The watcher looks up no service or protocol by name, and nor does the
+	// SQLite driver's C library its history writer opens the history through,
+	// so it lets go of the tables that library built at start-up for such a
+	// lookup (see platform).
 	platform.ReleaseServiceTables()
 	state, err := stateFolder()
 	if err != nil {
@@ -256,10 +393,14 @@ func Watch(ctx context.Context, version string) {
 	}
 	// The socket file is removed on the way out while the lock is still this
 	// watcher's, except when the lock was lost: another watcher may serve
-	// the path by then.
-	unlink := true
+	// the path by then. A watcher that handed over carried what it had not
+	// written; any other gives the writer drainWait to write it first.
+	unlink, handed := true, false
 	defer func() {
 		w.dropHandover()
+		if !handed {
+			w.stopHistory()
+		}
 		// Checked again now, not only at the last tick: a state folder
 		// replaced since then holds another watcher's socket at this path.
 		w.closeServer(unlink && w.ownsLock())
@@ -269,22 +410,7 @@ func Watch(ctx context.Context, version string) {
 	if err := w.f.open(); err != nil {
 		return
 	}
-	detached, err := operation.RotateOutput(w.f.output(), logLimit)
-	if err != nil {
-		w.f.event(
-			slog.LevelError,
-			EventError,
-			"cannot rotate the watcher's output file",
-			"error",
-			err,
-		)
-	}
-	if detached {
-		// The output record times the lines the output file gets after it
-		// (see [ReadLog]).
-		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("watcher output",
-			"event", EventOutput, "part", "watch", "pid", os.Getpid())
-	}
+	w.rotateOutput()
 	w.f.event(slog.LevelInfo, EventStarted, "watcher started", "release", version)
 	if moved {
 		w.f.event(slog.LevelInfo, EventMoved, "moved the guard folder to "+w.f.root)
@@ -293,6 +419,10 @@ func Watch(ctx context.Context, version string) {
 		w.f.event(slog.LevelError, EventError,
 			"cannot move the guard folder; the watcher works in it where it is", "error", moveErr)
 	}
+	// Only now, in the folder it stays in, so the history is never made at
+	// the folder's old path or held open across its move (see moveFolder).
+	w.history.f = w.f
+	w.history.start(w.f.root)
 	w.identify()
 	if err := w.listen(); err != nil {
 		w.listenFailed(err)
@@ -308,6 +438,7 @@ func Watch(ctx context.Context, version string) {
 			w.server.broadcast(w.view)
 		}
 		if w.handOver() {
+			handed = true
 			return
 		}
 		if w.pending != nil {
@@ -319,6 +450,21 @@ func Watch(ctx context.Context, version string) {
 		w.wait(func() bool { return ctx.Err() != nil }, next)
 	}
 	w.f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
+}
+
+// rotateOutput bounds the watcher's output file (see [operation.RotateOutput])
+// and, when this watcher writes to it, starts it with the output record,
+// which times the lines the file gets after it (see [ReadLog]).
+func (w *watcher) rotateOutput() {
+	detached, err := operation.RotateOutput(w.f.output(), logLimit)
+	if err != nil {
+		w.f.event(slog.LevelError, EventError, "cannot rotate the watcher's output file",
+			"error", err)
+	}
+	if detached {
+		slog.New(slog.NewJSONHandler(os.Stderr, nil)).Info("watcher output",
+			"event", EventOutput, "part", "watch", "pid", os.Getpid())
+	}
 }
 
 // moveFolder moves the guard folder from its old path to agent/guard, when
@@ -375,10 +521,12 @@ func (w *watcher) ownsLock() bool {
 // Only notes that parse and whose agent runs count, so a broken note cannot
 // keep the watcher alive. It logs why it does not carry on. The socket is
 // closed and its file removed before the lock goes, and served anew once the
-// lock is taken again.
+// lock is taken again; so is the history writer stopped and started again,
+// since only the lock's holder writes the history.
 func (w *watcher) carryOn() bool {
 	w.closeServer(true)
 	w.inheritedListener = nil
+	w.history.drain(drainWait)
 	w.release()
 	w.release = func() {}
 	if s, err := w.snapshot(); err == nil {
@@ -394,10 +542,35 @@ func (w *watcher) carryOn() bool {
 		return false
 	}
 	w.idleSince = time.Now()
+	w.history.start(w.f.root)
 	if err := w.listen(); err != nil {
 		w.listenFailed(err)
 	}
 	return true
+}
+
+// stopHistory gives the history writer drainWait to write the finished
+// commands it has not written, as the watcher exits, and logs how many it did
+// not write, and how many were dropped before it could, when any.
+func (w *watcher) stopHistory() {
+	left := w.history.drain(drainWait)
+	w.takeWritten()
+	if left > 0 || w.dropped > 0 {
+		w.f.event(
+			slog.LevelWarn,
+			EventError,
+			fmt.Sprintf(
+				"finished commands not written to the guard history as the watcher exits: %d",
+				left+w.dropped,
+			),
+			"unwritten",
+			left,
+			"dropped",
+			w.dropped,
+			"error",
+			w.history.failure(),
+		)
+	}
 }
 
 // tick runs one round and returns the time to the next. When the process
@@ -663,7 +836,7 @@ func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 					ID: id, Agent: string(seen.kind), Subagent: seen.subagent,
 					Project: seen.project, Cwd: seen.cwd, Command: seen.command,
 					State: stateUnmatched, Started: seen.at,
-				})
+				}, nil)
 			}
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -802,11 +975,11 @@ func (w *watcher) endAttrs(c command) []any {
 	return append(callAttrs(c), "took", time.Since(c.Note.NotedAt).Seconds(), "peak", peak)
 }
 
-// measure adds each tracked command's size this tick to its usage: the
-// resident sizes over the tree a stop would signal, without protected
-// processes, a unit's over the trees of its live roots. A command that no
-// longer runs is left for forget. It gives each measured command's tree with
-// the sizes it read.
+// measure adds each tracked command's size this tick to its usage, with the
+// peak of each of its processes: the resident sizes over the tree a stop would
+// signal, without protected processes, a unit's over the trees of its live
+// roots. A command that no longer runs is left for forget. It gives each
+// measured command's tree with the sizes it read.
 func (w *watcher) measure(
 	s snapshot,
 	below parents,
@@ -821,6 +994,7 @@ func (w *watcher) measure(
 		}
 		tree, sizes := s.commandTreeIn(below, c, skip), map[int]uint64{}
 		u.add(w.size(tree, residentInto(sizes)))
+		u.saw(tree, sizes)
 		w.largestPeak = max(w.largestPeak, u.Peak)
 		trees[id] = treeView(tree, sizes)
 	}
@@ -906,7 +1080,7 @@ func (w *watcher) forget(s snapshot) {
 			if w.stoppedBy[id] != "" {
 				state = stateStopped
 			}
-			w.finish(w.commandView(id, c, state))
+			w.finish(w.commandView(id, c, state), w.usage[id])
 			w.untrack(id)
 			// Only a call whose note is still on disk is remembered: once notes
 			// has deleted it, ended, nothing can match it again and notes would

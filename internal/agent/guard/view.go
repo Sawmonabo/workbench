@@ -4,6 +4,8 @@ package guard
 
 import (
 	"cmp"
+	"fmt"
+	"log/slog"
 	"slices"
 	"strings"
 	"time"
@@ -45,45 +47,100 @@ func (w *watcher) commandView(id string, c command, state string) CommandView {
 		v.By = w.stoppedBy[id]
 	}
 	if u := w.usage[id]; u != nil {
-		v.Peak, v.History = u.Peak, slices.Clone(u.Samples)
-		if n := len(u.Samples); n > 0 && state != stateDone && state != stateStopped {
-			v.Memory = u.Samples[n-1]
+		// A copy: the buckets change in place at the next reading, while a
+		// client may still be writing this snapshot.
+		v.Peak, v.History = u.Peak, slices.Clone(u.Buckets)
+		if state != stateDone && state != stateStopped {
+			v.Memory = u.Last
 		}
 	}
 	return v
 }
 
-// finish keeps a command that ended for the snapshots that follow (see
-// buildView).
-func (w *watcher) finish(v CommandView) {
-	v.Ended, v.Memory, v.Tree = time.Now(), 0, nil
-	w.finished = append(w.finished, v)
+// finish puts a command that ended, v with its usage u (nil for one never
+// measured), on the list of those the history does not hold yet and hands it
+// to the history writer, without waiting on it: its graph, its processes,
+// the largest peak first, at most processesKept of them, and its command cut
+// at commandKept bytes, as the history keeps them. A Finished is never changed
+// once made: the writer and the snapshots share it.
+func (w *watcher) finish(v CommandView, u *usage) {
+	f := Finished{CommandView: v}
+	f.Ended = time.Now()
+	f.PID, f.Held, f.Memory, f.History, f.Tree = 0, "", 0, nil, nil
+	f.Command, f.Cut = keptCommand(f.Command)
+	if u != nil {
+		f.Graph = slices.Clone(u.Buckets)
+		f.Processes, f.Unlisted = u.peaks()
+	}
+	w.addFinished(f)
+}
+
+// addFinished puts f on the list of finished commands the history does not
+// hold yet and hands it to the writer. Past pendingLimit the oldest are
+// dropped: the first drop since the list was last empty is logged, and the
+// count once the list is empty again (see takeWritten).
+func (w *watcher) addFinished(f Finished) {
+	w.history.submit(f)
+	var dropped int
+	w.unwritten, dropped = keepWithin(append(w.unwritten, f), pendingLimit)
+	if dropped == 0 {
+		return
+	}
+	if w.dropped == 0 {
+		w.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
+			"the finished commands the guard history has not taken are over %d MiB; "+
+				"dropping the oldest, which are not kept", pendingLimit>>20),
+			"dropped", dropped, "error", w.history.failure())
+	}
+	w.dropped += dropped
+}
+
+// takeWritten takes the commands the writer has written off the list of
+// those the history does not hold yet, and logs how many were dropped once
+// the list is empty again.
+func (w *watcher) takeWritten() {
+	written := w.history.done()
+	if len(written) == 0 {
+		return
+	}
+	ids := make(map[string]bool, len(written))
+	for _, id := range written {
+		ids[id] = true
+	}
+	w.unwritten = slices.DeleteFunc(w.unwritten, func(f Finished) bool { return ids[f.ID] })
+	if len(w.unwritten) == 0 && w.dropped > 0 {
+		w.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
+			"finished commands dropped before the guard history could take them: %d",
+			w.dropped), "dropped", w.dropped)
+		w.dropped = 0
+	}
+}
+
+// historyError is what the snapshot says of the history at now (see
+// Snapshot.HistoryError).
+func (w *watcher) historyError(now time.Time) string {
+	if failure := w.history.failure(); failure != "" {
+		return "Guard history cannot be written: " + failure
+	}
+	at, copied := w.history.damaged()
+	if at.IsZero() {
+		return ""
+	}
+	clock := at.Format("3:04 PM")
+	if y, m, d := at.Date(); y != now.Year() || m != now.Month() || d != now.Day() {
+		clock = at.Format("Jan 2 3:04 PM")
+	}
+	return "Guard history was damaged and started again at " + clock + "; the old file is " + copied
 }
 
 // buildView is the snapshot of this tick: s and m, the tracked commands with
 // their trees as measure read them, a unit that runs with why the guard
-// itself will not choose it now (see held), then the commands that finished
-// within finishedShown, whose older ones it forgets. A finished command is
-// kept past that for as long as a unit its call started shows, tracked or
-// finished within finishedShown, so the view always has the command to draw
-// such a unit under; it is judged again each tick, so a unit that loses its
-// call lets the command go.
+// itself will not choose it now (see held), and the finished commands the
+// history does not hold yet, after taking off those the writer has written
+// since the last tick, with what there is to say of the history.
 func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView) Snapshot {
 	now := time.Now()
-	started := map[string]bool{}
-	for _, c := range w.tracked {
-		if c.Detached != nil && c.Detached.Call != "" {
-			started[c.Detached.Call] = true
-		}
-	}
-	for _, v := range w.finished {
-		if v.LaunchedBy != "" && now.Sub(v.Ended) < finishedShown {
-			started[v.LaunchedBy] = true
-		}
-	}
-	w.finished = slices.DeleteFunc(w.finished, func(v CommandView) bool {
-		return now.Sub(v.Ended) >= finishedShown && !started[v.ID]
-	})
+	w.takeWritten()
 	var running []CommandView
 	for id, c := range w.tracked {
 		state := stateRunning
@@ -112,11 +169,12 @@ func (w *watcher) buildView(s snapshot, m memory, trees map[string][]ProcessView
 	slices.SortFunc(running, func(a, b CommandView) int {
 		return cmp.Or(b.Started.Compare(a.Started), cmp.Compare(a.ID, b.ID))
 	})
-	finished := slices.Clone(w.finished)
-	slices.SortFunc(finished, func(a, b CommandView) int { return b.Ended.Compare(a.Ended) })
 	return Snapshot{
-		At: now, Memory: memoryView(m), LargestPeak: w.largestPeak,
-		Commands: slices.Concat(running, finished),
+		At: now, Memory: memoryView(m), LargestPeak: w.largestPeak, Commands: running,
+		// A copy: the list changes in place, while a client may still be
+		// writing this snapshot.
+		Pending:      slices.Clone(w.unwritten),
+		HistoryError: w.historyError(now),
 	}
 }
 

@@ -86,8 +86,8 @@ func (w *watcher) stopFor(
 	// size is what the guard's own stop records: the tree's footprint (Pss on
 	// Linux), read now, or the last reading when none of it can be read.
 	size := w.size(s.commandTree(c, outside(protected)), platform.Footprint)
-	if u := w.usage[id]; size == 0 && u != nil && len(u.Samples) > 0 {
-		size = u.Samples[len(u.Samples)-1]
+	if u := w.usage[id]; size == 0 && u != nil {
+		size = u.Last
 	}
 	stopping := append(w.endAttrs(c), "by", "you", "size", size)
 	if c.Note.DryRun {
