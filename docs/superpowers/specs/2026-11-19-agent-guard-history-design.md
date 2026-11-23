@@ -480,6 +480,7 @@ store's failure, when it has one. A view and a watcher of two releases say so as
 | Concern | Owner |
 | --- | --- |
 | The history file: schema, open, writes, trim, moving a damaged one aside, reads, the `keep` setting | `internal/agent/guard/history.go` |
+| The three warnings (cannot be written, damaged and started again, unreadable) and the paths in them named from the home folder, said in the same words by the watcher's snapshot, the view and `agent guard history` | `internal/agent/guard/historyview.go` |
 | `agent guard history` and its `--keep` flag | `internal/cli/agentguard.go` |
 | The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string and the switch to WAL with its retry when two creators meet | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file, its schema and `makePrivate` |
 | The list, the filter, the details and the panel | `internal/cli/agentguardview.go` |

@@ -323,17 +323,17 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 	switch {
 	case errors.Is(err, fs.ErrNotExist):
 	case err != nil:
-		return guardHistoryUnreadable(err, facts.Path)
+		return guardHistoryUnreadable(err, root)
 	default:
 		defer func() { _ = history.Close() }()
 		held = ""
 		keep, err := history.Keep(cmd.Context())
 		if err != nil {
-			return guardHistoryUnreadable(err, facts.Path)
+			return guardHistoryUnreadable(err, root)
 		}
 		facts.KeepSeconds = int64(keep / time.Second)
 		if facts.Commands, facts.Bytes, err = history.Count(cmd.Context()); err != nil {
-			return guardHistoryUnreadable(err, facts.Path)
+			return guardHistoryUnreadable(err, root)
 		}
 	}
 	if o.json {
@@ -382,16 +382,16 @@ func setGuardHistoryKeep(
 	path := guard.HistoryFile(root)
 	history, err := guard.OpenHistory(root, true)
 	if err != nil {
-		return guardHistoryUnreadable(err, path)
+		return guardHistoryUnreadable(err, root)
 	}
 	defer func() { _ = history.Close() }()
 	was, err := history.Keep(cmd.Context())
 	if err != nil {
-		return guardHistoryUnreadable(err, path)
+		return guardHistoryUnreadable(err, root)
 	}
 	if err := history.SetKeep(cmd.Context(), keep); err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
-			"Cannot set how long finished commands are kept: "+shownError(err, path))
+			"Cannot set how long finished commands are kept: "+guard.ShowPaths(err.Error(), root))
 	}
 	watching := guardWatcherServes(cmd.Context())
 	deleted := 0
@@ -399,7 +399,7 @@ func setGuardHistoryKeep(
 		if deleted, err = trimGuardHistory(cmd.Context(), history); err != nil {
 			return operation.Fail(operation.ExitFailed, "guard-history",
 				"Finished commands are kept "+keptText(keep)+", but the older ones cannot be "+
-					"deleted: "+shownError(err, path))
+					"deleted: "+guard.ShowPaths(err.Error(), root))
 		}
 	}
 	if o.json {
@@ -545,20 +545,16 @@ func keptText(keep time.Duration) string {
 	return keep.String()
 }
 
-// guardHistoryUnreadable is the error of a history at path that cannot be
-// read, as the view says it: "Guard history unreadable: REASON". A file that
-// is not a guard history is invalid state; any other reason a failure.
-func guardHistoryUnreadable(err error, path string) error {
+// guardHistoryUnreadable is the error of a history in the guard folder root
+// that cannot be read, as the view says it (see guard.HistoryUnreadable). A
+// file that is not a guard history is invalid state; any other reason a
+// failure.
+func guardHistoryUnreadable(err error, root string) error {
 	code := operation.ExitFailed
 	if errors.Is(err, guard.ErrHistoryUnusable) {
 		code = operation.ExitInvalid
 	}
-	return operation.Fail(code, "guard-history", "Guard history unreadable: "+shownError(err, path))
-}
-
-// shownError is err's text with the history's path as output shows paths.
-func shownError(err error, path string) string {
-	return strings.ReplaceAll(err.Error(), path, showPath(path))
+	return operation.Fail(code, "guard-history", guard.HistoryUnreadable(err, root))
 }
 
 // runningAfter is how long a tracked command runs before a followed log
