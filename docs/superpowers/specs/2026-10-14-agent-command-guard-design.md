@@ -222,7 +222,9 @@ macOS temp folder is pruned of files older than three days.
   watch.lock                          held by the running watcher, passed
                                       on at a handover (section 6.5)
   watch.log                           JSON Lines (section 4.1), cut in place
-                                      to its newest half past 1 MiB
+                                      to its newest half past 1 MiB, and of
+                                      its records older than the time the
+                                      history keeps
   watch.err, watch.err.1              the watcher's stdout and stderr, never
                                       cut; a watcher that starts while
                                       watch.err is past 1 MiB renames it to

@@ -41,7 +41,9 @@ const (
 // historyWriter writes the history in the guard folder: each finished command
 // handed to it (see submit), in one transaction each, oldest first, and a trim
 // when it starts and once a minute, in steps with the commands handed to it
-// between them (see History.Trim). After a failure it tries again every
+// between them (see History.Trim). As often, once it has read the time kept,
+// and while the history cannot be used too, it deletes the guard log's records
+// older than the time kept it last read (see CutLogBefore). After a failure it tries again every
 // writeRetry, and logs the failure once, until a write succeeds. A history it
 // cannot use (see ErrHistoryUnusable), found by any of its operations, it
 // moves aside (see MoveDamaged), keeping at most two copies, starts a new one
@@ -273,7 +275,7 @@ func (h *historyWriter) noteCopy(root string) {
 // nil until it opens it, and the time kept it last read, 0 before any; when to
 // try again after a failure, zero while none; when the last history it could
 // not use was moved aside by it; when the next trim starts and whether the
-// last trim step had more to delete.
+// last trim step had more to delete; when the guard log is next cut.
 type writerRun struct {
 	h        *historyWriter
 	root     string
@@ -283,12 +285,18 @@ type writerRun struct {
 	replaced time.Time
 	trimAt   time.Time
 	trimming bool
+	cutAt    time.Time
 }
 
 // step does what is due at now, if anything, and reports whether it did:
-// open the history, write the oldest command not written, or one trim step.
-// After a failure nothing is due until writeRetry has passed.
+// cut the guard log, open the history, write the oldest command not written,
+// or one trim step. After a failure nothing is due until writeRetry has
+// passed but the cut of the log, which needs only the time kept.
 func (r *writerRun) step(now time.Time) bool {
+	if r.keep > 0 && !now.Before(r.cutAt) {
+		r.cutLog(now)
+		return true
+	}
 	switch {
 	case now.Before(r.retry):
 		return false
@@ -368,6 +376,23 @@ func (r *writerRun) trim(now time.Time) {
 	}
 	r.trimAt = now.Add(trimEvery)
 	r.h.noteCopy(r.root)
+}
+
+// cutLog reads the time kept again, so a longer one set meanwhile keeps its
+// lines, and deletes the guard log's records older than it (see
+// CutLogBefore), or than the one last read when the history cannot be read
+// now; the next cut is due trimEvery later. Until a time kept was read it cuts
+// nothing, so a history that was never read never makes it guess one. It is
+// best effort, as a write of the log is: a log that cannot be cut is tried
+// again at the next cut.
+func (r *writerRun) cutLog(now time.Time) {
+	r.cutAt = now.Add(trimEvery)
+	if r.history != nil {
+		if keep, err := r.history.Keep(context.Background()); err == nil {
+			r.keep = keep
+		}
+	}
+	_ = CutLogBefore(r.root, now.Add(-r.keep))
 }
 
 // succeeded ends a failure: nothing waits out a retry any more.
@@ -468,11 +493,14 @@ func (r *writerRun) last() {
 }
 
 // wait waits until a command is handed to the writer, drain asks it to stop,
-// or the retry or next trim is due.
+// or the retry, the next trim or the next cut of the log is due.
 func (r *writerRun) wait(wake <-chan struct{}) {
 	next := r.trimAt
 	if now := time.Now(); now.Before(r.retry) {
 		next = r.retry
+	}
+	if r.keep > 0 && r.cutAt.Before(next) {
+		next = r.cutAt
 	}
 	timer := time.NewTimer(time.Until(next))
 	defer timer.Stop()

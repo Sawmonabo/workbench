@@ -32,7 +32,8 @@ Non-goals:
 
 - No mouse. A plain drag keeps selecting text (ADR 14).
 - No history older than the time kept, no export of it and no `--json` for
-  it; `workbench agent guard logs --json` stays the machine-readable record.
+  it; `workbench agent guard logs --json` stays the machine-readable record,
+  and its records go once older than the time kept too (rule 5).
 - No memory reading per process over time; a process keeps its peak.
 - No change to what the guard stops, or when.
 
@@ -359,7 +360,12 @@ and order them.
    beyond 20,000; then those with the lowest `seq` while the pages in use
    (`page_count - freelist_count`) take more than 256 MiB. The view leaves
    out rows older than `keep` too, so a history no watcher trims shows no
-   more than is kept.
+   more than is kept. As often, once it has read `keep`, and while the
+   history cannot be used, the writer reads `keep` again and deletes the
+   guard log's records whose `time` is before `now - keep`, in place through
+   `operation.RewriteLog`, behind a new `cut` record, so a follower keeps its
+   place; a line whose time cannot be read stays. `agent guard history
+   --keep` does the same after its trim.
 6. **Every process.** A tracked command keeps each process it has had, by
    PID and start, with its name and its peak resident size: at most 10,000,
    the largest peaks, counting the rest in `unlisted`. The details then say

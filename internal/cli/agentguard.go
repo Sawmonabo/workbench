@@ -253,7 +253,8 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"the size of the history and its file. Finished commands are kept 24 hours " +
 			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
 			"to 30d. A shorter time deletes the older commands at once, without asking, " +
-			"whether a watcher runs or not, and says how many. A longer time " +
+			"whether a watcher runs or not, and says how many, and the guard log's records " +
+			"older than the time kept go with them. A longer time " +
 			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
@@ -407,18 +408,6 @@ func setGuardHistoryKeep(
 			"Finished commands are kept "+keptText(keep)+", but the older ones cannot be "+
 				"deleted: "+guard.ShowPaths(err.Error(), root))
 	}
-	if o.json {
-		result.Results = append(result.Results, operation.Component{
-			Name: "guard-history", Status: operation.StatusComplete,
-			Details: guardHistoryKept{
-				Path:        path,
-				KeepSeconds: int64(keep / time.Second),
-				WasSeconds:  int64(was / time.Second),
-				Deleted:     deleted,
-			},
-		})
-		return nil
-	}
 	line := "Finished commands are kept " + keptText(keep)
 	switch {
 	case keep < was:
@@ -432,6 +421,23 @@ func setGuardHistoryKeep(
 		line += ", as before; " + deletedText(deleted) + "."
 	default:
 		line += ", as before."
+	}
+	if err := guard.CutLogBefore(root, time.Now().Add(-keep)); err != nil {
+		return operation.Fail(operation.ExitFailed, "guard-history",
+			strings.TrimSuffix(line, ".")+", but the guard log's older records cannot be "+
+				"deleted: "+guard.ShowPaths(err.Error(), root))
+	}
+	if o.json {
+		result.Results = append(result.Results, operation.Component{
+			Name: "guard-history", Status: operation.StatusComplete,
+			Details: guardHistoryKept{
+				Path:        path,
+				KeepSeconds: int64(keep / time.Second),
+				WasSeconds:  int64(was / time.Second),
+				Deleted:     deleted,
+			},
+		})
+		return nil
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 	return err

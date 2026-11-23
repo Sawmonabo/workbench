@@ -419,9 +419,14 @@ and time or time of today in the machine's time zone (`2026-10-16`,
 `2026-10-16 21:00`, `21:00`), or an RFC 3339 time; a line of the watcher's
 output, which has no time, is kept unless the next watcher started before
 then. `--follow` (`-f`) waits for files that do not exist yet and keeps its
-place by byte offset, so a cut of the log (to its newest half, or a
-migration's that drops lines from the middle) and a rotation of the output
-neither skip nor repeat a line, even lines that read the same. The log is
+place by byte offset, so a cut of the log (to its newest half past 1 MiB, of
+the records older than the time the history keeps, or a migration's that drops
+lines from the middle) and a rotation of the output neither skip nor repeat a
+line, even lines that read the same. The log keeps a record no longer than the
+history keeps its command, so the start of a command a record holds goes with
+it: the watcher deletes the older records once a minute, and `agent guard
+history --keep` as it trims; a line with no time, such as a crash's trace,
+stays until the size cut. The log is
 JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
 `handover`, `moved`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
 `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and
@@ -600,8 +605,9 @@ days or weeks from `1h` to `30d` (`12h`, `3d`, `1w`); any other value exits 2
 and sets nothing. The oldest leave first: a command that ended longer ago than
 the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
 when younger. A shorter time deletes the older commands at once, without
-asking, with any copy of a damaged history set aside longer ago (see below),
-whether a watcher runs or not, and says how many: the command trims the
+asking, with any copy of a damaged history set aside longer ago (see below)
+and the guard log's records older than the time kept,
+whether a watcher runs or not, and says how many commands: the command trims the
 history itself in the watcher's small steps, each at most 200 commands, 2,000
 of their processes and 512 KB of their text, and leaves the history to the
 watcher between steps, so the watcher goes on writing meanwhile. A longer time

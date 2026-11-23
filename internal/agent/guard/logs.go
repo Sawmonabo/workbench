@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"io/fs"
 	"log/slog"
 	"path/filepath"
 	"time"
@@ -101,6 +103,48 @@ func logFile(root string) string { return filepath.Join(root, "watch.log") }
 // watch.err, which is never cut, only renamed to watch.err.1 by a watcher
 // that starts while it is over the log's cap (see [operation.RotateOutput]).
 func outputFile(path string) string { return filepath.Join(filepath.Dir(path), "watch.err") }
+
+// CutLogBefore deletes the records of the guard log in the guard folder root
+// whose time is before since, the start of the time the history keeps, so
+// the start of a command the log keeps with each record about it goes when
+// the history lets the command go, however small the log. It cuts the log in
+// place (see [operation.RewriteLog]), so a reader keeps its place and a
+// writer goes on appending. A line whose time cannot be read, such as a
+// crash's trace, stays. A missing log is no error.
+func CutLogBefore(root string, since time.Time) error {
+	err := operation.RewriteLog(logFile(root), func(body []byte) [][2]int {
+		var keep [][2]int
+		at := 0
+		for line := range bytes.Lines(body) {
+			end := at + len(line)
+			if written, ok := recordTime(line); !ok || !written.Before(since) {
+				if last := len(keep) - 1; last >= 0 && keep[last][1] == at {
+					keep[last][1] = end
+				} else {
+					keep = append(keep, [2]int{at, end})
+				}
+			}
+			at = end
+		}
+		return keep
+	})
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+	return err
+}
+
+// recordTime is the time a guard log record was written, the first field
+// [slog.JSONHandler] writes, read without decoding the rest of the line.
+func recordTime(line []byte) (time.Time, bool) {
+	rest, ok := bytes.CutPrefix(line, []byte(`{"time":"`))
+	end := bytes.IndexByte(rest, '"')
+	if !ok || end < 0 {
+		return time.Time{}, false
+	}
+	written, err := time.Parse(time.RFC3339Nano, string(rest[:end]))
+	return written, err == nil
+}
 
 // LogPath is the guard log's path, in the guard folder where Root says, once
 // the folder passes the checks every entry applies to it (see

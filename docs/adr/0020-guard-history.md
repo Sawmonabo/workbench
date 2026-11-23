@@ -119,6 +119,11 @@ take from whichever agent started it, so two shells could disagree.
   never move a damaged one; they say it cannot be read. `--keep` trims the
   history itself, whether a watcher runs or not, so the older commands go at
   once.
+- The guard log records the start of each command, so it keeps a record no
+  longer than the history's time kept, whatever its size under the 1 MiB
+  cap: the watcher's writer deletes the older records once a minute, once it
+  has read the time kept, and `--keep` as it trims, both in place through
+  `operation.RewriteLog`, so a follower keeps its place.
 
 ## Sources
 
