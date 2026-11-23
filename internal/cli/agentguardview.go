@@ -1627,18 +1627,21 @@ func (m *guardView) historyWarning() string {
 }
 
 // guardColumns are the list's columns. COMMAND shrinks first, to 20 cells,
-// then SUBAGENT, PROJECT, PEAK and AGENT drop in that order, then COMMAND
-// shrinks further; ENDED never drops.
+// then SUBAGENT, PROJECT, PEAK, AGENT and TIME drop in that order, then
+// COMMAND shrinks further; ENDED never drops. TIME, how long a command ran,
+// goes last of them: the details say it, and a window too narrow for it
+// still shows what runs, its memory now, when it ended and what it was. ID,
+// which holds a detached program's tree mark, stays.
 var guardColumns = []column{
 	{Head: "ID"},
 	{Head: "STATUS"},
-	{Head: "AGENT", Drop: 1},
-	{Head: "SUBAGENT", Drop: 4},
-	{Head: "TIME", Right: true},
+	{Head: "AGENT", Drop: 2},
+	{Head: "SUBAGENT", Drop: 5},
+	{Head: "TIME", Right: true, Drop: 1},
 	{Head: "MEMORY", Right: true},
-	{Head: "PEAK", Right: true, Drop: 2},
+	{Head: "PEAK", Right: true, Drop: 3},
 	{Head: "ENDED", Right: true},
-	{Head: "PROJECT", Drop: 3},
+	{Head: "PROJECT", Drop: 4},
 	{Head: "COMMAND", Clip: true, Keep: 20},
 }
 
