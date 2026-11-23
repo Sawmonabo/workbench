@@ -127,8 +127,13 @@ exits when it is not, and hooks and import workers started just before.
    stay, every entry uses them where they are (rule 2), the migration
    counts as done, and `workbench migrate` and `doctor` say why. Where only
    the swap tells, as on an overlay file system that keeps the folder in an
-   image's lower layer, the migration stays pending: each run tries, leaves
-   the folder in use where it is, says why and succeeds.
+   image's lower layer (`EXDEV`), the first move that tries it leaves the
+   folder in use where it is and marks it with an extended attribute
+   (`user.workbench.cannot-swap`) holding the device it is on. A marked
+   folder on that device is one whose file system cannot swap: no entry
+   takes its lock to move it and the migration counts it as done. On
+   another device, as when the overlay is mounted anew, the mark is
+   ignored and the next move tries once more.
 6. **Old and new both exist, and the old folder's lock is free.** The new
    folder is in use and nothing is merged into it. From the old one a move
    deletes what Workbench may delete: logs, `.err` output files, downloaded

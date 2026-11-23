@@ -27,7 +27,9 @@ import (
 // returns an error matching platform.ErrSwapUnsupported: when
 // [platform.CanSwap] says so it writes nothing at all, and when only the swap
 // tells (an overlay file system refusing a folder of a lower layer) it
-// removes the file it made. Any other failed swap also removes that file, and
+// removes the file it made and marks the folder at from (see
+// [platform.MarkCannotSwap]), so CanSwap says so from then on and no move
+// takes a lock for it again. Any other failed swap also removes that file, and
 // a failed move removes the folder above to when it made that folder itself
 // and nothing else is in it; a move that finds that folder gone before it
 // wrote in it makes it once more. moved is true with an error only when the swap
@@ -66,7 +68,8 @@ func moveReason(from, to string, err error) error {
 // not, and the file system holding from can swap two names or cannot be
 // asked, since the swap then says why it fails. err matches
 // platform.ErrSwapUnsupported, and can is false, when [platform.CanSwap] says
-// that file system cannot. A caller that must hold a lock to move asks first,
+// that file system cannot, or that it refused this folder before (see
+// MoveFolder). A caller that must hold a lock to move asks first,
 // so a move that cannot happen never takes it; MoveFolder asks again, under
 // that lock, where it decides.
 func CanMoveFolder(from, to string) (can bool, err error) {
@@ -119,6 +122,9 @@ func moveFolder(from, to string) (moved bool, err error) {
 	if err := platform.SwapNames(from, to); err != nil {
 		if info, statErr := os.Lstat(to); statErr == nil && info.Mode().IsRegular() {
 			_ = os.Remove(to)
+		}
+		if errors.Is(err, platform.ErrSwapUnsupported) {
+			platform.MarkCannotSwap(from)
 		}
 		return false, err
 	}

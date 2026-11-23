@@ -239,9 +239,10 @@ func (f *folders) again() bool {
 // file system that cannot swap moves nothing and is no error: the folder
 // stays in use where it is. With no folder at the old path, a folder already
 // at the new one, or a file system that [platform.CanSwap] says cannot swap,
-// it moves nothing and takes no lock (see [operation.CanMoveFolder]), which
-// an entry asking whether a watcher works in the old folder would take for
-// one (see Root).
+// as it says of a folder whose swap was refused once (see
+// [operation.MoveFolder]), it moves nothing and takes no lock (see
+// [operation.CanMoveFolder]), which an entry asking whether a watcher works
+// in the old folder would take for one (see Root).
 func Move(state string) (moved bool, err error) {
 	moved, _, err = move(state, operation.TryLockIn)
 	return moved, err

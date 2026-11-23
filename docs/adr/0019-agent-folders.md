@@ -78,9 +78,12 @@ using.
   done for the migration and blocks no apply; `migrate --dry-run` and
   `doctor` say why it stays. An overlay file system refuses to swap only a
   folder of an image's lower layer (`EXDEV`), which no call tells without
-  trying: such a folder stays listed as pending, and each run tries it,
-  leaves it in use where it is, says why and succeeds, so it blocks no apply
-  either. An old folder beside one already in use is not
+  trying: the first move that tries it (a hook, a costs entry, a watcher or
+  the migration) leaves it in use where it is and marks it with an extended
+  attribute holding the device it is on. From then on `CanSwap` says that
+  folder cannot swap, as on HFS+: no entry takes its lock to move it, the
+  migration counts it as done, and nothing tries it again until it is on
+  another device, as when the overlay is mounted anew. An old folder beside one already in use is not
   merged: its logs, output files, locks, sockets, downloaded price lists and
   empty folders are deleted, under the old folder's lock held shared, which
   keeps a watcher or an import from starting there and which no asker takes

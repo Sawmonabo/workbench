@@ -933,9 +933,17 @@ synthetic answers.
   `migrate --dry-run --json` then `--approve-plan DIGEST` moved each folder
   whole under `agent/` and left at each old path a 0600 file holding
   `kern.bootsessionuuid`; a second `migrate --dry-run` listed the migration
-  done. Not observed: a move while a watcher or an import works in an old
-  folder, a watcher of the release before handing over across it, an old
-  folder beside one in use, HFS+, an overlay file system, Linux and WSL2.
+  done. On 2026-11-23, in a Linux container (kernel 7.0.14-linuxkit, Docker
+  29.8.2, Ubuntu 26.04 arm64) whose image held the three old folders, the
+  first pre hook and the first `agent costs status` each took the folder's
+  lock once and met `EXDEV`; later hooks, `agent costs status` and `migrate`
+  took no lock and tried no swap, and `migrate --dry-run` listed the
+  migration done, naming each folder as left in use where it is. The same
+  folders made at run time in that container moved under `agent/` at the
+  first pre hook and `agent costs status`. Not observed: a move while a
+  watcher or an import works in an old folder, a watcher of the release
+  before handing over across it, an old folder beside one in use, HFS+ and
+  WSL2.
 - The official prices an import downloads are kept in the ledger (schema
   version 6, tables `prices` and `price_lists`). A version 5 ledger is
   upgraded in place in one transaction that keeps every row and fills those

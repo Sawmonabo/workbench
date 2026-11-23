@@ -332,8 +332,9 @@ entry moving the folder, which takes it only when the folder can move. So
 entries asking at the same moment never take each other for one, and
 `workbench migrate` tries a lock it finds held again for about 100 ms. On a file system that cannot swap two names, such as HFS+, the folders
 stay and are used where they are, and so does a folder an overlay file
-system keeps in a container image's lower layer, which only the move finds
-out: each `workbench migrate` there tries it again and says why it stays. An
+system keeps in a container image's lower layer, which only a move finds
+out: the first move that tries it marks the folder with an extended
+attribute, and from then on nothing tries again on that mount. An
 old folder found beside one already in use is not merged: its logs, output files, locks, sockets, downloaded price
 lists and empty folders are deleted, and anything else, such as a ledger or a
 note, stays. `workbench migrate --dry-run` and `workbench doctor` name an old

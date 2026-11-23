@@ -19,8 +19,12 @@ func SwapNames(a, b string) error {
 // existing folder above, can swap two names (see SwapNames), without trying:
 // whether its volume has VOL_CAP_INT_RENAME_SWAP, read with getattrlist on
 // the volume's mount point, as renamex_np(2) says. APFS has it and HFS+ does
-// not. The error is a statfs or getattrlist failure.
+// not. A folder [MarkCannotSwap] marked after a refused swap cannot swap.
+// The error is a statfs or getattrlist failure.
 func CanSwap(path string) (bool, error) {
+	if markedCannotSwap(path) {
+		return false, nil
+	}
 	stat, err := existingStatfs(path)
 	if err != nil {
 		return false, err
