@@ -691,11 +691,26 @@ func TryLockFile(path string) (f *os.File, held bool, err error) {
 // exist: it creates the file when missing but makes no folder, so a missing
 // folder, or a plain file in its place, fails it.
 func TryLockIn(path string) (f *os.File, held bool, err error) {
+	return tryLockIn(path, syscall.LOCK_EX)
+}
+
+// TryLockInShared is [TryLockIn] with a shared lock, kept until f closes,
+// for a process that must keep the lock's holder from starting while it
+// works, without being taken for that holder: the holder takes the lock
+// exclusively, which any shared one refuses, while [LockHeld] asks with a
+// shared lock, which only an exclusive one refuses. held is true while a
+// process holds the lock exclusively.
+func TryLockInShared(path string) (f *os.File, held bool, err error) {
+	return tryLockIn(path, syscall.LOCK_SH)
+}
+
+// tryLockIn is [TryLockIn] with the lock how (LOCK_EX or LOCK_SH).
+func tryLockIn(path string, how int) (f *os.File, held bool, err error) {
 	f, err = os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 	if err != nil {
 		return nil, false, err
 	}
-	held, err = flockNonBlocking(f)
+	held, err = tryFlock(f, how)
 	if held || err != nil {
 		_ = f.Close()
 		return nil, held, err

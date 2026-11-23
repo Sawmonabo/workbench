@@ -123,7 +123,12 @@ exits when it is not, and hooks and import workers started just before.
    deletes what Workbench may delete: logs, `.err` output files, downloaded
    price lists, sockets, locks and empty folders, then the folder when it
    is empty. Anything else (a ledger, a note) stays, and `workbench
-   migrate` and `doctor` name it.
+   migrate` and `doctor` name it. It deletes holding the old folder's lock
+   shared, without waiting: a watcher or an import, which takes that lock
+   exclusively, cannot start there meanwhile, and an entry asking whether
+   one works there (rule 2) is not refused, so a pre hook in that instant
+   still writes its note in the new folder and starts a watcher there.
+   When the lock is held exclusively, it deletes nothing.
 7. **A lock taken to move is let go after the move.** The entry then
    carries on as it always does and takes what locks it needs anew, at the
    new path.

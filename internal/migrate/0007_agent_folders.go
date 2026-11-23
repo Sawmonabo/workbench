@@ -348,12 +348,20 @@ func deletable(name string) bool {
 }
 
 // clear deletes from an old folder beside the one in use what sortOut lists
-// to go, holding the lock of the process that would work in it, so none
-// starts there meanwhile; when that lock is held, it deletes nothing. A folder
-// something was added to meanwhile stays.
+// to go, holding the lock of the process that would work in it (a guard
+// watcher or a costs import), so none starts there meanwhile and finds its
+// lock, log or socket deleted under it. It holds that lock shared (see
+// [operation.TryLockInShared]): the process takes it exclusively, which the
+// shared lock refuses, while an entry asking whether one works in the old
+// folder asks with a shared lock too and is not refused, so it never takes
+// clear for that process. A pre hook asking meanwhile therefore writes its
+// note in the guard folder in use, at the new path, and starts a watcher
+// there when none runs, and a costs entry works in the costs folders in use.
+// When a process holds that lock, clear deletes nothing. A folder something
+// was added to meanwhile stays.
 func (s folderState) clear() error {
 	if s.lock != "" {
-		lock, held, err := operation.TryLockIn(s.lock)
+		lock, held, err := operation.TryLockInShared(s.lock)
 		switch {
 		case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		case err != nil:
