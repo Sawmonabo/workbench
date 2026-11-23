@@ -116,8 +116,11 @@ exits when it is not, and hooks and import workers started just before.
    new, empty one: an import worker cannot make a ledger, and a watcher
    cannot take a lock. A move never replaces a folder.
 4. **The file at the old path** stays until the machine has restarted: an
-   entry that finds one holding another start's identifier deletes it,
-   since no process from before can still run. The identifier, not a time,
+   entry that finds one, a 0600 file of the user's holding nothing but
+   another start's identifier, in the shape of a UUID, deletes it, since no
+   process from before can still run. The file is written and synced under
+   a temporary name before it takes its name, so it is never empty; an
+   empty file, or anything else, at the old path stays. The identifier, not a time,
    decides: a clock set forward after a sleep moves the time a system says
    it started.
 5. **A file system that cannot swap** two names moves nothing. The folders

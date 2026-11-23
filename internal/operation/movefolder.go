@@ -6,7 +6,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -133,27 +132,21 @@ func moveFolder(from, to string) (moved bool, err error) {
 
 // ClosePath puts the file a [MoveFolder] leaves, 0600 and holding
 // [platform.BootID], at a path where nothing is, so a process that would make
-// a folder there fails. closed says it made the file; whatever is there
+// a folder there fails. It writes the file as [CreatePrivateFile] does, synced
+// under a temporary name and put in place without replacing anything, then
+// syncs the folder, so after a crash or a power loss path holds the whole
+// file or nothing (a crash before the file takes its name can leave the
+// temporary file beside it). closed says it made the file; whatever is there
 // already stays, and so does a missing folder above path.
 func ClosePath(path string) (closed bool, err error) {
 	boot, err := platform.BootID()
 	if err != nil {
 		return false, err
 	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY|syscall.O_NOFOLLOW, 0o600)
-	switch {
+	switch err = CreatePrivateFile(path, []byte(boot)); {
 	case errors.Is(err, fs.ErrExist):
 		return false, nil
 	case err != nil:
-		return false, err
-	}
-	if _, err = file.WriteString(boot); err != nil {
-		_ = file.Close()
-		_ = syscall.Unlink(path)
-		return false, err
-	}
-	if err = file.Close(); err != nil {
-		_ = syscall.Unlink(path)
 		return false, err
 	}
 	return true, nil
@@ -166,16 +159,24 @@ func IsFolder(path string) bool {
 	return err == nil && info.IsDir()
 }
 
-// RemoveClosedPath deletes the plain file a [MoveFolder] left at path once
-// the system has restarted since: it holds a start identifier other than the
-// current [platform.BootID], so no process that named the folder there can
-// still run. It does nothing for anything else (a folder, a missing path, a
-// file holding the current identifier, an empty or unreadable file) or when
-// the current identifier cannot be read. It unlinks, so it never removes a
-// folder that took the file's place.
+// RemoveClosedPath deletes the file a [MoveFolder] or [ClosePath] left at
+// path once the system has restarted since: a regular file of mode 0600, the
+// user's, holding nothing but a start identifier in the shape
+// [platform.BootID] gives (see [platform.IsBootID]) other than the current
+// one, so no process that named the folder there can still run. Both write
+// that file synced before it takes its name, so neither ever leaves an empty
+// one: an empty file at path is someone else's and stays. So does anything
+// else (a folder, a missing path, a file holding the current identifier or
+// any other text, of another mode or another owner, or that cannot be read),
+// and everything when the current identifier cannot be read. It unlinks, so
+// it never removes a folder that took the file's place.
 func RemoveClosedPath(path string) {
 	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() || info.Size() == 0 || info.Size() > closedPathSize {
+	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 ||
+		info.Size() != platform.BootIDLength {
+		return
+	}
+	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Geteuid() {
 		return
 	}
 	boot, err := platform.BootID()
@@ -186,13 +187,8 @@ func RemoveClosedPath(path string) {
 	if err != nil {
 		return
 	}
-	held := strings.TrimSpace(string(data))
-	if held == "" || held == boot {
+	if held := string(data); !platform.IsBootID(held) || held == boot {
 		return
 	}
 	_ = syscall.Unlink(path)
 }
-
-// closedPathSize bounds the file [RemoveClosedPath] reads: a start identifier
-// is a UUID, so a larger file is not one a move left.
-const closedPathSize = 64
