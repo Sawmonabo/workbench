@@ -324,9 +324,10 @@ type AccountMark struct {
 
 // markSource is a source that keeps account marks outside its transcripts
 // (Claude Code's prompt history and saved sign-ins); ingest stores them each
-// run.
+// run. Marks returns what it found, and an error when it couldn't read all of
+// where they are kept.
 type markSource interface {
-	Marks(home string) []AccountMark
+	Marks(home string) ([]AccountMark, error)
 }
 
 // finisher is a source that saves its state once a read of a file ends,

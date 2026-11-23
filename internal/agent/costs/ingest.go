@@ -340,16 +340,22 @@ func resolveRun(
 // run has read its transcripts, so every row it stored lies between this
 // observation and an earlier run's. A tool with no transcripts is observed too.
 // It also stores the account marks a tool keeps outside its transcripts
-// (markSource).
+// (markSource): those it found when it couldn't read them all, whose error it
+// then returns, so the run's notes name it.
 func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 	now := time.Now()
 	marks := map[string][]AccountMark{}
+	var unread []error
 	for _, tool := range Tools {
 		if source, ok := tool.Source.(markSource); ok {
-			marks[tool.Name] = source.Marks(home)
+			found, err := source.Marks(home)
+			marks[tool.Name] = found
+			if err != nil {
+				unread = append(unread, err)
+			}
 		}
 	}
-	return ledger.Transaction(ctx, nil, func(tx *Tx) error {
+	err := ledger.Transaction(ctx, nil, func(tx *Tx) error {
 		for _, tool := range Tools {
 			if tool.Source == nil {
 				continue
@@ -365,6 +371,7 @@ func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 		}
 		return nil
 	})
+	return errors.Join(append([]error{err}, unread...)...)
 }
 
 // finishIngest stores a run's notes in the ledger and writes them to the log.

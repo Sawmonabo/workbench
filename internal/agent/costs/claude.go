@@ -5,6 +5,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -14,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -262,7 +265,13 @@ func (claude) SignIns(home string) []SignIn {
 // have succeeded, and the account id and organization of each sign-in on disk
 // (claudeSignIns), which pair the two. A /login that failed only splits a
 // login stretch in two, which names fewer rows, never another account.
-func (claude) Marks(home string) []AccountMark {
+//
+// It returns what it found, with an error when history.jsonl is there but
+// can't be read to its end: a missed /login merges two stretches, which then
+// name fewer rows, and the ledger keeps its marks after Claude Code trims the
+// file. A line longer than historyLine holds a large paste, never a /login,
+// and is passed over without stopping the read.
+func (claude) Marks(home string) ([]AccountMark, error) {
 	var marks []AccountMark
 	for _, acct := range claudeSignIns(home) {
 		if acct.AccountUUID != "" {
@@ -271,36 +280,70 @@ func (claude) Marks(home string) []AccountMark {
 			})
 		}
 	}
-	file, err := os.Open(filepath.Join(ClaudeDir(home), "history.jsonl"))
-	if err != nil {
-		return marks
+	path := filepath.Join(ClaudeDir(home), "history.jsonl")
+	file, err := os.Open(path)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return marks, nil
+	case err != nil:
+		return marks, fmt.Errorf("can't read %s: %w", operation.ShowPath(home, path), err)
 	}
 	defer func() { _ = file.Close() }()
-	scanner := bufio.NewScanner(file)
-	scanner.Buffer(make([]byte, 0, 1<<20), 64<<20)
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if !bytes.Contains(line, []byte(`"display":"/login`)) {
+	reader := bufio.NewReaderSize(file, 1<<20)
+	var long []byte
+	over := false // the line is longer than historyLine
+	for {
+		chunk, err := reader.ReadSlice('\n')
+		if errors.Is(err, bufio.ErrBufferFull) {
+			if over = over || len(long)+len(chunk) > historyLine; !over {
+				long = append(long, chunk...)
+			}
 			continue
 		}
-		var entry struct {
-			Display   string `json:"display"`
-			Timestamp int64  `json:"timestamp"` // milliseconds
+		line := chunk
+		if len(long) > 0 {
+			long = append(long, chunk...)
+			line = long
 		}
-		if !decode(line, &entry) || entry.Timestamp <= 0 {
-			continue
+		if !over {
+			if login, ok := loginMark(line); ok {
+				marks = append(marks, login)
+			}
 		}
-		if command, _, _ := strings.Cut(
-			strings.TrimSpace(entry.Display),
-			" ",
-		); command == "/login" {
-			marks = append(
-				marks,
-				AccountMark{Kind: MarkLogin, Time: time.UnixMilli(entry.Timestamp)},
+		long, over = long[:0], false
+		switch {
+		case errors.Is(err, io.EOF):
+			return marks, nil
+		case err != nil:
+			return marks, fmt.Errorf(
+				"can't read all of %s: %w",
+				operation.ShowPath(home, path),
+				err,
 			)
 		}
 	}
-	return marks
+}
+
+// historyLine bounds a line of history.jsonl that Marks reads.
+const historyLine = 64 << 20
+
+// loginMark is the mark of a line of history.jsonl that is a /login typed at
+// the prompt.
+func loginMark(line []byte) (AccountMark, bool) {
+	if !bytes.Contains(line, []byte(`"display":"/login`)) {
+		return AccountMark{}, false
+	}
+	var entry struct {
+		Display   string `json:"display"`
+		Timestamp int64  `json:"timestamp"` // milliseconds
+	}
+	if !decode(bytes.TrimRight(line, "\r\n"), &entry) || entry.Timestamp <= 0 {
+		return AccountMark{}, false
+	}
+	if command, _, _ := strings.Cut(strings.TrimSpace(entry.Display), " "); command != "/login" {
+		return AccountMark{}, false
+	}
+	return AccountMark{Kind: MarkLogin, Time: time.UnixMilli(entry.Timestamp)}, true
 }
 
 // Labels maps the subscription id of each organization a sign-in on disk
