@@ -1,7 +1,8 @@
 // Package sqlitefile opens Workbench's private SQLite files through the pure-Go
 // driver: it makes a missing file private before SQLite opens it, so the files
-// SQLite makes beside it are private too, writes the connection string, and
-// switches the file to WAL.
+// SQLite makes beside it are private too, writes the connection string, says
+// why a file cannot be opened in the operating system's words, and switches
+// the file to WAL.
 package sqlitefile
 
 import (
@@ -24,6 +25,8 @@ import (
 	"unicode/utf8"
 
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Options say how [Open] opens a file.
@@ -54,8 +57,15 @@ type Options struct {
 
 // Open opens the SQLite file at path as o says and, unless o.ReadOnly,
 // switches it to WAL, so a reader reads the last committed state while a
-// writer writes. Its errors name path once (see [FileError]), except those of
-// o.Prepare.
+// writer writes. It opens the first connection itself, before o.Prepare, so
+// a file SQLite cannot open (CANTOPEN) fails here with the operating
+// system's reason (see openProblem); the connection then waits in the pool,
+// where o.Prepare and the switch to WAL take it, so SQLite opens the file
+// once. Any other error of that first connection, such as that of a file
+// that is not a database, which a pragma meets, is left to o.Prepare, or to
+// the caller without one, which meets it again on its own first connection
+// and says it as it says its other errors. Its errors name path once (see
+// [FileError]), except those of o.Prepare.
 func Open(path string, o Options) (*sql.DB, error) {
 	query := make([]string, 0, len(o.Pragmas)+3)
 	if o.ReadOnly {
@@ -80,6 +90,14 @@ func Open(path string, o Options) (*sql.DB, error) {
 	if err != nil {
 		return nil, FileError(path, err)
 	}
+	conn, err := db.Conn(context.Background())
+	switch {
+	case err == nil:
+		_ = conn.Close()
+	case code(err) == sqliteCantOpen:
+		_ = db.Close()
+		return nil, FileError(path, openProblem(path, err))
+	}
 	if o.Prepare != nil {
 		if err := o.Prepare(db); err != nil {
 			_ = db.Close()
@@ -96,18 +114,46 @@ func Open(path string, o Options) (*sql.DB, error) {
 }
 
 // FileError is err, which an operation on the file at path returned, as an
-// error that names path once, first, then the reason: an error of the os
-// package names the path itself, after the operation (open, stat, read), so
-// only its reason follows path, and the error still matches what that reason
-// matches, such as [fs.ErrNotExist] or [fs.ErrPermission]. Only an error that
-// says no more than the os package's is cut so: one that wraps it in words of
-// its own is kept whole, with what it matches besides.
+// error that names path once, first, as people read it (see shownPath),
+// then the reason: an error of the os package names the path itself, after
+// the operation (open, stat, read), so only its reason follows path, and the
+// error still matches what that reason matches, such as [fs.ErrNotExist] or
+// [fs.ErrPermission]. Only an error that says no more than the os package's
+// is cut so: one that wraps it in words of its own is kept whole, with what
+// it matches besides.
 func FileError(path string, err error) error {
 	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path &&
 		problem.Error() == err.Error() {
 		err = problem.Err
 	}
-	return fmt.Errorf("%s: %w", path, err)
+	return fmt.Errorf("%s: %w", shownPath(path), err)
+}
+
+// shownPath is path as this package's errors name it: from the home folder,
+// as [operation.ShowPath] names a path there (~/.local/state/…/history.db),
+// else, or when ShowPath would quote it, as it is.
+func shownPath(path string) string {
+	home, _ := os.UserHomeDir()
+	if shown := operation.ShowPath(home, path); strings.HasPrefix(shown, "~") {
+		return shown
+	}
+	return path
+}
+
+// openProblem is the operating system's reason SQLite could not open the
+// file at path, err being SQLite's CANTOPEN, which says only that it could
+// not (unable to open database file): SQLite opens a file for reading and
+// writing and, refused, for reading only, so the error of opening it for
+// reading is the reason it met last. That open is tried only once SQLite
+// has failed. err stays as it is when the file opens for reading, since
+// SQLite failed for another reason then.
+func openProblem(path string, err error) error {
+	file, openErr := os.Open(path)
+	if openErr != nil {
+		return openErr
+	}
+	_ = file.Close()
+	return err
 }
 
 // ContainsFold is the SQL name of a function every connection the driver
@@ -281,13 +327,15 @@ func CheckHeader(path string) error {
 	header := make([]byte, headerSize)
 	n, err := io.ReadFull(file, header)
 	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-		return fmt.Errorf("%s: %w: it holds %d bytes, less than a header", path, ErrNotADatabase, n)
+		return fmt.Errorf(
+			"%s: %w: it holds %d bytes, less than a header", shownPath(path), ErrNotADatabase, n,
+		)
 	}
 	if err != nil {
 		return FileError(path, err)
 	}
 	if reason := headerProblem(header); reason != "" {
-		return fmt.Errorf("%s: %w: %s", path, ErrNotADatabase, reason)
+		return fmt.Errorf("%s: %w: %s", shownPath(path), ErrNotADatabase, reason)
 	}
 	return nil
 }
@@ -317,9 +365,10 @@ func headerProblem(header []byte) string {
 // SQLite's result codes this package tells apart, which an extended code keeps
 // in its low byte.
 const (
-	sqliteBusy    = 5
-	sqliteCorrupt = 11
-	sqliteNotADB  = 26
+	sqliteBusy     = 5
+	sqliteCorrupt  = 11
+	sqliteCantOpen = 14
+	sqliteNotADB   = 26
 )
 
 // IsBusy reports whether err is SQLite's BUSY.

@@ -83,7 +83,7 @@ func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, erro
 		case errors.Is(err, fs.ErrNotExist):
 			return nil, p, nil
 		case err != nil:
-			return nil, p, fmt.Errorf("%s: %w", p.Ledger, err)
+			return nil, p, sqlitefile.FileError(p.Ledger, err)
 		case info.Size() == 0:
 			return nil, p, nil
 		}
@@ -307,7 +307,7 @@ func OpenLedger(path string, create bool) (*Ledger, error) { return openLedger(p
 func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, sqlitefile.FileError(path, err)
 	}
 	exists := err == nil && info.Size() > 0
 	if !exists && !create {
