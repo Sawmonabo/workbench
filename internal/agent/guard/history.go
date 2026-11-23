@@ -179,8 +179,10 @@ var sideFiles = []string{"-wal", "-shm"}
 // and switches it to WAL; the connection is the only one. Without, it opens the
 // file for queries only and never makes it: a missing file, or one that holds
 // no schema yet, fails with an error matching fs.ErrNotExist, an empty
-// history. A file that is not a history of version 1 fails with
-// [ErrHistoryUnusable] and is left as it is.
+// history. Either way, a history readable by others is made private, with its
+// -wal and -shm files, once it is found to be one (see [sqlitefile.Open]),
+// since a command's text may hold a token. A file that is not a history of
+// version 1 fails with [ErrHistoryUnusable] and is left as it is.
 func OpenHistory(root string, write bool) (*History, error) {
 	h := &History{root: root, path: historyFile(root), write: write}
 	if !write {

@@ -248,6 +248,9 @@ ledger is.
 
 - Created empty with mode 0600 before SQLite opens it, in the private
   `agent/guard/` folder (see the agent folders design), so the two files SQLite makes beside it take that mode.
+  A history readable by others is made private, with the two files beside
+  it, each time the watcher, the view or `agent guard history` opens it and
+  finds it is a history, the mode only, as the ledger is.
 - `journal_mode=WAL`, so the view reads while the watcher writes.
 - `auto_vacuum=INCREMENTAL`, set before any table, and an
   `incremental_vacuum` after each trim, so deleted rows give their pages
@@ -485,7 +488,7 @@ store's failure, when it has one. A view and a watcher of two releases say so as
 | The history file: schema, open, writes, trim, moving a damaged one aside, reads, the `keep` setting | `internal/agent/guard/history.go` |
 | The three warnings (cannot be written, damaged and started again, unreadable) and the paths in them named from the home folder, said in the same words by the watcher's snapshot, the view and `agent guard history` | `internal/agent/guard/historyview.go` |
 | `agent guard history` and its `--keep` flag | `internal/cli/agentguard.go` |
-| The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string and the switch to WAL with its retry when two creators meet | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file, its schema and `makePrivate` |
+| The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string, the switch to WAL with its retry when two creators meet, and making a file its owner's checks accepted private with its `-wal` and `-shm` files (`makePrivate`) | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file and its schema |
 | The list, the filter, the details and the panel | `internal/cli/agentguardview.go` |
 
 Documents changed in place: the guard sections of `docs/usage.md` and
@@ -500,7 +503,8 @@ and a new ADR 20 for the store and its limits.
 
 A command's text may hold a token. One test proves that `history.db`,
 `history.db-wal` and `history.db-shm` are readable by their owner alone after
-the watcher's first write, and says that risk beside it.
+the watcher's first write, and again after a history left readable by others
+is opened by the view and by the writer, and says that risk beside it.
 
 ## 10. To render before it reaches `main`
 

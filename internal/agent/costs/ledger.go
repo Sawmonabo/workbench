@@ -294,9 +294,9 @@ type Ledger struct {
 //
 // The ledger copies emails, organization names and project paths out of the
 // tools' private files, so it is private too: its folder is private (see
-// [Paths.Open]), the file is made 0600, and a ledger an earlier build left
-// readable by others is tightened to 0600 once it is verified (the mode only,
-// never the content).
+// [Paths.Open]), the file is made 0600, and a ledger readable by others is
+// tightened, with its -wal and -shm files, once it is verified (the mode
+// only, never the content; see [sqlitefile.Open]).
 func OpenLedger(path string, create bool) (*Ledger, error) { return openLedger(path, create, true) }
 
 // openLedger is [OpenLedger], which upgrades a ledger of an earlier version
@@ -334,21 +334,7 @@ func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 	}); err != nil {
 		return nil, err
 	}
-	makePrivate(path)
 	return ledger, nil
-}
-
-// makePrivate removes group and other access from the ledger and its WAL
-// files, when they have any. It runs only for a verified ledger, so a foreign
-// file is never touched, and it is best effort: a mode that cannot be changed
-// (a read-only mount) must not stop the ledger from being read or written,
-// which would risk the only lasting record of spend over a hardening step.
-func makePrivate(path string) {
-	for _, name := range []string{path, path + "-wal", path + "-shm"} {
-		if info, err := os.Stat(name); err == nil && info.Mode().Perm()&0o077 != 0 {
-			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
-		}
-	}
 }
 
 func (l *Ledger) prepare(exists, upgrade bool) error {

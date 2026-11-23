@@ -43,7 +43,10 @@ take from whichever agent started it, so two shells could disagree.
 
 - The history is `<state>/agent/guard/history.db`, with SQLite's `-wal` and
   `-shm` files beside it, made 0600 before SQLite opens it, in WAL mode so
-  the view reads while the watcher writes.
+  the view reads while the watcher writes. A history readable by others
+  (a copy, or a mode another tool set) is made private, with its `-wal` and
+  `-shm` files, each time it is opened and found to be a history, since
+  SQLite gives the side files the history's own mode.
 - One goroutine in the watcher holds the only connection that writes
   commands. The tick hands it each finished command and goes on. Until a
   command is written, the snapshots carry it whole, so the view shows it the
@@ -85,13 +88,16 @@ take from whichever agent started it, so two shells could disagree.
 ## Consequences
 
 - A second SQLite file joins the costs ledger. `internal/sqlitefile` owns
-  what both share when they open: the private create, the connection string
-  and the switch to WAL. Each keeps its own checks and schema.
+  what both share when they open: the private create, the connection string,
+  the switch to WAL and taking group and other access off a file its own
+  checks accepted, with its `-wal` and `-shm` files. Each keeps its own
+  checks and schema.
 - AGENTS.md records the one exception to rejecting unsupported state
   without deleting it: the damaged copy goes once it is older than the time
   kept.
 - One test proves that the history and its two side files are readable by
-  their owner alone, since a command's text may hold a token.
+  their owner alone, made new or opened readable by others, since a
+  command's text may hold a token.
 - The history keeps nothing older than the time kept, has no export and no
   `--json` of its rows; `workbench agent guard logs --json` stays the
   machine-readable record.

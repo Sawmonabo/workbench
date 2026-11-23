@@ -1,8 +1,9 @@
 // Package sqlitefile opens Workbench's private SQLite files through the pure-Go
 // driver: it makes a missing file private before SQLite opens it, so the files
 // SQLite makes beside it are private too, writes the connection string, says
-// why a file cannot be opened in the operating system's words, and switches
-// the file to WAL.
+// why a file cannot be opened in the operating system's words, switches the
+// file to WAL, and takes group and other access off a file its caller has
+// accepted and the files beside it.
 package sqlitefile
 
 import (
@@ -51,13 +52,16 @@ type Options struct {
 	// Prepare, when set, runs on the opened database before the switch to
 	// WAL, so a caller that checks the file is its own, or writes its schema,
 	// does so before anything changes the file. An error it returns closes the
-	// database and is returned as it is.
+	// database and is returned as it is. Once it returns nil, the file is its
+	// caller's, so Open makes it and its -wal and -shm files private (see
+	// makePrivate); without Prepare it changes no mode.
 	Prepare func(*sql.DB) error
 }
 
 // Open opens the SQLite file at path as o says and, unless o.ReadOnly,
 // switches it to WAL, so a reader reads the last committed state while a
-// writer writes. It opens the first connection itself, before o.Prepare, so
+// writer writes; a file o.Prepare accepted it then makes private with the
+// files beside it (see makePrivate). It opens the first connection itself, before o.Prepare, so
 // a file SQLite cannot open (CANTOPEN) fails here with the operating
 // system's reason (see openProblem); the connection then waits in the pool,
 // where o.Prepare and the switch to WAL take it, so SQLite opens the file
@@ -110,7 +114,27 @@ func Open(path string, o Options) (*sql.DB, error) {
 			return nil, FileError(path, err)
 		}
 	}
+	if o.Prepare != nil {
+		makePrivate(path)
+	}
 	return db, nil
+}
+
+// makePrivate takes group and other access off the file at path and its -wal
+// and -shm files, when they have any: SQLite makes the two with the mode the
+// file has, so a file another tool or a copy left readable by others gives
+// them that mode too. It runs once the file's own checks have accepted it, so
+// a foreign file is never touched, while the connection that made the -wal and
+// -shm files holds them, and it changes the mode only. It is best effort: a
+// mode that cannot be changed (a read-only mount) must not stop a file from
+// being read or written, which for the costs ledger would risk the only
+// lasting record of spend over a hardening step.
+func makePrivate(path string) {
+	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+		if info, err := os.Stat(name); err == nil && info.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
+		}
+	}
 }
 
 // FileError is err, which an operation on the file at path returned, as an
