@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
 )
@@ -398,8 +397,12 @@ var windowsHostEffects = []operation.Effect{
 
 // provisioningEffects describes canonical script owners, not simulated provider
 // results. Optional effects are deliberately absent until separately selected.
-// agent-costs-ingest touches the ledger in the data folder this apply resolved.
-// The mbx step is listed only where its pin has a build for this target.
+// agent-costs-ingest touches the ledger in the data folder this apply
+// resolved, named by that folder alone: the plan digest covers it, and the
+// ledger's own folder moves under agent/ as soon as a costs entry or the
+// migrations step holds the import lock, which may be between a dry run and
+// its approval. The mbx step is listed only where its pin has a build for
+// this target.
 func provisioningEffects(
 	c operation.Context,
 	answers Answers,
@@ -408,7 +411,7 @@ func provisioningEffects(
 	effects := slices.Clone(sharedEffects)
 	for i := range effects {
 		if effects[i].Name == "agent-costs-ingest" {
-			effects[i].Touches = c.ShowPath(costs.LocationsIn(c.Home, c.Paths).Ledger)
+			effects[i].Touches = "the agent costs ledger in " + c.ShowPath(c.Paths.Data)
 		}
 	}
 	effects = append(effects, platformEffects(answers)...)
