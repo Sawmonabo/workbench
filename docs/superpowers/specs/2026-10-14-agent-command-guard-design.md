@@ -806,7 +806,7 @@ parallelism or a smaller input.
 
 1. Read the hook input; with an invalid `tool_use_id`, exit 0.
 2. Read `killed/<tool_use_id>.json` when it exists and delete it.
-3. Mark `notes/<tool_use_id>.json` ended for the watcher to
+3. Mark `notes/<tool_use_id>.json` ended, with the time, for the watcher to
    take into its call records and the history and then delete, unless the
    call was sent to the background (`tool_input.run_in_background`): then
    mark it `posted`, and the watcher drops it (section 6.1).

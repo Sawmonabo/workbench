@@ -308,7 +308,16 @@ and order them.
    must be able to write the `-shm` file) and `query_only(1)`, and never
    creates it.
 2. **The tick never waits.** `finish` puts the command, with its graph and
-   processes, on a pending list and hands it to the writer. The writer
+   processes, on a pending list and hands it to the writer. Every noted call
+   that finishes is put there once: a tracked command when its command ends;
+   a call whose post hook marked its note ended before any tick tracked its
+   command (it ran and returned between two ticks, or before a watcher ran)
+   as `done`, with its start, end, command, agent, subagent, project, folder
+   and dry run, and no graph or processes, since nothing was measured; and a
+   call whose command was never found while its agent ran a command it could
+   have been as `unmatched`. A note the post hook marked ended is left for
+   the watcher that holds the lock, so one that lets its lock go when idle
+   never takes the call into a history it no longer writes. The writer
    writes each command in one transaction and reports its ID; the next tick
    takes it off the list. Each snapshot carries the pending commands whole,
    so the view shows a finished command, details included, in the second it

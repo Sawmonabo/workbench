@@ -57,15 +57,19 @@ func (w *watcher) commandView(id string, c command, state string) CommandView {
 	return v
 }
 
-// finish puts a command that ended, v with its usage u (nil for one never
-// measured), on the list of those the history does not hold yet and hands it
-// to the history writer, without waiting on it: its graph, its processes,
-// the largest peak first, at most processesKept of them, and its command cut
-// at commandKept bytes, as the history keeps them. A Finished is never changed
-// once made: the writer and the snapshots share it.
-func (w *watcher) finish(v CommandView, u *usage) {
+// finish is finishAt for a command that ended now.
+func (w *watcher) finish(v CommandView, u *usage) { w.finishAt(v, u, time.Now()) }
+
+// finishAt puts a command that ended at ended, v with its usage u (nil for
+// one never measured, which keeps no graph and no processes), on the list of
+// those the history does not hold yet and hands it to the history writer,
+// without waiting on it: its graph, its processes, the largest peak first, at
+// most processesKept of them, and its command cut at commandKept bytes, as the
+// history keeps them. A Finished is never changed once made: the writer and
+// the snapshots share it.
+func (w *watcher) finishAt(v CommandView, u *usage, ended time.Time) {
 	f := Finished{CommandView: v}
-	f.Ended = time.Now()
+	f.Ended = ended
 	f.PID, f.Held, f.Memory, f.History, f.Tree = 0, "", 0, nil, nil
 	f.Command, f.Cut = keptCommand(f.Command)
 	if u != nil {

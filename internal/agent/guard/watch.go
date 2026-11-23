@@ -172,10 +172,12 @@ func (u *usage) peaks() ([]ProcessPeak, int) {
 
 // seenNote is a note the watcher has read: its command, agent with its kind
 // and NotedStart, read when this watcher first read it, matched once it was
-// tracked, childSeen as markChildSeen sets it, and posted and postedRound
-// from the first tick it was read marked posted. One that goes away unmatched
-// with childSeen, and whose shell was not learned either (see found), is
-// logged, with the note's cwd, project, subagent and at, its NotedAt.
+// tracked, childSeen as markChildSeen sets it, posted and postedRound from
+// the first tick it was read marked posted, and ended, when its post hook
+// marked it ended (its EndedAt). One that goes away unmatched with childSeen,
+// and whose shell was not learned either (see found), is logged, with the
+// note's cwd, project, subagent and at, its NotedAt; one that goes away
+// ended without being tracked goes into the history as it is (see wentAway).
 type seenNote struct {
 	command     string
 	agent       procKey
@@ -184,12 +186,14 @@ type seenNote struct {
 	cwd         string
 	project     string
 	subagent    string
+	dryRun      bool
 	at          time.Time
 	read        time.Time
 	matched     bool
 	childSeen   bool
 	posted      time.Time
 	postedRound int
+	ended       time.Time
 }
 
 type watcher struct {
@@ -286,10 +290,11 @@ type watcher struct {
 	// history writer reports them written, at most pendingLimit of them (see
 	// keepWithin); dropped counts those dropped since the list was last
 	// empty. history is the writer, which runs while this watcher holds the
-	// lock.
+	// lock. letGo is set while carryOn reads the notes with the lock let go.
 	unwritten []Finished
 	dropped   int
 	history   historyWriter
+	letGo     bool
 	// list, tickSnap and tickBelow are the process list, snapshot and parent
 	// index each tick builds again in the last tick's (see tickSnapshot,
 	// snapshot.belowInto). Only tick builds them, and nothing keeps them, or
@@ -593,9 +598,11 @@ func (w *watcher) ownsLock() bool {
 }
 
 // carryOn releases the lock at idle exit, then reads the notes once more. A
-// live note written meanwhile, or a process list or notes folder it cannot
-// read, makes it take the lock again and carry on, unless another watcher took
-// it first; so a note written as a watcher stops is never left without one.
+// live note written meanwhile, a note of a call that ended meanwhile, which
+// it leaves for the watcher that holds the lock to put into the history (see
+// letGo), or a process list or notes folder it cannot read, makes it take the
+// lock again and carry on, unless another watcher took it first; so a note
+// written as a watcher stops is never left without one.
 // Only notes that parse and whose agent runs count, so a broken note cannot
 // keep the watcher alive. It logs why it does not carry on. The socket is
 // closed and its file removed before the lock goes, and served anew once the
@@ -608,7 +615,10 @@ func (w *watcher) carryOn() bool {
 	w.release()
 	w.release = func() {}
 	if s, err := w.snapshot(); err == nil {
-		if notes, err := w.notes(s); err == nil && len(notes) == 0 {
+		w.letGo = true
+		notes, err := w.notes(s)
+		w.letGo = false
+		if err == nil && len(notes) == 0 {
 			text := fmt.Sprintf("idle for %.0f minutes; watcher exiting", idleExit.Minutes())
 			w.f.event(slog.LevelInfo, EventIdle, text)
 			return false
@@ -850,10 +860,6 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 		}
 		w.known[procKey{n.AgentPID, n.AgentStart}] = n.Kind
 		w.records.add(n)
-		if n.Ended {
-			_ = os.Remove(path)
-			continue
-		}
 		seen, ok := w.seen[id]
 		if !ok {
 			seen = seenNote{
@@ -864,12 +870,29 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 				cwd:      n.Cwd,
 				project:  n.Project,
 				subagent: n.Subagent,
+				dryRun:   n.DryRun,
 				at:       n.NotedAt,
 				read:     now,
 			}
 		}
 		if n.Posted && seen.posted.IsZero() {
 			seen.posted, seen.postedRound = now, w.round
+		}
+		if n.Ended && w.letGo {
+			// The lock is let go (see carryOn): the note stays for the
+			// watcher that takes it, which puts the call into the history,
+			// and counts as one to carry on for.
+			present[id] = true
+			notes = append(notes, n)
+			continue
+		}
+		if n.Ended {
+			// Seen first, so a call that ended before any tick tracked it
+			// goes into the history as it goes away (see wentAway).
+			seen.ended = cmp.Or(n.EndedAt, now)
+			w.seen[id] = seen
+			_ = os.Remove(path)
+			continue
 		}
 		w.seen[id] = seen
 		if n.Posted && (w.ended[id] || !seen.matched && now.Sub(seen.posted) >= childLinger &&
@@ -895,26 +918,32 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 }
 
 // wentAway forgets the notes seen that are not present now, deleted by notes
-// or gone from disk, logging one whose command was never found while its
-// agent had run a command (see found), and what notes keeps of notes that
-// cannot be read or agents that are gone.
+// or gone from disk, and what notes keeps of notes that cannot be read or
+// agents that are gone. A call no tick of this watcher tracked (see
+// untrackedEnd) goes into the history as it goes away: unmatched when its
+// command was never found while its agent had run a command (see found),
+// which is logged; else done, when its post hook marked it ended, with no
+// memory, since none was measured. A tracked call goes into the history when
+// its command ends (see forget).
 func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 	for id, seen := range w.seen {
 		if !present[id] {
 			w.lastEnded[seen.agent] = max(w.lastEnded[seen.agent], seen.noted)
-			if !w.found(id, seen) && seen.childSeen {
-				attrs := append([]any{"call", id, "agent", seen.kind},
-					placeAttrs(seen.cwd, seen.project, seen.subagent)...)
-				// A note that never found its command left that command unguarded,
-				// which a person should see.
-				w.f.event(slog.LevelWarn, EventUnmatched, "ended without matching a command",
-					append(attrs, "took", time.Since(seen.at).Seconds(),
-						"command", clip(seen.command))...)
-				w.finish(CommandView{
+			if state := w.untrackedEnd(id, seen); state != "" {
+				if state == stateUnmatched {
+					attrs := append([]any{"call", id, "agent", seen.kind},
+						placeAttrs(seen.cwd, seen.project, seen.subagent)...)
+					// A note that never found its command left that command
+					// unguarded, which a person should see.
+					w.f.event(slog.LevelWarn, EventUnmatched, "ended without matching a command",
+						append(attrs, "took", time.Since(seen.at).Seconds(),
+							"command", clip(seen.command))...)
+				}
+				w.finishAt(CommandView{
 					ID: id, Agent: string(seen.kind), Subagent: seen.subagent,
 					Project: seen.project, Cwd: seen.cwd, Command: seen.command,
-					State: stateUnmatched, Started: seen.at,
-				}, nil)
+					State: state, DryRun: seen.dryRun, Started: seen.at,
+				}, nil, cmp.Or(seen.ended, time.Now()))
 			}
 			delete(w.seen, id)
 			delete(w.ended, id)
@@ -930,6 +959,45 @@ func (w *watcher) wentAway(s snapshot, present map[string]bool) {
 			delete(w.lastEnded, key)
 		}
 	}
+}
+
+// untrackedEnd is the state in which the call id, whose note went away, goes
+// into the history when no tick of this watcher tracked its command, "" when
+// it does not go there now. A tracked one, and one whose tracked command
+// ended under the watcher before (ended, carried at a handover), are there
+// already or go when forget ends them. Of the rest, one whose command was
+// never found while its agent ran a command it could have been is unmatched;
+// one its post hook marked ended is done: it ran and returned between two
+// ticks, or before any watcher ran. Any other (posted and never matched,
+// abandoned, or of an agent that is gone) is not known to have finished, and
+// goes nowhere.
+func (w *watcher) untrackedEnd(id string, seen seenNote) string {
+	if _, tracked := w.tracked[id]; tracked || seen.matched || w.ended[id] || w.carries(id) {
+		return ""
+	}
+	switch {
+	case !w.found(id, seen) && seen.childSeen:
+		return stateUnmatched
+	case !seen.ended.IsZero():
+		return stateDone
+	}
+	return ""
+}
+
+// carries reports whether what the watcher before this one handed over,
+// before this watcher's first tick takes it on (see adopt), names the call
+// id: as a command it tracked, one whose command ended under it, or one the
+// history does not hold yet. Its note can go away at that first tick before
+// adopt runs, and the call goes into the history as adopt and forget say,
+// with its memory, never twice.
+func (w *watcher) carries(id string) bool {
+	c := w.inherited
+	if c == nil {
+		return false
+	}
+	_, tracked := c.Tracked[id]
+	return tracked || slices.Contains(c.Ended, id) ||
+		slices.ContainsFunc(c.Pending, func(f Finished) bool { return f.ID == id })
 }
 
 // found reports whether the command of the call id was found: tracked by a

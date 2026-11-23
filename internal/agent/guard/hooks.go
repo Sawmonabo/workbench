@@ -403,7 +403,7 @@ func startWatcher(f folders) error {
 // Post is Codex's PostToolUse hook on Bash, and Claude Code's PostToolUse and
 // PostToolUseFailure hooks on Bash and Monitor. It first takes the call's kill
 // record, when the watcher left one, reading and deleting it, and then marks
-// the call's note ended, or, for a call whose command runs on
+// the call's note ended, with the time, or, for a call whose command runs on
 // after this hook, posted: one sent to the background (run_in_background),
 // and a Monitor call, whose post hook runs when the monitor starts (the pre
 // hook on Bash noted it as a Bash call). The record comes first because the
@@ -473,8 +473,8 @@ func Post(stdin *os.File, stdout io.Writer) {
 	})
 }
 
-// markNote marks the note at path ended, or posted with mark "posted". It
-// reports whether it marked it, the error writing it and the error reading
+// markNote marks the note at path ended, now, or posted with mark "posted".
+// It reports whether it marked it, the error writing it and the error reading
 // it, such as a call with no note.
 func markNote(path, mark string) (marked bool, writeErr, readErr error) {
 	var n note
@@ -484,7 +484,7 @@ func markNote(path, mark string) (marked bool, writeErr, readErr error) {
 	if mark == "posted" {
 		n.Posted = true
 	} else {
-		n.Ended = true
+		n.Ended, n.EndedAt = true, time.Now()
 	}
 	if writeErr = writeJSON(path, n); writeErr != nil {
 		return false, writeErr, nil

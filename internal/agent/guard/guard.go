@@ -29,9 +29,9 @@ const (
 // matcher compares kernel start times with each other and never with the
 // wall clock. Posted marks a background or Monitor call's note after its post
 // hook, which runs while the command goes on; Ended marks any other call's note
-// after its post hook, which runs once the command has returned, and the
-// watcher deletes an ended note once it has kept the call's record (see
-// watcher.notes). Cwd is the agent's working folder for
+// after its post hook, which runs once the command has returned, with the time
+// in EndedAt, and the watcher deletes an ended note once it has kept the
+// call's record (see watcher.notes). Cwd is the agent's working folder for
 // the call and Folder the command's leading cd target, both real paths, so
 // they compare with the folder the kernel reports for a process; either is
 // empty when unknown. Subagent is the Claude Code subagent type that made the
@@ -49,6 +49,7 @@ type note struct {
 	DryRun     bool      `json:"dry_run,omitempty"`
 	Posted     bool      `json:"posted,omitempty"`
 	Ended      bool      `json:"ended,omitempty"`
+	EndedAt    time.Time `json:"ended_at,omitzero"`
 	Cwd        string    `json:"cwd,omitempty"`
 	Folder     string    `json:"folder,omitempty"`
 	Subagent   string    `json:"subagent,omitempty"`
