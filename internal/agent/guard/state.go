@@ -145,7 +145,9 @@ func openFolders(state, part string) (folders, error) {
 // agents folders private (see private), so a folder at either path that is
 // not private, or is a link, is refused in the same words. It deletes the
 // file a move left at the old path once the system has restarted since (see
-// [operation.RemoveClosedPath]).
+// [operation.RemoveClosedPath]), and the temporary file a move that was
+// killed left in the agent folder above the new path (see
+// [operation.RemoveStaleWrites]), which no later move may write in again.
 func (f *folders) open() error {
 	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
 	for _, folder := range []string{f.notes, f.killed, f.agents} {
@@ -154,6 +156,7 @@ func (f *folders) open() error {
 		}
 	}
 	operation.RemoveClosedPath(oldRoot(f.state))
+	operation.RemoveStaleWrites(filepath.Dir(newRoot(f.state)))
 	return nil
 }
 

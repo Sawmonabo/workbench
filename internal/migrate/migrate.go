@@ -436,6 +436,9 @@ func DoneAt(l Locations, id string) string {
 	return at.Local().Format("Jan 2 at 3:04 PM")
 }
 
+// markDone records id as done in the migration record, the state folder's
+// migrations.json, deleting first the temporary files killed writes left in
+// that folder (see [operation.RemoveStaleWrites]).
 func markDone(l Locations, id string) error {
 	r, err := readRecord(l)
 	if err != nil {
@@ -449,5 +452,6 @@ func markDone(l Locations, id string) error {
 	if _, err = operation.PrivateDirectory(l.Runtime.State, ""); err != nil {
 		return err
 	}
+	operation.RemoveStaleWrites(l.Runtime.State)
 	return operation.ReplacePrivateFile(recordPath(l), append(data, '\n'))
 }

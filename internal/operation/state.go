@@ -205,7 +205,11 @@ func (m *Mutation) WriteState(state State) error {
 }
 
 // WritePrivate is for bounded private metadata, not target files or checkpoint
-// images. It uses same-directory create/fsync/rename/fsync and mode 0600.
+// images. It uses same-directory create/fsync/rename/fsync and mode 0600. It
+// first deletes the temporary files writes that were killed left in the
+// folder (see [RemoveStaleWrites]): the configuration and state folders are
+// written this way by more than one lock's holder, so a file is taken for a
+// killed write's only once it is over a minute old.
 func (m *Mutation) WritePrivate(path string, data []byte) error {
 	if err := m.Check(); err != nil {
 		return err
@@ -266,6 +270,7 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 	if err := ensurePrivateDirectory(filepath.Dir(path)); err != nil {
 		return err
 	}
+	RemoveStaleWrites(filepath.Dir(path))
 	return ReplacePrivateFile(path, data)
 }
 

@@ -94,7 +94,10 @@ func (f agentFolders) inUse(old, new string) bool {
 // path (see [operation.MoveFolder]), so a process of the release before that
 // still names it fails there instead of making a new, empty ledger. It first
 // deletes such a file a move left before the system last started (see
-// [operation.RemoveClosedPath]).
+// [operation.RemoveClosedPath]), and the temporary files a move that was
+// killed left in the folders it writes in: the agent folders above the new
+// paths and the state folder, where the old state path is closed (see
+// [operation.RemoveStaleWrites]).
 //
 // Only the holder of the import lock moves, so no import works in a folder
 // while it moves: it takes the lock in the old state folder without waiting.
@@ -134,6 +137,9 @@ func moveAgentFolders(
 	f := agentFoldersIn(runtime)
 	operation.RemoveClosedPath(f.oldData)
 	operation.RemoveClosedPath(f.oldState)
+	for _, folder := range []string{filepath.Dir(f.newData), filepath.Dir(f.newState), runtime.State} {
+		operation.RemoveStaleWrites(folder)
+	}
 	// The lock is taken only when a folder can move: an entry asking whether
 	// an import runs would take a mover that holds it for an import.
 	dataCan, dataErr := operation.CanMoveFolder(f.oldData, f.newData)

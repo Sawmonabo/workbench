@@ -259,8 +259,11 @@ macOS temp folder is pruned of files older than three days.
 - **Writes** go through `operation.ReplacePrivateFile`: a `.write-<id>`
   temporary in the same folder, fsync, rename into place, then a fsync of the
   folder, so a reader never sees half a file. A `.write-*` file over a minute
-  old, left by a hook or watcher killed mid-write, is deleted from `notes/`
-  and `killed/`.
+  old, left by a hook or watcher killed mid-write, is deleted from `notes/`,
+  `killed/` and `agents/` when they are listed; the watcher deletes every
+  one in `units/`, which only it writes, at its first tick; and every entry
+  deletes one over a minute old that a killed move of the guard folder left
+  in `agent/`.
 
 **Finding the agent.** It's the hook's nearest ancestor that is not a shell
 (`sh`, `bash`, `zsh`, `dash`, or `fish`, since Codex runs hooks through
