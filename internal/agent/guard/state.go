@@ -116,12 +116,14 @@ func openFolders(state, part string) (folders, error) {
 	return f, f.open()
 }
 
-// open makes the folder and its notes, killed and agents folders private
-// when the folder is at its new path; at its old path it makes nothing and
-// uses what is there. It deletes the file a move left at the old path once
-// the system has restarted since (see [operation.RemoveClosedPath]), and
-// starts the logger.
+// open starts the logger, first, so a failure here can be logged where the
+// folder holds its log, then makes the folder and its notes, killed and
+// agents folders private when the folder is at its new path; at its old path
+// it makes nothing and uses what is there. It deletes the file a move left at
+// the old path once the system has restarted since (see
+// [operation.RemoveClosedPath]).
 func (f *folders) open() error {
+	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
 	if f.root != oldRoot(f.state) {
 		for _, folder := range []string{f.notes, f.killed, f.agents} {
 			name, err := filepath.Rel(f.state, folder)
@@ -134,7 +136,6 @@ func (f *folders) open() error {
 		}
 	}
 	operation.RemoveClosedPath(oldRoot(f.state))
-	f.logger = slog.New(slog.NewJSONHandler(logWriter(f.log()), nil))
 	return nil
 }
 

@@ -407,7 +407,7 @@ func Watch(ctx context.Context, version string) {
 		w.release()
 	}()
 	moved, moveErr := w.moveFolder()
-	if err := w.f.open(); err != nil {
+	if !w.openFolder(ctx) {
 		return
 	}
 	w.rotateOutput()
@@ -492,6 +492,58 @@ func (w *watcher) moveFolder() (moved bool, err error) {
 		err = nil
 	}
 	return moved, err
+}
+
+// openFolder opens the guard folder whose lock this watcher holds (see
+// folders.open), once the lock is its own and, handed the watch, once it has
+// read the word to start, so the watcher before it has let go. The folder's
+// path is the one Root gave before the lock, or the new one moveFolder moved
+// it to; what fails there is a check of the folder (not private, a link, a
+// file system that is not the machine's own, another user's) or a read the
+// system refused for now (out of memory or file descriptors). A watcher that
+// gave up then would leave every note without one, and lose what it was
+// handed, until the next pre hook, whose own open meets the same folder. So
+// it keeps the lock and what it was handed, logs why once, and tries again
+// each second until it can, with the folder where Root says when the lock
+// there is the one it holds, so a folder found at another path is followed.
+// It gives up only when ctx ends or the lock file is no longer the one it
+// locked, as the watch does, and reports whether it opened the folder.
+func (w *watcher) openFolder(ctx context.Context) bool {
+	failed := false
+	for {
+		err := w.f.open()
+		switch {
+		case err == nil && failed:
+			w.f.event(slog.LevelInfo, EventError, "the guard folder can be opened again")
+			fallthrough
+		case err == nil:
+			return true
+		case !failed:
+			failed = true
+			w.f.event(
+				slog.LevelError,
+				EventError,
+				"cannot open the guard folder; the watcher keeps its lock and tries again each second",
+				"error",
+				err,
+			)
+		}
+		w.wait(func() bool { return ctx.Err() != nil }, time.Second)
+		if ctx.Err() != nil {
+			w.f.event(slog.LevelInfo, EventExited, "stopped by a signal; watcher exiting")
+			return false
+		}
+		if g := locate(w.f.state, w.f.part); g.root != w.f.root {
+			if info, err := os.Stat(g.lock()); err == nil && os.SameFile(info, w.lockInfo) {
+				g.logger = w.f.logger
+				w.f = g
+			}
+		}
+		if !w.ownsLock() {
+			w.f.event(slog.LevelWarn, EventExited, "the lock file changed; watcher exiting")
+			return false
+		}
+	}
 }
 
 // lockTries and lockPause bound how long lock tries a lock it finds held:
