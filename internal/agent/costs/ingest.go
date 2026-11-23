@@ -62,6 +62,17 @@ func Ingest(ctx context.Context, opts IngestOptions) (summary string, err error)
 	return summary, err
 }
 
+// lockIn takes the import lock in the state folder the gate made, without
+// making a folder: a costs folder moved away from its old path in between
+// leaves a file there, which fails it (see [Paths.moved]).
+func lockIn(paths Paths) (release func(), held bool, err error) {
+	file, held, err := operation.TryLockIn(paths.lock())
+	if err != nil || held {
+		return nil, held, err
+	}
+	return func() { _ = file.Close() }, false, nil
+}
+
 // ingest is one run of [Ingest], which returns the paths it worked with.
 func ingest(ctx context.Context, paths Paths, opts IngestOptions) (string, Paths, error) {
 	// The worker moves the costs files itself when they still wait in the
@@ -72,14 +83,14 @@ func ingest(ctx context.Context, paths Paths, opts IngestOptions) (string, Paths
 		return "", paths, err
 	}
 	bindSession(ctx, paths, opts)
-	release, held, err := operation.TryLock(paths.lock())
+	release, held, err := lockIn(paths)
 	for err == nil && held && opts.Wait {
 		select {
 		case <-ctx.Done():
 			return "", paths, ctx.Err()
 		case <-time.After(200 * time.Millisecond):
 		}
-		release, held, err = operation.TryLock(paths.lock())
+		release, held, err = lockIn(paths)
 	}
 	if err != nil {
 		err = fmt.Errorf("cannot open state dir %s: %w", paths.State, err)
