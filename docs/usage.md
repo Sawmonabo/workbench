@@ -595,11 +595,12 @@ damaged histories it keeps, in the view's words. `--keep` sets the time, in whol
 days or weeks from `1h` to `30d` (`12h`, `3d`, `1w`); any other value exits 2
 and sets nothing. The oldest leave first: a command that ended longer ago than
 the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
-when younger. A shorter time deletes the older commands without asking, with
-any copy of a damaged history set aside longer ago (see below): the view hides
-them within a second, and the watcher deletes them within a minute or, when no
-watcher runs (its lock is free, as `doctor` tells it), the command deletes them
-itself and says how many. A longer time
+when younger. A shorter time deletes the older commands at once, without
+asking, with any copy of a damaged history set aside longer ago (see below),
+whether a watcher runs or not, and says how many: the command trims the
+history itself in the watcher's small steps, each at most 200 commands, 2,000
+of their processes and 512 KB of their text, and leaves the history to the
+watcher between steps, so the watcher goes on writing meanwhile. A longer time
 brings none back. The command shows sizes in KB, MB and GB of
 1,024, as the guard shows memory. The global `--json` prints the same facts as fields: `path`,
 `keep_seconds`, `commands` and `bytes`, or with `--keep` `path`,
@@ -612,7 +613,7 @@ $ workbench agent guard history
 Finished commands are kept 24 hours · 2,832 kept · 3 MB
 ~/.local/state/workbench/agent/guard/history.db
 $ workbench agent guard history --keep 12h
-Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
+Finished commands are kept 12 hours (was 24 hours); 1,204 older ones were deleted.
 ```
 
 A history the guard cannot use (a file that is not a database, that SQLite

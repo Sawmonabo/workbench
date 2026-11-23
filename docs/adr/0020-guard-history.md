@@ -70,8 +70,11 @@ take from whichever agent started it, so two shells could disagree.
 
   The oldest commands leave first: those older than the time kept, then the
   oldest past the count or the size. A trim runs when the writer starts and
-  once a minute, 200 commands at a time with an incremental vacuum after
-  each, so deleted rows give their pages back to the disk.
+  once a minute, at most 200 commands, 2,000 process rows and 512 KiB of
+  command text at a time, with an incremental vacuum after each, so deleted
+  rows give their pages back to the disk, and a pause as long as the step
+  before the next, so the other writer (the watcher's, or `--keep`) gets
+  the file within its busy timeout.
 - A history the guard cannot use (not a database, damaged, or of another
   layout) is never repaired, merged or deleted in place. The watcher alone
   renames it and its `-wal` and `-shm` files to `history.damaged.db`, after
@@ -113,8 +116,9 @@ take from whichever agent started it, so two shells could disagree.
   `--json` of its rows; `workbench agent guard logs --json` stays the
   machine-readable record.
 - With no watcher, the view and `agent guard history` read the history but
-  never move a damaged one; they say it cannot be read. `--keep` with no
-  watcher trims the history itself, so the older commands go at once.
+  never move a damaged one; they say it cannot be read. `--keep` trims the
+  history itself, whether a watcher runs or not, so the older commands go at
+  once.
 
 ## Sources
 

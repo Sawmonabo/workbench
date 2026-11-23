@@ -182,7 +182,7 @@ Nothing after this task is built until every step passes. If the release before 
   - `type Finished struct { CommandView; Graph []uint64; Processes []ProcessPeak; Cut int64; Unlisted int }`, `type ProcessPeak struct { PID int; Name string; Peak uint64 }`
   - `type Summary struct { Seq int64; CommandView /* Command cut to 300 characters, no Tree, no History */ }`
   - `func OpenHistory(root string, write bool) (*History, error)`; schema and pragmas exactly as history 6.1 and 6.2.
-  - `(h *History) Insert(ctx, Finished) error` (rule 4), `Trim(ctx, now time.Time) (again bool, err error)` (rule 5: one step of at most 200 commands), `Keep(ctx) (time.Duration, error)`, `SetKeep(ctx, time.Duration) error`
+  - `(h *History) Insert(ctx, Finished) error` (rule 4), `Trim(ctx, now time.Time) (deleted int, again bool, err error)` (rule 5: one step of at most 200 commands, 2,000 process rows and 512 KiB of command text), `Keep(ctx) (time.Duration, error)`, `SetKeep(ctx, time.Duration) error`
   - `(h *History) After(ctx, seq int64) ([]Summary, error)`, `Lowest(ctx) (int64, error)`, `Details(ctx, seq int64) (Finished, error)`, `Find(ctx, text string) ([]int64, error)`, `Count(ctx) (rows int, bytes int64, err error)`
   - `func MoveDamaged(root string) (to string, err error)` (rule 9) and `var ErrHistoryUnusable error`
   - Limits as constants: `historyKeepDefault = 24 * time.Hour`, `historyRows = 20000`, `historyBytes = 256 << 20`, `commandKept = 64 << 10`, `processesKept = 10000`, `graphBars = 120`.

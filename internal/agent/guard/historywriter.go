@@ -305,7 +305,7 @@ func (r *writerRun) step(now time.Time) bool {
 		}
 		return true
 	}
-	if r.trimming || !now.Before(r.trimAt) {
+	if !now.Before(r.trimAt) {
 		r.trim(now)
 		return true
 	}
@@ -332,10 +332,12 @@ func (r *writerRun) open() {
 
 // trim runs one trim step at now. The first step of a trim checks the file
 // (see History.Check) and reads the time kept, so a history started again
-// after damage keeps it (see replace); once a step has nothing more to
-// delete, the next trim is trimEvery later and the copies of histories that
-// could not be used, which a trim deletes once each is older than the time
-// kept, are noted again. A file the check fails, one that is gone, replaced
+// after damage keeps it (see replace). A step with more to delete is followed
+// by the next once the history has been left to another writer as long as
+// the step held it (see TrimPause); once a step has nothing more to delete,
+// the next trim is trimEvery later and the copies of histories that could not
+// be used, which a trim deletes once each is older than the time kept, are
+// noted again. A file the check fails, one that is gone, replaced
 // or whose header is not a database's, is a history that cannot be used (see
 // failed).
 func (r *writerRun) trim(now time.Time) {
@@ -352,7 +354,7 @@ func (r *writerRun) trim(now time.Time) {
 		}
 		r.keep = keep
 	}
-	again, err := r.history.Trim(ctx, now)
+	_, again, err := r.history.Trim(ctx, now)
 	if err != nil {
 		r.trimming = false
 		r.failed(err)
@@ -360,10 +362,12 @@ func (r *writerRun) trim(now time.Time) {
 	}
 	r.succeeded()
 	r.trimming = again
-	if !again {
-		r.trimAt = now.Add(trimEvery)
-		r.h.noteCopy(r.root)
+	if again {
+		r.trimAt = time.Now().Add(TrimPause(time.Since(now)))
+		return
 	}
+	r.trimAt = now.Add(trimEvery)
+	r.h.noteCopy(r.root)
 }
 
 // succeeded ends a failure: nothing waits out a retry any more.

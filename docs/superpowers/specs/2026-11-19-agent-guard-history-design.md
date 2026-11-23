@@ -167,7 +167,7 @@ Finished commands are kept 24 hours · 2,832 kept · 3 MB
 ~/.local/state/workbench/agent/guard/history.db
 
 $ workbench agent guard history --keep 12h
-Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
+Finished commands are kept 12 hours (was 24 hours); 1,204 older ones were deleted.
 ```
 
 `--keep` takes hours, days or weeks (`12h`, `3d`, `1w`) from one hour to
@@ -184,10 +184,9 @@ fixed ones that bound the list and the disk:
 Past the count or the size, the oldest are deleted even when they are
 younger than the time kept.
 
-A shorter time deletes the older commands without asking: the view hides
-them at once and the watcher deletes them for good within a minute; with no
-watcher holding its lock, as doctor tells it, `--keep` deletes them itself
-and says how many.
+A shorter time deletes the older commands at once, without asking, whether
+a watcher runs or not: `--keep` trims the history itself and says how many it
+deleted.
 A longer time brings nothing back.
 
 ## 4. Constraints
@@ -310,12 +309,16 @@ and order them.
 
 ### 6.3 Rules
 
-1. **One writer.** In the watcher, one goroutine owns the only connection
-   that inserts and deletes commands; the tick never touches the file.
+1. **One writer of commands.** In the watcher, one goroutine owns the only
+   connection that inserts commands; the tick never touches the file.
    `agent guard history --keep` writes the one `settings` row from its own
-   process and, when no watcher serves its socket, trims the history itself
-   as the writer does (rule 5), since no writer would until a watcher
-   starts. The view never writes: it opens the file with `mode=rw` (a WAL reader
+   process and trims the history itself as the writer does (rule 5), at
+   once, whether a watcher runs or not: in WAL mode each waits for the
+   other's transaction within the 100 ms busy timeout, a trim step takes at
+   most about 25 ms (6.4), and a writer that trims leaves the file to the
+   other as long as each step held it before the next, since SQLite's busy
+   wait is not fair, so the watcher's writer goes on writing while the
+   command trims, and the command while the watcher trims. The view never writes: it opens the file with `mode=rw` (a WAL reader
    must be able to write the `-shm` file) and `query_only(1)`, and never
    creates it.
 2. **The tick never waits.** `finish` puts the command, with its graph and
@@ -347,8 +350,11 @@ and order them.
    `INSERT … ON CONFLICT(id) DO NOTHING`. A command that is already there
    gets no graph or process rows and counts as written.
 5. **Trim.** When it starts and then once a minute, the writer reads `keep`
-   (24 hours when the row is missing) and deletes, in steps of at most 200 commands with an
-   `incremental_vacuum` after each and other writes between them: the
+   (24 hours when the row is missing) and deletes, in steps of at most 200
+   commands, 2,000 process rows and 512 KiB of command text after the first,
+   with an `incremental_vacuum` after each and, before the next, a pause as
+   long as the step, so other writes, the other writer's too, go between
+   them: the
    commands that ended before `now - keep`; then those with the lowest `seq`
    beyond 20,000; then those with the lowest `seq` while the pages in use
    (`page_count - freelist_count`) take more than 256 MiB. The view leaves
@@ -451,7 +457,9 @@ each, in a process set up as the watcher is (32 MiB limit, 50 GC percent,
 | Opening the file and making the schema | 0.2 to 0.7 MiB more counted against the limit, 2.4 MiB more resident |
 | After writing all 20,000 | 9.4 MiB counted, 15.7 MiB resident, the program's own text included (5.5 and 7.1 before the file was opened) |
 | Inserting one command with 10,000 processes | 23 ms |
-| A trim step of 200 commands | 8 ms to delete, 5 ms to vacuum |
+| A trim step of 200 commands of 4,000 characters | 8 ms to delete, 5 ms to vacuum |
+| A trim step on 20,000 commands of 300 processes each (258 MB) | at most 23 ms with its vacuum, at 2,000 process rows a step; 200 such commands took 120 to 160 ms to delete and 46 to 87 ms to vacuum |
+| A trim step on 3,500 commands of 64 KiB of text each (232 MB) | at most 20 ms with its vacuum, at 512 KiB of text a step; 200 such commands took 20 ms to delete and 113 to 128 ms to vacuum |
 | A filter over every command's whole text, by `contains_fold` | 35 to 157 ms, where `LIKE`, folding ASCII letters only, takes 29 to 128 ms |
 
 ## 7. The watcher, the socket and the view
