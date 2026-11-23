@@ -155,18 +155,17 @@ func MoveAgentFolders(home string, runtime operation.Paths) (moved bool, err err
 // the release before can work in the old data folder, since an import makes
 // the state folder before it opens the ledger. lockToMove then closes the old
 // state path with the file a move leaves (see [operation.ClosePath]; closed
-// says it made one), so none can start, and takes the
-// import lock in the new state folder, where every import of this release
+// says it made one), so none can start, and only then makes the new state
+// folder and takes the import lock there, where every import of this release
 // takes it while no old state folder is there. A folder an import made at the
-// old path in that instant is locked like any other.
+// old path in that instant is locked like any other, and it moves, since no
+// new state folder was made beside it.
 func (f agentFolders) lockToMove(
 	runtime operation.Paths,
 ) (release func(), closed, ok bool, err error) {
 	if !operation.IsFolder(f.oldState) {
-		if _, err = operation.PrivateDirectory(
-			runtime.State,
-			filepath.Join("agent", "costs"),
-		); err != nil {
+		// The state folder itself, which the closed path sits in.
+		if _, err = operation.PrivateDirectory(runtime.State, ""); err != nil {
 			return nil, false, false, err
 		}
 		if closed, err = operation.ClosePath(f.oldState); err != nil {
@@ -174,7 +173,10 @@ func (f agentFolders) lockToMove(
 		}
 		if !operation.IsFolder(f.oldState) {
 			var held bool
-			release, held, err = operation.TryLock(Paths{State: f.newState}.lock())
+			_, err = operation.PrivateDirectory(runtime.State, filepath.Join("agent", "costs"))
+			if err == nil {
+				release, held, err = operation.TryLock(Paths{State: f.newState}.lock())
+			}
 			if ok = err == nil && !held; !ok && closed {
 				f.reopenState()
 			}
