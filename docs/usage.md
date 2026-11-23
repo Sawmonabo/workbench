@@ -1133,7 +1133,8 @@ creates it, so a Mac whose folder was loosened sees that edit, with the folder's
 ACL kept. A folder with other flags, ACLs or attributes stops Workbench with the
 `chmod` that matches the configuration.
 A parent that other users can write to stops Workbench, naming the folder and
-saying to run `chmod go-w` on it.
+giving the command to paste, quoted for the shell where the name needs it:
+`run chmod go-w ~/.local and retry`.
 
 Activation is journaled, not a multi-file atomic transaction. An interrupted
 entry-point/state switch fails closed while retaining the prior runtime. Rerun

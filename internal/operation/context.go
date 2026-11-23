@@ -298,9 +298,8 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					ShowHomePath(
-						current,
-					)+" is writable by other users; run chmod go-w on it and retry",
+					ShowHomePath(current)+" is writable by other users; run chmod go-w "+
+						shellHomePath(current)+" and retry",
 				)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
