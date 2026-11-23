@@ -30,7 +30,8 @@ import (
 // tells (an overlay file system refusing a folder of a lower layer) it
 // removes the file it made. Any other failed swap also removes that file, and
 // a failed move removes the folder above to when it made that folder itself
-// and nothing else is in it. moved is true with an error only when the swap
+// and nothing else is in it; a move that finds that folder gone before it
+// wrote in it makes it once more. moved is true with an error only when the swap
 // happened and a folder could not be synced. A start identifier that cannot
 // be read moves nothing.
 func MoveFolder(from, to string) (moved bool, err error) {
@@ -54,8 +55,7 @@ func MoveFolder(from, to string) (moved bool, err error) {
 		return false, err
 	}
 	parent := filepath.Dir(to)
-	_, err = os.Lstat(parent)
-	made := errors.Is(err, fs.ErrNotExist)
+	made := false
 	defer func() {
 		if made && !moved {
 			// Remove fails on a folder that holds anything, so one another
@@ -63,10 +63,21 @@ func MoveFolder(from, to string) (moved bool, err error) {
 			_ = os.Remove(parent)
 		}
 	}()
-	if err := ensurePrivateDirectory(parent); err != nil {
-		return false, err
+	// Another failed move removes the folder above to when it made it, which
+	// can fall between making that folder here and writing in it: it is then
+	// made once more.
+	for try := 0; ; try++ {
+		if _, err = os.Lstat(parent); errors.Is(err, fs.ErrNotExist) {
+			made = true
+		}
+		if err = ensurePrivateDirectory(parent); err == nil {
+			err = ReplacePrivateFile(to, []byte(boot))
+		}
+		if err == nil || try > 0 || !errors.Is(err, fs.ErrNotExist) {
+			break
+		}
 	}
-	if err := ReplacePrivateFile(to, []byte(boot)); err != nil {
+	if err != nil {
 		return false, err
 	}
 	if err := platform.SwapNames(from, to); err != nil {
