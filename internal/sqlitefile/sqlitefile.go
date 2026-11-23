@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"slices"
@@ -53,7 +54,8 @@ type Options struct {
 
 // Open opens the SQLite file at path as o says and, unless o.ReadOnly,
 // switches it to WAL, so a reader reads the last committed state while a
-// writer writes. Its errors name path, except those of o.Prepare.
+// writer writes. Its errors name path once (see [FileError]), except those of
+// o.Prepare.
 func Open(path string, o Options) (*sql.DB, error) {
 	query := make([]string, 0, len(o.Pragmas)+3)
 	if o.ReadOnly {
@@ -61,10 +63,10 @@ func Open(path string, o Options) (*sql.DB, error) {
 	} else if o.Create {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, FileError(path, err)
 		}
 		if err := file.Close(); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, FileError(path, err)
 		}
 	}
 	for _, pragma := range o.Pragmas {
@@ -76,7 +78,7 @@ func Open(path string, o Options) (*sql.DB, error) {
 	address := &url.URL{Scheme: "file", Path: path, RawQuery: strings.Join(query, "&")}
 	db, err := sql.Open("sqlite", address.String())
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+		return nil, FileError(path, err)
 	}
 	if o.Prepare != nil {
 		if err := o.Prepare(db); err != nil {
@@ -87,10 +89,22 @@ func Open(path string, o Options) (*sql.DB, error) {
 	if !o.ReadOnly {
 		if err := enableWAL(db); err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("%s: %w", path, err)
+			return nil, FileError(path, err)
 		}
 	}
 	return db, nil
+}
+
+// FileError is err, which an operation on the file at path returned, as an
+// error that names path once, first, then the reason: an error of the os
+// package names the path itself, after the operation (open, stat, read), so
+// only its reason follows path, and the error still matches what that reason
+// matches, such as [fs.ErrNotExist] or [fs.ErrPermission].
+func FileError(path string, err error) error {
+	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path {
+		err = problem.Err
+	}
+	return fmt.Errorf("%s: %w", path, err)
 }
 
 // ContainsFold is the SQL name of a function every connection the driver
@@ -234,11 +248,11 @@ var ErrNotADatabase = errors.New("not an SQLite database")
 // a file whose write version is past 2 read-only. It reads nothing else, so
 // it costs the same whatever the file's size; a page damaged past the header
 // is SQLite's to find, when it reads it. A file that cannot be read fails
-// with the error reading it.
+// with the error reading it, which names path once (see [FileError]).
 func CheckHeader(path string) error {
 	file, err := os.Open(path)
 	if err != nil {
-		return err
+		return FileError(path, err)
 	}
 	defer func() { _ = file.Close() }()
 	header := make([]byte, headerSize)
@@ -247,7 +261,7 @@ func CheckHeader(path string) error {
 		return fmt.Errorf("%s: %w: it holds %d bytes, less than a header", path, ErrNotADatabase, n)
 	}
 	if err != nil {
-		return fmt.Errorf("%s: %w", path, err)
+		return FileError(path, err)
 	}
 	if reason := headerProblem(header); reason != "" {
 		return fmt.Errorf("%s: %w: %s", path, ErrNotADatabase, reason)

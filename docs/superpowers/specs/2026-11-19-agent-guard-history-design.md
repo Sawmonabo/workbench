@@ -331,7 +331,10 @@ and order them.
    past that, counting them in the log. The writer tries again every ten
    seconds and logs the failure once until a write succeeds. The snapshot
    names the failure and the view says
-   `Guard history cannot be written: REASON`.
+   `Guard history cannot be written: REASON`, where REASON names the file
+   once, from the home folder, and then why:
+   `~/.local/state/workbench/agent/guard/history.db: permission denied`. The
+   log says the same and names the file in full in its `path` field.
 4. **Twice is harmless.** Rows go in with
    `INSERT … ON CONFLICT(id) DO NOTHING`. A command that is already there
    gets no graph or process rows and counts as written.
@@ -364,7 +367,7 @@ and order them.
    hours when it never read one, which it logs), and logs both names once. While
    the copy exists the view says
    `Guard history was damaged and started again at TIME; the old file is
-   PATH`. A trim deletes the copy once it is older than `keep`, when all it
+   PATH`, PATH named from the home folder. A trim deletes the copy once it is older than `keep`, when all it
    holds would have gone anyway. Only the writer moves a file: a view with
    no watcher says `Guard history unreadable: REASON` and shows none, and
    `agent guard history` fails with the same text and sets nothing.

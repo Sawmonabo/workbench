@@ -49,10 +49,12 @@ type message struct {
 // other finished command.
 // HistoryError is what the view says of the history, empty when there is
 // nothing to say: "Guard history cannot be written: REASON" while the last
-// write failed (the writer tries again every ten seconds), else, while the
+// write failed (the writer tries again every ten seconds), REASON naming the
+// file once and then why (~/…/history.db: permission denied), else, while the
 // copy of a history that could not be used is kept, "Guard history was
 // damaged and started again at TIME; the old file is PATH": the history the
 // writer started then is a new file, whose commands are numbered from 1 again.
+// Each path in it is named from the home folder (see operation.ShowPath).
 type Snapshot struct {
 	At           time.Time     `json:"at"`
 	Memory       MemoryView    `json:"memory"`

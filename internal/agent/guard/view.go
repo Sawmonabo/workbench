@@ -6,10 +6,12 @@ import (
 	"cmp"
 	"fmt"
 	"log/slog"
+	"os"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -134,7 +136,9 @@ func (w *watcher) historyError(now time.Time) string {
 	if y, m, d := at.Date(); y != now.Year() || m != now.Month() || d != now.Day() {
 		clock = at.Format("Jan 2 3:04 PM")
 	}
-	return "Guard history was damaged and started again at " + clock + "; the old file is " + copied
+	home, _ := os.UserHomeDir()
+	return "Guard history was damaged and started again at " + clock + "; the old file is " +
+		operation.ShowPath(home, copied)
 }
 
 // buildView is the snapshot of this tick: s and m, the tracked commands with

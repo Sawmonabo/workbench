@@ -185,7 +185,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 	h := &History{root: root, path: historyFile(root), write: write}
 	if !write {
 		if _, err := os.Stat(h.path); err != nil {
-			return nil, err
+			return nil, sqlitefile.FileError(h.path, err)
 		}
 	}
 	options := sqlitefile.Options{
@@ -210,7 +210,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 	if write {
 		if h.opened, err = os.Stat(h.path); err != nil {
 			_ = db.Close()
-			return nil, fmt.Errorf("%s: %w", h.path, err)
+			return nil, sqlitefile.FileError(h.path, err)
 		}
 	}
 	return h, nil
@@ -230,7 +230,7 @@ func (h *History) Check() error {
 	info, err := os.Stat(h.path)
 	switch {
 	case err != nil:
-		return fmt.Errorf("%s: %w", h.path, err)
+		return sqlitefile.FileError(h.path, err)
 	case h.opened != nil && !os.SameFile(info, h.opened):
 		return fmt.Errorf("%w: %s is another file than the one the writer opened",
 			ErrHistoryUnusable, h.path)

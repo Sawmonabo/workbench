@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -59,7 +60,8 @@ type historyWriter struct {
 	queue []Finished
 	// written are the IDs of the commands written since done last ran.
 	written []string
-	// failed is why the last write failed, "" once one succeeded.
+	// failed is why the last write failed, as people read it (see
+	// shownPaths), "" once one succeeded.
 	failed string
 	// damagedAt is when a history that could not be used was moved aside to
 	// copied, zero while no such copy is kept.
@@ -239,17 +241,33 @@ func (h *historyWriter) succeeded() {
 	}
 }
 
-// fail marks the last write failed with err, logged when the one before
-// succeeded.
-func (h *historyWriter) fail(err error) {
+// fail marks the last write to the history in the guard folder root failed
+// with err, logged when the one before succeeded: the log's error and the
+// snapshot say it as people read it (see shownPaths), and its path field
+// names the history in full.
+func (h *historyWriter) fail(root string, err error) {
+	shown := shownPaths(err.Error(), root)
 	h.mu.Lock()
 	was := h.failed
-	h.failed = err.Error()
+	h.failed = shown
 	h.mu.Unlock()
 	if was == "" {
 		h.f.event(slog.LevelError, EventError,
-			"cannot write the guard history; trying again every ten seconds", "error", err)
+			"cannot write the guard history; trying again every ten seconds",
+			"error", shown, "path", historyFile(root))
 	}
+}
+
+// shownPaths is text, which names paths in the guard folder root, as people
+// read it: each such path named from the home folder, as [operation.ShowPath]
+// names one (~/…/history.db). A root that is not in the home folder, or that
+// ShowPath would quote, is left as it is.
+func shownPaths(text, root string) string {
+	home, _ := os.UserHomeDir()
+	if shown := operation.ShowPath(home, root); strings.HasPrefix(shown, "~") {
+		return strings.ReplaceAll(text, root, shown)
+	}
+	return text
 }
 
 // setDamaged records when a history that could not be used was moved aside to
@@ -391,7 +409,7 @@ func (r *writerRun) failed(err error) {
 		}
 	}
 	r.retry = time.Now().Add(writeRetry)
-	r.h.fail(err)
+	r.h.fail(r.root, err)
 }
 
 // replace closes the history, which cause found it cannot use, moves it aside
@@ -432,15 +450,18 @@ func (r *writerRun) replace(cause error) error {
 		}
 	}
 	r.history = history
+	why := shownPaths(cause.Error(), r.root)
 	if gone {
 		r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
-			"the guard history %s is gone; started a new one; %s", from, kept), "error", cause)
+			"the guard history %s is gone; started a new one; %s",
+			shownPaths(from, r.root), kept), "error", why, "path", from)
 		return nil
 	}
 	r.h.setDamaged(time.Now(), to)
 	r.h.f.event(slog.LevelWarn, EventError, fmt.Sprintf(
 		"the guard history %s cannot be used; moved it to %s and started a new one; %s",
-		from, to, kept), "error", cause)
+		shownPaths(from, r.root), shownPaths(to, r.root), kept),
+		"error", why, "path", from, "moved_to", to)
 	return nil
 }
 
