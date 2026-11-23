@@ -110,6 +110,13 @@ func WatcherRuns() (bool, error) {
 	return held, nil
 }
 
+// WatcherSilent is what is said, by doctor and the view, when a process holds
+// the watcher's lock (see [WatcherRuns]) but nothing answers on its socket: a
+// watcher that is starting, or one that cannot serve, whose log says why; a
+// hook moving the guard folder holds the lock for an instant too.
+const WatcherSilent = "the watcher's lock is held, but nothing answers on its socket: a " +
+	"watcher is starting, or one runs that cannot serve; workbench agent guard logs says why"
+
 // lockHeld reports whether a watcher holds the lock of the guard folder at
 // root; a lock that cannot be tried counts as free.
 func lockHeld(root string) bool {

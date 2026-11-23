@@ -559,7 +559,10 @@ A full-screen Bubble Tea program in the alternate screen.
   with the next agent command, keeps the last rows dimmed, shows the
   finished commands the history holds, read each second, and reconnects
   every second without saying so: the screen states the fact, not the
-  retry. When a watcher may run but cannot serve the view (another
+  retry. Whether a watcher runs is told from its lock, as doctor and every
+  entry tell it, so a socket that is missing or refused with the lock held
+  is a watcher that is starting or cannot serve, said in doctor's words.
+  When a watcher may run but cannot serve the view (that, another
   release, a socket it cannot reach, or a hello it did not finish, as when
   it is exiting), the header says `not connected`, its fourth line says why,
   and the view tries again each second.

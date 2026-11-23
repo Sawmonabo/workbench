@@ -374,6 +374,11 @@ const (
 		"version; run workbench update."
 )
 
+// watcherSilent is what the view says while the watcher's lock is held and
+// nothing answers on its socket: doctor's words (see guard.WatcherSilent), as
+// a sentence.
+var watcherSilent = strings.ToUpper(guard.WatcherSilent[:1]) + guard.WatcherSilent[1:] + "."
+
 // The view's sizes: the narrowest and the shortest window it draws in (the
 // four header lines and the six-line stop menu below them, with the key
 // line), how long a notice stays, the widest a project name is shown before
@@ -442,23 +447,34 @@ func waitSnapshot(ch <-chan guard.Snapshot) tea.Cmd {
 }
 
 // dialWatcher dials the watcher's socket. absent reports a missing or
-// refused socket, which means no watcher runs.
+// refused socket, where nothing serves.
 func dialWatcher(ctx context.Context) (client *guard.Client, absent bool, err error) {
 	client, err = guard.Dial(ctx)
 	return client, errors.Is(err, syscall.ENOENT) || errors.Is(err, syscall.ECONNREFUSED), err
 }
 
 // connectWatcher dials the watcher's socket and says hello. A missing or
-// refused socket means no watcher runs; a hello that times out means a
-// watcher of an older release took the socket over without serving it; a
-// hello without a protocol version in common means another release; any
-// other failed hello is shown as it is.
+// refused socket is told by the watcher's lock, as doctor and every entry
+// tell whether a watcher runs (see guard.WatcherRuns): with the lock free no
+// watcher runs, and with it held one is starting or cannot serve (see
+// guard.WatcherSilent). A hello that times out means a watcher of an older
+// release took the socket over without serving it; a hello without a
+// protocol version in common means another release; any other failed hello
+// is shown as it is.
 func connectWatcher() tea.Msg {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	client, absent, err := dialWatcher(ctx)
 	switch {
 	case absent:
+		runs, lockErr := guard.WatcherRuns()
+		switch {
+		case lockErr != nil:
+			return connectedMsg{problem: "Cannot tell whether the guard's watcher runs: " +
+				lockErr.Error()}
+		case runs:
+			return connectedMsg{problem: watcherSilent}
+		}
 		return connectedMsg{problem: watcherAbsent}
 	case err != nil:
 		return connectedMsg{problem: "Cannot reach the guard's watcher: " + err.Error()}

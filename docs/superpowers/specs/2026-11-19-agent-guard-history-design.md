@@ -186,7 +186,8 @@ younger than the time kept.
 
 A shorter time deletes the older commands without asking: the view hides
 them at once and the watcher deletes them for good within a minute; with no
-watcher serving its socket, `--keep` deletes them itself and says how many.
+watcher holding its lock, as doctor tells it, `--keep` deletes them itself
+and says how many.
 A longer time brings nothing back.
 
 ## 4. Constraints

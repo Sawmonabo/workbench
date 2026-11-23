@@ -465,7 +465,8 @@ detached program whose setting cannot be read, when the agent's setting is
 `dry-run` or `off`.
 
 The header's first line gives the watcher's state (`● watching`, `○ not
-running`, `○ not connected`), a `memory low` or `memory critical` badge when
+running` while no process holds the watcher's lock, `○ not connected` while
+one may run but nothing serves the view), a `memory low` or `memory critical` badge when
 memory runs short, and the clock; below a blank line, the counts (`3 running ·
 2,832 finished`, commands and detached work alike; with no watcher, the
 finished count alone) and, while a watcher answers, the memory in use of the
@@ -550,7 +551,11 @@ or made taller; narrower windows first shorten COMMAND, then drop SUBAGENT,
 PROJECT, PEAK, AGENT and TIME, in that order, and ENDED stays. While no watcher
 runs it says so, keeps the last rows dimmed, shows the finished commands the
 history holds and reconnects on its own; the watcher starts with the next
-agent command. A command in a git worktree is labeled by its repository and
+agent command. Whether one runs is told from the watcher's lock, as `doctor`
+tells it: while the lock is held and nothing answers on the socket, the view
+says what `doctor` says (`The watcher's lock is held, but nothing answers on
+its socket: a watcher is starting, or one runs that cannot serve; workbench
+agent guard logs says why.`). A command in a git worktree is labeled by its repository and
 worktree (`api/feature-login`). Without a terminal on stdin and stdout, or
 with `--non-interactive`, it exits 3 with `agent guard needs a terminal; use
 workbench agent guard logs --follow`; with `--json`, which it has no output
@@ -591,7 +596,8 @@ the time kept, and, past 20,000 commands or 256 MB on disk, the oldest even
 when younger. A shorter time deletes the older commands without asking, with
 any copy of a damaged history set aside longer ago (see below): the view hides
 them within a second, and the watcher deletes them within a minute or, when no
-watcher runs, the command deletes them itself and says how many. A longer time
+watcher runs (its lock is free, as `doctor` tells it), the command deletes them
+itself and says how many. A longer time
 brings none back. The command shows sizes in KB, MB and GB of
 1,024, as the guard shows memory. The global `--json` prints the same facts as fields: `path`,
 `keep_seconds`, `commands` and `bytes`, or with `--keep` `path`,

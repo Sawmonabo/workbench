@@ -179,9 +179,8 @@ func agentHooks(home string) []operation.Component {
 // told from its lock, as every entry tells it (see guard.WatcherRuns), and,
 // when one does, whether it answers on its socket. The watcher starts with
 // an agent session and exits when idle, so one that is not running is no
-// problem. A lock held with no answer is a watcher that is starting, or one
-// that cannot serve, which the guard log says why; a hook moving the guard
-// folder holds the lock for an instant too.
+// problem. A lock held with no answer is said as the view says it (see
+// guard.WatcherSilent).
 func guardWatcher(ctx context.Context) operation.Component {
 	line := operation.Component{
 		Name:    "agent-guard-watcher",
@@ -204,8 +203,7 @@ func guardWatcher(ctx context.Context) operation.Component {
 	client, err := guard.Dial(ctx)
 	if err != nil {
 		line.Status = operation.StatusConflict
-		line.Message = "its lock is held, but nothing answers on its socket: a watcher is " +
-			"starting, or one runs that cannot serve; workbench agent guard logs says why"
+		line.Message = guard.WatcherSilent
 		if !errors.Is(err, syscall.ENOENT) && !errors.Is(err, syscall.ECONNREFUSED) {
 			line.Message += " (" + err.Error() + ")"
 		}

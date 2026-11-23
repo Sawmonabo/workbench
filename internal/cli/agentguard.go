@@ -254,7 +254,8 @@ func agentGuardHistoryCommand(o *options) *cobra.Command {
 			"until --keep sets another time, in hours, days or weeks (12h, 3d, 1w) from 1h " +
 			"to 30d. A shorter time deletes the older commands without asking: the view " +
 			"hides them at once, and the watcher deletes them within a minute or, when no " +
-			"watcher runs, the command deletes them itself and says how many. A longer time " +
+			"watcher runs (its lock is free, as doctor tells it), the command deletes them " +
+			"itself and says how many. A longer time " +
 			"brings none back. At most 20,000 finished commands and 256 MB are kept, the " +
 			"oldest leaving first. Sizes are in KB, MB and GB of 1,024, as the guard shows " +
 			"memory.\n\n" +
@@ -298,7 +299,7 @@ type guardHistoryFacts struct {
 // guardHistoryKept is what `agent guard history --keep` did, as --json gives
 // it: the history's file, the time kept now and before, in seconds, and how
 // many finished commands it deleted itself, which it does only when no
-// watcher serves the history.
+// watcher holds its lock.
 type guardHistoryKept struct {
 	Path        string `json:"path"`
 	KeepSeconds int64  `json:"keep_seconds"`
@@ -364,13 +365,14 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 
 // setGuardHistoryKeep sets the time kept to text, making the guard folder and
 // the history as the watcher would when they are missing, and prints the one
-// line that says so. A watcher that serves the history deletes the older
-// commands at its next trim, within a minute:
+// line that says so. While a watcher runs, told from its lock as doctor and
+// every entry tell it (see guard.WatcherRuns), it deletes the older commands
+// at its next trim, within a minute:
 //
 //	Finished commands are kept 12 hours (was 24 hours); older ones are deleted within a minute.
 //
-// With none, the command trims the history itself, as the watcher would,
-// and says how many it deleted:
+// With none, or when the lock cannot be tried, the command trims the history
+// itself, as the watcher would, and says how many it deleted:
 //
 //	Finished commands are kept 12 hours (was 24 hours); 1,204 older ones were deleted.
 //
@@ -403,7 +405,8 @@ func setGuardHistoryKeep(
 		return operation.Fail(operation.ExitFailed, "guard-history",
 			"Cannot set how long finished commands are kept: "+guard.ShowPaths(err.Error(), root))
 	}
-	watching := guardWatcherServes(cmd.Context())
+	watching, err := guard.WatcherRuns()
+	watching = watching && err == nil
 	deleted := 0
 	if !watching {
 		if deleted, err = trimGuardHistory(cmd.Context(), history); err != nil {
@@ -442,20 +445,6 @@ func setGuardHistoryKeep(
 	}
 	_, err = fmt.Fprintln(cmd.OutOrStdout(), line)
 	return err
-}
-
-// guardWatcherServes reports whether a watcher answers its socket and
-// shares a protocol version with this release, as the view connects to one
-// (see dialWatcher): such a watcher trims the history itself.
-func guardWatcherServes(ctx context.Context) bool {
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-	client, _, err := dialWatcher(ctx)
-	if err != nil {
-		return false
-	}
-	defer func() { _ = client.Close() }()
-	return client.Hello() == nil
 }
 
 // trimGuardHistory trims history as the watcher does, a step at a time until
