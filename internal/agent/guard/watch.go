@@ -437,8 +437,9 @@ func Watch(ctx context.Context, version string) {
 		w.f.event(slog.LevelError, EventError,
 			"cannot move the guard folder; the watcher works in it where it is", "error", moveErr)
 	}
-	// Only now, in the folder it stays in, so the history is never made at
-	// the folder's old path or held open across its move (see moveFolder).
+	// Only now, in the folder it stays in, so the history is never held open
+	// across the folder's move (see moveFolder); a folder that stays at its
+	// old path, or that openFolder followed there, keeps the history there.
 	w.history.f = w.f
 	w.history.start(w.f.root)
 	w.identify()
