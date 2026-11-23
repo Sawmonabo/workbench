@@ -173,8 +173,10 @@ exits when it is not, and hooks and import workers started just before.
      started none.
    - When the lock is held, a watcher is running in the old folder. The
      hook writes its note there, where that watcher reads it, and the
-     command is guarded as before. `workbench migrate` says the watcher
-     moves the folder when it next hands over or stops.
+     command is guarded as before. That watcher never moves the folder
+     itself: `workbench migrate` says that once it has ended, the next
+     watcher (the one it hands over to, if any), guard hook or migrate run
+     moves it.
 9. **A handover that does not happen.** A watcher of the release before
    that cannot hand over keeps guarding in the old folder, as it does
    today, until it has been idle for ten minutes and exits. The next hook

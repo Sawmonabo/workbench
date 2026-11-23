@@ -319,8 +319,9 @@ starting over in an empty folder. The **Move Workbench's files** step moves
 them, and so does every costs and guard entry that holds the folder's lock: a
 watcher of the earlier release hands over as at every update, and the new
 watcher moves the guard folder before its first look, so nothing it was
-watching is dropped; a folder a watcher or an import still works in waits for
-it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
+watching is dropped; a folder a watcher or an import still works in stays
+until that watcher or import has ended, and the next entry to take its lock
+moves it. Wherever the guard folder is, the hooks, the watcher, `agent guard`,
 `agent guard history` and `agent guard logs` use it only while it, its
 `notes/`, `killed/` and `agents/` folders and the state folder above are
 real folders (not links) of mode 0700, yours, on the machine's own file

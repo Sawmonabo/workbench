@@ -259,8 +259,8 @@ func (s folderState) text(home string) string {
 		case operation.IsFolder(s.new):
 			return "leaves " + old + ", beside " + root + ", while " + who + " works in it"
 		case s.guard:
-			return "leaves " + old + " to the watcher running in it, which moves it to " + root +
-				" when it next hands over or stops"
+			return "leaves " + old + " to the watcher running in it, and once that watcher has " +
+				"ended, the next watcher, guard hook or migrate run moves it to " + root
 		}
 		return "leaves " + old + " to the import running in it, and the next import moves it to " + root
 	case besideNew:
