@@ -10,7 +10,6 @@ import (
 	"charm.land/bubbles/v2/key"
 	"charm.land/bubbles/v2/viewport"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
 	"github.com/Sawmonabo/workbench/internal/display"
@@ -559,7 +558,7 @@ func (m *guardView) split(height int) []string {
 			out[i] = r
 			continue
 		}
-		out[i] = l + strings.Repeat(" ", max(left-ansi.StringWidth(l), 0)) + bar + r
+		out[i] = padCell(l, left, false) + bar + r
 	}
 	return out
 }

@@ -264,7 +264,7 @@ func (m *guardView) overlay(lines, box []string, header int) []string {
 		if at >= len(lines) {
 			break
 		}
-		base := lines[at] + strings.Repeat(" ", max(m.width-ansi.StringWidth(lines[at]), 0))
+		base := padCell(lines[at], m.width, false)
 		// Truncate carries the cut part's escape codes along; the reset makes
 		// sure no style the line left open, such as the selected row's band,
 		// reaches the box's border.

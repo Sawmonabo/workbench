@@ -251,11 +251,8 @@ func padded(cols []column, cells []string, shown, widths []int) []string {
 	out := make([]string, 0, len(shown))
 	for _, i := range shown {
 		cell := fit(cells[i], widths[i], false)
-		pad := strings.Repeat(" ", max(widths[i]-ansi.StringWidth(cell), 0))
-		if cols[i].Right {
-			cell = pad + cell
-		} else if i != len(cols)-1 {
-			cell += pad
+		if cols[i].Right || i != len(cols)-1 {
+			cell = padCell(cell, widths[i], cols[i].Right)
 		}
 		out = append(out, cell)
 	}

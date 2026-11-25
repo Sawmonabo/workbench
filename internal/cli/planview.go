@@ -244,7 +244,7 @@ func liveFrame(plan operation.Plan, width int, view planView, head []string) pla
 				right = panel[i]
 			}
 			add(
-				padTo(left.Text, listWidth)+" "+faint.Render(glyphs.border.Left)+" "+right,
+				padCell(left.Text, listWidth, false)+" "+faint.Render(glyphs.border.Left)+" "+right,
 				left.Row,
 			)
 		}
@@ -287,11 +287,6 @@ func scrollRule(width int, above, below bool) string {
 		note = " more below"
 	}
 	return faint.Render(strings.Repeat(glyphs.Rule, max(width-ansi.StringWidth(note), 0)) + note)
-}
-
-// padTo pads s with spaces to width display cells.
-func padTo(s string, width int) string {
-	return s + strings.Repeat(" ", max(width-ansi.StringWidth(s), 0))
 }
 
 // windowTop is the first list line a window of height lines shows: top, moved
