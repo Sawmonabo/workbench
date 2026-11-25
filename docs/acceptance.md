@@ -995,6 +995,106 @@ synthetic answers.
   printed the same bytes before and after. `migrate --dry-run --json` then
   `--approve-plan DIGEST` deleted both lists and their folders, a second
   `migrate --dry-run` listed the migration done, and `doctor` exited 0.
+- The ledger keeps each repeated name once and each time as a number
+  (schema version 7, ADR 21). A ledger of version 1, 2, 4, 5 or 6 is
+  upgraded in place in one transaction that converts every row and checks
+  every converted row against its old one before it commits; a value it
+  cannot convert refuses the upgrade and leaves the file as it was. The
+  upgrade then compacts the file once with `VACUUM`, and each import worker
+  retries a compaction that failed. On 2026-11-25, on macOS (APFS) in
+  disposable homes, with copies of a real version 5 ledger of 1,587,060
+  responses and 106,759 rows waiting for a Codex tier, with the release
+  before (`v0.1.32-rc.10`'s source) against this build:
+  - `agent costs status` upgraded a version 6 copy of 980,914,176 bytes in
+    23.4 to 25.8 seconds, its compaction included, using 73 MB of memory at
+    its peak (timed apart on the version 5 copy: the conversion and its check
+    20 to 24 seconds, the compaction 1.5 seconds). The file then held
+    205,443,072 bytes, about a fifth, with no free pages, and
+    `integrity_check` returned ok. Meanwhile the ledger's folder grew to
+    1,367,744,512 bytes, and the volume held at most 593 MB more than
+    before, `VACUUM`'s temporary copy included.
+  - 58 runs of `agent costs` (both tools; every `--by`; `--since` and
+    `--until` cutting inside a millisecond; `--top`, `--sort`, `--all`,
+    `--detail`, `--tokens`, `--no-rollup`, `--csv`, `--json`), `agent costs
+    status`, `status --json`, `rates` and `rates --json`, by the release
+    before on the copy before the upgrade and by this build after, in the
+    same home, printed the same bytes on stdout and stderr except the
+    ledger's size in `status`. The 14 report pages and 157 drill-down pages
+    of the view, drawn at 140 columns with their JSON, were the same 8.0 MB.
+    Windows relative to now (`10m`, today) were not compared.
+  - The corrections, run by an import with no transcripts in the same
+    home, left the same 1,587,060 responses and 106,759 waiting rows,
+    decoded and compared row for row, from each of these starts: a copy with
+    `accounts_checked` and `tiers_checked` deleted; one in which, beyond
+    that, 113,619 accounts and 109,032 plans had been reset, 301,713 plans
+    named by transcripts dropped, 493 tiers stripped and 21,356 set wrong,
+    and 161,166 Codex subagent rows put back under their own thread (the
+    import changed 576,495 rows); one where the account resolution ran
+    scoped, with the Claude Code watermark moved back, three sessions and a
+    Codex thread noted unresolved, a subscription missing from the owned
+    list and the accounts of 404,415 rows reset; and one with an account
+    mark noted and 109,031 inferred accounts reset. In the scoped runs the
+    rows given back were exactly those the notes cover: the 2,570 reset rows
+    of the noted sessions and none of the other 106,461, the 4,588 of the
+    noted Codex thread, all 154,302 of the subscription missing from the
+    list, of another subscription all 75,426 after the watermark and before
+    it only the 474 in noted sessions (of 174,687), and for the mark the
+    67,705 reset rows from one time on and none of the 41,326 before it, the
+    cut falling between 20:42 and 21:25 UTC on the day before the mark.
+  - The writes: the release before imported 210,000 synthetic responses
+    into the version 6 copy; a second set of transcripts then held copies
+    of 20,000 of them (half earlier, larger and naming an organization,
+    half later, smaller and naming none), more lines in 100 sessions, 100
+    new sessions, Codex subagents waiting for their root's tier both ways,
+    forks copying a parent's response, and tier changes. The release before
+    importing that set into its ledger and this build into the same ledger
+    upgraded left the same 1,824,360 responses and 108,759 waiting rows,
+    row for row: 10,000 rows changed, as the earlier copies decide, and
+    27,300 were added.
+  - Times, release before against this build, the reports the best of four
+    runs: `agent costs --tool claude --all` 2.21 and 1.77 seconds, with
+    `--by model` 2.25 and 1.63, `--json` 2.19 and 1.61, `--since` a month
+    1.92 and 1.53, `--tool codex --all` 0.54 and 0.50, `status` 2.29 and
+    1.93, `rates` 0.04 both; the 171 pages 3 min 16 s and 2 min 35 s; an
+    import with nothing new 2.9 and 2.1 seconds; a full resolution 6.1 and
+    3.2, of the perturbed copy 16.9 and 8.9; the scoped ones 9.3 to 9.6 and
+    5.2 to 5.3, and 6.8 to 7.7 and 3.0; the second set of transcripts (635
+    files, 47,305 records) 11.1 and 14.1 against 6.1 and 6.1. `EXPLAIN
+    QUERY PLAN` showed every statement on the responses and the waiting
+    rows that searched an index before searching one after, the account
+    resolution's open rows through the partial index, and the report and
+    the group scans reading the table.
+  - A report of this build started 3 seconds into the upgrade waited 17.95
+    seconds and printed the bytes the release before printed from the
+    version 6 file; a report of the release before started at the same
+    moment read the version 6 file and printed them in 2.2 seconds. After
+    the upgrade the release before exited 2: `schema version "7", this tool
+    needs 6`.
+  - The update: in a disposable home, `v0.1.32-rc.10` installed by its
+    published `install.sh` imported synthetic transcripts of both tools (a
+    Claude Code session the session hook bound, a response copied into two
+    more files with an earlier time and stronger evidence and with a later
+    time and weaker, Codex subagents waiting for their root's tier in both
+    ways, a fork whose copy of its parent's response is dropped). An import
+    worker of that release that had committed rows waiting for a tier was
+    paused (`SIGSTOP`) while `update --bundle` installed a local bundle of
+    this build (`v0.1.32-dev.1`) and this build upgraded the ledger, then
+    resumed: its next commit and its account pass failed on the missing
+    `session_id` column, writing no row, and its tier check, which finds no
+    row of version 7, cleared `tiers_unresolved` and stored `tiers_checked`
+    `1`. The next import of this build checked every waiting row, and the
+    ledger then held the same 207 responses and 40 waiting rows, row for
+    row, as a home where the release before imported everything; a build
+    that took `1` as checked left 10 rows at the wrong tier. The fork's copy
+    crossed the upgrade unchanged and the next import dropped it.
+  - With `compact_due` set on a version 7 copy and its write lock held for
+    8 seconds, an import worker logged `the ledger is upgraded but not yet
+    compacted: compacting the ledger: database is locked (5)
+    (SQLITE_BUSY)`, finished its import (exit 0) and kept the key; the next
+    worker compacted the file to no free pages and deleted the key, and
+    `integrity_check` returned ok.
+  Not observed: Linux, WSL2, and a ledger upgraded in place on a real
+  machine.
 - On 2026-11-24, on macOS and in the Linux container, Python's `sqlite3`
   (SQLite 3.50.4 and 3.46.1) opened the ledger read-write, read it and
   closed it again and again, as the `sqlite3` shell does, while an import
@@ -1573,7 +1673,7 @@ synthetic answers.
 | WSL/Windows | Real WSL2.6+/Windows11 24H2+ x64 path/ACL, Terminal/PowerShell preservation and individually approved external-effect checks. Full provisioning is enabled but unqualified: Windows setup, Terminal and PowerShell adoption, the font registry, PATH, default distribution and sysctl are optional effects that start off (only WSL networking starts on), and no real host run is recorded. |
 | Editor | Deliberately apply to an intended local profile, then confirm project-tool selection and only ty/native Ruff active. Linux/WSL editor hosts remain unchecked, including the WSL VS Code server install. |
 | Agent command guard | A stop under real memory pressure on macOS, WSL2 and Linux without a limiting cgroup (settling the remaining thresholds), and among detached work the guard's own choice under that pressure; detached work on Linux and WSL2; Claude Code and Codex command shapes on WSL2 and in their interactive sessions, Claude Code's sandbox, a real Codex session showing a stop reason, and a real Claude Code session showing the reason of a stop the guard chose; the history of finished commands drawn in the view and kept by a serving watcher on each platform, and the guard folder moved under `agent/` while a watcher of the release before runs (both observed only in a disposable macOS home and a Linux container). |
-| Costs | A real version 5 ledger upgraded to version 6, with its price lists and report totals unchanged, and the costs folders moved under `agent/` while an import runs (observed only with synthetic transcripts in a disposable macOS home and a Linux container). |
+| Costs | A real version 5 or 6 ledger upgraded in place to version 7, with its price lists and report totals unchanged, on each platform (observed only on copies of a real version 5 ledger and in an update from `v0.1.32-rc.10` with synthetic transcripts, in disposable macOS homes), and the costs folders moved under `agent/` while an import runs (observed only with synthetic transcripts in a disposable macOS home and a Linux container). |
 | Release | A one-liner run on a clean machine through full provisioning; native capacity qualification. Releases stay unsigned with no redistribution license by decision. |
 
 Windows ARM integration, native Windows, arbitrary Linux distributions and

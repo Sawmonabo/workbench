@@ -7,8 +7,8 @@ space, and every report prints the same bytes, faster
 ## 1. Intent
 
 The ledger holds one row per AI response: token counts, the time, and who,
-where and with what the response was made. A ledger of 1,586,775
-responses measured 936 MiB, because each row
+where and with what the response was made. A copy of a real ledger,
+1,587,060 responses, measured 935 MiB, because each row
 repeats long text (project path, session ID twice, account, plan, evidence
 words, model, a time string, the response ID) and six indexes copy it
 again. The rows are needed (dedupe by ID, late corrections, millisecond
@@ -44,8 +44,8 @@ Anti-goals:
 
 | Approach | Trade-off |
 | --- | --- |
-| **Names once, numbers in the rows, time in milliseconds, IDs as bytes, three indexes (one partial).** Chosen. | 175 MiB at today's rows (synthetic measure); every SQL statement on `responses` and `tier_pending` changes. |
-| The same with IDs as text | About 42 MiB more; IDs readable with the `sqlite3` tool. |
+| **Names once, numbers in the rows, time in milliseconds, IDs as bytes, three indexes (one partial).** Chosen. | 196 MiB for the copy of a real ledger (935 MiB today); every SQL statement on `responses` and `tier_pending` changes. |
+| The same with IDs as text | About 42 MiB more (synthetic measure); IDs readable with the `sqlite3` tool. |
 | Packing rows into compressed blobs; compression extensions; rollups | See ADR 21: slower corrections, not loadable, or data lost. |
 
 ## 4. Rules
@@ -105,7 +105,8 @@ Anti-goals:
    | `0x00` | the text itself, UTF-8 | anything else (a copy key `copy:…` or `codex:copy:…`, any other shape) |
 
    In a ledger of 1.59 million rows, 1,263,746 IDs took tag 1, 112,202 tag
-   2, 199,016 tag 3 and 3 tag 0.
+   2, 199,016 tag 3 and 12,096 tag 0, 12,093 of them an advisor call's key
+   (a Claude Code ID, `:` and the call's index).
 
    Decoding a tag-1 or tag-2 value gives back the same text, leading zeros
    included. A key range on the text (`DropHeldCopies`) is a range on
@@ -161,10 +162,12 @@ Anti-goals:
    time with no value is NULL; `earlier` compares numbers.
 9. **Reads.** A report loads `names` once and reads `responses` straight
    through (`WHERE +tool = ?`: with an index on `tool` first, SQLite reads
-   the table through that index in time order, which measured 2.5 times
-   slower). The report code gets the values it gets today; how a time
-   travels in Go is the builder's choice (milliseconds compare and convert
-   to a local day faster than parsing the text).
+   the table through that index, row by row, which on synthetic rows
+   measured 2.5 times slower; on the compacted copy of a real ledger both
+   took 0.16 seconds in the `sqlite3` shell). The report code gets the
+   values it gets today; how a time travels in Go is the builder's choice
+   (milliseconds compare and convert to a local day faster than parsing the
+   text).
 10. **No query gets slower.** Each statement on `responses` and
    `tier_pending` is checked with `EXPLAIN QUERY PLAN` on a copy of a real
    ledger, old layout and new: a lookup by ID, a root move and each of the
@@ -173,11 +176,16 @@ Anti-goals:
    index; the report and the per-tool group scans read the table, as they
    read all of a tool's rows today. When SQLite does not take the partial
    index inside the `OR`, the condition is repeated inside the branch, or
-   the index covers every row (about 14 MiB more at 1.59 million rows).
+   the index covers every row (about 14 MiB more at 1.59 million rows,
+   synthetic measure).
 11. **A process of the release before** refuses a version 7 ledger and
     writes nothing (its own version check). An import worker of that release
     started at the moment of the update ends there; the next worker reads
-    what it would have read.
+    what it would have read. Its writes name columns version 7 does not
+    have, and fail; its tier check finds no row of version 7 yet stores
+    `tiers_checked` `1`, which version 7 does not take as checked (it
+    stores `2`, and the upgrade turns a `1` it finds into `2`), so the next
+    check covers every waiting row.
 
 ## 5. Ownership and documents
 
