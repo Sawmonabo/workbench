@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -186,8 +185,6 @@ func (m *checklistModel) click(x, y int) {
 	}
 	m.cursor = row
 }
-
-var bold = lipgloss.NewStyle().Bold(true)
 
 // pageChrome is the lines around a full-screen page: title, rule and keys.
 const pageChrome = 3

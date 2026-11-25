@@ -12,16 +12,6 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// The plan view's own styles, beside the ones `workbench agent costs` shares from
-// root.go and agentcosts.go: the brand and key color is the costs default accent,
-// and a new item wears the dark-on-yellow pill the costs tabs wear in their
-// own color.
-var (
-	brand = toolPalette("workbench").accent
-	badge = lipgloss.NewStyle().Bold(true).Padding(0, 1).
-		Foreground(lipgloss.Color("#1E1E1E")).Background(lipgloss.Yellow)
-)
-
 // forTerm rewrites s for the terminal's glyphs, so a literal with › · − ↑ ↓ never
 // shows mojibake.
 func forTerm(s string) string { return glyphs.text.Replace(s) }

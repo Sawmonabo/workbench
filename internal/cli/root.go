@@ -335,13 +335,6 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	return nil
 }
 
-var (
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Green)
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Red)
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
-	faint  = lipgloss.NewStyle().Faint(true)
-)
-
 // painter colors text only where lipgloss would: the same color-profile test
 // the tables use, so a pipe, TERM=dumb and NO_COLOR (no-color.org) all get
 // plain lines and the two never disagree.
