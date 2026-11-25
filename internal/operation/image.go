@@ -130,7 +130,7 @@ func validateImageGroup(c Context, path string, image Image) error {
 		return err
 	}
 	if !permitted {
-		inherited, inheritErr := CreationGroup(c, path)
+		inherited, inheritErr := creationGroup(c, path)
 		permitted = inheritErr == nil && inherited == *image.Group
 	}
 	if !permitted {
@@ -326,7 +326,7 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 		image.Group = before.Group
 		return image, nil
 	}
-	group, err := CreationGroup(c, path)
+	group, err := creationGroup(c, path)
 	if err != nil {
 		return Image{}, err
 	}
@@ -348,9 +348,10 @@ func canSetGroup(group uint32) (bool, error) {
 	return permitted, nil
 }
 
-// CreationGroup is also the native planner's group-preservation preflight:
-// an atomic native replacement must not silently change an existing group.
-func CreationGroup(c Context, path string) (uint32, error) {
+// creationGroup is the group a new file at path gets. [CheckPreservable] also
+// asks it: an atomic native replacement must not silently change an existing
+// group.
+func creationGroup(c Context, path string) (uint32, error) {
 	parent, err := creationParent(c, path)
 	if err != nil {
 		return 0, err
@@ -396,7 +397,7 @@ func inheritedGroup(folder unix.Stat_t) uint32 {
 	return groupID(os.Getegid())
 }
 
-// CheckStagedGroup refuses a file target whose group, the one a new file at
+// checkStagedGroup refuses a file target whose group, the one a new file at
 // path gets, native's atomic write cannot keep. Native chezmoi writes a file
 // through renameio, which stages it in the temporary folder (TMPDIR) whenever a
 // file renames from there to path. Workbench gives native its private staging
@@ -404,7 +405,7 @@ func inheritedGroup(folder unix.Stat_t) uint32 {
 // gives it the approved group afterwards. When the two differ and the user
 // cannot set the approved group, that correction would fail after native
 // wrote, so the plan stops first.
-func CheckStagedGroup(c Context, path, staging string) error {
+func checkStagedGroup(c Context, path, staging string) error {
 	parent, err := creationParent(c, path)
 	if err != nil {
 		return err

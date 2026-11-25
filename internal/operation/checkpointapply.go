@@ -129,14 +129,14 @@ func CheckPreservable(
 		)
 	}
 	if after.Kind == ImageFile {
-		if err := CheckStagedGroup(c, edit.Path, staging); err != nil {
+		if err := checkStagedGroup(c, edit.Path, staging); err != nil {
 			return err
 		}
 	}
 	if before.Kind != ImageFile && before.Kind != ImageSymlink {
 		return nil
 	}
-	group, err := CreationGroup(c, edit.Path)
+	group, err := creationGroup(c, edit.Path)
 	if err != nil {
 		return err
 	}

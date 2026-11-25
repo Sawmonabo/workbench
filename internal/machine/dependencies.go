@@ -242,7 +242,7 @@ func replacedVersion(recorded []operation.Dependency, name, version string) stri
 // apply owner may add individually approved effect selectors.
 // Native and the scripts keep their temporary files in scratch, the run's
 // private folder, which is also where native stages its atomic writes (see
-// operation.CheckStagedGroup).
+// operation.CheckPreservable).
 func scriptEnvironment(
 	c operation.Context,
 	dependencies []operation.Dependency,

@@ -112,7 +112,7 @@ func (p *preparation) stageNative(
 		return err
 	}
 	// Native stages its atomic writes, scripts and diffs in TMPDIR, so they
-	// stay in this private folder, whose group CheckStagedGroup checks.
+	// stay in this private folder, whose group operation.CheckPreservable checks.
 	p.environment = []string{
 		"HOME=" + c.Native.Destination,
 		"PATH=" + bin + ":/usr/bin:/bin",
