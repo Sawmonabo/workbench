@@ -335,7 +335,9 @@ entries asking at the same moment never take each other for one, and
 stay and are used where they are, and so does a folder an overlay file
 system keeps in a container image's lower layer, which only a move finds
 out: the first move that tries it marks the folder with an extended
-attribute, and from then on nothing tries again on that mount. An
+attribute naming its device and inode, and from then on nothing tries again on
+that mount; a copy of the folder, which takes the attribute along, is moved
+like any other. An
 old folder found beside one already in use is not merged: its logs, output files, locks, sockets, downloaded price
 lists and empty folders are deleted, and anything else, such as a ledger or a
 note, stays. `workbench migrate --dry-run` and `workbench doctor` name an old

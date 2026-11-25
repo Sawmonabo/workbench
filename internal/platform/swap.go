@@ -1,10 +1,10 @@
 package platform
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
-	"strconv"
 
 	"golang.org/x/sys/unix"
 )
@@ -38,26 +38,41 @@ const cannotSwapMark = "user.workbench.cannot-swap"
 // to swap it (see SwapNames) where CanSwap said it could: an overlay file
 // system refuses a folder of an image's lower layer with EXDEV, which no
 // call tells without trying. The mark is an extended attribute holding the
-// device the folder is on, so CanSwap reads it without writing anything and
-// ignores it once the folder is on another device (an overlay mounted anew,
-// or a copy on another file system). It is best effort: a folder that
-// cannot take the mark is tried again by the next move.
+// folder's device and inode, so CanSwap reads it without writing anything
+// and ignores it on any other folder: one on another device (an overlay
+// mounted anew, or a copy on another file system) and a copy on the same
+// one, which takes the folder's extended attributes with it (cp -R on
+// macOS, cp -a, rsync -X, a restore from a backup). Setting an attribute on
+// a folder of an overlay's lower layer copies the folder up to the upper
+// layer, which can change the inode stat reports, so the identity it holds
+// is the one the folder has once an attribute is written: a mark that names
+// another is written once more. It is best effort: a folder that cannot
+// take the mark is tried again by the next move.
 func MarkCannotSwap(path string) {
-	var stat unix.Stat_t
-	if unix.Lstat(path, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFDIR {
-		return
+	for range 2 {
+		var stat unix.Stat_t
+		if unix.Lstat(path, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFDIR ||
+			unix.Lsetxattr(path, cannotSwapMark, swapMark(&stat), 0) != nil ||
+			markedCannotSwap(path) {
+			return
+		}
 	}
-	_ = unix.Lsetxattr(path, cannotSwapMark, []byte(strconv.FormatUint(uint64(stat.Dev), 10)), 0)
+}
+
+// swapMark is the mark [MarkCannotSwap] leaves on the folder stat describes:
+// its device and inode, in decimal, joined by a colon.
+func swapMark(stat *unix.Stat_t) []byte {
+	return fmt.Appendf(nil, "%d:%d", uint64(stat.Dev), uint64(stat.Ino))
 }
 
 // markedCannotSwap reports whether the folder at path holds the mark
-// [MarkCannotSwap] left on the device it is on now.
+// [MarkCannotSwap] left on it: one naming its device and inode now.
 func markedCannotSwap(path string) bool {
 	var stat unix.Stat_t
 	if unix.Lstat(path, &stat) != nil || stat.Mode&unix.S_IFMT != unix.S_IFDIR {
 		return false
 	}
-	mark := make([]byte, 24)
+	mark := make([]byte, 64)
 	n, err := unix.Lgetxattr(path, cannotSwapMark, mark)
-	return err == nil && string(mark[:n]) == strconv.FormatUint(uint64(stat.Dev), 10)
+	return err == nil && bytes.Equal(mark[:n], swapMark(&stat))
 }

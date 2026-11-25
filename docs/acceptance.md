@@ -941,7 +941,14 @@ synthetic answers.
   took no lock and tried no swap, and `migrate --dry-run` listed the
   migration done, naming each folder as left in use where it is. The same
   folders made at run time in that container moved under `agent/` at the
-  first pre hook and `agent costs status`. On 2026-11-24, on macOS (APFS)
+  first pre hook and `agent costs status`. On 2026-11-24, in a container of
+  the same kernel, Docker and Ubuntu whose image held the old guard folder,
+  the first session hook took its lock once, met `EXDEV` and marked the
+  folder with its device and inode; the next took no lock and tried no
+  swap; a `cp -a` copy of the marked folder, carrying the mark, put in its
+  place at run time moved under `agent/` at the next session hook. On macOS
+  (APFS), a folder given the mark refused to move and a `cp -R` copy of it,
+  carrying the mark, moved. On 2026-11-24, on macOS (APFS)
   in a disposable home and in that container, each rebuilt from nothing
   twice with `v0.1.32-rc.9` installed by its published `install.sh`, with
   its watcher guarding a command holding 200 MB and a detached program,

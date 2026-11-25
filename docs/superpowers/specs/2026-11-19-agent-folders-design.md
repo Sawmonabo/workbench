@@ -129,11 +129,15 @@ exits when it is not, and hooks and import workers started just before.
    the swap tells, as on an overlay file system that keeps the folder in an
    image's lower layer (`EXDEV`), the first move that tries it leaves the
    folder in use where it is and marks it with an extended attribute
-   (`user.workbench.cannot-swap`) holding the device it is on. A marked
-   folder on that device is one whose file system cannot swap: no entry
+   (`user.workbench.cannot-swap`) holding its device and inode, read once
+   the attribute is written, since setting one copies a lower-layer folder
+   up, which can change the inode stat reports. A folder whose mark names
+   its own device and inode is one whose file system cannot swap: no entry
    takes its lock to move it and the migration counts it as done. On
    another device, as when the overlay is mounted anew, the mark is
-   ignored and the next move tries once more.
+   ignored and the next move tries once more; so it is on a copy of the
+   folder (`cp -a`, `rsync -X`, a restore), which takes its extended
+   attributes but has another inode.
 6. **Old and new both exist, and the old folder's lock is free.** The new
    folder is in use and nothing is merged into it. From the old one a move
    deletes what Workbench may delete: logs, `.err` output files, downloaded

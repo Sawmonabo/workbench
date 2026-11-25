@@ -80,10 +80,13 @@ using.
   folder of an image's lower layer (`EXDEV`), which no call tells without
   trying: the first move that tries it (a hook, a costs entry, a watcher or
   the migration) leaves it in use where it is and marks it with an extended
-  attribute holding the device it is on. From then on `CanSwap` says that
-  folder cannot swap, as on HFS+: no entry takes its lock to move it, the
-  migration counts it as done, and nothing tries it again until it is on
-  another device, as when the overlay is mounted anew. An old folder beside one already in use is not
+  attribute holding its device and inode, read once the attribute is
+  written, since setting one copies a lower-layer folder up. From then on
+  `CanSwap` says that folder cannot swap, as on HFS+: no entry takes its
+  lock to move it, the migration counts it as done, and nothing tries it
+  again until it is on another device, as when the overlay is mounted anew.
+  A copy of it (`cp -a`, `rsync -X`, a restore), which takes its extended
+  attributes, has another inode and is moved like any other folder. An old folder beside one already in use is not
   merged: its logs, output files, locks, sockets, downloaded price lists and
   empty folders are deleted, under the old folder's lock held shared, which
   keeps a watcher or an import from starting there and which no asker takes
