@@ -329,9 +329,8 @@ func (f folders) noteIDs() ([]string, error) {
 	return ids, nil
 }
 
-// listFolder lists a guard folder without temporary files, which start
-// ".write-" (see [operation.ReplacePrivateFile]), after
-// [operation.RemoveStaleWrites].
+// listFolder lists a guard folder without the temporary files of private
+// writes (see [operation.PendingWrite]), after [operation.RemoveStaleWrites].
 func listFolder(folder string) ([]fs.DirEntry, error) {
 	operation.RemoveStaleWrites(folder)
 	all, err := os.ReadDir(folder)
@@ -340,7 +339,7 @@ func listFolder(folder string) ([]fs.DirEntry, error) {
 	}
 	var entries []fs.DirEntry
 	for _, entry := range all {
-		if !strings.HasPrefix(entry.Name(), ".write-") {
+		if !operation.PendingWrite(entry.Name()) {
 			entries = append(entries, entry)
 		}
 	}

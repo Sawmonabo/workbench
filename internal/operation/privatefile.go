@@ -202,6 +202,15 @@ func CreatePrivateFile(path string, data []byte) error {
 	return writePrivateFile(path, data, true)
 }
 
+// pendingWrite starts the name of the temporary file a private write puts
+// its data in before it renames it into place.
+const pendingWrite = ".write-"
+
+// PendingWrite reports whether a file named name in a folder Workbench writes
+// privately is the temporary file of a write in progress or one that was
+// killed (see [RemoveStaleWrites]), not a file of the folder's own.
+func PendingWrite(name string) bool { return strings.HasPrefix(name, pendingWrite) }
+
 // writePrivateFile writes data through a same-folder temporary file and puts
 // it in place at path, never replacing a file there when create is set.
 func writePrivateFile(path string, data []byte, create bool) error {
@@ -214,7 +223,7 @@ func writePrivateFile(path string, data []byte, create bool) error {
 	if err != nil {
 		return err
 	}
-	temporary := ".write-" + id
+	temporary := pendingWrite + id
 	f, err := root.OpenFile(temporary, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return err
@@ -265,7 +274,7 @@ func RemoveWrites(folder string) { removeWrites(folder, 0) }
 func removeWrites(folder string, age time.Duration) {
 	entries, _ := os.ReadDir(folder)
 	for _, entry := range entries {
-		if !strings.HasPrefix(entry.Name(), ".write-") {
+		if !PendingWrite(entry.Name()) {
 			continue
 		}
 		if info, err := entry.Info(); err == nil && (age == 0 || time.Since(info.ModTime()) > age) {
