@@ -37,7 +37,8 @@ type usage struct {
 
 // add records one reading: in the newest bucket until it holds Per readings,
 // else in a new one. When graphBars buckets are full, neighbors merge into
-// the larger first and Per doubles, so the graph covers the whole run.
+// the larger first (see mergeNeighbors) and Per doubles, so the graph covers
+// the whole run.
 func (u *usage) add(size uint64) {
 	u.Last, u.Peak = size, max(u.Peak, size)
 	per := max(u.Per, 1)
@@ -47,11 +48,7 @@ func (u *usage) add(size uint64) {
 		return
 	}
 	if len(u.Buckets) >= graphBars {
-		merged := u.Buckets[:0]
-		for i := 0; i < len(u.Buckets); i += 2 {
-			merged = append(merged, slices.Max(u.Buckets[i:min(i+2, len(u.Buckets))]))
-		}
-		u.Buckets, per = merged, per*2
+		u.Buckets, per = mergeNeighbors(u.Buckets[:0], u.Buckets), per*2
 	}
 	u.Per, u.Filled = per, 1
 	u.Buckets = append(u.Buckets, size)

@@ -112,16 +112,25 @@ func keptProcesses(processes []ProcessPeak) ([]ProcessPeak, int) {
 }
 
 // keptGraph is graph in at most graphBars bars: while it has more, each two
-// neighbors merge into the larger. graph is not changed.
+// neighbors merge into the larger (see mergeNeighbors). graph is not changed.
 func keptGraph(graph []uint64) []uint64 {
 	for len(graph) > graphBars {
-		merged := make([]uint64, 0, (len(graph)+1)/2)
-		for i := 0; i < len(graph); i += 2 {
-			merged = append(merged, slices.Max(graph[i:min(i+2, len(graph))]))
-		}
-		graph = merged
+		graph = mergeNeighbors(make([]uint64, 0, (len(graph)+1)/2), graph)
 	}
 	return graph
+}
+
+// mergeNeighbors appends graph to into with each two neighbors merged into
+// the larger, oldest first, the last bar alone when there is an odd number,
+// and gives the result: the one rule by which a running command's graph
+// (see usage.add) and a finished one's (see keptGraph) hold their whole run
+// in graphBars bars. into may be graph[:0]: each bar is written only after
+// the two it merges were read, so graph is merged in place.
+func mergeNeighbors(into, graph []uint64) []uint64 {
+	for i := 0; i < len(graph); i += 2 {
+		into = append(into, slices.Max(graph[i:min(i+2, len(graph))]))
+	}
+	return into
 }
 
 // graphBlob is graph as the graphs table keeps it: one uvarint of KiB per
