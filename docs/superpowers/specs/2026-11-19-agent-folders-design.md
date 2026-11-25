@@ -186,9 +186,9 @@ exits when it is not, and hooks and import workers started just before.
    today, until it has been idle for ten minutes and exits. The next hook
    then finds the lock free and moves the folder.
 10. **The socket's path** is six bytes longer. On macOS a user name longer
-    than 26 characters puts it past the 100 bytes a socket path may have,
-    where 32 did before: the guard still guards, and `agent guard` says it
-    cannot reach the watcher.
+    than 29 characters puts it past the 103 bytes a socket path may have
+    (`platform.SocketPathLimit`), where 35 did before: the guard still
+    guards, and `agent guard` says it cannot reach the watcher.
 
 ### 5.3 The costs folders
 
