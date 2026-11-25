@@ -79,13 +79,14 @@ Each was read in the source named.
   `tool_input`; "Subagent hooks use the parent session id", and `agent_id`
   appears only on SubagentStart and SubagentStop
   ([Codex hooks](https://learn.chatgpt.com/docs/hooks)).
-- **Pairing today.** `match` in `internal/guard/match.go` pairs notes with an
-  agent's children by command text, oldest note to oldest child. Claude Code
-  subagents run inside the session's own process, so two identical commands
-  started together in two worktrees can pair crosswise. Codex 0.163.0 and
-  later set `CODEX_TOOL_CALL_ID` on each command, which pairs exactly.
+- **Pairing today.** `match` in `internal/agent/guard/match.go` pairs notes
+  with an agent's children by command text, oldest note to oldest child.
+  Claude Code subagents run inside the session's own process, so two
+  identical commands started together in two worktrees can pair crosswise.
+  Codex 0.163.0 and later set `CODEX_TOOL_CALL_ID` on each command, which
+  pairs exactly.
 - **Memory today.** The watcher measures a command's tree only when memory
-  calls for a stop (`stopLargest` in `internal/guard/watch.go`), with
+  calls for a stop (`stopLargest` in `internal/agent/guard/stop.go`), with
   `proc_pid_rusage`'s physical footprint on macOS and `smaps_rollup`'s Pss on
   Linux. The kernel builds `smaps_rollup` by walking the process's mappings
   ([proc(5) docs](https://docs.kernel.org/filesystems/proc.html)), so its cost
@@ -605,11 +606,11 @@ It only labels; nothing acts on it.
 
 ### 6.3 Pairing by folder
 
-`match` in `internal/guard/match.go` prefers by folder and never rejects
-by it: among the children that claim a note, it takes the one whose process
-running the command has as its working folder the folder of the note's
-leading `cd PATH`, above one in the note's `cwd`, above one whose folder is
-unknown or neither, the oldest within a rank. Linux reads
+`match` in `internal/agent/guard/match.go` prefers by folder and never
+rejects by it: among the children that claim a note, it takes the one whose
+process running the command has as its working folder the folder of the
+note's leading `cd PATH`, above one in the note's `cwd`, above one whose
+folder is unknown or neither, the oldest within a rank. Linux reads
 `/proc/PID/cwd`; macOS reads `proc_pidinfo` with `PROC_PIDVNODEPATHINFO`. A
 process whose folder cannot be read ranks last and still pairs as today.
 Codex commands with a call ID pair by ID as today.
@@ -704,8 +705,8 @@ version; WSL runs the Linux one.
 | The peer's user and process ID | `LOCAL_PEERCRED` (`unix.GetsockoptXucred`) and `LOCAL_PEERPID` | `SO_PEERCRED` (`unix.GetsockoptUcred`) | `Peer(conn)`, giving `platform.Credentials{UID, PID}`, which the password helper uses too |
 
 Whether a peer descends from a noted agent is guard logic over its own
-process snapshot (`snapshot` in `internal/guard/guard.go`), not a platform
-call.
+process snapshot (`snapshot` in `internal/agent/guard/guard.go`), not a
+platform call.
 
 Everything else reuses what Workbench already has:
 
@@ -723,11 +724,13 @@ Everything else reuses what Workbench already has:
 - **Messages and records**: `encoding/json` for JSON Lines, and the guard's
   `slog` JSON records for the log.
 - **Socket handover**: the listening socket rides the handover the lock
-  already uses (`internal/guard/handover.go`: `operation.StartDetached`'s
-  `Files` hands the open files over, `operation.InheritLock` takes them up).
-- **Stops**: the guard's existing stop path (`stop`, `targets` and the 5 s
-  escalation in `internal/guard/watch.go`, sending through
-  `internal/platform`); a manual stop adds only who asked and the message.
+  already uses (`internal/agent/guard/handover.go`:
+  `operation.StartDetached`'s `Files` hands the open files over,
+  `operation.InheritLock` takes them up).
+- **Stops**: the guard's existing stop path (`stop` and the 5 s escalation in
+  `internal/agent/guard/stop.go`, `targets` in
+  `internal/agent/guard/match.go`, sending through `internal/platform`); a
+  manual stop adds only who asked and the message.
 - **No new modules.** `golang.org/x/sys` already has every call above.
 
 ## 8. Tests
@@ -742,7 +745,7 @@ that nobody with the right to stop it chose:
    included (`TestManualStopsOnlyWhatAPersonMayStop`). The other-user case
    has no test: it is decided at accept from the peer's credentials, which
    only a real socket and a second user give, and no test opens a socket;
-   it is checked by reading `handle` in `internal/guard/socket.go`.
+   it is checked by reading `handle` in `internal/agent/guard/socket.go`.
 2. A `stop` naming an unknown or finished ID signals nothing.
 3. Two notes with the same command text in two folders pair with the
    processes in their own folders.

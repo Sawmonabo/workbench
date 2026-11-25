@@ -8,7 +8,7 @@ import (
 )
 
 // commandFolder reads a command's leading `cd PATH &&` or `cd PATH;`: the
-// folder PATH names, bare (plain characters only) or single- or
+// folder PATH names, one part of a word (see wordPart), bare or single- or
 // double-quoted, and rest, the command after the separator. ok is false when
 // there is no such cd or the shell would decide the folder itself: PATH
 // starts with ~, $ or - (an option or the previous folder), holds a
@@ -22,24 +22,9 @@ func commandFolder(command string) (folder, rest string, ok bool) {
 	if after = strings.TrimLeft(after, " \t"); after == "" {
 		return "", "", false
 	}
-	var end int
-	switch quote := after[0]; quote {
-	case '\'', '"':
-		closing := strings.IndexByte(after[1:], quote)
-		if closing < 0 {
-			return "", "", false
-		}
-		folder, end = after[1:1+closing], closing+2
-		if quote == '"' && strings.ContainsAny(folder, `$\`) {
-			return "", "", false
-		}
-	default:
-		for end < len(after) && plainByte(after[end]) {
-			end++
-		}
-		folder = after[:end]
-	}
-	if folder == "" || strings.ContainsAny(folder[:1], "~$-") || strings.ContainsRune(folder, '`') {
+	folder, end, read := wordPart(after)
+	if !read || folder == "" || strings.ContainsAny(folder[:1], "~$-") ||
+		strings.ContainsRune(folder, '`') {
 		return "", "", false
 	}
 	tail := strings.TrimLeft(after[end:], " \t")

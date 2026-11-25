@@ -18,8 +18,8 @@ import (
 // unitPrefix starts a unit's ID, so it is never taken for a call's.
 const unitPrefix = "detached-"
 
-// unitID is the ID of the unit whose first root is r.
-func unitID(r procRef) string { return fmt.Sprintf("%s%d-%d", unitPrefix, r.PID, r.Start) }
+// unitID is the ID of the unit whose first root is the process key.
+func unitID(key procKey) string { return fmt.Sprintf("%s%d-%d", unitPrefix, key.pid, key.start) }
 
 // rootPIDs are the PIDs whose trees make up c in s: for a unit each root
 // that runs with its start time; for a noted command its root while its PID
@@ -616,7 +616,8 @@ func followFirstRoot(s snapshot, c *command) {
 func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 	now := time.Now()
 	root := detachedRoot{
-		procRef: procRef{PID: r.PID, Start: r.Start},
+		PID:     r.PID,
+		Start:   r.Start,
 		Since:   now,
 		Version: t.Version,
 		Name:    r.Name,
@@ -641,7 +642,7 @@ func (w *watcher) addRoot(s snapshot, r proc, t tie) {
 	}
 	call, rec := w.resolveCall(r, t)
 	cwd, _ := platform.Folder(r.PID)
-	id := unitID(root.procRef)
+	id := unitID(key)
 	w.ancestry.record(key, owner{ID: id, Agent: t.Agent, Kind: t.Kind}, t.Parent, t.Version, now)
 	n := note{
 		ToolUseID:  id,
@@ -697,7 +698,7 @@ func (w *watcher) resolveCall(r proc, t tie) (string, callRecord) {
 	default:
 		rec, ok = w.records.byShell(t.Agent, t.Shell, t.Second)
 	}
-	if !ok || rec.Agent != t.Agent || rec.Shell.Start != 0 && r.Start < rec.Shell.Start {
+	if !ok || rec.Agent != t.Agent || rec.Shell.start != 0 && r.Start < rec.Shell.start {
 		return "", callRecord{}
 	}
 	if t.Owner == "" && !w.records.stampProves(rec.ID) {

@@ -237,9 +237,9 @@ func (a *ancestry) drop(key procKey) []procKey {
 // versions with how long ago it was last seen, not when, so a clock set
 // between the two watchers neither keeps a version longer nor drops it sooner.
 type carriedOrigin struct {
-	Process  procRef          `json:"process"`
+	Process  procKey          `json:"process"`
 	Owner    owner            `json:"owner"`
-	Parent   *procRef         `json:"parent,omitempty"`
+	Parent   *procKey         `json:"parent,omitempty"`
 	Versions []carriedVersion `json:"versions,omitempty"`
 }
 
@@ -254,9 +254,10 @@ type carriedVersion struct {
 func (a *ancestry) carry(now time.Time) []carriedOrigin {
 	out := make([]carriedOrigin, 0, len(a.entries))
 	for key, e := range a.entries {
-		c := carriedOrigin{Process: procRef{PID: key.pid, Start: key.start}, Owner: e.owner}
+		c := carriedOrigin{Process: key, Owner: e.owner}
 		if _, ok := a.entries[e.parent]; ok {
-			c.Parent = &procRef{PID: e.parent.pid, Start: e.parent.start}
+			parent := e.parent
+			c.Parent = &parent
 		}
 		for _, v := range e.versions {
 			age := now.Sub(a.versions[v].at).Milliseconds()
@@ -280,9 +281,10 @@ func (a *ancestry) chain(key procKey) []carriedOrigin {
 			break
 		}
 		seen[key] = true
-		c := carriedOrigin{Process: procRef{PID: key.pid, Start: key.start}, Owner: e.owner}
+		c := carriedOrigin{Process: key, Owner: e.owner}
 		if _, ok := a.entries[e.parent]; ok {
-			c.Parent = &procRef{PID: e.parent.pid, Start: e.parent.start}
+			parent := e.parent
+			c.Parent = &parent
 		}
 		out = append(out, c)
 		key = e.parent
@@ -300,16 +302,16 @@ func (a *ancestry) chain(key procKey) []carriedOrigin {
 // which changes nothing.
 func (a *ancestry) adopt(carried []carriedOrigin, now time.Time) {
 	for _, c := range carried {
-		key := procKey{c.Process.PID, c.Process.Start}
+		key := c.Process
 		if _, ok := a.entries[key]; !ok {
 			a.entries[key] = &origin{owner: c.Owner}
 		}
 	}
 	for _, c := range carried {
-		key := procKey{c.Process.PID, c.Process.Start}
+		key := c.Process
 		e := a.entries[key]
 		if c.Parent != nil && e.parent == (procKey{}) {
-			parent := procKey{c.Parent.PID, c.Parent.Start}
+			parent := *c.Parent
 			if p := a.entries[parent]; p != nil && !a.reaches(parent, key) {
 				e.parent = parent
 				p.kids = append(p.kids, key)

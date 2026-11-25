@@ -478,7 +478,7 @@ func TestMatchPrefersTheCommandInTheNotesFolder(t *testing.T) {
 func TestTargetsStayInsideTheCommandTree(t *testing.T) {
 	now := time.Now()
 	root := func(pid int, seconds float64, tracked time.Duration) detachedRoot {
-		return detachedRoot{procRef: procRef{pid, start(seconds)}, Since: now.Add(-tracked)}
+		return detachedRoot{PID: pid, Start: start(seconds), Since: now.Add(-tracked)}
 	}
 	pending := func(r detachedRoot) detachedRoot {
 		r.Pending = true

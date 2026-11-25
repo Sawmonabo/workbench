@@ -10,7 +10,11 @@ package guard
 
 import (
 	"cmp"
+	"encoding/json"
+	"fmt"
 	"slices"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -70,8 +74,71 @@ type proc struct {
 	Folder string
 }
 
+// procKey names one process: its PID and start time.
+type procKey struct {
+	pid   int
+	start uint64
+}
+
+// MarshalText writes a procKey as "PID-START", so a map keyed by processes
+// (see usage) is carried to the next watcher; as a value it is written by
+// MarshalJSON.
+func (k procKey) MarshalText() ([]byte, error) {
+	return fmt.Appendf(nil, "%d-%d", k.pid, k.start), nil
+}
+
+// UnmarshalText reads a procKey written by MarshalText.
+func (k *procKey) UnmarshalText(text []byte) error {
+	pid, start, ok := strings.Cut(string(text), "-")
+	p, err1 := strconv.Atoi(pid)
+	s, err2 := strconv.ParseUint(start, 10, 64)
+	if !ok || err1 != nil || err2 != nil {
+		return fmt.Errorf("%q does not name a process", text)
+	}
+	*k = procKey{p, s}
+	return nil
+}
+
+// MarshalJSON writes a procKey as {"pid":PID,"start":START}, the form a
+// process takes in what a watcher carries to the next one (see carried) and
+// in a unit's record (see unitRecord).
+func (k procKey) MarshalJSON() ([]byte, error) {
+	return json.Marshal(struct {
+		PID   int    `json:"pid"`
+		Start uint64 `json:"start"`
+	}{k.pid, k.start})
+}
+
+// UnmarshalJSON reads a procKey written by MarshalJSON.
+func (k *procKey) UnmarshalJSON(data []byte) error {
+	var v struct {
+		PID   int    `json:"pid"`
+		Start uint64 `json:"start"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
+		return err
+	}
+	*k = procKey{v.PID, v.Start}
+	return nil
+}
+
 // snapshot is every process at one moment, by PID.
 type snapshot map[int]proc
+
+// alive reports whether the process pid with this start time still runs; a
+// zombie holds no memory and counts as gone.
+func (s snapshot) alive(pid int, start uint64) bool {
+	p, ok := s[pid]
+	return ok && p.Start == start && !p.Zombie
+}
+
+// present reports whether the process pid with this start time is in the
+// process table, a zombie included: its PID is not handed out again until it
+// is reaped, so an agent stays protected that long.
+func (s snapshot) present(pid int, start uint64) bool {
+	p, ok := s[pid]
+	return ok && p.Start == start
+}
 
 // children are pid's direct children, oldest first.
 func (s snapshot) children(pid int) []proc {
@@ -209,9 +276,13 @@ type detached struct {
 // rewrote its title can make it end in environment strings, so where the
 // version decides it is not read at all, and nothing unfiltered is kept or
 // carried at a handover. Shown is what the view shows of it (see
-// shownCommand); neither is logged.
+// shownCommand); neither is logged. PID and Start name the process, as a
+// procKey does, and are written beside the other fields: a procKey in their
+// place would bring its own JSON form, which would then stand for the whole
+// root.
 type detachedRoot struct {
-	procRef
+	PID     int       `json:"pid"`
+	Start   uint64    `json:"start"`
 	Since   time.Time `json:"-"`
 	Version uint32    `json:"version,omitempty"`
 	Name    string    `json:"name"`

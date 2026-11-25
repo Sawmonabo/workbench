@@ -302,8 +302,35 @@ func move(
 	return moved, refused, err
 }
 
+// moveFolder moves the guard folder from its old path to agent/guard, when
+// this watcher holds the lock there, before its first tick and before it
+// opens anything in the folder: no watcher of another release runs in it
+// then, and a hook that finds the old path closed asks again where the
+// folder is (see folders.again). The lock and a socket handed over are the
+// same files at the new path. It reports whether the folder moved, and the
+// error of a move that failed or of a folder not synced after it. With a file
+// system that cannot swap, or a folder already at the new path, the watcher
+// works in the old folder, and that is no error: a file system that cannot
+// swap stays so, the folder is meant to be used where it is then, and
+// `workbench migrate --dry-run` and `workbench doctor` say why, so a watcher
+// that logged it would log the same line at every start.
+func (w *watcher) moveFolder() (moved bool, err error) {
+	old := oldRoot(w.f.state)
+	if w.f.root != old {
+		return false, nil
+	}
+	root := newRoot(w.f.state)
+	if moved, err = operation.MoveFolder(old, root); moved {
+		w.f = w.f.at(root)
+	}
+	if errors.Is(err, platform.ErrSwapUnsupported) {
+		err = nil
+	}
+	return moved, err
+}
+
 func (f folders) lock() string            { return filepath.Join(f.root, "watch.lock") }
-func (f folders) log() string             { return logFile(f.root) }
+func (f folders) log() string             { return LogFile(f.root) }
 func (f folders) output() string          { return outputFile(f.log()) }
 func (f folders) socket() string          { return socketFile(f.root) }
 func (f folders) note(id string) string   { return filepath.Join(f.notes, id+".json") }
@@ -314,6 +341,14 @@ func (f folders) agent(pid int, start uint64) string {
 	return filepath.Join(f.agents, fmt.Sprintf("%d-%d.json", pid, start))
 }
 
+// recordID is the ID the name of a record in a guard folder holds, as note,
+// record and unit name one: the ID then ".json", for an ID that may name a
+// file (see idPattern). ok is false for any other name, which is no record.
+func recordID(name string) (id string, ok bool) {
+	id, ok = strings.CutSuffix(name, ".json")
+	return id, ok && idPattern.MatchString(id)
+}
+
 // noteIDs are the IDs of the notes on disk.
 func (f folders) noteIDs() ([]string, error) {
 	entries, err := listFolder(f.notes)
@@ -322,7 +357,7 @@ func (f folders) noteIDs() ([]string, error) {
 	}
 	var ids []string
 	for _, entry := range entries {
-		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && idPattern.MatchString(id) {
+		if id, ok := recordID(entry.Name()); ok {
 			ids = append(ids, id)
 		}
 	}
@@ -356,8 +391,26 @@ func writeJSON(path string, value any) error {
 	return operation.ReplacePrivateFile(path, data)
 }
 
+// recordLimit is the most bytes of a guard record read, far more than one
+// holds. A note holds the command from the hook's input, read up to 1 MiB,
+// the project label and folders taken from it, so even with JSON's escapes
+// it stays under 16 MiB; a kill record and an agent file hold a few lines;
+// a unit's record holds the unit's roots, which run, and what the watcher
+// keeps of each in memory.
+const recordLimit = 64 << 20
+
+// readRecord reads the guard record at path, a regular file of at most
+// recordLimit bytes, opened without following a link or waiting on a FIFO
+// (see [operation.ReadRegularFile]). It fails with an error matching
+// fs.ErrNotExist when nothing is at path; any other failure, a file of
+// another kind or a larger one included, is the read's.
+func readRecord(path string) ([]byte, error) {
+	return operation.ReadRegularFile(path, recordLimit)
+}
+
+// readJSON reads the guard record at path (see readRecord) into value.
 func readJSON(path string, value any) error {
-	data, err := os.ReadFile(path)
+	data, err := readRecord(path)
 	if err != nil {
 		return err
 	}

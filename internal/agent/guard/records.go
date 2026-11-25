@@ -2,7 +2,6 @@ package guard
 
 import (
 	"cmp"
-	"encoding/json"
 	"slices"
 	"time"
 
@@ -37,25 +36,9 @@ type callRecord struct {
 	Project      string    `json:"project,omitempty"`
 	Cwd          string    `json:"cwd,omitempty"`
 	DryRun       bool      `json:"dry_run,omitempty"`
-	Shell        procRef   `json:"shell"`
+	Shell        procKey   `json:"shell"`
 	NotedAt      time.Time `json:"noted_at"`
 	StartedAgent bool      `json:"started_agent,omitempty"`
-}
-
-// MarshalJSON writes a procKey as a procRef, so a call record keeps its agent
-// when it is carried to the next watcher.
-func (k procKey) MarshalJSON() ([]byte, error) {
-	return json.Marshal(procRef{PID: k.pid, Start: k.start})
-}
-
-// UnmarshalJSON reads a procKey written by MarshalJSON.
-func (k *procKey) UnmarshalJSON(data []byte) error {
-	var ref procRef
-	if err := json.Unmarshal(data, &ref); err != nil {
-		return err
-	}
-	*k = procKey{ref.PID, ref.Start}
-	return nil
 }
 
 // records are the call records by call ID. The zero value holds none and is
@@ -107,7 +90,7 @@ func (r *records) keep(rec callRecord) {
 // tracked keeps root as the shell of the call id, when its record is kept.
 func (r *records) tracked(id string, root proc) {
 	if rec, ok := r.byCall[id]; ok {
-		rec.Shell = procRef{PID: root.PID, Start: root.Start}
+		rec.Shell = procKey{root.PID, root.Start}
 		r.byCall[id] = rec
 	}
 }
@@ -147,8 +130,8 @@ func (r *records) byShell(agent procKey, shell int, second int64) (callRecord, b
 	}
 	var found []callRecord
 	for _, rec := range r.byCall {
-		if rec.Agent == agent && rec.Shell.PID == shell && rec.Shell.Start != 0 &&
-			fitsShell(rec.Shell.Start, second) {
+		if rec.Agent == agent && rec.Shell.pid == shell && rec.Shell.start != 0 &&
+			fitsShell(rec.Shell.start, second) {
 			found = append(found, rec)
 		}
 	}
