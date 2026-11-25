@@ -298,7 +298,7 @@ func (p *preparation) checkPrerequisites(
 		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
 		return nil, operation.Fail(operation.ExitBlocked, "platform", platform.Message)
 	}
-	answersRaw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	answersRaw, err := ReadMachineConfig(c.Native.Config)
 	if err != nil {
 		command := c.WorkbenchCommand()
 		message := "Machine answers are missing; run " + command + " apply at a terminal to answer them, or " +

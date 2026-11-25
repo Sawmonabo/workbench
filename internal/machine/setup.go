@@ -101,7 +101,7 @@ func setupPlan(
 			Recovery:    "Previously saved answers are retained until successful validation",
 		},
 	)
-	raw, found, err := operation.ReadPrivateRecord(c.Native.Config, 1<<20)
+	raw, found, err := lookupMachineConfig(c.Native.Config)
 	if !found || err != nil {
 		return plan, err
 	}

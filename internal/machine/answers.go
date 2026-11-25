@@ -29,7 +29,7 @@ func parseAnswers(c operation.Context, raw []byte) (Answers, error) {
 // ReadAnswers reads and validates the answers saved in c.Native.Config, for an
 // apply step that runs inside the apply that checked them.
 func ReadAnswers(c operation.Context) (Answers, error) {
-	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	raw, err := ReadMachineConfig(c.Native.Config)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func CheckAsk(c operation.Context, ask []string) error {
 // Askable lists, sorted, the saved answers `answers ask` can ask again: every saved
 // answer except the derived and retired ones.
 func Askable(c operation.Context) ([]string, error) {
-	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+	raw, err := ReadMachineConfig(c.Native.Config)
 	if err != nil {
 		return nil, operation.Fail(
 			operation.ExitInvalid,
@@ -383,7 +383,7 @@ func (a Answers) folder(home, key string) string {
 // says a machine.toml that is there can't be read. They never name a
 // default: the one fallback is the costs report's.
 func RoleFolders(home, path string) ([]string, error) {
-	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	raw, found, err := lookupMachineConfig(path)
 	if !found || err != nil {
 		return nil, err
 	}
@@ -474,7 +474,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	if err != nil {
 		return plan, nil, err
 	}
-	existing, found, err := operation.ReadPrivateRecord(target, 1<<20)
+	existing, found, err := lookupMachineConfig(target)
 	if err != nil {
 		return plan, nil, err
 	}

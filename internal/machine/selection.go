@@ -58,7 +58,7 @@ func (s Selection) table() map[string]any {
 // ReadSelection reads the [effects] table of config. A missing file or table
 // is an empty selection: everything checked, nothing optional selected.
 func ReadSelection(config string) (Selection, error) {
-	raw, found, err := operation.ReadPrivateRecord(config, 1<<20)
+	raw, found, err := lookupMachineConfig(config)
 	if !found || err != nil {
 		return Selection{}, err
 	}
@@ -87,6 +87,23 @@ func readSelection(raw []byte) (Selection, error) {
 	return config.Effects, nil
 }
 
+// machineConfigLimit is the most of machine.toml Workbench reads.
+const machineConfigLimit = 1 << 20
+
+// ReadMachineConfig reads the machine.toml at path (see
+// [operation.Paths.MachineConfig]) as [operation.ReadPrivateInput] reads a
+// private input of at most 1 MiB: a missing file is an error.
+func ReadMachineConfig(path string) ([]byte, error) {
+	return operation.ReadPrivateInput(path, machineConfigLimit)
+}
+
+// lookupMachineConfig is [ReadMachineConfig] for a machine.toml that may not
+// be saved yet: found is false, with no data and no error, when nothing is at
+// path.
+func lookupMachineConfig(path string) (raw []byte, found bool, err error) {
+	return operation.ReadPrivateRecord(path, machineConfigLimit)
+}
+
 // encodeMachineConfig is the one writer of machine.toml's shape: the [data]
 // answers and, when any, the [effects] selection.
 func encodeMachineConfig(answers Answers, selection Selection) ([]byte, error) {
@@ -99,7 +116,7 @@ func encodeMachineConfig(answers Answers, selection Selection) ([]byte, error) {
 
 // WriteSelection saves selection beside the answers already in config.
 func WriteSelection(m *operation.Mutation, config string, selection Selection) error {
-	raw, err := operation.ReadPrivateInput(config, 1<<20)
+	raw, err := ReadMachineConfig(config)
 	if err != nil {
 		return err
 	}

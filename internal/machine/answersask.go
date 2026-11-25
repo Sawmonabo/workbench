@@ -155,7 +155,7 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 		return nil, false, err
 	}
 	var saved Answers
-	if raw, readErr := operation.ReadPrivateInput(config, 1<<20); readErr == nil {
+	if raw, readErr := ReadMachineConfig(config); readErr == nil {
 		if saved, err = decodeAnswers(raw); err != nil {
 			return nil, false, err
 		}
@@ -183,7 +183,7 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 // question asks once, so init asks only what the seed lacks, and the answers
 // named in ask are left out to be asked again.
 func answersSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
-	seed, found, err := operation.ReadPrivateRecord(config, 1<<20)
+	seed, found, err := lookupMachineConfig(config)
 	switch {
 	case !found && terminal == nil:
 		return nil, operation.Fail(

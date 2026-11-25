@@ -63,7 +63,7 @@ func checkRuntimes(
 	}
 	pins := data.Versions
 	mode := ""
-	if raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20); err == nil {
+	if raw, err := ReadMachineConfig(c.Native.Config); err == nil {
 		if answers, err := readAnswers(raw); err == nil {
 			mode, _ = answers["versions_mode"].(string)
 		}
