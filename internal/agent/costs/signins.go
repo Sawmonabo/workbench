@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"errors"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // labels is the subscriptions table: each subscription id's label.
@@ -70,7 +72,7 @@ func (l *Ledger) BindSession(
 	}
 	since := at.UTC().Format(timeLayout)
 	account, subscription := cmp.Or(s.Account, "unknown"), cmp.Or(s.Subscription, "unknown")
-	return l.transact(ctx, func(tx *sql.Tx) error {
+	return sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
 		if err := setLabel(ctx, tx, s.Subscription, s.Label); err != nil {
 			return err
 		}

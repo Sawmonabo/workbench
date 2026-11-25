@@ -6,6 +6,8 @@ import (
 	"errors"
 	"path/filepath"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // FileRow is where ingest stopped in one transcript: the offset, the size and
@@ -57,7 +59,7 @@ func parseRevisionKey(tool string) string { return "parse_revision:" + tool }
 // run that stops half-way does not start the re-read over. The rows stay; a
 // re-read rewrites them under the same keys.
 func (l *Ledger) ForgetFiles(ctx context.Context, tool, revision string, roots []string) error {
-	return l.transact(ctx, func(tx *sql.Tx) error {
+	return sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
 		var stored string
 		err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", parseRevisionKey(tool)).
 			Scan(&stored)

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const (
@@ -190,7 +191,7 @@ CREATE TABLE price_lists(
 // CREATE TABLE IF NOT EXISTS would instead accept a foreign database that
 // happens to share a table name.
 func (l *Ledger) create(ctx context.Context) error {
-	return l.transact(ctx, func(tx *sql.Tx) error {
+	return sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
 		var made int
 		if err := tx.QueryRowContext(
 			ctx,

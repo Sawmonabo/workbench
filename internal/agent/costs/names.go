@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // loadNames reads every name, by its id: the zero nameKey for an id that is
@@ -199,11 +201,11 @@ func (n *nameSet) keep() {
 	}
 }
 
-// transactNames is transact with the transaction's nameSet, whose names join
-// the cache once it commits.
+// transactNames is [sqlitefile.Transact] on the ledger with the transaction's
+// nameSet, whose names join the cache once it commits.
 func (l *Ledger) transactNames(ctx context.Context, fn func(*sql.Tx, *nameSet) error) error {
 	var names *nameSet
-	err := l.transact(ctx, func(tx *sql.Tx) error {
+	err := sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
 		names = l.nameSet(ctx, tx)
 		return fn(tx, names)
 	})

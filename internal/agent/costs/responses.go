@@ -6,6 +6,8 @@ import (
 	"database/sql"
 	"slices"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // Streamed usage only grows, and Claude Code copies earlier records into the
@@ -120,7 +122,7 @@ func (l *Ledger) DropHeldCopies(
 	if len(held) == 0 {
 		return rows.Err()
 	}
-	return l.transact(ctx, func(tx *sql.Tx) error {
+	return sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
 		for _, id := range held {
 			for _, table := range []string{"responses", "tier_pending"} {
 				if _, err := tx.ExecContext(ctx,

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const (
@@ -397,7 +398,11 @@ func (l *Ledger) officialRates(ctx context.Context, tool string) (officialFile, 
 // transaction: its complete rows replace the tool's prices, and its times and
 // validators the tool's price_lists row.
 func (l *Ledger) replaceOfficial(ctx context.Context, tool string, file officialFile) error {
-	return l.transact(ctx, func(tx *sql.Tx) error { return storeOfficial(ctx, tx, tool, file) })
+	return sqlitefile.Transact(
+		ctx,
+		l.db,
+		func(tx *sql.Tx) error { return storeOfficial(ctx, tx, tool, file) },
+	)
 }
 
 // storeOfficial is [Ledger.replaceOfficial] in tx.

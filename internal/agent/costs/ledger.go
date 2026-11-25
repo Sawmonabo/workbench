@@ -263,18 +263,6 @@ func ledgerProblem(code operation.Exit, path, reason string) error {
 	return operation.Fail(code, "ledger", operation.FileError(path, errors.New(reason)).Error())
 }
 
-func (l *Ledger) transact(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := l.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
-		return err
-	}
-	return tx.Commit()
-}
-
 // Close releases the database.
 func (l *Ledger) Close() error { return l.db.Close() }
 
