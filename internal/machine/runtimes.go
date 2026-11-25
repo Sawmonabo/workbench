@@ -138,7 +138,7 @@ func nodeState(home, mode string, pins runtimePins) runtimeState {
 	}
 	var missing []string
 	for _, version := range pins.Node {
-		if !operation.LeadsToFolder(filepath.Join(home, ".nvm", "versions", "node", "v"+version)) {
+		if !operation.LeadsToFolder(filepath.Join(nvmRoot(home), "versions", "node", "v"+version)) {
 			missing = append(missing, version)
 		}
 	}

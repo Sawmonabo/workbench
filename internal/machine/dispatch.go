@@ -48,7 +48,7 @@ func dispatchServers(a Answers, bin, config, home string) []dispatchServer {
 		server.Command = bin
 		server.Args = []string{
 			"mcp-gate", "--folder", work, "--env-file", migrate.WorkEnvPath(config), "--",
-			filepath.Join(home, ".nvm", "nvm-exec"), "node",
+			filepath.Join(nvmRoot(home), "nvm-exec"), "node",
 			filepath.Join(checkout, server.Name, "dist", "index.js"),
 		}
 		server.Env = map[string]string{"NODE_VERSION": "default"}

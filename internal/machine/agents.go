@@ -402,7 +402,7 @@ func findAgent(home, nvm string, agent agent) (agentInstall, bool) {
 //
 // Anything else returns nothing.
 func classifyAgent(home, resolved string, agent agent) (method, version, node, cask string) {
-	nodes := filepath.Join(home, ".nvm", "versions", "node") + "/"
+	nodes := filepath.Join(nvmRoot(home), "versions", "node") + "/"
 	if rest, ok := strings.CutPrefix(resolved, nodes); ok {
 		node, rest, _ = strings.Cut(rest, "/")
 		modules := "lib/node_modules/" + agent.npm + "/"
@@ -449,6 +449,10 @@ func classifyAgent(home, resolved string, agent agent) (method, version, node, c
 	return "", "", "", ""
 }
 
+// nvmRoot is nvm's folder in home, which holds its Node versions, its aliases
+// and nvm-exec.
+func nvmRoot(home string) string { return filepath.Join(home, ".nvm") }
+
 // nvmAliasHops bounds how many aliases nvmDefaultBin follows, as an alias
 // file naming itself would otherwise loop.
 const nvmAliasHops = 5
@@ -458,7 +462,7 @@ const nvmAliasHops = 5
 // "node" and "stable" matching any. An alias naming another alias, such as
 // lts/* naming lts/jod, is followed the way nvm follows it.
 func nvmDefaultBin(home string) string {
-	root := filepath.Join(home, ".nvm")
+	root := nvmRoot(home)
 	alias := func(name string) string {
 		data, _ := os.ReadFile(filepath.Join(root, "alias", name))
 		return strings.TrimSpace(string(data))
