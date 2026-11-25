@@ -108,6 +108,26 @@ func EvidenceRank(evidence string) int {
 	}
 }
 
+// evidenceWords are the evidence levels by rank (EvidenceRank).
+var evidenceWords = [...]string{
+	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+}
+
+// evidenceWord is the evidence level of a stored rank.
+func evidenceWord(rank int64) string {
+	if rank < 0 || rank >= int64(len(evidenceWords)) {
+		return EvidenceUnknown
+	}
+	return evidenceWords[rank]
+}
+
+// storedRank is EvidenceRank of a stored word, ok false for a word that is
+// no evidence level: EvidenceRank ranks it as unknown.
+func storedRank(word []byte) (rank int, ok bool) {
+	rank = EvidenceRank(string(word))
+	return rank, rank > 0 || string(word) == EvidenceUnknown
+}
+
 // The states of a hook Workbench installs in a tool, as Hooks reports them.
 const (
 	HookOK        = "ok"        // installed, and the tool runs it
