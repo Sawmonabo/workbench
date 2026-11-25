@@ -222,7 +222,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 	h := &History{root: root, path: historyFile(root), write: write}
 	if !write {
 		if _, err := os.Stat(h.path); err != nil {
-			return nil, sqlitefile.FileError(h.path, err)
+			return nil, operation.FileError(h.path, err)
 		}
 	}
 	options := sqlitefile.Options{
@@ -257,7 +257,7 @@ func OpenHistory(root string, write bool) (*History, error) {
 			if file != nil {
 				_ = file.Close()
 			}
-			return nil, sqlitefile.FileError(h.path, err)
+			return nil, operation.FileError(h.path, err)
 		}
 		h.file, h.opened = file, info
 		// SQLite opens the -wal and -shm files at the first read after the
@@ -298,7 +298,7 @@ func (h *History) Check() error {
 	info, err := os.Stat(h.path)
 	switch {
 	case err != nil:
-		return sqlitefile.FileError(h.path, err)
+		return operation.FileError(h.path, err)
 	case !os.SameFile(info, h.opened):
 		return fmt.Errorf("%w: %s is another file than the one the writer opened",
 			ErrHistoryUnusable, h.path)

@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // The guard log is JSON Lines from [slog.JSONHandler]: each record has time,
@@ -149,13 +148,13 @@ func CutLogBefore(root string, since time.Time) (oldest time.Time, err error) {
 // logging again each record of a condition that still lasts which the cut
 // would delete (see historyWriter.lasts), which another process cannot know
 // of. A lock that cannot be tried is named from the home folder in err (see
-// [sqlitefile.FileError]).
+// [operation.FileError]).
 func CutLogUnwatched(root string, since time.Time) (cut bool, err error) {
 	lock := folders{}.at(root).lock()
 	held, err := operation.LockKept(lock)
 	switch {
 	case err != nil:
-		return false, sqlitefile.FileError(lock, err)
+		return false, operation.FileError(lock, err)
 	case held:
 		return false, nil
 	}

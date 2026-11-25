@@ -5,6 +5,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // Exit is a process exit status. An [Error] carries one.
@@ -106,6 +109,23 @@ func Annotate(err *error, format string, args ...any) {
 		return
 	}
 	*err = fmt.Errorf(format+": %w", append(args, *err)...)
+}
+
+// FileError is err, which an operation on the file at path returned, as an
+// error that names path once, first, as people read it (see
+// [display.Path]: ~/.local/state/…/history.db),
+// then the reason: an error of the os package names the path itself, after
+// the operation (open, stat, read), so only its reason follows path, and the
+// error still matches what that reason matches, such as [fs.ErrNotExist] or
+// [fs.ErrPermission]. Only an error that says no more than the os package's
+// is cut so: one that wraps it in words of its own is kept whole, with what
+// it matches besides.
+func FileError(path string, err error) error {
+	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path &&
+		problem.Error() == err.Error() {
+		err = problem.Err
+	}
+	return fmt.Errorf("%s: %w", display.Path(path), err)
 }
 
 // Component is one named part of a command's outcome.

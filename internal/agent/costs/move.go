@@ -210,7 +210,7 @@ func (f agentFolders) lockToMove(
 	case errors.Is(err, fs.ErrNotExist), errors.Is(err, syscall.ENOTDIR):
 		return nil, false, false, nil
 	case err != nil:
-		return nil, false, false, sqlitefile.FileError(f.oldLock(), err)
+		return nil, false, false, operation.FileError(f.oldLock(), err)
 	case held:
 		return nil, false, false, nil
 	}
@@ -233,7 +233,7 @@ func (f agentFolders) lockNewState(
 	file, held, err := take(lock)
 	if err != nil || held {
 		if err != nil {
-			err = sqlitefile.FileError(lock, err)
+			err = operation.FileError(lock, err)
 		}
 		return nil, false, err
 	}

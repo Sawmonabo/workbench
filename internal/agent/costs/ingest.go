@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
-	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const logLimit = 400 * 1024
@@ -100,7 +99,7 @@ func ingest(ctx context.Context, paths Paths, opts IngestOptions) (string, Paths
 		release, held, err = lockIn(paths)
 	}
 	if err != nil {
-		err = fmt.Errorf("cannot take the import lock: %w", sqlitefile.FileError(paths.lock(), err))
+		err = fmt.Errorf("cannot take the import lock: %w", operation.FileError(paths.lock(), err))
 		writeLog(paths, "error: "+err.Error())
 		return "", paths, err
 	}
@@ -264,11 +263,11 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 			case err != nil && errors.Is(err, errLedger):
 				// The ledger itself is unusable (locked beyond the timeout, disk
 				// full): stop here, files committed so far stay committed.
-				errs = append(errs, sqlitefile.FileError(read.path, err).Error())
+				errs = append(errs, operation.FileError(read.path, err).Error())
 				stop = true
 				return false
 			case err != nil:
-				errs = append(errs, sqlitefile.FileError(read.path, err).Error())
+				errs = append(errs, operation.FileError(read.path, err).Error())
 			}
 			if err == nil && !read.vanished {
 				held = append(held, read.path)

@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"syscall"
 
-	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -48,8 +47,9 @@ func MoveFolder(from, to string) (moved bool, err error) {
 
 // moveReason is err, of [MoveFolder] from from to to, without the two paths
 // an error of the os package names around its reason, and with any other path
-// it names shown from the home folder. Only an error that says no more than
-// the os package's is cut so; it still matches what it matched.
+// it names shown from the home folder (see [FileError]). Only an error that
+// says no more than the os package's is cut so; it still matches what it
+// matched.
 func moveReason(from, to string, err error) error {
 	if link, ok := errors.AsType[*os.LinkError](err); ok && link.Error() == err.Error() &&
 		link.Old == from && link.New == to {
@@ -59,7 +59,7 @@ func moveReason(from, to string, err error) error {
 		if problem.Path == from || problem.Path == to {
 			return problem.Err
 		}
-		return fmt.Errorf("%s: %w", display.Path(problem.Path), problem.Err)
+		return FileError(problem.Path, err)
 	}
 	return err
 }

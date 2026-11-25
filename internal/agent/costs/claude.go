@@ -16,8 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
-	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // claude is the Claude Code source: JSONL transcripts under
@@ -286,7 +286,7 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 	case errors.Is(err, fs.ErrNotExist):
 		return marks, nil
 	case err != nil:
-		return marks, fmt.Errorf("can't read %w", sqlitefile.FileError(path, err))
+		return marks, fmt.Errorf("can't read %w", operation.FileError(path, err))
 	}
 	defer func() { _ = file.Close() }()
 	reader := bufio.NewReaderSize(file, 1<<20)
@@ -315,7 +315,7 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 		case errors.Is(err, io.EOF):
 			return marks, nil
 		case err != nil:
-			return marks, fmt.Errorf("can't read all of %w", sqlitefile.FileError(path, err))
+			return marks, fmt.Errorf("can't read all of %w", operation.FileError(path, err))
 		}
 	}
 }

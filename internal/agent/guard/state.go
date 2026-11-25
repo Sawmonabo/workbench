@@ -17,7 +17,6 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
-	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const logLimit = 1 << 20
@@ -97,7 +96,7 @@ func Folder(state string) (old, root, lock string) {
 // [operation.LockHeld]): a watcher, from its start until it exits, or, for
 // an instant, a hook or `workbench migrate` moving the folder (see Move). It
 // creates nothing, and its error names the lock from the home folder (see
-// [sqlitefile.FileError]).
+// [operation.FileError]).
 func WatcherRuns() (bool, error) {
 	state, err := stateFolder()
 	if err != nil {
@@ -106,7 +105,7 @@ func WatcherRuns() (bool, error) {
 	lock := locate(state, "").lock()
 	held, err := operation.LockHeld(lock)
 	if err != nil {
-		return false, sqlitefile.FileError(lock, err)
+		return false, operation.FileError(lock, err)
 	}
 	return held, nil
 }
@@ -270,7 +269,7 @@ func MigrateMove(state string) (moved bool, err error) {
 // move is [Move], taking the watcher's lock with take, with refused, apart
 // from err, the error of a swap the folder's file system refused (see
 // platform.ErrSwapUnsupported). A lock that cannot be taken is named from the
-// home folder in err (see [sqlitefile.FileError]).
+// home folder in err (see [operation.FileError]).
 func move(
 	state string,
 	take func(string) (*os.File, bool, error),
@@ -287,7 +286,7 @@ func move(
 			// Another entry moved it meanwhile.
 			err = nil
 		case err != nil:
-			err = sqlitefile.FileError(path, err)
+			err = operation.FileError(path, err)
 		}
 		return false, nil, err
 	}

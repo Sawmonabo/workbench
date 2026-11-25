@@ -83,7 +83,7 @@ func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, erro
 		case errors.Is(err, fs.ErrNotExist):
 			return nil, p, nil
 		case err != nil:
-			return nil, p, sqlitefile.FileError(p.Ledger, err)
+			return nil, p, operation.FileError(p.Ledger, err)
 		case info.Size() == 0:
 			return nil, p, nil
 		}
@@ -120,7 +120,7 @@ func (p Paths) folder(root, path string) (string, error) {
 	f := agentFoldersIn(p.Runtime)
 	for _, old := range []string{f.oldData, f.oldState} {
 		if operation.Within(old, path) && !operation.IsFolder(old) {
-			return "", sqlitefile.FileError(old, syscall.ENOTDIR)
+			return "", operation.FileError(old, syscall.ENOTDIR)
 		}
 	}
 	name, err := filepath.Rel(root, path)
@@ -307,7 +307,7 @@ func OpenLedger(path string, create bool) (*Ledger, error) { return openLedger(p
 func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return nil, sqlitefile.FileError(path, err)
+		return nil, operation.FileError(path, err)
 	}
 	exists := err == nil && info.Size() > 0
 	if !exists && !create {
@@ -345,7 +345,7 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 			ctx,
 			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
 		).Scan(&tables); err != nil {
-			return sqlitefile.FileError(l.Path, err)
+			return operation.FileError(l.Path, err)
 		}
 		if tables == 0 {
 			return ledgerProblem(operation.ExitInvalid, l.Path,
@@ -353,7 +353,7 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 		}
 		version, err := l.Meta("schema_version")
 		if err != nil {
-			return sqlitefile.FileError(l.Path, err)
+			return operation.FileError(l.Path, err)
 		}
 		switch version {
 		case schemaVersion:
@@ -362,7 +362,7 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 				break
 			}
 			if err := l.upgrade(ctx); err != nil {
-				return sqlitefile.FileError(l.Path, err)
+				return operation.FileError(l.Path, err)
 			}
 		default:
 			return ledgerProblem(operation.ExitInvalid, l.Path,
@@ -372,7 +372,7 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 		if _, named := errors.AsType[*operation.Error](err); named {
 			return err
 		}
-		return sqlitefile.FileError(l.Path, err)
+		return operation.FileError(l.Path, err)
 	}
 	return nil
 }
@@ -382,7 +382,7 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 // folder, as every file error does (see [sqlitefile.FileError]): an
 // [operation.Error] is shown by its message alone, so the path is in it.
 func ledgerProblem(code operation.Exit, path, reason string) error {
-	return operation.Fail(code, "ledger", sqlitefile.FileError(path, errors.New(reason)).Error())
+	return operation.Fail(code, "ledger", operation.FileError(path, errors.New(reason)).Error())
 }
 
 // create writes the schema of a ledger that was missing when OpenLedger looked.

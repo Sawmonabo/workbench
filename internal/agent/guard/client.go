@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/sqlitefile"
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 const (
@@ -43,7 +43,7 @@ func socketFile(root string) string { return filepath.Join(root, "guard.sock") }
 // says, once the folder passes the checks every entry applies to it (see
 // folders.check). It creates nothing. A path too long for a socket address
 // is an error naming the state folder, which holds it. Both are named in
-// full, unlike a file error's path (see [sqlitefile.FileError]): their
+// full, unlike a file error's path (see [operation.FileError]): their
 // length is the problem.
 func socketPath() (string, error) {
 	state, err := stateFolder()
@@ -81,7 +81,7 @@ type Client struct {
 
 // Dial connects to the watcher's socket. It fails when no watcher listens,
 // with an error that names the socket once, from the home folder (see
-// [sqlitefile.FileError]), and matches the reason, such as syscall.ENOENT
+// [operation.FileError]), and matches the reason, such as syscall.ENOENT
 // for a missing socket or syscall.ECONNREFUSED for one nothing serves.
 func Dial(ctx context.Context) (*Client, error) {
 	path, err := socketPath()
@@ -96,7 +96,7 @@ func Dial(ctx context.Context) (*Client, error) {
 	unixConn, ok := conn.(*net.UnixConn)
 	if !ok {
 		_ = conn.Close()
-		return nil, sqlitefile.FileError(path, errors.New("not a Unix socket"))
+		return nil, operation.FileError(path, errors.New("not a Unix socket"))
 	}
 	lines := bufio.NewScanner(unixConn)
 	lines.Buffer(make([]byte, 0, 64<<10), lineLimit)
@@ -110,7 +110,7 @@ func Dial(ctx context.Context) (*Client, error) {
 }
 
 // socketError is err, of an operation on the socket at path, naming the
-// socket once, from the home folder (see [sqlitefile.FileError]): the net
+// socket once, from the home folder (see [operation.FileError]): the net
 // package's error names it by its full path, after the operation, so only the
 // reason follows the path here, and it still matches what that reason
 // matches, such as os.ErrDeadlineExceeded.
@@ -118,7 +118,7 @@ func socketError(path string, err error) error {
 	if op, ok := errors.AsType[*net.OpError](err); ok {
 		err = op.Err
 	}
-	return sqlitefile.FileError(path, err)
+	return operation.FileError(path, err)
 }
 
 // Hello says which protocol versions this client speaks and checks that the

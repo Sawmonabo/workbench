@@ -26,6 +26,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"golang.org/x/sys/unix"
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
 )
@@ -70,7 +71,7 @@ type Options struct {
 // that is not a database, which a pragma meets, is left to o.Prepare, or to
 // the caller without one, which meets it again on its own first connection
 // and says it as it says its other errors. Its errors name path once (see
-// [FileError]), except those of o.Prepare.
+// [operation.FileError]), except those of o.Prepare.
 //
 // It never opens a file already at path outside the driver: closing that
 // descriptor would drop every SQLite lock the process holds on the file,
@@ -86,10 +87,10 @@ func Open(path string, o Options) (*sql.DB, error) {
 		switch {
 		case errors.Is(err, fs.ErrExist):
 		case err != nil:
-			return nil, FileError(path, err)
+			return nil, operation.FileError(path, err)
 		default:
 			if err := file.Close(); err != nil {
-				return nil, FileError(path, err)
+				return nil, operation.FileError(path, err)
 			}
 		}
 	}
@@ -102,7 +103,7 @@ func Open(path string, o Options) (*sql.DB, error) {
 	address := &url.URL{Scheme: "file", Path: path, RawQuery: strings.Join(query, "&")}
 	db, err := sql.Open("sqlite", address.String())
 	if err != nil {
-		return nil, FileError(path, err)
+		return nil, operation.FileError(path, err)
 	}
 	conn, err := db.Conn(context.Background())
 	switch {
@@ -110,7 +111,7 @@ func Open(path string, o Options) (*sql.DB, error) {
 		_ = conn.Close()
 	case code(err) == sqliteCantOpen:
 		_ = db.Close()
-		return nil, FileError(path, openProblem(path, err))
+		return nil, operation.FileError(path, openProblem(path, err))
 	}
 	if o.Prepare != nil {
 		if err := o.Prepare(db); err != nil {
@@ -121,7 +122,7 @@ func Open(path string, o Options) (*sql.DB, error) {
 	if !o.ReadOnly {
 		if err := enableWAL(db); err != nil {
 			_ = db.Close()
-			return nil, FileError(path, err)
+			return nil, operation.FileError(path, err)
 		}
 	}
 	if o.Prepare != nil {
@@ -145,23 +146,6 @@ func makePrivate(path string) {
 			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
 		}
 	}
-}
-
-// FileError is err, which an operation on the file at path returned, as an
-// error that names path once, first, as people read it (see
-// [display.Path]: ~/.local/state/…/history.db),
-// then the reason: an error of the os package names the path itself, after
-// the operation (open, stat, read), so only its reason follows path, and the
-// error still matches what that reason matches, such as [fs.ErrNotExist] or
-// [fs.ErrPermission]. Only an error that says no more than the os package's
-// is cut so: one that wraps it in words of its own is kept whole, with what
-// it matches besides.
-func FileError(path string, err error) error {
-	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path &&
-		problem.Error() == err.Error() {
-		err = problem.Err
-	}
-	return fmt.Errorf("%s: %w", display.Path(path), err)
 }
 
 // openProblem is the operating system's reason SQLite could not open the
@@ -341,7 +325,7 @@ var ErrNotADatabase = errors.New("not an SQLite database")
 // a file whose write version is past 2 read-only. It reads nothing else, so
 // it costs the same whatever the file's size; a page damaged past the header
 // is SQLite's to find, when it reads it. A file that cannot be read fails
-// with the error reading it, which names the file once (see [FileError]).
+// with the error reading it, which names the file once (see [operation.FileError]).
 //
 // It reads through file and never opens the path: closing any descriptor of
 // a file drops every POSIX advisory lock the process holds on it, SQLite's
@@ -364,7 +348,7 @@ func CheckHeader(file *os.File) error {
 		)
 	}
 	if err != nil {
-		return FileError(path, err)
+		return operation.FileError(path, err)
 	}
 	if reason := headerProblem(header); reason != "" {
 		return fmt.Errorf("%s: %w: %s", display.Path(path), ErrNotADatabase, reason)
