@@ -1092,7 +1092,8 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		started, length := "-", "-"
 		if !session.Start.IsZero() {
 			started = session.Start.Local().Format(display.DayTime)
-			length = duration(session.End.Sub(session.Start))
+			// A resumed session spans from its first response to its last.
+			length = display.Duration(session.End.Sub(session.Start))
 		}
 		spec.Rows = append(spec.Rows, []string{
 			faint.Render(id), started, faint.Render(length), rowName(tool, session.Model),
@@ -1100,20 +1101,6 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		})
 	}
 	return spec
-}
-
-// duration is a session length as "5d 7h", "3h 10m", "52m" or "<1m". A
-// resumed session spans from its first response to its last.
-func duration(d time.Duration) string {
-	switch {
-	case d < time.Minute:
-		return "<1m"
-	case d < time.Hour:
-		return fmt.Sprintf("%dm", int(d.Minutes()))
-	case d < 24*time.Hour:
-		return fmt.Sprintf("%dh %dm", int(d.Hours()), int(d.Minutes())%60)
-	}
-	return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
 }
 
 // writeNotes writes faint notes on one line, joined by a dot, when they fit,

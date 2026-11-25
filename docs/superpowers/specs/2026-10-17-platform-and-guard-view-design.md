@@ -271,7 +271,9 @@ Oct 17  2:50:00 PM INFO  idle
   number when it is whole at two decimals (`total=16GB`) and has two decimals
   when it is not (`1.86GB` for an odd container limit). The reason the guard
   gives the agent follows the same rule. **`took`** has one decimal below
-  10 s, whole seconds below a minute, else `1m12s`.
+  10 s, whole seconds below a minute, then minutes and seconds (`1m12s`),
+  hours and minutes (`1h12m`) and days and hours (`1d2h`), as
+  `display.Duration` writes every span.
 - **Colors**, at a terminal: the time and the keys faint; the level label
   alone colored, INFO green, WARN gold bold, ERROR red bold, an unknown level
   faint; the event and `id` plain; `agent` in its agent's hue (clay for Claude

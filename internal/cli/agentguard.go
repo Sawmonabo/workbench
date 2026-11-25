@@ -765,20 +765,14 @@ func shortCallID(call string) string {
 	return call[:min(8, len(call))]
 }
 
-// tookValue is seconds as a guard line shows them: one decimal under 10 s,
-// whole seconds under a minute, else Go's duration form ("1m12s"); empty for
-// 0, which the log never gives a call that ran.
+// tookValue is seconds as a guard line shows them (see [display.Duration]);
+// empty for 0, which the log never gives a call that ran.
 func tookValue(seconds float64) string {
 	took := time.Duration(seconds * float64(time.Second))
-	switch {
-	case took <= 0:
+	if took <= 0 {
 		return ""
-	case took.Round(100*time.Millisecond) < 10*time.Second:
-		return fmt.Sprintf("%.1fs", took.Seconds())
-	case took.Round(time.Second) < time.Minute:
-		return fmt.Sprintf("%.0fs", took.Seconds())
 	}
-	return took.Round(time.Second).String()
+	return display.Duration(took)
 }
 
 // sizeText is a measurement, [guard.Size] ("840 MB", "2.41 GB"); empty for

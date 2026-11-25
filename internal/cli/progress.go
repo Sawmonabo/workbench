@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/term"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -149,8 +150,8 @@ func (m statusModel) View() tea.View {
 	if m.step != "" {
 		line += ": " + m.step
 	}
-	elapsed := time.Since(m.started).Round(time.Second)
-	line += lipgloss.NewStyle().Faint(true).Render(" (" + elapsed.String() + ")")
+	elapsed := display.Duration(time.Since(m.started))
+	line += lipgloss.NewStyle().Faint(true).Render(" (" + elapsed + ")")
 	if m.width > 0 {
 		line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}

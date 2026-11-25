@@ -374,7 +374,8 @@ last because it is the longest; `agent guard`'s details show it whole. Sizes are
 (`size`, `peak`, `available`) has two decimals (`2.41GB`) and a fixed total
 (`floor`, `total`) is whole (`16GB`), or has two decimals when it is not
 whole (`1.86GB`); `took` has one decimal below 10 s, whole seconds below a
-minute, else `1m12s`; `level` is macOS's memory pressure level, `available`
+minute, then minutes and seconds (`1m12s`), hours and minutes (`1h12m`) and
+days and hours (`1d2h`); `level` is macOS's memory pressure level, `available`
 and `total` Linux's memory. `msg` shows only for `memory`, `refused`,
 `gave-up`, `error` and `raw`, where the event alone does not say what
 happened. `reason` shows only for `ended`, on detached work whose last program left
