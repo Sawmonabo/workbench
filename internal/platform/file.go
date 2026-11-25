@@ -25,6 +25,16 @@ func IsTerminal(fd uintptr) bool {
 	return err == nil
 }
 
+// TerminalSize is the width and height, in cells, the terminal at fd
+// reports. A pseudo-terminal opened with no size reports 0 for both.
+func TerminalSize(fd uintptr) (width, height int, err error) {
+	size, err := unix.IoctlGetWinsize(int(fd), unix.TIOCGWINSZ)
+	if err != nil {
+		return 0, 0, err
+	}
+	return int(size.Col), int(size.Row), nil
+}
+
 // existingStatfs is statfs of path or, while path does not exist yet, of its
 // first existing ancestor, the filesystem a new file at path would be on.
 func existingStatfs(path string) (unix.Statfs_t, error) {

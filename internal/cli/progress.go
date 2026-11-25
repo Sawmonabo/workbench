@@ -9,7 +9,6 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/term"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -45,7 +44,7 @@ func isTerminal(w io.Writer) bool {
 // A pseudo-terminal opened with no size (ssh -tt from a script, script
 // without a terminal of its own) reports 0.
 func reportsSize(file *os.File) bool {
-	width, height, err := term.GetSize(file.Fd())
+	width, height, err := platform.TerminalSize(file.Fd())
 	return err == nil && width > 0 && height > 0
 }
 

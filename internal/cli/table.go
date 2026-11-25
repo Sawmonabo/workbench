@@ -11,8 +11,8 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/charmbracelet/x/ansi"
-	"github.com/charmbracelet/x/term"
 )
 
 // column describes one table column. When the terminal is too narrow the one
@@ -170,7 +170,7 @@ func lineWidth(w io.Writer) int {
 // givenWidth is the terminal's width, else COLUMNS; ok is false with neither.
 func givenWidth(w io.Writer) (int, bool) {
 	if file, ok := w.(*os.File); ok {
-		if width, _, err := term.GetSize(file.Fd()); err == nil && width > 0 {
+		if width, _, err := platform.TerminalSize(file.Fd()); err == nil && width > 0 {
 			return width, true
 		}
 	}
