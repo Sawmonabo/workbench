@@ -22,72 +22,113 @@ func Download(
 	limit int64,
 	progress func(done, total int64),
 ) ([]byte, error) {
-	return get(ctx, location, limit, "application/octet-stream", "", progress)
+	data, _, err := get(
+		ctx,
+		location,
+		limit,
+		request{accept: "application/octet-stream", progress: progress},
+	)
+	return data, err
+}
+
+// Get fetches the HTTPS resource at location, at most limit bytes, as
+// [Download] does, sending accept as its Accept header when set and every
+// field of header, and returns its body and the response's header. A 304 Not
+// Modified, the answer to a request header makes conditional, is
+// [ErrNotModified], with the response's header. The caller bounds the time it
+// may take through ctx.
+func Get(
+	ctx context.Context,
+	location string,
+	limit int64,
+	accept string,
+	header http.Header,
+) ([]byte, http.Header, error) {
+	return get(ctx, location, limit, request{accept: accept, header: header})
 }
 
 // errNotFound is get's answer for a resource the server says does not exist.
 var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
 
-// get fetches a bounded HTTPS resource as accept, sending token as a bearer
-// credential when set, and reports its bytes to progress when set. Redirects to
-// another host drop the credential.
+// ErrNotModified is [Get]'s answer when the server says the resource has not
+// changed since the copy a conditional request names.
+var ErrNotModified = operation.Fail(operation.ExitFailed, "download", "Not modified")
+
+// request is what get sends beside the URL: the Accept header when accept is
+// set, token as a bearer credential when set, and every field of header; it
+// reports the bytes it receives to progress when set.
+type request struct {
+	accept, token string
+	header        http.Header
+	progress      func(done, total int64)
+}
+
+// get fetches a bounded HTTPS resource as r says and returns its body and the
+// response's header. Redirects to another host drop the credential.
 func get(
 	ctx context.Context,
 	location string,
 	limit int64,
-	accept, token string,
-	progress func(done, total int64),
-) ([]byte, error) {
+	r request,
+) ([]byte, http.Header, error) {
 	u, err := url.Parse(location)
 	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || limit < 1 ||
 		limit > MaxDownload {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitInvalid,
 			"download",
 			"Downloads require HTTPS, no URL credentials, and a bounded size",
 		)
 	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
+	outgoing, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	request.Header.Set("Accept", accept)
-	if token != "" {
-		request.Header.Set("Authorization", "Bearer "+token)
+	for name, values := range r.header {
+		outgoing.Header[http.CanonicalHeaderKey(name)] = values
+	}
+	if r.accept != "" {
+		outgoing.Header.Set("Accept", r.accept)
+	}
+	if r.token != "" {
+		outgoing.Header.Set("Authorization", "Bearer "+r.token)
 	}
 	// A stall limit, not a total-time limit: a slow link may take long as long
 	// as bytes keep arriving.
 	download, cancel := context.WithCancelCause(ctx)
 	defer cancel(nil)
-	request = request.WithContext(download)
+	outgoing = outgoing.WithContext(download)
 	stall := time.AfterFunc(stallLimit, func() { cancel(errStalled) })
 	defer stall.Stop()
-	response, err := downloadClient.Do(request)
+	response, err := downloadClient.Do(outgoing)
 	if err != nil {
 		if err := cut(ctx, download); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"HTTPS download failed: "+err.Error(),
 		)
 	}
 	defer func() { _ = response.Body.Close() }()
+	if response.StatusCode == http.StatusNotModified {
+		return nil, response.Header, ErrNotModified
+	}
 	if response.StatusCode == http.StatusNotFound {
-		return nil, errNotFound
+		return nil, nil, errNotFound
 	}
 	if response.StatusCode == http.StatusForbidden &&
 		response.Header.Get("X-RateLimit-Remaining") == "0" {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
 		)
 	}
-	if token != "" && (response.StatusCode == http.StatusUnauthorized ||
+	if r.token != "" && (response.StatusCode == http.StatusUnauthorized ||
 		response.StatusCode == http.StatusForbidden) {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			fmt.Sprintf(
@@ -97,14 +138,14 @@ func get(
 		)
 	}
 	if response.StatusCode != http.StatusOK {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			fmt.Sprintf("Release asset unavailable (HTTP %d)", response.StatusCode),
 		)
 	}
 	if response.ContentLength > limit {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"Release asset exceeds the download bound",
@@ -113,20 +154,20 @@ func get(
 	body := counted(
 		&stallReader{body: response.Body, timer: stall},
 		response.ContentLength,
-		progress,
+		r.progress,
 	)
 	data, err := io.ReadAll(io.LimitReader(body, limit+1))
 	if err := cut(ctx, download); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err != nil || int64(len(data)) > limit {
-		return nil, operation.Fail(
+		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
 			"Download exceeds its size bound or is incomplete",
 		)
 	}
-	return data, nil
+	return data, response.Header, nil
 }
 
 // stallLimit is how long a download may go without receiving a byte.

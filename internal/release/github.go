@@ -85,7 +85,12 @@ func Find(ctx context.Context, c operation.Context, tag string) (Remote, error) 
 // Bundle downloads and verifies the release's bundle, reporting its bytes to
 // progress when set.
 func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (Bundle, error) {
-	data, err := get(ctx, r.asset, MaxDownload, "application/octet-stream", r.token, progress)
+	data, _, err := get(
+		ctx,
+		r.asset,
+		MaxDownload,
+		request{accept: "application/octet-stream", token: r.token, progress: progress},
+	)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -95,13 +100,11 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 // githubAPI reads one JSON answer from the repository's GitHub REST API. tag
 // names the release asked for, if any, when GitHub has none.
 func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
-	data, err := get(
+	data, _, err := get(
 		ctx,
 		"https://api.github.com/repos/"+Repository+path,
 		4<<20,
-		"application/vnd.github+json",
-		token,
-		nil,
+		request{accept: "application/vnd.github+json", token: token},
 	)
 	if errors.Is(err, errNotFound) {
 		message := "No published Workbench release found"

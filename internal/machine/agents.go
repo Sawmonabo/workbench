@@ -7,8 +7,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,6 +21,7 @@ import (
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
+	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // agentUpdatesScript carries out the planned Codex and Claude Code updates;
@@ -579,23 +578,16 @@ func fetchJSON(ctx context.Context, location string, target any) error {
 	return json.Unmarshal(body, target)
 }
 
-// fetch reads a small document over HTTPS within timeout.
+// fetch reads a document of at most 8 MiB over HTTPS within timeout (see
+// [release.Get]); its error starts with location.
 func fetch(ctx context.Context, location string, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, location, nil)
+	body, _, err := release.Get(ctx, location, 8<<20, "", nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%s: %w", location, err)
 	}
-	response, err := http.DefaultClient.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = response.Body.Close() }()
-	if response.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("%s: HTTP %s", location, response.Status)
-	}
-	return io.ReadAll(io.LimitReader(response.Body, 8<<20))
+	return body, nil
 }
 
 // claudeSigningKey is the fingerprint of the key that signs Claude Code's
