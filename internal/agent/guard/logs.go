@@ -137,7 +137,10 @@ func (w *watcher) endAttrs(c command) []any {
 	return append(callAttrs(c), "took", time.Since(c.Note.NotedAt).Seconds(), "peak", peak)
 }
 
-func logFile(root string) string { return filepath.Join(root, "watch.log") }
+// LogFile is the guard log in the guard folder root, watch.log, for an entry
+// that names the folder itself, such as a migration given its own state
+// folder; [LogPath] finds the folder where Root says for this process.
+func LogFile(root string) string { return filepath.Join(root, "watch.log") }
 
 // outputFile is the watcher's stdout and stderr beside the log at path:
 // watch.err, which is never cut, only renamed to watch.err.1 by a watcher
@@ -154,7 +157,7 @@ func outputFile(path string) string { return filepath.Join(filepath.Dir(path), "
 // oldest record the log then holds, that of its first line with a time after
 // the cut record, zero when it holds none or is missing, which is no error.
 func CutLogBefore(root string, since time.Time) (oldest time.Time, err error) {
-	err = operation.RewriteLog(logFile(root), func(body []byte) [][2]int {
+	err = operation.RewriteLog(LogFile(root), func(body []byte) [][2]int {
 		var keep [][2]int
 		at := 0
 		for line := range bytes.Lines(body) {

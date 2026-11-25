@@ -127,7 +127,7 @@ func (w *watcher) stopFor(
 }
 
 // followManual follows each person's stop at a tick: once its processes are
-// all gone it is done; after killAfter it sends SIGKILL to what is left,
+// all gone it is done; after KillAfter it sends SIGKILL to what is left,
 // and after giveUp it logs what survived and lets it go.
 func (w *watcher) followManual(s snapshot, protected map[int]uint64) {
 	for id, m := range w.manual {
@@ -137,7 +137,7 @@ func (w *watcher) followManual(s snapshot, protected map[int]uint64) {
 			delete(w.manual, id)
 			continue
 		}
-		if time.Since(m.since) >= killAfter && !m.forced {
+		if time.Since(m.since) >= KillAfter && !m.forced {
 			w.killManual(m, kill)
 		}
 		if time.Since(m.since) >= giveUp {

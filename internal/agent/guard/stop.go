@@ -14,14 +14,18 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// The stops' timing and limits: the cooldown after a stop (see coolingDown),
-// the SIGKILL that follows SIGTERM (see escalateNow), the end of the wait for
-// a stopped command's processes to go (see signal), the age at which a kill
-// record goes in any case (see expireKills), and the stops in a row that
-// signalled nothing after which a call is passed over (see refused).
+// KillAfter is how long a stopped command has after SIGTERM before what is
+// left of it is sent SIGKILL, whether the guard stopped it (see escalateNow)
+// or a person did (see followManual).
+const KillAfter = 5 * time.Second
+
+// The stops' other timing and limits: the cooldown after a stop (see
+// coolingDown), the end of the wait for a stopped command's processes to go
+// (see signal), the age at which a kill record goes in any case (see
+// expireKills), and the stops in a row that signalled nothing after which a
+// call is passed over (see refused).
 const (
 	cooldown     = 10 * time.Second
-	killAfter    = 5 * time.Second
 	giveUp       = 10 * time.Second
 	killKeep     = 24 * time.Hour
 	refusalLimit = 3
@@ -283,7 +287,7 @@ func (w *watcher) showStopping(id string) {
 // escalateNow is true after five seconds or once memory calls for a forced
 // stop; memory is read only until then.
 func (w *watcher) escalateNow(start time.Time) bool {
-	if time.Since(start) >= killAfter {
+	if time.Since(start) >= KillAfter {
 		return true
 	}
 	m, err := readMemory()
