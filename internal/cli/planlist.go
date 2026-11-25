@@ -570,8 +570,12 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 	}
 	first := brand.Bold(true).Render("[WorkBench]") + " " + title
 	chips := []string{
-		bold.Render(fmt.Sprint(files)) + faint.Render(" file"+plural(files)),
-		bold.Render(fmt.Sprint(steps)) + faint.Render(" step"+plural(steps)+" will run"),
+		bold.Render(fmt.Sprint(files)) + faint.Render(" "+display.Plural(files, "file")),
+		bold.Render(
+			fmt.Sprint(steps),
+		) + faint.Render(
+			" "+display.Plural(steps, "step")+" will run",
+		),
 	}
 	if undecided > 0 {
 		chips = append(chips, yellow.Bold(true).Render(fmt.Sprint(undecided))+

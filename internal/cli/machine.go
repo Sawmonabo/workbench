@@ -12,6 +12,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -555,10 +556,8 @@ func appliedSummary(result operation.Result, plan operation.Plan) string {
 			skipped++
 		}
 	}
-	line := fmt.Sprintf(
-		"[WorkBench] Applied: %d file%s, %d step%s",
-		plan.Files(), plural(plan.Files()), effects, plural(effects),
-	)
+	line := "[WorkBench] Applied: " + display.Count(plan.Files(), "file") + ", " +
+		display.Count(effects, "step")
 	if skipped > 0 {
 		line += fmt.Sprintf("; %d skipped", skipped)
 	}

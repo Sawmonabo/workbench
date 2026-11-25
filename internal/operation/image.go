@@ -14,6 +14,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"golang.org/x/sys/unix"
 )
@@ -806,21 +807,13 @@ func contentSummary(before, after Image) string {
 // textSize is "N lines" for text and "N bytes" otherwise.
 func textSize(data []byte) string {
 	if !isText(data) {
-		return quantity(len(data), "byte")
+		return display.Count(len(data), "byte")
 	}
 	lines := 0
 	for range strings.Lines(string(data)) {
 		lines++
 	}
-	return quantity(lines, "line")
-}
-
-// quantity is "n noun", pluralized.
-func quantity(n int, noun string) string {
-	if n != 1 {
-		noun += "s"
-	}
-	return fmt.Sprintf("%d %s", n, noun)
+	return display.Count(lines, "line")
 }
 
 func isText(data []byte) bool { return utf8.Valid(data) && !bytes.ContainsRune(data, 0) }

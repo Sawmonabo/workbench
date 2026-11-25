@@ -9,7 +9,6 @@ package guard
 // watcher, say in the same words.
 
 import (
-	"strconv"
 	"strings"
 	"time"
 
@@ -75,19 +74,13 @@ func HistoryFolderMoved(root string) bool {
 // settings row written by something else can hold, in Go's form.
 func KeepText(keep time.Duration) string {
 	const day = 24 * time.Hour
-	unit := func(n time.Duration, word string) string {
-		if n != 1 {
-			word += "s"
-		}
-		return strconv.FormatInt(int64(n), 10) + " " + word
-	}
 	switch {
 	case keep%(7*day) == 0:
-		return unit(keep/(7*day), "week")
+		return display.Count(int(keep/(7*day)), "week")
 	case keep%day == 0 && keep >= 2*day:
-		return unit(keep/day, "day")
+		return display.Count(int(keep/day), "day")
 	case keep%time.Hour == 0:
-		return unit(keep/time.Hour, "hour")
+		return display.Count(int(keep/time.Hour), "hour")
 	}
 	return keep.String()
 }

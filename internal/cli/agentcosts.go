@@ -895,7 +895,7 @@ func costsPage(
 		"updated " + localTime(c.LastIngestAt),
 	})
 	grand := report.GrandTotal
-	label := fmt.Sprintf("total · %d %s%s", report.RowCount, report.By, plural(report.RowCount))
+	label := "total · " + display.Count(report.RowCount, report.By)
 	total := report.Total
 	mark := noMarks
 	if selected >= 0 {
@@ -1140,13 +1140,6 @@ func day(date string) string {
 	return when.Format("Jan 2")
 }
 
-func plural(n int) string {
-	if n == 1 {
-		return ""
-	}
-	return "s"
-}
-
 // reportSpec is what one table of a report is made from. total, when set, is
 // the bold row under a rule, named label; heading, when set, prints above the
 // table; bar, when set, is the width of the share bars.
@@ -1335,12 +1328,8 @@ func writeFooter(b *strings.Builder, tool costs.Tool, width int, report costs.St
 			"%d of %d %ss shown; totals cover all", len(report.Rows), report.RowCount, report.By))
 	}
 	if report.Hidden > 0 {
-		notes = append(notes, fmt.Sprintf(
-			"%d project%s outside %s hidden (--all shows them)",
-			report.Hidden,
-			plural(report.Hidden),
-			scopeNames(report.Scope),
-		))
+		notes = append(notes, display.Count(report.Hidden, "project")+" outside "+
+			scopeNames(report.Scope)+" hidden (--all shows them)")
 	}
 	notes = append(notes, unrecordedNotes(tool, report)...)
 	unpriced := unpricedNotes(tool, report)
