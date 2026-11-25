@@ -161,7 +161,7 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 	t.Run("aRootThatRunsAnotherProgramIsPendingAndYoungAgain", func(t *testing.T) {
 		self := os.Getpid()
 		p := proc{Process: platform.Process{PID: self, PPID: 1, Start: 1, Name: "test"}}
-		r := detachedRoot{procRef: procRef{self, 1}, Since: now.Add(-time.Minute), Name: "test"}
+		r := detachedRoot{PID: self, Start: 1, Since: now.Add(-time.Minute), Name: "test"}
 		if platform.KnowsOriginalParent {
 			l, ok := platform.ProcessLineage(self)
 			if !ok {
@@ -189,7 +189,7 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 		s := world(first, joining)
 		hidden := tie{Agent: agent, Kind: claude, Owner: call, Hidden: true}
 		w.addRoot(s, first, hidden)
-		id := unitID(procRef{first.PID, first.Start})
+		id := unitID(procKey{first.PID, first.Start})
 		hidden.Owner = id
 		w.addRoot(s, joining, hidden)
 		for i, r := range w.tracked[id].Detached.Roots {
@@ -209,7 +209,7 @@ func TestWatcherKeepsWhatNoCallStartedOutOfItsOwnStop(t *testing.T) {
 		w, _ := newWatcher(t)
 		session := process(fake+60, agent.pid, fake+60, 5, "claude")
 		s := world(session)
-		w.inherited = &carried{StampAgents: []procRef{{session.PID, session.Start}}}
+		w.inherited = &carried{StampAgents: []procKey{{session.PID, session.Start}}}
 		w.adopt(s, nil)
 		if _, protected := w.agents(s, nil); protected[session.PID] != session.Start {
 			t.Fatal("the stamp-named session is not protected at the new watcher's first tick")
@@ -272,11 +272,11 @@ func fixtureUnit(w *watcher, agent procKey, call string, now time.Time, rs ...pr
 	d := &detached{Call: call}
 	for _, r := range rs {
 		d.Roots = append(d.Roots, detachedRoot{
-			procRef: procRef{r.PID, r.Start}, Since: now.Add(-time.Minute), Name: r.Name,
+			PID: r.PID, Start: r.Start, Since: now.Add(-time.Minute), Name: r.Name,
 		})
 		w.classified[procKey{r.PID, r.Start}] = judged{v: isUnit}
 	}
-	id := unitID(d.Roots[0].procRef)
+	id := unitID(procKey{d.Roots[0].PID, d.Roots[0].Start})
 	w.tracked[id] = command{
 		Note:     note{ToolUseID: id, AgentPID: agent.pid, AgentStart: agent.start, Kind: claude},
 		Root:     rs[0],

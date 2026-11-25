@@ -363,10 +363,8 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 			Root: process(pid, 1, pid, float64(pid), "node"),
 			Detached: &detached{Roots: []detachedRoot{
 				{
-					procRef: procRef{
-						pid,
-						start(float64(pid)),
-					},
+					PID:     pid,
+					Start:   start(float64(pid)),
 					Since:   now.Add(-tracked),
 					Pending: pending,
 				},
@@ -409,7 +407,7 @@ func TestGuardChoosesOnlyWhatACallProvablyStarted(t *testing.T) {
 	made := command{
 		Root: process(70, 1, 70, 70, "node"),
 		Detached: &detached{Roots: []detachedRoot{{
-			procRef: procRef{70, start(70)}, Since: now.Add(-time.Minute),
+			PID: 70, Start: start(70), Since: now.Add(-time.Minute),
 		}}, Call: "call_s", ByStamp: true},
 	}
 	w.loseStampCall(&made)

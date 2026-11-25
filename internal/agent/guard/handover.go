@@ -93,7 +93,7 @@ type handover struct {
 // processes judged no unit for good, which adopt keeps final. Ancestry is
 // the ancestry store, which adopt merges with what the new watcher records.
 type carried struct {
-	Tracked     map[string]procRef  `json:"tracked"`
+	Tracked     map[string]procKey  `json:"tracked"`
 	Notes       map[string]note     `json:"notes"`
 	Detached    map[string]detached `json:"detached"`
 	Shown       map[string]string   `json:"shown"`
@@ -108,22 +108,17 @@ type carried struct {
 	// StampAgents are the processes a stamp named as their agent (see
 	// stampOf), protected like a known agent, so the new watcher protects
 	// them from its first tick on, before any stamp is read again.
-	StampAgents []procRef `json:"stamp_agents,omitempty"`
+	StampAgents []procKey `json:"stamp_agents,omitempty"`
 	// Final are the children of the init process judged no unit for good
 	// (see judged), so a new watcher cannot tie one of them to a unit by
 	// parent again.
-	Final []procRef `json:"final"`
+	Final []procKey `json:"final"`
 	// Ancestry is the ancestry store (see ancestry.carry), so a process that
 	// is found not to be a call's work after the handover still takes with
 	// it what it started before, through processes that exited meanwhile.
 	// A watcher from before it carries none, and one that does not know it
 	// ignores it.
 	Ancestry []carriedOrigin `json:"ancestry,omitempty"`
-}
-
-type procRef struct {
-	PID   int    `json:"pid"`
-	Start uint64 `json:"start"`
 }
 
 // identify reads, once at the start, the command this watcher was started as
@@ -354,7 +349,7 @@ func (w *watcher) failHandover(target os.FileInfo, cause error) {
 // carried is what this watcher hands over.
 func (w *watcher) carried() carried {
 	c := carried{
-		Tracked:     map[string]procRef{},
+		Tracked:     map[string]procKey{},
 		Notes:       map[string]note{},
 		Detached:    map[string]detached{},
 		Shown:       map[string]string{},
@@ -367,17 +362,17 @@ func (w *watcher) carried() carried {
 	}
 	for key, j := range w.classified {
 		if j.v == notUnit && j.fixed {
-			c.Final = append(c.Final, procRef{PID: key.pid, Start: key.start})
+			c.Final = append(c.Final, key)
 		}
 	}
 	for key, k := range w.known {
 		c.Known = append(c.Known, agentFile{PID: key.pid, Start: key.start, Kind: k})
 	}
 	for key := range w.stampAgents {
-		c.StampAgents = append(c.StampAgents, procRef{PID: key.pid, Start: key.start})
+		c.StampAgents = append(c.StampAgents, key)
 	}
 	for id, cmd := range w.tracked {
-		c.Tracked[id] = procRef{cmd.Root.PID, cmd.Root.Start}
+		c.Tracked[id] = procKey{cmd.Root.PID, cmd.Root.Start}
 		c.Notes[id] = cmd.Note
 		if cmd.Detached != nil {
 			c.Detached[id] = *cmd.Detached
@@ -511,9 +506,9 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 	// Before this tick records the trees, which then merge into it.
 	w.ancestry.adopt(c.Ancestry, time.Now())
 	w.ancestry.prune(func(k procKey) bool { return s.alive(k.pid, k.start) }, time.Now())
-	for _, r := range c.Final {
-		if s.alive(r.PID, r.Start) {
-			w.classified[procKey{r.PID, r.Start}] = finalNo()
+	for _, key := range c.Final {
+		if s.alive(key.pid, key.start) {
+			w.classified[key] = finalNo()
 		}
 	}
 	// Both are protected while they are in the process table, a zombie not
@@ -523,9 +518,9 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 			w.known[procKey{a.PID, a.Start}] = a.Kind
 		}
 	}
-	for _, a := range c.StampAgents {
-		if s.present(a.PID, a.Start) {
-			w.stampAgents[procKey{a.PID, a.Start}] = true
+	for _, key := range c.StampAgents {
+		if s.present(key.pid, key.start) {
+			w.stampAgents[key] = true
 		}
 	}
 	onDisk := map[string]note{}
@@ -544,13 +539,13 @@ func (w *watcher) adopt(s snapshot, notes []note) {
 		if !noted {
 			n, noted = c.Notes[id]
 		}
-		p, running := s[root.PID]
-		running = running && s.alive(root.PID, root.Start)
+		p, running := s[root.pid]
+		running = running && s.alive(root.pid, root.start)
 		if !noted || (running && p.PPID != n.AgentPID) {
 			continue
 		}
 		if !running {
-			p = proc{Process: platform.Process{PID: root.PID, PPID: n.AgentPID, Start: root.Start}}
+			p = proc{Process: platform.Process{PID: root.pid, PPID: n.AgentPID, Start: root.start}}
 		}
 		cmd := command{Note: n, Root: p}
 		w.tracked[id] = cmd

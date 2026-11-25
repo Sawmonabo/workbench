@@ -99,19 +99,26 @@ func (k *procKey) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// MarshalJSON writes a procKey as a procRef, so a call record keeps its agent
-// when it is carried to the next watcher.
+// MarshalJSON writes a procKey as {"pid":PID,"start":START}, the form a
+// process takes in what a watcher carries to the next one (see carried) and
+// in a unit's record (see unitRecord).
 func (k procKey) MarshalJSON() ([]byte, error) {
-	return json.Marshal(procRef{PID: k.pid, Start: k.start})
+	return json.Marshal(struct {
+		PID   int    `json:"pid"`
+		Start uint64 `json:"start"`
+	}{k.pid, k.start})
 }
 
 // UnmarshalJSON reads a procKey written by MarshalJSON.
 func (k *procKey) UnmarshalJSON(data []byte) error {
-	var ref procRef
-	if err := json.Unmarshal(data, &ref); err != nil {
+	var v struct {
+		PID   int    `json:"pid"`
+		Start uint64 `json:"start"`
+	}
+	if err := json.Unmarshal(data, &v); err != nil {
 		return err
 	}
-	*k = procKey{ref.PID, ref.Start}
+	*k = procKey{v.PID, v.Start}
 	return nil
 }
 
@@ -269,9 +276,13 @@ type detached struct {
 // rewrote its title can make it end in environment strings, so where the
 // version decides it is not read at all, and nothing unfiltered is kept or
 // carried at a handover. Shown is what the view shows of it (see
-// shownCommand); neither is logged.
+// shownCommand); neither is logged. PID and Start name the process, as a
+// procKey does, and are written beside the other fields: a procKey in their
+// place would bring its own JSON form, which would then stand for the whole
+// root.
 type detachedRoot struct {
-	procRef
+	PID     int       `json:"pid"`
+	Start   uint64    `json:"start"`
 	Since   time.Time `json:"-"`
 	Version uint32    `json:"version,omitempty"`
 	Name    string    `json:"name"`

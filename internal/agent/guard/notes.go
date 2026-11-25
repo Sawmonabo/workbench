@@ -251,7 +251,7 @@ func (w *watcher) found(id string, seen seenNote) bool {
 		return true
 	}
 	rec, ok := w.records.byID(id)
-	return ok && rec.Shell.Start != 0
+	return ok && rec.Shell.start != 0
 }
 
 // markChildSeen sets childSeen on each waiting note whose agent has a child
