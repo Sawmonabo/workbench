@@ -7,8 +7,8 @@ space, and every report prints the same bytes, faster
 ## 1. Intent
 
 The ledger holds one row per AI response: token counts, the time, and who,
-where and with what the response was made. On the machine that ran it
-longest it reached 936 MiB for 1,586,775 responses, because each row
+where and with what the response was made. A ledger of 1,586,775
+responses measured 936 MiB, because each row
 repeats long text (project path, session ID twice, account, plan, evidence
 words, model, a time string, the response ID) and six indexes copy it
 again. The rows are needed (dedupe by ID, late corrections, millisecond
@@ -101,7 +101,11 @@ Anti-goals:
    | --- | --- | --- |
    | `0x01` | 15 bytes, big-endian: the 20 characters read as one base-62 number, digits `0-9A-Za-z` | `req_011C` + 20 characters of `[0-9A-Za-z]` |
    | `0x02` | the bytes the hex spells | `codex:resp_` + an even count (at least 2) of lowercase hex digits |
+   | `0x03` | the bytes the hex spells | `codex:tc:` + an even count (at least 2) of lowercase hex digits (a token count's digest) |
    | `0x00` | the text itself, UTF-8 | anything else (a copy key `copy:…` or `codex:copy:…`, any other shape) |
+
+   In a ledger of 1.59 million rows, 1,263,746 IDs took tag 1, 112,202 tag
+   2, 199,016 tag 3 and 3 tag 0.
 
    Decoding a tag-1 or tag-2 value gives back the same text, leading zeros
    included. A key range on the text (`DropHeldCopies`) is a range on
@@ -112,14 +116,18 @@ Anti-goals:
    versions 1 to 5 to version 6, in the same transaction, which keeps every
    row:
    - it builds `names` from every distinct value, copies every row into the
-     new tables, and drops the old ones and their indexes;
+     new tables, keeping each row's rowid as its `id`, and drops the old ones
+     and their indexes;
    - an evidence word other than the five, or a time that is neither `''`
      nor exactly `timeLayout`, refuses the upgrade with the path and the
      value, and the file is left as it was;
    - before it commits, it checks that the new tables hold as many rows as
      the old, the same sum of each token column per tool, and that every new
      row decodes to its old row field for field; a difference rolls it back
-     with an error naming the first row that differs.
+     with an error naming the first row that differs;
+   - it does not fill the price tables again (that step belongs to the
+     upgrade to version 6). The open without an upgrade that the costs move
+     uses (`openLedger(…, upgrade=false)`) accepts version 6 and 7.
 5. **Waiting for the upgrade.** Converting a large ledger takes seconds.
    A process that opens the ledger while another upgrades it waits until the
    upgrade ends (it waits on the write lock longer than the usual five
@@ -134,24 +142,39 @@ Anti-goals:
    with free pages; the key stays, the reason goes to the import log, and
    each import worker tries again, holding the import lock, until it
    succeeds. Nothing else rewrites the file.
-7. **Writes.** The import resolves each name to its number once per name
+7. **Times meet times.** Only `responses.ts` becomes a number; every other
+   table and meta key keeps its `timeLayout` text. In SQLite a number sorts
+   below any text, so `ts > '2026-…Z'` matches nothing, without an error.
+   Before changing a statement, the builder lists every place a response's
+   time meets another time, in SQL and in Go (the account resolution's
+   watermark `accounts_through:<tool>` and stretch start, `signedIn`,
+   `between`, `sessionStarts`, the tier series, the `tier_pending` join, the
+   time inside a copy key), and converts at that boundary: a bound handed to
+   SQL is milliseconds, and `""` (no bound) leaves the condition out. The
+   correction code may keep the text times it uses today for the rows it
+   reads.
+8. **Writes.** The import resolves each name to its number once per name
    (a cache loaded at the transaction's start and filled as it inserts new
    names) and writes numbers. The upsert keeps its rules: the earliest copy's
    time, model, project and session; MAX of each token count; a field's
    account or plan replaced only by stronger evidence; the root rule. A
    time with no value is NULL; `earlier` compares numbers.
-8. **Reads.** A report loads `names` once and reads `responses` straight
+9. **Reads.** A report loads `names` once and reads `responses` straight
    through (`WHERE +tool = ?`: with an index on `tool` first, SQLite reads
    the table through that index in time order, which measured 2.5 times
    slower). The report code gets the values it gets today; how a time
    travels in Go is the builder's choice (milliseconds compare and convert
    to a local day faster than parsing the text).
-9. **No query gets slower.** Each statement on `responses` and
+10. **No query gets slower.** Each statement on `responses` and
    `tier_pending` is checked with `EXPLAIN QUERY PLAN` on a copy of a real
-   ledger: a lookup by ID, a root move and the account resolution's
-   conditions use an index; the report and the per-tool group scans read
-   the table, as they read all of a tool's rows today.
-10. **A process of the release before** refuses a version 7 ledger and
+   ledger, old layout and new: a lookup by ID, a root move and each of the
+   account resolution's real shapes (its open condition outside an `OR` of
+   request IDs, roots, a watermark, a new subscription and a stretch) use an
+   index; the report and the per-tool group scans read the table, as they
+   read all of a tool's rows today. When SQLite does not take the partial
+   index inside the `OR`, the condition is repeated inside the branch, or
+   the index covers every row (about 14 MiB more at 1.59 million rows).
+11. **A process of the release before** refuses a version 7 ledger and
     writes nothing (its own version check). An import worker of that release
     started at the moment of the update ends there; the next worker reads
     what it would have read.
@@ -188,13 +211,21 @@ test says the risk beside it.
 
 1. A copy of a real ledger, taken with SQLite's backup (never the original
    opened), upgraded by the new build: its size, the upgrade's and the
-   compaction's times, `PRAGMA integrity_check`.
+   compaction's times, the most disk the folder used meanwhile (the
+   ledger, its write-ahead log and the compaction's temporary copy),
+   `PRAGMA integrity_check`. The ADR's and this design's numbers are then
+   replaced by these.
 2. Every report of section 2, printed by the release before from the copy
    before the upgrade and by the new build after, compared byte for byte,
    both tools, with windows that cut inside a millisecond.
-3. The report's, an import's and the account resolution's times, before and
+3. The corrections: two more copies, the meta keys `accounts_checked` and
+   `tiers_checked` deleted in each so the next import resolves every row,
+   one imported by the release before and one by the new build in the same
+   disposable home with no transcripts; every row of `responses` and
+   `tier_pending`, decoded, compared row for row.
+4. The report's, an import's and the account resolution's times, before and
    after.
-4. The update from the release before in a disposable home with synthetic
+5. The update from the release before in a disposable home with synthetic
    transcripts, an import running during the upgrade, every row kept.
 
 ## 8. Left to the builder

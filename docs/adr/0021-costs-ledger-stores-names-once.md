@@ -11,12 +11,11 @@ and must count once (dedupe by its ID), its account, plan, price tier and
 thread root are corrected after it is stored, and `--since`/`--until` cut
 at any millisecond. No transcript text is stored.
 
-On the machine that ran it longest the ledger reached 936 MiB for
-1,586,775 responses, about 618 bytes each, growing about 5 MB a day. Each
-row repeated long text: the project path, the session ID twice (as the
-session and as its root), the account, the plan, two evidence words, the
-model, a 24-character time and the response ID (28 characters for Claude
-Code, 61 for Codex). Six indexes copied several of those strings again; two
+A ledger of 1,586,775 responses measured 936 MiB, about 618 bytes each,
+and grows by every response an agent makes. Each row repeated long text:
+the project path, the session ID twice (as the session and as its root),
+the account, the plan, two evidence words, the model, a 24-character time
+and the response ID (28 characters for Claude Code, 61 or 73 for Codex). Six indexes copied several of those strings again; two
 of them (project and model, account) served no query, and a third (tool)
 made the report read the table through the index, row by row, slower than
 reading it straight through.
@@ -27,9 +26,8 @@ compression extensions are out of reach.
 
 ## Options considered
 
-Measured on 400,000 synthetic rows shaped like the real ledger, scaled to
-1.59 million (`.agents/tmp/costs-ledger-slim-design.md` holds the research,
-the sources and the scripts):
+Measured on 400,000 synthetic rows shaped like that ledger, scaled to 1.59
+million, after `VACUUM` with 4 KiB pages:
 
 | Option | At 1.59 M rows | Trade-off |
 | --- | --- | --- |
@@ -45,6 +43,23 @@ Packing the two evidence codes into one integer saved 1.2 bytes a row and
 times relative to the session start 2.4 bytes, which made a time index
 impossible; neither is worth it. SQLite already stores small integers in
 one byte and 0 or 1 in none.
+
+Also weighed: larger pages (SQLite's notes: for a filled database 4 KiB
+is as good or better on space), `STRICT` tables (the same file format, so
+the same size), `auto_vacuum` (pointer-map pages and no gain for a file
+that only grows) and `VACUUM` alone (the file had no free pages).
+
+Sources: [WITHOUT ROWID tables](https://www.sqlite.org/withoutrowid.html),
+[the database file format](https://sqlite.org/fileformat.html) and
+[the check-in that stores 0 and 1 in no bytes](https://www.sqlite.org/src/info/ae301db8a61a74bc),
+[page sizes](https://sqlite.org/pgszchng2016.html),
+[STRICT tables](https://sqlite.org/stricttables.html),
+[ZIPVFS](https://www.sqlite.org/zipvfs/doc/trunk/www/howitworks.wiki),
+[sqlite_zstd_vfs](https://sqlite.org/forum/info/43d054311d31f99c?t=c),
+[sqlite-zstd](https://docs.rs/crate/sqlite-zstd/0.3.5/source/python/README.md),
+[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite),
+[UUIDs as BLOB or TEXT](https://vespa-mrs.github.io/vespa.io/development/project_dev/database/DatabaseUuidEfficiency.html),
+[TimescaleDB's columnar compression](https://www.tigerdata.com/blog/building-columnar-compression-in-a-row-oriented-database).
 
 ## Decision
 
