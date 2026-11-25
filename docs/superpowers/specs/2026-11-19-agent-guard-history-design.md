@@ -534,7 +534,7 @@ snapshot is encoded once, by the first client's writer that sends it, never
 on the tick, and every client is sent the same bytes. A view and a watcher of two releases say so as they do today
 (`watcherOther`).
 
-### 7.3 View (`internal/cli/agentguardview.go`)
+### 7.3 View (`internal/cli/agentguardhistory.go`)
 
 - Rows are the snapshot's commands and the history's, one row per ID, the
   snapshot's winning.
@@ -557,7 +557,7 @@ on the tick, and every client is sent the same bytes. A view and a watcher of tw
 | The three warnings (cannot be written, damaged and started again, unreadable) and the paths in them named from the home folder, said in the same words by the watcher's snapshot, the view and `agent guard history` | `internal/agent/guard/historyview.go` |
 | `agent guard history` and its `--keep` flag | `internal/cli/agentguard.go` |
 | The steps both SQLite files share when they open: the driver, the private create before SQLite opens the file, the connection string, the switch to WAL with its retry when two creators meet, and making a file its owner's checks accepted private with its `-wal` and `-shm` files (`makePrivate`) | a new `internal/sqlitefile`, which `OpenLedger` calls too; the ledger keeps its own checks of an existing file and its schema |
-| The list, the filter, the details and the panel | `internal/cli/agentguardview.go` |
+| The list, the filter, the details and the panel | `internal/cli/agentguardrows.go` and `agentguardtable.go` (the list), `agentguardhistory.go` (the filter) and `agentguarddetails.go` (the details and the panel) |
 
 Documents changed in place: the guard sections of `docs/usage.md` and
 `docs/acceptance.md`, the guard view rules in
