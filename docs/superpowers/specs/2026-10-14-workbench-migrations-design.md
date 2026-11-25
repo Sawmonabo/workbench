@@ -878,7 +878,7 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 | File | Change |
 |---|---|
 | `internal/migrate/*` | New: registry, loop, four migrations |
-| `internal/operation/state.go`, `context.go`, `filesystem_{darwin,linux}.go` | `ReplacePrivateFile`, taken out of `WritePrivate`; `RenameNoReplace`; `Paths.MigrateLock`. Every private folder is made with `PrivateDirectory(root, name)`, which checks each folder of a nested name; the operation layer also owns `PrivateTree` (checks a private tree, creating it or not), `SyncDirectory` (a folder fsync, counting `EINVAL` and `EBADF` as synced) and `RemoveIfThere` |
+| `internal/operation/privatefile.go`, `privatedir.go`, `context.go`, `filesystem_{darwin,linux}.go` | `ReplacePrivateFile`, taken out of `WritePrivate`; `RenameNoReplace`; `Paths.MigrateLock`. Every private folder is made with `PrivateDirectory(root, name)`, which checks each folder of a nested name; the operation layer also owns `PrivateTree` (checks a private tree, creating it or not), `SyncDirectory` (a folder fsync, counting `EINVAL` and `EBADF` as synced) and `RemoveIfThere` |
 | `internal/costs/move.go` | New: old and new locations, the check, the move, the ledger copy and its resume, the gate |
 | `internal/costs/ledger.go`, `rates.go`, `ingest.go`, `report.go` | New paths from `operation.Resolve`; the gate at every open; the hook's stderr line |
 | `internal/cli/costs.go` | Report and status go through the gate |

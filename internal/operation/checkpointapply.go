@@ -1,0 +1,309 @@
+package operation
+
+import (
+	"context"
+	"slices"
+	"strings"
+)
+
+// StartNative persists uncertainty before handing authority to the native engine.
+// An abrupt process death cannot make unobserved writes look safely reversible.
+func (cp *Checkpoint) StartNative() error {
+	cp.journal.Status = JournalRunning
+	for i := range cp.journal.Known {
+		cp.journal.Known[i] = outcomeUnknown
+	}
+	return cp.saveJournal()
+}
+
+// FinalizeNative restores only the approved group after native atomic creation
+// inherited its temporary directory's group. Every target's expected content,
+// type and mode is checked first; unknown content never authorizes metadata edits.
+// It is called only following successful native execution.
+func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeGroups(false) }
+
+// SettleFailedNative is FinalizeNative for a native run that failed (a script
+// exited nonzero, say) or was interrupted once native had stopped. The files
+// written before the failure carry the inherited group too, which
+// [Checkpoint.Finish] would record as unknown outcomes. FinalizeNative's rule
+// applies one target at a time: a target whose content, type and mode already
+// match its approved image gets the approved group, and any other target, such
+// as one the run never wrote or someone edited, is left exactly as it is. A
+// target that cannot be corrected does not stop the others; Finish records each
+// as it finds it. The only error it could return, a lost mutation, makes Finish
+// fail as well.
+func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeGroups(true) }
+
+// restoreNativeGroups is the shared body of both. Without failed, any target
+// that does not match its approved image fails the call before any group is
+// changed.
+func (cp *Checkpoint) restoreNativeGroups(failed bool) error {
+	if err := cp.mutation.Check(); err != nil {
+		return err
+	}
+	c := cp.mutation.context
+	observed := make([]Image, len(cp.changes))
+	settled := make([]bool, len(cp.changes))
+	for i, change := range cp.changes {
+		current, err := nativeOutput(c, change)
+		if err != nil {
+			if failed {
+				continue
+			}
+			return err
+		}
+		observed[i], settled[i] = current, true
+	}
+	for i, change := range cp.changes {
+		if !settled[i] || change.After.Kind == ImageAbsent ||
+			*observed[i].Group == *change.After.Group {
+			continue
+		}
+		if err := correctNativeGroup(c, change, observed[i]); err != nil && !failed {
+			return err
+		}
+	}
+	return nil
+}
+
+// nativeOutput reads a target after a native run and returns it when it is the
+// approved image apart from a group that atomic creation may have inherited.
+func nativeOutput(c Context, change TargetChange) (Image, error) {
+	current, err := ReadImage(c, change.Path)
+	if err != nil {
+		return Image{}, err
+	}
+	comparison := current
+	comparison.Group = change.After.Group
+	if !sameImageContent(comparison, change.After) {
+		return Image{}, Fail(
+			ExitPartial,
+			"native_image",
+			"Native output differs from the approved images; metadata was not changed",
+		)
+	}
+	if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
+		return Image{}, Fail(
+			ExitBlocked,
+			"metadata",
+			"Native link group correction is unqualified; retained images require review",
+		)
+	}
+	return current, nil
+}
+
+// correctNativeGroup gives a target the approved group, once it is still the
+// image nativeOutput observed.
+func correctNativeGroup(c Context, change TargetChange, observed Image) error {
+	current, err := ReadImage(c, change.Path)
+	if err != nil {
+		return err
+	}
+	if !sameImage(current, observed) {
+		return Fail(
+			ExitPartial,
+			"native_image",
+			"Native target changed before group preservation; stop for review",
+		)
+	}
+	return enforceNativeGroup(c, change.Path, observed, *change.After.Group)
+}
+
+// Finish records each target's observed outcome after a native run and
+// returns runErr, or a partial or unknown-outcome error when targets changed. A
+// runErr that already reports a partial apply is returned as it is.
+func (cp *Checkpoint) Finish(runErr error) error {
+	changed, unknown, incomplete := false, false, false
+	for i, change := range cp.changes {
+		current, err := ReadImage(cp.mutation.context, change.Path)
+		if err == nil {
+			cp.journal.ObservedAttributes[i] = current.Attributes
+		}
+		switch {
+		case err == nil && sameImageContent(current, change.After):
+			cp.journal.Known[i] = outcomeAfter
+			cp.journal.PostAttributes[i] = current.Attributes
+			cp.changes[i].After.Attributes = current.Attributes
+			changed = changed || !sameImage(change.Before, current)
+		case err == nil && sameImage(current, change.Before):
+			cp.journal.Known[i] = outcomeBefore
+			incomplete = incomplete || !sameImage(change.Before, change.After)
+		default:
+			cp.journal.Known[i] = outcomeUnknown
+			unknown = true
+		}
+	}
+	if err := validateChanges(cp.mutation.context, cp.changes); err != nil {
+		unknown = true
+	}
+	if incomplete && runErr == nil {
+		runErr = Fail(
+			ExitFailed,
+			"incomplete",
+			"Native apply did not produce every approved target image",
+		)
+	}
+	cp.journal.Status = JournalComplete
+	if runErr != nil {
+		cp.journal.Status = JournalFailed
+	}
+	if changed && runErr != nil {
+		cp.journal.Status = JournalPartial
+	}
+	if unknown {
+		cp.journal.Status = JournalUnknown
+	}
+	if err := cp.saveJournal(); err != nil {
+		if ExitCode(runErr) == ExitInterrupted {
+			return runErr
+		}
+		return Fail(
+			ExitPartial,
+			"checkpoint",
+			"Target outcome could not be recorded; retained images require reviewed reconciliation",
+		)
+	}
+	if ExitCode(runErr) == ExitInterrupted {
+		return runErr
+	}
+	if unknown {
+		cannot := "could not confirm every file this apply wrote (checkpoint " + cp.ID + "); revert checks them again and names any it cannot undo."
+		if runErr == nil {
+			return Fail(
+				ExitPartial,
+				"recovery",
+				"Workbench "+cannot+" Run "+cp.mutation.context.WorkbenchCommand()+" apply again to check the files.",
+			)
+		}
+		// The failure comes first: it is what the person has to act on.
+		return Fail(
+			ExitPartial,
+			"recovery",
+			strings.TrimRight(runErr.Error(), ".")+". Workbench also "+cannot,
+		)
+	}
+	if changed && runErr != nil {
+		// A failure that already reports a partial apply says what failed and what
+		// to do; the generic line below would replace it.
+		if ExitCode(runErr) == ExitPartial {
+			return runErr
+		}
+		return Fail(
+			ExitPartial,
+			"partial",
+			"Some target changes completed; recover using the retained checkpoint",
+		)
+	}
+	return runErr
+}
+
+// Apply is the shared exact-write owner for project configuration and recovery.
+func (cp *Checkpoint) Apply(ctx context.Context) error { return cp.applyImages(ctx, false, false) }
+
+// applyImages writes each target's image for the direction. A folder it would
+// remove that now holds other files refuses the whole write, unless keepHeld
+// (a revert) leaves it in place with the image it has.
+func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) error {
+	if err := cp.mutation.Check(); err != nil {
+		return err
+	}
+	held, err := cp.preflight(reverse)
+	if err != nil {
+		return err
+	}
+	if len(held) > 0 && !keepHeld {
+		return heldConflict(held)
+	}
+	cp.journal.Status = JournalRunning
+	if err := cp.saveJournal(); err != nil {
+		return err
+	}
+	indices := make([]int, len(cp.changes))
+	for i := range indices {
+		indices[i] = i
+	}
+	// Creation goes parent-first, removal child-first; no recursive deletion.
+	slices.SortFunc(indices, func(a, b int) int {
+		x, y := cp.changes[a], cp.changes[b]
+		xImage, yImage := x.After, y.After
+		if reverse {
+			xImage, yImage = x.Before, y.Before
+		}
+		if xImage.Kind == ImageAbsent && yImage.Kind != ImageAbsent {
+			return 1
+		}
+		if xImage.Kind != ImageAbsent && yImage.Kind == ImageAbsent {
+			return -1
+		}
+		if xImage.Kind == ImageAbsent {
+			return strings.Compare(y.Path, x.Path)
+		}
+		return strings.Compare(x.Path, y.Path)
+	})
+	for _, i := range indices {
+		if err := ctx.Err(); err != nil {
+			cp.journal.Status = JournalPartial
+			_ = cp.saveJournal()
+			return err
+		}
+		if _, stays := held[i]; stays {
+			// Preflight found it as the journal records it, so its outcome stands.
+			continue
+		}
+		change := cp.changes[i]
+		expected := cp.expectedImage(i)
+		desired, known := change.After, outcomeAfter
+		if reverse {
+			desired, known = change.Before, outcomeBefore
+		}
+		if sameImage(expected, desired) {
+			cp.journal.Known[i] = known
+			continue
+		}
+		cp.journal.Known[i] = outcomeUnknown
+		if err := cp.saveJournal(); err != nil {
+			return err
+		}
+		if err := writeImage(cp.mutation.context, change.Path, expected, desired); err != nil {
+			cp.journal.Status = JournalPartial
+			_ = cp.saveJournal()
+			return Fail(
+				ExitPartial,
+				"partial",
+				"A target write did not complete; retained checkpoint requires reconciliation before retry",
+			)
+		}
+		observed, err := ReadImage(cp.mutation.context, change.Path)
+		if err != nil || !sameImageContent(observed, desired) {
+			cp.journal.Status = JournalUnknown
+			_ = cp.saveJournal()
+			return Fail(
+				ExitPartial,
+				"partial",
+				"Target outcome requires reconciliation; retained images were preserved",
+			)
+		}
+		cp.journal.ObservedAttributes[i] = observed.Attributes
+		if !reverse && !cp.journal.RecoveryCreated {
+			cp.journal.PostAttributes[i] = observed.Attributes
+			cp.changes[i].After.Attributes = observed.Attributes
+		}
+		cp.journal.Known[i] = known
+		if err := cp.saveJournal(); err != nil {
+			return Fail(
+				ExitPartial,
+				"checkpoint",
+				"A target changed but journal update failed; recovery images are retained",
+			)
+		}
+	}
+	cp.journal.Status = JournalComplete
+	if err := cp.saveJournal(); err != nil {
+		return Fail(
+			ExitPartial,
+			"checkpoint",
+			"Target changes completed but journal finalization failed; retained images remain available",
+		)
+	}
+	return nil
+}

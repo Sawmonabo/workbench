@@ -2,13 +2,11 @@ package operation
 
 import (
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -259,106 +257,6 @@ func configHome() string {
 		home = canonical
 	}
 	return filepath.Join(home, ".config")
-}
-
-// Reject symlink parents rather than letting an override redirect private writes.
-func safeParents(path string) error {
-	for current := filepath.Clean(path); ; current = filepath.Dir(current) {
-		info, err := os.Lstat(current)
-		if err == nil {
-			if info.Mode()&os.ModeSymlink != 0 {
-				return Fail(
-					ExitInvalid,
-					"path",
-					ShowHomePath(
-						current,
-					)+" is a link; Workbench keeps its own files only in real folders, so make it one",
-				)
-			}
-			if current != path && !info.IsDir() {
-				return Fail(
-					ExitInvalid,
-					"path",
-					ShowHomePath(
-						current,
-					)+" is a file, not a folder, so Workbench cannot keep its files under it",
-				)
-			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
-				return Fail(
-					ExitInvalid,
-					"permissions",
-					ShowHomePath(
-						current,
-					)+" belongs to another user; Workbench keeps its files only under folders you or root own",
-				)
-			}
-			if info.Mode().Perm()&0o022 != 0 && info.Mode()&os.ModeSticky == 0 {
-				return Fail(
-					ExitInvalid,
-					"permissions",
-					ShowHomePath(current)+" is writable by other users; run chmod go-w "+
-						ShellHomePath(current)+" and retry",
-				)
-			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
-			return Fail(ExitInvalid, "path", "Cannot inspect Workbench path parents")
-		}
-		if current == filepath.Dir(current) {
-			return nil
-		}
-	}
-}
-
-func owned(path string, info os.FileInfo) error {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Geteuid() {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			ShowHomePath(path)+" must belong to the current user; it was not changed",
-		)
-	}
-	return nil
-}
-
-func checkPrivateFile(path string) error {
-	if err := safeParents(path); err != nil {
-		return err
-	}
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return Fail(
-			ExitInvalid,
-			"state",
-			ShowHomePath(path)+" must be an existing regular private file",
-		)
-	}
-	if err := owned(path, info); err != nil {
-		return err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || stat.Nlink != 1 {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			ShowHomePath(path)+" has other hard links; a private file must have exactly one",
-		)
-	}
-	if mode := info.Mode().Perm(); mode&0o077 != 0 {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			fmt.Sprintf(
-				"%s is open to other users (mode %04o); run chmod 600 %s and retry",
-				ShowHomePath(path),
-				mode,
-				ShellHomePath(path),
-			),
-		)
-	}
-	return nil
 }
 
 // Args is the sole native context prefix. Callers must validate tool/answers and
