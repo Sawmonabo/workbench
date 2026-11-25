@@ -31,8 +31,7 @@ var oldCostsCache = Migration{
 		if err != nil {
 			return Pending, "can't read " + folder
 		}
-		if info, err := os.Lstat(l.OldScriptCache); err == nil && info.IsDir() &&
-			len(ours) == 0 && len(other) == 0 {
+		if operation.IsFolder(l.OldScriptCache) && len(ours) == 0 && len(other) == 0 {
 			return Pending, "removes the empty folder " + folder
 		}
 		var text []string

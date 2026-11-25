@@ -166,6 +166,13 @@ func IsFolder(path string) bool {
 	return err == nil && info.IsDir()
 }
 
+// LeadsToFolder reports whether path is a folder or a link that leads to
+// one.
+func LeadsToFolder(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
 // RemoveClosedPath deletes the file a [MoveFolder] or [ClosePath] left at
 // path once the system has restarted since: a regular file of mode 0600, the
 // user's, holding nothing but a start identifier in the shape

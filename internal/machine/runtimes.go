@@ -138,7 +138,7 @@ func nodeState(home, mode string, pins runtimePins) runtimeState {
 	}
 	var missing []string
 	for _, version := range pins.Node {
-		if !isDir(filepath.Join(home, ".nvm", "versions", "node", "v"+version)) {
+		if !operation.LeadsToFolder(filepath.Join(home, ".nvm", "versions", "node", "v"+version)) {
 			missing = append(missing, version)
 		}
 	}
@@ -220,7 +220,8 @@ func rustState(home, mode string, pins runtimePins) runtimeState {
 	if raw, err := os.ReadFile(filepath.Join(root, "settings.toml")); err == nil {
 		_ = toml.Unmarshal(raw, &settings)
 	}
-	if settings.Default == "" || !isDir(filepath.Join(root, "toolchains", settings.Default)) {
+	if settings.Default == "" ||
+		!operation.LeadsToFolder(filepath.Join(root, "toolchains", settings.Default)) {
 		return state
 	}
 	state.found = true
@@ -335,10 +336,4 @@ func bunState(
 		state.note = "pin " + pins.Bun + " is for a new install; workbench apply keeps an installed bun"
 	}
 	return state
-}
-
-// isDir reports whether path is a folder.
-func isDir(path string) bool {
-	info, err := os.Stat(path)
-	return err == nil && info.IsDir()
 }

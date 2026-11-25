@@ -478,7 +478,7 @@ func editorFolders(c operation.Context) []operation.Component {
 			Status:  operation.StatusSkipped,
 			Message: "no " + target.what + " settings folder on this machine",
 		}
-		if info, statErr := os.Lstat(target.path); statErr == nil && info.IsDir() {
+		if operation.IsFolder(target.path) {
 			component.Status = operation.StatusComplete
 			component.Message = target.what + " settings in " + c.ShowPath(target.path)
 		}
