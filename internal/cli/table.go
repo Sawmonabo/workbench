@@ -479,3 +479,45 @@ func fit(s string, width int, left bool) string {
 	}
 	return ansi.Truncate(s, width, glyphs.Ellipsis)
 }
+
+// writeBold is writeText in bold.
+func writeBold(b *strings.Builder, width, indent int, text string) {
+	writeStyled(b, width, indent, text, bold)
+}
+
+// writeFaint is writeText for secondary notes.
+func writeFaint(b *strings.Builder, width, indent int, text string) {
+	writeStyled(b, width, indent, text, faint)
+}
+
+// writeStyled wraps text like writeText and styles each line, so a wrapped
+// note never carries a style across a line break.
+func writeStyled(b *strings.Builder, width, indent int, text string, style lipgloss.Style) {
+	var wrapped strings.Builder
+	writeText(&wrapped, width, indent, text)
+	for line := range strings.SplitSeq(strings.TrimSuffix(wrapped.String(), "\n"), "\n") {
+		if line != "" {
+			line = style.Render(line)
+		}
+		b.WriteString(line + "\n")
+	}
+}
+
+func commas(n int64) string { return commasFloat(float64(n), 0) }
+
+// commasFloat formats v to decimals places with thousands separators.
+func commasFloat(v float64, decimals int) string {
+	s := strconv.FormatFloat(v, 'f', decimals, 64)
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign, s = "-", s[1:]
+	}
+	whole, fraction, _ := strings.Cut(s, ".")
+	for i := len(whole) - 3; i > 0; i -= 3 {
+		whole = whole[:i] + "," + whole[i:]
+	}
+	if fraction != "" {
+		whole += "." + fraction
+	}
+	return sign + whole
+}

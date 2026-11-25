@@ -421,3 +421,22 @@ func version() string {
 	}
 	return info.Main.Version
 }
+
+// runPrinted runs a command that prints its own text: only errors and --json
+// go through the result envelope.
+func (o *options) runPrinted(cmd *cobra.Command, run func(*operation.Result) error) error {
+	result := operation.NewResult(cmd.CommandPath())
+	err := run(&result)
+	result.SetError(err)
+	o.rendered = true
+	if renderErr := render(
+		cmd.OutOrStdout(),
+		cmd.ErrOrStderr(),
+		o.json,
+		o.verbose,
+		result,
+	); renderErr != nil {
+		return renderErr
+	}
+	return err
+}
