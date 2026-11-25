@@ -117,7 +117,7 @@ func resumeCopy(ctx context.Context, home, from, to string) error {
 		}
 		return operation.SyncDirectory(filepath.Dir(from))
 	case exists(part):
-		return removeDatabase(part)
+		return sqlitefile.Remove(part)
 	}
 	return nil
 }
@@ -136,7 +136,7 @@ func placeCopy(ctx context.Context, home, from, to string) error {
 			undo = operation.SyncDirectory(filepath.Dir(from))
 		}
 		if undo == nil {
-			undo = removeDatabase(part)
+			undo = sqlitefile.Remove(part)
 		}
 		switch {
 		case undo != nil:
@@ -209,13 +209,18 @@ func quiesce(ctx context.Context, path string) error {
 // on its own filesystem, the copy put in place (see placeCopy), and the
 // original deleted. A changed original is copied again; renaming an open
 // database apart from its -wal file is what corrupts it, so the lock is not
-// held across the renames.
+// held across the renames. Each copy starts with to+".part" deleted with the
+// files SQLite keeps beside a database (see [sqlitefile.Remove]), so a side
+// file a delete that stopped left there never pairs with the new copy.
 func copyLedger(ctx context.Context, home, from, to string) error {
 	part := to + ".part"
 	for range 3 {
+		if err := sqlitefile.Remove(part); err != nil {
+			return err
+		}
 		before, problem, err := vacuumCopy(ctx, from, part)
 		if err != nil || problem != "" {
-			removeErr := removeDatabase(part)
+			removeErr := sqlitefile.Remove(part)
 			switch {
 			case err != nil:
 				return err
@@ -225,11 +230,11 @@ func copyLedger(ctx context.Context, home, from, to string) error {
 			return badCopy(home, from, problem, "the copy was discarded")
 		}
 		if slices.ContainsFunc(sqlitefile.SideFiles(from), exists) {
-			_ = removeDatabase(part)
+			_ = sqlitefile.Remove(part)
 			return busy("another process opened the costs ledger during the copy")
 		}
 		if now, err := fileStampOf(from); err != nil || now != before {
-			if err = removeDatabase(part); err != nil {
+			if err = sqlitefile.Remove(part); err != nil {
 				return err
 			}
 			continue
@@ -460,14 +465,4 @@ func settle(from, to string) error {
 		return err
 	}
 	return operation.SyncDirectory(filepath.Dir(to))
-}
-
-// removeDatabase deletes a partial copy with any journal SQLite left beside it.
-func removeDatabase(path string) error {
-	for _, name := range []string{path + "-wal", path + "-shm", path + "-journal", path} {
-		if err := operation.RemoveIfThere(name); err != nil {
-			return err
-		}
-	}
-	return nil
 }
