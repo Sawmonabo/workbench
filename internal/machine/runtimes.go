@@ -54,11 +54,11 @@ func checkRuntimes(
 	var data struct {
 		Versions runtimePins `toml:"versions"`
 	}
-	if err := toml.Unmarshal(files[versionsFile], &data); err != nil {
+	if err := toml.Unmarshal(files[VersionsFile], &data); err != nil {
 		return []operation.Component{{
 			Name:    "runtimes",
 			Status:  operation.StatusSkipped,
-			Message: "The runtime pins in " + versionsFile + " cannot be read: " + err.Error(),
+			Message: "The runtime pins in " + VersionsFile + " cannot be read: " + err.Error(),
 		}}
 	}
 	pins := data.Versions

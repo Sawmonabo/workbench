@@ -99,7 +99,7 @@ func agentPins(files map[string][]byte) (map[string]any, error) {
 	var data struct {
 		Versions map[string]any `toml:"versions"`
 	}
-	err := toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &data)
+	err := toml.Unmarshal(files[VersionsFile], &data)
 	return data.Versions, err
 }
 

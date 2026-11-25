@@ -26,8 +26,10 @@ import (
 // accepts no release source.
 var releaseSource string
 
-// versionsFile is the machine source file that holds the management pins.
-const versionsFile = "home/.chezmoidata/versions.toml"
+// VersionsFile is the machine source file that holds the tool pins. Each
+// reader decodes only its own tables (the management pins, the runtimes, the
+// agents, a project's CI jobs), so a malformed table stops only what uses it.
+const VersionsFile = "home/.chezmoidata/versions.toml"
 
 // Requirements are the management pins from home/.chezmoidata/versions.toml.
 type Requirements struct {
@@ -110,7 +112,7 @@ func SelectedSource(c operation.Context) (map[string][]byte, error) {
 
 // SourceRequirements reads the pins from a machine source snapshot.
 func SourceRequirements(files map[string][]byte) (Requirements, error) {
-	requirements, err := ParseRequirements(files[versionsFile])
+	requirements, err := ParseRequirements(files[VersionsFile])
 	if err == nil {
 		err = requirements.validate()
 	}
@@ -118,7 +120,7 @@ func SourceRequirements(files map[string][]byte) (Requirements, error) {
 		return Requirements{}, operation.Fail(
 			operation.ExitInvalid,
 			"source",
-			"The machine source's "+versionsFile+" is invalid: "+err.Error(),
+			"The machine source's "+VersionsFile+" is invalid: "+err.Error(),
 		)
 	}
 	return requirements, nil

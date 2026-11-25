@@ -352,7 +352,7 @@ func readSourceVersions(c operation.Context) (machine.Requirements, sourceVersio
 	if err != nil {
 		return machine.Requirements{}, versions, err
 	}
-	err = toml.Unmarshal(files["home/.chezmoidata/versions.toml"], &versions)
+	err = toml.Unmarshal(files[machine.VersionsFile], &versions)
 	return requirements, versions, err
 }
 

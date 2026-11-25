@@ -27,7 +27,7 @@ reserve_cpus = 2
 `
 	read := func(old, replacement string) error {
 		_, err := SourceRequirements(map[string][]byte{
-			versionsFile: []byte(strings.Replace(pins, old, replacement, 1)),
+			VersionsFile: []byte(strings.Replace(pins, old, replacement, 1)),
 		})
 		return err
 	}
