@@ -103,7 +103,7 @@ func mapKeys[V any](m map[string]V) func(func(string) bool) {
 
 func costsRates(card costs.Card, view ratesView, width int) string {
 	var b strings.Builder
-	writeBold(&b, width, 0, "[WorkBench] Costs rates")
+	writeBold(&b, width, 0, brandTag+" Costs rates")
 	fetched := "never"
 	for _, tool := range costs.Tools {
 		if date, ok := view.Official[tool.Name]; ok && tool.Source != nil {

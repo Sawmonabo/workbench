@@ -46,11 +46,11 @@ func costsReport(tool costs.Tool, report costs.Statement, width int) string {
 	var b strings.Builder
 	switch {
 	case tool.Source == nil:
-		writeText(&b, width, 0, "[WorkBench] "+tool.Title+" costs are not implemented yet")
+		writeText(&b, width, 0, brandTag+" "+tool.Title+" costs are not implemented yet")
 	case report.Empty():
-		writeText(&b, width, 0, "[WorkBench] "+emptyReport(report))
+		writeText(&b, width, 0, brandTag+" "+emptyReport(report))
 	default:
-		writeStyled(&b, width, 0, "[WorkBench] "+tool.Title+" costs", bold)
+		writeStyled(&b, width, 0, brandTag+" "+tool.Title+" costs", bold)
 		b.WriteString(costsBody(tool, report, width))
 	}
 	return b.String()

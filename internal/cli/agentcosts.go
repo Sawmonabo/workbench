@@ -307,7 +307,7 @@ func runCostsView(
 	width := terminalWidth(os.Stdout)
 	if model.focus != nil {
 		var b strings.Builder
-		writeStyled(&b, width, 0, "[WorkBench] "+tool.Title+" costs", bold)
+		writeStyled(&b, width, 0, brandTag+" "+tool.Title+" costs", bold)
 		b.WriteString(focusBody(tool, *model.focus, reports[tool.Name], width))
 		return printCosts(os.Stdout, b.String())
 	}
@@ -430,7 +430,7 @@ func agentCostsIngestCommand(o *options) *cobra.Command {
 				}
 				summary, err := costs.Ingest(cmd.Context(), opts)
 				if err == nil && !quiet {
-					result.Summary = "[WorkBench] " + summary
+					result.Summary = brandTag + " " + summary
 				}
 				return err
 			})

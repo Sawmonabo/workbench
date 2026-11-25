@@ -150,7 +150,7 @@ func (m statusModel) View() tea.View {
 		line += ": " + m.step
 	}
 	elapsed := display.Duration(time.Since(m.started))
-	line += lipgloss.NewStyle().Faint(true).Render(" (" + elapsed + ")")
+	line += faint.Render(" (" + elapsed + ")")
 	if m.width > 0 {
 		line = lipgloss.NewStyle().MaxWidth(m.width).Render(line)
 	}

@@ -173,14 +173,14 @@ func installCheckoutTools(
 	if err := setUpTools(cmd, c, o, &result); err != nil {
 		return result, err
 	}
-	result.Summary = "[WorkBench] This checkout's tools are in place; run " +
+	result.Summary = brandTag + " This checkout's tools are in place; run " +
 		c.WorkbenchCommand() + " apply --local-build"
 	outcome := "Up to date: this checkout's tools"
 	installed := slices.ContainsFunc(result.Results, func(component operation.Component) bool {
 		return component.Name == "setup" && component.Status == operation.StatusComplete
 	})
 	if installed {
-		result.Summary = "[WorkBench] Installed this checkout's tools; run " +
+		result.Summary = brandTag + " Installed this checkout's tools; run " +
 			c.WorkbenchCommand() + " apply --local-build"
 		outcome = "Installed this checkout's tools"
 	}
@@ -458,13 +458,13 @@ func installTools(
 	// The summary, printed where the view is not drawn, says outright that
 	// nothing was applied.
 	next := "; nothing was applied: run " + c.WorkbenchCommand() + " apply"
-	result.Summary = "[WorkBench] Installed " + version + " and its tools" + next
+	result.Summary = brandTag + " Installed " + version + " and its tools" + next
 	outcome := "Updated to " + version
 	if first {
 		outcome = "Installed " + version
 	}
 	if unchanged {
-		result.Summary = "[WorkBench] " + version + " is already installed" + next
+		result.Summary = brandTag + " " + version + " is already installed" + next
 		outcome = "Up to date"
 	}
 	updateViewOf(c).finish(outcome, !unchanged)

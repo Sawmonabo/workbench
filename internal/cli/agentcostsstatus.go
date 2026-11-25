@@ -48,7 +48,7 @@ func agentCostsStatusCommand(o *options) *cobra.Command {
 
 func costsStatus(info costs.StatusInfo, width int) string {
 	var b strings.Builder
-	writeBold(&b, width, 0, "[WorkBench] Costs status")
+	writeBold(&b, width, 0, brandTag+" Costs status")
 	rows := [][2]string{{
 		"ledger",
 		display.Path(info.Ledger) + " (" + human(float64(info.LedgerBytes)) + "B)",

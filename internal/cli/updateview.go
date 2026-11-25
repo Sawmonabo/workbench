@@ -71,9 +71,9 @@ func (v *updateView) Transfer(name string, done, total int64) {
 // header prints the brand, Update and the release the update starts from, or
 // Install on a machine with no release: the line the view stays under.
 func (v *updateView) header(release string) {
-	line := brand.Bold(true).Render("[WorkBench]") + " " + bold.Render("Install")
+	line := brandHead(brand) + " " + bold.Render("Install")
 	if release != "" {
-		line = brand.Bold(true).Render("[WorkBench]") + " " + bold.Render("Update") +
+		line = brandHead(brand) + " " + bold.Render("Update") +
 			faint.Render(forTerm(" · ")+release)
 	}
 	_, _ = lipgloss.Fprint(v.output, line+"\n")
@@ -527,7 +527,7 @@ func announceHandoff(
 		if view == nil {
 			_, _ = fmt.Fprintln(
 				cmd.ErrOrStderr(),
-				"[WorkBench] "+done+"; continuing with its tools",
+				brandTag+" "+done+"; continuing with its tools",
 			)
 		}
 	}

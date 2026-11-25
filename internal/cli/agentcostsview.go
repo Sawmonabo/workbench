@@ -220,7 +220,7 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // tabBar is the brand, then each tool: the active one a pill in its own color,
 // the others faint, clipped to the width.
 func (m *costsView) tabBar() string {
-	parts := []string{toolPalette(m.tools[m.active].Name).accent.Bold(true).Render("[WorkBench]")}
+	parts := []string{brandHead(toolPalette(m.tools[m.active].Name).accent)}
 	for i, tool := range m.tools {
 		if i == m.active {
 			parts = append(parts, toolPalette(tool.Name).tab.Render(tool.Title))

@@ -558,7 +558,7 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 	if label := releaseLabel(plan.Source); label != "" {
 		title += forTerm(" · ") + label
 	}
-	first := brand.Bold(true).Render("[WorkBench]") + " " + title
+	first := brandHead(brand) + " " + title
 	chips := []string{
 		bold.Render(fmt.Sprint(files)) + faint.Render(" "+display.Plural(files, "file")),
 		bold.Render(

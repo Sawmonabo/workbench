@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"image/color"
+
 	"charm.land/lipgloss/v2"
 )
 
@@ -9,19 +11,29 @@ var (
 	red    = lipgloss.NewStyle().Foreground(lipgloss.Red)
 	yellow = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
 	faint  = lipgloss.NewStyle().Faint(true)
+	bold   = lipgloss.NewStyle().Bold(true)
 )
 
-var bold = lipgloss.NewStyle().Bold(true)
+// brandTag is Workbench's name as its output heads a line with it.
+const brandTag = "[WorkBench]"
 
-// The plan view's own styles, beside the ones `workbench agent costs` shares from
-// root.go and agentcosts.go: the brand and key color is the costs default accent,
-// and a new item wears the dark-on-yellow pill the costs tabs wear in their
-// own color.
+// brandHead is brandTag bold in accent, as a header draws it.
+func brandHead(accent lipgloss.Style) string { return accent.Bold(true).Render(brandTag) }
+
+// brand is the color of Workbench's own name and keys, the accent the costs
+// report gives a tool with no color of its own; badge is the dark-on-yellow
+// pill a new item wears, as the costs tabs wear one in their tool's color.
 var (
 	brand = toolPalette("workbench").accent
-	badge = lipgloss.NewStyle().Bold(true).Padding(0, 1).
-		Foreground(lipgloss.Color("#1E1E1E")).Background(lipgloss.Yellow)
+	badge = pill(lipgloss.Yellow)
 )
+
+// pill is bold dark text on background, a space of it either side: the
+// active costs tab and the new-item badge.
+func pill(background color.Color) lipgloss.Style {
+	return lipgloss.NewStyle().Bold(true).Padding(0, 1).
+		Foreground(lipgloss.Color("#1E1E1E")).Background(background)
+}
 
 // palette is one tool's colors. lipgloss downsamples them to what the
 // terminal shows and drops them for a pipe, TERM=dumb and NO_COLOR.
@@ -41,7 +53,6 @@ func toolPalette(name string) palette {
 	accent := lipgloss.Color(hex)
 	return palette{
 		accent: lipgloss.NewStyle().Foreground(accent),
-		tab: lipgloss.NewStyle().Bold(true).Padding(0, 1).
-			Foreground(lipgloss.Color("#1E1E1E")).Background(accent),
+		tab:    pill(accent),
 	}
 }

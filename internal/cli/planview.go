@@ -24,7 +24,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
 	width := lineWidth(w)
 	scope := display.Path(plan.Scope.Root)
-	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + scope
+	title := brandTag + " Plan for " + plan.Scope.Kind + " " + scope
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
 	}
