@@ -383,8 +383,7 @@ func (s folderState) clear() error {
 		return err
 	}
 	for _, path := range gone {
-		if err := operation.RemoveIfThere(path); err != nil && !errors.Is(err, syscall.ENOTEMPTY) &&
-			!errors.Is(err, syscall.EEXIST) {
+		if err := operation.RemoveIfEmpty(path); err != nil {
 			return err
 		}
 	}

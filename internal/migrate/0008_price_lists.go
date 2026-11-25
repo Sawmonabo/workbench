@@ -77,8 +77,7 @@ var priceLists = Migration{
 			}
 			folder := filepath.Dir(path)
 			operation.RemoveStaleWrites(folder)
-			if err = operation.RemoveIfThere(folder); err != nil &&
-				!errors.Is(err, syscall.ENOTEMPTY) && !errors.Is(err, syscall.EEXIST) {
+			if err = operation.RemoveIfEmpty(folder); err != nil {
 				return nil, err
 			}
 		}

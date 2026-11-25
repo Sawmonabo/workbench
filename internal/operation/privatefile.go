@@ -313,6 +313,17 @@ func RemoveIfThere(path string) error {
 	return nil
 }
 
+// RemoveIfEmpty is [RemoveIfThere] keeping a folder that holds something,
+// which is no error either: rmdir refuses it with ENOTEMPTY, or EEXIST, which
+// POSIX allows in its place.
+func RemoveIfEmpty(path string) error {
+	err := RemoveIfThere(path)
+	if errors.Is(err, syscall.ENOTEMPTY) || errors.Is(err, syscall.EEXIST) {
+		return nil
+	}
+	return err
+}
+
 // RenameNoReplace renames from to to and never replaces a file already at to.
 // A file at to fails it with an error matching fs.ErrExist, or, when from and
 // to are on different filesystems, possibly syscall.EXDEV instead, whichever
