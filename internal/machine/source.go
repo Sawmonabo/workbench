@@ -4,7 +4,6 @@ package machine
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -19,6 +18,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
 )
 
 // releaseSource is the machine source digest a release build stamps into its
@@ -317,7 +317,7 @@ func readSource(source string) (map[string][]byte, error) {
 				"Machine source exceeds the preview input bound",
 			)
 		}
-		data, err := os.ReadFile(path)
+		data, err := operation.ReadRegularFile(path, info.Size())
 		if err != nil {
 			return operation.Fail(
 				operation.ExitInvalid,
@@ -351,43 +351,15 @@ func readSource(source string) (map[string][]byte, error) {
 // release.json, or an empty identity for a developer checkout without one.
 // Release inspection owns artifact integrity.
 func releaseIdentity(source string) (operation.SourceIdentity, error) {
-	path := filepath.Join(source, "release.json")
-	info, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	if _, err := os.Lstat(filepath.Join(source, "release.json")); errors.Is(err, fs.ErrNotExist) {
 		return operation.SourceIdentity{}, nil
 	}
-	if err != nil {
-		return operation.SourceIdentity{}, operation.Fail(
-			operation.ExitBlocked,
-			"source",
-			"Cannot inspect selected release identity",
-		)
-	}
-	if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-		return operation.SourceIdentity{}, operation.Fail(
-			operation.ExitBlocked,
-			"source_trust",
-			"Release identity requires bounded regular metadata",
-		)
-	}
-	metadata, err := os.ReadFile(path)
+	metadata, err := release.ReadMetadata(source)
 	if err != nil {
 		return operation.SourceIdentity{}, err
 	}
-	var release struct {
-		Release      string `json:"release"`
-		SourceDigest string `json:"source_digest"`
-	}
-	if len(metadata) > 1<<20 || json.Unmarshal(metadata, &release) != nil ||
-		release.Release == "" || !operation.ValidDigest(release.SourceDigest) {
-		return operation.SourceIdentity{}, operation.Fail(
-			operation.ExitBlocked,
-			"source_trust",
-			"Release metadata names no release and source digest",
-		)
-	}
 	return operation.SourceIdentity{
-		Release:       release.Release,
-		ContentDigest: release.SourceDigest,
+		Release:       metadata.Release,
+		ContentDigest: metadata.SourceDigest,
 	}, nil
 }

@@ -47,7 +47,7 @@ func StaleReleases(c operation.Context, bundle Bundle) ([]operation.Edit, []Meta
 		if directory == keep[0] {
 			continue
 		}
-		metadata, err := readMetadata(directory)
+		metadata, err := ReadMetadata(directory)
 		if err != nil {
 			return nil, nil, nil
 		}

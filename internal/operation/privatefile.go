@@ -15,6 +15,66 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
+// ErrNotRegular is what [OpenRegularFile] and [ReadRegularFile] return,
+// wrapped with the path, for a path that holds something other than a
+// regular file: a link, a folder, a device, a FIFO or a socket.
+var ErrNotRegular = errors.New("not a regular file")
+
+// ErrTooLarge is what [ReadRegularFile] returns, wrapped with the path, for a
+// file over the size it may read.
+var ErrTooLarge = errors.New("larger than it may be read")
+
+// OpenRegularFile opens the regular file at path for reading. It looks at
+// path first and opens nothing else there; it then opens path without
+// following a link or waiting for a FIFO's writer and checks what it opened,
+// so a file put there after it looked is refused too. A link, folder, device,
+// FIFO or socket fails it with an error matching [ErrNotRegular], a missing
+// path with one matching fs.ErrNotExist.
+func OpenRegularFile(path string) (*os.File, error) {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return nil, err
+	}
+	if !info.Mode().IsRegular() {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: ErrNotRegular}
+	}
+	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	if errors.Is(err, syscall.ELOOP) || errors.Is(err, syscall.ENXIO) ||
+		errors.Is(err, syscall.EOPNOTSUPP) {
+		return nil, &fs.PathError{Op: "open", Path: path, Err: ErrNotRegular}
+	}
+	if err != nil {
+		return nil, err
+	}
+	if info, err = f.Stat(); err == nil && !info.Mode().IsRegular() {
+		err = &fs.PathError{Op: "open", Path: path, Err: ErrNotRegular}
+	}
+	if err != nil {
+		_ = f.Close()
+		return nil, err
+	}
+	return f, nil
+}
+
+// ReadRegularFile reads the regular file at path as [OpenRegularFile] opens
+// it, at most limit bytes: a larger file fails it with an error matching
+// [ErrTooLarge].
+func ReadRegularFile(path string, limit int64) ([]byte, error) {
+	f, err := OpenRegularFile(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		return nil, &fs.PathError{Op: "read", Path: path, Err: ErrTooLarge}
+	}
+	return data, nil
+}
+
 // ReadPrivateInput shares private-file validation with state/answer consumers.
 // It never creates missing state and withholds unsafe or oversized input.
 func ReadPrivateInput(path string, limit int64) ([]byte, error) {
@@ -24,14 +84,12 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 	if err := checkPrivateFile(path); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, Fail(ExitInvalid, "input", "Cannot read private input")
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, limit+1))
-	if err != nil || int64(len(data)) > limit {
+	data, err := ReadRegularFile(path, limit)
+	switch {
+	case errors.Is(err, ErrTooLarge):
 		return nil, Fail(ExitInvalid, "input", "Private input exceeds its read bound")
+	case err != nil:
+		return nil, Fail(ExitInvalid, "input", "Cannot read private input")
 	}
 	return data, nil
 }

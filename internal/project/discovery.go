@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
@@ -34,36 +33,15 @@ type Project struct {
 // readMetadata rejects symlinks and bounds every read. Ancestors are read only
 // to discover ownership; they never expand the selected mutation scope.
 func readMetadata(path string) ([]byte, error) {
-	info, err := os.Lstat(path)
-	if errors.Is(err, fs.ErrNotExist) {
+	data, err := operation.ReadRegularFile(path, 8<<20)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
 		return nil, nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	if !info.Mode().IsRegular() || info.Size() > 8<<20 {
+	case errors.Is(err, operation.ErrNotRegular) || errors.Is(err, operation.ErrTooLarge):
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"manifest",
 			"Metadata must be a bounded regular file: "+filepath.Base(path),
-		)
-	}
-	root, err := os.OpenRoot(filepath.Dir(path))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = root.Close() }()
-	file, err := root.Open(filepath.Base(path))
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = file.Close() }()
-	data, err := io.ReadAll(io.LimitReader(file, (8<<20)+1))
-	if len(data) > 8<<20 {
-		return nil, operation.Fail(
-			operation.ExitBlocked,
-			"manifest",
-			"Metadata exceeds the input bound",
 		)
 	}
 	return data, err

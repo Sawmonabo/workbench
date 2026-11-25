@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -104,11 +103,10 @@ func oldCompletions(l Locations) (ours, other, unread []string) {
 // the marker. That one line is the only thing read. A path that isn't there,
 // or can't be read, is the error.
 func writtenByStartup(path string) (bool, error) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return false, err
+	file, err := operation.OpenRegularFile(path)
+	if errors.Is(err, operation.ErrNotRegular) {
+		return false, nil
 	}
-	file, err := os.Open(path)
 	if err != nil {
 		return false, err
 	}

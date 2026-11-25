@@ -259,7 +259,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 				"Existing private tool has unsupported file type",
 			)
 		}
-		existing, readErr := os.ReadFile(target)
+		existing, readErr := operation.ReadRegularFile(target, int64(len(data)))
 		if readErr != nil || !bytes.Equal(existing, data) {
 			return operation.Fail(
 				operation.ExitConflict,
@@ -608,16 +608,15 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 	if err := operation.PrivateTree(c.Paths.Data, directory, false); err != nil {
 		return "", err
 	}
-	info, err := os.Lstat(filepath.Join(directory, "distribution.whl"))
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 16<<20 {
+	data, err := operation.ReadRegularFile(filepath.Join(directory, "distribution.whl"), 16<<20)
+	if err != nil {
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
 			"Workbench's TOML Kit is missing; "+InstallHint(c),
 		)
 	}
-	data, err := os.ReadFile(filepath.Join(directory, "distribution.whl"))
-	if err != nil || operation.SHA256Hex(data) != requirements.TomlkitSHA256 {
+	if operation.SHA256Hex(data) != requirements.TomlkitSHA256 {
 		return "", operation.Fail(
 			operation.ExitBlocked,
 			"tomlkit",
@@ -661,7 +660,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 	}
 	for name, expected := range files {
 		file := filepath.Join(library, name)
-		info, err = os.Lstat(file)
+		info, err := os.Lstat(file)
 		if err != nil || !info.Mode().IsRegular() || info.Size() != int64(len(expected)) {
 			return "", operation.Fail(
 				operation.ExitBlocked,
@@ -669,7 +668,7 @@ func TomlkitPath(c operation.Context, requirements Requirements) (string, error)
 				"Private TOML Kit files were modified",
 			)
 		}
-		actual, readErr := os.ReadFile(file)
+		actual, readErr := operation.ReadRegularFile(file, int64(len(expected)))
 		if readErr != nil || !bytes.Equal(expected, actual) {
 			return "", operation.Fail(
 				operation.ExitBlocked,
@@ -725,18 +724,21 @@ func Setup(
 			return c, err
 		}
 	}
-	if info, statErr := os.Lstat(filepath.Join(c.Native.Source, "release.json")); statErr == nil {
-		if !info.Mode().IsRegular() || info.Size() > 1<<20 {
-			return c, operation.Fail(
-				operation.ExitInvalid,
-				"release",
-				"Invalid native context release metadata",
-			)
-		}
-		metadata, readErr := os.ReadFile(filepath.Join(c.Native.Source, "release.json"))
-		if readErr != nil {
-			return c, readErr
-		}
+	metadata, readErr := operation.ReadRegularFile(
+		filepath.Join(c.Native.Source, "release.json"),
+		1<<20,
+	)
+	switch {
+	case errors.Is(readErr, fs.ErrNotExist):
+	case errors.Is(readErr, operation.ErrNotRegular) || errors.Is(readErr, operation.ErrTooLarge):
+		return c, operation.Fail(
+			operation.ExitInvalid,
+			"release",
+			"Invalid native context release metadata",
+		)
+	case readErr != nil:
+		return c, readErr
+	default:
 		if err = writeNewOrIdentical(
 			filepath.Join(contextDirectory, "release.json"),
 			metadata,
@@ -744,8 +746,6 @@ func Setup(
 		); err != nil {
 			return c, err
 		}
-	} else if !errors.Is(statErr, fs.ErrNotExist) {
-		return c, statErr
 	}
 	c, err = selectPrivateContext(c, contextDirectory)
 	if err != nil {

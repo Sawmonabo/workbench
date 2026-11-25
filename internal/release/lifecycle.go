@@ -268,7 +268,7 @@ func ReadBundle(
 	if err = CheckBundleLocation(location); err != nil {
 		return Bundle{}, err
 	}
-	file, err := os.Open(location)
+	file, err := operation.OpenRegularFile(location)
 	if err != nil {
 		return Bundle{}, err
 	}
@@ -366,7 +366,7 @@ func Stage(c operation.Context, m *operation.Mutation, b Bundle) (_ string, err 
 // Inspect rechecks a staged release directory against its manifest and
 // returns its metadata.
 func Inspect(directory string) (Metadata, error) {
-	metadata, err := readMetadata(directory)
+	metadata, err := ReadMetadata(directory)
 	if err != nil {
 		return metadata, err
 	}
@@ -376,21 +376,17 @@ func Inspect(directory string) (Metadata, error) {
 	return metadata, metadata.checkNoExtraFiles(directory)
 }
 
-// readMetadata strictly decodes directory's release.json and checks its
+// ReadMetadata strictly decodes directory's release.json and checks its
 // versions, target and identity.
-func readMetadata(directory string) (Metadata, error) {
+func ReadMetadata(directory string) (Metadata, error) {
 	var metadata Metadata
-	info, err := os.Lstat(filepath.Join(directory, "release.json"))
-	if err != nil || !info.Mode().IsRegular() || info.Size() > 1<<20 {
+	raw, err := operation.ReadRegularFile(filepath.Join(directory, "release.json"), 1<<20)
+	if err != nil {
 		return metadata, operation.Fail(
 			operation.ExitInvalid,
 			"release",
 			"Missing bounded release metadata",
 		)
-	}
-	raw, err := os.ReadFile(filepath.Join(directory, "release.json"))
-	if err != nil {
-		return metadata, err
 	}
 	unsupported := operation.Fail(operation.ExitInvalid, "release", "Unsupported release metadata")
 	if operation.DecodeStrict(raw, &metadata) != nil {
@@ -435,7 +431,7 @@ func (m Metadata) checkFiles(directory string) error {
 				"Release file changed",
 			)
 		}
-		data, err := os.ReadFile(file)
+		data, err := operation.ReadRegularFile(file, entry.Size)
 		if err != nil || operation.SHA256Hex(data) != entry.SHA256 {
 			return operation.Fail(
 				operation.ExitConflict,
