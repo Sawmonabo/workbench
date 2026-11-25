@@ -66,11 +66,13 @@ func allowed(name string) bool {
 		strings.HasPrefix(name, "licenses/")
 }
 
-func member(name string) bool {
-	return name != "" && name != "." && !strings.ContainsAny(name, "\\\x00\r\n") &&
-		!path.IsAbs(name) &&
-		path.Clean(name) == name &&
-		!strings.HasPrefix(name, "../")
+// Member reports whether name is a safe name for an archive member: a clean
+// slash path inside the folder the archive is read into (see
+// filepath.IsLocal), not that folder itself, holding no backslash, NUL,
+// carriage return or line feed.
+func Member(name string) bool {
+	return name != "." && path.Clean(name) == name && filepath.IsLocal(name) &&
+		!strings.ContainsAny(name, "\\\x00\r\n")
 }
 
 // Verify reads the complete bounded archive before exposing any executable or
@@ -128,7 +130,7 @@ func readMembers(raw []byte) (map[string][]byte, error) {
 		if header.Typeflag == tar.TypeDir {
 			name = strings.TrimSuffix(name, "/")
 		}
-		if !member(name) || seen[strings.ToLower(name)] || len(seen) >= maxFiles ||
+		if !Member(name) || seen[strings.ToLower(name)] || len(seen) >= maxFiles ||
 			header.Mode&0o7000 != 0 {
 			return nil, integrity("Unsafe or duplicate archive member")
 		}

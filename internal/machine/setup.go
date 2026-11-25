@@ -491,13 +491,10 @@ func toolArchive(data []byte, name string) ([]byte, error) {
 			return nil, readErr
 		}
 		member := strings.TrimPrefix(strings.TrimSuffix(header.Name, "/"), "./")
-		if member == "" && header.Typeflag == tar.TypeDir {
+		if (member == "" || member == ".") && header.Typeflag == tar.TypeDir {
 			continue
 		}
-		if path.Clean(member) != member || path.IsAbs(member) || strings.HasPrefix(member, "../") ||
-			strings.Contains(member, "\\") ||
-			seen[member] ||
-			len(seen) > 4096 {
+		if !release.Member(member) || seen[member] || len(seen) > 4096 {
 			return nil, unsafeArchive
 		}
 		seen[member] = true
@@ -543,10 +540,7 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 		if file.FileInfo().IsDir() {
 			continue
 		}
-		if !file.Mode().IsRegular() || path.Clean(name) != name || path.IsAbs(name) ||
-			strings.HasPrefix(name, "../") ||
-			strings.Contains(name, "\\") ||
-			len(files) > 1024 ||
+		if !file.Mode().IsRegular() || !release.Member(name) || len(files) > 1024 ||
 			file.UncompressedSize64 > 16<<20 {
 			return nil, operation.Fail(
 				operation.ExitInvalid,

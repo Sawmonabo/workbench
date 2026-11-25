@@ -189,7 +189,7 @@ func ReadMetadata(directory string) (Metadata, error) {
 func (m Metadata) checkFiles(directory string) error {
 	var total int64
 	for name, entry := range m.Files {
-		if !member(name) || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
+		if !Member(name) || !allowed(name) || !operation.ValidDigest(entry.SHA256) ||
 			entry.Size < 0 || entry.Size > MaxDownload {
 			return operation.Fail(operation.ExitInvalid, "release", "Invalid release file manifest")
 		}
