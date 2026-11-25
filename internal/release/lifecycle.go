@@ -176,7 +176,7 @@ func ReadMetadata(directory string) (Metadata, error) {
 	}
 	supported := metadata.SchemaVersion == 1 && metadata.StateVersion == 1 &&
 		metadata.Target == Target()
-	identified := identifier.MatchString(metadata.Release) &&
+	identified := operation.ValidReleaseName(metadata.Release) &&
 		operation.ValidDigest(metadata.SourceDigest)
 	if !supported || !identified || len(metadata.Files) > maxFiles {
 		return metadata, unsupported

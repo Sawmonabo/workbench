@@ -11,7 +11,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -25,11 +24,6 @@ const (
 	maxExpanded int64 = 256 << 20
 	maxFiles          = 4096
 )
-
-var identifier = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
-
-// ValidTag reports whether tag is acceptable as a release identifier.
-func ValidTag(tag string) bool { return identifier.MatchString(tag) }
 
 // File is one bundle member's manifest entry.
 type File struct {
@@ -172,7 +166,7 @@ func readMembers(raw []byte) (map[string][]byte, error) {
 // every payload file to match its manifest entry exactly.
 func (b Bundle) checkManifest(version, target string) error {
 	m := b.Metadata
-	if m.SchemaVersion != 1 || m.StateVersion != 1 || !identifier.MatchString(m.Release) ||
+	if m.SchemaVersion != 1 || m.StateVersion != 1 || !operation.ValidReleaseName(m.Release) ||
 		(version != "" && m.Release != version) ||
 		m.Target != target ||
 		!operation.ValidDigest(m.SourceDigest) {

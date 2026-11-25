@@ -869,7 +869,7 @@ func releaseTag(cmd *cobra.Command) (string, error) {
 	if tag != "" && tag[0] >= '0' && tag[0] <= '9' {
 		tag = "v" + tag
 	}
-	if !release.ValidTag(tag) {
+	if !operation.ValidReleaseName(tag) {
 		return "", operation.Fail(
 			operation.ExitInvalid,
 			"input",

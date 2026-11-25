@@ -523,17 +523,17 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 	pins.cargoDenySHA256 = versions.CI.CargoDeny[pins.cargoDeny]
 	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
 	if err = checkPins([]pinCheck{
-		{"cargo_tools.cargo-deny", pins.cargoDeny, plainVersion},
+		{"cargo_tools.cargo-deny", pins.cargoDeny, plainVersion.MatchString},
 		{
 			"project_ci.cargo_deny_linux_x64_sha256 for cargo-deny " + pins.cargoDeny,
 			pins.cargoDenySHA256,
-			sha256Hex,
+			operation.ValidDigest,
 		},
-		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion},
+		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion.MatchString},
 		{
 			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
 			pins.gitleaksSHA256,
-			sha256Hex,
+			operation.ValidDigest,
 		},
 	}); err != nil {
 		return "", ownedJob{}, err

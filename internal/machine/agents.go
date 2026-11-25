@@ -651,7 +651,7 @@ func claudeChecksums(ctx context.Context, version string) ([]string, error) {
 	}
 	var checksums []string
 	for name, platform := range manifest.Platforms {
-		if platformName.MatchString(name) && sha256Hex.MatchString(platform.Checksum) {
+		if platformName.MatchString(name) && operation.ValidDigest(platform.Checksum) {
 			checksums = append(checksums, name+"="+platform.Checksum)
 		}
 	}
@@ -662,12 +662,8 @@ func claudeChecksums(ctx context.Context, version string) ([]string, error) {
 	return checksums, nil
 }
 
-// sha256Hex is a SHA-256 written as lowercase hex, and platformName a
-// manifest platform such as linux-x64-musl.
-var (
-	sha256Hex    = regexp.MustCompile(`^[0-9a-f]{64}$`)
-	platformName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)+$`)
-)
+// platformName is a manifest platform such as linux-x64-musl.
+var platformName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)+$`)
 
 // agentEnvironment tells the agent updates script which updates the plan
 // checks, each as TOOL:METHOD:VERSION:FROM, with :NODE after an npm one; a

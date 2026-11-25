@@ -151,7 +151,7 @@ func (r Requirements) validate() error {
 	// The mbx step builds its download from these and renders the budget into
 	// its script.
 	for target, hash := range r.Mbx.SHA256 {
-		if !sha256Hex.MatchString(hash) {
+		if !operation.ValidDigest(hash) {
 			return fmt.Errorf("mbx.sha256 %q is not a SHA-256 in lowercase hex", target)
 		}
 	}

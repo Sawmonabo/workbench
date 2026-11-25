@@ -55,11 +55,16 @@ func (s *State) Unfinished(scope Scope, own ...string) error {
 }
 
 var (
-	identifier  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	releaseName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	operationID = regexp.MustCompile(
 		`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`,
 	)
 )
+
+// ValidReleaseName reports whether name is a release's name as a release
+// record, a bundle and a release tag hold it: a letter or digit, then up to
+// 127 letters, digits, dots, underscores and hyphens.
+func ValidReleaseName(name string) bool { return releaseName.MatchString(name) }
 
 // Validate checks the schema version and every recorded identity, dependency
 // and partial operation.
@@ -89,7 +94,7 @@ func (s State) Validate() error {
 		if identity == nil {
 			continue
 		}
-		if !identifier.MatchString(identity.Release) || !ValidDigest(identity.ContentDigest) {
+		if !ValidReleaseName(identity.Release) || !ValidDigest(identity.ContentDigest) {
 			return Fail(ExitInvalid, "state_format", "Malformed release identity in current state")
 		}
 	}

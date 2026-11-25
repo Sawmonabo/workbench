@@ -327,7 +327,6 @@ type goPins struct {
 var (
 	plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 	goVersion    = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
-	sha256Hex    = regexp.MustCompile(`^[0-9a-f]{64}$`)
 )
 
 // sourceVersions are the versions.toml pins the generated CI jobs use.
@@ -360,7 +359,7 @@ func readSourceVersions(c operation.Context) (machine.Requirements, sourceVersio
 // pinCheck is one pin a generated job needs, with the shape it must have.
 type pinCheck struct {
 	name, value string
-	shape       *regexp.Regexp
+	shape       func(string) bool
 }
 
 // checkPins refuses a pin that does not have its shape. Every value lands in
@@ -368,7 +367,7 @@ type pinCheck struct {
 // version or digest.
 func checkPins(pins []pinCheck) error {
 	for _, pin := range pins {
-		if !pin.shape.MatchString(pin.value) {
+		if !pin.shape(pin.value) {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"source",
@@ -398,13 +397,13 @@ func readGoPins(c operation.Context) (goPins, error) {
 	}
 	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
 	return pins, checkPins([]pinCheck{
-		{"linux_binaries.golangci-lint", pins.golangciLint, plainVersion},
-		{"linux_go_tools govulncheck", pins.govulncheck, goVersion},
-		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion},
+		{"linux_binaries.golangci-lint", pins.golangciLint, plainVersion.MatchString},
+		{"linux_go_tools govulncheck", pins.govulncheck, goVersion.MatchString},
+		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion.MatchString},
 		{
 			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
 			pins.gitleaksSHA256,
-			sha256Hex,
+			operation.ValidDigest,
 		},
 	})
 }
