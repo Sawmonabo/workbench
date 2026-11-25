@@ -61,7 +61,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		if err != nil {
 			return err
 		}
-		if err = checkPreservable(c, edit, before, after, p.scratch); err != nil {
+		if err = operation.CheckPreservable(c, edit, before, after, p.scratch); err != nil {
 			return err
 		}
 		var previous *operation.Image
@@ -147,45 +147,4 @@ func (p *preparation) describeSettings(
 	}
 	planned.Settings, planned.Semantic, planned.Rewritten = len(changes), true, rewritten
 	planned.Diff, planned.DiffTruncated = capDiff(settingLines(changes, p.secrets))
-}
-
-// checkPreservable refuses group-exclusive modes, replacements that would
-// change a target's group and files whose group native's staging folder cannot
-// keep.
-func checkPreservable(
-	c operation.Context,
-	edit operation.Edit,
-	before, after operation.Image,
-	staging string,
-) error {
-	// Native atomic writes can initially inherit the scratch directory's
-	// group. Until corrected under the checkpoint owner's exact-image gate,
-	// never expose permissions available only to that transient group.
-	if ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"metadata",
-			"Native group-exclusive permissions require separately qualified atomic ownership handling",
-		)
-	}
-	if after.Kind == operation.ImageFile {
-		if err := operation.CheckStagedGroup(c, edit.Path, staging); err != nil {
-			return err
-		}
-	}
-	if before.Kind != operation.ImageFile && before.Kind != operation.ImageSymlink {
-		return nil
-	}
-	group, err := operation.CreationGroup(c, edit.Path)
-	if err != nil {
-		return err
-	}
-	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"metadata",
-			"Native replacement cannot preserve this target's group ownership",
-		)
-	}
-	return nil
 }

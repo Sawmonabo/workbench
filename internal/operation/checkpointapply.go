@@ -109,6 +109,47 @@ func correctNativeGroup(c Context, change TargetChange, observed Image) error {
 	return enforceNativeGroup(c, change.Path, observed, *change.After.Group)
 }
 
+// CheckPreservable is the native planner's check of one edit: it refuses
+// group-exclusive modes, replacements that would change a target's group and
+// files whose group native's staging folder cannot keep.
+func CheckPreservable(
+	c Context,
+	edit Edit,
+	before, after Image,
+	staging string,
+) error {
+	// Native atomic writes can initially inherit the scratch directory's
+	// group. Until corrected under the checkpoint owner's exact-image gate,
+	// never expose permissions available only to that transient group.
+	if ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Native group-exclusive permissions require separately qualified atomic ownership handling",
+		)
+	}
+	if after.Kind == ImageFile {
+		if err := CheckStagedGroup(c, edit.Path, staging); err != nil {
+			return err
+		}
+	}
+	if before.Kind != ImageFile && before.Kind != ImageSymlink {
+		return nil
+	}
+	group, err := CreationGroup(c, edit.Path)
+	if err != nil {
+		return err
+	}
+	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Native replacement cannot preserve this target's group ownership",
+		)
+	}
+	return nil
+}
+
 // Finish records each target's observed outcome after a native run and
 // returns runErr, or a partial or unknown-outcome error when targets changed. A
 // runErr that already reports a partial apply is returned as it is.
