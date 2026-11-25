@@ -273,9 +273,9 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   note and the check clears it and stores `tiers_checked` as `2`. A run
   checks every pending row when it finds `tiers_unresolved` set (an earlier
   run stopped before its check) or `tiers_checked` absent or another value (a
-  new ledger, or one an earlier build wrote, whose pending rows no check of
-  this build has seen). The upgrade to schema version 7 turns a `1` into
-  `2`; a `1` stored later is the check of a worker of the release before
+  new ledger, or one an earlier build wrote or the upgrade to schema version
+  7 converted, whose pending rows no check of this build has seen). A `1`
+  stored after the upgrade is the check of a worker of the release before
   that opened the ledger before the upgrade, which matches no row of version
   7.
 - **Attribution.** On a repeated key the token columns keep their largest

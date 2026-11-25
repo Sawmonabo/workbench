@@ -572,11 +572,6 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 	if err := slim(ctx, tx, l.Path); err != nil {
 		return false, err
 	}
-	// The check the release before made holds for the same rows (tiersRule).
-	if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = ? AND value = '1'",
-		tiersRule, tiersChecked); err != nil {
-		return false, err
-	}
 	if err := setMeta(ctx, tx, compactDue, "1"); err != nil {
 		return false, err
 	}
@@ -1558,13 +1553,13 @@ type storedRow struct {
 // tiersUnresolved is the meta note a transaction that writes tier_pending or
 // tier_changes stores, and ResolveTiers clears: while it is set, rows of an
 // earlier run that stopped before ResolveTiers may still wait unchecked.
-// tiersChecked is the note every ResolveTiers stores, tiersRule: without it,
-// no check this build makes has run on the ledger (it is new, or written by
-// an earlier build), so its waiting rows may never have been checked. The
-// release before stores "1", which the upgrade to version 7 turns into
-// tiersRule; an import worker of that release that opened the ledger before
-// the upgrade and checks it after matches no row of version 7, yet clears
-// tiersUnresolved and stores "1" again, and the next check is then full.
+// tiersChecked is the note every ResolveTiers stores, tiersRule. Any other
+// value, or none, means no check this build makes has run on the ledger (it
+// is new, upgraded, or written by an earlier build), so its waiting rows may
+// never have been checked and the next check is full. An import worker of the
+// release before that opened the ledger before the upgrade to version 7 and
+// checks it after matches no row of version 7, yet clears tiersUnresolved;
+// the value it stores makes the next check full too.
 const (
 	tiersUnresolved = "tiers_unresolved"
 	tiersChecked    = "tiers_checked"

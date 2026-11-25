@@ -184,8 +184,8 @@ Anti-goals:
     what it would have read. Its writes name columns version 7 does not
     have, and fail; its tier check finds no row of version 7 yet stores
     `tiers_checked` `1`, which version 7 does not take as checked (it
-    stores `2`, and the upgrade turns a `1` it finds into `2`), so the next
-    check covers every waiting row.
+    stores `2`), so the next check covers every waiting row, as the first
+    check after the upgrade does.
 
 ## 5. Ownership and documents
 

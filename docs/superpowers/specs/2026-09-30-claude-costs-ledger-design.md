@@ -698,9 +698,9 @@ that row. An evidence word other than the five, or a time that is neither
 empty nor in the form above, refuses the upgrade with the path and the value,
 and the file is left as it was. A process that opens the ledger meanwhile
 waits for the upgrade, up to two minutes (a ledger of 1.59 million rows took
-20 to 24 seconds), then finds version 7. The same transaction stores the
-Codex tier check's `tiers_checked` as `2` where it was `1` (Codex costs
-design, section 4). After the commit the same process
+20 to 24 seconds), then finds version 7. The first Codex tier check after
+it covers every waiting row (Codex costs design, section 4). After the
+commit the same process
 runs `VACUUM`, which gives back the pages the old rows held, and a checkpoint
 that empties the write-ahead log; the meta key `compact_due` marks it until
 it succeeds, a failure goes to the import log, and each import worker tries

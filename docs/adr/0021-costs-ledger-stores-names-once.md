@@ -81,10 +81,11 @@ Sources: [WITHOUT ROWID tables](https://www.sqlite.org/withoutrowid.html),
   word, a time not in the stored layout) refuses the upgrade and changes
   nothing. The upgrade then compacts the file once with `VACUUM`, retried by
   the next import while it has not succeeded.
-- The check of the waiting Codex rows stores `tiers_checked` as `2`, and the
-  upgrade turns a `1` into `2`. An import worker of the release before that
-  opened the ledger before the upgrade and checks it after finds no row of
-  version 7 and stores `1` again, so the next check is full.
+- The check of the waiting Codex rows stores `tiers_checked` as `2`, and any
+  other value makes the next check full. So the first check after the
+  upgrade covers every waiting row, and so does the check after an import
+  worker of the release before that opened the ledger before the upgrade
+  and checked it after, finding no row of version 7.
 
 ## Consequences
 
