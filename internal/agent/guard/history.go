@@ -486,17 +486,10 @@ func (h *History) fail(err error) error {
 	}
 }
 
-// transact runs fn in one transaction, committed when fn returns nil.
+// transact runs fn in one transaction (see [sqlitefile.Transact]), its error
+// naming the file (see History.fail).
 func (h *History) transact(ctx context.Context, fn func(*sql.Tx) error) error {
-	tx, err := h.db.BeginTx(ctx, nil)
-	if err != nil {
-		return h.fail(err)
-	}
-	if err := fn(tx); err != nil {
-		_ = tx.Rollback()
-		return h.fail(err)
-	}
-	return h.fail(tx.Commit())
+	return h.fail(sqlitefile.Transact(ctx, h.db, fn))
 }
 
 // Insert writes a finished command, with its graph and processes, in one

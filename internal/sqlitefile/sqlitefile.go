@@ -79,10 +79,7 @@ type Options struct {
 // private create opens only the file it makes, and the reason of a file
 // SQLite cannot open is asked without opening it (see openProblem).
 func Open(path string, o Options) (*sql.DB, error) {
-	query := make([]string, 0, len(o.Pragmas)+3)
-	if o.ReadOnly {
-		query = append(query, "mode=rw", "_pragma=query_only(1)")
-	} else if o.Create {
+	if !o.ReadOnly && o.Create {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		switch {
 		case errors.Is(err, fs.ErrExist):
@@ -94,14 +91,7 @@ func Open(path string, o Options) (*sql.DB, error) {
 			}
 		}
 	}
-	for _, pragma := range o.Pragmas {
-		query = append(query, "_pragma="+pragma)
-	}
-	if o.TxLock != "" {
-		query = append(query, "_txlock="+o.TxLock)
-	}
-	address := &url.URL{Scheme: "file", Path: path, RawQuery: strings.Join(query, "&")}
-	db, err := sql.Open("sqlite", address.String())
+	db, err := sql.Open("sqlite", Address(path, o))
 	if err != nil {
 		return nil, operation.FileError(path, err)
 	}
@@ -129,6 +119,37 @@ func Open(path string, o Options) (*sql.DB, error) {
 		makePrivate(path)
 	}
 	return db, nil
+}
+
+// Address is the connection string [Open] opens the file at path with as o
+// says, for a caller that names the file to SQLite in a statement, such as
+// ATTACH, with the same mode and pragmas.
+func Address(path string, o Options) string {
+	query := make([]string, 0, len(o.Pragmas)+3)
+	if o.ReadOnly {
+		query = append(query, "mode=rw", "_pragma=query_only(1)")
+	}
+	for _, pragma := range o.Pragmas {
+		query = append(query, "_pragma="+pragma)
+	}
+	if o.TxLock != "" {
+		query = append(query, "_txlock="+o.TxLock)
+	}
+	return (&url.URL{Scheme: "file", Path: path, RawQuery: strings.Join(query, "&")}).String()
+}
+
+// Transact runs fn in one transaction on db, committed when fn returns nil
+// and rolled back when it returns an error, which Transact returns.
+func Transact(ctx context.Context, db *sql.DB, fn func(*sql.Tx) error) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	if err := fn(tx); err != nil {
+		_ = tx.Rollback()
+		return err
+	}
+	return tx.Commit()
 }
 
 // makePrivate takes group and other access off the file at path and its -wal
