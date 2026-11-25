@@ -357,10 +357,12 @@ type foundMsg struct {
 }
 
 // partsMsg is a finished command's parts as the history holds them, read for
-// the row id from the rows of the history's generation gen.
+// the row id from the rows of the history's generation gen, through the
+// handle db.
 type partsMsg struct {
 	id    string
 	gen   int
+	db    *guard.History
 	parts guard.Finished
 	err   error
 }
@@ -912,18 +914,21 @@ type historyRead struct {
 }
 
 // historyMsg is a read's outcome: what it started from; the history open
-// now, nil for none, and its path and identity; whether the rows held go (a
-// file not read before, ENDED cells made anew, or a file that cannot be
-// used); the rows read, above the last held unless reset, with their cells
-// and the widest cell of each column; the file's lowest seq; the time kept,
-// whether the ENDED cells hold dates and on which day they were made; why
-// the file cannot be read, nil when it can or does not exist yet; and the
-// copies of damaged histories the guard folder keeps, with their times.
+// now, nil for none, and its path and identity; whether that is a new handle
+// on the file open before, found at another path once the guard folder moved;
+// whether the rows held go (a file not read before, ENDED cells made anew, or
+// a file that cannot be used); the rows read, above the last held unless
+// reset, with their cells and the widest cell of each column; the file's
+// lowest seq; the time kept, whether the ENDED cells hold dates and on which
+// day they were made; why the file cannot be read, nil when it can or does
+// not exist yet; and the copies of damaged histories the guard folder keeps,
+// with their times.
 type historyMsg struct {
 	from    historyRead
 	db      *guard.History
 	path    string
 	file    os.FileInfo
+	moved   bool
 	reset   bool
 	rows    []*heldRow
 	widths  []int
@@ -958,8 +963,11 @@ func (m *guardView) readHistory() tea.Cmd {
 // reading the one set aside. The file's identity is taken before it is
 // opened, so a file replaced in between is opened again at the next read.
 // The file open, found at another path once the guard folder moved, is read
-// through the connection already open, from the last row held, so the rows
-// held and the find answer stay as for a file that did not move.
+// through a new handle at that path, from the last row held, so the rows held
+// and the find answer stay as for a file that did not move: a connection the
+// handle open makes from then on names the old path, where the file is no
+// more. A handle that cannot be opened there leaves the one open, read as it
+// is, and the next read tries again.
 func (r historyRead) read() historyMsg {
 	out := historyMsg{from: r, keep: guard.HistoryKeepDefault, db: r.db, path: r.path, file: r.file}
 	root, err := guard.HistoryRoot()
@@ -987,8 +995,10 @@ func (r historyRead) read() historyMsg {
 			out.err = err
 			return out
 		}
-	default:
-		out.path = path
+	case path != r.path:
+		if db, err := guard.OpenHistory(root, false); err == nil {
+			out.db, out.path, out.file, out.moved = db, path, file, true
+		}
 	}
 	if err := out.fill(r); err != nil {
 		out.err, out.rows = err, nil
@@ -1041,13 +1051,17 @@ func (out *historyMsg) fill(r historyRead) error {
 // lowest seq gone, and the carried rows that a read which started after they
 // left the snapshot answers for. Another file drops the find answer, whose
 // seqs were the one before's; rows read anew while a filter is kept ask the
-// history again, so they show once they hold its text. A read asked for
-// meanwhile starts. A command's parts stay: its ID names it in any file.
+// history again, so they show once they hold its text. A new handle on the
+// file open before, which the guard folder's move called for, keeps the rows
+// held and the find answer, and asks again what the handle before may have
+// failed to answer since the move: the find kept, and the parts of the
+// command whose details show. A read asked for meanwhile starts. A command's
+// parts stay: its ID names it in any file.
 func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 	h := &m.hist
 	h.reading = false
-	other := msg.db != h.db
-	if other && h.db != nil {
+	other := msg.db != h.db && !msg.moved
+	if msg.db != h.db && h.db != nil {
 		// A find or a read of a command's parts may still run on it.
 		old := h.db
 		go func() { _ = old.Close() }()
@@ -1068,13 +1082,16 @@ func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 	if other {
 		m.find.seqs = nil
 	}
+	if msg.moved {
+		m.detail.problem = ""
+	}
 	m.hold(msg)
 	m.carried = slices.DeleteFunc(m.carried, func(c carriedRow) bool {
 		return c.at <= msg.from.snaps || h.byID[c.ID] != nil
 	})
 	m.rebuild()
 	var cmds []tea.Cmd
-	if (len(msg.rows) > 0 || other) && m.find.text != "" {
+	if (len(msg.rows) > 0 || other || msg.moved) && m.find.text != "" {
 		cmds = append(cmds, m.ask(m.find.text))
 	}
 	if h.again {
@@ -1181,13 +1198,14 @@ func (m *guardView) readParts() tea.Cmd {
 	id, seq, gen, db := d.id, r.seq, m.hist.gen, m.hist.db
 	return func() tea.Msg {
 		parts, err := db.Details(context.Background(), seq)
-		return partsMsg{id: id, gen: gen, parts: parts, err: err}
+		return partsMsg{id: id, gen: gen, db: db, parts: parts, err: err}
 	}
 }
 
 // gotParts takes a finished command's parts for the details that asked for
 // them. A read that failed on rows held before they were read anew, perhaps
-// from a file since closed, is tried again.
+// from a file since closed, or through a handle since replaced, is tried
+// again.
 func (m *guardView) gotParts(msg partsMsg) {
 	d := &m.detail
 	if msg.id != d.id || !d.reading {
@@ -1197,7 +1215,7 @@ func (m *guardView) gotParts(msg partsMsg) {
 	switch {
 	case msg.err == nil:
 		d.parts = &msg.parts
-	case msg.gen == m.hist.gen:
+	case msg.gen == m.hist.gen && msg.db == m.hist.db:
 		d.problem = "Cannot read this command from the guard history: " +
 			guard.ShowPaths(msg.err.Error(), filepath.Dir(m.hist.path))
 	}
