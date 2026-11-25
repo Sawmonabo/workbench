@@ -159,12 +159,14 @@ type Summary struct {
 }
 
 // History is the history file, opened for writing by the watcher's writer
-// and by the command that sets the time kept, and for reading by the view.
-// A writer holds file, a descriptor of the file it opened, from just after
-// SQLite opened it until after the connection has closed, for
-// [History.Check], which reads the header through it (see
+// and by the command that sets the time kept, and for reading by the view
+// (see [FollowHistory]). A writer holds file, a descriptor of the file it
+// opened, from just after SQLite opened it until after the connection has
+// closed, for [History.Check], which reads the header through it (see
 // [sqlitefile.CheckHeader]); opened is that file's identity, and sides its
-// -wal and -shm files as last seen at its path, for [History.Close].
+// -wal and -shm files as last seen at its path, for [History.Close]. For a
+// reader FollowHistory opened, opened is the identity of the file at its
+// path just before it was opened.
 type History struct {
 	root, path string
 	write      bool
