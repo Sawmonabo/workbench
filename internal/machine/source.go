@@ -356,7 +356,13 @@ func releaseIdentity(source string) (operation.SourceIdentity, error) {
 	}
 	metadata, err := release.ReadMetadata(source)
 	if err != nil {
-		return operation.SourceIdentity{}, err
+		// A source whose identity cannot be read is one Workbench does not
+		// trust, as a source that differs from this executable's is.
+		return operation.SourceIdentity{}, operation.Fail(
+			operation.ExitBlocked,
+			"source_trust",
+			err.Error(),
+		)
 	}
 	return operation.SourceIdentity{
 		Release:       metadata.Release,
