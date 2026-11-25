@@ -3,7 +3,6 @@ package costs
 import (
 	"context"
 	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -334,11 +333,10 @@ func moveSmallFiles(old OldPaths, p Paths) error {
 // that holds anything, or isn't a real folder, such as a link, stays.
 func removeOldFolders(old OldPaths) error {
 	for _, folder := range old.folders() {
-		if info, err := os.Lstat(folder); err != nil || !info.IsDir() {
+		if !operation.IsFolder(folder) {
 			continue
 		}
-		err := os.Remove(folder)
-		if err != nil && !errors.Is(err, fs.ErrNotExist) && !errors.Is(err, syscall.ENOTEMPTY) {
+		if err := operation.RemoveIfEmpty(folder); err != nil {
 			return err
 		}
 	}
