@@ -99,7 +99,7 @@ var oldGuardLine = regexp.MustCompile(
 // guardLogPaths are the guard log, in the guard folder where guard.Root says,
 // and the copy the first builds rotated it into.
 func guardLogPaths(l Locations) []string {
-	log := filepath.Join(guard.Root(l.Runtime.State), "watch.log")
+	log := guard.LogFile(guard.Root(l.Runtime.State))
 	return []string{log, log + ".1"}
 }
 
