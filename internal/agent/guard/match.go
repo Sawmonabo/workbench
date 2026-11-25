@@ -41,39 +41,58 @@ func plainByte(c byte) bool {
 		strings.IndexByte("_./:=+,@%-", c) >= 0
 }
 
+// wordPart reads the part of a shell word that text starts with, by the one
+// quote rule the guard reads words with: a run of plain characters (see
+// plainByte), or single- or double-quoted text, double-quoted only without
+// $, backquote or backslash, which the shell would expand there. It gives
+// the text the part stands for and how many bytes of text it takes; ok is
+// false when text starts with anything else, or with a quote that is not
+// closed or holds what the shell would expand.
+func wordPart(text string) (part string, n int, ok bool) {
+	if text == "" {
+		return "", 0, false
+	}
+	if quote := text[0]; quote == '\'' || quote == '"' {
+		end := strings.IndexByte(text[1:], quote)
+		if end < 0 {
+			return "", 0, false
+		}
+		part = text[1 : 1+end]
+		if quote == '"' && strings.ContainsAny(part, "$`\\") {
+			return "", 0, false
+		}
+		return part, end + 2, true
+	}
+	for n < len(text) && plainByte(text[n]) {
+		n++
+	}
+	return text[:n], n, n > 0
+}
+
 // simpleWords splits a command that is one simple command of plain words into
-// the argv its shell execs it with: unquoted plain characters, and single- or
-// double-quoted text without $, backquote or backslash. Any other command
-// gives nil, because its words depend on expansion, redirection or more than
-// one command.
+// the argv its shell execs it with: words of plain characters and quoted
+// text (see wordPart), between spaces and tabs. Any other command gives nil,
+// because its words depend on expansion, redirection or more than one
+// command.
 func simpleWords(command string) []string {
 	var words []string
 	var word strings.Builder
 	inWord := false
-	for i := 0; i < len(command); i++ {
-		switch c := command[i]; {
-		case c == ' ' || c == '\t':
+	for i := 0; i < len(command); {
+		if c := command[i]; c == ' ' || c == '\t' {
 			if inWord {
 				words, inWord = append(words, word.String()), false
 				word.Reset()
 			}
-		case c == '\'' || c == '"':
-			end := strings.IndexByte(command[i+1:], c)
-			if end < 0 {
-				return nil
-			}
-			quoted := command[i+1 : i+1+end]
-			if c == '"' && strings.ContainsAny(quoted, "$`\\") {
-				return nil
-			}
-			word.WriteString(quoted)
-			inWord, i = true, i+1+end
-		case plainByte(c):
-			word.WriteByte(c)
-			inWord = true
-		default:
+			i++
+			continue
+		}
+		part, n, ok := wordPart(command[i:])
+		if !ok {
 			return nil
 		}
+		word.WriteString(part)
+		inWord, i = true, i+n
 	}
 	if inWord {
 		words = append(words, word.String())
