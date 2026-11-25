@@ -39,7 +39,8 @@ synthetic answers.
   keeping every response and upgrade row, every row when its folder moves
   under `agent/`, and every row and price list through its upgrade to version
   6, and the guard's history of finished commands, with SQLite's WAL and
-  shared-memory files beside it, readable by its owner alone.
+  shared-memory files beside it, readable by its owner alone, and its
+  writer keeping SQLite's lock on it through its minute check.
 
 ### Releases, install and update
 
@@ -940,7 +941,7 @@ synthetic answers.
   took no lock and tried no swap, and `migrate --dry-run` listed the
   migration done, naming each folder as left in use where it is. The same
   folders made at run time in that container moved under `agent/` at the
-  first pre hook and `agent costs status`. On 2026-11-23, on macOS (APFS)
+  first pre hook and `agent costs status`. On 2026-11-24, on macOS (APFS)
   in a disposable home and in that container, each rebuilt from nothing
   twice with `v0.1.32-rc.9` installed by its published `install.sh`, with
   its watcher guarding a command holding 200 MB and a detached program,
@@ -949,12 +950,13 @@ synthetic answers.
   this build. Where the guard hooks ran the installed command, rc.9's
   watcher handed over, the new watcher moved the guard folder before its
   first tick, the first costs entry of the new build moved both costs
-  folders, all within half a second of the new link, and each old path then
-  held the 0600 file. Where they ran a copy of rc.9's executable, so its
-  watcher never handed over, and another process held the import lock at
-  the old path, the new build's hooks, `agent costs` and `agent costs
-  status` used the old folders, the new hooks' commands joined rc.9's
-  watcher, and `migrate --dry-run` named each folder as left to the import
+  folders, all within about a second of the new link (0.4 s on macOS, 1.1 s
+  in the container), and each old path then held the 0600 file. Where they
+  ran a copy of rc.9's executable, so its watcher never handed over, and
+  another process held the import lock at the old path, the new build's
+  hooks, `agent costs` and `agent costs status` used the old folders, the
+  new hooks' commands joined rc.9's watcher, and `migrate --dry-run` named
+  each folder as left to the import
   or the watcher running in it; once the lock was let go, the next costs
   entry moved both, and once that watcher ended, the next pre hook moved the
   guard folder and started a watcher, which took over every command noted
@@ -976,16 +978,32 @@ synthetic answers.
   2026-11-22, in the same disposable home, with a price list and no ledger,
   `migrate --dry-run` listed `0008-price-lists` as pending, and the same
   `--approve-plan` run deleted the list and the tool folder it left empty.
-  On 2026-11-23, in each of the four updates from `v0.1.32-rc.9` above, the
+  On 2026-11-24, in each of the four updates from `v0.1.32-rc.9` above, the
   version 5 ledger its import worker wrote from synthetic transcripts read
   as version 6 within 2 seconds of the new link, with every row of every
-  table kept, compared row by row (on macOS two latest sign-ins moved
-  forward, as a repeated sign-in does), and 66 prices and both list addresses
-  taken from the two list files. `agent costs --until` a time before the
-  update, as text, `--csv` and `--by model --csv`, printed the same bytes
-  before and after. `migrate --dry-run --json` then `--approve-plan DIGEST`
-  deleted both lists and their folders, a second `migrate --dry-run` listed
-  the migration done, and `doctor` exited 0.
+  table kept, compared row by row (in the two with a handover, two latest
+  sign-ins moved forward, as a repeated sign-in does), and 66 prices and
+  both list addresses taken from the two list files. `agent costs --until`
+  a time before the update, as text, `--csv` and `--by model --csv`,
+  printed the same bytes before and after. `migrate --dry-run --json` then
+  `--approve-plan DIGEST` deleted both lists and their folders, a second
+  `migrate --dry-run` listed the migration done, and `doctor` exited 0.
+- On 2026-11-24, on macOS and in the Linux container, Python's `sqlite3`
+  (SQLite 3.50.4 and 3.46.1) opened the ledger read-write, read it and
+  closed it again and again, as the `sqlite3` shell does, while an import
+  worker read 1,000 synthetic transcripts (200,000 responses, in 10.8 and
+  6.7 seconds) and then while a costs hook ran every second for 45
+  seconds. At each of the reader's closes while the long worker held the
+  ledger (77 and 603), the worker kept SQLite's shared lock and the `-wal`
+  stayed at its name; a stand-in holder that drops its own locks was caught
+  at every close (80 and 771). Of the closes that met a hook's worker with
+  the ledger open, none of 47 on macOS and 5 of 944 in the container found
+  the `-wal` gone; in a second run in the container that named the
+  worker's open files, each such worker held the live `-wal` and `-shm` or
+  none, and no worker ever held a deleted one.
+  After one more import the ledger held all 200,000 responses, the 47 the
+  hooks' session wrote and every earlier row, and `integrity_check`
+  returned ok.
 - An approved plan binds Workbench's runtime folders. On 2026-10-16, on macOS
   in a disposable home with synthetic answers, `apply --local-build --dry-run
   --json` gave a different `plan_digest` for each of two `WORKBENCH_DATA_DIR`
@@ -1125,9 +1143,9 @@ synthetic answers.
   header's release changed, every row, peak and the largest peak stayed, a
   running row's memory graph kept its earlier readings, and `agent guard logs`
   showed one `handover` line naming both releases. Killing that watcher showed
-  `○ not running`; the next hook started a fresh watcher, the view reconnected
-  by itself, and the finished rows, which live only in the watcher's memory,
-  were gone. Without a terminal and with `CLAUDECODE=1` it exited 3.
+  `○ not running`; the next hook started a fresh watcher and the view
+  reconnected by itself. Without a terminal and with `CLAUDECODE=1` it
+  exited 3.
 - On 2026-10-17, with ten tracked `sleep 60` commands, sampling `ps` every 10
   s for a minute, the watcher used 0.41 s of CPU (about 0.7 %) at 30–31 MB
   resident on macOS and 0.39 s (about 0.6 %) at 22–24 MB in the Linux
@@ -1280,25 +1298,28 @@ synthetic answers.
   bound, peaked at 27.5 MiB and 32.1 MiB. The release before,
   under the same two loads, peaked at 17.3 and 18.8 MiB counted and 31.7 and
   26.1 MiB resident.
-- On 2026-11-23, with the history of finished commands written, on macOS
+- On 2026-11-24, with the history of finished commands written, on macOS
   27.2 arm64 in a disposable home and in a Linux container (kernel
   7.0.14-linuxkit, Ubuntu 26.04 arm64), a fake agent's watcher ran the same
   two loads one after the other: 650 shell loops of `/bin/sleep 1` for 75 s,
   then one command whose bash started 1,400 `/bin/sleep 75` and waited for
   them (bash, since zsh's job table holds about 1,000 jobs). The history
-  held about 1,000 finished commands on macOS and a few in the container,
-  and each load's command was written to it as it ended, the churn's 47,000
-  to 48,000 processes as 10,000 process rows. The watcher logged no `WARN`
-  or `ERROR` record. The memory the Go runtime counts against the 32 MiB
-  limit, its total less what it released, read once a second by a build of
-  the same source with a memory readout added, peaked at 25.6 MiB under the
-  churn and 24.6 MiB under the held processes on macOS, and at 15.4 and
-  12.7 MiB in the container. The resident size of the build as released,
-  read once a second with `ps`, peaked at 40.0 and 40.7 MiB on macOS and at
-  33.9 and 32.4 MiB in the container. SQLite's own allocations are outside
-  the counted figure and the limit: the driver's C library takes them from
-  memory it maps itself (`modernc.org/memory`), so only the resident size
-  holds them.
+  held a few finished commands, and each load's command was written to it
+  as it ended, the churn's 45,800 to 48,900 processes as 10,000 process
+  rows. The watcher logged no `WARN` or `ERROR` record. The memory the Go
+  runtime counts against the 32 MiB limit, its total less what it
+  released, read once a second by a build of the same source with a memory
+  readout added, peaked at 24.1 MiB under the churn and 24.4 MiB under the
+  held processes on macOS, and at 15.5 and 12.8 MiB in the container. The
+  resident size of the installed build, read once a second with `ps`,
+  peaked at 37.3 and 38.6 MiB on macOS and at 33.3 and 30.7 MiB in the
+  container. The release before, which writes no history, run the same
+  way in the same two homes, peaked at 22.6 and 23.6 MiB
+  counted and 33.4 and 34.4 MiB resident on macOS, and at 14.2 and
+  12.5 MiB counted and 29.0 and 27.7 MiB resident in the container.
+  SQLite's own allocations are outside the counted figure and the limit:
+  the driver's C library takes them from memory it maps itself
+  (`modernc.org/memory`), so only the resident size holds them.
 - On 2026-11-14, on macOS with stand-in agents, the scenarios of the
   [detached work design](superpowers/specs/2026-11-13-guard-detached-work-design.md)
   (sections 5 and 10) gave what it says. Opt-out and hidden programs: a
@@ -1331,38 +1352,56 @@ synthetic answers.
   `history.damaged.2.db`, a new one is started, and each copy is deleted once
   it is older than the time kept; at a third damage within that time the
   copy at `history.damaged.db` is deleted for the new one and
-  `history.damaged.2.db`, the oldest, stays (target). On
-  2026-11-22, on macOS in a disposable home: `agent guard history` with no
-  history printed `none kept yet` and the file's path and exited 0, and with
-  `--json` gave `keep_seconds` 86400, `commands` 0 and `bytes` 0. `--keep`
-  with `0h`, `31d` or `90m` exited 2. `--keep 12h` made `history.db` at 0600
-  in 0700 folders and said that none was older; `--keep 1w` said that those
-  already deleted do not come back, and, run again, `as before`; `--keep 3d
-  --json` gave `was_seconds` 604800 and `deleted` 0. With three commands
-  that ended two days before and one recent, `--keep 1d` with no watcher
-  said that 3 older ones were deleted, and one stayed. With the file
-  overwritten by other bytes, `agent guard history` and `--keep 12h` each
-  exited 2, saying the history is unreadable, and left the file in place; a
-  watcher started on it moved it to `history.damaged.db`, started a new
-  `history.db` (it and its `-wal` and `-shm` at 0600 while open) and logged
-  both paths, and that it keeps 24 hours since the time kept was never read.
-  That watcher could not serve its socket, whose path in the disposable home
-  was too long, so nothing connected to it. On 2026-11-23, after each of
-  the four updates of the agent folders entry, on macOS and in the Linux
-  container: `history.db` appeared under `agent/guard` within 30 ms of the
-  move, in the same 20 ms poll in the container, and never at the old
-  path. The serving watcher wrote each command as it finished, one stopped
-  by hand as `stopped` by you with its graph and processes; `agent guard
-  history` and its `--json` counted them, and `--keep 12h` said that none
-  was older, after which `agent guard history` gave 12 hours. The view
-  listed running and finished commands together and showed a finished
-  one's details. With the file's first 8 KiB overwritten under the serving
+  `history.damaged.2.db`, the oldest, stays (target). On 2026-11-24, on
+  macOS and in the Linux container, in disposable homes with no watcher:
+  `agent guard history` with no history printed `none kept yet` and the
+  file's path and exited 0, and with `--json` gave `keep_seconds` 86400,
+  `commands` 0 and `bytes` 0. `--keep` with `0h`, `31d` or `90m` exited 2.
+  `--keep 12h` made `history.db` at 0600 in 0700 folders and said that none
+  was older; `--keep 1w` said that those already deleted do not come back,
+  and, run again, `as before`; `--keep 3d --json` gave `was_seconds` 604800
+  and `deleted` 0. With the file overwritten by other bytes, `agent guard
+  history` and `--keep 12h` each exited 2, saying the history is
+  unreadable, and left the file's bytes as they were; with that file
+  unreadable (mode 000), `agent guard history` said permission denied and
+  exited 1. A watcher started on it moved it, bytes unchanged, to
+  `history.damaged.db`, started a new `history.db` (it and its `-wal` and
+  `-shm` at 0600 while open) and logged both paths, and that it keeps 24
+  hours since the time kept was never read. On 2026-11-22, on macOS, with
+  three commands that ended two days before and one recent, `--keep 1d`
+  with no watcher said that 3 older ones were deleted, and one stayed. On
+  2026-11-24, after each of the four updates of the agent folders entry, on
+  macOS and in the Linux container: `history.db` appeared under
+  `agent/guard` within 30 ms of the guard folder's move there, and never at
+  the old path. The serving watcher wrote each command as it finished, one
+  stopped by hand as `stopped` by you with its graph and processes; `agent
+  guard history` and its `--json` counted them, and `--keep 12h` said that
+  none was older, after which `agent guard history` gave 12 hours. The view
+  listed running and finished commands together and showed a finished one's
+  details. With the file's first 8 KiB overwritten under the serving
   watcher, it moved the file to `history.damaged.db` within about a second,
   logged both paths, and started a new history that took the next writes;
-  the watcher's snapshot and `agent guard history` named the copy. A second
-  such damage, found 17 to 21 seconds later, moved the first copy to
-  `history.damaged.2.db` and the damaged file to `history.damaged.db`, and
-  `doctor` still exited 0. Not yet observed: the view's find and side
+  the watcher's snapshot and `agent guard history` named the copy. That
+  damage came less than a minute after `--keep 12h`, before the watcher's
+  minute read of the time kept, and the old file no longer answered: the
+  new history kept 24 hours, and the log said it keeps 24 hours, the time
+  kept the old one had when last read, and when that was. A second such
+  damage, found 18 to 21 seconds later at the watcher's minute check, moved
+  the first copy to `history.damaged.2.db` and the damaged file to
+  `history.damaged.db`, the log saying the new history keeps 24 hours, as
+  the old one did, and `doctor` still exited 0. In separate runs in the
+  same two homes, a `--keep 12h` set 20 seconds before the same damage was
+  lost the same way and logged so; with the file replaced at its path by a
+  copy of it instead, the watcher's minute check found it 35 to 37 seconds
+  later, and the new history kept 12 hours, as the log said. Python's
+  `sqlite3` (SQLite 3.50.4 on macOS, 3.46.1 in the container) opened, read
+  and closed the history right after the watcher's first check, and, in
+  another run, with the watcher idle for a minute after its minute check;
+  each time two more commands finished and the watcher was killed with
+  SIGKILL: the `-wal` and `-shm` stayed at their names and in the watcher's
+  open files, and the next watcher found all 4 commands. `agent guard
+  history --keep 12h` or the view in place of Python's reader left the same
+  files and the same 4 commands. Not yet observed: the view's find and side
   panel, a trim, a watcher handing over commands it has not written, a
   write that fails, the copy's deletion, and WSL2.
 - Not yet observed: a stop under real memory pressure on macOS or WSL2, or on
