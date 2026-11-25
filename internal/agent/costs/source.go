@@ -4,6 +4,8 @@
 package costs
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -490,4 +492,21 @@ func Lookup(name string) (Tool, bool) {
 		}
 	}
 	return Tool{}, false
+}
+
+// decode fills v from raw, tolerating fields of the wrong type (they stay
+// zero) but not a syntax error.
+func decode(raw []byte, v any) bool {
+	err := json.Unmarshal(raw, v)
+	var wrong *json.UnmarshalTypeError
+	return err == nil || errors.As(err, &wrong)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
