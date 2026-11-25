@@ -344,13 +344,7 @@ func (w *watcher) glimpseAgent(agent procKey) {
 	// The kernel lists children newest first; the tick gives the oldest
 	// matching child the oldest note (see match), so the glimpse looks at
 	// them oldest first too.
-	var kids []platform.Process
-	for _, pid := range platform.Children(agent.pid) {
-		p, err := platform.ProcessInfo(pid)
-		if err == nil && !p.Zombie && p.PPID == agent.pid {
-			kids = append(kids, p)
-		}
-	}
+	kids := platform.LiveChildren(agent.pid)
 	slices.SortFunc(kids, func(a, b platform.Process) int {
 		return cmp.Or(cmp.Compare(a.Start, b.Start), cmp.Compare(a.PID, b.PID))
 	})
@@ -515,12 +509,8 @@ func (w *watcher) stillTheCalls(sh *shellWatch) bool {
 // the tick does. Nothing below is recorded or followed. The caller has made
 // sure the shell is still its call's.
 func (w *watcher) recordChildren(sh *shellWatch) {
-	for _, pid := range platform.Children(sh.key.pid) {
-		p, err := platform.ProcessInfo(pid)
-		if err != nil || p.Zombie || p.PPID != sh.key.pid {
-			continue
-		}
-		w.recordGlimpsed(procKey{pid, p.Start}, sh.owner, sh.key)
+	for _, p := range platform.LiveChildren(sh.key.pid) {
+		w.recordGlimpsed(procKey{p.PID, p.Start}, sh.owner, sh.key)
 	}
 }
 

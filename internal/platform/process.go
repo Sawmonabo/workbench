@@ -98,3 +98,18 @@ type Event struct {
 func Exited(err error) bool {
 	return errors.Is(err, fs.ErrNotExist) || errors.Is(err, unix.ESRCH)
 }
+
+// LiveChildren are the processes that are pid's children now, as [Children]
+// lists them and [ProcessInfo] reads each, leaving out a zombie and a process
+// whose parent is no longer pid when it is read (it was adopted, or its PID
+// was reused meanwhile). They are in the order Children gives.
+func LiveChildren(pid int) []Process {
+	var kids []Process
+	for _, child := range Children(pid) {
+		p, err := ProcessInfo(child)
+		if err == nil && !p.Zombie && p.PPID == pid {
+			kids = append(kids, p)
+		}
+	}
+	return kids
+}
