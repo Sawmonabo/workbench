@@ -179,8 +179,7 @@ func homebrewRepository(repository, directory string) bool {
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o022 != 0 {
 			return false
 		}
-		stat, ok := info.Sys().(*syscall.Stat_t)
-		if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
+		if !ownedByUserOrRoot(info) {
 			return false
 		}
 	}

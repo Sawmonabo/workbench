@@ -183,7 +183,7 @@ func RemoveClosedPath(path string) {
 		info.Size() != platform.BootIDLength {
 		return
 	}
-	if stat, ok := info.Sys().(*syscall.Stat_t); !ok || int(stat.Uid) != os.Geteuid() {
+	if !ownedByUser(info) {
 		return
 	}
 	boot, err := platform.BootID()

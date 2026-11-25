@@ -148,8 +148,7 @@ func PrivateTree(root, target string, create bool) error {
 				)
 			}
 			if Within(root, current) {
-				stat, ok := info.Sys().(*syscall.Stat_t)
-				if !ok || int(stat.Uid) != os.Geteuid() || info.Mode().Perm() != 0o700 {
+				if !ownedByUser(info) || info.Mode().Perm() != 0o700 {
 					return Fail(
 						ExitInvalid,
 						"permissions",
@@ -268,8 +267,7 @@ func safeParents(path string) error {
 					)+" is a file, not a folder, so Workbench cannot keep its files under it",
 				)
 			}
-			stat, ok := info.Sys().(*syscall.Stat_t)
-			if !ok || (stat.Uid != 0 && int(stat.Uid) != os.Geteuid()) {
+			if !ownedByUserOrRoot(info) {
 				return Fail(
 					ExitInvalid,
 					"permissions",
@@ -296,8 +294,7 @@ func safeParents(path string) error {
 }
 
 func owned(path string, info os.FileInfo) error {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || int(stat.Uid) != os.Geteuid() {
+	if !ownedByUser(info) {
 		return Fail(
 			ExitInvalid,
 			"permissions",
@@ -305,4 +302,17 @@ func owned(path string, info os.FileInfo) error {
 		)
 	}
 	return nil
+}
+
+// ownedByUser reports whether info is of a file the current user owns.
+func ownedByUser(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && int(stat.Uid) == os.Geteuid()
+}
+
+// ownedByUserOrRoot reports whether info is of a file the current user or
+// root owns.
+func ownedByUserOrRoot(info os.FileInfo) bool {
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	return ok && (stat.Uid == 0 || int(stat.Uid) == os.Geteuid())
 }
