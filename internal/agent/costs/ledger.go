@@ -1,19 +1,24 @@
 package costs
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -96,11 +101,33 @@ func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, erro
 // its folder private (see [Paths.dataFolder]), which refuses one that exists
 // and isn't. Only the import calls it without [Paths.Open], after its own gate
 // has moved the ledger.
+//
+// A compaction the open's upgrade left undone is noted in the import log, and
+// the next import worker tries it again (see Ledger.compact).
 func (p Paths) open() (*Ledger, error) {
 	if _, err := p.dataFolder(""); err != nil {
 		return nil, err
 	}
-	return OpenLedger(p.Ledger, true)
+	ledger, err := OpenLedger(p.Ledger, true)
+	if err == nil && ledger.compactErr != nil {
+		writeLog(p, notCompacted+ledger.compactErr.Error())
+	}
+	return ledger, err
+}
+
+// notCompacted begins the import log's line about a compaction that failed.
+const notCompacted = "the ledger is upgraded but not yet compacted: "
+
+// compactAgain runs the compaction an earlier upgrade left due, unless this
+// open has tried it, and notes in the import log why it failed. The import
+// worker calls it, holding the import lock.
+func (l *Ledger) compactAgain(ctx context.Context, p Paths) {
+	if l.compacted {
+		return
+	}
+	if err := l.compact(ctx); err != nil {
+		writeLog(p, notCompacted+err.Error())
+	}
 }
 
 // dataFolder makes the ledger's folder private, with the folder name below it
@@ -140,7 +167,7 @@ func (p Paths) moved() bool {
 }
 
 const (
-	schemaVersion = "6"
+	schemaVersion = "7"
 
 	// firstTool is the tool of every row written before the tool column
 	// existed, and the column's default: its request IDs are stored as they
@@ -148,30 +175,70 @@ const (
 	firstTool = "claude"
 )
 
-const schema = `
-CREATE TABLE responses (
-  request_id     TEXT PRIMARY KEY,
-  ts             TEXT NOT NULL,
-  model          TEXT NOT NULL,
-  project        TEXT NOT NULL,
-  session_id     TEXT NOT NULL,
-  account        TEXT NOT NULL,
-  account_source TEXT NOT NULL,
-  subscription   TEXT NOT NULL DEFAULT 'unknown',
-  subscription_source TEXT NOT NULL DEFAULT 'unknown',
-  root           TEXT NOT NULL DEFAULT '',
-  input          INTEGER NOT NULL,
-  output         INTEGER NOT NULL,
-  cache_write_5m INTEGER NOT NULL,
-  cache_write_1h INTEGER NOT NULL,
-  cache_read     INTEGER NOT NULL,
-  tool           TEXT NOT NULL DEFAULT 'claude'
+// responseSchema holds the responses, each name they repeat once in names,
+// and the rows waiting for their price tier. A response refers to its tool,
+// model, project, session, root, account and subscription by the id of a
+// name of that kind (nameTool and the rest; the root is a session), so a
+// row reads back as exactly the text it was given, "" and "unknown"
+// included. Its request_id is its ledger key packed (packID), account_source
+// and subscription_source are the EvidenceRank of each field's evidence, and
+// ts is its time in Unix milliseconds, UTC, NULL when it has none.
+// tier_pending.root is the row's TierFrom, a name of the session kind.
+const responseSchema = `
+CREATE TABLE names (
+  id   INTEGER PRIMARY KEY,
+  kind INTEGER NOT NULL,
+  name TEXT NOT NULL,
+  UNIQUE (kind, name)
 );
-CREATE INDEX responses_ts ON responses (ts);
-CREATE INDEX responses_project_model ON responses (project, model);
-CREATE INDEX responses_account ON responses (account);
-CREATE INDEX responses_tool ON responses (tool);
+CREATE TABLE responses (
+  id                  INTEGER PRIMARY KEY,
+  request_id          BLOB NOT NULL UNIQUE,
+  tool                INTEGER NOT NULL,
+  model               INTEGER NOT NULL,
+  project             INTEGER NOT NULL,
+  session             INTEGER NOT NULL,
+  root                INTEGER NOT NULL,
+  account             INTEGER NOT NULL,
+  subscription        INTEGER NOT NULL,
+  account_source      INTEGER NOT NULL,
+  subscription_source INTEGER NOT NULL,
+  ts                  INTEGER,
+  input               INTEGER NOT NULL,
+  output              INTEGER NOT NULL,
+  cache_write_5m      INTEGER NOT NULL,
+  cache_write_1h      INTEGER NOT NULL,
+  cache_read          INTEGER NOT NULL
+);
+CREATE TABLE tier_pending (
+  request_id BLOB PRIMARY KEY,
+  root       INTEGER NOT NULL
+) WITHOUT ROWID;
+`
+
+// responseIndexes are the indexes of responses beside its request_id: the rows
+// of a thread root, and the rows whose account or plan is still open to
+// correction by time, which the account resolution reads (accountsQuery
+// states openRows in the same words, or SQLite cannot use the index).
+const responseIndexes = `
 CREATE INDEX responses_root ON responses (tool, root);
+CREATE INDEX responses_open ON responses (tool, ts) WHERE ` + openRows + `;
+`
+
+// openRows is true for a row with a field its transcript did not decide.
+const openRows = "account_source < 4 OR subscription_source < 4"
+
+// The kinds of names.
+const (
+	nameTool = iota + 1
+	nameModel
+	nameProject
+	nameSession // a session, a thread root or a TierFrom
+	nameAccount
+	nameSubscription
+)
+
+const schema = responseSchema + responseIndexes + `
 CREATE TABLE files (
   path      TEXT PRIMARY KEY,
   offset    INTEGER NOT NULL,
@@ -187,23 +254,19 @@ CREATE TABLE tier_changes (
   tier      TEXT NOT NULL,
   PRIMARY KEY (thread_id, ts, tier)
 );
-CREATE TABLE tier_pending (
-  request_id TEXT PRIMARY KEY,
-  root       TEXT NOT NULL
-);
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 ` + subscriptionSchema + markSchema + priceSchema
 
 // subscriptionSchema is the part of the schema that attributes rows to a
 // subscription, also created by the upgrade of an older ledger. Every time is
-// in timeLayout, so it compares as text with responses.ts.
+// in timeLayout text; a response's time meets them as that text (storedTime).
 //
 // responses.account_source holds the evidence level of account (the email)
 // and responses.subscription_source that of subscription (EvidenceTranscript,
-// EvidenceSession, EvidenceObserved or EvidenceUnknown): each is decided on
-// its own, as a transcript can name a plan without naming an account.
-// responses.subscription is a subscription id ("unknown" when none) and
-// responses.root the session a hook names for the row.
+// EvidenceSession, EvidenceObserved, EvidenceInferred or EvidenceUnknown, by
+// rank): each is decided on its own, as a transcript can name a plan without
+// naming an account. responses.subscription is a subscription id ("unknown"
+// when none) and responses.root the session a hook names for the row.
 //
 //   - session_accounts: the sign-in a hook found when a session started (or
 //     resumed) at since, for the root session of a tool; a row of that
@@ -283,14 +346,22 @@ CREATE TABLE price_lists(
 type Ledger struct {
 	Path string
 	db   *sql.DB
+	// names are the names committed transactions stored, which a write
+	// resolves to their ids (see nameSet).
+	names nameCache
+	// compacted is whether this open already ran the compaction an upgrade
+	// leaves due, and compactErr why it failed (see Ledger.compact).
+	compacted  bool
+	compactErr error
 }
 
 // OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
-// an existing file: a version 1, 2, 4 or 5 ledger is upgraded in one
-// transaction that keeps every row, any other version fails with the path and
-// version and writes nothing. A zero-byte file (a crash between creating the file and
-// writing the schema) holds nothing and is treated as absent. create makes a
-// missing ledger, in a folder that must exist, instead of failing.
+// an existing file: a version 1, 2, 4, 5 or 6 ledger is upgraded in one
+// transaction that keeps every row, and then compacted (see Ledger.compact);
+// any other version fails with the path and version and writes nothing. A
+// zero-byte file (a crash between creating the file and writing the schema)
+// holds nothing and is treated as absent. create makes a missing ledger, in a
+// folder that must exist, instead of failing.
 //
 // The ledger copies emails, organization names and project paths out of the
 // tools' private files, so it is private too: its folder is private (see
@@ -339,42 +410,51 @@ func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 
 func (l *Ledger) prepare(exists, upgrade bool) error {
 	ctx := context.Background()
-	if exists {
-		var tables int
-		if err := l.db.QueryRowContext(
-			ctx,
-			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
-		).Scan(&tables); err != nil {
-			return sqlitefile.FileError(l.Path, err)
-		}
-		if tables == 0 {
-			return ledgerProblem(operation.ExitInvalid, l.Path,
-				"not a Workbench costs ledger; move it aside")
-		}
-		version, err := l.Meta("schema_version")
-		if err != nil {
-			return sqlitefile.FileError(l.Path, err)
-		}
-		switch version {
-		case schemaVersion:
-		case "1", "2", "4", "5":
-			if !upgrade {
-				break
-			}
-			if err := l.upgrade(ctx); err != nil {
-				return sqlitefile.FileError(l.Path, err)
-			}
-		default:
-			return ledgerProblem(operation.ExitInvalid, l.Path,
-				fmt.Sprintf("schema version %q, this tool needs %s", version, schemaVersion))
-		}
-	} else if err := l.create(ctx); err != nil {
-		if _, named := errors.AsType[*operation.Error](err); named {
-			return err
-		}
+	if !exists {
+		return l.fileError(l.create(ctx))
+	}
+	var tables int
+	if err := l.db.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+	).Scan(&tables); err != nil {
 		return sqlitefile.FileError(l.Path, err)
 	}
+	if tables == 0 {
+		return ledgerProblem(operation.ExitInvalid, l.Path,
+			"not a Workbench costs ledger; move it aside")
+	}
+	version, err := l.Meta("schema_version")
+	if err != nil {
+		return sqlitefile.FileError(l.Path, err)
+	}
+	switch version {
+	case schemaVersion:
+	case "1", "2", "4", "5", "6":
+		if !upgrade {
+			break
+		}
+		upgraded, err := l.upgrade(ctx)
+		if err != nil {
+			return l.fileError(err)
+		}
+		if upgraded {
+			l.compacted, l.compactErr = true, l.compact(ctx)
+		}
+	default:
+		return ledgerProblem(operation.ExitInvalid, l.Path,
+			fmt.Sprintf("schema version %q, this tool needs %s", version, schemaVersion))
+	}
 	return nil
+}
+
+// fileError is err as an error of the ledger's file: an [operation.Error],
+// which names the file already, as it is, and nil for nil.
+func (l *Ledger) fileError(err error) error {
+	if _, named := errors.AsType[*operation.Error](err); named || err == nil {
+		return err
+	}
+	return sqlitefile.FileError(l.Path, err)
 }
 
 // ledgerProblem is the error of the file at path that is not a ledger this
@@ -423,64 +503,865 @@ func (l *Ledger) create(ctx context.Context) error {
 // upgrade is the only write to existing data, in one transaction that keeps
 // every row: version 1 gains the tool column, versions 1 and 2 gain the saved
 // file state, the tier tables and the subscription columns and tables,
-// versions 1, 2 and 4 gain the account marks table, and versions 1, 2, 4 and 5
+// versions 1, 2 and 4 gain the account marks table, versions 1, 2, 4 and 5
 // gain the price tables, filled in the same transaction from the price list
 // files beside the ledger (see fillPrices), so no report is priced from fewer
-// prices than before. A row upgraded from version 1 or 2 keeps its email, its
+// prices than before, and every version below 7 has its responses and
+// tier_pending converted to names and numbers (see slim), which leaves the
+// compaction due. A row upgraded from version 1 or 2 keeps its email, its
 // subscription is unknown and its evidence is unknown, as the earlier
 // "session" and "sweep" sources are gone; a Claude Code row's root is its
-// session.
-func (l *Ledger) upgrade(ctx context.Context) error {
-	return l.transact(ctx, func(tx *sql.Tx) error {
-		var version string
-		if err := tx.QueryRowContext(
-			ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
-		).Scan(&version); err != nil {
+// session. upgraded is false when another process upgraded the ledger first.
+//
+// The upgrade of a large ledger takes seconds, and every other process that
+// opens the ledger meanwhile waits for it (see beginLong), then finds it
+// upgraded.
+func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
+	tx, err := l.beginLong(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var version string
+	if err := tx.QueryRowContext(
+		ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
+	).Scan(&version); err != nil {
+		return false, err
+	}
+	var statements []string
+	fill := false
+	switch version {
+	case "1":
+		statements = append(statements,
+			"ALTER TABLE responses ADD COLUMN tool TEXT NOT NULL DEFAULT 'claude'",
+		)
+		fallthrough
+	case "2":
+		statements = append(
+			statements,
+			"ALTER TABLE files ADD COLUMN state TEXT NOT NULL DEFAULT ''",
+			"ALTER TABLE files ADD COLUMN head TEXT NOT NULL DEFAULT ''",
+			`CREATE TABLE IF NOT EXISTS tier_changes (thread_id TEXT NOT NULL, ts TEXT NOT NULL,
+			  tier TEXT NOT NULL, PRIMARY KEY (thread_id, ts, tier))`,
+			`CREATE TABLE IF NOT EXISTS tier_pending (request_id TEXT PRIMARY KEY, root TEXT NOT NULL)`,
+			"ALTER TABLE responses ADD COLUMN subscription TEXT NOT NULL DEFAULT 'unknown'",
+			"ALTER TABLE responses ADD COLUMN subscription_source TEXT NOT NULL DEFAULT 'unknown'",
+			"ALTER TABLE responses ADD COLUMN root TEXT NOT NULL DEFAULT ''",
+			"UPDATE responses SET account_source = '"+EvidenceUnknown+"'",
+			"UPDATE responses SET root = session_id WHERE tool = '"+firstTool+"'",
+			subscriptionSchema,
+		)
+		fallthrough
+	case "4":
+		statements = append(statements, markSchema)
+		fallthrough
+	case "5":
+		statements, fill = append(statements, priceSchema), true
+	case "6":
+	default:
+		return false, nil // another process upgraded it first
+	}
+	if err := execAll(ctx, tx, statements...); err != nil {
+		return false, err
+	}
+	if fill {
+		if err := fillPrices(ctx, tx, l.Path); err != nil {
+			return false, err
+		}
+	}
+	if err := slim(ctx, tx, l.Path); err != nil {
+		return false, err
+	}
+	// The check the release before made holds for the same rows (tiersRule).
+	if _, err := tx.ExecContext(ctx, "UPDATE meta SET value = ? WHERE key = ? AND value = '1'",
+		tiersRule, tiersChecked); err != nil {
+		return false, err
+	}
+	if err := setMeta(ctx, tx, compactDue, "1"); err != nil {
+		return false, err
+	}
+	if err := setMeta(ctx, tx, "schema_version", schemaVersion); err != nil {
+		return false, err
+	}
+	return true, tx.Commit()
+}
+
+// upgradeWait is how long an open waits for another process's upgrade (see
+// beginLong): the upgrade of the largest ledger measured, 1.59 million rows,
+// took 20 to 24 seconds, and a slower computer may take a few times that.
+const upgradeWait = 2 * time.Minute
+
+// beginLong begins the upgrade's transaction, which takes the write lock. A
+// connection waits on a lock for its busy timeout, five seconds, and an
+// upgrade holds it longer: while another process holds it, BEGIN is tried
+// again until upgradeWait has passed.
+func (l *Ledger) beginLong(ctx context.Context) (*sql.Tx, error) {
+	deadline := time.Now().Add(upgradeWait)
+	for {
+		tx, err := l.db.BeginTx(ctx, nil)
+		if !sqlitefile.IsBusy(err) || time.Now().After(deadline) {
+			return tx, err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// compactDue is the meta note the upgrade to version 7 stores: the rows it
+// rewrote left the file's old pages free, and compact gives them back.
+const compactDue = "compact_due"
+
+// compact rewrites the file without its free pages once an upgrade left the
+// note compactDue: VACUUM, then the note's deletion, then a checkpoint that
+// empties the write-ahead log VACUUM filled. Nothing else rewrites the file.
+// A VACUUM that fails (another process writing past the busy timeout, a full
+// disk) leaves a valid ledger with free pages and the note, and the next
+// import worker tries again (see ingestLocked).
+func (l *Ledger) compact(ctx context.Context) error {
+	if due, err := l.Meta(compactDue); err != nil || due == "" {
+		return err
+	}
+	if _, err := l.db.ExecContext(ctx, "VACUUM"); err != nil {
+		return fmt.Errorf("compacting the ledger: %w", err)
+	}
+	if _, err := l.db.ExecContext(ctx, "DELETE FROM meta WHERE key = ?", compactDue); err != nil {
+		return err
+	}
+	_, err := l.db.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)")
+	return err
+}
+
+// slim converts responses and tier_pending of version 6, in the upgrade's
+// transaction, to the layout of responseSchema: names from every distinct
+// value, each row under its rowid with its names' ids, its packed key, its
+// evidence ranks and its time in milliseconds, and each waiting row with its
+// packed key and its TierFrom's id. An evidence word other than the five, or
+// a time that is neither "" nor exactly in timeLayout, refuses the upgrade,
+// naming the file and the value. Before the old tables are dropped every
+// converted row is read back and compared with its old one (see checkSlim).
+func slim(ctx context.Context, tx *sql.Tx, path string) error {
+	if err := execAll(ctx, tx,
+		"ALTER TABLE responses RENAME TO responses_6",
+		"ALTER TABLE tier_pending RENAME TO tier_pending_6",
+		responseSchema,
+	); err != nil {
+		return err
+	}
+	names, err := newSlimNames(ctx, tx)
+	if err != nil {
+		return err
+	}
+	defer names.close()
+	insert, err := tx.PrepareContext(ctx, insertRows(slimBatch))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = insert.Close() }()
+	rows, err := tx.QueryContext(ctx, `SELECT rowid, `+textColumns+` FROM responses_6`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	var r textRow
+	dest := r.fields()
+	batch := make([]any, 0, slimBatch*len(dest))
+	for rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
 			return err
 		}
-		var statements []string
-		switch version {
-		case "1":
-			statements = append(statements,
-				"ALTER TABLE responses ADD COLUMN tool TEXT NOT NULL DEFAULT 'claude'",
-				"CREATE INDEX IF NOT EXISTS responses_tool ON responses (tool)",
-			)
-			fallthrough
-		case "2":
-			statements = append(
-				statements,
-				"ALTER TABLE files ADD COLUMN state TEXT NOT NULL DEFAULT ''",
-				"ALTER TABLE files ADD COLUMN head TEXT NOT NULL DEFAULT ''",
-				`CREATE TABLE IF NOT EXISTS tier_changes (thread_id TEXT NOT NULL, ts TEXT NOT NULL,
-				  tier TEXT NOT NULL, PRIMARY KEY (thread_id, ts, tier))`,
-				`CREATE TABLE IF NOT EXISTS tier_pending (request_id TEXT PRIMARY KEY, root TEXT NOT NULL)`,
-				"ALTER TABLE responses ADD COLUMN subscription TEXT NOT NULL DEFAULT 'unknown'",
-				"ALTER TABLE responses ADD COLUMN subscription_source TEXT NOT NULL DEFAULT 'unknown'",
-				"ALTER TABLE responses ADD COLUMN root TEXT NOT NULL DEFAULT ''",
-				"CREATE INDEX IF NOT EXISTS responses_root ON responses (tool, root)",
-				"UPDATE responses SET account_source = '"+EvidenceUnknown+"'",
-				"UPDATE responses SET root = session_id WHERE tool = '"+firstTool+"'",
-				subscriptionSchema,
-			)
-			fallthrough
-		case "4":
-			statements = append(statements, markSchema)
-			fallthrough
-		case "5":
-			statements = append(statements, priceSchema)
-		default:
-			return nil // another process upgraded it first
+		accountRank, ok := storedRank(r.text[colAccountSource])
+		if !ok {
+			return slimRefusal(path, r, "the account evidence", colAccountSource)
 		}
-		for _, statement := range statements {
-			if _, err := tx.ExecContext(ctx, statement); err != nil {
+		subscriptionRank, ok := storedRank(r.text[colSubscriptionSource])
+		if !ok {
+			return slimRefusal(path, r, "the plan evidence", colSubscriptionSource)
+		}
+		var when any
+		if ts := r.text[colTime]; len(ts) > 0 {
+			ms, ok := parseStoredTime(string(ts))
+			if !ok {
+				return slimRefusal(path, r, "the time", colTime)
+			}
+			when = ms
+		}
+		batch = append(batch, r.rowid, packID(string(r.text[colID])))
+		for col := colTool; col <= colSubscription; col++ {
+			id, err := names.id(nameKinds[col], r.text[col])
+			if err != nil {
+				return err
+			}
+			batch = append(batch, id)
+		}
+		batch = append(batch, accountRank, subscriptionRank, when,
+			r.tokens[0], r.tokens[1], r.tokens[2], r.tokens[3], r.tokens[4])
+		if len(batch) == cap(batch) {
+			if _, err := insert.ExecContext(ctx, batch...); err != nil {
+				return err
+			}
+			batch = batch[:0]
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if len(batch) > 0 {
+		if _, err := tx.ExecContext(ctx, insertRows(len(batch)/len(dest)), batch...); err != nil {
+			return err
+		}
+	}
+	if err := slimPending(ctx, tx, names); err != nil {
+		return err
+	}
+	if err := checkSlim(ctx, tx); err != nil {
+		return err
+	}
+	return execAll(ctx, tx, "DROP TABLE responses_6", "DROP TABLE tier_pending_6", responseIndexes)
+}
+
+// execAll runs statements in tx, in order, up to the first that fails.
+func execAll(ctx context.Context, tx *sql.Tx, statements ...string) error {
+	for _, statement := range statements {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// slimPending converts tier_pending (see slim).
+func slimPending(ctx context.Context, tx *sql.Tx, names *slimNames) error {
+	insert, err := tx.PrepareContext(
+		ctx,
+		"INSERT INTO tier_pending (request_id, root) VALUES (?, ?)",
+	)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = insert.Close() }()
+	rows, err := tx.QueryContext(ctx, "SELECT request_id, root FROM tier_pending_6")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id string
+		var root sql.RawBytes
+		if err := rows.Scan(&id, &root); err != nil {
+			return err
+		}
+		rootID, err := names.id(nameSession, root)
+		if err != nil {
+			return err
+		}
+		if _, err := insert.ExecContext(ctx, packID(id), rootID); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// slimBatch is how many rows slim inserts in one statement.
+const slimBatch = 100
+
+// insertRows is the statement that inserts n converted responses, each with
+// its id and packedColumns.
+func insertRows(n int) string {
+	return `INSERT INTO responses (id, ` + packedColumns + `) VALUES ` +
+		strings.TrimSuffix(strings.Repeat("(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?),", n), ",")
+}
+
+// slimRefusal is the error of a value slim cannot convert: what, in the
+// column col of the response r.
+func slimRefusal(path string, r textRow, what string, col int) error {
+	return ledgerProblem(operation.ExitInvalid, path, fmt.Sprintf(
+		"the response %q holds %s %q, which this release cannot convert to schema version %s; "+
+			"the ledger was left as it was",
+		r.text[colID], what, r.text[col], schemaVersion))
+}
+
+// slimNames are the names slim stores, numbered from 1 as it meets them.
+type slimNames struct {
+	ctx    context.Context
+	insert *sql.Stmt
+	ids    [nameSubscription + 1]map[string]int64
+	next   int64
+}
+
+func newSlimNames(ctx context.Context, tx *sql.Tx) (*slimNames, error) {
+	insert, err := tx.PrepareContext(ctx, "INSERT INTO names (id, kind, name) VALUES (?, ?, ?)")
+	if err != nil {
+		return nil, err
+	}
+	n := &slimNames{ctx: ctx, insert: insert, next: 1}
+	for kind := range n.ids {
+		n.ids[kind] = map[string]int64{}
+	}
+	return n, nil
+}
+
+func (n *slimNames) close() { _ = n.insert.Close() }
+
+// id is the id of name, a name of kind, which it stores when it meets it
+// first.
+func (n *slimNames) id(kind int, name []byte) (int64, error) {
+	if id, ok := n.ids[kind][string(name)]; ok {
+		return id, nil
+	}
+	id := n.next
+	if _, err := n.insert.ExecContext(n.ctx, id, kind, string(name)); err != nil {
+		return 0, err
+	}
+	n.ids[kind][string(name)], n.next = id, id+1
+	return id, nil
+}
+
+// textRow is a response as version 6 stored it, read for slim and checkSlim:
+// its rowid, its text columns in the order of textColumns, valid until the
+// next row is read, and its token counts.
+type textRow struct {
+	rowid  int64
+	text   [colTime + 1]sql.RawBytes
+	tokens [5]int64
+}
+
+// The text columns of a response, in the order of textColumns and
+// packedColumns; nameKinds gives the kind of name of each name column.
+const (
+	colID = iota
+	colTool
+	colModel
+	colProject
+	colSession
+	colRoot
+	colAccount
+	colSubscription
+	colAccountSource
+	colSubscriptionSource
+	colTime
+)
+
+var nameKinds = [...]int{
+	colTool: nameTool, colModel: nameModel, colProject: nameProject, colSession: nameSession,
+	colRoot: nameSession, colAccount: nameAccount, colSubscription: nameSubscription,
+}
+
+// textColumns are the columns of a version 6 response, in the order of
+// textRow.
+const textColumns = `request_id, tool, model, project, session_id, root, account,
+  subscription, account_source, subscription_source, ts,
+  input, output, cache_write_5m, cache_write_1h, cache_read`
+
+// packedColumns are the same columns of a response as responseSchema stores
+// it.
+const packedColumns = `request_id, tool, model, project, session, root, account,
+  subscription, account_source, subscription_source, ts,
+  input, output, cache_write_5m, cache_write_1h, cache_read`
+
+func (r *textRow) fields() []any {
+	out := []any{&r.rowid}
+	for i := range r.text {
+		out = append(out, &r.text[i])
+	}
+	for i := range r.tokens {
+		out = append(out, &r.tokens[i])
+	}
+	return out
+}
+
+// checkSlim compares what slim wrote with the version 6 tables it read, before
+// they are dropped: as many rows in each table, the same sum of each token
+// column per tool, and every converted row read back through names, decoded,
+// equal to its old row field for field. The first difference is the error,
+// which rolls the upgrade back.
+func checkSlim(ctx context.Context, tx *sql.Tx) error {
+	if err := checkSlimTotals(ctx, tx); err != nil {
+		return err
+	}
+	names, err := loadNames(ctx, tx)
+	if err != nil {
+		return err
+	}
+	// Both tables in the order of their rowids, which slim kept: the rows
+	// pair up one by one.
+	olds, err := tx.QueryContext(
+		ctx,
+		`SELECT rowid, `+textColumns+` FROM responses_6 ORDER BY rowid`,
+	)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = olds.Close() }()
+	news, err := tx.QueryContext(ctx, `SELECT id, `+packedColumns+` FROM responses ORDER BY id`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = news.Close() }()
+	var old textRow
+	var p packedRow
+	oldDest, newDest := old.fields(), p.fields()
+	var buf []byte
+	for olds.Next() {
+		if err := olds.Scan(oldDest...); err != nil {
+			return err
+		}
+		p = packedRow{}
+		if news.Next() {
+			if err := news.Scan(newDest...); err != nil {
 				return err
 			}
 		}
-		if err := fillPrices(ctx, tx, l.Path); err != nil {
+		var same bool
+		if same, buf, err = p.decodesTo(old, names, buf); !same || err != nil {
+			return fmt.Errorf("the conversion to schema version %s changed the response %q "+
+				"(row %d) to %s (%v)", schemaVersion, old.text[colID], old.rowid, p, err)
+		}
+	}
+	if err := olds.Err(); err != nil {
+		return err
+	}
+	if err := news.Err(); err != nil {
+		return err
+	}
+	return checkSlimPending(ctx, tx, names)
+}
+
+// checkSlimTotals checks that the converted tables hold as many rows as the
+// version 6 ones and the same sum of each token column per tool.
+func checkSlimTotals(ctx context.Context, tx *sql.Tx) error {
+	for _, query := range []string{
+		`SELECT (SELECT COUNT(*) FROM responses_6), (SELECT COUNT(*) FROM responses)`,
+		`SELECT (SELECT COUNT(*) FROM tier_pending_6), (SELECT COUNT(*) FROM tier_pending)`,
+	} {
+		var before, after int64
+		if err := tx.QueryRowContext(ctx, query).Scan(&before, &after); err != nil {
 			return err
 		}
-		return setMeta(ctx, tx, "schema_version", schemaVersion)
+		if before != after {
+			return fmt.Errorf("the conversion to schema version %s kept %d of %d rows",
+				schemaVersion, after, before)
+		}
+	}
+	sums := func(query string) (map[string][5]int64, error) {
+		rows, err := tx.QueryContext(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = rows.Close() }()
+		out := map[string][5]int64{}
+		for rows.Next() {
+			var tool string
+			var s [5]int64
+			if err := rows.Scan(&tool, &s[0], &s[1], &s[2], &s[3], &s[4]); err != nil {
+				return nil, err
+			}
+			out[tool] = s
+		}
+		return out, rows.Err()
+	}
+	const totals = `SUM(input), SUM(output), SUM(cache_write_5m), SUM(cache_write_1h), SUM(cache_read)`
+	before, err := sums(`SELECT tool, ` + totals + ` FROM responses_6 GROUP BY tool`)
+	if err != nil {
+		return err
+	}
+	after, err := sums(`SELECT n.name, ` + totals + ` FROM responses
+	  JOIN names n ON n.id = responses.tool GROUP BY n.name`)
+	if err != nil {
+		return err
+	}
+	if !maps.Equal(before, after) {
+		return fmt.Errorf("the conversion to schema version %s changed the token sums per tool "+
+			"from %v to %v", schemaVersion, before, after)
+	}
+	return nil
+}
+
+// checkSlimPending compares every converted tier_pending row, decoded, with
+// its old one.
+func checkSlimPending(ctx context.Context, tx *sql.Tx, names []nameKey) error {
+	rows, err := tx.QueryContext(ctx, "SELECT request_id, root FROM tier_pending")
+	if err != nil {
+		return err
+	}
+	converted := map[string]string{}
+	for rows.Next() {
+		var packed []byte
+		var root int64
+		if err := rows.Scan(&packed, &root); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		id, err := unpackID(packed)
+		if err != nil || root < 1 || root >= int64(len(names)) || names[root].kind != nameSession {
+			_ = rows.Close()
+			return fmt.Errorf("the conversion to schema version %s wrote a waiting row "+
+				"it cannot read (%x, %d)", schemaVersion, packed, root)
+		}
+		converted[id] = names[root].name
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	rows, err = tx.QueryContext(ctx, "SELECT request_id, root FROM tier_pending_6")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, root string
+		if err := rows.Scan(&id, &root); err != nil {
+			return err
+		}
+		if got, ok := converted[id]; !ok || got != root {
+			return fmt.Errorf("the conversion to schema version %s changed the waiting row %q "+
+				"from %q to %q", schemaVersion, id, root, got)
+		}
+	}
+	return rows.Err()
+}
+
+// packedRow is a response as responseSchema stores it, as checkSlim reads it
+// beside its old row: its id, its packed key, and the columns after it in the
+// order of packedColumns (the text columns one place before their col
+// constant, then the five token counts), each NULL when there is no such row.
+type packedRow struct {
+	rowid sql.NullInt64
+	id    sql.RawBytes
+	cols  [colTime + 5]sql.NullInt64
+}
+
+func (p *packedRow) fields() []any {
+	out := []any{&p.rowid, &p.id}
+	for i := range p.cols {
+		out = append(out, &p.cols[i])
+	}
+	return out
+}
+
+func (p packedRow) String() string {
+	cols := make([]string, len(p.cols))
+	for i, c := range p.cols {
+		cols[i] = "NULL"
+		if c.Valid {
+			cols[i] = strconv.FormatInt(c.Int64, 10)
+		}
+	}
+	return fmt.Sprintf("%d %x %s", p.rowid.Int64, []byte(p.id), strings.Join(cols, " "))
+}
+
+// decodesTo reports whether the row, read through names, is old field for
+// field. buf is room for a time's text, returned for the next call.
+func (p packedRow) decodesTo(old textRow, names []nameKey, buf []byte) (bool, []byte, error) {
+	if !p.rowid.Valid || p.rowid.Int64 != old.rowid {
+		return false, buf, nil
+	}
+	id, err := unpackID(p.id)
+	if err != nil || id != string(old.text[colID]) {
+		return false, buf, err
+	}
+	for col := colTool; col <= colSubscription; col++ {
+		v := p.cols[col-1]
+		if !v.Valid || v.Int64 < 1 || v.Int64 >= int64(len(names)) {
+			return false, buf, nil
+		}
+		if name := names[v.Int64]; name.kind != nameKinds[col] ||
+			name.name != string(old.text[col]) {
+			return false, buf, nil
+		}
+	}
+	for _, col := range []int{colAccountSource, colSubscriptionSource} {
+		v := p.cols[col-1]
+		if !v.Valid || v.Int64 < 0 || v.Int64 >= int64(len(evidenceWords)) ||
+			evidenceWords[v.Int64] != string(old.text[col]) {
+			return false, buf, nil
+		}
+	}
+	switch ts := p.cols[colTime-1]; {
+	case !ts.Valid:
+		if len(old.text[colTime]) > 0 {
+			return false, buf, nil
+		}
+	default:
+		buf = time.UnixMilli(ts.Int64).UTC().AppendFormat(buf[:0], timeLayout)
+		if !bytes.Equal(buf, old.text[colTime]) {
+			return false, buf, nil
+		}
+	}
+	for i, n := range old.tokens {
+		if v := p.cols[colTime+i]; !v.Valid || v.Int64 != n {
+			return false, buf, nil
+		}
+	}
+	return true, buf, nil
+}
+
+// loadNames reads every name, by its id: the zero nameKey for an id that is
+// none.
+func loadNames(ctx context.Context, q querier) ([]nameKey, error) {
+	rows, err := q.QueryContext(ctx, "SELECT id, kind, name FROM names ORDER BY id")
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	names := []nameKey{{}}
+	for rows.Next() {
+		var id int64
+		var key nameKey
+		if err := rows.Scan(&id, &key.kind, &key.name); err != nil {
+			return nil, err
+		}
+		if id < 1 {
+			continue
+		}
+		for int64(len(names)) <= id {
+			names = append(names, nameKey{})
+		}
+		names[id] = key
+	}
+	return names, rows.Err()
+}
+
+// nameKey is a name of a kind.
+type nameKey struct {
+	kind int
+	name string
+}
+
+// nameCache is the names a Ledger has met in committed transactions, by name
+// and by id. A name is never deleted or renamed, so a committed id stays
+// right for as long as the ledger exists, whatever other processes write.
+type nameCache struct {
+	mu     sync.Mutex
+	loaded bool
+	ids    map[nameKey]int64
+	byID   map[int64]string
+}
+
+// nameSet resolves names to their ids, and back, inside one transaction: from
+// the ledger's cache, which it loads whole on its first use, else from the
+// table, adding a name that is missing. The names it added join the cache only
+// once the transaction commits (keep): a rolled-back one never stored them.
+type nameSet struct {
+	ctx         context.Context
+	tx          *sql.Tx
+	cache       *nameCache
+	added       map[nameKey]int64
+	addedByID   map[int64]string
+	find, write *sql.Stmt
+}
+
+func (l *Ledger) nameSet(ctx context.Context, tx *sql.Tx) *nameSet {
+	return &nameSet{
+		ctx: ctx, tx: tx, cache: &l.names,
+		added: map[nameKey]int64{}, addedByID: map[int64]string{},
+	}
+}
+
+// load fills the cache from the table, once per Ledger. The caller holds
+// the cache's lock.
+func (n *nameSet) load() error {
+	if n.cache.loaded {
+		return nil
+	}
+	names, err := loadNames(n.ctx, n.tx)
+	if err != nil {
+		return err
+	}
+	n.cache.ids, n.cache.byID = map[nameKey]int64{}, map[int64]string{}
+	for id, key := range names {
+		if key.kind != 0 {
+			n.cache.ids[key], n.cache.byID[int64(id)] = int64(id), key.name
+		}
+	}
+	n.cache.loaded = true
+	return nil
+}
+
+// cached is the id the cache or this transaction knows for key.
+func (n *nameSet) cached(key nameKey) (int64, bool, error) {
+	if id, ok := n.added[key]; ok {
+		return id, true, nil
+	}
+	n.cache.mu.Lock()
+	defer n.cache.mu.Unlock()
+	if err := n.load(); err != nil {
+		return 0, false, err
+	}
+	id, ok := n.cache.ids[key]
+	return id, ok, nil
+}
+
+// lookup is the id of name, a name of kind, found false when the ledger
+// holds no such name, and so no row that names it.
+func (n *nameSet) lookup(kind int, name string) (id int64, found bool, err error) {
+	key := nameKey{kind, name}
+	if id, ok, err := n.cached(key); ok || err != nil {
+		return id, ok, err
+	}
+	if n.find == nil {
+		if n.find, err = n.tx.PrepareContext(n.ctx,
+			"SELECT id FROM names WHERE kind = ? AND name = ?"); err != nil {
+			return 0, false, err
+		}
+	}
+	switch err = n.find.QueryRowContext(n.ctx, kind, name).Scan(&id); {
+	case errors.Is(err, sql.ErrNoRows):
+		return 0, false, nil
+	case err != nil:
+		return 0, false, err
+	}
+	// Another process committed it since the cache was loaded.
+	n.cache.mu.Lock()
+	n.cache.ids[key], n.cache.byID[id] = id, name
+	n.cache.mu.Unlock()
+	return id, true, nil
+}
+
+// id is the id of name, a name of kind, which it adds when the ledger holds
+// none.
+func (n *nameSet) id(kind int, name string) (int64, error) {
+	id, found, err := n.lookup(kind, name)
+	if found || err != nil {
+		return id, err
+	}
+	if n.write == nil {
+		if n.write, err = n.tx.PrepareContext(n.ctx,
+			"INSERT INTO names (kind, name) VALUES (?, ?) RETURNING id"); err != nil {
+			return 0, err
+		}
+	}
+	if err := n.write.QueryRowContext(n.ctx, kind, name).Scan(&id); err != nil {
+		return 0, err
+	}
+	n.added[nameKey{kind, name}], n.addedByID[id] = id, name
+	return id, nil
+}
+
+// name is the name whose id is id.
+func (n *nameSet) name(id int64) (string, error) {
+	if name, ok := n.addedByID[id]; ok {
+		return name, nil
+	}
+	n.cache.mu.Lock()
+	defer n.cache.mu.Unlock()
+	if err := n.load(); err != nil {
+		return "", err
+	}
+	if name, ok := n.cache.byID[id]; ok {
+		return name, nil
+	}
+	var key nameKey
+	if err := n.tx.QueryRowContext(n.ctx, "SELECT kind, name FROM names WHERE id = ?", id).
+		Scan(&key.kind, &key.name); err != nil {
+		return "", fmt.Errorf("the name %d of a response: %w", id, err)
+	}
+	// Another process committed it since the cache was loaded.
+	n.cache.ids[key], n.cache.byID[id] = id, key.name
+	return key.name, nil
+}
+
+// found is the id of each of keys that the ledger holds as a name of kind,
+// by the name: the others name no row.
+func (n *nameSet) found(kind int, keys []string) (map[string]int64, error) {
+	ids := map[string]int64{}
+	for _, key := range keys {
+		id, ok, err := n.lookup(kind, key)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			ids[key] = id
+		}
+	}
+	return ids, nil
+}
+
+// keep adds the names this transaction stored to the cache, once it has
+// committed.
+func (n *nameSet) keep() {
+	n.cache.mu.Lock()
+	defer n.cache.mu.Unlock()
+	for key, id := range n.added {
+		n.cache.ids[key], n.cache.byID[id] = id, key.name
+	}
+}
+
+// transactNames is transact with the transaction's nameSet, whose names join
+// the cache once it commits.
+func (l *Ledger) transactNames(ctx context.Context, fn func(*sql.Tx, *nameSet) error) error {
+	var names *nameSet
+	err := l.transact(ctx, func(tx *sql.Tx) error {
+		names = l.nameSet(ctx, tx)
+		return fn(tx, names)
 	})
+	if err == nil {
+		names.keep()
+	}
+	return err
+}
+
+// noTime is a response time that is none, a NULL ts: it sorts before every
+// time.
+const noTime = math.MinInt64
+
+// storedTime is a response time in timeLayout, "" for noTime.
+func storedTime(ms int64) string {
+	if ms == noTime {
+		return ""
+	}
+	return time.UnixMilli(ms).UTC().Format(timeLayout)
+}
+
+// parseStoredTime is the time text holds in milliseconds, ok only when text
+// is exactly in timeLayout, as storedTime writes it back.
+func parseStoredTime(text string) (ms int64, ok bool) {
+	when, err := time.Parse(timeLayout, text)
+	if err != nil {
+		return 0, false
+	}
+	ms = when.UnixMilli()
+	return ms, storedTime(ms) == text
+}
+
+// responseTime is a response's time in milliseconds, noTime for the zero time.
+func responseTime(t time.Time) int64 {
+	if t.IsZero() {
+		return noTime
+	}
+	return t.UnixMilli()
+}
+
+// sqlTime is a response time as SQL stores it, NULL for noTime.
+func sqlTime(ms int64) any {
+	if ms == noTime {
+		return nil
+	}
+	return ms
+}
+
+// evidenceWords are the evidence levels by rank (EvidenceRank).
+var evidenceWords = [...]string{
+	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+}
+
+// evidenceWord is the evidence level of a stored rank.
+func evidenceWord(rank int64) string {
+	if rank < 0 || rank >= int64(len(evidenceWords)) {
+		return EvidenceUnknown
+	}
+	return evidenceWords[rank]
+}
+
+// storedRank is EvidenceRank of a stored word, ok false for a word that is
+// no evidence level: EvidenceRank ranks it as unknown.
+func storedRank(word []byte) (rank int, ok bool) {
+	rank = EvidenceRank(string(word))
+	return rank, rank > 0 || string(word) == EvidenceUnknown
 }
 
 func (l *Ledger) transact(ctx context.Context, fn func(*sql.Tx) error) error {
@@ -500,6 +1381,11 @@ func (l *Ledger) Close() error { return l.db.Close() }
 
 type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// querier is the database or a transaction, to read from.
+type querier interface {
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
 }
 
 func setMeta(ctx context.Context, x execer, key, value string) error {
@@ -530,7 +1416,9 @@ func (l *Ledger) SetMeta(key, value string) error {
 // Empty reports whether the ledger holds no responses of tool.
 func (l *Ledger) Empty(tool string) (bool, error) {
 	var one int
-	err := l.db.QueryRow("SELECT 1 FROM responses WHERE tool = ? LIMIT 1", tool).Scan(&one)
+	err := l.db.QueryRow(`SELECT 1 FROM responses
+	  WHERE tool = (SELECT id FROM names WHERE kind = ? AND name = ?) LIMIT 1`,
+		nameTool, tool).Scan(&one)
 	if errors.Is(err, sql.ErrNoRows) {
 		return true, nil
 	}
@@ -619,8 +1507,9 @@ func (l *Ledger) DeleteFile(path string) error {
 
 // Tx is one transaction of ledger writes.
 type Tx struct {
-	ctx context.Context
-	tx  *sql.Tx
+	ctx   context.Context
+	tx    *sql.Tx
+	names *nameSet
 	// The statements Upsert runs, prepared on first use: SQLite parses each
 	// once per transaction instead of once per row.
 	upsert, pend, unpend *sql.Stmt
@@ -661,21 +1550,25 @@ func NewRun() *Run {
 }
 
 type storedRow struct {
-	ts     string
+	ts     int64    // milliseconds, noTime for none
 	tokens [5]int64 // input, output, cache_write_5m, cache_write_1h, cache_read
 	rank   [2]int   // EvidenceRank of the stored account_source and subscription_source
-	root   string   // the stored root session
 }
 
 // tiersUnresolved is the meta note a transaction that writes tier_pending or
 // tier_changes stores, and ResolveTiers clears: while it is set, rows of an
 // earlier run that stopped before ResolveTiers may still wait unchecked.
-// tiersChecked is the note every ResolveTiers stores: without it, no check
-// this build makes has run on the ledger (it is new, upgraded, or written by
-// an earlier build), so its waiting rows may never have been checked.
+// tiersChecked is the note every ResolveTiers stores, tiersRule: without it,
+// no check this build makes has run on the ledger (it is new, or written by
+// an earlier build), so its waiting rows may never have been checked. The
+// release before stores "1", which the upgrade to version 7 turns into
+// tiersRule; an import worker of that release that opened the ledger before
+// the upgrade and checks it after matches no row of version 7, yet clears
+// tiersUnresolved and stores "1" again, and the next check is then full.
 const (
 	tiersUnresolved = "tiers_unresolved"
 	tiersChecked    = "tiers_checked"
+	tiersRule       = "2" // 2: checked on schema version 7
 )
 
 // fullTierCheckDue reports whether the next ResolveTiers must check every
@@ -686,7 +1579,7 @@ func (l *Ledger) fullTierCheckDue() (bool, error) {
 		return false, err
 	}
 	checked, err := l.Meta(tiersChecked)
-	return unresolved != "" || checked == "", err
+	return unresolved != "" || checked != tiersRule, err
 }
 
 // Transaction runs fn and commits, or rolls back when fn fails. run is the
@@ -696,8 +1589,8 @@ func (l *Ledger) Transaction(ctx context.Context, run *Run, fn func(*Tx) error) 
 		run = NewRun()
 	}
 	t := &Tx{ctx: ctx, run: run, wrote: NewRun(), labels: map[string]string{}}
-	err := l.transact(ctx, func(tx *sql.Tx) error {
-		t.tx = tx
+	err := l.transactNames(ctx, func(tx *sql.Tx, names *nameSet) error {
+		t.tx, t.names = tx, names
 		if err := fn(t); err != nil {
 			return err
 		}
@@ -746,18 +1639,21 @@ func (t *Tx) prepared(slot **sql.Stmt, query string) (*sql.Stmt, error) {
 // copies its parent's usage with the fork's time and thread, so the time,
 // model, project and session come from the earliest occurrence; on a tie the
 // row read last wins, as it always has.
+//
+// Every name is its id and the root's ?17 is the id of the session name "",
+// for a row whose tool names no session.
 var upsert = `
-INSERT INTO responses (request_id, ts, model, project, session_id, account, account_source,
-                       subscription, subscription_source, root,
-                       input, output, cache_write_5m, cache_write_1h, cache_read, tool)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+INSERT INTO responses (request_id, tool, model, project, session, root, account, subscription,
+                       account_source, subscription_source, ts,
+                       input, output, cache_write_5m, cache_write_1h, cache_read)
+VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)
 ON CONFLICT(request_id) DO UPDATE SET
-  ts         = CASE WHEN ` + earlier + ` THEN excluded.ts ELSE ts END,
-  model      = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
-  project    = CASE WHEN ` + earlier + ` THEN excluded.project ELSE project END,
-  session_id = CASE WHEN ` + earlier + ` THEN excluded.session_id ELSE session_id END,
-  root       = CASE WHEN excluded.root <> '' AND (root = '' OR ` + earlier + `)
-                    THEN excluded.root ELSE root END,
+  ts      = CASE WHEN ` + earlier + ` THEN excluded.ts ELSE ts END,
+  model   = CASE WHEN ` + earlier + ` THEN excluded.model ELSE model END,
+  project = CASE WHEN ` + earlier + ` THEN excluded.project ELSE project END,
+  session = CASE WHEN ` + earlier + ` THEN excluded.session ELSE session END,
+  root    = CASE WHEN excluded.root <> ?17 AND (root = ?17 OR ` + earlier + `)
+                 THEN excluded.root ELSE root END,
   input = MAX(input, excluded.input), output = MAX(output, excluded.output),
   cache_write_5m = MAX(cache_write_5m, excluded.cache_write_5m),
   cache_write_1h = MAX(cache_write_1h, excluded.cache_write_1h),
@@ -769,84 +1665,71 @@ ON CONFLICT(request_id) DO UPDATE SET
                              THEN excluded.subscription_source ELSE subscription_source END
 RETURNING ts, input, output, cache_write_5m, cache_write_1h, cache_read,
   EXISTS (SELECT 1 FROM tier_pending WHERE tier_pending.request_id = responses.request_id),
-  ` + evidenceRank("account_source") + `, ` + evidenceRank("subscription_source") + `, root
+  account_source, subscription_source, root
 `
-
-// evidenceRank is the SQL form of EvidenceRank for a column.
-func evidenceRank(column string) string {
-	return "(CASE " + column + " WHEN '" + EvidenceTranscript + "' THEN 4 WHEN '" +
-		EvidenceSession + "' THEN 3 WHEN '" + EvidenceObserved + "' THEN 2 WHEN '" +
-		EvidenceInferred + "' THEN 1 ELSE 0 END)"
-}
 
 // strongerAccount and strongerSubscription are true when the incoming copy
 // rests on stronger evidence than the stored row for that field, which then
 // takes the copy's value; equal evidence keeps the stored one. The two are
 // independent: a copy may name the plan and not the account. In an UPDATE the
 // stored columns are the old values.
-var (
-	strongerAccount = evidenceRank("excluded.account_source") + " > " +
-		evidenceRank("account_source")
-	strongerSubscription = evidenceRank("excluded.subscription_source") + " > " +
-		evidenceRank("subscription_source")
+const (
+	strongerAccount      = "excluded.account_source > account_source"
+	strongerSubscription = "excluded.subscription_source > subscription_source"
 )
 
 // earlier is true when the incoming copy is at least as old as the stored
 // row, which then takes its attribution. In an UPDATE, ts is the old value.
-const earlier = `(ts = '' OR (excluded.ts <> '' AND excluded.ts <= ts))`
+const earlier = `(ts IS NULL OR (excluded.ts IS NOT NULL AND excluded.ts <= ts))`
 
-// timeLayout is how a response's time is stored: the form Claude Code writes,
-// UTC with milliseconds, which sorts as text.
+// timeLayout is the text of a time the ledger keeps as text, and of a
+// response's time where it meets one (storedTime): the form Claude Code
+// writes, UTC with milliseconds, which sorts as text.
 const timeLayout = "2006-01-02T15:04:05.000Z"
 
 // A report names days and months in the machine's time zone, the one the
 // session times beside them are shown in: a response belongs to the day on the
 // wall clock where it was made, not to the UTC day it is stored under.
 
-// periodFilter reports whether a stored response time falls from since up
-// to, not including, until, a zero time for no bound. A period covers dated
-// responses only: an undated one ("") sorts before every time, so the end
-// bound alone would count it while the start left it out.
-func periodFilter(since, until time.Time) func(ts string) bool {
+// periodFilter reports whether a response time in milliseconds falls from
+// since up to, not including, until, a zero time for no bound, each bound to
+// the millisecond it falls in. A period covers dated responses only: an
+// undated one (noTime) sorts before every time, so the end bound alone would
+// count it while the start left it out.
+func periodFilter(since, until time.Time) func(ts int64) bool {
 	if since.IsZero() && until.IsZero() {
-		return func(string) bool { return true }
+		return func(int64) bool { return true }
 	}
-	var lo, hi string
+	lo, hi := int64(math.MinInt64), int64(math.MaxInt64)
 	if !since.IsZero() {
-		lo = since.UTC().Format(timeLayout)
+		lo = since.UnixMilli()
 	}
 	if !until.IsZero() {
-		hi = until.UTC().Format(timeLayout)
+		hi = until.UnixMilli()
 	}
-	return func(ts string) bool {
-		return ts != "" && (lo == "" || ts >= lo) && (hi == "" || ts < hi)
-	}
+	return func(ts int64) bool { return ts != noTime && ts >= lo && ts < hi }
 }
 
-// LocalDate is the machine-local calendar day (YYYY-MM-DD) of a stored
-// response time, "none" when ts holds no time.
+// LocalDate is the machine-local calendar day (YYYY-MM-DD) of a response time
+// in timeLayout, "none" when ts holds no time.
 func LocalDate(ts string) string {
-	return cmp.Or(localDay(ts), "none")
-}
-
-// localDay is the machine-local calendar day (YYYY-MM-DD) of a stored response
-// time, "" when ts holds no time.
-func localDay(ts string) string {
 	when, err := time.Parse(time.RFC3339, ts)
 	if err != nil {
-		return ""
+		return "none"
 	}
-	return when.Local().Format(time.DateOnly)
+	return localDate(when.UnixMilli())
 }
 
-// localMonth is the machine-local month (YYYY-MM) of a stored response time,
-// "" when ts holds no time.
-func localMonth(ts string) string {
-	day := localDay(ts)
-	if day == "" {
+// localDate is LocalDate of a response time in milliseconds.
+func localDate(ms int64) string { return cmp.Or(localDay(ms), "none") }
+
+// localDay is the machine-local calendar day (YYYY-MM-DD) of a response time
+// in milliseconds, "" for noTime.
+func localDay(ms int64) string {
+	if ms == noTime {
 		return ""
 	}
-	return day[:7]
+	return time.UnixMilli(ms).Format(time.DateOnly)
 }
 
 // labels is the subscriptions table: each subscription id's label.
@@ -894,25 +1777,33 @@ func (l *Ledger) DropHeldCopies(
 	if tool == firstTool {
 		prefix = copyMark
 	}
-	// A key range on the primary key: every key that starts with prefix.
-	end := prefix[:len(prefix)-1] + string(rune(prefix[len(prefix)-1]+1))
+	// A key range on the unique request_id: every key that starts with
+	// prefix, which is stored as its text (packID).
+	from := packID(prefix)
+	end := slices.Clone(from)
+	end[len(end)-1]++
 	rows, err := l.db.QueryContext(ctx,
 		"SELECT request_id FROM responses WHERE request_id >= ? AND request_id < ?",
-		prefix, end)
+		from, end)
 	if err != nil {
 		return err
 	}
-	var held []string
+	var held [][]byte
 	for rows.Next() {
-		var id string
-		if err := rows.Scan(&id); err != nil {
+		var packed []byte
+		if err := rows.Scan(&packed); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		id, err := unpackID(packed)
+		if err != nil {
 			_ = rows.Close()
 			return err
 		}
 		// The key is "<thread>@<time>:<id>", the time in timeLayout.
 		thread, rest, ok := strings.Cut(strings.TrimPrefix(id, prefix), "@")
 		if ok && len(rest) > len(timeLayout) && holds(thread, rest[:len(timeLayout)]) {
-			held = append(held, id)
+			held = append(held, packed)
 		}
 	}
 	if err := rows.Close(); err != nil {
@@ -951,17 +1842,15 @@ func (t *Tx) Upsert(u Usage) error {
 	accountEvidence := cmp.Or(u.AccountEvidence, EvidenceUnknown)
 	subscriptionEvidence := cmp.Or(u.SubscriptionEvidence, EvidenceUnknown)
 	rank := [2]int{EvidenceRank(accountEvidence), EvidenceRank(subscriptionEvidence)}
-	when := ""
-	if !u.Time.IsZero() {
-		when = u.Time.UTC().Format(timeLayout)
-	}
+	when := responseTime(u.Time)
 	// A copy later than a committed row with a time, with no count above the
 	// committed ones and no stronger evidence, changes nothing: the
 	// attribution stays, MAX keeps the counts, and the pending tier follows
 	// the stored attribution. A stored time only moves earlier, counts and
 	// evidence only grow, so this holds whatever this transaction wrote since.
 	if seen, ok := t.run.seen[id]; ok && rank[0] <= seen.rank[0] && rank[1] <= seen.rank[1] &&
-		when != "" && seen.ts != "" && when > seen.ts && u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
+		when != noTime && seen.ts != noTime && when > seen.ts &&
+		u.Input <= seen.tokens[0] && u.Output <= seen.tokens[1] &&
 		u.CacheWrite5m <= seen.tokens[2] &&
 		u.CacheWrite1h <= seen.tokens[3] &&
 		u.CacheRead <= seen.tokens[4] {
@@ -973,29 +1862,64 @@ func (t *Tx) Upsert(u Usage) error {
 		}
 		t.labels[u.Subscription] = u.SubscriptionLabel
 	}
+	values := []any{packID(id)}
+	for _, name := range []struct {
+		kind  int
+		value string
+	}{
+		{nameTool, u.Tool},
+		{nameModel, u.Model},
+		{nameProject, u.Project},
+		{nameSession, u.Session},
+		{nameSession, u.Root},
+		{nameAccount, cmp.Or(u.Account, "unknown")},
+		{nameSubscription, cmp.Or(u.Subscription, "unknown")},
+	} {
+		id, err := t.names.id(name.kind, name.value)
+		if err != nil {
+			return err
+		}
+		values = append(values, id)
+	}
+	// No row has the root "" while the ledger holds no such name, and no
+	// row's root is -1.
+	noRoot, found, err := t.names.lookup(nameSession, "")
+	if err != nil {
+		return err
+	} else if !found {
+		noRoot = -1
+	}
+	values = append(values, rank[0], rank[1], sqlTime(when),
+		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, noRoot)
 	statement, err := t.prepared(&t.upsert, upsert)
 	if err != nil {
 		return err
 	}
 	var stored storedRow
+	var storedTs sql.NullInt64
 	var pending bool
-	if err := statement.QueryRowContext(
-		t.ctx,
-		id, when, u.Model, u.Project, u.Session, cmp.Or(u.Account, "unknown"), accountEvidence,
-		cmp.Or(u.Subscription, "unknown"), subscriptionEvidence, u.Root,
-		u.Input, u.Output, u.CacheWrite5m, u.CacheWrite1h, u.CacheRead, u.Tool,
-	).Scan(
-		&stored.ts, &stored.tokens[0], &stored.tokens[1],
-		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending, &stored.rank[0], &stored.rank[1], &stored.root,
+	var root int64
+	if err := statement.QueryRowContext(t.ctx, values...).Scan(
+		&storedTs, &stored.tokens[0], &stored.tokens[1],
+		&stored.tokens[2], &stored.tokens[3], &stored.tokens[4], &pending,
+		&stored.rank[0], &stored.rank[1], &root,
 	); err != nil {
 		return err
+	}
+	stored.ts = noTime
+	if storedTs.Valid {
+		stored.ts = storedTs.Int64
 	}
 	t.wrote.seen[id] = stored
 	// The stored root, not the incoming one: a copy with stronger evidence
 	// changes the row's account but keeps the root of the copy that set it,
 	// and that is the session a late resolution must look at. "" for the
 	// rows of a tool that name no session.
-	t.wrote.roots[rootKey(u.Tool, stored.root)] = true
+	storedRoot, err := t.names.name(root)
+	if err != nil {
+		return err
+	}
+	t.wrote.roots[rootKey(u.Tool, storedRoot)] = true
 	if stored.ts != when {
 		return nil // an earlier copy's attribution is kept, and so is its tier
 	}
@@ -1007,7 +1931,11 @@ func (t *Tx) Upsert(u Usage) error {
 		if err != nil {
 			return err
 		}
-		_, err = statement.ExecContext(t.ctx, id)
+		_, err = statement.ExecContext(t.ctx, values[0])
+		return err
+	}
+	from, err := t.names.id(nameSession, u.TierFrom)
+	if err != nil {
 		return err
 	}
 	statement, err = t.prepared(&t.pend, `INSERT INTO tier_pending (request_id, root) VALUES (?, ?)
@@ -1015,7 +1943,7 @@ func (t *Tx) Upsert(u Usage) error {
 	if err != nil {
 		return err
 	}
-	if _, err = statement.ExecContext(t.ctx, id, u.TierFrom); err != nil {
+	if _, err = statement.ExecContext(t.ctx, values[0], from); err != nil {
 		return err
 	}
 	t.wrote.pending[id] = true
@@ -1475,8 +2403,11 @@ func (b accountBasis) signedIn(tool, root, ts string) attribution {
 	return attribution{before.account, before.subscription, EvidenceObserved, false}
 }
 
+// accountRow is a response as the account resolution reads it: its id, and
+// each field as its text, the time in timeLayout.
 type accountRow struct {
-	id, tool, ts, root, account, accountSource, subscription, subscriptionSource string
+	id                                                                       int64
+	tool, ts, root, account, accountSource, subscription, subscriptionSource string
 }
 
 // update is the change that takes a row to what the evidence says, ok false
@@ -1528,7 +2459,7 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 }
 
 // accountsQuery selects the rows ResolveAccounts attributes: those with a
-// field not decided by its transcript, all when scope is nil,
+// field not decided by its transcript (openRows), all when scope is nil,
 // else the rows scope stored, the rows of its sessions and of the sessions in
 // dirty, each tool's rows after its watermark, and the rows of a subscription
 // whose email owners names for the first time (not in known) whose email no
@@ -1537,70 +2468,113 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 // when there is such a subscription. When account marks were stored since the
 // last resolution (basis.marked), the unknown and inferred rows from the
 // start of the stretch they changed are read too.
-func accountsQuery(scope *Run, dirty []string, basis accountBasis) (string, []any, error) {
-	query := `SELECT request_id, tool, ts, root, account, account_source,
+//
+// A watermark and a stretch start are timeLayout text, and meet a row's time
+// as milliseconds (sinceBound); no bound leaves the time out of the
+// condition. A tool, a session or a subscription the ledger holds no name of
+// has no rows, and adds no condition. Each condition on a tool's times states
+// openRows again, so SQLite reads it through responses_open.
+func accountsQuery(
+	scope *Run,
+	dirty []string,
+	basis accountBasis,
+	names *nameSet,
+) (string, []any, error) {
+	query := `SELECT id, tool, ts, root, account, account_source,
 	  subscription, subscription_source FROM responses
-	 WHERE ts <> '' AND (account_source <> '` + EvidenceTranscript + `'
-	   OR subscription_source <> '` + EvidenceTranscript + `')`
+	 WHERE ts IS NOT NULL AND (` + openRows + `)`
 	if scope == nil {
 		return query, nil, nil
 	}
-	ids, err := json.Marshal(slices.Collect(maps.Keys(scope.seen)))
-	if err != nil {
-		return "", nil, err
+	ids := make([]string, 0, len(scope.seen))
+	for id := range scope.seen {
+		ids = append(ids, hex.EncodeToString(packID(id)))
 	}
-	conds, args := []string{"request_id IN (SELECT value FROM json_each(?))"}, []any{string(ids)}
+	conds := []string{"request_id IN (SELECT unhex(value) FROM json_each(?))"}
+	args := []any{jsonText(ids)}
 	roots := map[string][]string{}
 	for _, key := range slices.Concat(slices.Collect(maps.Keys(scope.roots)), dirty) {
 		if tool, root, ok := strings.Cut(key, ":"); ok {
 			roots[tool] = append(roots[tool], root)
 		}
 	}
+	tools, err := names.found(nameTool, slices.Concat(slices.Collect(maps.Keys(roots)),
+		slices.Collect(maps.Keys(basis.through)), slices.Collect(maps.Keys(basis.stretches))))
+	if err != nil {
+		return "", nil, err
+	}
 	for _, tool := range slices.Sorted(maps.Keys(roots)) {
-		encoded, err := json.Marshal(roots[tool])
+		rootIDs, err := names.found(nameSession, roots[tool])
 		if err != nil {
 			return "", nil, err
 		}
-		conds = append(conds, "(tool = ? AND root IN (SELECT value FROM json_each(?)))")
-		args = append(args, tool, string(encoded))
+		if id, ok := tools[tool]; ok && len(rootIDs) > 0 {
+			conds = append(conds, "(tool = ? AND root IN (SELECT value FROM json_each(?)))")
+			args = append(args, id, jsonText(slices.Sorted(maps.Values(rootIDs))))
+		}
 	}
 	for _, tool := range slices.Sorted(maps.Keys(basis.through)) {
-		conds = append(conds, "(tool = ? AND ts > ?)")
-		args = append(args, tool, basis.through[tool])
+		if id, ok := tools[tool]; ok {
+			cond, bound := sinceBound("ts > ?", basis.through[tool])
+			conds = append(conds, "(tool = ? AND "+cond+" AND ("+openRows+"))")
+			args = append(append(args, id), bound...)
+		}
 	}
-	var learned []string
+	var unseen []string
 	for _, subscription := range basis.owned() {
 		if !basis.known[subscription] {
-			learned = append(learned, subscription)
+			unseen = append(unseen, subscription)
 		}
 	}
+	learned, err := names.found(nameSubscription, unseen)
+	if err != nil {
+		return "", nil, err
+	}
 	if len(learned) > 0 {
-		encoded, err := json.Marshal(learned)
-		if err != nil {
-			return "", nil, err
-		}
-		conds = append(
-			conds,
-			`(subscription_source IN ('`+EvidenceTranscript+`', '`+EvidenceInferred+
-				`') AND account_source <> '`+EvidenceTranscript+
-				`' AND subscription IN (SELECT value FROM json_each(?)))`,
-		)
-		args = append(args, string(encoded))
+		conds = append(conds, `(subscription_source IN (4, 1) AND account_source < 4
+		   AND subscription IN (SELECT value FROM json_each(?)))`)
+		args = append(args, jsonText(slices.Sorted(maps.Values(learned))))
 	}
 	if basis.marked != "" {
 		// Rows the new marks may infer anew: from the start of the stretch
 		// the earliest of them changed, of the tools that infer.
 		for _, tool := range slices.Sorted(maps.Keys(basis.stretches)) {
+			id, ok := tools[tool]
+			if !ok {
+				continue
+			}
 			since := ""
 			if basis.marked != dirtyRootsAll {
 				since = basis.stretches[tool].start(basis.marked)
 			}
-			conds = append(conds, `(tool = ? AND ts >= ? AND account_source IN ('`+
-				EvidenceUnknown+`', '`+EvidenceInferred+`'))`)
-			args = append(args, tool, since)
+			cond, bound := sinceBound("ts >= ?", since)
+			conds = append(conds, "(tool = ? AND "+cond+" AND account_source IN (0, 1) AND ("+
+				openRows+"))")
+			args = append(append(args, id), bound...)
 		}
 	}
 	return query + " AND (" + strings.Join(conds, " OR ") + ")", args, nil
+}
+
+// jsonText is values as a JSON array, for json_each. A list of strings or
+// numbers always encodes.
+func jsonText[T string | int64](values []T) string {
+	if len(values) == 0 {
+		return "[]"
+	}
+	encoded, _ := json.Marshal(values)
+	return string(encoded)
+}
+
+// sinceBound is cond, a condition on ts with one argument, for since, a time
+// in timeLayout, and since in milliseconds; for "" (no bound) it is a
+// condition every dated row meets and no argument.
+func sinceBound(cond, since string) (string, []any) {
+	ms, ok := parseStoredTime(since)
+	if !ok {
+		return "ts IS NOT NULL", nil
+	}
+	return cond, []any{ms}
 }
 
 // accountsDue reads which sessions BindSession bound since the last
@@ -1652,17 +2626,17 @@ func (l *Ledger) ResolveAccounts(
 	scope *Run,
 	signIns map[string][]SignIn,
 ) error {
-	return l.transact(ctx, func(tx *sql.Tx) error {
+	return l.transactNames(ctx, func(tx *sql.Tx, names *nameSet) error {
 		dirty, full, err := accountsDue(ctx, tx)
 		if err != nil {
 			return err
 		}
-		moved, err := moveRowsToRoots(ctx, tx)
+		moved, err := moveRowsToRoots(ctx, tx, names)
 		if err != nil {
 			return err
 		}
 		dirty = append(dirty, moved...)
-		if err := fillSessionPlans(ctx, tx); err != nil {
+		if err := fillSessionPlans(ctx, tx, names); err != nil {
 			return err
 		}
 		basis, err := loadAccountBasis(ctx, tx, signIns)
@@ -1672,49 +2646,74 @@ func (l *Ledger) ResolveAccounts(
 		if full {
 			scope = nil
 		}
-		query, args, err := accountsQuery(scope, dirty, basis)
+		query, args, err := accountsQuery(scope, dirty, basis, names)
 		if err != nil {
 			return err
 		}
-		rows, err := tx.QueryContext(ctx, query, args...)
+		changes, err := accountChanges(ctx, tx, names, basis, query, args)
 		if err != nil {
-			return err
-		}
-		type change struct {
-			id   string
-			next accountRow
-		}
-		var changes []change
-		for rows.Next() {
-			var r accountRow
-			if err := rows.Scan(
-				&r.id, &r.tool, &r.ts, &r.root,
-				&r.account, &r.accountSource, &r.subscription, &r.subscriptionSource,
-			); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			if next, ok := r.update(basis.attribute(r)); ok {
-				changes = append(changes, change{r.id, next})
-			}
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
 			return err
 		}
 		for _, c := range changes {
+			account, err := names.id(nameAccount, c.account)
+			if err != nil {
+				return err
+			}
+			subscription, err := names.id(nameSubscription, c.subscription)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx,
 				`UPDATE responses SET account = ?, account_source = ?,
-				  subscription = ?, subscription_source = ? WHERE request_id = ?`,
-				c.next.account, c.next.accountSource,
-				c.next.subscription, c.next.subscriptionSource, c.id); err != nil {
+				  subscription = ?, subscription_source = ? WHERE id = ?`,
+				account, EvidenceRank(c.accountSource),
+				subscription, EvidenceRank(c.subscriptionSource), c.id); err != nil {
 				return err
 			}
 		}
 		return finishAccounts(ctx, tx, basis)
 	})
+}
+
+// accountChanges reads the rows of accountsQuery's query and args, with
+// their names and their time as text, and returns each one basis attributes
+// anew.
+func accountChanges(
+	ctx context.Context,
+	tx *sql.Tx,
+	names *nameSet,
+	basis accountBasis,
+	query string,
+	args []any,
+) ([]accountRow, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var changes []accountRow
+	for rows.Next() {
+		var r accountRow
+		var ts int64
+		var ids [4]int64
+		var ranks [2]int64
+		if err := rows.Scan(
+			&r.id, &ids[0], &ts, &ids[1], &ids[2], &ranks[0], &ids[3], &ranks[1],
+		); err != nil {
+			return nil, err
+		}
+		for i, to := range []*string{&r.tool, &r.root, &r.account, &r.subscription} {
+			if *to, err = names.name(ids[i]); err != nil {
+				return nil, err
+			}
+		}
+		r.ts = storedTime(ts)
+		r.accountSource, r.subscriptionSource = evidenceWord(ranks[0]), evidenceWord(ranks[1])
+		if next, ok := r.update(basis.attribute(r)); ok {
+			changes = append(changes, next)
+		}
+	}
+	return changes, rows.Err()
 }
 
 // fillSessionPlans gives a row of a tool with a SessionPlan, whose
@@ -1726,53 +2725,36 @@ func (l *Ledger) ResolveAccounts(
 // a hook bound between the two rows may be another process under another
 // sign-in, so a row never takes a subscription across one. Only sessions that
 // hold rows of both kinds are read.
-func fillSessionPlans(ctx context.Context, tx *sql.Tx) error {
-	type planRow struct {
-		id, group, root, ts, subscription, account string
-		named, emailNamed                          bool
-		accountRank                                int
-	}
+func fillSessionPlans(ctx context.Context, tx *sql.Tx, names *nameSet) error {
 	for _, tool := range Tools {
 		if tool.SessionPlan == "" {
 			continue
 		}
+		toolID, found, err := names.lookup(nameTool, tool.Name)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue
+		}
 		group := "root"
 		if tool.SessionPlan == planNext {
-			group = "session_id"
+			group = "session"
 		}
 		bound, err := sessionStarts(ctx, tx, tool.Name)
 		if err != nil {
 			return err
 		}
-		rows, err := tx.QueryContext(ctx, `
-			WITH mixed AS (
-			  SELECT `+group+` FROM responses WHERE tool = ?1 GROUP BY `+group+`
-			  HAVING MAX(subscription_source = '`+EvidenceTranscript+`') = 1
-			     AND MIN(subscription_source = '`+EvidenceTranscript+`') = 0)
-			SELECT request_id, `+group+`, root, ts, subscription,
-			       subscription_source = '`+EvidenceTranscript+`',
-			       account, account_source = '`+EvidenceTranscript+`', `+evidenceRank("account_source")+`
-			FROM responses WHERE tool = ?1 AND `+group+` IN (SELECT `+group+` FROM mixed)
-			ORDER BY `+group+`, ts, request_id`, tool.Name)
+		all, err := mixedPlanRows(ctx, tx, toolID, group)
 		if err != nil {
 			return err
 		}
-		var all []planRow
-		for rows.Next() {
-			var r planRow
-			if err := rows.Scan(&r.id, &r.group, &r.root, &r.ts, &r.subscription, &r.named,
-				&r.account, &r.emailNamed, &r.accountRank); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			all = append(all, r)
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
-			return err
-		}
+		// Each group's rows in time order, a tie in the order of their ledger
+		// keys; the groups are apart, so their order does not matter.
+		slices.SortFunc(all, func(a, b planRow) int {
+			return cmp.Or(cmp.Compare(a.group, b.group), cmp.Compare(a.ts, b.ts),
+				strings.Compare(a.key, b.key))
+		})
 		if tool.SessionPlan == planNext {
 			slices.Reverse(all)
 		}
@@ -1786,24 +2768,75 @@ func fillSessionPlans(ctx context.Context, tx *sql.Tx) error {
 				from = r
 				continue
 			}
-			if from == nil || bound.between(r.root, from.ts, r.ts) {
+			if from == nil {
 				continue
 			}
-			account, accountSource := r.account, ""
+			root, err := names.name(r.root)
+			if err != nil {
+				return err
+			}
+			if bound.between(root, storedTime(from.ts), storedTime(r.ts)) {
+				continue
+			}
+			account, accountSource := r.account, any(nil)
 			if from.emailNamed && r.accountRank < EvidenceRank(EvidenceTranscript) {
-				account, accountSource = from.account, EvidenceTranscript
+				account, accountSource = from.account, EvidenceRank(EvidenceTranscript)
 			}
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE responses SET subscription = ?, subscription_source = ?,
-				   account = ?, account_source = COALESCE(NULLIF(?, ''), account_source)
-				 WHERE request_id = ?`,
-				from.subscription, EvidenceTranscript, account, accountSource, r.id,
+				`UPDATE responses SET subscription = ?, subscription_source = 4,
+				   account = ?, account_source = COALESCE(?, account_source)
+				 WHERE id = ?`,
+				from.subscription, account, accountSource, r.id,
 			); err != nil {
 				return err
 			}
 		}
 	}
 	return nil
+}
+
+// planRow is a row fillSessionPlans reads: its id, its group (its root or
+// its session), root, subscription and account ids, its time, its ledger
+// key, whether its transcript named its subscription and its email, and the
+// rank of its email's evidence.
+type planRow struct {
+	id, group, root, subscription, account int64
+	ts                                     int64
+	key                                    string
+	named, emailNamed                      bool
+	accountRank                            int
+}
+
+// mixedPlanRows reads the rows of the tool toolID in each group (the column
+// group) that holds rows with and without a subscription their transcript
+// named.
+func mixedPlanRows(ctx context.Context, tx *sql.Tx, toolID int64, group string) ([]planRow, error) {
+	rows, err := tx.QueryContext(ctx, `
+		WITH mixed AS (
+		  SELECT `+group+` FROM responses WHERE +tool = ?1 GROUP BY `+group+`
+		  HAVING MAX(subscription_source = 4) = 1 AND MIN(subscription_source = 4) = 0)
+		SELECT id, request_id, `+group+`, root, IFNULL(ts, ?2), subscription,
+		       subscription_source = 4, account, account_source = 4, account_source
+		FROM responses WHERE +tool = ?1 AND `+group+` IN (SELECT `+group+` FROM mixed)`,
+		toolID, int64(noTime))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var all []planRow
+	for rows.Next() {
+		var r planRow
+		var packed []byte
+		if err := rows.Scan(&r.id, &packed, &r.group, &r.root, &r.ts, &r.subscription,
+			&r.named, &r.account, &r.emailNamed, &r.accountRank); err != nil {
+			return nil, err
+		}
+		if r.key, err = unpackID(packed); err != nil {
+			return nil, err
+		}
+		all = append(all, r)
+	}
+	return all, rows.Err()
 }
 
 // boundTimes are the times hooks bound each root session of a tool, in order.
@@ -1849,7 +2882,7 @@ const maxThreadDepth = 64
 // may be read before or after them, in this run or another, so the walk is
 // done here, over every link, whatever order the files were read in. A row
 // already under its root is not touched, so it is idempotent.
-func moveRowsToRoots(ctx context.Context, tx *sql.Tx) ([]string, error) {
+func moveRowsToRoots(ctx context.Context, tx *sql.Tx, names *nameSet) ([]string, error) {
 	rows, err := tx.QueryContext(ctx, "SELECT tool, thread, parent FROM thread_parents")
 	if err != nil {
 		return nil, err
@@ -1885,12 +2918,39 @@ func moveRowsToRoots(ctx context.Context, tx *sql.Tx) ([]string, error) {
 		if root == key.session {
 			continue // a cycle in damaged data: no root to move to
 		}
+		tool, found, err := names.lookup(nameTool, key.tool)
+		if err != nil || !found {
+			if err != nil {
+				return nil, err
+			}
+			continue // no rows of the tool
+		}
+		under, found, err := names.lookup(nameSession, key.session)
+		if err != nil || !found {
+			if err != nil {
+				return nil, err
+			}
+			continue // no rows under the thread
+		}
+		var one int
+		switch err := tx.QueryRowContext(ctx,
+			"SELECT 1 FROM responses WHERE tool = ? AND root = ? LIMIT 1", tool, under,
+		).Scan(&one); {
+		case errors.Is(err, sql.ErrNoRows):
+			continue
+		case err != nil:
+			return nil, err
+		}
+		rootID, err := names.id(nameSession, root)
+		if err != nil {
+			return nil, err
+		}
 		result, err := tx.ExecContext(
 			ctx,
 			"UPDATE responses SET root = ? WHERE tool = ? AND root = ?",
-			root,
-			key.tool,
-			key.session,
+			rootID,
+			tool,
+			under,
 		)
 		if err != nil {
 			return nil, err
@@ -2032,7 +3092,7 @@ func (l *Ledger) ResolveTiers(
 	served map[string]func(model, tier string) string,
 ) (int, error) {
 	changed := 0
-	err := l.transact(ctx, func(tx *sql.Tx) error {
+	err := l.transactNames(ctx, func(tx *sql.Tx, names *nameSet) error {
 		series, err := loadTierSeries(ctx, tx)
 		if err != nil {
 			return err
@@ -2041,47 +3101,18 @@ func (l *Ledger) ResolveTiers(
 		if run != nil {
 			scope = &Run{pending: run.pending, threads: series.dependents(run.threads)}
 		}
-		query, args, err := pendingQuery(scope)
+		query, args := pendingQuery(scope)
+		prices, err := tierPrices(ctx, tx, names, series, served, query, args)
 		if err != nil {
-			return err
-		}
-		rows, err := tx.QueryContext(ctx, query, args...)
-		if err != nil {
-			return err
-		}
-		type price struct{ id, model string }
-		var prices []price
-		for rows.Next() {
-			var id, model, ts, from, tool string
-			if err := rows.Scan(&id, &model, &ts, &from, &tool); err != nil {
-				_ = rows.Close()
-				return err
-			}
-			key, at := splitTierFrom(from)
-			owner, _ := Lookup(tool)
-			base, _ := owner.SplitModel(model)
-			want := base
-			if tier, _ := series.tierAt(key, cmp.Or(at, ts)); tier != "" {
-				if serve := served[tool]; serve != nil {
-					tier = serve(base, tier)
-				}
-				if tier != "" {
-					want = base + "@" + tier
-				}
-			}
-			if want != model {
-				prices = append(prices, price{id, want})
-			}
-		}
-		if err := rows.Close(); err != nil {
-			return err
-		}
-		if err := rows.Err(); err != nil {
 			return err
 		}
 		for _, p := range prices {
+			model, err := names.id(nameModel, p.model)
+			if err != nil {
+				return err
+			}
 			if _, err := tx.ExecContext(ctx,
-				"UPDATE responses SET model = ? WHERE request_id = ?", p.model, p.id); err != nil {
+				"UPDATE responses SET model = ? WHERE id = ?", model, p.id); err != nil {
 				return err
 			}
 		}
@@ -2093,33 +3124,97 @@ func (l *Ledger) ResolveTiers(
 		); err != nil {
 			return err
 		}
-		return setMeta(ctx, tx, tiersChecked, "1")
+		return setMeta(ctx, tx, tiersChecked, tiersRule)
 	})
 	return changed, err
 }
 
-// pendingQuery selects the rows ResolveTiers prices, with their model, time
-// and TierFrom: run's, or every one when run is nil.
-func pendingQuery(run *Run) (string, []any, error) {
+// tierPrice is a row ResolveTiers prices anew: its id and its model with the
+// tier its time is served at.
+type tierPrice struct {
+	id    int64
+	model string
+}
+
+// tierPrices reads the rows of pendingQuery's query and args and returns each
+// one whose tier at its time, in series as the tool serves it (served), is
+// not the one its model names.
+func tierPrices(
+	ctx context.Context,
+	tx *sql.Tx,
+	names *nameSet,
+	series tierSeries,
+	served map[string]func(model, tier string) string,
+	query string,
+	args []any,
+) ([]tierPrice, error) {
+	rows, err := tx.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var prices []tierPrice
+	for rows.Next() {
+		var id, ms int64
+		var ids [2]int64
+		var from string
+		if err := rows.Scan(&id, &ids[0], &ms, &from, &ids[1]); err != nil {
+			return nil, err
+		}
+		model, err := names.name(ids[0])
+		if err != nil {
+			return nil, err
+		}
+		tool, err := names.name(ids[1])
+		if err != nil {
+			return nil, err
+		}
+		key, at := splitTierFrom(from)
+		owner, _ := Lookup(tool)
+		base, _ := owner.SplitModel(model)
+		want := base
+		if tier, _ := series.tierAt(key, cmp.Or(at, storedTime(ms))); tier != "" {
+			if serve := served[tool]; serve != nil {
+				tier = serve(base, tier)
+			}
+			if tier != "" {
+				want = base + "@" + tier
+			}
+		}
+		if want != model {
+			prices = append(prices, tierPrice{id, want})
+		}
+	}
+	return prices, rows.Err()
+}
+
+// pendingQuery selects the rows ResolveTiers prices, with their id, model,
+// time (noTime for none), TierFrom and tool: run's, or every one when run is
+// nil.
+func pendingQuery(run *Run) (string, []any) {
 	query := `
-SELECT p.request_id, r.model, r.ts, p.root, r.tool
-  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id`
+SELECT r.id, r.model, IFNULL(r.ts, ?1), n.name, r.tool
+  FROM tier_pending p JOIN responses r ON r.request_id = p.request_id
+  JOIN names n ON n.id = p.root`
 	if run == nil {
-		return query, nil, nil
+		return query, []any{int64(noTime)}
 	}
-	ids, err := json.Marshal(slices.Collect(maps.Keys(run.pending)))
-	if err != nil {
-		return "", nil, err
+	ids := make([]string, 0, len(run.pending))
+	for id := range run.pending {
+		ids = append(ids, hex.EncodeToString(packID(id)))
 	}
-	keys, err := json.Marshal(slices.Collect(maps.Keys(run.threads)))
-	if err != nil {
-		return "", nil, err
-	}
+	// The ids of the threads' TierFroms are read from names first, so that
+	// each waiting row is matched by its root's id alone.
 	query += `
- WHERE p.request_id IN (SELECT value FROM json_each(?))
-    OR (CASE WHEN instr(p.root, '@') > 0 THEN substr(p.root, 1, instr(p.root, '@') - 1)
-             ELSE p.root END) IN (SELECT value FROM json_each(?))`
-	return query, []any{string(ids), string(keys)}, nil
+ WHERE p.request_id IN (SELECT unhex(value) FROM json_each(?2))
+    OR p.root IN (SELECT id FROM names WHERE kind = ?4 AND (CASE WHEN instr(name, '@') > 0
+         THEN substr(name, 1, instr(name, '@') - 1) ELSE name END) IN (SELECT value FROM json_each(?3)))`
+	return query, []any{
+		int64(noTime),
+		jsonText(ids),
+		jsonText(slices.Collect(maps.Keys(run.threads))),
+		nameSession,
+	}
 }
 
 // SetFile stores where ingest stopped in a transcript.

@@ -622,11 +622,13 @@ func (c Card) unpriced(tool Tool, model string) Unpriced {
 // unpricedModels are the tool's ledger models no source prices. A read of the
 // ledger that fails is its error, never a shorter list.
 func unpricedModels(ctx context.Context, ledger *Ledger, card Card, tool Tool) ([]Unpriced, error) {
-	rows, err := ledger.db.QueryContext(
-		ctx,
-		"SELECT DISTINCT model FROM responses WHERE tool = ?",
-		tool.Name,
-	)
+	// The tool's rows through the index of (tool, root), which read faster
+	// than the whole table for one tool.
+	rows, err := ledger.db.QueryContext(ctx, `SELECT n.name FROM
+	  (SELECT DISTINCT model FROM responses
+	    WHERE tool = (SELECT id FROM names WHERE kind = ?1 AND name = ?2)) m
+	  JOIN names n ON n.id = m.model`,
+		nameTool, tool.Name)
 	if err != nil {
 		return nil, err
 	}
