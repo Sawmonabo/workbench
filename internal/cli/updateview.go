@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/spf13/cobra"
 )
 
 // updateView draws `workbench update` at a terminal as one live view: a
@@ -500,4 +501,70 @@ func transferSize(done, total int64) string {
 		return amount(total) + " " + unit
 	}
 	return amount(done) + "/" + amount(total) + " " + unit
+}
+
+// announceHandoff is what runs just before the activated release takes the
+// terminal, once every check has passed: it clears the update view's working
+// line, where the activated release draws on, then prints the warnings, or
+// without the view prints them and says in a line what happens next, so a
+// log stays readable. The warnings wait until the view has ended, which owns
+// the lines it draws. It empties warnings once printed.
+func announceHandoff(
+	cmd *cobra.Command,
+	c operation.Context,
+	done string,
+	warnings *[]string,
+) func() {
+	return func() {
+		view := updateViewOf(c)
+		if view != nil {
+			view.handoff()
+		}
+		if warnings != nil {
+			printWarnings(cmd, *warnings)
+			*warnings = nil
+		}
+		if view == nil {
+			_, _ = fmt.Fprintln(
+				cmd.ErrOrStderr(),
+				"[WorkBench] "+done+"; continuing with its tools",
+			)
+		}
+	}
+}
+
+// printWarnings prints each warning on its own line of stderr.
+func printWarnings(cmd *cobra.Command, warnings []string) {
+	warn := newPainter(cmd.ErrOrStderr())
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warn.style(yellow, "Warning:"), warning)
+	}
+}
+
+// startUpdateView heads the update view, if c's progress draws one, with the
+// release the update starts from (or the checkout, with --local-build), and
+// starts it checking.
+func startUpdateView(c operation.Context) error {
+	view := updateViewOf(c)
+	if view == nil {
+		return nil
+	}
+	installed, err := installedRelease(c)
+	if err != nil {
+		return err
+	}
+	if c.Native.Developer {
+		installed = "this checkout" // --local-build installs no release
+	}
+	view.header(installed)
+	view.phase(phaseChecking)
+	return nil
+}
+
+// updateViewOf is the update view c's progress draws, or nil when it draws
+// none (not a terminal, --json, --non-interactive or --dry-run). Its phase
+// and finish do nothing on nil.
+func updateViewOf(c operation.Context) *updateView {
+	view, _ := c.Progress.(*updateView)
+	return view
 }
