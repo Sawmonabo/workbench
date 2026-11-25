@@ -120,7 +120,7 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 	pins, err := agentPins(files)
 	pin, _ := pins[agents[i].pin].(string)
 	installed := p.agentInstalls[i].version
-	if err != nil || !plainVersion.MatchString(pin) || !plainVersion.MatchString(installed) {
+	if err != nil || !ValidVersion(pin) || !ValidVersion(installed) {
 		return ""
 	}
 	if newerVersion(pin, installed) {
@@ -228,7 +228,7 @@ func (p *preparation) planAgentUpdates(
 // settings set, for which the installer reports success and installs nothing.
 func (p *preparation) claudeFloorAbove(home, target string) bool {
 	_, minimum := claudeUpdates(home)
-	if !plainVersion.MatchString(minimum) || !plainVersion.MatchString(target) ||
+	if !ValidVersion(minimum) || !ValidVersion(target) ||
 		!newerVersion(minimum, target) {
 		return false
 	}
@@ -476,7 +476,7 @@ func nvmDefaultBin(home string) string {
 	best := ""
 	for _, entry := range entries {
 		version := strings.TrimPrefix(entry.Name(), "v")
-		if !plainVersion.MatchString(version) {
+		if !ValidVersion(version) {
 			continue
 		}
 		if want != "node" && want != "stable" && version != want &&
@@ -492,10 +492,6 @@ func nvmDefaultBin(home string) string {
 	}
 	return filepath.Join(root, "versions", "node", "v"+best, "bin")
 }
-
-// plainVersion is a Node version newerVersion can compare: three dotted
-// numbers.
-var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // claudeUpdates returns the release channel Claude Code's own updates follow,
 // "stable" or "latest", and the minimumVersion below which its updates and
@@ -520,7 +516,7 @@ func claudeUpdates(home string) (channel, minimum string) {
 		if settings.Channel != nil {
 			channel = *settings.Channel
 		}
-		if settings.Minimum != nil && plainVersion.MatchString(*settings.Minimum) &&
+		if settings.Minimum != nil && ValidVersion(*settings.Minimum) &&
 			(minimum == "" || newerVersion(*settings.Minimum, minimum)) {
 			minimum = *settings.Minimum
 		}

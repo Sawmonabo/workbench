@@ -324,10 +324,8 @@ type goPins struct {
 	gitleaksSHA256 string
 }
 
-var (
-	plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
-	goVersion    = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
-)
+// goVersion is a Go module version: v and three dotted numbers.
+var goVersion = regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`)
 
 // sourceVersions are the versions.toml pins the generated CI jobs use.
 type sourceVersions struct {
@@ -397,9 +395,9 @@ func readGoPins(c operation.Context) (goPins, error) {
 	}
 	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
 	return pins, checkPins([]pinCheck{
-		{"linux_binaries.golangci-lint", pins.golangciLint, plainVersion.MatchString},
+		{"linux_binaries.golangci-lint", pins.golangciLint, machine.ValidVersion},
 		{"linux_go_tools govulncheck", pins.govulncheck, goVersion.MatchString},
-		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion.MatchString},
+		{"linux_binaries.gitleaks", pins.gitleaks, machine.ValidVersion},
 		{
 			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
 			pins.gitleaksSHA256,

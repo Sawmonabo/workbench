@@ -126,8 +126,13 @@ func SourceRequirements(files map[string][]byte) (Requirements, error) {
 	return requirements, nil
 }
 
-// pinnedVersion is the only shape a management version may take.
-var pinnedVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+// plainVersion is three dotted numbers; see [ValidVersion].
+var plainVersion = regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`)
+
+// ValidVersion reports whether version is three dotted numbers, such as
+// 1.2.3: the only shape a management or project CI pin may take, and a Node
+// version newerVersion can compare.
+func ValidVersion(version string) bool { return plainVersion.MatchString(version) }
 
 // tomlkitHost serves the pinned TOML Kit wheel, under /packages/.
 const tomlkitHost = "files.pythonhosted.org"
@@ -146,7 +151,7 @@ func (r Requirements) validate() error {
 		{"management.tomlkit", r.Tomlkit},
 		{"mbx.version", r.Mbx.Version},
 	} {
-		if !pinnedVersion.MatchString(pin.version) {
+		if !ValidVersion(pin.version) {
 			return fmt.Errorf("%s %q is not a version such as 1.2.3", pin.name, pin.version)
 		}
 	}

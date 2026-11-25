@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/rustpolicy"
 	"github.com/goccy/go-yaml/ast"
@@ -523,13 +524,13 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 	pins.cargoDenySHA256 = versions.CI.CargoDeny[pins.cargoDeny]
 	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
 	if err = checkPins([]pinCheck{
-		{"cargo_tools.cargo-deny", pins.cargoDeny, plainVersion.MatchString},
+		{"cargo_tools.cargo-deny", pins.cargoDeny, machine.ValidVersion},
 		{
 			"project_ci.cargo_deny_linux_x64_sha256 for cargo-deny " + pins.cargoDeny,
 			pins.cargoDenySHA256,
 			operation.ValidDigest,
 		},
-		{"linux_binaries.gitleaks", pins.gitleaks, plainVersion.MatchString},
+		{"linux_binaries.gitleaks", pins.gitleaks, machine.ValidVersion},
 		{
 			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
 			pins.gitleaksSHA256,
