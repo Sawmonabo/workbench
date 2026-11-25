@@ -341,6 +341,14 @@ func (f folders) agent(pid int, start uint64) string {
 	return filepath.Join(f.agents, fmt.Sprintf("%d-%d.json", pid, start))
 }
 
+// recordID is the ID the name of a record in a guard folder holds, as note,
+// record and unit name one: the ID then ".json", for an ID that may name a
+// file (see idPattern). ok is false for any other name, which is no record.
+func recordID(name string) (id string, ok bool) {
+	id, ok = strings.CutSuffix(name, ".json")
+	return id, ok && idPattern.MatchString(id)
+}
+
 // noteIDs are the IDs of the notes on disk.
 func (f folders) noteIDs() ([]string, error) {
 	entries, err := listFolder(f.notes)
@@ -349,7 +357,7 @@ func (f folders) noteIDs() ([]string, error) {
 	}
 	var ids []string
 	for _, entry := range entries {
-		if id, ok := strings.CutSuffix(entry.Name(), ".json"); ok && idPattern.MatchString(id) {
+		if id, ok := recordID(entry.Name()); ok {
 			ids = append(ids, id)
 		}
 	}
@@ -383,8 +391,26 @@ func writeJSON(path string, value any) error {
 	return operation.ReplacePrivateFile(path, data)
 }
 
+// recordLimit is the most bytes of a guard record read, far more than one
+// holds. A note holds the command from the hook's input, read up to 1 MiB,
+// the project label and folders taken from it, so even with JSON's escapes
+// it stays under 16 MiB; a kill record and an agent file hold a few lines;
+// a unit's record holds the unit's roots, which run, and what the watcher
+// keeps of each in memory.
+const recordLimit = 64 << 20
+
+// readRecord reads the guard record at path, a regular file of at most
+// recordLimit bytes, opened without following a link or waiting on a FIFO
+// (see [operation.ReadRegularFile]). It fails with an error matching
+// fs.ErrNotExist when nothing is at path; any other failure, a file of
+// another kind or a larger one included, is the read's.
+func readRecord(path string) ([]byte, error) {
+	return operation.ReadRegularFile(path, recordLimit)
+}
+
+// readJSON reads the guard record at path (see readRecord) into value.
 func readJSON(path string, value any) error {
-	data, err := os.ReadFile(path)
+	data, err := readRecord(path)
 	if err != nil {
 		return err
 	}

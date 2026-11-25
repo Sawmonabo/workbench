@@ -211,7 +211,7 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 			continue
 		}
 		var rec unitRecord
-		data, err := os.ReadFile(w.f.unit(id))
+		data, err := readRecord(w.f.unit(id))
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 			continue
@@ -258,6 +258,6 @@ func (w *watcher) restoreUnits(s snapshot) bool {
 // saveUnits names a record: a unit's ID (see unitID) then ".json". ok is
 // false for any other name, which is not a record.
 func unitFile(name string) (id string, ok bool) {
-	id, ok = strings.CutSuffix(name, ".json")
-	return id, ok && idPattern.MatchString(id) && strings.HasPrefix(id, unitPrefix)
+	id, ok = recordID(name)
+	return id, ok && strings.HasPrefix(id, unitPrefix)
 }

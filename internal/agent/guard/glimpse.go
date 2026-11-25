@@ -16,7 +16,6 @@ import (
 	"log/slog"
 	"os"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -571,11 +570,11 @@ func (w *watcher) peekNotes(agent procKey) []note {
 	}
 	var out []note
 	for _, entry := range entries {
-		id, ok := strings.CutSuffix(entry.Name(), ".json")
-		if !ok || !idPattern.MatchString(id) {
+		id, ok := recordID(entry.Name())
+		if !ok {
 			continue
 		}
-		data, err := os.ReadFile(w.f.note(id))
+		data, err := readRecord(w.f.note(id))
 		if err != nil {
 			continue
 		}

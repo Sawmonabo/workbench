@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -44,8 +43,7 @@ func (w *watcher) expireKills() {
 	entries, _ := listFolder(w.f.killed)
 	for _, entry := range entries {
 		path := filepath.Join(w.f.killed, entry.Name())
-		id, isRecord := strings.CutSuffix(entry.Name(), ".json")
-		if isRecord && idPattern.MatchString(id) {
+		if id, isRecord := recordID(entry.Name()); isRecord {
 			if _, err := os.Lstat(w.f.note(id)); errors.Is(err, fs.ErrNotExist) {
 				_ = os.Remove(path)
 				continue

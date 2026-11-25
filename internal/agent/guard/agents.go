@@ -115,7 +115,7 @@ func (w *watcher) readAgentFiles(s snapshot) {
 	}
 	for _, entry := range entries {
 		path := filepath.Join(w.f.agents, entry.Name())
-		data, err := os.ReadFile(path)
+		data, err := readRecord(path)
 		if err != nil {
 			continue
 		}

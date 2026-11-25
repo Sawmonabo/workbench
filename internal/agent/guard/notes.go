@@ -76,7 +76,7 @@ func (w *watcher) notes(s snapshot) ([]note, error) {
 	now := time.Now()
 	for _, id := range ids {
 		path := w.f.note(id)
-		data, err := os.ReadFile(path)
+		data, err := readRecord(path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
 		}
