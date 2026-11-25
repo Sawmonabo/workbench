@@ -141,12 +141,16 @@ func Open(path string, o Options) (*sql.DB, error) {
 // being read or written, which for the costs ledger would risk the only
 // lasting record of spend over a hardening step.
 func makePrivate(path string) {
-	for _, name := range []string{path, path + "-wal", path + "-shm"} {
+	for _, name := range append([]string{path}, SideFiles(path)...) {
 		if info, err := os.Stat(name); err == nil && info.Mode().Perm()&0o077 != 0 {
 			_ = os.Chmod(name, info.Mode().Perm()&^0o077)
 		}
 	}
 }
+
+// SideFiles are the files SQLite keeps beside the WAL database at path: its
+// write-ahead log, path-wal, and its shared-memory index, path-shm.
+func SideFiles(path string) []string { return []string{path + "-wal", path + "-shm"} }
 
 // openProblem is the operating system's reason SQLite could not open the
 // file at path, err being SQLite's CANTOPEN, which says only that it could

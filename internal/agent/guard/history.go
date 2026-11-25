@@ -205,9 +205,6 @@ func damagedCopies(root string) []DamagedCopy {
 	return copies
 }
 
-// sideFiles are the suffixes of the files SQLite keeps beside a WAL database.
-var sideFiles = []string{"-wal", "-shm"}
-
 // OpenHistory opens the history in the guard folder root, a private folder
 // that must exist. With write it makes a missing file, empty and 0600 before
 // SQLite opens it so the files beside it are private too, writes its schema
@@ -271,9 +268,10 @@ func OpenHistory(root string, write bool) (*History, error) {
 // sidesAt are the files at the -wal and -shm names of the database at path,
 // each nil where there is none.
 func sidesAt(path string) []os.FileInfo {
-	infos := make([]os.FileInfo, len(sideFiles))
-	for i, side := range sideFiles {
-		infos[i], _ = os.Lstat(path + side)
+	sides := sqlitefile.SideFiles(path)
+	infos := make([]os.FileInfo, len(sides))
+	for i, side := range sides {
+		infos[i], _ = os.Lstat(side)
 	}
 	return infos
 }
@@ -344,10 +342,10 @@ func (h *History) closeDB() error {
 	}
 	_, _ = h.db.ExecContext(context.Background(), "PRAGMA wal_checkpoint(TRUNCATE)")
 	err := h.db.Close()
-	for i, side := range sideFiles {
-		info, statErr := os.Lstat(h.path + side)
+	for i, side := range sqlitefile.SideFiles(h.path) {
+		info, statErr := os.Lstat(side)
 		if statErr == nil && h.sides[i] != nil && os.SameFile(info, h.sides[i]) {
-			err = cmp.Or(err, operation.RemoveIfThere(h.path+side))
+			err = cmp.Or(err, operation.RemoveIfThere(side))
 		}
 	}
 	return err
@@ -1006,10 +1004,7 @@ func removeDamagedBefore(root string, since time.Time) {
 // removeCopyBefore deletes the copy at copied, with its -wal and -shm files,
 // once each of them was last written before since.
 func removeCopyBefore(copied string, since time.Time) {
-	names := []string{copied}
-	for _, side := range sideFiles {
-		names = append(names, copied+side)
-	}
+	names := append([]string{copied}, sqlitefile.SideFiles(copied)...)
 	found := false
 	for _, name := range names {
 		info, err := os.Lstat(name)
@@ -1073,7 +1068,7 @@ func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, e
 	// The copy is kept for the time kept from now, when it was set aside,
 	// not from when it was last written (see removeDamagedBefore).
 	now := time.Now()
-	for _, name := range []string{to, to + sideFiles[0], to + sideFiles[1]} {
+	for _, name := range append([]string{to}, sqlitefile.SideFiles(to)...) {
 		if err := os.Chtimes(name, now, now); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			return to, replaced, err
 		}
@@ -1085,7 +1080,7 @@ func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, e
 // -wal and -shm files, so no moment leaves the database without the side
 // files it was written with; a file already gone is no error.
 func removeCopy(copied string) error {
-	for _, name := range []string{copied, copied + sideFiles[0], copied + sideFiles[1]} {
+	for _, name := range append([]string{copied}, sqlitefile.SideFiles(copied)...) {
 		if err := operation.RemoveIfThere(name); err != nil {
 			return err
 		}
@@ -1096,10 +1091,11 @@ func removeCopy(copied string) error {
 // moveCopy renames the database at from, with its -wal and -shm files, to to,
 // each side file first, the side files at to deleted when from has none.
 func moveCopy(from, to string) error {
-	for _, side := range sideFiles {
-		err := os.Rename(from+side, to+side)
+	targets := sqlitefile.SideFiles(to)
+	for i, side := range sqlitefile.SideFiles(from) {
+		err := os.Rename(side, targets[i])
 		if errors.Is(err, fs.ErrNotExist) {
-			err = operation.RemoveIfThere(to + side)
+			err = operation.RemoveIfThere(targets[i])
 		}
 		if err != nil {
 			return err

@@ -535,11 +535,11 @@ func (r *writerRun) replace(cause error) error {
 	if to == "" && !gone {
 		return fmt.Errorf("cannot move the guard history that cannot be used aside: %w", err)
 	}
-	for _, side := range sideFiles {
+	for _, side := range sqlitefile.SideFiles(from) {
 		if !gone {
 			break
 		}
-		if err := operation.RemoveIfThere(from + side); err != nil {
+		if err := operation.RemoveIfThere(side); err != nil {
 			return err
 		}
 	}
