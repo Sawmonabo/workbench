@@ -250,7 +250,8 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   of its own. `Usage` gains
   `TierFrom` for a row another thread prices: a thread id (that thread's
   selected tier at the row's time), or `turn:<thread>@<time>` (that thread's
-  running-turn tier at that time), stored as `tier_pending.root`; and
+  running-turn tier at that time), stored as `tier_pending.root`, a name of
+  the session kind beside the row's packed key (ledger design, section 4); and
   `FileState` collects the file's tier changes. A series has one tier at a
   time: a change at the same millisecond as a stored one replaces it, so of
   several snapshots in one millisecond the last in the file wins. After every
@@ -269,11 +270,14 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
   file applies the same catalog rule when it is stored, and so does a
   `fast_mode = false` in `config.toml`, which leaves only flex.
   A transaction that writes either stores the `tiers_unresolved`
-  note and the check clears it and stores `tiers_checked`. A run checks every
-  pending row when it finds `tiers_unresolved` set (an earlier run stopped
-  before its check) or `tiers_checked` absent (a new or upgraded ledger, or
-  one an earlier build wrote, whose pending rows no check of this build has
-  seen).
+  note and the check clears it and stores `tiers_checked` as `2`. A run
+  checks every pending row when it finds `tiers_unresolved` set (an earlier
+  run stopped before its check) or `tiers_checked` absent or another value (a
+  new ledger, or one an earlier build wrote or the upgrade to schema version
+  7 converted, whose pending rows no check of this build has seen). A `1`
+  stored after the upgrade is the check of a worker of the release before
+  that opened the ledger before the upgrade, which matches no row of version
+  7.
 - **Attribution.** On a repeated key the token columns keep their largest
   values, as before, and the time, model, project and session come from the
   earliest occurrence (on a tie, the row read last, as before): a fork's copy,
@@ -284,8 +288,8 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 - **Accounts.** `responses` also gains `subscription`, `root` (the root
   session a hook names) and two evidence columns: `account_source` for the
   email and `subscription_source` for the subscription, each `transcript`,
-  `session`, `observed`, `inferred` or `unknown` and decided on its own
-  (section 10);
+  `session`, `observed`, `inferred` or `unknown`, stored as its rank (ledger
+  design, section 4), and decided on its own (section 10);
   schema 4 adds the tables `session_accounts`, `sign_ins`, `subscriptions`
   and `thread_parents`. A version 1 or 2 ledger keeps every row's email, now
   at evidence `unknown`, with subscription and its evidence `unknown`. A row

@@ -208,6 +208,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		return "", err
 	}
 	defer func() { _ = ledger.Close() }()
+	ledger.compactAgain(ctx, paths)
 	var errs []string
 	files, rows := 0, 0
 	full, err := ledger.fullTierCheckDue()

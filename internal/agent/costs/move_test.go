@@ -292,19 +292,27 @@ func readLedger(t *testing.T, path string) []string {
 	}
 	var found []string
 	for _, query := range []string{
-		"SELECT 'responses ' || request_id FROM responses",
-		"SELECT 'subscriptions ' || id || ' ' || label FROM subscriptions",
+		"SELECT 'responses', request_id FROM responses",
+		"SELECT 'subscriptions', id || ' ' || label FROM subscriptions",
 	} {
 		rows, err := db.Query(query)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for rows.Next() {
-			var row string
-			if err = rows.Scan(&row); err != nil {
+			var table string
+			var row []byte
+			if err = rows.Scan(&table, &row); err != nil {
 				t.Fatal(err)
 			}
-			found = append(found, row)
+			if table == "responses" {
+				id, err := unpackID(row)
+				if err != nil {
+					t.Fatal(err)
+				}
+				row = []byte(id)
+			}
+			found = append(found, table+" "+string(row))
 		}
 		if err = rows.Err(); err != nil {
 			t.Fatal(err)
