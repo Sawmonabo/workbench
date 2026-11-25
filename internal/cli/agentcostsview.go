@@ -9,6 +9,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // costsView is the interactive report: a tab bar with one tab per
@@ -119,7 +120,7 @@ func (m *costsView) open() {
 	pick := m.targets[m.selected]
 	focus, err := m.load(m.tools[m.active], pick.kind, pick.name)
 	if err != nil {
-		m.problem = "Could not open " + showPath(pick.name) + ": " + err.Error()
+		m.problem = "Could not open " + display.Path(pick.name) + ": " + err.Error()
 		m.render()
 		return
 	}

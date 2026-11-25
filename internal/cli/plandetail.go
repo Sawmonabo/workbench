@@ -7,6 +7,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -117,7 +118,7 @@ func effectStatus(plan operation.Plan, effect operation.Effect) string {
 // page. The diff is file content, so it is shown only when diff is set, which
 // is when the output is a terminal.
 func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
-	path := showPath(edit.Path)
+	path := display.Path(edit.Path)
 	title := cmp.Or(edit.Title, path)
 	head := bold.Render(forTerm(title))
 	if edit.Semantic {

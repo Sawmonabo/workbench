@@ -642,7 +642,7 @@ func costsStatus(info costs.StatusInfo, width int) string {
 	writeBold(&b, width, 0, "[WorkBench] Costs status")
 	rows := [][2]string{{
 		"ledger",
-		showPath(info.Ledger) + " (" + human(float64(info.LedgerBytes)) + "B)",
+		display.Path(info.Ledger) + " (" + human(float64(info.LedgerBytes)) + "B)",
 	}}
 	add := func(label, value string) { rows = append(rows, [2]string{label, value}) }
 	implemented := 0
@@ -687,8 +687,7 @@ func costsStatus(info costs.StatusInfo, width int) string {
 			add("rates"+suffix, "official card fetched "+tool.Coverage.RatesFetched)
 			add("hooks"+suffix, hookStates(tool))
 			if tool.ConfigMove != nil {
-				home, _ := os.UserHomeDir()
-				add("config"+suffix, tool.ConfigMove.Explain(home))
+				add("config"+suffix, tool.ConfigMove.Explain(display.Home()))
 			}
 			if tool.Skipped > 0 {
 				add(
@@ -770,7 +769,7 @@ func rowName(tool costs.Tool, name string) string {
 	if base, tier := tool.SplitModel(name); tier != "" {
 		return base + " (" + tier + ")"
 	}
-	return showPath(name)
+	return display.Path(name)
 }
 
 // scopeNames names the role folders a report's default view covers, such as
@@ -778,7 +777,7 @@ func rowName(tool costs.Tool, name string) string {
 func scopeNames(roots []string) string {
 	names := make([]string, len(roots))
 	for i, root := range roots {
-		names[i] = showPath(root)
+		names[i] = display.Path(root)
 	}
 	return strings.Join(names, " and ")
 }
@@ -927,7 +926,7 @@ func costsPage(
 			if grand > 0 {
 				share = fmt.Sprintf("%.1f%%", block.Project.Cost/grand*100)
 			}
-			add(bold.Render(showPath(block.Project.Name))+"  "+
+			add(bold.Render(display.Path(block.Project.Name))+"  "+
 				costStyle.Render(money(block.Project))+"  "+
 				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
 				"model", "", block.Models, nil, "")

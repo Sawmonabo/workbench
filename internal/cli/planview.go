@@ -11,6 +11,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/project"
 )
@@ -22,7 +23,7 @@ import (
 func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
 	width := lineWidth(w)
-	scope := showPath(plan.Scope.Root)
+	scope := display.Path(plan.Scope.Root)
 	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + scope
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
@@ -48,7 +49,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 		writeText(&b, width, 2, group.key+":")
 		rows := make([][]string, 0, len(group.items))
 		for _, edit := range group.items {
-			path := showPath(edit.Path)
+			path := display.Path(edit.Path)
 			rows = append(rows, []string{edit.Action, path, edit.Summary})
 		}
 		writeTable(&b, width, 4, tableSpec{Cols: []column{{}, {}, {Clip: true}}, Rows: rows})
@@ -416,7 +417,7 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 		0,
 		fmt.Sprintf(
 			"Found in %s (%s):",
-			showPath(inventory.Directory),
+			display.Path(inventory.Directory),
 			strings.Join(counts, ", "),
 		),
 	)

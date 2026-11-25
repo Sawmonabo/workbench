@@ -18,6 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -365,7 +366,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
 		forTerm("Finished commands are kept "+guard.KeepText(time.Duration(facts.KeepSeconds)*
 			time.Second)+" · "+held),
-		showPath(facts.Path))
+		display.Path(facts.Path))
 	if text := guard.HistoryDamaged(guard.HistoryDamagedCopies(root), time.Now()); err == nil &&
 		text != "" {
 		_, err = fmt.Fprintln(cmd.OutOrStdout(), forTerm(text))

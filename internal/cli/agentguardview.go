@@ -24,6 +24,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -2108,7 +2109,7 @@ func (m *guardView) detailLines(width int) []string {
 func (m *guardView) facts(c guard.CommandView, width int) []string {
 	var lines []string
 	add := func(name, value string) { lines = append(lines, field(name, width, value)...) }
-	add("Folder", showPath(c.Cwd))
+	add("Folder", display.Path(c.Cwd))
 	add("Agent", c.Agent)
 	add("Subagent", cmp.Or(c.Subagent, "—"))
 	add("ID", c.ID)

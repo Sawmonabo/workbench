@@ -7,6 +7,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -468,7 +469,7 @@ func fileLines(plan operation.Plan, index, width int, view planView) []string {
 	prefix, prefixWidth := rowPrefix(view, planRow{rowFile, index}, "   ", faint)
 	title := edit.Title
 	if title == "" {
-		title = showPath(edit.Path)
+		title = display.Path(edit.Path)
 	}
 	counts := ""
 	if edit.Semantic {
@@ -489,7 +490,7 @@ func fileLines(plan operation.Plan, index, width int, view planView) []string {
 		prefix + titleStyle.Render(title) + counts,
 		pad + faint.Render(
 			fit(
-				forTerm(showPath(edit.Path)+" · "+fileOwner(edit)),
+				forTerm(display.Path(edit.Path)+" · "+fileOwner(edit)),
 				max(width-prefixWidth, 8),
 				false,
 			),
