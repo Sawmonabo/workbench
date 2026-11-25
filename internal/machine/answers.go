@@ -2,10 +2,7 @@ package machine
 
 import (
 	"bytes"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -387,11 +384,8 @@ func (a Answers) folder(home, key string) string {
 // report's.
 func RoleFolders(home, config string) ([]string, error) {
 	path := filepath.Join(config, "machine.toml")
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	raw, err := operation.ReadPrivateInput(path, 1<<20)
-	if err != nil {
+	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	if !found || err != nil {
 		return nil, err
 	}
 	answers, err := readAnswers(raw)
@@ -481,18 +475,16 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	if err != nil {
 		return plan, nil, err
 	}
-	var existing []byte
-	if _, statErr := os.Lstat(target); statErr == nil {
-		if existing, err = operation.ReadPrivateInput(target, 1<<20); err != nil {
-			return plan, nil, err
-		}
+	existing, found, err := operation.ReadPrivateRecord(target, 1<<20)
+	if err != nil {
+		return plan, nil, err
+	}
+	if found {
 		saved, readErr := readAnswers(existing)
 		if readErr != nil {
 			return plan, nil, readErr
 		}
 		carryRetired(answers, saved)
-	} else if !errors.Is(statErr, fs.ErrNotExist) {
-		return plan, nil, statErr
 	}
 	encoded, err := encodeMachineConfig(answers, selection)
 	if err != nil {

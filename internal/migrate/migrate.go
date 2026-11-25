@@ -16,9 +16,6 @@ package migrate
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -407,15 +404,12 @@ func recordPath(l Locations) string { return filepath.Join(l.Runtime.State, "mig
 // never replaces it.
 func readRecord(l Locations) (record, error) {
 	empty := record{SchemaVersion: 1, Done: map[string]string{}}
-	if _, err := os.Lstat(recordPath(l)); errors.Is(err, fs.ErrNotExist) {
-		return empty, nil
-	}
-	data, err := operation.ReadPrivateInput(recordPath(l), 1<<20)
-	if err != nil {
+	data, found, err := operation.ReadPrivateRecord(recordPath(l), 1<<20)
+	if !found || err != nil {
 		return empty, err
 	}
 	var r record
-	if json.Unmarshal(data, &r) != nil || r.SchemaVersion != 1 || r.Done == nil {
+	if operation.DecodeStrict(data, &r) != nil || r.SchemaVersion != 1 || r.Done == nil {
 		return empty, operation.Fail(
 			operation.ExitInvalid,
 			"record",

@@ -3,8 +3,6 @@ package machine
 import (
 	"bytes"
 	"context"
-	"errors"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -199,22 +197,17 @@ func answersFile(config string, answers Answers) (encoded []byte, unchanged bool
 // question asks once, so init asks only what the seed lacks, and the answers
 // named in ask are left out to be asked again.
 func answersSeed(config string, terminal *os.File, ask []string) ([]byte, error) {
-	_, err := os.Lstat(config)
-	if errors.Is(err, fs.ErrNotExist) {
-		if terminal == nil {
-			return nil, operation.Fail(
-				operation.ExitBlocked,
-				"answers",
-				"Unattended native setup requires complete private answers",
-			)
-		}
+	seed, found, err := operation.ReadPrivateRecord(config, 1<<20)
+	switch {
+	case !found && terminal == nil:
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"answers",
+			"Unattended native setup requires complete private answers",
+		)
+	case !found:
 		return []byte("[data]\n"), nil
-	}
-	if err != nil {
-		return nil, err
-	}
-	seed, err := operation.ReadPrivateInput(config, 1<<20)
-	if err != nil {
+	case err != nil:
 		return nil, err
 	}
 	answers, err := readAnswers(seed)
@@ -232,7 +225,8 @@ func answersSeed(config string, terminal *os.File, ask []string) ([]byte, error)
 func generatedAnswers(c operation.Context, path string) (Answers, error) {
 	// Esc or ctrl+c at a question makes native init exit successfully
 	// without writing its configuration.
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+	output, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	if !found {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"answers",
@@ -240,7 +234,6 @@ func generatedAnswers(c operation.Context, path string) (Answers, error) {
 				c.WorkbenchCommand()+" apply to answer them",
 		)
 	}
-	output, err := operation.ReadPrivateInput(path, 1<<20)
 	if err != nil {
 		return nil, err
 	}

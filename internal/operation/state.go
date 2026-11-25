@@ -2,14 +2,9 @@ package operation
 
 import (
 	"encoding/json"
-	"errors"
-	"io"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
-	"syscall"
 	"time"
 )
 
@@ -127,25 +122,9 @@ func releaseIdentity(record *ReleaseRecord) *SourceIdentity {
 
 // ReadState never creates files. Absence is distinct from invalid current state.
 func ReadState(paths Paths) (*State, error) {
-	path := filepath.Join(paths.State, "state.json")
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err := checkPrivateFile(path); err != nil {
+	data, found, err := ReadPrivateRecord(filepath.Join(paths.State, "state.json"), 1<<20)
+	if !found || err != nil {
 		return nil, err
-	}
-	f, err := os.OpenFile(path, os.O_RDONLY|syscall.O_NOFOLLOW, 0)
-	if err != nil {
-		return nil, Fail(ExitInvalid, "state", "Cannot read private Workbench state")
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, 1024*1024+1))
-	if err != nil || len(data) > 1024*1024 {
-		return nil, Fail(
-			ExitInvalid,
-			"state",
-			"Current state is unreadable or exceeds its metadata size limit",
-		)
 	}
 	var state State
 	if err := DecodeStrict(data, &state); err != nil {

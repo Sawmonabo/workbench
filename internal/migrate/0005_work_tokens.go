@@ -2,9 +2,6 @@ package migrate
 
 import (
 	"context"
-	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
@@ -140,11 +137,11 @@ func findWorkTokens(l Locations) tokensFound {
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
-	if _, err = os.Lstat(workEnvPath(l)); errors.Is(err, fs.ErrNotExist) {
+	held, there, err := operation.ReadPrivateRecord(workEnvPath(l), 1<<20)
+	if !there {
 		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
 		return found
 	}
-	held, err := operation.ReadPrivateInput(workEnvPath(l), 1<<20)
 	if err != nil {
 		return tokensFound{status: Conflict, text: "can't read " + env + byHand}
 	}
@@ -161,12 +158,12 @@ func findWorkTokens(l Locations) tokensFound {
 // readMachine decodes machine.toml at path; a missing file is an empty one.
 func readMachine(path string) (map[string]any, error) {
 	config := map[string]any{}
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return config, nil
-	}
-	raw, err := operation.ReadPrivateInput(path, 1<<20)
+	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
 	if err != nil {
 		return nil, err
+	}
+	if !found {
+		return config, nil
 	}
 	return config, toml.Unmarshal(raw, &config)
 }

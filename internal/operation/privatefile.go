@@ -94,6 +94,18 @@ func ReadPrivateInput(path string, limit int64) ([]byte, error) {
 	return data, nil
 }
 
+// ReadPrivateRecord is [ReadPrivateInput] for a record that may not be there
+// yet, such as state.json or machine.toml: found is false, with no data and
+// no error, when nothing is at path, and anything at path is read as
+// ReadPrivateInput reads it.
+func ReadPrivateRecord(path string, limit int64) (data []byte, found bool, err error) {
+	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
+		return nil, false, nil
+	}
+	data, err = ReadPrivateInput(path, limit)
+	return data, true, err
+}
+
 // WritePrivate is for bounded private metadata, not target files or checkpoint
 // images. It uses same-directory create/fsync/rename/fsync and mode 0600. It
 // first deletes the temporary files writes that were killed left in the

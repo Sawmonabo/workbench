@@ -101,11 +101,8 @@ func setupPlan(
 			Recovery:    "Previously saved answers are retained until successful validation",
 		},
 	)
-	if _, err = os.Lstat(c.Native.Config); errors.Is(err, fs.ErrNotExist) {
-		return plan, nil
-	}
-	raw, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
-	if err != nil {
+	raw, found, err := operation.ReadPrivateRecord(c.Native.Config, 1<<20)
+	if !found || err != nil {
 		return plan, err
 	}
 	answers, err := readAnswers(raw)

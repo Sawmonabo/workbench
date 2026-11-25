@@ -1,9 +1,6 @@
 package machine
 
 import (
-	"errors"
-	"io/fs"
-	"os"
 	"slices"
 
 	"github.com/Sawmonabo/workbench/internal/migrate"
@@ -61,11 +58,8 @@ func (s Selection) table() map[string]any {
 // ReadSelection reads the [effects] table of config. A missing file or table
 // is an empty selection: everything checked, nothing optional selected.
 func ReadSelection(config string) (Selection, error) {
-	if _, err := os.Lstat(config); errors.Is(err, fs.ErrNotExist) {
-		return Selection{}, nil
-	}
-	raw, err := operation.ReadPrivateInput(config, 1<<20)
-	if err != nil {
+	raw, found, err := operation.ReadPrivateRecord(config, 1<<20)
+	if !found || err != nil {
 		return Selection{}, err
 	}
 	return readSelection(raw)

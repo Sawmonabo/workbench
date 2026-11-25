@@ -508,11 +508,8 @@ type activationJournal struct {
 
 func readActivation(c operation.Context) (*activationJournal, error) {
 	path := filepath.Join(c.Paths.State, "activation.json")
-	if _, err := os.Lstat(path); errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	raw, err := operation.ReadPrivateInput(path, 1<<20)
-	if err != nil {
+	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	if !found || err != nil {
 		return nil, err
 	}
 	var journal activationJournal
