@@ -11,18 +11,28 @@ import (
 	"github.com/tailscale/hujson"
 )
 
-// render is value as JSON text for a member or entry written in an object or
-// array laid out as lay. A composite is laid out at the indentation of the
-// line it starts on in a multi-line object or array, and kept compact in a
-// one-line one.
-func (lay Layout) render(value any) ([]byte, error) {
+// Marshal is value as compact JSON text the way editors and the tools whose
+// files Workbench edits write it: <, > and & are written as they are, not
+// escaped as encoding/json escapes them for HTML.
+func Marshal(value any) ([]byte, error) {
 	var encoded bytes.Buffer
 	encoder := json.NewEncoder(&encoded)
 	encoder.SetEscapeHTML(false)
 	if err := encoder.Encode(value); err != nil {
 		return nil, err
 	}
-	text := bytes.TrimSpace(encoded.Bytes())
+	return bytes.TrimSuffix(encoded.Bytes(), []byte("\n")), nil
+}
+
+// render is value as JSON text for a member or entry written in an object or
+// array laid out as lay. A composite is laid out at the indentation of the
+// line it starts on in a multi-line object or array, and kept compact in a
+// one-line one.
+func (lay Layout) render(value any) ([]byte, error) {
+	text, err := Marshal(value)
+	if err != nil {
+		return nil, err
+	}
 	if !lay.Multiline || text[0] != '{' && text[0] != '[' {
 		return text, nil
 	}

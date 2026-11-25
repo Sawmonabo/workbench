@@ -80,13 +80,10 @@ func TerminalDefault(existing []byte) (string, error) {
 	if !isString {
 		return "", nil
 	}
-	// Written as Terminal writes it, without escaping <, > and &, so a
-	// script that puts it back gives the same bytes.
-	var text bytes.Buffer
-	encoder := json.NewEncoder(&text)
-	encoder.SetEscapeHTML(false)
-	err = encoder.Encode(current)
-	return strings.TrimSpace(text.String()), err
+	// Written as Terminal writes it (see [jsonc.Marshal]), so a script that
+	// puts it back gives the same bytes.
+	text, err := jsonc.Marshal(current)
+	return string(text), err
 }
 
 // TerminalLists is the profiles and color schemes of existing, a Windows
