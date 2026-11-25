@@ -97,6 +97,46 @@ type Event struct {
 	Until        time.Time `json:"-"`
 }
 
+// callAttrs are the log attributes of a tracked call: its note's folder,
+// project and subagent only when the note has them. A unit's add its kind,
+// detached, and launched_by, the call that started it, when that resolved;
+// its call is the unit's ID and its command the root program's name, never
+// its arguments.
+func callAttrs(c command) []any {
+	attrs := append([]any{"call", c.Note.ToolUseID, "agent", c.Note.Kind},
+		placeAttrs(c.Note.Cwd, c.Note.Project, c.Note.Subagent)...)
+	if c.Detached != nil {
+		attrs = append(attrs, "kind", "detached")
+		if c.Detached.Call != "" {
+			attrs = append(attrs, "launched_by", c.Detached.Call)
+		}
+	}
+	return append(attrs, "root_pid", c.Root.PID, "command", clip(c.Note.Command))
+}
+
+// placeAttrs are a call's working folder, project and subagent as log
+// attributes, each left out when empty.
+func placeAttrs(cwd, project, subagent string) []any {
+	var attrs []any
+	for _, attr := range [][2]string{{"cwd", cwd}, {"project", project}, {"subagent", subagent}} {
+		if attr[1] != "" {
+			attrs = append(attrs, attr[0], attr[1])
+		}
+	}
+	return attrs
+}
+
+// endAttrs are a tracked call's log attributes when it ends or is stopped:
+// callAttrs with how long it has run since its note, in seconds, and its peak
+// size in bytes.
+func (w *watcher) endAttrs(c command) []any {
+	var peak uint64
+	if u := w.usage[c.Note.ToolUseID]; u != nil {
+		peak = u.Peak
+	}
+	return append(callAttrs(c), "took", time.Since(c.Note.NotedAt).Seconds(), "peak", peak)
+}
+
 func logFile(root string) string { return filepath.Join(root, "watch.log") }
 
 // outputFile is the watcher's stdout and stderr beside the log at path:

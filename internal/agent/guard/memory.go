@@ -122,6 +122,31 @@ func decide(m memory) (act action, soft bool) {
 	return nothing, false
 }
 
+// demand is what memory calls for at now, after the holds that keep a brief
+// dip from stopping anything: a soft condition calls for a polite stop only
+// once it has lasted softHold, and macOS's critical level calls for a forced
+// stop once it has lasted criticalHold.
+func (w *watcher) demand(m memory, now time.Time) action {
+	act, soft := decide(m)
+	if !soft {
+		w.softSince = time.Time{}
+	} else if w.softSince.IsZero() {
+		w.softSince = now
+	}
+	if soft && now.Sub(w.softSince) < softHold {
+		act = nothing
+	}
+	if m.Level < criticalLevel {
+		w.criticalSince = time.Time{}
+	} else if w.criticalSince.IsZero() {
+		w.criticalSince = now
+	}
+	if m.Level >= criticalLevel && now.Sub(w.criticalSince) >= criticalHold {
+		act = forced
+	}
+	return act
+}
+
 // floor is the least the agent commands must hold together for the largest
 // to be stopped at a polite stop: a tenth of the installed memory, at most
 // 1 GiB. Stopping one of commands that hold less frees too little to end a

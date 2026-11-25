@@ -2,7 +2,6 @@ package guard
 
 import (
 	"cmp"
-	"encoding/json"
 	"slices"
 	"time"
 
@@ -40,22 +39,6 @@ type callRecord struct {
 	Shell        procRef   `json:"shell"`
 	NotedAt      time.Time `json:"noted_at"`
 	StartedAgent bool      `json:"started_agent,omitempty"`
-}
-
-// MarshalJSON writes a procKey as a procRef, so a call record keeps its agent
-// when it is carried to the next watcher.
-func (k procKey) MarshalJSON() ([]byte, error) {
-	return json.Marshal(procRef{PID: k.pid, Start: k.start})
-}
-
-// UnmarshalJSON reads a procKey written by MarshalJSON.
-func (k *procKey) UnmarshalJSON(data []byte) error {
-	var ref procRef
-	if err := json.Unmarshal(data, &ref); err != nil {
-		return err
-	}
-	*k = procKey{ref.PID, ref.Start}
-	return nil
 }
 
 // records are the call records by call ID. The zero value holds none and is
