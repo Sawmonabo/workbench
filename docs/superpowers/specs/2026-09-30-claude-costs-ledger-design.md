@@ -114,50 +114,106 @@ contracts row in this directory.
 ## 4. Ledger schema
 
 SQLite, WAL journal mode, five-second busy timeout. `meta.schema_version` is
-`1`; a ledger with a different version makes every command fail with the path
-and version, without modifying the file.
+`7`. An older ledger is upgraded in place (section 11, Ledger
+compatibility); a ledger with any other version makes every command fail
+with the path and version, without modifying the file. Each text a response
+repeats is stored once, in `names`, and the response refers to it by number
+([ADR 21](../../adr/0021-costs-ledger-stores-names-once.md)).
 
 ```sql
-CREATE TABLE responses (
-  request_id     TEXT PRIMARY KEY,
-  ts             TEXT NOT NULL,          -- RFC 3339 from the record
-  model          TEXT NOT NULL,
-  project        TEXT NOT NULL,          -- the record's own cwd
-  session_id     TEXT NOT NULL,
-  account        TEXT NOT NULL,          -- email, or "unknown"
-  account_source TEXT NOT NULL,          -- "session" | "sweep"
-  input          INTEGER NOT NULL,
-  output         INTEGER NOT NULL,
-  cache_write_5m INTEGER NOT NULL,
-  cache_write_1h INTEGER NOT NULL,
-  cache_read     INTEGER NOT NULL
+CREATE TABLE names (
+  id   INTEGER PRIMARY KEY,
+  kind INTEGER NOT NULL,  -- 1 tool, 2 model, 3 project, 4 session (also a root or a TierFrom), 5 account, 6 subscription
+  name TEXT NOT NULL,
+  UNIQUE (kind, name)
 );
-CREATE INDEX responses_ts ON responses (ts);
-CREATE INDEX responses_project_model ON responses (project, model);
-CREATE INDEX responses_account ON responses (account);
+CREATE TABLE responses (
+  id                  INTEGER PRIMARY KEY,
+  request_id          BLOB NOT NULL UNIQUE,  -- the ledger key, packed (below)
+  tool                INTEGER NOT NULL,      -- names.id, as the next six
+  model               INTEGER NOT NULL,
+  project             INTEGER NOT NULL,      -- the record's own cwd
+  session             INTEGER NOT NULL,
+  root                INTEGER NOT NULL,      -- the root session a hook names; '' is a name too
+  account             INTEGER NOT NULL,      -- an email, or "unknown"
+  subscription        INTEGER NOT NULL,      -- a subscription id, or "unknown"
+  account_source      INTEGER NOT NULL,      -- the rank of each field's evidence (below)
+  subscription_source INTEGER NOT NULL,
+  ts                  INTEGER,               -- Unix milliseconds, UTC; NULL when the response has no time
+  input               INTEGER NOT NULL,
+  output              INTEGER NOT NULL,
+  cache_write_5m      INTEGER NOT NULL,
+  cache_write_1h      INTEGER NOT NULL,
+  cache_read          INTEGER NOT NULL
+);
+CREATE INDEX responses_root ON responses (tool, root);
+CREATE INDEX responses_open ON responses (tool, ts)
+  WHERE account_source < 4 OR subscription_source < 4;
+CREATE TABLE tier_pending (
+  request_id BLOB PRIMARY KEY,  -- packed, as in responses
+  root       INTEGER NOT NULL   -- names.id of the row's TierFrom
+) WITHOUT ROWID;
 
 CREATE TABLE files (
   path      TEXT PRIMARY KEY,            -- absolute transcript path
   offset    INTEGER NOT NULL,            -- bytes consumed
   size      INTEGER NOT NULL,            -- at last read
   mtime_ns  INTEGER NOT NULL,            -- at last read
-  last_seen TEXT NOT NULL
+  last_seen TEXT NOT NULL,
+  state     TEXT NOT NULL DEFAULT '',    -- the source's saved state
+  head      TEXT NOT NULL DEFAULT ''     -- SHA-256 of the first line
 );
 
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
--- schema_version, last_ingest_at, last_ingest_summary, last_error
+-- schema_version, last_ingest_at, last_ingest_summary, last_error, and the
+-- resolution notes of the Codex costs design
 ```
+
+The tier, account and thread tables (`tier_changes`, `session_accounts`,
+`sign_ins`, `subscriptions`, `thread_parents`, `account_marks`) are the
+[Codex costs design](2026-10-01-codex-costs-design.md)'s, sections 4 and 10,
+and `prices` and `price_lists` the
+[costs prices design](2026-11-19-costs-prices-design.md)'s. Their times, and
+every time in `meta`, are text in the form Claude Code writes, UTC with
+milliseconds (`2026-07-01T10:00:00.000Z`); where a response's time meets one,
+it is converted at that point, in SQL or in Go.
 
 Row semantics:
 
 - `request_id` is the record's `requestId`, else `message.id`, else `uuid`.
   Records with model `<synthetic>` or without a `usage` object are skipped.
+  The ledger key is that ID for Claude Code and `<tool>:<id>` for every other
+  tool, so keys never collide, and it is stored as bytes that decode to
+  exactly that text, by the first byte:
+
+  | Byte | Then | For the key |
+  | --- | --- | --- |
+  | `0x01` | 15 bytes, big-endian: the 20 characters read as one base-62 number, digits `0-9A-Za-z` | `req_011C` and 20 characters of `[0-9A-Za-z]` |
+  | `0x02` | the bytes the hex spells | `codex:resp_` and an even count, at least 2, of lowercase hex digits |
+  | `0x03` | the bytes the hex spells | `codex:tc:` and the same (a token count's digest) |
+  | `0x00` | the text itself, UTF-8 | anything else: a copy key `copy:…` or `codex:copy:…`, any other shape |
+
+  A key range on the text, as dropping held copies reads, is a range on
+  `0x00` and the text. The `sqlite3` shell shows these keys as bytes.
+- Every text a response holds, `''` and `unknown` included, is a name, so a
+  row reads back as exactly the text it was given. A session and a root share
+  kind 4, so a root that is its session is the same number. Names are never
+  deleted.
+- A field's evidence is stored as its rank: `transcript` 4, `session` 3,
+  `observed` 2, `inferred` 1, `unknown` 0. The partial index holds the rows
+  with a field their transcript did not decide, which the account resolution
+  reads by time; its queries state that condition in the same words, or
+  SQLite cannot use the index.
 - Insert is an upsert. Each token column keeps the largest value seen for the
   request. Streamed usage only grows, and Claude Code copies earlier records into
   the transcript of a resumed or forked session, sometimes mid-stream or with
   zeroed top-level counts, so file order or a later partial copy cannot lower
-  the final usage. `account` and `account_source` are replaced only when the new
-  source is `session`.
+  the final usage. The time, model, project and session come from the earliest
+  copy (on a tie, the copy read last), a copy with no time counting as the
+  latest; the root is a copy's non-empty root when the stored one is empty or
+  the copy is the earliest; the account and the subscription are each replaced
+  only by a copy with stronger evidence for that field (Codex costs design,
+  sections 4 and 10).
 - `cache_write_5m` and `cache_write_1h` come from
   `usage.cache_creation.ephemeral_5m_input_tokens` and
   `ephemeral_1h_input_tokens`. When that object is absent, the whole
@@ -629,16 +685,29 @@ The ledger lives in Workbench's data folder, moved there from
 without losing a row, because transcripts expire and the ledger is the only
 lasting record (see the
 [migrations design](2026-10-14-workbench-migrations-design.md)). Schema
-version 2 adds one column, `tool TEXT NOT NULL DEFAULT 'claude'`; opening a
-version 1 ledger adds it in one transaction and sets the version, keeping every
-row. Versions 1 and 2 are upgraded in place to version 4 in one transaction that
-keeps every row (the Codex costs design, section 4, lists what version 4
-adds); any other version is refused without modification. Later ingests refine
+version 2 adds one column, `tool TEXT NOT NULL DEFAULT 'claude'`; the Codex
+costs design, section 4, lists what versions 4 and 5 add, the costs prices
+design what version 6 adds, and section 4 is version 7. Versions 1, 2, 4, 5
+and 6 are upgraded in place to version 7 in one transaction that keeps every
+row. Its last step converts the responses and the waiting rows of
+`tier_pending` to names and numbers, keeping each row's rowid as its `id`,
+and before it commits it checks that the new tables hold as many rows and the
+same token sums per tool as the old, and that every new row decodes to its old
+row field for field; the first difference rolls it back with an error naming
+that row. An evidence word other than the five, or a time that is neither
+empty nor in the form above, refuses the upgrade with the path and the value,
+and the file is left as it was. A process that opens the ledger meanwhile
+waits for the upgrade, up to two minutes (a ledger of 1.59 million rows took
+20 to 24 seconds), then finds version 7. The same transaction stores the
+Codex tier check's `tiers_checked` as `2` where it was `1` (Codex costs
+design, section 4). After the commit the same process
+runs `VACUUM`, which gives back the pages the old rows held, and a checkpoint
+that empties the write-ahead log; the meta key `compact_due` marks it until
+it succeeds, a failure goes to the import log, and each import worker tries
+again. Any other version is refused without modification. Later ingests refine
 the account, subscription and tier of rows they recorded and drop duplicate fork
 copies (Codex costs design, sections 3 and 4); nothing else rewrites existing
-rows. Claude request IDs stay as they are; another tool's IDs are stored as `<tool>:<id>`, so the
-primary key never collides and the table is not rebuilt. Any other version is
-refused without modification, as section 4 says.
+rows.
 
 SQLite comes from a pure-Go driver (`modernc.org/sqlite`), so the four release
 bundles still cross-compile without a C toolchain.

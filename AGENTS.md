@@ -15,7 +15,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   and the ledger is the only lasting record of spend; the same transaction
   fills the price tables a version 6 ledger adds from the price list files
   Workbench downloaded beside it (`<tool>/rates-official.json`), and a file
-  that is missing or that it cannot read fills nothing. A second exception:
+  that is missing or that it cannot read fills nothing; and it converts the
+  responses and waiting tier rows of a ledger below version 7 to names
+  stored once and numbers (ADR 0021), checks every converted row against its
+  old one before it commits, and refuses, leaving the file as it was, a value
+  it cannot convert. After that commit one `VACUUM` gives the freed pages
+  back, retried by each import worker until it succeeds; nothing else
+  rewrites the file. A second exception:
   numbered migrations in `internal/migrate/` may move files Workbench itself
   wrote into its runtime folders, without losing data, and delete caches,
   logs, locks and empty files Workbench itself wrote (or, in a log a running
