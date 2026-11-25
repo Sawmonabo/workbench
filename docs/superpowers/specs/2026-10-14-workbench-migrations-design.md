@@ -331,8 +331,9 @@ where the owner's folders put it, never the default path regardless.
 - **With nothing to do,** the step folds into "Already set"
   (`operation/plan.go:98`).
 - **It is not a fixed step.** Fixed steps never run a script in this codebase:
-  `hasProvisioning` (`apply.go:357-361`), the step flags (`plan.go:947`) and
-  the step runner (`plan.go:1035`) all skip them. None is needed: the import
+  `hasProvisioning` (`apply.go:357-361`), the step flags (`nativeapply.go`
+  `scriptsEnvironment`) and the step runner (`nativeapply.go`
+  `runScriptsThroughStepRunner`) all skip them. None is needed: the import
   worker runs `0001-costs-folders` by itself (section 5.4), both from the next
   hook and from this apply's `costs-ingest` step, which runs after the
   migrations script. Its `What` says so: skipping `migrations` skips the cache
