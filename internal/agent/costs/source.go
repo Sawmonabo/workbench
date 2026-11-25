@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // Source is one AI tool whose transcripts the ledger records. Everything a
@@ -183,16 +183,16 @@ func ConfigMoves(home string) []ConfigMove {
 func (m ConfigMove) Explain(home string) string {
 	var parts []string
 	if m.Source != "" {
-		where, fix := m.Source, "unset it, or set it to "+operation.ShowPath(home, m.Default)
+		where, fix := m.Source, "unset it, or set it to "+display.PathFrom(home, m.Default)
 		if m.Source != "the environment" {
-			where, fix = operation.ShowPath(
+			where, fix = display.PathFrom(
 				home,
 				m.Source,
 			), "remove it from that file, or set it there to "+m.Default
 		}
 		parts = append(parts, m.Variable+" in "+where+" points "+m.Tool+" at "+
-			operation.ShowPath(home, m.Dir)+", so it does not read the settings, instructions "+
-			"and costs and guard hooks Workbench installs in "+operation.ShowPath(home, m.Default)+
+			display.PathFrom(home, m.Dir)+", so it does not read the settings, instructions "+
+			"and costs and guard hooks Workbench installs in "+display.PathFrom(home, m.Default)+
 			"; "+fix+", for them to apply")
 	}
 	for _, r := range m.Relative {
@@ -200,8 +200,8 @@ func (m ConfigMove) Explain(home string) string {
 			"%s in %s is %q, not an absolute path: %s copies it as written and reads it from "+
 				"the folder it starts in, so Workbench ignores it and reads %s; write the "+
 				"absolute path there",
-			m.Variable, operation.ShowPath(home, r.File), r.Value, m.Tool,
-			operation.ShowPath(home, m.Dir),
+			m.Variable, display.PathFrom(home, r.File), r.Value, m.Tool,
+			display.PathFrom(home, m.Dir),
 		))
 	}
 	return strings.Join(parts, "; ")

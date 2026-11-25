@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -26,7 +27,7 @@ var oldCostsCache = Migration{
 	Recovery: "nothing to undo: the deleted files are derived data Workbench never reads",
 	Check: func(l Locations) (Status, string) {
 		ours, other, err := oldCacheFiles(l)
-		folder := operation.ShowPath(l.Home, l.OldScriptCache)
+		folder := display.PathFrom(l.Home, l.OldScriptCache)
 		if err != nil {
 			return Pending, "can't read " + folder
 		}
@@ -89,7 +90,7 @@ func oldCacheFiles(l Locations) (ours, other []string, err error) {
 	case err != nil:
 		return nil, nil, err
 	case !info.IsDir():
-		return nil, []string{operation.ShowPath(l.Home, l.OldScriptCache)}, nil
+		return nil, []string{display.PathFrom(l.Home, l.OldScriptCache)}, nil
 	}
 	entries, err := os.ReadDir(l.OldScriptCache)
 	if err != nil {
@@ -101,7 +102,7 @@ func oldCacheFiles(l Locations) (ours, other []string, err error) {
 		} else {
 			other = append(
 				other,
-				operation.ShowPath(l.Home, filepath.Join(l.OldScriptCache, entry.Name())),
+				display.PathFrom(l.Home, filepath.Join(l.OldScriptCache, entry.Name())),
 			)
 		}
 	}

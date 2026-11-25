@@ -6,6 +6,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -32,13 +33,13 @@ var StepNames = Migration{
 	Check: func(l Locations) (Status, string) {
 		config, err := readMachine(machinePath(l))
 		if err != nil {
-			return Pending, "can't read " + operation.ShowPath(l.Home, machinePath(l))
+			return Pending, "can't read " + display.PathFrom(l.Home, machinePath(l))
 		}
 		if !renameChoices(config) {
 			return Done, ""
 		}
 		return Pending, "renames costs-ingest to agent-costs-ingest in the saved choices of " +
-			operation.ShowPath(l.Home, machinePath(l))
+			display.PathFrom(l.Home, machinePath(l))
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		operation.RemoveStaleWrites(l.Runtime.Config)

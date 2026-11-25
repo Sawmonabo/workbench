@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -282,7 +283,7 @@ func checkPrivateFile(path string) error {
 		return Fail(
 			ExitInvalid,
 			"state",
-			ShowHomePath(path)+" must be an existing regular private file",
+			display.Path(path)+" must be an existing regular private file",
 		)
 	}
 	if err := owned(path, info); err != nil {
@@ -293,7 +294,7 @@ func checkPrivateFile(path string) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			ShowHomePath(path)+" has other hard links; a private file must have exactly one",
+			display.Path(path)+" has other hard links; a private file must have exactly one",
 		)
 	}
 	if mode := info.Mode().Perm(); mode&0o077 != 0 {
@@ -302,7 +303,7 @@ func checkPrivateFile(path string) error {
 			"permissions",
 			fmt.Sprintf(
 				"%s is open to other users (mode %04o); run chmod 600 %s and retry",
-				ShowHomePath(path),
+				display.Path(path),
 				mode,
 				ShellHomePath(path),
 			),

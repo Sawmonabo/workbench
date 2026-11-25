@@ -18,6 +18,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -209,7 +210,7 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	f.roots, err = machine.RoleFolders(paths.Home, paths.Runtime.Config)
 	if err != nil {
 		// The report still runs, with the folders it uses when none is saved.
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+operation.ShowPath(
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+display.PathFrom(
 			paths.Home,
 			filepath.Join(paths.Runtime.Config, "machine.toml"),
 		)+" can't be read, so the report groups projects under ~/dev and ~/repos"))

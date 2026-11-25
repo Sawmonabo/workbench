@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"syscall"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -39,7 +40,7 @@ import (
 // Its errors say why, naming neither from nor to, which the caller names
 // once, from the home folder, as people read them ("cannot move ~/a to ~/b:
 // REASON"); another path in a reason is named from the home folder too (see
-// [ShowHomePath]).
+// [display.Path]).
 func MoveFolder(from, to string) (moved bool, err error) {
 	moved, err = moveFolder(from, to)
 	return moved, moveReason(from, to, err)
@@ -58,7 +59,7 @@ func moveReason(from, to string, err error) error {
 		if problem.Path == from || problem.Path == to {
 			return problem.Err
 		}
-		return fmt.Errorf("%s: %w", ShowHomePath(problem.Path), problem.Err)
+		return fmt.Errorf("%s: %w", display.Path(problem.Path), problem.Err)
 	}
 	return err
 }

@@ -11,10 +11,9 @@ import (
 
 	"charm.land/lipgloss/v2"
 	"charm.land/lipgloss/v2/table"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/term"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // column describes one table column. When the terminal is too narrow the one
@@ -182,10 +181,10 @@ func givenWidth(w io.Writer) (int, bool) {
 	return 0, false
 }
 
-// showPath is path as output shows it (see operation.ShowPath).
+// showPath is path as output shows it (see display.PathFrom).
 func showPath(path string) string {
 	home, _ := os.UserHomeDir()
-	return operation.ShowPath(home, path)
+	return display.PathFrom(home, path)
 }
 
 // fitRows lays t out so that no line, indent included, is wider than width.

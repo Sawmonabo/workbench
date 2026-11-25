@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/charmbracelet/x/term"
 	"golang.org/x/sys/unix"
@@ -96,7 +97,7 @@ func outsideProjects(directory string, excluded []string) error {
 					ExitBlocked,
 					"tool",
 					"Project-controlled management executable lookup is forbidden because "+
-						ShowHomePath(parent)+" contains "+marker,
+						display.Path(parent)+" contains "+marker,
 				)
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return Fail(

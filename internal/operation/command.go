@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"unicode"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // BinOnPath reports whether the directory that holds the workbench command is
@@ -48,27 +50,8 @@ func (c Context) WorkbenchCommand() string {
 	return c.ShellPath(entry)
 }
 
-// ShowPath writes path for a person with [ShowPath] from c.Home.
-func (c Context) ShowPath(path string) string { return ShowPath(c.Home, path) }
-
-// ShowHomePath writes path for a person with [ShowPath] from the current
-// user's home folder, resolved as [Resolve] resolves it, for a message made
-// where no [Context] is at hand: a check of Workbench's own folders, a file
-// error. Without a home it shortens nothing.
-func ShowHomePath(path string) string { return ShowPath(userHome(), path) }
-
-// userHome is the current user's home folder, resolved as [Resolve] resolves
-// it, or empty when there is none.
-func userHome() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	if canonical, err := ExistingDirectory(home); err == nil {
-		home = canonical
-	}
-	return home
-}
+// ShowPath writes path for a person with [display.PathFrom] from c.Home.
+func (c Context) ShowPath(path string) string { return display.PathFrom(c.Home, path) }
 
 // ShellPath writes path as one word a POSIX shell reads back as path, for a
 // command a person pastes, from c.Home (see [ShellHomePath]).
@@ -76,10 +59,10 @@ func (c Context) ShellPath(path string) string { return shellPath(c.Home, path) 
 
 // ShellHomePath writes path as one word a POSIX shell reads back as path, for
 // a command a person pastes: the current user's home folder, as
-// [ShowHomePath] finds it, as ~, a path under it as ~/ and the rest, any other
+// [display.Home] finds it, as ~, a path under it as ~/ and the rest, any other
 // path as it is, all but the ~ quoted where a shell would read a character
 // (see shellWord). It is for a message made where no [Context] is at hand.
-func ShellHomePath(path string) string { return shellPath(userHome(), path) }
+func ShellHomePath(path string) string { return shellPath(display.Home(), path) }
 
 // shellPath is path as one word a shell reads back, written from home as
 // [ShellHomePath] says. An empty home, or /, shortens nothing.
@@ -126,24 +109,4 @@ func shellWord(s string) string {
 	}
 	b.WriteByte('\'')
 	return b.String()
-}
-
-// ShowPath writes path for a person: home itself as ~, a path under home as
-// ~/..., any other path as it is. A path holding "; " or a control character
-// is shown quoted, with "; " as ";\x20", so it stays on one line and a plan's
-// join of a step's probe lines never splits it. An empty home, or /, shortens
-// nothing: every absolute path is under /.
-func ShowPath(home, path string) string {
-	if home != "" && filepath.Clean(home) != "/" && Within(home, path) {
-		if relative, err := filepath.Rel(home, path); err == nil {
-			path = "~"
-			if relative != "." {
-				path += "/" + filepath.ToSlash(relative)
-			}
-		}
-	}
-	if strings.Contains(path, "; ") || strings.ContainsFunc(path, unicode.IsControl) {
-		return strings.ReplaceAll(strconv.Quote(path), "; ", `;\x20`)
-	}
-	return path
 }

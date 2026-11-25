@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -108,11 +109,11 @@ func HistoryDamagedCopies(root string) []DamagedCopy { return damagedCopies(root
 
 // ShowPaths is text, which names paths in the folder root (the guard folder,
 // or the state folder that holds it), as people read it: each such path named
-// from the home folder, as [operation.ShowHomePath] names one (~/…/history.db).
-// A root that is not in the home folder, or that ShowPath would quote, is left
+// from the home folder, as [display.Path] names one (~/…/history.db).
+// A root that is not in the home folder, or that display.Path would quote, is left
 // as it is.
 func ShowPaths(text, root string) string {
-	if shown := operation.ShowHomePath(root); strings.HasPrefix(shown, "~") {
+	if shown := display.Path(root); strings.HasPrefix(shown, "~") {
 		return strings.ReplaceAll(text, root, shown)
 	}
 	return text
@@ -147,11 +148,11 @@ func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
 	}
 	if len(copies) == 1 {
 		return "Guard history was damaged and started again at " + clock(copies[0].At) +
-			"; the old file is " + operation.ShowHomePath(copies[0].Path)
+			"; the old file is " + display.Path(copies[0].Path)
 	}
 	return "Guard history was damaged and started again at " + clock(copies[0].At) +
 		", and earlier at " + clock(copies[1].At) + "; the old files are " +
-		operation.ShowHomePath(copies[0].Path) + " and " + operation.ShowHomePath(copies[1].Path)
+		display.Path(copies[0].Path) + " and " + display.Path(copies[1].Path)
 }
 
 // HistoryUnreadable is what is said of a history in the guard folder root

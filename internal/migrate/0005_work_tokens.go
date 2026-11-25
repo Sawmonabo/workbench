@@ -11,6 +11,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -106,8 +107,8 @@ type tokensFound struct {
 // findWorkTokens reads machine.toml and work.env and says where 0005 stands.
 // Its text names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
-	machine := operation.ShowPath(l.Home, machinePath(l))
-	env := operation.ShowPath(l.Home, workEnvPath(l))
+	machine := display.PathFrom(l.Home, machinePath(l))
+	env := display.PathFrom(l.Home, workEnvPath(l))
 	config, err := readMachine(machinePath(l))
 	if err != nil {
 		return tokensFound{status: Pending, text: "can't read " + machine, err: err}

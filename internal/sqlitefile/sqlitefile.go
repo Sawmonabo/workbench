@@ -25,10 +25,9 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"golang.org/x/sys/unix"
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
-
-	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // Options say how [Open] opens a file.
@@ -150,7 +149,7 @@ func makePrivate(path string) {
 
 // FileError is err, which an operation on the file at path returned, as an
 // error that names path once, first, as people read it (see
-// [operation.ShowHomePath]: ~/.local/state/…/history.db),
+// [display.Path]: ~/.local/state/…/history.db),
 // then the reason: an error of the os package names the path itself, after
 // the operation (open, stat, read), so only its reason follows path, and the
 // error still matches what that reason matches, such as [fs.ErrNotExist] or
@@ -162,7 +161,7 @@ func FileError(path string, err error) error {
 		problem.Error() == err.Error() {
 		err = problem.Err
 	}
-	return fmt.Errorf("%s: %w", operation.ShowHomePath(path), err)
+	return fmt.Errorf("%s: %w", display.Path(path), err)
 }
 
 // openProblem is the operating system's reason SQLite could not open the
@@ -359,7 +358,7 @@ func CheckHeader(file *os.File) error {
 	if errors.Is(err, io.EOF) {
 		return fmt.Errorf(
 			"%s: %w: it holds %d bytes, less than a header",
-			operation.ShowHomePath(path),
+			display.Path(path),
 			ErrNotADatabase,
 			n,
 		)
@@ -368,7 +367,7 @@ func CheckHeader(file *os.File) error {
 		return FileError(path, err)
 	}
 	if reason := headerProblem(header); reason != "" {
-		return fmt.Errorf("%s: %w: %s", operation.ShowHomePath(path), ErrNotADatabase, reason)
+		return fmt.Errorf("%s: %w: %s", display.Path(path), ErrNotADatabase, reason)
 	}
 	return nil
 }

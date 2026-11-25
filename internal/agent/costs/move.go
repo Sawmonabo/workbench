@@ -13,6 +13,7 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
@@ -164,7 +165,7 @@ func moveAgentFolders(
 			refused = append(refused, err)
 		case err != nil:
 			return moved, fmt.Errorf("cannot move %s to %s: %w",
-				operation.ShowPath(home, move[0]), operation.ShowPath(home, move[1]), err)
+				display.PathFrom(home, move[0]), display.PathFrom(home, move[1]), err)
 		}
 	}
 	return moved, errors.Join(refused...)
@@ -273,7 +274,7 @@ func ShellDefault(home, name, fallback string) (path, relative string) {
 	case filepath.IsAbs(value):
 		return filepath.Clean(value), ""
 	default:
-		return "", fmt.Sprintf("%s is relative (%s)", name, operation.ShowPath(home, value))
+		return "", fmt.Sprintf("%s is relative (%s)", name, display.PathFrom(home, value))
 	}
 }
 
@@ -483,12 +484,12 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	conflict := func(from, to string) {
 		conflicts = append(
 			conflicts,
-			"leaves "+operation.ShowPath(p.Home, from)+" and "+operation.ShowPath(p.Home, to)+
+			"leaves "+display.PathFrom(p.Home, from)+" and "+display.PathFrom(p.Home, to)+
 				", which hold different data (remove one)",
 		)
 	}
 	link := func(from string) {
-		conflicts = append(conflicts, "leaves "+operation.ShowPath(p.Home, from)+
+		conflicts = append(conflicts, "leaves "+display.PathFrom(p.Home, from)+
 			", a link (put the file it names in its place, or remove it)")
 	}
 	check := FolderCheck{Ledger: ledgerState(old, p)}
@@ -506,9 +507,9 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 			conflict(old.Ledger, p.Ledger)
 		}
 	case FoldersUnfinished:
-		moved = append(moved, operation.ShowPath(p.Home, old.Ledger)+" (finishing a stopped move)")
+		moved = append(moved, display.PathFrom(p.Home, old.Ledger)+" (finishing a stopped move)")
 	case FoldersPending:
-		moved = append(moved, operation.ShowPath(p.Home, old.Ledger))
+		moved = append(moved, display.PathFrom(p.Home, old.Ledger))
 	default:
 	}
 	for _, move := range old.moves(p) {
@@ -517,14 +518,14 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 		case linked(move.from):
 			link(move.from)
 		case exists(move.to):
-			deleted = append(deleted, operation.ShowPath(p.Home, move.from))
+			deleted = append(deleted, display.PathFrom(p.Home, move.from))
 		default:
-			moved = append(moved, operation.ShowPath(p.Home, move.from))
+			moved = append(moved, display.PathFrom(p.Home, move.from))
 		}
 	}
 	for _, name := range old.leftovers() {
 		if exists(name) {
-			deleted = append(deleted, operation.ShowPath(p.Home, name))
+			deleted = append(deleted, display.PathFrom(p.Home, name))
 		}
 	}
 	folders := old.scan(p)
@@ -814,7 +815,7 @@ func (o OldPaths) scan(p Paths) folderScan {
 	known := o.known(p)
 	var scan folderScan
 	for _, folder := range o.folders() {
-		shown := operation.ShowPath(p.Home, folder)
+		shown := display.PathFrom(p.Home, folder)
 		info, err := os.Lstat(folder)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
@@ -832,7 +833,7 @@ func (o OldPaths) scan(p Paths) folderScan {
 		}
 		for _, entry := range entries {
 			if path := filepath.Join(folder, entry.Name()); !slices.Contains(known, path) {
-				scan.kept = append(scan.kept, operation.ShowPath(p.Home, path))
+				scan.kept = append(scan.kept, display.PathFrom(p.Home, path))
 			}
 		}
 	}
@@ -961,8 +962,8 @@ func moveLedger(ctx context.Context, home, from, to string, alwaysCopy bool) err
 // ledgerConflict is the error of two ledgers that both stay, whether the old
 // and the new or a new ledger and the set-aside original.
 func ledgerConflict(home, a, b string) error {
-	return conflictError("leaves " + operation.ShowPath(home, a) + " and " +
-		operation.ShowPath(home, b) + ", which hold different data (remove one)")
+	return conflictError("leaves " + display.PathFrom(home, a) + " and " +
+		display.PathFrom(home, b) + ", which hold different data (remove one)")
 }
 
 // resumeCopy finishes or undoes what a stopped copy left. The marks are
@@ -1051,9 +1052,9 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 	case problem == differs:
 		return ledgerConflict(home, moved, to)
 	case problem != "":
-		shown := operation.ShowPath(home, to)
+		shown := display.PathFrom(home, to)
 		return operation.Fail(operation.ExitFailed, "ledger", "the ledger at "+shown+" "+problem+
-			", so the original at "+operation.ShowPath(home, moved)+" is kept; delete "+shown+
+			", so the original at "+display.PathFrom(home, moved)+" is kept; delete "+shown+
 			", and the next run puts the original back and starts again")
 	}
 	if err := os.Remove(moved); err != nil {
@@ -1288,7 +1289,7 @@ func unowned(path string) string {
 
 // leftCopy is what a badCopy error says of a copy left at part.
 func leftCopy(home, part string) string {
-	return "the copy stays at " + operation.ShowPath(home, part) +
+	return "the copy stays at " + display.PathFrom(home, part) +
 		"; delete it, and the next run starts again from the original"
 }
 
@@ -1298,7 +1299,7 @@ func badCopy(home, original, problem, then string) error {
 	return operation.Fail(
 		operation.ExitFailed,
 		"ledger",
-		"a copy of "+operation.ShowPath(home, original)+" "+problem+
+		"a copy of "+display.PathFrom(home, original)+" "+problem+
 			", so the original is kept and "+then,
 	)
 }

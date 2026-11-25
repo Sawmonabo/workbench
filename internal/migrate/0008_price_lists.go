@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -52,7 +53,7 @@ var priceLists = Migration{
 				operation.Within(data.old, path) {
 				path = filepath.Join(data.new, rel)
 			}
-			shown[i] = operation.ShowPath(l.Home, path)
+			shown[i] = display.PathFrom(l.Home, path)
 		}
 		return Pending, "deletes " + strings.Join(shown, ", ") +
 			" once the ledger holds their prices, and each folder they leave empty"

@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -212,7 +213,7 @@ func runtimePaths(home string) (Paths, error) {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"runtime_path",
-					ShowHomePath(
+					display.Path(
 						value,
 					)+" is not a directory, so Workbench can't keep its files there",
 				)
@@ -224,7 +225,7 @@ func runtimePaths(home string) (Paths, error) {
 				return Paths{}, Fail(
 					ExitInvalid,
 					"permissions",
-					"Existing "+ShowHomePath(
+					"Existing "+display.Path(
 						value,
 					)+" must be a private directory (mode 0700); it was not changed",
 				)
@@ -233,7 +234,7 @@ func runtimePaths(home string) (Paths, error) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"Cannot inspect the Workbench runtime directory "+ShowHomePath(value),
+				"Cannot inspect the Workbench runtime directory "+display.Path(value),
 			)
 		}
 		defaults[i] = value
@@ -248,13 +249,9 @@ func configHome() string {
 	if base := os.Getenv("XDG_CONFIG_HOME"); filepath.IsAbs(base) {
 		return filepath.Clean(base)
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
+	home := display.Home()
+	if home == "" {
 		return ""
-	}
-	// Resolve gives every default path the canonical home.
-	if canonical, err := ExistingDirectory(home); err == nil {
-		home = canonical
 	}
 	return filepath.Join(home, ".config")
 }

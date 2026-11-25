@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 func ensurePrivateDirectory(path string) error { return privateDirectory(path, true) }
@@ -37,7 +39,7 @@ func privateDirectory(path string, create bool) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			"Existing "+ShowHomePath(
+			"Existing "+display.Path(
 				path,
 			)+" must be a private directory (mode 0700); it was not changed",
 		)
@@ -70,7 +72,7 @@ func PrivateDirectory(root, name string) (string, error) {
 		return "", Fail(
 			ExitInvalid,
 			"private_path",
-			name+" is not a folder inside "+ShowHomePath(root),
+			name+" is not a folder inside "+display.Path(root),
 		)
 	}
 	if err := ensureRoot(root); err != nil {
@@ -99,7 +101,7 @@ func PrivateDirectory(root, name string) (string, error) {
 // on a missing folder.
 func CheckPrivateDirectory(root, name string) error {
 	if name != "" && !filepath.IsLocal(name) {
-		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+ShowHomePath(root))
+		return Fail(ExitInvalid, "private_path", name+" is not a folder inside "+display.Path(root))
 	}
 	directory := root
 	folders := []string{root}
@@ -252,7 +254,7 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"path",
-					ShowHomePath(
+					display.Path(
 						current,
 					)+" is a link; Workbench keeps its own files only in real folders, so make it one",
 				)
@@ -261,7 +263,7 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"path",
-					ShowHomePath(
+					display.Path(
 						current,
 					)+" is a file, not a folder, so Workbench cannot keep its files under it",
 				)
@@ -271,7 +273,7 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					ShowHomePath(
+					display.Path(
 						current,
 					)+" belongs to another user; Workbench keeps its files only under folders you or root own",
 				)
@@ -280,7 +282,7 @@ func safeParents(path string) error {
 				return Fail(
 					ExitInvalid,
 					"permissions",
-					ShowHomePath(current)+" is writable by other users; run chmod go-w "+
+					display.Path(current)+" is writable by other users; run chmod go-w "+
 						ShellHomePath(current)+" and retry",
 				)
 			}
@@ -299,7 +301,7 @@ func owned(path string, info os.FileInfo) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			ShowHomePath(path)+" must belong to the current user; it was not changed",
+			display.Path(path)+" must belong to the current user; it was not changed",
 		)
 	}
 	return nil

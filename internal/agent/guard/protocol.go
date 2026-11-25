@@ -55,7 +55,7 @@ type message struct {
 // damaged and started again at TIME; the old file is PATH", or its form for
 // two copies (see HistoryDamaged): the history the writer started then is a
 // new file, whose commands are numbered from 1 again.
-// Each path in it is named from the home folder (see operation.ShowPath).
+// Each path in it is named from the home folder (see display.PathFrom).
 type Snapshot struct {
 	At           time.Time     `json:"at"`
 	Memory       MemoryView    `json:"memory"`

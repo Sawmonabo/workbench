@@ -13,6 +13,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -75,7 +76,7 @@ var AgentFolders = Migration{
 		if guardErr != nil && !guardRefused {
 			old, root, _ := guard.Folder(l.Runtime.State)
 			errs = append(errs, fmt.Errorf("moving %s to %s: %w",
-				operation.ShowPath(l.Home, old), operation.ShowPath(l.Home, root), guardErr))
+				display.PathFrom(l.Home, old), display.PathFrom(l.Home, root), guardErr))
 		}
 		failed := len(errs) > 0
 		var left []string
@@ -100,7 +101,7 @@ var AgentFolders = Migration{
 				errs = append(errs, operation.Fail(
 					operation.ExitBlocked,
 					"busy",
-					operation.ShowPath(
+					display.PathFrom(
 						l.Home,
 						s.old,
 					)+" didn't move, and the next apply tries again",
@@ -242,7 +243,7 @@ func (s folderState) due() bool {
 // text is what Check says of the folder: what a run does with it, or why it
 // stays, home-relative; "" once it has moved.
 func (s folderState) text(home string) string {
-	old, root := operation.ShowPath(home, s.old), operation.ShowPath(home, s.new)
+	old, root := display.PathFrom(home, s.old), display.PathFrom(home, s.new)
 	who := "an import"
 	if s.guard {
 		who = "a watcher"

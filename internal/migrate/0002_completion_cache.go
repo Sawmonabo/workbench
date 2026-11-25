@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -59,7 +60,7 @@ var completionCache = Migration{
 					return kept, err
 				}
 			default:
-				kept = append(kept, operation.ShowPath(l.Home, path))
+				kept = append(kept, display.PathFrom(l.Home, path))
 			}
 		}
 		return kept, nil
@@ -89,11 +90,11 @@ func oldCompletions(l Locations) (ours, other, unread []string) {
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 		case err != nil:
-			unread = append(unread, operation.ShowPath(l.Home, path))
+			unread = append(unread, display.PathFrom(l.Home, path))
 		case marked:
-			ours = append(ours, operation.ShowPath(l.Home, path))
+			ours = append(ours, display.PathFrom(l.Home, path))
 		default:
-			other = append(other, operation.ShowPath(l.Home, path))
+			other = append(other, display.PathFrom(l.Home, path))
 		}
 	}
 	return ours, other, unread

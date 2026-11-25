@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -191,7 +192,7 @@ func assertTheirsStay(t *testing.T, paths Paths, left []string, files map[string
 		if data, err := os.ReadFile(path); err != nil || string(data) != text {
 			t.Fatalf("%s changed: %q, %v", path, data, err)
 		}
-		if shown := operation.ShowPath(paths.Home, path); !slices.Contains(left, shown) {
+		if shown := display.PathFrom(paths.Home, path); !slices.Contains(left, shown) {
 			t.Fatalf("the move left %v, not naming %s", left, shown)
 		}
 	}

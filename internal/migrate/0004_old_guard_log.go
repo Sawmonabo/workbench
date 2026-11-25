@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -38,7 +39,7 @@ var oldGuardLog = Migration{
 	Check: func(l Locations) (Status, string) {
 		var todo, other []string
 		for _, path := range guardLogPaths(l) {
-			shown := operation.ShowPath(l.Home, path)
+			shown := display.PathFrom(l.Home, path)
 			lines, err := oldGuardLines(path)
 			switch {
 			case err == nil && lines == 0:
@@ -78,7 +79,7 @@ var oldGuardLog = Migration{
 			}
 			switch {
 			case operation.NotRegularLog(err):
-				kept = append(kept, operation.ShowPath(l.Home, path))
+				kept = append(kept, display.PathFrom(l.Home, path))
 			case err != nil:
 				return kept, err
 			}

@@ -225,7 +225,7 @@ type Status int // Done, Pending, Unfinished, Conflict
 `Check` returns no error: a path that can't be inspected counts as there, so
 nothing is called done that isn't, and the run then says why.
 
-Every path a migration's text names is shown through `operation.ShowPath`:
+Every path a migration's text names is shown through `display.PathFrom`:
 home-relative, and quoted when the name holds `; ` (written `;\x20`) or a
 control character, so one path never splits a probe line (5.2).
 

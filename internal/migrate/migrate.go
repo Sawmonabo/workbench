@@ -26,6 +26,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -418,7 +419,7 @@ func readRecord(l Locations) (record, error) {
 		return empty, operation.Fail(
 			operation.ExitInvalid,
 			"record",
-			operation.ShowPath(l.Home, recordPath(l))+
+			display.PathFrom(l.Home, recordPath(l))+
 				" is not a schema 1 migration record; it was not changed",
 		)
 	}
