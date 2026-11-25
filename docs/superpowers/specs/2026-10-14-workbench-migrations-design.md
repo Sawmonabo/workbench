@@ -48,8 +48,8 @@ Every path below was traced to the code or template that writes it.
 | Cache | `~/Library/Caches/workbench` | `~/.cache/workbench` | `uv/` |
 | Bin | `~/.local/bin` | `~/.local/bin` | `workbench` |
 
-- **How each folder is chosen** (`internal/operation/context.go:169-240`), in
-  order:
+- **How each folder is chosen** (`runtimePaths` in
+  `internal/operation/context.go`), in order:
   1. `WORKBENCH_<NAME>_DIR`, which must be absolute.
   2. `$XDG_<NAME>_HOME/workbench`, when that variable is absolute.
   3. The default above.
