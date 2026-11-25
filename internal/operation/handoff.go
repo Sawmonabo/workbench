@@ -72,18 +72,12 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 	environment = append(environment, NetworkEnvironment()...)
 	environment = append(environment, passedThrough(agentVariables)...)
 	ready()
-	if err = syscall.Exec(
-		executable,
-		append([]string{executable}, args...),
-		environment,
-	); err != nil {
-		return Fail(
-			ExitFailed,
-			"handoff",
-			"Verified runtime could not start; installed and staged runtime files remain available; retry the selected command",
-		)
-	}
-	return nil
+	_ = Exec(executable, args, environment)
+	return Fail(
+		ExitFailed,
+		"handoff",
+		"Verified runtime could not start; installed and staged runtime files remain available; retry the selected command",
+	)
 }
 
 // Exec replaces this process with command, which gets args and exactly
