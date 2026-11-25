@@ -195,13 +195,15 @@ func inspectAgentFolders(l Locations) []folderState {
 // a watcher or an import works in, it tries that process's lock without
 // waiting (see [operation.LockHeld]). A folder with no folder at its new path
 // whose file system can't swap it stays where it is whether or not a watcher
-// or an import works in it, which then never moves it either.
+// or an import works in it, which then never moves it either (see
+// [operation.CanMoveFolder]).
 func (f agentFolder) inspect() folderState {
 	s := folderState{agentFolder: f}
+	_, swapErr := operation.CanMoveFolder(f.old, f.new)
 	switch {
 	case !operation.IsFolder(f.old):
 		s.standing = moved
-	case !operation.IsFolder(f.new) && !canSwap(f.old):
+	case errors.Is(swapErr, platform.ErrSwapUnsupported):
 		s.standing = noSwap
 	case f.lock != "" && operation.IsLockHeld(f.lock):
 		s.standing = inUse
@@ -214,14 +216,6 @@ func (f agentFolder) inspect() folderState {
 		s.standing = movable
 	}
 	return s
-}
-
-// canSwap reports whether the file system holding the folder at path can
-// swap it (see [platform.CanSwap]); one that can't be asked is tried, and the
-// move says why it fails.
-func canSwap(path string) bool {
-	swaps, err := platform.CanSwap(path)
-	return err != nil || swaps
 }
 
 // due reports whether a run has something to do with the folder. A lock is
