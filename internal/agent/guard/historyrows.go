@@ -1,5 +1,9 @@
 package guard
 
+// This file is the history's rows: the finished commands written, with their
+// graphs and processes, and read for the view. Command text may hold a token,
+// so nothing here logs it or puts it in an error.
+
 import (
 	"cmp"
 	"context"

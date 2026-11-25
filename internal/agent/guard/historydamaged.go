@@ -1,5 +1,9 @@
 package guard
 
+// This file is the copies of histories that could not be used: where they
+// are, moving one aside, and deleting them once they are older than the time
+// kept (ADR 0020).
+
 import (
 	"errors"
 	"io/fs"

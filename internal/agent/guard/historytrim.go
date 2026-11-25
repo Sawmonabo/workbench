@@ -1,5 +1,8 @@
 package guard
 
+// This file is how long the history keeps finished commands, and the trim
+// that deletes the older ones and those over its limits.
+
 import (
 	"context"
 	"database/sql"

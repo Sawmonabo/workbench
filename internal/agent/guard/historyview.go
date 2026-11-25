@@ -1,12 +1,12 @@
 package guard
 
 // This file is what the view and `agent guard history` need of the history
-// beyond its store (history.go): where it and the copies of damaged ones are,
-// the guard folder made for the command that sets the time kept, the time
-// kept while none is set, how much of a command a summary holds, and what
-// is said of a history that cannot be written, was damaged or cannot be
-// read, which the watcher's snapshot and the view, with or without a
-// watcher, say in the same words.
+// beyond its store (history.go and the files it names): where it and the
+// copies of damaged ones are, the guard folder made for the command that sets
+// the time kept, the time kept while none is set, how much of a command a
+// summary holds, and what is said of a history that cannot be written, was
+// damaged or cannot be read, which the watcher's snapshot and the view, with
+// or without a watcher, say in the same words.
 
 import (
 	"strings"

@@ -2,8 +2,11 @@ package guard
 
 // This file is the history: the commands that finished, each with its
 // processes and the graph of its memory over its whole run, kept in a SQLite
-// file in the guard folder. Command text may hold a token, so nothing here
-// logs it or puts it in an error.
+// file in the guard folder; here its limits and schema, and its open, check
+// and close. Its rows are in historyrows.go, the time kept and the trim in
+// historytrim.go, and the copies of damaged histories in historydamaged.go.
+// Command text may hold a token, so nothing in them logs it or puts it in an
+// error.
 
 import (
 	"cmp"

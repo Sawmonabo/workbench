@@ -12,23 +12,9 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-const (
-	idleExit  = 10 * time.Minute
-	cooldown  = 10 * time.Second
-	killAfter = 5 * time.Second
-	giveUp    = 10 * time.Second
-	killKeep  = 24 * time.Hour
-	// childLinger is how long a child of an agent must be seen alive before it
-	// may stand for a waiting note's command: one tick at the normal pace.
-	childLinger = time.Second
-	// abandonAfter is how long a note that never matched must wait before a
-	// later call of its agent ending lets it go: Claude Code's longest
-	// foreground Bash timeout, so a call still waiting at a permission prompt
-	// beside a parallel call that finished keeps its note.
-	abandonAfter = 10 * time.Minute
-
-	refusalLimit = 3
-)
+// idleExit is how long the watcher runs with no note and no tracked command
+// or unit before it exits (see Watch).
+const idleExit = 10 * time.Minute
 
 type watcher struct {
 	f        folders

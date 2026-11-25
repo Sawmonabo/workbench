@@ -15,6 +15,19 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// The stops' timing and limits: the cooldown after a stop (see coolingDown),
+// the SIGKILL that follows SIGTERM (see escalateNow), the end of the wait for
+// a stopped command's processes to go (see signal), the age at which a kill
+// record goes in any case (see expireKills), and the stops in a row that
+// signalled nothing after which a call is passed over (see refused).
+const (
+	cooldown     = 10 * time.Second
+	killAfter    = 5 * time.Second
+	giveUp       = 10 * time.Second
+	killKeep     = 24 * time.Hour
+	refusalLimit = 3
+)
+
 // expireKills deletes, at most once a minute, each kill record whose call's
 // note is no longer on disk, which no post hook will read: the post hook
 // takes a record before it marks the note (see Post), and a note goes only

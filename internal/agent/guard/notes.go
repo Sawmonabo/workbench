@@ -11,6 +11,17 @@ import (
 	"time"
 )
 
+const (
+	// childLinger is how long a child of an agent must be seen alive before it
+	// may stand for a waiting note's command: one tick at the normal pace.
+	childLinger = time.Second
+	// abandonAfter is how long a note that never matched must wait before a
+	// later call of its agent ending lets it go: Claude Code's longest
+	// foreground Bash timeout, so a call still waiting at a permission prompt
+	// beside a parallel call that finished keeps its note.
+	abandonAfter = 10 * time.Minute
+)
+
 // seenNote is a note the watcher has read: its command, agent with its kind
 // and NotedStart, read when this watcher first read it, matched once it was
 // tracked, childSeen as markChildSeen sets it, posted and postedRound from
