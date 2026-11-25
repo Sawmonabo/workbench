@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -195,7 +194,7 @@ func quiesce(ctx context.Context, path string) error {
 	if err != nil {
 		return err
 	}
-	if blocked != 0 || exists(path+"-wal") || exists(path+"-shm") {
+	if blocked != 0 || slices.ContainsFunc(sqlitefile.SideFiles(path), exists) {
 		return busy("another process has the costs ledger open")
 	}
 	return nil
@@ -225,7 +224,7 @@ func copyLedger(ctx context.Context, home, from, to string) error {
 			}
 			return badCopy(home, from, problem, "the copy was discarded")
 		}
-		if exists(from+"-wal") || exists(from+"-shm") {
+		if slices.ContainsFunc(sqlitefile.SideFiles(from), exists) {
 			_ = removeDatabase(part)
 			return busy("another process opened the costs ledger during the copy")
 		}
@@ -316,13 +315,10 @@ const differs = "doesn't hold what it holds"
 // checkCopy says what is wrong with the copy at path, "" when it passes PRAGMA
 // integrity_check and holds exactly what the database at original holds. As
 // many rows is not enough: another ledger can have as many, and an original is
-// never deleted for it. It opens both without taking them over (see unowned),
-// so a ledger that turns out to be another one is left as it was.
+// never deleted for it. It opens both without taking them over (see
+// copyCheck), so a ledger that turns out to be another one is left as it was.
 func checkCopy(ctx context.Context, path, original string) (string, error) {
-	db, err := sqlitefile.Open(
-		path,
-		sqlitefile.Options{ReadOnly: true, Pragmas: []string{"busy_timeout(5000)"}},
-	)
+	db, err := sqlitefile.Open(path, copyCheck)
 	if err != nil {
 		return "", err
 	}
@@ -338,7 +334,7 @@ func checkCopy(ctx context.Context, path, original string) (string, error) {
 	if _, err = conn.ExecContext(
 		ctx,
 		"ATTACH DATABASE ? AS original",
-		unowned(original),
+		sqlitefile.Address(original, copyCheck),
 	); err != nil {
 		return "", err
 	}
@@ -387,17 +383,13 @@ func integrityCheck(ctx context.Context, conn *sql.Conn) (string, error) {
 	return "fails SQLite's integrity_check (" + problem + ")", nil
 }
 
-// unowned is the address that opens the database at path without taking it
-// over as OpenLedger does: no schema upgrade, journal mode or file mode
-// change, and no new file when none is there. checkCopy opens the copy with
-// the same address through sqlitefile.Open (ReadOnly and busy_timeout(5000))
-// and attaches the original with this one. The check runs only queries, so
-// the content never changes; like any last connection to close, it may fold a
-// WAL ledger's log into the file when no other process has the ledger open.
-func unowned(path string) string {
-	query := "mode=rw&_pragma=query_only(1)&_pragma=busy_timeout(5000)"
-	return (&url.URL{Scheme: "file", Path: path, RawQuery: query}).String()
-}
+// copyCheck is how checkCopy opens the copy and attaches the original,
+// without taking either over as OpenLedger does: no schema upgrade, journal
+// mode or file mode change, and no new file when none is there. The check
+// runs only queries, so the content never changes; like any last connection
+// to close, it may fold a WAL ledger's log into the file when no other
+// process has the ledger open.
+var copyCheck = sqlitefile.Options{ReadOnly: true, Pragmas: []string{"busy_timeout(5000)"}}
 
 // leftCopy is what a badCopy error says of a copy left at part.
 func leftCopy(home, part string) string {

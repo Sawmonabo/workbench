@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // OldPaths are where releases before the migrations design kept the costs
@@ -227,8 +228,8 @@ func (o OldPaths) folders() []string {
 func (o OldPaths) known(p Paths) []string {
 	names := o.leftovers()
 	if o.Ledger != "" {
-		names = append(names, o.Ledger, o.Ledger+".moved",
-			o.Ledger+"-wal", o.Ledger+"-shm", o.Ledger+"-journal")
+		names = append(names, o.Ledger, o.Ledger+".moved", o.Ledger+"-journal")
+		names = append(names, sqlitefile.SideFiles(o.Ledger)...)
 	}
 	for _, move := range o.moves(p) {
 		names = append(names, move.from)
