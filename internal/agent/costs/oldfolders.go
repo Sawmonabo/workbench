@@ -319,9 +319,11 @@ func moveSmallFiles(old OldPaths, p Paths) error {
 			}
 			continue
 		}
-		if _, err := move.folder(); err != nil {
+		folder, err := move.folder()
+		if err != nil {
 			return err
 		}
+		operation.RemoveStaleWrites(folder)
 		if err := moveFile(move.from, move.to); err != nil {
 			return err
 		}
@@ -344,14 +346,19 @@ func removeOldFolders(old OldPaths) error {
 }
 
 // moveFile moves one small costs file and makes it 0600, never replacing a
-// file at to. Across filesystems it writes a temporary copy beside to, syncs
-// it, renames it into place and syncs that folder, and only then deletes from;
-// a stop between the two leaves the same bytes in both, which the next run
-// takes as moved.
+// file at to. Across filesystems it writes a copy at to through
+// [operation.CreatePrivateFile], and only then deletes from; a stop between
+// the two leaves the same bytes in both, which the next run takes as moved.
+// The temporary file of a copy that was killed is deleted before the next
+// move into its folder (see [operation.RemoveStaleWrites]).
 func moveFile(from, to string) error {
 	err := operation.RenameNoReplace(from, to)
 	if errors.Is(err, syscall.EXDEV) {
-		if err = copyFile(from, to); err == nil {
+		var data []byte
+		if data, err = os.ReadFile(from); err == nil {
+			err = operation.CreatePrivateFile(to, data)
+		}
+		if err == nil {
 			err = os.Remove(from)
 		}
 	}
@@ -365,33 +372,6 @@ func moveFile(from, to string) error {
 		return err
 	}
 	return operation.SyncDirectory(filepath.Dir(from))
-}
-
-func copyFile(from, to string) error {
-	data, err := os.ReadFile(from)
-	if err != nil {
-		return err
-	}
-	part := to + ".part"
-	file, err := os.OpenFile(part, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
-	if err != nil {
-		return err
-	}
-	_, err = file.Write(data)
-	if err == nil {
-		err = file.Sync()
-	}
-	if closeErr := file.Close(); err == nil {
-		err = closeErr
-	}
-	if err == nil {
-		err = operation.RenameNoReplace(part, to)
-	}
-	if err != nil {
-		_ = os.Remove(part)
-		return err
-	}
-	return operation.SyncDirectory(filepath.Dir(to))
 }
 
 // gate keeps the ledger closed at its new path while the costs ledger still
