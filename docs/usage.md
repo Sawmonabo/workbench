@@ -353,7 +353,7 @@ running its own code until it has been idle for 10 minutes; `kill` (its
 starts the installed release's.
 
 `workbench agent guard logs` shows what the guard did, oldest first, one line per
-event: the time in the machine's time zone, the level, the event, then
+event: the time in the machine's time zone, 12-hour with AM or PM, the level, the event, then
 `key=value` fields in this order, each left out when it has no value:
 `id agent subagent project kind launched_by by dry_run took size peak floor
 level available total still_running release old_release new_release new_pid msg
@@ -392,14 +392,14 @@ tracking are left out; with `--follow`, one still running 5 s after the watcher
 found it gets one `running` line, without `took` or `peak`.
 
 ```text
-Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.41GB cmd="pnpm typecheck 2>&1 | tail -15"
-Oct 17 14:41:20 WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
-Oct 17 14:42:31 WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.21GB peak=6.21GB available=1.12GB total=16GB cmd="cargo test --workspace"
-Oct 17 14:42:36 WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
-Oct 17 14:43:02 WARN  memory    size=740MB floor=1GB available=1.12GB total=16GB msg="memory is low, but the agent commands are too small to stop"
-Oct 17 14:44:40 WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.31GB peak=1.31GB cmd="pnpm vitest run"
-Oct 17 14:45:10 ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
-Oct 17 14:50:00 INFO  idle
+Oct 17  2:41:05 PM INFO  ended     id=4fQ8nX2a agent=claude subagent=Explore project=feature-login took=53s peak=2.41GB cmd="pnpm typecheck 2>&1 | tail -15"
+Oct 17  2:41:20 PM WARN  unmatched id=7Kp3Rt9m agent=claude project=feature-login took=2.0s cmd=./scripts/nap.sh
+Oct 17  2:42:31 PM WARN  stopping  id=2Bv6Yc1d agent=claude project=api-server by=guard took=1m12s size=6.21GB peak=6.21GB available=1.12GB total=16GB cmd="cargo test --workspace"
+Oct 17  2:42:36 PM WARN  forced    id=2Bv6Yc1d agent=claude project=api-server cmd="cargo test --workspace"
+Oct 17  2:43:02 PM WARN  memory    size=740MB floor=1GB available=1.12GB total=16GB msg="memory is low, but the agent commands are too small to stop"
+Oct 17  2:44:40 PM WARN  stopping  id=9Hs5Wq4e agent=claude project=feature-login by=you took=8.0s size=1.31GB peak=1.31GB cmd="pnpm vitest run"
+Oct 17  2:45:10 PM ERROR error     msg="cannot read a process" error="open /proc/81234/stat: permission denied" process=81234
+Oct 17  2:50:00 PM INFO  idle
 ```
 
 A long line soft-wraps on screen and stays one line, so `grep` and copying

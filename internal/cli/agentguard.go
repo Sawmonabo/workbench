@@ -619,10 +619,11 @@ var guardMessageEvents = map[string]bool{
 }
 
 // guardLine is one event on one line, as logfmt readers parse it after its
-// first three fields: `Oct 17 14:41:05 INFO  ended     id=4fQ8nX2a
-// project=api took=53s peak=2.41GB cmd="cargo test"`. The time is local, the
-// level is padded to 5 and the event to 9, and a raw line, which has no time,
-// leaves the time blank. The time and the keys are faint, the level label
+// first four fields: `Oct 17  2:41:05 PM INFO  ended     id=4fQ8nX2a
+// project=api took=53s peak=2.41GB cmd="cargo test"`. The time is local and
+// the same width on every line (see [display.Stamp]), the level is padded to
+// 5 and the event to 9, and a raw line, which has no time, leaves the time
+// blank. The time and the keys are faint, the level label
 // alone is colored and the event is plain. Fields follow in a fixed order, cmd
 // last as the longest, each left out when empty; a field the order does not
 // name stays in --json only. running prints a tracking record as a running
@@ -632,9 +633,9 @@ func guardLine(paint painter, e guard.Event, running bool) string {
 	if running {
 		name = "running"
 	}
-	when := strings.Repeat(" ", len(time.Stamp))
+	when := strings.Repeat(" ", display.StampWidth)
 	if !e.Time.IsZero() {
-		when = e.Time.Local().Format(time.Stamp)
+		when = display.Stamp(e.Time)
 	}
 	level, ok := guardLevelStyles[e.Level]
 	if !ok {

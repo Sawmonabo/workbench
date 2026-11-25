@@ -345,7 +345,7 @@ For `--json` such a line becomes a record with `level` `ERROR`, `event`
 `raw`, the line as `msg` and, from `watch.err`, `started`, its watcher's
 start, encoded by the same handler, which leaves out `time` because the
 line's own time is unknown. It prints one line per event, as log viewers
-do: the time in the machine's zone (`Oct 17 14:41:05`), the level, the event
+do: the time in the machine's zone (`Oct 17  2:41:05 PM`), the level, the event
 and then `key=value` fields in a fixed order with `cmd` last and the call's
 first 8 ID characters as `id`, a value in Go quotes when it holds a space,
 `"`, `=`, `\` or a control character (the [platform and guard view

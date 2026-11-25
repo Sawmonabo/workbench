@@ -426,15 +426,15 @@ func readRecord(l Locations) (record, error) {
 	return r, nil
 }
 
-// DoneAt is when the record says id reached Done, in this machine's time
-// ("Oct 14 at 6:33 PM"), "" when it doesn't say.
+// DoneAt is when the record says id reached Done, on this machine's clock
+// ("Oct 14 6:33 PM", see [display.DayTime]), "" when it doesn't say.
 func DoneAt(l Locations, id string) string {
 	r, _ := readRecord(l)
 	at, err := time.Parse(time.RFC3339, r.Done[id])
 	if err != nil {
 		return ""
 	}
-	return at.Local().Format("Jan 2 at 3:04 PM")
+	return at.Local().Format(display.DayTime)
 }
 
 // markDone records id as done in the migration record, the state folder's
