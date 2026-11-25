@@ -160,47 +160,55 @@ func Newer(a, b string) bool {
 		return false
 	}
 	for i := range 3 {
-		if left.core[i] != right.core[i] {
-			return left.core[i] > right.core[i]
+		if left.Core[i] != right.Core[i] {
+			return left.Core[i] > right.Core[i]
 		}
 	}
 	switch {
-	case left.pre == right.pre:
+	case left.Pre == right.Pre:
 		return false
-	case left.pre == "":
+	case left.Pre == "":
 		return true
-	case right.pre == "":
+	case right.Pre == "":
 		return false
 	}
-	return prereleaseNewer(strings.Split(left.pre, "."), strings.Split(right.pre, "."))
+	return prereleaseNewer(strings.Split(left.Pre, "."), strings.Split(right.Pre, "."))
 }
 
-type tag struct {
-	core [3]uint64
-	pre  string
+// Version is a semantic version: its three numbers and its prerelease, ""
+// for a release.
+type Version struct {
+	Core [3]uint64
+	Pre  string
 }
 
-func parseTag(s string) (tag, bool) {
-	var t tag
-	rest, ok := strings.CutPrefix(s, "v")
-	if !ok {
-		return t, false
-	}
-	core, pre, _ := strings.Cut(rest, "-")
+// ParseVersion parses MAJOR.MINOR.PATCH with an optional -prerelease and
+// +build, which it drops; ok is false for anything else.
+func ParseVersion(s string) (v Version, ok bool) {
+	core, pre, _ := strings.Cut(s, "-")
 	core, _, _ = strings.Cut(core, "+")
 	parts := strings.Split(core, ".")
 	if len(parts) != 3 {
-		return t, false
+		return v, false
 	}
 	for i, part := range parts {
 		n, err := strconv.ParseUint(part, 10, 64)
 		if err != nil {
-			return t, false
+			return v, false
 		}
-		t.core[i] = n
+		v.Core[i] = n
 	}
-	t.pre, _, _ = strings.Cut(pre, "+")
-	return t, true
+	v.Pre, _, _ = strings.Cut(pre, "+")
+	return v, true
+}
+
+// parseTag parses a release tag, a [ParseVersion] version after a v.
+func parseTag(s string) (Version, bool) {
+	rest, ok := strings.CutPrefix(s, "v")
+	if !ok {
+		return Version{}, false
+	}
+	return ParseVersion(rest)
 }
 
 // prereleaseNewer compares dot-separated prerelease identifiers as semantic

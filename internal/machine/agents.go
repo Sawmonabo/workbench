@@ -325,23 +325,21 @@ func (p *preparation) planAgentUpdate(
 	p.Plan.Effects = append(p.Plan.Effects, effect)
 }
 
-// agentVersion is a version agentNewer can compare: three dotted numbers,
-// optionally followed by a prerelease such as -alpha.3.
-var agentVersion = regexp.MustCompile(`^([0-9]+\.[0-9]+\.[0-9]+)(?:-([0-9A-Za-z.-]+))?$`)
-
 // agentNewer reports whether version a is newer than b, and whether the two
-// could be compared at all. A prerelease ranks below its own release, as in
-// Semantic Versioning, so 0.163.0 is newer than 0.163.0-alpha.3; two
-// prereleases of the same release are not ranked, so neither is newer.
+// could be compared at all: both must be versions [release.ParseVersion]
+// reads. A prerelease ranks below its own release, as in Semantic Versioning,
+// so 0.163.0 is newer than 0.163.0-alpha.3; two prereleases of the same
+// release are not ranked, so neither is newer.
 func agentNewer(a, b string) (newer, comparable bool) {
-	left, right := agentVersion.FindStringSubmatch(a), agentVersion.FindStringSubmatch(b)
-	if left == nil || right == nil {
+	left, okA := release.ParseVersion(a)
+	right, okB := release.ParseVersion(b)
+	if !okA || !okB {
 		return false, false
 	}
-	if left[1] != right[1] {
-		return newerVersion(left[1], right[1]), true
+	if left.Core != right.Core {
+		return slices.Compare(left.Core[:], right.Core[:]) > 0, true
 	}
-	return left[2] == "" && right[2] != "", true
+	return left.Pre == "" && right.Pre != "", true
 }
 
 // findAgent returns the agent's copy the shell runs: the first one in the
