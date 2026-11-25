@@ -468,22 +468,23 @@ func (h *History) check(version int64, objects []schemaObject) error {
 // spaced is statement with each run of white space as one space.
 func spaced(statement string) string { return strings.Join(strings.Fields(statement), " ") }
 
-// unusable is [ErrHistoryUnusable] for this file, with reason.
+// unusable is [ErrHistoryUnusable] for this file, with reason, naming the
+// file as every file error does (see [operation.FileError]).
 func (h *History) unusable(reason string) error {
-	return fmt.Errorf("%s: %w: %s", h.path, ErrHistoryUnusable, reason)
+	return operation.FileError(h.path, fmt.Errorf("%w: %s", ErrHistoryUnusable, reason))
 }
 
-// fail names the file in an error SQLite returned, and makes a file that is
-// not a database, or that SQLite calls corrupt, [ErrHistoryUnusable]. It
-// returns nil for nil.
+// fail names the file in an error SQLite returned, as every file error does
+// (see [operation.FileError]), and makes a file that is not a database, or
+// that SQLite calls corrupt, [ErrHistoryUnusable]. It returns nil for nil.
 func (h *History) fail(err error) error {
 	switch {
 	case err == nil || errors.Is(err, ErrHistoryUnusable):
 		return err
 	case sqlitefile.IsDamaged(err):
-		return fmt.Errorf("%s: %w: %w", h.path, ErrHistoryUnusable, err)
+		return operation.FileError(h.path, fmt.Errorf("%w: %w", ErrHistoryUnusable, err))
 	default:
-		return fmt.Errorf("%s: %w", h.path, err)
+		return operation.FileError(h.path, err)
 	}
 }
 
