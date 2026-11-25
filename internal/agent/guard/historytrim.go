@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // keepSetting is the settings row that holds the time kept.
@@ -33,7 +35,8 @@ func (h *History) Keep(ctx context.Context) (time.Duration, error) {
 	}
 	seconds, err := strconv.ParseInt(value, 10, 64)
 	if err != nil || seconds < 1 || seconds > int64(math.MaxInt64/time.Second) {
-		return 0, fmt.Errorf("%s: the time kept, %q, is not a number of seconds", h.path, value)
+		return 0, operation.FileError(h.path,
+			fmt.Errorf("the time kept, %q, is not a number of seconds", value))
 	}
 	return time.Duration(seconds) * time.Second, nil
 }
@@ -68,7 +71,8 @@ ON CONFLICT(key) DO UPDATE SET value = excluded.value`, keepSetting, strconv.For
 // holds would have gone anyway.
 func (h *History) Trim(ctx context.Context, now time.Time) (deleted int, again bool, err error) {
 	if !h.write {
-		return 0, false, fmt.Errorf("%s: a history opened for reading is never trimmed", h.path)
+		return 0, false, operation.FileError(h.path,
+			errors.New("a history opened for reading is never trimmed"))
 	}
 	keep, err := h.Keep(ctx)
 	if err != nil {

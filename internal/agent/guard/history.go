@@ -268,15 +268,15 @@ func sidesAt(path string) []os.FileInfo {
 // [History.Close].
 func (h *History) Check() error {
 	if !h.write {
-		return fmt.Errorf("%s: a history opened for reading is never checked", h.path)
+		return operation.FileError(h.path,
+			errors.New("a history opened for reading is never checked"))
 	}
 	info, err := os.Stat(h.path)
 	switch {
 	case err != nil:
 		return operation.FileError(h.path, err)
 	case !os.SameFile(info, h.opened):
-		return fmt.Errorf("%w: %s is another file than the one the writer opened",
-			ErrHistoryUnusable, h.path)
+		return h.unusable("it is another file than the one the writer opened")
 	}
 	h.sides = sidesAt(h.path)
 	err = sqlitefile.CheckHeader(h.file)
@@ -348,7 +348,7 @@ func (h *History) prepare(db *sql.DB) error {
 		return h.check(version, objects)
 	}
 	if !h.write {
-		return fmt.Errorf("%s: no history yet: %w", h.path, fs.ErrNotExist)
+		return operation.FileError(h.path, fmt.Errorf("no history yet: %w", fs.ErrNotExist))
 	}
 	return h.create(ctx, conn)
 }
