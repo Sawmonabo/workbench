@@ -285,7 +285,7 @@ func moveFolders(ctx context.Context, old OldPaths, p Paths) (left []string, err
 func lockImports(old OldPaths, p Paths) (release func(), err error) {
 	locks := []string{p.lock()}
 	if old.State != "" && exists(old.State) {
-		locks = append(locks, old.lock())
+		locks = append(locks, Paths{State: old.State}.lock())
 	}
 	var releases []func()
 	release = func() {

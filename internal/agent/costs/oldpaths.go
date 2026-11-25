@@ -71,10 +71,6 @@ func OldLocations(home string) OldPaths {
 	return old
 }
 
-func (o OldPaths) lock() string { return filepath.Join(o.State, "ingest.lock") }
-
-func (o OldPaths) log() string { return filepath.Join(o.State, "ingest.log") }
-
 // oldOfficialPath is where the old code kept one tool's price cache: beside
 // the ledger, rates-official.json for the first tool and
 // rates-official-<tool>.json for every other.
@@ -135,7 +131,7 @@ func (o OldPaths) leftovers() []string {
 		}
 	}
 	if o.State != "" {
-		names = append(names, o.log(), o.lock())
+		names = append(names, Paths{State: o.State}.log(), Paths{State: o.State}.lock())
 	}
 	return names
 }
