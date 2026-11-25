@@ -173,14 +173,15 @@ func makePrivate(path string) {
 // write-ahead log, path-wal, and its shared-memory index, path-shm.
 func SideFiles(path string) []string { return []string{path + "-wal", path + "-shm"} }
 
-// Remove deletes the closed database at path with the files SQLite keeps
-// beside it, its side files and a rollback journal (-journal), those first:
-// one left beside no database would pair with the next database made at
-// path, which SQLite would then read through it
-// (https://sqlite.org/howtocorrupt.html#_mispairing_database_files_and_hot_journals).
-// A file already gone is no error.
+// Remove deletes the closed database at path and then the files SQLite keeps
+// beside it, its side files and a rollback journal (-journal), stopping at
+// the first it cannot delete, so no moment leaves the database without the
+// files it was written with. A file already gone is no error. A side file an
+// interrupted Remove leaves would pair with the next database made at path
+// (https://sqlite.org/howtocorrupt.html#_mispairing_database_files_and_hot_journals),
+// so whatever makes one there deletes those first.
 func Remove(path string) error {
-	for _, name := range append(SideFiles(path), path+"-journal", path) {
+	for _, name := range append([]string{path}, append(SideFiles(path), path+"-journal")...) {
 		if err := operation.RemoveIfThere(name); err != nil {
 			return err
 		}
