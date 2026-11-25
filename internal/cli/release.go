@@ -721,7 +721,7 @@ func setUp(
 				"answers ask needs a terminal to ask at",
 			)
 		}
-		saved, err := operation.ReadPrivateInput(c.Native.Config, 1<<20)
+		saved, err := machine.ReadMachineConfig(c.Native.Config)
 		if err != nil {
 			return c, operation.Fail(
 				operation.ExitBlocked,
