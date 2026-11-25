@@ -366,15 +366,17 @@ func keyLine(view planView, width int) string {
 			{"q", "quit"},
 		},
 		width,
+		brand,
 	)
 }
 
-// hintLine is a key line: full when it fits, else short, clipped to width.
-func hintLine(full, short [][2]string, width int) string {
+// hintLine is a key line, each key in the key style and what it does faint:
+// full when it fits, else short, clipped to width.
+func hintLine(full, short [][2]string, width int, key lipgloss.Style) string {
 	line := func(hints [][2]string) string {
 		parts := make([]string, len(hints))
 		for i, hint := range hints {
-			parts[i] = brand.Render(forTerm(hint[0])) + " " + faint.Render(hint[1])
+			parts[i] = key.Render(forTerm(hint[0])) + " " + faint.Render(hint[1])
 		}
 		return strings.Join(parts, faint.Render(forTerm("  ·  ")))
 	}

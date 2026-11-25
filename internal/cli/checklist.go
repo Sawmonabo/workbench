@@ -223,6 +223,7 @@ func (m *checklistModel) View() tea.View {
 				[][2]string{{"q/esc", "back"}, {"↑/↓ pgup/pgdn", "scroll"}},
 				[][2]string{{"q/esc", "back"}, {"↑/↓", "scroll"}},
 				m.width,
+				brand,
 			)
 	} else {
 		m.frame = buildPlanFrame(
