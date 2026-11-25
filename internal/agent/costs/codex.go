@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -85,31 +84,6 @@ func (codex) Skipped(home string) int {
 		n += len(found)
 	}
 	return n
-}
-
-func codexWalk(root, ext string) ([]string, error) {
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		return nil, nil
-	}
-	var files []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
-			}
-			return nil
-		case filepath.Ext(path) != ext:
-		case entry.Type().IsRegular():
-			files = append(files, path)
-		case entry.Type()&fs.ModeSymlink != 0:
-			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-				files = append(files, path)
-			}
-		}
-		return nil
-	})
-	return files, err
 }
 
 // ServedTier is the tier Codex sends a model's request at when tier is
