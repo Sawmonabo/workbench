@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/fs"
 	"log/slog"
 	"net"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -110,16 +110,11 @@ func (w *watcher) listen() error {
 	if listener != nil {
 		_ = os.Chmod(path, socketMode)
 	} else {
-		if err := os.Remove(path); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		if err := operation.RemoveIfThere(path); err != nil {
 			return err
 		}
 		var err error
-		listener, err = net.ListenUnix("unix", &net.UnixAddr{Name: path, Net: "unix"})
-		if err != nil {
-			return err
-		}
-		if err := os.Chmod(path, socketMode); err != nil {
-			_ = listener.Close()
+		if listener, err = platform.ListenPrivate(path); err != nil {
 			return err
 		}
 	}

@@ -24,8 +24,6 @@ const (
 	askpassDeadline = 10 * time.Second
 	// askpassLine bounds a request, far above any password.
 	askpassLine = 4096
-	// socketPathLimit is macOS's 104-byte Unix socket path, less its final NUL.
-	socketPathLimit = 103
 	// socketPathMax is the longest path the folder and socket names can have.
 	socketPathMax = len("/wb-askpass-4294967295/s")
 )
@@ -100,7 +98,7 @@ func newAskpass(m *Mutation) (service *askpassService, err error) {
 		return nil, err
 	}
 	base := os.TempDir()
-	if len(base)+socketPathMax > socketPathLimit {
+	if len(base)+socketPathMax > platform.SocketPathLimit {
 		base = "/tmp"
 	}
 	dir, err := os.MkdirTemp(base, "wb-askpass-")
@@ -122,12 +120,8 @@ func newAskpass(m *Mutation) (service *askpassService, err error) {
 	if err = os.WriteFile(helper, []byte(script), 0o700); err != nil {
 		return nil, err
 	}
-	listener, err := net.ListenUnix("unix", &net.UnixAddr{Name: socket, Net: "unix"})
+	listener, err := platform.ListenPrivate(socket)
 	if err != nil {
-		return nil, err
-	}
-	if err = os.Chmod(socket, 0o600); err != nil {
-		_ = listener.Close()
 		return nil, err
 	}
 	return &askpassService{

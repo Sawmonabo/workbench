@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 const (
@@ -22,9 +23,6 @@ const (
 	// stopWait bounds a stop: the watcher takes it at its next tick, or after
 	// a stop of its own, which may poll for up to giveUp.
 	stopWait = 12 * time.Second
-	// socketPathLimit is the longest socket path accepted: macOS holds 104
-	// bytes, with the closing NUL, in a socket address, Linux 108.
-	socketPathLimit = 100
 	// lineLimit is the longest message line read.
 	lineLimit = 16 << 20
 )
@@ -55,11 +53,11 @@ func socketPath() (string, error) {
 		return "", err
 	}
 	path := f.socket()
-	if len(path) > socketPathLimit {
+	if len(path) > platform.SocketPathLimit {
 		return "", fmt.Errorf(
 			"the guard socket path %s is over %d bytes; the state folder %s is too deep for a socket",
 			path,
-			socketPathLimit,
+			platform.SocketPathLimit,
 			state,
 		)
 	}
