@@ -27,8 +27,9 @@ import (
 var releaseSource string
 
 // VersionsFile is the machine source file that holds the tool pins. Each
-// reader decodes only its own tables (the management pins, the runtimes, the
-// agents, a project's CI jobs), so a malformed table stops only what uses it.
+// reader decodes only the pins it uses (the management pins, the runtimes, the
+// agents, a project's CI jobs), so a malformed pin stops only the readers that
+// decode it.
 const VersionsFile = "home/.chezmoidata/versions.toml"
 
 // Requirements are the management pins from home/.chezmoidata/versions.toml.
