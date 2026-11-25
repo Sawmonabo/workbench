@@ -1541,7 +1541,10 @@ func (m *guardView) headLine() string {
 			line += dot + guardRed.Bold(true).Render("memory "+level)
 		}
 	}
-	if clock := line + dot + time.Now().Format("3:04:05 PM"); ansi.StringWidth(clock) <= m.width {
+	if clock := line + dot + time.Now().
+		Format(display.TimeSeconds); ansi.StringWidth(
+		clock,
+	) <= m.width {
 		return clock
 	}
 	return fit(line, m.width, false)
@@ -1859,14 +1862,13 @@ func runTime(c guard.CommandView, at time.Time) string {
 // show it, "5:07 PM", with its date ("Nov 18 5:07 PM") when dated and it is
 // not on the day of now; "" for none.
 func endedText(t time.Time, dated bool, now time.Time) string {
-	if t.IsZero() {
+	switch {
+	case t.IsZero():
 		return ""
+	case dated:
+		return display.Clock(t, now)
 	}
-	t, now = t.Local(), now.Local()
-	if dated && t.Format(time.DateOnly) != now.Format(time.DateOnly) {
-		return t.Format("Jan 2 3:04 PM")
-	}
-	return t.Format("3:04 PM")
+	return t.Local().Format(display.Time)
 }
 
 // projectLabel fits a project label to width: a label naming a worktree under

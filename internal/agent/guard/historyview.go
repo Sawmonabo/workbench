@@ -133,18 +133,17 @@ func HistoryDamaged(copies []DamagedCopy, now time.Time) string {
 	if len(copies) == 0 {
 		return ""
 	}
-	clock := func(at time.Time) string {
-		if at.Local().Format(time.DateOnly) != now.Local().Format(time.DateOnly) {
-			return at.Local().Format("Jan 2 3:04 PM")
-		}
-		return at.Local().Format("3:04 PM")
-	}
 	if len(copies) == 1 {
-		return "Guard history was damaged and started again at " + clock(copies[0].At) +
-			"; the old file is " + display.Path(copies[0].Path)
+		return "Guard history was damaged and started again at " + display.Clock(
+			copies[0].At,
+			now,
+		) +
+			"; the old file is " + display.Path(
+			copies[0].Path,
+		)
 	}
-	return "Guard history was damaged and started again at " + clock(copies[0].At) +
-		", and earlier at " + clock(copies[1].At) + "; the old files are " +
+	return "Guard history was damaged and started again at " + display.Clock(copies[0].At, now) +
+		", and earlier at " + display.Clock(copies[1].At, now) + "; the old files are " +
 		display.Path(copies[0].Path) + " and " + display.Path(copies[1].Path)
 }
 

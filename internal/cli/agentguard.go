@@ -236,7 +236,7 @@ func showGuardLogs(cmd *cobra.Command, o *options, follow bool, sinceText string
 	}
 	text := "No guard events yet"
 	if !since.IsZero() {
-		text = "No guard events since " + since.Local().Format("Jan 2 3:04 PM")
+		text = "No guard events since " + since.Local().Format(display.DayTime)
 	}
 	_, err = fmt.Fprintln(cmd.ErrOrStderr(), text+".")
 	return err

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -510,7 +511,7 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 			applied.Message = "Last applied from a developer checkout (" + source.ContentDigest[:12] + ")"
 		}
 		if state.AppliedAt != nil {
-			applied.Message += " on " + state.AppliedAt.Local().Format("Jan 2, 2006")
+			applied.Message += " on " + state.AppliedAt.Local().Format(display.Date)
 		}
 	}
 	results := []operation.Component{release, applied}

@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/project"
 )
@@ -249,7 +250,7 @@ func writeCheckpoints(w io.Writer, checkpoints []operation.CheckpointSummary) er
 // checkpointLabel names when a checkpoint was saved and what restoring it
 // does: a forward checkpoint undoes its apply, its recovery pair redoes it.
 func checkpointLabel(checkpoint operation.CheckpointSummary) string {
-	label := checkpoint.Created.Local().Format("Jan 2 3:04 PM") + "  "
+	label := checkpoint.Created.Local().Format(display.DayTime) + "  "
 	if checkpoint.Recovery {
 		label += "redo the apply of " + sourceName(checkpoint.Before)
 	} else {

@@ -12,6 +12,7 @@ import (
 
 	"charm.land/lipgloss/v2"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -173,7 +174,7 @@ func writeReleases(w io.Writer, list releaseList) error {
 		}
 		rows = append(rows, []string{
 			mark + " " + published.Tag,
-			published.Published.Local().Format("Jan 2, 2006"),
+			published.Published.Local().Format(display.Date),
 			strings.Join(notes, ", "),
 		})
 	}

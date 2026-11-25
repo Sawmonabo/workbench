@@ -18,6 +18,7 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
@@ -555,7 +556,7 @@ func (r *writerRun) replace(cause error) error {
 	default:
 		kept = fmt.Sprintf(
 			"it keeps finished commands %s, the time kept the old one had when last read, at %s",
-			KeepText(r.keep), r.keptAt.Local().Format("Jan 2 3:04:05 PM"))
+			KeepText(r.keep), r.keptAt.Local().Format(display.DayTimeSeconds))
 	}
 	if r.keep != 0 && r.keep != historyKeepDefault {
 		if err := history.SetKeep(context.Background(), r.keep); err != nil {
@@ -579,8 +580,7 @@ func (r *writerRun) replace(cause error) error {
 	if !replaced.IsZero() {
 		moved += fmt.Sprintf(
 			" in place of the copy set aside at %s, keeping %s, the oldest,",
-			replaced.Local().
-				Format("Jan 2 3:04:05 PM"),
+			replaced.Local().Format(display.DayTimeSeconds),
 			ShowPaths(olderDamagedFile(r.root), r.root),
 		)
 	}

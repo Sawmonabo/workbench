@@ -1091,7 +1091,7 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		}
 		started, length := "-", "-"
 		if !session.Start.IsZero() {
-			started = session.Start.Local().Format("Jan 2 3:04 PM")
+			started = session.Start.Local().Format(display.DayTime)
 			length = duration(session.End.Sub(session.Start))
 		}
 		spec.Rows = append(spec.Rows, []string{
@@ -1135,9 +1135,9 @@ func day(date string) string {
 		return date
 	}
 	if when.Year() != time.Now().Year() {
-		return when.Format("Jan 2, 2006")
+		return when.Format(display.Date)
 	}
-	return when.Format("Jan 2")
+	return when.Format(display.Day)
 }
 
 // reportSpec is what one table of a report is made from. total, when set, is
@@ -1506,5 +1506,5 @@ func localTime(stamp string) string {
 	if err != nil {
 		return stamp
 	}
-	return when.Local().Format("Jan 2 3:04 PM")
+	return when.Local().Format(display.DayTime)
 }
