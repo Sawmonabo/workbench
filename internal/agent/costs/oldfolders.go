@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -346,7 +345,7 @@ func removeOldFolders(old OldPaths) error {
 }
 
 // moveFile moves one small costs file and makes it 0600, never replacing a
-// file at to. Across filesystems it writes a copy at to through
+// file at to (see settle). Across filesystems it writes a copy at to through
 // [operation.CreatePrivateFile], and only then deletes from; a stop between
 // the two leaves the same bytes in both, which the next run takes as moved.
 // The temporary file of a copy that was killed is deleted before the next
@@ -365,13 +364,7 @@ func moveFile(from, to string) error {
 	if err != nil {
 		return err
 	}
-	if err = os.Chmod(to, 0o600); err != nil {
-		return err
-	}
-	if err = operation.SyncDirectory(filepath.Dir(to)); err != nil {
-		return err
-	}
-	return operation.SyncDirectory(filepath.Dir(from))
+	return settle(from, to)
 }
 
 // gate keeps the ledger closed at its new path while the costs ledger still

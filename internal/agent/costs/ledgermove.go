@@ -455,14 +455,14 @@ func sameTables(ctx context.Context, conn *sql.Conn) (bool, error) {
 	return true, nil
 }
 
-// settle makes the moved ledger 0600 and syncs both folders, so the move is
-// durable before anything reports it done.
+// settle makes the moved file 0600 and syncs both folders, the new name's
+// first, so the move is durable before anything reports it done.
 func settle(from, to string) error {
 	if err := os.Chmod(to, 0o600); err != nil {
 		return err
 	}
-	if err := operation.SyncDirectory(filepath.Dir(from)); err != nil {
+	if err := operation.SyncDirectory(filepath.Dir(to)); err != nil {
 		return err
 	}
-	return operation.SyncDirectory(filepath.Dir(to))
+	return operation.SyncDirectory(filepath.Dir(from))
 }
