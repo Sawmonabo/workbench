@@ -157,7 +157,7 @@ func findWorkTokens(l Locations) tokensFound {
 // readMachine decodes machine.toml at path; a missing file is an empty one.
 func readMachine(path string) (map[string]any, error) {
 	config := map[string]any{}
-	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
+	raw, found, err := operation.ReadPrivateRecord(path, operation.MachineConfigLimit)
 	if err != nil {
 		return nil, err
 	}

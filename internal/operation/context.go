@@ -25,6 +25,9 @@ func (p Paths) MigrateLock() string { return filepath.Join(p.State, "locks", "mi
 // choices are saved.
 func (p Paths) MachineConfig() string { return filepath.Join(p.Config, "machine.toml") }
 
+// MachineConfigLimit is the most of machine.toml Workbench reads.
+const MachineConfigLimit = 1 << 20
+
 // Scope is what an operation may change: the machine destination or one
 // canonical project root.
 type Scope struct {

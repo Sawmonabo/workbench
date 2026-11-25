@@ -87,21 +87,18 @@ func readSelection(raw []byte) (Selection, error) {
 	return config.Effects, nil
 }
 
-// machineConfigLimit is the most of machine.toml Workbench reads.
-const machineConfigLimit = 1 << 20
-
 // ReadMachineConfig reads the machine.toml at path (see
 // [operation.Paths.MachineConfig]) as [operation.ReadPrivateInput] reads a
 // private input of at most 1 MiB: a missing file is an error.
 func ReadMachineConfig(path string) ([]byte, error) {
-	return operation.ReadPrivateInput(path, machineConfigLimit)
+	return operation.ReadPrivateInput(path, operation.MachineConfigLimit)
 }
 
 // lookupMachineConfig is [ReadMachineConfig] for a machine.toml that may not
 // be saved yet: found is false, with no data and no error, when nothing is at
 // path.
 func lookupMachineConfig(path string) (raw []byte, found bool, err error) {
-	return operation.ReadPrivateRecord(path, machineConfigLimit)
+	return operation.ReadPrivateRecord(path, operation.MachineConfigLimit)
 }
 
 // encodeMachineConfig is the one writer of machine.toml's shape: the [data]
