@@ -152,6 +152,21 @@ func makePrivate(path string) {
 // write-ahead log, path-wal, and its shared-memory index, path-shm.
 func SideFiles(path string) []string { return []string{path + "-wal", path + "-shm"} }
 
+// Remove deletes the closed database at path with the files SQLite keeps
+// beside it, its side files and a rollback journal (-journal), those first:
+// one left beside no database would pair with the next database made at
+// path, which SQLite would then read through it
+// (https://sqlite.org/howtocorrupt.html#_mispairing_database_files_and_hot_journals).
+// A file already gone is no error.
+func Remove(path string) error {
+	for _, name := range append(SideFiles(path), path+"-journal", path) {
+		if err := operation.RemoveIfThere(name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // openProblem is the operating system's reason SQLite could not open the
 // file at path, err being SQLite's CANTOPEN, which says only that it could
 // not (unable to open database file): SQLite opens a file for reading and

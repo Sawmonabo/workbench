@@ -1001,8 +1001,9 @@ func removeDamagedBefore(root string, since time.Time) {
 	}
 }
 
-// removeCopyBefore deletes the copy at copied, with its -wal and -shm files,
-// once each of them was last written before since.
+// removeCopyBefore deletes the copy at copied with the files beside it (see
+// [sqlitefile.Remove]) once each of its database and side files was last
+// written before since.
 func removeCopyBefore(copied string, since time.Time) {
 	names := append([]string{copied}, sqlitefile.SideFiles(copied)...)
 	found := false
@@ -1013,11 +1014,8 @@ func removeCopyBefore(copied string, since time.Time) {
 		}
 		found = found || err == nil
 	}
-	if !found {
-		return
-	}
-	for _, name := range names {
-		_ = operation.RemoveIfThere(name)
+	if found {
+		_ = sqlitefile.Remove(copied)
 	}
 }
 
@@ -1053,7 +1051,7 @@ func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, e
 		older := olderDamagedFile(root)
 		var cleared error
 		if _, err := os.Lstat(older); err == nil {
-			cleared, replaced = removeCopy(to), info.ModTime()
+			cleared, replaced = sqlitefile.Remove(to), info.ModTime()
 		} else {
 			cleared = moveCopy(to, older)
 		}
@@ -1074,18 +1072,6 @@ func MoveDamaged(root string, since time.Time) (to string, replaced time.Time, e
 		}
 	}
 	return to, replaced, nil
-}
-
-// removeCopy deletes the copy at copied, the database first and then its
-// -wal and -shm files, so no moment leaves the database without the side
-// files it was written with; a file already gone is no error.
-func removeCopy(copied string) error {
-	for _, name := range append([]string{copied}, sqlitefile.SideFiles(copied)...) {
-		if err := operation.RemoveIfThere(name); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 // moveCopy renames the database at from, with its -wal and -shm files, to to,
