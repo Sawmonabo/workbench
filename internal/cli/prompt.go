@@ -41,7 +41,7 @@ func openTerminal() (*os.File, error) {
 	if operation.AgentSession() {
 		return nil, operation.Fail(operation.ExitBlocked, "consent", agentRefusal)
 	}
-	terminal, err := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+	terminal, err := operation.OpenTerminal()
 	if err != nil {
 		return nil, operation.Fail(
 			operation.ExitBlocked,

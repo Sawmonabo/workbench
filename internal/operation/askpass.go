@@ -226,7 +226,7 @@ func AskPass(ctx context.Context, socket string, out io.Writer) error {
 		)
 	}
 	if !held {
-		terminal, openErr := os.OpenFile("/dev/tty", os.O_RDWR, 0)
+		terminal, openErr := OpenTerminal()
 		if openErr != nil {
 			return Fail(
 				ExitBlocked,

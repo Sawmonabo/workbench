@@ -235,6 +235,11 @@ func StandardTerminal() *os.File {
 	return nil
 }
 
+// OpenTerminal opens the controlling terminal, /dev/tty, to read from and
+// write to a person at it, whatever stdin and stdout are. It fails when the
+// process has none.
+func OpenTerminal() (*os.File, error) { return os.OpenFile("/dev/tty", os.O_RDWR, 0) }
+
 // lendTerminal makes the child's process group the terminal's foreground, so
 // sudo and installers can prompt, and returns the function that takes it back.
 // That call comes from a background process group, which the terminal answers
