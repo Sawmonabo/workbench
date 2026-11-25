@@ -376,13 +376,20 @@ func (path logWriter) Write(p []byte) (int, error) {
 	return len(p), nil
 }
 
-// event appends one record to the guard log: event names it (see
-// [EventStarted]), part and pid name the process writing it, and args are the
-// record's other attributes, as for [slog.Logger.Log]. The message and the
-// error attribute name the paths in the state folder from the home folder
-// (see ShowPaths), as people read them; a path attribute stays in full.
+// event appends one record to the guard log, written now (see eventAt).
 func (f folders) event(level slog.Level, event, msg string, args ...any) {
-	if f.logger == nil {
+	f.eventAt(time.Now(), level, event, msg, args...)
+}
+
+// eventAt appends one record to the guard log with the time at: event names
+// it (see [EventStarted]), part and pid name the process writing it, and args
+// are the record's other attributes, as for [slog.Logger.Log]. The message
+// and the error attribute name the paths in the state folder from the home
+// folder (see ShowPaths), as people read them; a path attribute stays in
+// full.
+func (f folders) eventAt(at time.Time, level slog.Level, event, msg string, args ...any) {
+	ctx := context.Background()
+	if f.logger == nil || !f.logger.Enabled(ctx, level) {
 		return
 	}
 	args = slices.Clone(args)
@@ -397,6 +404,7 @@ func (f folders) event(level slog.Level, event, msg string, args ...any) {
 			args[i+1] = ShowPaths(value, f.state)
 		}
 	}
-	f.logger.Log(context.Background(), level, ShowPaths(msg, f.state),
-		append([]any{"event", event, "part", f.part, "pid", os.Getpid()}, args...)...)
+	record := slog.NewRecord(at, level, ShowPaths(msg, f.state), 0)
+	record.Add(append([]any{"event", event, "part", f.part, "pid", os.Getpid()}, args...)...)
+	_ = f.logger.Handler().Handle(ctx, record)
 }

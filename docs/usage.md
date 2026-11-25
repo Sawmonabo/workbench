@@ -431,8 +431,10 @@ history --keep` as it trims while no watcher runs (with one running, the
 watcher's next cut does it); a line with no time, such as a crash's trace,
 stays until the size cut. A problem the watcher logs once and that lasts (a
 socket it cannot serve, a history it cannot write, a guard folder it cannot
-move) is logged again before its record would go, so the log still says why
-for as long as it lasts. The log is
+move) is logged again before the cut by the time kept would delete its
+record, and within a minute once the log's oldest record is newer than it (as
+after the size cut, or when the log holds no record), so the log says why for
+as long as it lasts. The log is
 JSON Lines: each record has `time`, `level`, `msg`, `event` (`started`,
 `handover`, `moved`, `idle`, `exited`, `tracking`, `ended`, `unmatched`, `abandoned`,
 `memory`, `stopping`, `forced`, `gave-up`, `refused`, `error`), `part` and

@@ -108,17 +108,23 @@ func outputFile(path string) string { return filepath.Join(filepath.Dir(path), "
 // CutLogBefore deletes the records of the guard log in the guard folder root
 // whose time is before since, the start of the time the history keeps, so
 // the start of a command the log keeps with each record about it goes when
-// the history lets the command go, however small the log. It cuts the log in
-// place (see [operation.RewriteLog]), so a reader keeps its place and a
-// writer goes on appending. A line whose time cannot be read, such as a
-// crash's trace, stays. A missing log is no error.
-func CutLogBefore(root string, since time.Time) error {
-	err := operation.RewriteLog(logFile(root), func(body []byte) [][2]int {
+// the history lets the command go, however small the log; a zero since
+// deletes none. It cuts the log in place (see [operation.RewriteLog]), so a
+// reader keeps its place and a writer goes on appending. A line whose time
+// cannot be read, such as a crash's trace, stays. It gives the time of the
+// oldest record the log then holds, that of its first line with a time after
+// the cut record, zero when it holds none or is missing, which is no error.
+func CutLogBefore(root string, since time.Time) (oldest time.Time, err error) {
+	err = operation.RewriteLog(logFile(root), func(body []byte) [][2]int {
 		var keep [][2]int
 		at := 0
 		for line := range bytes.Lines(body) {
 			end := at + len(line)
-			if written, ok := recordTime(line); !ok || !written.Before(since) {
+			written, ok := recordTime(line)
+			if !ok || !written.Before(since) {
+				if ok && oldest.IsZero() {
+					oldest = written
+				}
 				if last := len(keep) - 1; last >= 0 && keep[last][1] == at {
 					keep[last][1] = end
 				} else {
@@ -130,9 +136,9 @@ func CutLogBefore(root string, since time.Time) error {
 		return keep
 	})
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil
+		return time.Time{}, nil
 	}
-	return err
+	return oldest, err
 }
 
 // CutLogUnwatched is CutLogBefore for `agent guard history --keep`, while no
@@ -153,7 +159,8 @@ func CutLogUnwatched(root string, since time.Time) (cut bool, err error) {
 	case held:
 		return false, nil
 	}
-	return true, CutLogBefore(root, since)
+	_, err = CutLogBefore(root, since)
+	return true, err
 }
 
 // recordTime is the time a guard log record was written, the first field

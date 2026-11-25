@@ -139,10 +139,14 @@ take from whichever agent started it, so two shells could disagree.
   both in place through `operation.RewriteLog`, so a follower keeps its
   place. A problem of the watcher that lasts (a socket it cannot serve,
   which doctor and the view send people to the log for, a history it cannot
-  write, a guard folder it cannot move) is logged once, so before each cut
-  the writer logs it again when the cut would delete its last record; a
-  cut by `--keep` while a watcher runs, which cannot know of those, is left
-  to the watcher's next one.
+  write, a guard folder it cannot move) is logged once, so once a minute,
+  also before it has read the time kept, the writer logs it again: before a
+  cut by the time kept that would delete its last record, and after its own
+  cut when that record is older than the oldest the log holds, as after a
+  cut to the newest half, which any process appending past 1 MiB makes, or
+  when the log holds none, so the record is missing for at most a minute
+  then. A cut by `--keep` while a watcher runs, which cannot know of those,
+  is left to the watcher's next one.
 
 ## Sources
 

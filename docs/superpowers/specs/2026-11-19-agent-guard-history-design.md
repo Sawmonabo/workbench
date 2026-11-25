@@ -360,15 +360,21 @@ and order them.
    beyond 20,000; then those with the lowest `seq` while the pages in use
    (`page_count - freelist_count`) take more than 256 MiB. The view leaves
    out rows older than `keep` too, so a history no watcher trims shows no
-   more than is kept. As often, once it has read `keep`, and while the
-   history cannot be used, the writer reads `keep` again and deletes the
-   guard log's records whose `time` is before `now - keep`, in place through
-   `operation.RewriteLog`, behind a new `cut` record, so a follower keeps its
-   place; a line whose time cannot be read stays. Before each cut it logs
-   again the record of each problem of the watcher that lasts (a socket it
-   cannot serve, a history it cannot write, a guard folder it cannot move)
-   whose last record the cut would delete: each is logged once, when it
-   begins, and doctor and the view send people to the log for the socket.
+   more than is kept. As often, and while the history cannot be used too,
+   the writer cuts the guard log: once it has read `keep`, it reads `keep`
+   again and deletes the records whose `time` is before `now - keep`, in
+   place through `operation.RewriteLog`, behind a new `cut` record, so a
+   follower keeps its place; a line whose time cannot be read stays. Each
+   problem of the watcher that lasts (a socket it cannot serve, a history it
+   cannot write, a guard folder it cannot move) is logged once, when it
+   begins, and doctor and the view send people to the log for the socket,
+   so the writer logs its record again before a cut that would delete it,
+   and after each cut, also before it has read `keep`, when the record is
+   older than the oldest record the log holds, its first line with a time
+   (each one when the log holds none): a cut to the newest half, which any
+   process appending past 1 MiB makes, deleted it, so it is missing for at
+   most a minute. Each record's time is compared as the log holds it, by
+   the wall clock.
    `agent guard history --keep` cuts the log the same way after its trim
    while no watcher holds the lock; while one does, it leaves the cut to
    that watcher's next one, within a minute, since it cannot know of those
