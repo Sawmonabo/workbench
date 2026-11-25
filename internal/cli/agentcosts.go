@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
 	"golang.org/x/sync/errgroup"
@@ -292,15 +291,7 @@ func runCostsView(
 ) error {
 	active := slices.IndexFunc(costs.Tools, func(t costs.Tool) bool { return t.Name == start.Name })
 	model := newCostsView(costs.Tools, reports, active, load)
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(os.Stdin),
-		tea.WithOutput(os.Stdout),
-		tea.WithContext(cmd.Context()),
-		// main owns SIGINT and SIGTERM through the command's context.
-		tea.WithoutSignalHandler(),
-	)
-	if _, err := program.Run(); err != nil {
+	if _, err := runFullScreen(cmd.Context(), model, os.Stdin, os.Stdout); err != nil {
 		return err
 	}
 	tool := costs.Tools[model.active]

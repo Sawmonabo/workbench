@@ -10,7 +10,6 @@ import (
 	"strings"
 
 	"charm.land/bubbles/v2/key"
-	tea "charm.land/bubbletea/v2"
 	"charm.land/huh/v2"
 	"charm.land/lipgloss/v2"
 	"github.com/spf13/cobra"
@@ -142,15 +141,7 @@ func choosePlan(
 		return nil, false, err
 	}
 	defer func() { _ = terminal.Close() }()
-	// main owns the signals and ends ctx on SIGINT, SIGTERM and SIGHUP; ctrl+c
-	// arrives as a key.
-	final, err := tea.NewProgram(
-		newChecklist(plan, verbose),
-		tea.WithContext(ctx),
-		tea.WithInput(terminal),
-		tea.WithOutput(terminal),
-		tea.WithoutSignalHandler(),
-	).Run()
+	final, err := runFullScreen(ctx, newChecklist(plan, verbose), terminal, terminal)
 	if err != nil {
 		return nil, false, promptFailure(ctx, "consent", "No complete approval was received")
 	}

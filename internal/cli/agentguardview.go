@@ -18,8 +18,8 @@ import (
 // those that finished, which bare `agent guard` runs. It is for a person:
 // with --json, with --non-interactive or without a terminal on stdin and
 // stdout, or under a coding agent, it exits 3 before the screen opens.
-// Otherwise it runs the view until it quits, starting the program as the
-// costs view does. A full-screen view prints nothing a program could read, so
+// Otherwise it runs the view until it quits, as every full-screen view runs
+// (runFullScreen). A full-screen view prints nothing a program could read, so
 // --json is refused, and --non-interactive counts as no terminal, as --choose
 // treats it.
 func runGuardView(cmd *cobra.Command, o *options) error {
@@ -57,15 +57,7 @@ func runGuardView(cmd *cobra.Command, o *options) error {
 		hist:    viewHistory{keep: guard.HistoryKeepDefault, byID: map[string]*heldRow{}},
 		find:    viewFind{input: findInput()},
 	}
-	program := tea.NewProgram(
-		model,
-		tea.WithInput(os.Stdin),
-		tea.WithOutput(os.Stdout),
-		tea.WithContext(cmd.Context()),
-		// main owns SIGINT and SIGTERM through the command's context.
-		tea.WithoutSignalHandler(),
-	)
-	_, err := program.Run()
+	_, err := runFullScreen(cmd.Context(), model, os.Stdin, os.Stdout)
 	// However the view ended, put the terminal's modes back (wheelmodes.go).
 	model.wheel.disarm(os.Stdout)
 	if model.client != nil {
