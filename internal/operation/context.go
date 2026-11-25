@@ -21,6 +21,10 @@ type Paths struct{ Config, Data, State, Cache, Bin string }
 // (see internal/migrate).
 func (p Paths) MigrateLock() string { return filepath.Join(p.State, "locks", "migrate.lock") }
 
+// MachineConfig is machine.toml, where the machine's answers and the apply
+// choices are saved.
+func (p Paths) MachineConfig() string { return filepath.Join(p.Config, "machine.toml") }
+
 // Scope is what an operation may change: the machine destination or one
 // canonical project root.
 type Scope struct {
@@ -110,7 +114,7 @@ func Resolve(options Options) (Context, error) {
 		}
 	}
 	slices.Sort(c.Languages)
-	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")
+	c.Native.Config = c.Paths.MachineConfig()
 	c.Native.PersistentState = filepath.Join(c.Paths.State, "chezmoi", "chezmoi.boltdb")
 	c.Native.Cache = c.Paths.Cache
 	if options.Source != "" {

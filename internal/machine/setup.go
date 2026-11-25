@@ -751,7 +751,7 @@ func Setup(
 	if _, err = askAnswers(ctx, c, m, terminal, ask); err != nil {
 		return c, err
 	}
-	c.Native.Config = filepath.Join(c.Paths.Config, "machine.toml")
+	c.Native.Config = c.Paths.MachineConfig()
 	return c, nil
 }
 

@@ -377,13 +377,12 @@ func (a Answers) folder(home, key string) string {
 	return filepath.Join(home, strings.TrimPrefix(value, "~/"))
 }
 
-// RoleFolders are the role folders saved in <config>/machine.toml as absolute
-// paths under home, personal first. They are nil when there is no
-// machine.toml or it saves none, and err says a machine.toml that is there
-// can't be read. They never name a default: the one fallback is the costs
-// report's.
-func RoleFolders(home, config string) ([]string, error) {
-	path := filepath.Join(config, "machine.toml")
+// RoleFolders are the role folders saved in the machine.toml at path (see
+// [operation.Paths.MachineConfig]) as absolute paths under home, personal
+// first. They are nil when there is no machine.toml or it saves none, and err
+// says a machine.toml that is there can't be read. They never name a
+// default: the one fallback is the costs report's.
+func RoleFolders(home, path string) ([]string, error) {
 	raw, found, err := operation.ReadPrivateRecord(path, 1<<20)
 	if !found || err != nil {
 		return nil, err
@@ -470,7 +469,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	if err = validateAnswers(c, answers); err != nil {
 		return plan, nil, err
 	}
-	target := filepath.Join(c.Paths.Config, "machine.toml")
+	target := c.Paths.MachineConfig()
 	selection, err := ReadSelection(target)
 	if err != nil {
 		return plan, nil, err

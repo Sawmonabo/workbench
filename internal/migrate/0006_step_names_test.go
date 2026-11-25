@@ -35,7 +35,7 @@ skip = ['costs-ingest', 'runtimes']
 	}
 	runAll(t, l)
 	var got, want map[string]any
-	if err := toml.Unmarshal(read(t, machinePath(l)), &got); err != nil {
+	if err := toml.Unmarshal(read(t, l.Runtime.MachineConfig()), &got); err != nil {
 		t.Fatal(err)
 	}
 	if err := toml.Unmarshal([]byte(machine), &want); err != nil {

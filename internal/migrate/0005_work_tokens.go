@@ -81,11 +81,9 @@ var WorkTokens = Migration{
 		if err != nil {
 			return nil, err
 		}
-		return nil, operation.ReplacePrivateFile(machinePath(l), encoded)
+		return nil, operation.ReplacePrivateFile(l.Runtime.MachineConfig(), encoded)
 	},
 }
-
-func machinePath(l Locations) string { return filepath.Join(l.Runtime.Config, "machine.toml") }
 
 func workEnvPath(l Locations) string { return filepath.Join(l.Runtime.Config, "work.env") }
 
@@ -104,9 +102,9 @@ type tokensFound struct {
 // findWorkTokens reads machine.toml and work.env and says where 0005 stands.
 // Its text names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
-	machine := display.PathFrom(l.Home, machinePath(l))
+	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
 	env := display.PathFrom(l.Home, workEnvPath(l))
-	config, err := readMachine(machinePath(l))
+	config, err := readMachine(l.Runtime.MachineConfig())
 	if err != nil {
 		return tokensFound{status: Pending, text: "can't read " + machine, err: err}
 	}

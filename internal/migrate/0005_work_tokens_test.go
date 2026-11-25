@@ -68,7 +68,7 @@ decided = ['migrations']
 			t.Fatal(err)
 		}
 		env := read(t, workEnvPath(l))
-		if string(read(t, machinePath(l))) != machine {
+		if string(read(t, l.Runtime.MachineConfig())) != machine {
 			t.Fatal("machine.toml changed before the run")
 		}
 		if status, _ := WorkTokens.Check(l); status != Unfinished {
@@ -95,7 +95,7 @@ decided = ['migrations']
 		l := tokenLocations(t, strings.Replace(machine,
 			`jira_api_token = 'synthetic-jira-token'`,
 			`jira_api_token = "synthetic-jira-token\nGITLAB_URL=x"`, 1))
-		assertUntouched(t, l, string(read(t, machinePath(l))), "")
+		assertUntouched(t, l, string(read(t, l.Runtime.MachineConfig())), "")
 	})
 
 	t.Run("personal role", func(t *testing.T) {
@@ -118,7 +118,7 @@ decided = ['migrations']
 		if _, err := os.Lstat(workEnvPath(l)); err == nil {
 			t.Error("work.env was written without the work role")
 		}
-		if string(read(t, machinePath(l))) != personal {
+		if string(read(t, l.Runtime.MachineConfig())) != personal {
 			t.Error("machine.toml changed without the work role")
 		}
 		assertNoToken(t, said, l)
@@ -144,7 +144,7 @@ func tokenLocations(t *testing.T, machine string) Locations {
 	if _, err = operation.PrivateDirectory(l.Runtime.Config, ""); err != nil {
 		t.Fatal(err)
 	}
-	if err = operation.CreatePrivateFile(machinePath(l), []byte(machine)); err != nil {
+	if err = operation.CreatePrivateFile(l.Runtime.MachineConfig(), []byte(machine)); err != nil {
 		t.Fatal(err)
 	}
 	return l
@@ -187,7 +187,7 @@ func assertUntouched(t *testing.T, l Locations, machine, env string) {
 	if _, err := WorkTokens.Run(context.Background(), l); err == nil {
 		t.Error("0005's Run succeeded in conflict")
 	}
-	if string(read(t, machinePath(l))) != machine {
+	if string(read(t, l.Runtime.MachineConfig())) != machine {
 		t.Error("machine.toml changed")
 	}
 	if env == "" {
@@ -211,7 +211,7 @@ func assertKeysRemoved(t *testing.T, l Locations, original string) {
 	data, _ := want["data"].(map[string]any)
 	delete(data, "jira_api_token")
 	delete(data, "gitlab_token")
-	if err := toml.Unmarshal(read(t, machinePath(l)), &got); err != nil {
+	if err := toml.Unmarshal(read(t, l.Runtime.MachineConfig()), &got); err != nil {
 		t.Fatal(err)
 	}
 	if !reflect.DeepEqual(got, want) {

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -207,12 +206,12 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 		return err
 	}
 	defer func() { _ = ledger.Close() }()
-	f.roots, err = machine.RoleFolders(paths.Home, paths.Runtime.Config)
+	f.roots, err = machine.RoleFolders(paths.Home, paths.Runtime.MachineConfig())
 	if err != nil {
 		// The report still runs, with the folders it uses when none is saved.
 		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+display.PathFrom(
 			paths.Home,
-			filepath.Join(paths.Runtime.Config, "machine.toml"),
+			paths.Runtime.MachineConfig(),
 		)+" can't be read, so the report groups projects under ~/dev and ~/repos"))
 	}
 	// The tabs need every tool's report; each reads its own rows, so they are

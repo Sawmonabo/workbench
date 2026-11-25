@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"path/filepath"
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -86,7 +85,7 @@ func answersImportCommand(o *options) *cobra.Command {
 				consentFor(o, o.approvePlan),
 				planner,
 				func(m *operation.Mutation) error {
-					return m.WritePrivate(filepath.Join(c.Paths.Config, "machine.toml"), encoded)
+					return m.WritePrivate(c.Paths.MachineConfig(), encoded)
 				},
 			)
 			if err == nil {

@@ -140,7 +140,7 @@ func askAnswers(
 // unless the file already holds the same answers and selection, so an apply
 // that changes nothing, or is refused, does not rewrite it.
 func saveAnswers(m *operation.Mutation, c operation.Context, answers Answers) error {
-	config := filepath.Join(c.Paths.Config, "machine.toml")
+	config := c.Paths.MachineConfig()
 	encoded, unchanged, err := answersFile(config, answers)
 	if err != nil || unchanged {
 		return err

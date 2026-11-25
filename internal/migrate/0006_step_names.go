@@ -31,19 +31,19 @@ var StepNames = Migration{
 		"costs-ingest. Nothing else in the file changes.",
 	Recovery: "nothing is lost: the choice is the same one under the step's name",
 	Check: func(l Locations) (Status, string) {
-		config, err := readMachine(machinePath(l))
+		config, err := readMachine(l.Runtime.MachineConfig())
 		if err != nil {
-			return Pending, "can't read " + display.PathFrom(l.Home, machinePath(l))
+			return Pending, "can't read " + display.PathFrom(l.Home, l.Runtime.MachineConfig())
 		}
 		if !renameChoices(config) {
 			return Done, ""
 		}
 		return Pending, "renames costs-ingest to agent-costs-ingest in the saved choices of " +
-			display.PathFrom(l.Home, machinePath(l))
+			display.PathFrom(l.Home, l.Runtime.MachineConfig())
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		operation.RemoveStaleWrites(l.Runtime.Config)
-		config, err := readMachine(machinePath(l))
+		config, err := readMachine(l.Runtime.MachineConfig())
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +54,7 @@ var StepNames = Migration{
 		if err != nil {
 			return nil, err
 		}
-		return nil, operation.ReplacePrivateFile(machinePath(l), encoded)
+		return nil, operation.ReplacePrivateFile(l.Runtime.MachineConfig(), encoded)
 	},
 }
 
