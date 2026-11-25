@@ -35,7 +35,7 @@ decided = ['migrations']
 	t.Run("both role without work.env", func(t *testing.T) {
 		l := tokenLocations(t, machine)
 		said := runAll(t, l)
-		info, err := os.Lstat(workEnvPath(l))
+		info, err := os.Lstat(WorkEnvPath(l.Runtime.Config))
 		if err != nil || info.Mode().Perm() != 0o600 {
 			t.Fatalf("work.env is not a 0600 file: %v", err)
 		}
@@ -64,10 +64,13 @@ decided = ['migrations']
 	t.Run("stopped after the first write", func(t *testing.T) {
 		l := tokenLocations(t, machine)
 		found := findWorkTokens(l)
-		if err := operation.CreatePrivateFile(workEnvPath(l), workEnv(found.values)); err != nil {
+		if err := operation.CreatePrivateFile(
+			WorkEnvPath(l.Runtime.Config),
+			WorkEnv(found.values),
+		); err != nil {
 			t.Fatal(err)
 		}
-		env := read(t, workEnvPath(l))
+		env := read(t, WorkEnvPath(l.Runtime.Config))
 		if string(read(t, l.Runtime.MachineConfig())) != machine {
 			t.Fatal("machine.toml changed before the run")
 		}
@@ -75,7 +78,7 @@ decided = ['migrations']
 			t.Fatalf("Check = %v, want unfinished", status)
 		}
 		said := runAll(t, l)
-		if string(read(t, workEnvPath(l))) != string(env) {
+		if string(read(t, WorkEnvPath(l.Runtime.Config))) != string(env) {
 			t.Error("work.env changed")
 		}
 		assertKeysRemoved(t, l, machine)
@@ -85,7 +88,10 @@ decided = ['migrations']
 	t.Run("work.env holds something else", func(t *testing.T) {
 		l := tokenLocations(t, machine)
 		other := "JIRA_API_TOKEN=synthetic-other-token\n"
-		if err := operation.CreatePrivateFile(workEnvPath(l), []byte(other)); err != nil {
+		if err := operation.CreatePrivateFile(
+			WorkEnvPath(l.Runtime.Config),
+			[]byte(other),
+		); err != nil {
 			t.Fatal(err)
 		}
 		assertUntouched(t, l, machine, other)
@@ -115,7 +121,7 @@ decided = ['migrations']
 			t.Errorf("the plan lines %q don't name the keys to delete", probe)
 		}
 		said := append(runAll(t, l), probe...)
-		if _, err := os.Lstat(workEnvPath(l)); err == nil {
+		if _, err := os.Lstat(WorkEnvPath(l.Runtime.Config)); err == nil {
 			t.Error("work.env was written without the work role")
 		}
 		if string(read(t, l.Runtime.MachineConfig())) != personal {
@@ -191,10 +197,10 @@ func assertUntouched(t *testing.T, l Locations, machine, env string) {
 		t.Error("machine.toml changed")
 	}
 	if env == "" {
-		if _, err := os.Lstat(workEnvPath(l)); err == nil {
+		if _, err := os.Lstat(WorkEnvPath(l.Runtime.Config)); err == nil {
 			t.Error("work.env was written")
 		}
-	} else if string(read(t, workEnvPath(l))) != env {
+	} else if string(read(t, WorkEnvPath(l.Runtime.Config))) != env {
 		t.Error("work.env changed")
 	}
 	assertNoToken(t, append(said, text), l)
@@ -237,7 +243,7 @@ func assertNoToken(t *testing.T, lines []string, l Locations) {
 func envValues(t *testing.T, l Locations) map[string]string {
 	t.Helper()
 	values := map[string]string{}
-	for line := range strings.Lines(string(read(t, workEnvPath(l)))) {
+	for line := range strings.Lines(string(read(t, WorkEnvPath(l.Runtime.Config)))) {
 		if name, value, ok := strings.Cut(strings.TrimSuffix(line, "\n"), "="); ok {
 			values[name] = value
 		}

@@ -65,8 +65,8 @@ var WorkTokens = Migration{
 				return nil, found.err
 			}
 			if err := operation.CreatePrivateFile(
-				workEnvPath(l),
-				workEnv(found.values),
+				WorkEnvPath(l.Runtime.Config),
+				WorkEnv(found.values),
 			); err != nil {
 				return nil, err
 			}
@@ -85,7 +85,8 @@ var WorkTokens = Migration{
 	},
 }
 
-func workEnvPath(l Locations) string { return filepath.Join(l.Runtime.Config, "work.env") }
+// WorkEnvPath is work.env in Workbench's config folder config.
+func WorkEnvPath(config string) string { return filepath.Join(config, "work.env") }
 
 // tokensFound is where 0005 stands: its status and text, the whole of
 // machine.toml as read with its [data] table, and the work.env values to
@@ -103,7 +104,7 @@ type tokensFound struct {
 // Its text names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
 	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
-	env := display.PathFrom(l.Home, workEnvPath(l))
+	env := display.PathFrom(l.Home, WorkEnvPath(l.Runtime.Config))
 	config, err := readMachine(l.Runtime.MachineConfig())
 	if err != nil {
 		return tokensFound{status: Pending, text: "can't read " + machine, err: err}
@@ -135,7 +136,7 @@ func findWorkTokens(l Locations) tokensFound {
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
-	held, there, err := operation.ReadPrivateRecord(workEnvPath(l), 1<<20)
+	held, there, err := operation.ReadPrivateRecord(WorkEnvPath(l.Runtime.Config), 1<<20)
 	if !there {
 		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
 		return found
@@ -195,9 +196,9 @@ func WorkValues(data map[string]any) (values map[string]string, bad string) {
 	return values, ""
 }
 
-// workEnv is work.env holding every [WorkEnvNames] name, in order, with
+// WorkEnv is work.env holding every [WorkEnvNames] name, in order, with
 // values, and the others empty.
-func workEnv(values map[string]string) []byte {
+func WorkEnv(values map[string]string) []byte {
 	var b strings.Builder
 	for _, name := range WorkEnvNames {
 		b.WriteString(name + "=" + values[name] + "\n")

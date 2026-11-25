@@ -192,11 +192,13 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 			said = true
 			continue
 		}
-		var content strings.Builder
-		for _, name := range env.names {
-			content.WriteString(name + "=" + values[name] + "\n")
+		// work.env starts as migration 0005 writes it; personal.env, which
+		// lists no names, starts empty.
+		content := []byte{}
+		if env.role == "work" {
+			content = migrate.WorkEnv(values)
 		}
-		if err := operation.CreatePrivateFile(path, []byte(content.String())); err != nil {
+		if err := operation.CreatePrivateFile(path, content); err != nil {
 			return err
 		}
 		say("created " + file)
