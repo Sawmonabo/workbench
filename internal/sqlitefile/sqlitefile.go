@@ -25,6 +25,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"golang.org/x/sys/unix"
 	sqlite "modernc.org/sqlite" // the pure-Go driver, name "sqlite"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -34,8 +35,9 @@ import (
 type Options struct {
 	// Create makes the file, empty and 0600, before SQLite opens it, when it
 	// is missing. SQLite gives the -wal and -shm files the database file's
-	// mode, so they are private from their first byte. O_CREATE without
-	// O_EXCL leaves a file another process made first, and its content, alone.
+	// mode, so they are private from their first byte. O_EXCL makes it only
+	// where nothing is, so a file already there, one another process made
+	// first too, is never opened outside SQLite and keeps its content.
 	Create bool
 	// ReadOnly opens an existing file for queries only, never creating it
 	// (whatever Create says) or switching its journal mode. The connection
@@ -71,21 +73,25 @@ type Options struct {
 // and says it as it says its other errors. Its errors name path once (see
 // [FileError]), except those of o.Prepare.
 //
-// The calling process must hold no other connection to the file at path:
-// the private create, and the look for the reason of a file SQLite cannot
-// open, open and close it outside the driver, which would drop that
-// connection's locks (see [CheckHeader]).
+// It never opens a file already at path outside the driver: closing that
+// descriptor would drop every SQLite lock the process holds on the file,
+// those of a connection it already has to it too (see [CheckHeader]). The
+// private create opens only the file it makes, and the reason of a file
+// SQLite cannot open is asked without opening it (see openProblem).
 func Open(path string, o Options) (*sql.DB, error) {
 	query := make([]string, 0, len(o.Pragmas)+3)
 	if o.ReadOnly {
 		query = append(query, "mode=rw", "_pragma=query_only(1)")
 	} else if o.Create {
-		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		switch {
+		case errors.Is(err, fs.ErrExist):
+		case err != nil:
 			return nil, FileError(path, err)
-		}
-		if err := file.Close(); err != nil {
-			return nil, FileError(path, err)
+		default:
+			if err := file.Close(); err != nil {
+				return nil, FileError(path, err)
+			}
 		}
 	}
 	for _, pragma := range o.Pragmas {
@@ -162,16 +168,16 @@ func FileError(path string, err error) error {
 // openProblem is the operating system's reason SQLite could not open the
 // file at path, err being SQLite's CANTOPEN, which says only that it could
 // not (unable to open database file): SQLite opens a file for reading and
-// writing and, refused, for reading only, so the error of opening it for
-// reading is the reason it met last. That open is tried only once SQLite
-// has failed. err stays as it is when the file opens for reading, since
-// SQLite failed for another reason then.
+// writing and, refused, for reading only, so the reason it met last is why
+// the file cannot be read. faccessat(2) asks that with the IDs open(2)
+// checks, without opening the file, which this process may hold a
+// connection to (see [Open]). err stays as it is when the file can be read,
+// since SQLite failed for another reason then, such as a process out of
+// descriptors.
 func openProblem(path string, err error) error {
-	file, openErr := os.Open(path)
-	if openErr != nil {
-		return openErr
+	if problem := unix.Faccessat(unix.AT_FDCWD, path, unix.R_OK, unix.AT_EACCESS); problem != nil {
+		return &fs.PathError{Op: "access", Path: path, Err: problem}
 	}
-	_ = file.Close()
 	return err
 }
 

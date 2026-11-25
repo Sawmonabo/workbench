@@ -958,8 +958,8 @@ func (m *guardView) readHistory() tea.Cmd {
 // reading the one set aside. The file's identity is taken before it is
 // opened, so a file replaced in between is opened again at the next read.
 // The file open, found at another path once the guard folder moved, is read
-// through the connection already open: opening it a second time would hold
-// two connections to one file, which [sqlitefile.Open] must not.
+// through the connection already open, from the last row held, so the rows
+// held and the find answer stay as for a file that did not move.
 func (r historyRead) read() historyMsg {
 	out := historyMsg{from: r, keep: guard.HistoryKeepDefault, db: r.db, path: r.path, file: r.file}
 	root, err := guard.HistoryRoot()

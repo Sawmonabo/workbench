@@ -438,7 +438,9 @@ and order them.
    `-wal` and `-shm` from under the writer, whose later rows reach no reader
    and are lost if it is killed. So no process that holds a connection to a
    history or the ledger opens and closes that file, or its `-wal` or `-shm`,
-   outside the driver. SQLite neither checkpoints nor deletes the WAL of a
+   outside the driver: the private create before SQLite opens a file opens
+   only a file it makes, and the reason of a file SQLite cannot open is asked
+   without opening it. SQLite neither checkpoints nor deletes the WAL of a
    database its path no longer names, and the WAL is part of the database's
    persistent state, so before it closes a file gone from the path or replaced
    there the writer checkpoints the WAL into that file, wherever it is now: a
