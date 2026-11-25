@@ -176,6 +176,17 @@ func Within(root, path string) bool {
 		!strings.HasPrefix(relative, ".."+string(filepath.Separator))
 }
 
+// WithinResolved is [Within] for paths that may name links: both are
+// compared with their links resolved, by whole path segments, so a sibling
+// such as root-old is outside. A path that cannot be resolved, or does not
+// resolve to an absolute one, is outside.
+func WithinResolved(root, path string) bool {
+	root, rootErr := filepath.EvalSymlinks(root)
+	path, pathErr := filepath.EvalSymlinks(path)
+	return rootErr == nil && pathErr == nil && filepath.IsAbs(root) && filepath.IsAbs(path) &&
+		Within(root, path)
+}
+
 func runtimePaths(home string) (Paths, error) {
 	defaults := platform.RuntimeFolders(home)
 	names := []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}

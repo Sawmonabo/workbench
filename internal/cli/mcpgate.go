@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 
@@ -65,21 +64,13 @@ func mcpGateCommand(o *options) *cobra.Command {
 }
 
 // gateInside reports whether the session's folder, projectDir when it is set
-// and cwd otherwise, is folder or inside it. Both are compared with their
-// symlinks resolved and by whole path segments, so a sibling such as
-// folder-old is outside; a path that cannot be resolved to an absolute one is
-// outside.
+// and cwd otherwise, is folder or inside it (see [operation.WithinResolved]).
 func gateInside(folder, projectDir, cwd string) bool {
 	path := cwd
 	if projectDir != "" {
 		path = projectDir
 	}
-	folder, folderErr := filepath.EvalSymlinks(folder)
-	path, pathErr := filepath.EvalSymlinks(path)
-	if folderErr != nil || pathErr != nil || !filepath.IsAbs(folder) || !filepath.IsAbs(path) {
-		return false
-	}
-	return path == folder || strings.HasPrefix(path, folder+"/")
+	return operation.WithinResolved(folder, path)
 }
 
 // gateRequest is one newline-delimited JSON-RPC message from the agent. A
