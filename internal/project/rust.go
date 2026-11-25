@@ -473,12 +473,12 @@ var cargoTest = regexp.MustCompile(`\bcargo\s+(\+\S+\s+)?(test|nextest)\b`)
 // cargo nextest.
 func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, error) {
 	if root.Root != c.Scope.Root {
-		return "", ownedJob{}, rustCIFailure(
+		return "", ownedJob{}, rustCI.refuse(
 			"Automatic CI requires the Cargo package or workspace root at the selected root",
 		)
 	}
 	if !isRepositoryRoot(c.Scope.Root) {
-		return "", ownedJob{}, rustCIFailure(
+		return "", ownedJob{}, rustCI.refuse(
 			"GitHub reads workflows at the repository root; select the folder that holds .git",
 		)
 	}
@@ -491,7 +491,7 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 		toolchain = toolchain || data != nil
 	}
 	if !toolchain {
-		return "", ownedJob{}, rustCIFailure(
+		return "", ownedJob{}, rustCI.refuse(
 			"An existing rust-toolchain.toml at the root is required; the job installs the toolchain it names and Workbench picks none",
 		)
 	}
@@ -500,7 +500,7 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 		return "", ownedJob{}, err
 	}
 	if lock == nil {
-		return "", ownedJob{}, rustCIFailure(
+		return "", ownedJob{}, rustCI.refuse(
 			"An existing Cargo.lock at the root is required; the job's cargo clippy --locked checks against it",
 		)
 	}
@@ -508,7 +508,7 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 		c.Scope.Root,
 		"cargo test or cargo nextest",
 		cargoTest,
-		rustCIFailure,
+		rustCI.refuse,
 	)
 	if err != nil {
 		return "", ownedJob{}, err
@@ -551,18 +551,13 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 		addition:      addition,
 		desired:       desired,
 		refsMayDiffer: true,
-		fail:          rustCIFailure,
+		fail:          rustCI.refuse,
 		effect:        "The workflow that runs cargo test will gain Rust check steps. A future CI run installs the toolchain rust-toolchain.toml names, downloads the crates' dependencies, the RustSec advisory database and the pinned cargo-deny and gitleaks, and compiles project code, which runs its build scripts and procedural macros",
 	}, nil
 }
 
-func rustCIFailure(message string) error {
-	return operation.Fail(
-		operation.ExitBlocked,
-		"project_ci",
-		message+"; add the workbench-rust job described in project/rustpolicy/README.md manually",
-	)
-}
+// rustCI is the Rust policy's remedy.
+const rustCI ciRemedy = "add the workbench-rust job described in project/rustpolicy/README.md manually"
 
 // rustPins are the tool versions the Rust check job uses, from the selected
 // machine source's versions.toml.

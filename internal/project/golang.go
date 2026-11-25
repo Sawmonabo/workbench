@@ -199,21 +199,21 @@ var goDirective = regexp.MustCompile(`(?m)^go[ \t]+[0-9]`)
 // the repository root with a run step that runs go test.
 func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, error) {
 	if module.Root != c.Scope.Root {
-		return "", ownedJob{}, goCIFailure(
+		return "", ownedJob{}, goCI.refuse(
 			"Automatic CI requires the Go module at the selected root",
 		)
 	}
 	if !isRepositoryRoot(c.Scope.Root) {
-		return "", ownedJob{}, goCIFailure(
+		return "", ownedJob{}, goCI.refuse(
 			"GitHub reads workflows at the repository root; select the folder that holds .git",
 		)
 	}
 	if !goDirective.Match(p.Inventory.inputs[filepath.Join(module.Root, "go.mod")]) {
-		return "", ownedJob{}, goCIFailure(
+		return "", ownedJob{}, goCI.refuse(
 			"go.mod needs a go line, which the job's actions/setup-go reads to choose the Go version",
 		)
 	}
-	path, err := p.testWorkflow(c.Scope.Root, "go test", goTest, goCIFailure)
+	path, err := p.testWorkflow(c.Scope.Root, "go test", goTest, goCI.refuse)
 	if err != nil {
 		return "", ownedJob{}, err
 	}
@@ -230,18 +230,13 @@ func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, 
 		addition:      addition,
 		desired:       desired,
 		refsMayDiffer: true,
-		fail:          goCIFailure,
+		fail:          goCI.refuse,
 		effect:        "The workflow that runs go test will gain Go check steps. A future CI run downloads the module's dependencies and the pinned golangci-lint, govulncheck and gitleaks, and builds and checks project code",
 	}, nil
 }
 
-func goCIFailure(message string) error {
-	return operation.Fail(
-		operation.ExitBlocked,
-		"project_ci",
-		message+"; add the workbench-go job described in project/gopolicy/README.md manually",
-	)
-}
+// goCI is the Go policy's remedy.
+const goCI ciRemedy = "add the workbench-go job described in project/gopolicy/README.md manually"
 
 // isRepositoryRoot reports whether root holds .git, a folder or, in a linked
 // worktree, a file.

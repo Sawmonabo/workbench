@@ -95,7 +95,7 @@ func (p *Proposal) addCI(c operation.Context, selected []Project) error {
 // and Python choice.
 func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, ownedJob, error) {
 	if len(owners) != 1 || owners[0] != c.Scope.Root {
-		return "", ownedJob{}, ciFailure(
+		return "", ownedJob{}, pythonCI.refuse(
 			"Automatic CI requires one Python workspace owner equal to the selected root",
 		)
 	}
@@ -107,16 +107,16 @@ func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, owned
 	if err != nil {
 		return "", ownedJob{}, err
 	}
-	file, err := parseWorkflow(data, ciFailure)
+	file, err := parseWorkflow(data, pythonCI.refuse)
 	if err != nil {
 		return "", ownedJob{}, err
 	}
-	jobs, err := workflowJobs(file, ciFailure)
+	jobs, err := workflowJobs(file, pythonCI.refuse)
 	if err != nil {
 		return "", ownedJob{}, err
 	}
 	if !slices.ContainsFunc(jobs.Values, runsTests) {
-		return "", ownedJob{}, ciFailure(
+		return "", ownedJob{}, pythonCI.refuse(
 			"An existing test/tests job with an identifiable test command is required; tests will not be invented",
 		)
 	}
@@ -133,7 +133,7 @@ func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, owned
 		addition: addition,
 		desired:  desired,
 		effect:   "The existing workflow will gain locked Python check steps. A future CI run may download dependencies and execute project build code",
-		fail:     ciFailure,
+		fail:     pythonCI.refuse,
 	}, nil
 }
 
@@ -197,12 +197,16 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 	return effects, p.add(c, path, []byte(file.String()), description)
 }
 
-func ciFailure(message string) error {
-	return operation.Fail(
-		operation.ExitBlocked,
-		"project_ci",
-		message+"; adapt project/pythonpolicy/checks.example.yml manually",
-	)
+// ciRemedy is what a person does by hand when Workbench refuses to add a
+// policy's CI job: that policy's own instructions.
+type ciRemedy string
+
+// pythonCI is the Python policy's remedy.
+const pythonCI ciRemedy = "adapt project/pythonpolicy/checks.example.yml manually"
+
+// refuse refuses a CI change with message and what to do by hand instead.
+func (r ciRemedy) refuse(message string) error {
+	return operation.Fail(operation.ExitBlocked, "project_ci", message+"; "+string(r))
 }
 
 // pythonChoice reads the explicit Python version the CI job will use.
@@ -214,7 +218,7 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 	}
 	python := strings.TrimSpace(string(data))
 	if !pythonVersion.MatchString(python) {
-		return "", ciFailure(
+		return "", pythonCI.refuse(
 			"An existing explicit .python-version is required; no Python baseline is chosen",
 		)
 	}
@@ -230,7 +234,7 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 func (p *Proposal) readWorkflow(root string) (string, []byte, error) {
 	workflows, readable := workflowFiles(root)
 	if !readable {
-		return "", nil, ciFailure("No readable existing GitHub workflow owner")
+		return "", nil, pythonCI.refuse("No readable existing GitHub workflow owner")
 	}
 	// The Dependabot auto-merge workflow --dependabot writes runs no tests and
 	// is not a candidate.
@@ -238,7 +242,7 @@ func (p *Proposal) readWorkflow(root string) (string, []byte, error) {
 		return path == filepath.Join(root, autoMergeName)
 	})
 	if len(workflows) != 1 {
-		return "", nil, ciFailure(
+		return "", nil, pythonCI.refuse(
 			"Multiple or missing workflows require an explicit integration decision",
 		)
 	}
