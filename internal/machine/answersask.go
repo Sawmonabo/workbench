@@ -27,15 +27,8 @@ func selectPrivateContext(c operation.Context, source string) (operation.Context
 			"Native setup requires a private application context beneath Workbench data",
 		)
 	}
-	for current := path; operation.Within(c.Paths.Data, current); current = filepath.Dir(current) {
-		info, statErr := os.Lstat(current)
-		if statErr != nil || !info.IsDir() || info.Mode().Perm()&0o077 != 0 {
-			return c, operation.Fail(
-				operation.ExitInvalid,
-				"permissions",
-				"Application contexts and their parents must be private directories",
-			)
-		}
+	if err = operation.PrivateTree(c.Paths.Data, path, false); err != nil {
+		return c, err
 	}
 	if _, _, err = SourceSnapshot(path, false); err != nil {
 		return c, err
