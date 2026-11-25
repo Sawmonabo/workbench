@@ -21,20 +21,13 @@ func (p *preparation) stageNative(
 	files map[string][]byte,
 	answers Answers,
 ) error {
-	scratch, err := os.MkdirTemp("", "workbench-preview-")
+	made, scratch, native, err := scratchNative("workbench-preview-", c.Native)
 	if err != nil {
 		return err
 	}
-	p.scratch = scratch
-	scratch, err = filepath.EvalSymlinks(scratch)
-	if err != nil {
-		return err
-	}
-	native := c.Native
+	p.scratch = made
 	native.Source = filepath.Join(scratch, "source")
 	native.Config = filepath.Join(scratch, "answers.json")
-	native.PersistentState = filepath.Join(scratch, "state.boltdb")
-	native.Cache = filepath.Join(scratch, "cache")
 	p.native = native
 	if err = writeRoleSources(native.Source, files, answers); err != nil {
 		return err
@@ -136,6 +129,28 @@ func (p *preparation) stageNative(
 		p.environment = append(p.environment, "WSL_DISTRO_NAME="+name)
 	}
 	return nil
+}
+
+// scratchNative makes a private temporary folder, named from prefix, for one
+// throwaway native chezmoi run, and returns native with its persistent state
+// and cache in that folder, so the run never touches Workbench's own. made is
+// the folder as made, which the caller deletes; folder is the same folder with
+// its links resolved, where native's paths point. On failure nothing is left.
+func scratchNative(
+	prefix string,
+	native operation.NativeContext,
+) (made, folder string, _ operation.NativeContext, err error) {
+	made, err = os.MkdirTemp("", prefix)
+	if err != nil {
+		return "", "", native, err
+	}
+	if folder, err = filepath.EvalSymlinks(made); err != nil {
+		_ = os.RemoveAll(made)
+		return "", "", native, err
+	}
+	native.PersistentState = filepath.Join(folder, "state.boltdb")
+	native.Cache = filepath.Join(folder, "cache")
+	return made, folder, native, nil
 }
 
 // writeRoleSources writes the source files the machine role owns.

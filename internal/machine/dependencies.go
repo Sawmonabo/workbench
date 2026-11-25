@@ -105,7 +105,7 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 	environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}
 	switch name {
 	case "chezmoi":
-		scratch, err := os.MkdirTemp("", "workbench-version-")
+		made, scratch, native, err := scratchNative("workbench-version-", operation.NativeContext{})
 		if err != nil {
 			return "", operation.Fail(
 				operation.ExitFailed,
@@ -113,21 +113,15 @@ func probeVersion(ctx context.Context, c operation.Context, name, path string) (
 				"Cannot create private version-probe scratch",
 			)
 		}
-		defer func() { _ = os.RemoveAll(scratch) }()
-		config := filepath.Join(scratch, "config.toml")
-		if err = os.WriteFile(config, nil, 0o600); err != nil {
+		defer func() { _ = os.RemoveAll(made) }()
+		native.Source, native.Destination = scratch, scratch
+		native.Config = filepath.Join(scratch, "config.toml")
+		if err = os.WriteFile(native.Config, nil, 0o600); err != nil {
 			return "", operation.Fail(
 				operation.ExitFailed,
 				"dependency",
 				"Cannot create private version-probe scratch",
 			)
-		}
-		native := operation.NativeContext{
-			Source:          scratch,
-			Config:          config,
-			Destination:     scratch,
-			PersistentState: filepath.Join(scratch, "state.boltdb"),
-			Cache:           filepath.Join(scratch, "cache"),
 		}
 		args, _ = native.Args()
 		args = append(args, "--version")

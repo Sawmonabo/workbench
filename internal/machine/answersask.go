@@ -79,19 +79,12 @@ func askAnswers(
 	if err != nil {
 		return nil, err
 	}
-	scratch, err := os.MkdirTemp("", "workbench-init-")
+	made, scratch, native, err := scratchNative("workbench-init-", c.Native)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = os.RemoveAll(scratch) }()
-	scratch, err = filepath.EvalSymlinks(scratch)
-	if err != nil {
-		return nil, err
-	}
-	native := c.Native
+	defer func() { _ = os.RemoveAll(made) }()
 	native.Config = filepath.Join(scratch, "seed.toml")
-	native.PersistentState = filepath.Join(scratch, "state.boltdb")
-	native.Cache = filepath.Join(scratch, "cache")
 	if err = os.WriteFile(native.Config, seed, 0o600); err != nil {
 		return nil, err
 	}
