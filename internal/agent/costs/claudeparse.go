@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // projectFromPath is the last-resort project for records without a cwd: the
@@ -16,8 +18,8 @@ import (
 func projectFromPath(path string) string {
 	home, _ := os.UserHomeDir()
 	name := filepath.Base(filepath.Dir(path))
-	if rel, err := filepath.Rel(filepath.Join(ClaudeDir(home), "projects"), path); err == nil &&
-		!strings.HasPrefix(rel, "..") {
+	if projects := filepath.Join(ClaudeDir(home), "projects"); operation.Within(projects, path) {
+		rel, _ := filepath.Rel(projects, path)
 		name = strings.Split(rel, string(filepath.Separator))[0]
 	}
 	return "/" + strings.ReplaceAll(strings.TrimLeft(name, "-"), "-", "/")
