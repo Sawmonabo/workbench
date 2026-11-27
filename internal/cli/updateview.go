@@ -114,7 +114,10 @@ func (v *updateView) fail(interrupted bool, reason string) {
 			if interrupted {
 				line = faint.Render(forTerm("· Update stopped"))
 			}
-			_, _ = lipgloss.Fprint(v.output, line+"\n  "+reason+"\n")
+			_, _ = lipgloss.Fprint(
+				v.output,
+				line+"\n"+strings.Join(reasonLines(reason, 0), "\n")+"\n",
+			)
 			v.owned = true
 		}
 		v.mu.Unlock()
@@ -344,14 +347,19 @@ func (m updateModel) lines() []string {
 	}
 	// The reason of a failure or a stop is wrapped, never cut.
 	if end := m.end; end != nil && (end.failed || end.stopped) && end.text != "" {
-		width := m.width
-		if width <= 4 {
-			width = math.MaxInt // unknown or too narrow: never wrapped
-		}
-		wrapped := wrapLines(end.text, width, 2)
-		lines = append(lines[:1], append(wrapped, lines[1:]...)...)
+		lines = append(lines[:1], append(reasonLines(end.text, m.width), lines[1:]...)...)
 	}
 	return lines
+}
+
+// reasonLines are the reason of a failure or a stop, two spaces in and
+// wrapped to width, never cut; a width that is unknown (0) or too narrow
+// leaves each line whole.
+func reasonLines(reason string, width int) []string {
+	if width <= 4 {
+		width = math.MaxInt
+	}
+	return wrapLines(reason, width, 2)
 }
 
 // working is the working line: the phase, or the outcome at the end.
