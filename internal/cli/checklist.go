@@ -7,7 +7,6 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -187,8 +186,6 @@ func (m *checklistModel) click(x, y int) {
 	m.cursor = row
 }
 
-var bold = lipgloss.NewStyle().Bold(true)
-
 // pageChrome is the lines around a full-screen page: title, rule and keys.
 const pageChrome = 3
 
@@ -226,6 +223,7 @@ func (m *checklistModel) View() tea.View {
 				[][2]string{{"q/esc", "back"}, {"↑/↓ pgup/pgdn", "scroll"}},
 				[][2]string{{"q/esc", "back"}, {"↑/↓", "scroll"}},
 				m.width,
+				brand,
 			)
 	} else {
 		m.frame = buildPlanFrame(

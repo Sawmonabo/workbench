@@ -6,7 +6,6 @@ import (
 
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
-	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/display"
@@ -220,7 +219,7 @@ func (m *costsView) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // tabBar is the brand, then each tool: the active one a pill in its own color,
 // the others faint, clipped to the width.
 func (m *costsView) tabBar() string {
-	parts := []string{toolPalette(m.tools[m.active].Name).accent.Bold(true).Render("[WorkBench]")}
+	parts := []string{brandHead(toolPalette(m.tools[m.active].Name).accent)}
 	for i, tool := range m.tools {
 		if i == m.active {
 			parts = append(parts, toolPalette(tool.Name).tab.Render(tool.Title))
@@ -234,14 +233,6 @@ func (m *costsView) tabBar() string {
 // keyLine names every key: the keys in the tool's color, what they do faint.
 // A terminal too narrow for every key gets the short form.
 func (m *costsView) keyLine() string {
-	pal := toolPalette(m.tools[m.active].Name)
-	line := func(hints [][2]string) string {
-		parts := make([]string, len(hints))
-		for i, hint := range hints {
-			parts[i] = pal.accent.Render(glyphs.text.Replace(hint[0])) + " " + faint.Render(hint[1])
-		}
-		return strings.Join(parts, faint.Render(glyphs.text.Replace("  ·  ")))
-	}
 	full, short := [][2]string{
 		{"←/→ tab/shift+tab", "switch tool"},
 		{"↑/↓", "select"},
@@ -258,10 +249,7 @@ func (m *costsView) keyLine() string {
 		}
 		short = [][2]string{{"← esc", "back"}, {"↑/↓", "scroll"}, {"q", "quit"}}
 	}
-	if text := line(full); lipgloss.Width(text) <= m.width {
-		return text
-	}
-	return fit(line(short), m.width, false)
+	return hintLine(full, short, m.width, toolPalette(m.tools[m.active].Name).accent)
 }
 
 func (m *costsView) View() tea.View {

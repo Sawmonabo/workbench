@@ -128,3 +128,48 @@ var guardOnBand = map[bool]map[color.Color]color.Color{
 		guardCodex.GetForeground():  lipgloss.Color("#587d92"), // 2.37:1 to 3.23:1
 	},
 }
+
+// sizeStyles are the styles of a command's memory now (while it runs; a
+// finished one shows none) and of its peak, each nil below a gigabyte.
+func sizeStyles(c guard.CommandView) (now, peak *lipgloss.Style) {
+	if active(c) {
+		now = sizeStyle(c.Memory)
+	}
+	return now, sizeStyle(c.Peak)
+}
+
+// statusStyle colors a state: running green, stopping gold and bold,
+// stopped red, unmatched a dim gold, done plain.
+func statusStyle(state string) lipgloss.Style {
+	switch state {
+	case "running":
+		return guardGreen
+	case "stopping":
+		return guardGold.Bold(true)
+	case "stopped":
+		return guardRed
+	case "unmatched":
+		return guardDimGold
+	}
+	return lipgloss.NewStyle()
+}
+
+// onBand is s as the selected row draws it on the light band or the dark
+// one: its foreground swapped for the one [guardOnBand] lists, so it keeps at
+// least 3:1 contrast with the band, and the rest of s as it is.
+func onBand(s lipgloss.Style, light bool) lipgloss.Style {
+	if lifted, ok := guardOnBand[light][s.GetForeground()]; ok {
+		return s.Foreground(lifted)
+	}
+	return s
+}
+
+// accent is the style of the selected row's ▸ and ID, of the chosen `… more`
+// row and of the side panel's title: bold in the accent, or bold alone
+// without color.
+func (m *guardView) accent() lipgloss.Style {
+	if m.noColor {
+		return bold
+	}
+	return guardAccent(m.light)
+}

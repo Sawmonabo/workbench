@@ -12,16 +12,6 @@ import (
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
-// The plan view's own styles, beside the ones `workbench agent costs` shares from
-// root.go and agentcosts.go: the brand and key color is the costs default accent,
-// and a new item wears the dark-on-yellow pill the costs tabs wear in their
-// own color.
-var (
-	brand = toolPalette("workbench").accent
-	badge = lipgloss.NewStyle().Bold(true).Padding(0, 1).
-		Foreground(lipgloss.Color("#1E1E1E")).Background(lipgloss.Yellow)
-)
-
 // forTerm rewrites s for the terminal's glyphs, so a literal with › · − ↑ ↓ never
 // shows mojibake.
 func forTerm(s string) string { return glyphs.text.Replace(s) }
@@ -317,15 +307,7 @@ func alreadyLines(plan operation.Plan, already []int, width int, view planView) 
 // when they fit there, else stand on a line of their own.
 func wrapLabelled(label, names string, width int, note, emph string) []listLine {
 	var out []listLine
-	indent := strings.Repeat(" ", len(label)+1)
-	body := ansi.Wrap(forTerm(names), max(width-len(label)-1, 10), "")
-	for i, line := range strings.Split(body, "\n") {
-		line = strings.TrimRight(line, " ")
-		if i == 0 {
-			line = faint.Render(label) + " " + line
-		} else {
-			line = indent + line
-		}
+	for _, line := range labelledLines(faint.Render(label)+" ", names, width, 10) {
 		out = append(out, listLine{Text: line})
 	}
 	if note == "" {
@@ -337,8 +319,9 @@ func wrapLabelled(label, names string, width int, note, emph string) []listLine 
 		last.Text += joined
 		return out
 	}
+	indent := ansi.StringWidth(label) + 1
 	own := faint.Render(note) + bold.Render(emph)
-	return append(out, listLine{Text: indent + fit(own, width-len(indent), false)})
+	return append(out, listLine{Text: strings.Repeat(" ", indent) + fit(own, width-indent, false)})
 }
 
 // noteLines are what the plan says besides its rows: the prerequisites and,
@@ -361,21 +344,12 @@ func noteLines(plan operation.Plan, width int, view planView) []listLine {
 		}
 		out = append(out, listLine{}, listLine{Text: bold.Render(section.title)})
 		for _, line := range section.lines {
-			for _, part := range wrapPlain(line, width-2) {
+			for _, part := range wrapLines(line, width-2, 0) {
 				out = append(out, listLine{Text: "  " + part})
 			}
 		}
 	}
 	return out
-}
-
-// wrapPlain word-wraps text to width cells, trimming each line's end.
-func wrapPlain(s string, width int) []string {
-	lines := strings.Split(ansi.Wrap(forTerm(s), max(width, 1), ""), "\n")
-	for i := range lines {
-		lines[i] = strings.TrimRight(lines[i], " ")
-	}
-	return lines
 }
 
 // rowPrefix is the cursor and box columns of a row (or the plain indent of the
@@ -454,7 +428,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	pad := strings.Repeat(" ", prefixWidth)
 	lines := []string{prefix + titleStyle.Render(title) + tags}
 	if summary != "" {
-		for _, line := range wrapPlain(summary, max(width-prefixWidth, 8)) {
+		for _, line := range wrapLines(summary, max(width-prefixWidth, 8), 0) {
 			lines = append(lines, pad+style.Render(line))
 		}
 	}
@@ -568,7 +542,7 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 	if label := releaseLabel(plan.Source); label != "" {
 		title += forTerm(" · ") + label
 	}
-	first := brand.Bold(true).Render("[WorkBench]") + " " + title
+	first := brandHead(brand) + " " + title
 	chips := []string{
 		bold.Render(fmt.Sprint(files)) + faint.Render(" "+display.Plural(files, "file")),
 		bold.Render(
@@ -587,17 +561,17 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 		lines = []string{fit(first, width, false), fit(strings.Join(chips, "   "), width, false)}
 	}
 	if !plan.Complete {
-		for _, part := range wrapPlain("This plan is incomplete and cannot be applied as shown.", width) {
+		for _, part := range wrapLines("This plan is incomplete and cannot be applied as shown.", width, 0) {
 			lines = append(lines, yellow.Render(part))
 		}
 	}
 	// What the checked steps need the password or Touch ID for follows the boxes, so
 	// unticking Homebrew in the live list drops the line.
 	if line := machine.AdminLine(plan); line != "" {
-		lines = append(lines, wrapPlain(line, width)...)
+		lines = append(lines, wrapLines(line, width, 0)...)
 	}
 	for _, warning := range plan.Warnings {
-		for i, part := range wrapPlain(warning, width-9) {
+		for i, part := range wrapLines(warning, width-9, 0) {
 			prefix := "         "
 			if i == 0 {
 				prefix = yellow.Render("Warning:") + " "

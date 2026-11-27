@@ -335,13 +335,6 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	return nil
 }
 
-var (
-	green  = lipgloss.NewStyle().Foreground(lipgloss.Green)
-	red    = lipgloss.NewStyle().Foreground(lipgloss.Red)
-	yellow = lipgloss.NewStyle().Foreground(lipgloss.Yellow)
-	faint  = lipgloss.NewStyle().Faint(true)
-)
-
 // painter colors text only where lipgloss would: the same color-profile test
 // the tables use, so a pipe, TERM=dumb and NO_COLOR (no-color.org) all get
 // plain lines and the two never disagree.
@@ -420,4 +413,23 @@ func version() string {
 		return "dev"
 	}
 	return info.Main.Version
+}
+
+// runPrinted runs a command that prints its own text: only errors and --json
+// go through the result envelope.
+func (o *options) runPrinted(cmd *cobra.Command, run func(*operation.Result) error) error {
+	result := operation.NewResult(cmd.CommandPath())
+	err := run(&result)
+	result.SetError(err)
+	o.rendered = true
+	if renderErr := render(
+		cmd.OutOrStdout(),
+		cmd.ErrOrStderr(),
+		o.json,
+		o.verbose,
+		result,
+	); renderErr != nil {
+		return renderErr
+	}
+	return err
 }

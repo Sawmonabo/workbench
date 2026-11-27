@@ -80,9 +80,9 @@ func doctorSummary(components []operation.Component) string {
 		}
 	}
 	if len(look) == 0 {
-		return "[WorkBench] Every check passed"
+		return brandTag + " Every check passed"
 	}
-	return "[WorkBench] Nothing blocks Workbench; look at " + strings.Join(look, ", ")
+	return brandTag + " Nothing blocks Workbench; look at " + strings.Join(look, ", ")
 }
 
 // agentHooks is one doctor line per agent: whether Claude Code and Codex run
@@ -544,7 +544,7 @@ func changedShell(c operation.Context, plan operation.Plan) string {
 func appliedSummary(result operation.Result, plan operation.Plan) string {
 	for _, component := range result.Results {
 		if component.Message == machine.NothingToApply {
-			return "[WorkBench] Nothing to apply; this machine already matches"
+			return brandTag + " Nothing to apply; this machine already matches"
 		}
 	}
 	// The steps that ran, counted as the plan header counts the steps that
@@ -556,7 +556,7 @@ func appliedSummary(result operation.Result, plan operation.Plan) string {
 			skipped++
 		}
 	}
-	line := "[WorkBench] Applied: " + display.Count(plan.Files(), "file") + ", " +
+	line := brandTag + " Applied: " + display.Count(plan.Files(), "file") + ", " +
 		display.Count(effects, "step")
 	if skipped > 0 {
 		line += fmt.Sprintf("; %d skipped", skipped)

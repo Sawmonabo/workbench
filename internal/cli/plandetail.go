@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -51,7 +52,7 @@ func effectDetail(plan operation.Plan, effect operation.Effect, width int) []str
 			return
 		}
 		lines = append(lines, "")
-		lines = append(lines, wrapPlain(s, width)...)
+		lines = append(lines, wrapLines(s, width, 0)...)
 	}
 	paragraph(effect.What)
 	// What the check found here, and beside it what it could not check:
@@ -84,16 +85,7 @@ func effectDetail(plan operation.Plan, effect operation.Effect, width int) []str
 // labelled is one label, value row of the panel: the label faint in its own
 // column, the value wrapped beside it.
 func labelled(label, value string, width int) []string {
-	room := max(width-labelWidth-1, 8)
-	var lines []string
-	for i, part := range wrapPlain(value, room) {
-		head := strings.Repeat(" ", labelWidth)
-		if i == 0 {
-			head = faint.Render(label + strings.Repeat(" ", max(labelWidth-len(label), 0)))
-		}
-		lines = append(lines, head+" "+part)
-	}
-	return lines
+	return labelledLines(faint.Render(fmt.Sprintf("%-*s", labelWidth, label))+" ", value, width, 8)
 }
 
 // effectStatus says whether the effect runs and why.
@@ -166,7 +158,7 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 		if strings.HasPrefix(line, "@@") {
 			marker, text = "", line
 		}
-		for _, part := range wrapPlain(text, max(width-len(marker), 1)) {
+		for _, part := range wrapLines(text, width-len(marker), 0) {
 			lines = append(lines, style.Render(marker+part))
 		}
 	}
@@ -175,8 +167,8 @@ func fileDetail(edit operation.Edit, width int, wrap, diff bool) []string {
 	}
 	if edit.Semantic && edit.Rewritten {
 		lines = append(lines, "")
-		for _, part := range wrapPlain(settingsNote(edit), max(width, 1)) {
-			lines = append(lines, faint.Render(forTerm(part)))
+		for _, part := range wrapLines(settingsNote(edit), width, 0) {
+			lines = append(lines, faint.Render(part))
 		}
 	}
 	return lines

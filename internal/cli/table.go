@@ -246,14 +246,39 @@ func writeTable(b *strings.Builder, width, indent int, t tableSpec) {
 	}
 }
 
-// writeText writes prose word-wrapped to width under indent; a word longer
-// than the line is broken.
+// writeText writes prose word-wrapped to width under indent (wrapLines).
 func writeText(b *strings.Builder, width, indent int, text string) {
-	pad := strings.Repeat(" ", indent)
-	text = glyphs.text.Replace(text)
-	for line := range strings.SplitSeq(ansi.Wrap(text, max(width-indent, 1), ""), "\n") {
-		b.WriteString(strings.TrimRight(pad+line, " ") + "\n")
+	for _, line := range wrapLines(text, width, indent) {
+		b.WriteString(line + "\n")
 	}
+}
+
+// wrapLines is text word-wrapped to width under indent, with the glyphs the
+// terminal shows and each line's trailing spaces trimmed; a word longer than
+// the line is broken, and the line is never narrower than one cell.
+func wrapLines(text string, width, indent int) []string {
+	pad := strings.Repeat(" ", indent)
+	lines := strings.Split(ansi.Wrap(glyphs.text.Replace(text), max(width-indent, 1), ""), "\n")
+	for i, line := range lines {
+		lines[i] = strings.TrimRight(pad+line, " ")
+	}
+	return lines
+}
+
+// labelledLines is value beside head, a label as it is drawn: value wraps to
+// the room past head, at least least cells, each line after the first under
+// the first's value.
+func labelledLines(head, value string, width, least int) []string {
+	headWidth := ansi.StringWidth(head)
+	lines := wrapLines(value, max(width-headWidth, least), 0)
+	for i := range lines {
+		if i == 0 {
+			lines[i] = head + lines[i]
+		} else {
+			lines[i] = strings.Repeat(" ", headWidth) + lines[i]
+		}
+	}
+	return lines
 }
 
 // tableWidth is how wide t prints, indent included, with every column at its
@@ -478,4 +503,44 @@ func fit(s string, width int, left bool) string {
 		return ansi.TruncateLeft(s, cut, glyphs.Ellipsis)
 	}
 	return ansi.Truncate(s, width, glyphs.Ellipsis)
+}
+
+// writeBold is writeText in bold.
+func writeBold(b *strings.Builder, width, indent int, text string) {
+	writeStyled(b, width, indent, text, bold)
+}
+
+// writeFaint is writeText for secondary notes.
+func writeFaint(b *strings.Builder, width, indent int, text string) {
+	writeStyled(b, width, indent, text, faint)
+}
+
+// writeStyled wraps text like writeText and styles each line, so a wrapped
+// note never carries a style across a line break.
+func writeStyled(b *strings.Builder, width, indent int, text string, style lipgloss.Style) {
+	for _, line := range wrapLines(text, width, indent) {
+		if line != "" {
+			line = style.Render(line)
+		}
+		b.WriteString(line + "\n")
+	}
+}
+
+func commas(n int64) string { return commasFloat(float64(n), 0) }
+
+// commasFloat formats v to decimals places with thousands separators.
+func commasFloat(v float64, decimals int) string {
+	s := strconv.FormatFloat(v, 'f', decimals, 64)
+	sign := ""
+	if strings.HasPrefix(s, "-") {
+		sign, s = "-", s[1:]
+	}
+	whole, fraction, _ := strings.Cut(s, ".")
+	for i := len(whole) - 3; i > 0; i -= 3 {
+		whole = whole[:i] + "," + whole[i:]
+	}
+	if fraction != "" {
+		whole += "." + fraction
+	}
+	return sign + whole
 }

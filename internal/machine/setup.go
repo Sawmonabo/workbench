@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"context"
 	"errors"
@@ -33,6 +34,23 @@ func SetupPlan(ctx context.Context, c operation.Context) (operation.Plan, error)
 func ToolsPlan(ctx context.Context, c operation.Context) (operation.Plan, error) {
 	return setupPlan(ctx, c, false)
 }
+
+// toolEffect starts the name of the setup effect that installs one of the
+// tools Workbench runs, before the tool's own name: private-uv.
+const toolEffect = "private-"
+
+// SetupTool is the tool effect installs, when it is a setup effect that
+// installs one.
+func SetupTool(effect operation.Effect) (string, bool) {
+	return strings.CutPrefix(effect.Name, toolEffect)
+}
+
+// toolTitles are the tools' names as a person reads them, where they differ
+// from the names setup gives them.
+var toolTitles = map[string]string{"python3": "Python", "tomlkit": "TOML Kit"}
+
+// ToolTitle is a tool's name as a person reads it: Python for python3.
+func ToolTitle(name string) string { return cmp.Or(toolTitles[name], name) }
 
 func setupPlan(
 	ctx context.Context,
@@ -70,7 +88,7 @@ func setupPlan(
 			plan.Effects = append(
 				plan.Effects,
 				operation.Effect{
-					Name:        "private-" + name,
+					Name:        toolEffect + name,
 					Description: "Acquire a pinned private management dependency; existing unqualified installations are retained",
 					Privilege:   "user",
 					Recovery:    "Private installation retained; no global tool replacement",
@@ -82,7 +100,7 @@ func setupPlan(
 		plan.Effects = append(
 			plan.Effects,
 			operation.Effect{
-				Name:        "private-tomlkit",
+				Name:        toolEffect + "tomlkit",
 				Description: "Acquire the pinned, SHA-256 verified TOML Kit wheel in Workbench's private library directory",
 				Privilege:   "user",
 				Recovery:    "Private library retained",

@@ -24,7 +24,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 	var b strings.Builder
 	width := lineWidth(w)
 	scope := display.Path(plan.Scope.Root)
-	title := "[WorkBench] Plan for " + plan.Scope.Kind + " " + scope
+	title := brandTag + " Plan for " + plan.Scope.Kind + " " + scope
 	if plan.Source.Release != "" {
 		title += " from " + sourceName(&plan.Source)
 	}
@@ -244,7 +244,7 @@ func liveFrame(plan operation.Plan, width int, view planView, head []string) pla
 				right = panel[i]
 			}
 			add(
-				padTo(left.Text, listWidth)+" "+faint.Render(glyphs.border.Left)+" "+right,
+				padCell(left.Text, listWidth, false)+" "+faint.Render(glyphs.border.Left)+" "+right,
 				left.Row,
 			)
 		}
@@ -287,11 +287,6 @@ func scrollRule(width int, above, below bool) string {
 		note = " more below"
 	}
 	return faint.Render(strings.Repeat(glyphs.Rule, max(width-ansi.StringWidth(note), 0)) + note)
-}
-
-// padTo pads s with spaces to width display cells.
-func padTo(s string, width int) string {
-	return s + strings.Repeat(" ", max(width-ansi.StringWidth(s), 0))
 }
 
 // windowTop is the first list line a window of height lines shows: top, moved
@@ -366,15 +361,17 @@ func keyLine(view planView, width int) string {
 			{"q", "quit"},
 		},
 		width,
+		brand,
 	)
 }
 
-// hintLine is a key line: full when it fits, else short, clipped to width.
-func hintLine(full, short [][2]string, width int) string {
+// hintLine is a key line, each key in the key style and what it does faint:
+// full when it fits, else short, clipped to width.
+func hintLine(full, short [][2]string, width int, key lipgloss.Style) string {
 	line := func(hints [][2]string) string {
 		parts := make([]string, len(hints))
 		for i, hint := range hints {
-			parts[i] = brand.Render(forTerm(hint[0])) + " " + faint.Render(hint[1])
+			parts[i] = key.Render(forTerm(hint[0])) + " " + faint.Render(hint[1])
 		}
 		return strings.Join(parts, faint.Render(forTerm("  ·  ")))
 	}

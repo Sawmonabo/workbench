@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -9,9 +10,10 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/spf13/cobra"
 )
 
 // updateView draws `workbench update` at a terminal as one live view: a
@@ -33,12 +35,9 @@ import (
 type updateView struct {
 	output  *os.File
 	mu      sync.Mutex
-	program *tea.Program
-	done    chan struct{}
-	// drew is set, before done closes, when the program ran to its end and
-	// took the last frame it was sent, and final is then its last state.
-	drew  bool
-	final updateModel
+	program *inlineProgram
+	// ended is set once the program has ended: a late event changes nothing.
+	ended bool
 	// handedOff is set once the view has ended with its working line cleared
 	// for the activated release. That release replaces this process unless it
 	// cannot start, and then fail writes its line where the cursor was left.
@@ -70,9 +69,9 @@ func (v *updateView) Transfer(name string, done, total int64) {
 // header prints the brand, Update and the release the update starts from, or
 // Install on a machine with no release: the line the view stays under.
 func (v *updateView) header(release string) {
-	line := brand.Bold(true).Render("[WorkBench]") + " " + bold.Render("Install")
+	line := brandHead(brand) + " " + bold.Render("Install")
 	if release != "" {
-		line = brand.Bold(true).Render("[WorkBench]") + " " + bold.Render("Update") +
+		line = brandHead(brand) + " " + bold.Render("Update") +
 			faint.Render(forTerm(" · ")+release)
 	}
 	_, _ = lipgloss.Fprint(v.output, line+"\n")
@@ -115,7 +114,10 @@ func (v *updateView) fail(interrupted bool, reason string) {
 			if interrupted {
 				line = faint.Render(forTerm("· Update stopped"))
 			}
-			_, _ = lipgloss.Fprint(v.output, line+"\n  "+reason+"\n")
+			_, _ = lipgloss.Fprint(
+				v.output,
+				line+"\n"+strings.Join(reasonLines(reason, 0), "\n")+"\n",
+			)
 			v.owned = true
 		}
 		v.mu.Unlock()
@@ -139,33 +141,20 @@ func (v *updateView) send(msg tea.Msg) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.program == nil {
-		if v.done != nil {
-			return // ended: a late event changes nothing
+		if v.ended {
+			return
 		}
 		v.start()
 	}
-	v.program.Send(msg)
+	v.program.send(msg)
 }
 
 // start runs the program; the caller holds mu.
 func (v *updateView) start() {
-	v.program = tea.NewProgram(
-		updateModel{spinner: spinner.New(
-			spinner.WithSpinner(updateSpinner()),
-			spinner.WithStyle(brand),
-		)},
-		tea.WithInput(nil),
-		tea.WithOutput(v.output),
-		// main owns SIGINT and SIGTERM through the command's context.
-		tea.WithoutSignalHandler(),
-	)
-	v.done = make(chan struct{})
-	go func(program *tea.Program, done chan struct{}) {
-		defer close(done)
-		model, err := program.Run()
-		final, ok := model.(updateModel)
-		v.drew, v.final = err == nil && ok && final.end != nil, final
-	}(v.program, v.done)
+	v.program = startInline(updateModel{spinner: spinner.New(
+		spinner.WithSpinner(inlineSpinner()),
+		spinner.WithStyle(brand),
+	)}, v.output)
 }
 
 // end sends the last message and waits for the program to finish. A kept
@@ -178,22 +167,14 @@ func (v *updateView) end(msg endMsg) {
 	if v.program == nil {
 		return
 	}
-	v.program.Send(msg)
-	<-v.done
-	v.program = nil
-	if v.drew && !msg.clear && !msg.keep {
-		_, _ = lipgloss.Fprint(v.output, strings.Join(v.final.lines(), "\n")+"\n")
+	model, err := v.program.end(msg)
+	v.program, v.ended = nil, true
+	// The program ran to its end and took the last frame it was sent.
+	final, drew := model.(updateModel)
+	if drew && err == nil && final.end != nil && !msg.clear && !msg.keep {
+		_, _ = lipgloss.Fprint(v.output, strings.Join(final.lines(), "\n")+"\n")
 		v.owned = true
 	}
-}
-
-// updateSpinner is the braille dots where the terminal's locale is UTF-8 and
-// a turning line elsewhere.
-func updateSpinner() spinner.Spinner {
-	if glyphs.Check == "✓" {
-		return spinner.MiniDot
-	}
-	return spinner.Line
 }
 
 type updatePhase int
@@ -315,16 +296,6 @@ func (m *updateModel) tool(msg toolMsg) {
 	})
 }
 
-// toolNames are the names the rows show.
-var toolNames = map[string]string{"python3": "Python", "tomlkit": "TOML Kit"}
-
-func toolName(name string) string {
-	if shown, ok := toolNames[name]; ok {
-		return shown
-	}
-	return name
-}
-
 func (m updateModel) View() tea.View {
 	var view tea.View
 	view.DisableBracketedPasteMode = true // nothing is read
@@ -351,13 +322,13 @@ func (m updateModel) lines() []string {
 	quiet := m.end != nil && m.end.unchanged
 	width := 0
 	for _, row := range m.rows {
-		width = max(width, lipgloss.Width(toolName(row.name)))
+		width = max(width, lipgloss.Width(machine.ToolTitle(row.name)))
 	}
 	for _, row := range m.rows {
 		if quiet && !row.touched {
 			continue
 		}
-		name := toolName(row.name)
+		name := machine.ToolTitle(row.name)
 		lines = append(
 			lines,
 			"  "+name+strings.Repeat(
@@ -376,17 +347,19 @@ func (m updateModel) lines() []string {
 	}
 	// The reason of a failure or a stop is wrapped, never cut.
 	if end := m.end; end != nil && (end.failed || end.stopped) && end.text != "" {
-		reason := end.text
-		if m.width > 4 {
-			reason = ansi.Wrap(reason, m.width-2, "")
-		}
-		wrapped := strings.Split(reason, "\n")
-		for i := range wrapped {
-			wrapped[i] = "  " + wrapped[i]
-		}
-		lines = append(lines[:1], append(wrapped, lines[1:]...)...)
+		lines = append(lines[:1], append(reasonLines(end.text, m.width), lines[1:]...)...)
 	}
 	return lines
+}
+
+// reasonLines are the reason of a failure or a stop, two spaces in and
+// wrapped to width, never cut; a width that is unknown (0) or too narrow
+// leaves each line whole.
+func reasonLines(reason string, width int) []string {
+	if width <= 4 {
+		width = math.MaxInt
+	}
+	return wrapLines(reason, width, 2)
 }
 
 // working is the working line: the phase, or the outcome at the end.
@@ -398,7 +371,9 @@ func (m updateModel) working() string {
 		case end.failed:
 			for _, row := range m.rows {
 				if row.failed {
-					return red.Render(glyphs.Cross + " Update failed: " + toolName(row.name))
+					return red.Render(
+						glyphs.Cross + " Update failed: " + machine.ToolTitle(row.name),
+					)
 				}
 			}
 			return red.Render(glyphs.Cross + " Update failed")
@@ -500,4 +475,70 @@ func transferSize(done, total int64) string {
 		return amount(total) + " " + unit
 	}
 	return amount(done) + "/" + amount(total) + " " + unit
+}
+
+// announceHandoff is what runs just before the activated release takes the
+// terminal, once every check has passed: it clears the update view's working
+// line, where the activated release draws on, then prints the warnings, or
+// without the view prints them and says in a line what happens next, so a
+// log stays readable. The warnings wait until the view has ended, which owns
+// the lines it draws. It empties warnings once printed.
+func announceHandoff(
+	cmd *cobra.Command,
+	c operation.Context,
+	done string,
+	warnings *[]string,
+) func() {
+	return func() {
+		view := updateViewOf(c)
+		if view != nil {
+			view.handoff()
+		}
+		if warnings != nil {
+			printWarnings(cmd, *warnings)
+			*warnings = nil
+		}
+		if view == nil {
+			_, _ = fmt.Fprintln(
+				cmd.ErrOrStderr(),
+				brandTag+" "+done+"; continuing with its tools",
+			)
+		}
+	}
+}
+
+// printWarnings prints each warning on its own line of stderr.
+func printWarnings(cmd *cobra.Command, warnings []string) {
+	warn := newPainter(cmd.ErrOrStderr())
+	for _, warning := range warnings {
+		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), warn.style(yellow, "Warning:"), warning)
+	}
+}
+
+// startUpdateView heads the update view, if c's progress draws one, with the
+// release the update starts from (or the checkout, with --local-build), and
+// starts it checking.
+func startUpdateView(c operation.Context) error {
+	view := updateViewOf(c)
+	if view == nil {
+		return nil
+	}
+	installed, err := installedRelease(c)
+	if err != nil {
+		return err
+	}
+	if c.Native.Developer {
+		installed = "this checkout" // --local-build installs no release
+	}
+	view.header(installed)
+	view.phase(phaseChecking)
+	return nil
+}
+
+// updateViewOf is the update view c's progress draws, or nil when it draws
+// none (not a terminal, --json, --non-interactive or --dry-run). Its phase
+// and finish do nothing on nil.
+func updateViewOf(c operation.Context) *updateView {
+	view, _ := c.Progress.(*updateView)
+	return view
 }

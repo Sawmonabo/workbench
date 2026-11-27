@@ -216,38 +216,17 @@ func projectRevertCommand(o *options) *cobra.Command {
 			"  workbench project revert ./apps/api --checkpoint ID",
 		Args: cobra.MaximumNArgs(1),
 	}
-	cmd.Flags().
-		String("checkpoint", "", "Restore this checkpoint ID instead of choosing from a list")
-	cmd.Flags().Bool("dry-run", false, "Show the restore plan without restoring")
-	o.approveFlag(cmd)
-	cmd.RunE = o.action(
+	o.recoveryCommand(
+		cmd,
 		projectAction,
-		func(cmd *cobra.Command, c operation.Context) (operation.Result, error) {
-			result := operation.NewResult(cmd.CommandPath())
-			id, err := o.checkpointChoice(cmd, c, &result, "project-checkpoints")
-			if err != nil {
-				return result, err
-			}
-			selector := operation.RecoverySelector{Checkpoint: id}
-			plan, err := operation.RecoveryPlan(c, selector)
-			if err != nil {
-				return result, err
-			}
-			result.PlanDigest = plan.Digest()
-			result.Results = append(
-				result.Results,
-				operation.Component{
-					Name:    "project-recovery-plan",
-					Status:  operation.StatusComplete,
-					Details: plan,
-				},
+		"project-checkpoints",
+		"project-recovery-plan",
+		func(restore recovery) (operation.Result, error) {
+			result := restore.result
+			var err error
+			result.OperationID, err = operation.Recover(
+				restore.cmd.Context(), restore.c, restore.plan, restore.selector, restore.consent,
 			)
-			if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
-				return result, nil
-			}
-			c.ReadOnly = false
-			consent := consentFor(o, o.approvePlan)
-			result.OperationID, err = operation.Recover(cmd.Context(), c, plan, selector, consent)
 			if err == nil {
 				shownAtPrompt(o, &result.Results[0])
 				result.Summary = "Restored the project's files from the checkpoint"
