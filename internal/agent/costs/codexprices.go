@@ -84,37 +84,18 @@ func codexTable(heading string) (suffix string, ok bool) {
 // model in a table wins.
 func (codex) ParsePricing(page string) RateCard {
 	card := RateCard{}
-	lines := strings.Split(page, "\n")
-	suffix, inTable := "", false
-	for i := 0; i < len(lines)-1; {
-		head, sep := strings.TrimSpace(lines[i]), strings.TrimSpace(lines[i+1])
-		if strings.HasPrefix(head, "#") {
-			suffix, inTable = codexTable(strings.TrimSpace(strings.TrimLeft(head, "#")))
-		}
-		if !strings.HasPrefix(head, "|") || !strings.HasPrefix(sep, "|") ||
-			strings.Trim(sep, "|-: ") != "" {
-			i++
+	for _, table := range markdownTables(page) {
+		suffix, ok := codexTable(table.heading)
+		if !ok {
 			continue
 		}
-		var headers []string
-		for h := range strings.SplitSeq(strings.Trim(head, "|"), "|") {
-			headers = append(headers, strings.ToLower(strings.TrimSpace(h)))
-		}
-		i += 2
-		if !inTable {
-			continue
-		}
-		column := func(name string) int { return slices.Index(headers, "short context "+name) }
+		column := func(name string) int { return slices.Index(table.headers, "short context "+name) }
 		ci, co := column("input"), column("output")
 		cc, cw := column("cached input"), column("cache writes")
 		if ci < 0 || co < 0 {
 			continue
 		}
-		for ; i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|"); i++ {
-			var cells []string
-			for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(lines[i]), "|"), "|") {
-				cells = append(cells, strings.TrimSpace(c))
-			}
+		for _, cells := range table.rows {
 			model := strings.ToLower(strings.TrimSpace(notePattern.ReplaceAllString(cells[0], "")))
 			if !codexModelPattern.MatchString(model) {
 				continue

@@ -135,32 +135,16 @@ func pricedModels(cell string, shared bool) []string {
 // others at 0.1x).
 func (claude) ParsePricing(page string) RateCard {
 	card := RateCard{}
-	lines := strings.Split(page, "\n")
-	heading := ""
-	for i := 0; i < len(lines)-1; {
-		head, sep := strings.TrimSpace(lines[i]), strings.TrimSpace(lines[i+1])
-		if strings.HasPrefix(head, "#") {
-			heading = strings.ToLower(head)
-		}
-		if !strings.HasPrefix(head, "|") || !strings.HasPrefix(sep, "|") ||
-			strings.Trim(sep, "|-: ") != "" {
-			i++
-			continue
-		}
-		columns := priceColumnsOf(head)
-		i += 2
-		if columns.input < 0 || columns.output < 0 || strings.Contains(heading, "batch") {
+	for _, table := range markdownTables(page) {
+		columns := priceColumnsOf(table.headers)
+		if columns.input < 0 || columns.output < 0 || strings.Contains(table.heading, "batch") {
 			continue
 		}
 		tier := ""
-		if strings.Contains(heading, fastSpeed) {
+		if strings.Contains(table.heading, fastSpeed) {
 			tier = "@" + fastSpeed
 		}
-		for ; i < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[i]), "|"); i++ {
-			var cells []string
-			for c := range strings.SplitSeq(strings.Trim(strings.TrimSpace(lines[i]), "|"), "|") {
-				cells = append(cells, strings.TrimSpace(c))
-			}
+		for _, cells := range table.rows {
 			addPriceRow(card, cells, columns, tier)
 		}
 	}
@@ -170,12 +154,9 @@ func (claude) ParsePricing(page string) RateCard {
 // priceColumns are the indexes of a price table's columns, -1 for a missing one.
 type priceColumns struct{ input, output, write5m, write1h, read int }
 
-// priceColumnsOf maps a table's header row to its columns by header text.
-func priceColumnsOf(head string) priceColumns {
-	var headers []string
-	for h := range strings.SplitSeq(strings.Trim(head, "|"), "|") {
-		headers = append(headers, strings.ToLower(strings.TrimSpace(h)))
-	}
+// priceColumnsOf maps a table's header cells, in lower case, to its columns
+// by their text.
+func priceColumnsOf(headers []string) priceColumns {
 	columns := priceColumns{
 		input:   findColumn(headers, []string{"input"}, "cache", "batch", "additional"),
 		output:  findColumn(headers, []string{"output"}, "batch"),
