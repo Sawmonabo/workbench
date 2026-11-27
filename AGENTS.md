@@ -10,7 +10,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 
 - Greenfield: update canonical code, callers and docs in place. No migrations,
   compatibility readers/flags, obsolete aliases or dual paths. One exception:
-  the costs ledger (`internal/agent/costs/ledger.go`) upgrades older schema versions
+  the costs ledger (`internal/agent/costs/upgrade.go`) upgrades older schema versions
   in place, in one transaction that keeps every row, because transcripts expire
   and the ledger is the only lasting record of spend; the same transaction
   fills the price tables a version 6 ledger adds from the price list files

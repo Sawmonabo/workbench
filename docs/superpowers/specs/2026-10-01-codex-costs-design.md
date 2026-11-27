@@ -337,8 +337,9 @@ as section 10 describes; there is no per-run `session` or `sweep` tag.
 
 ## 5. Rates
 
-- `PricingURL` is the page above; `CODEX_COSTS_PRICING_URL` replaces it for
-  checks that must not reach the network. The refresh policy and the
+- `PricingURL` is the page above; `CODEX_COSTS_PRICING_URL` replaces it, with
+  an HTTPS address as every download takes (`release.Get`), for checks that
+  must not reach the network. The refresh policy and the
   `official`, `calibrated` and `builtin` labels are Claude Code's, and the
   ledger keeps Codex's official prices beside Claude Code's.
 - `ParsePricing` reads the table under the "Standard pricing data" heading

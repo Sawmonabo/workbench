@@ -112,7 +112,7 @@ Anti-goals:
 | Concern | Owner |
 | --- | --- |
 | The tables, the refresh, the price list | `internal/agent/costs/rates.go` |
-| The schema and its upgrade | `internal/agent/costs/ledger.go` |
+| The schema and its upgrade | `internal/agent/costs/schema.go`, `upgrade.go` |
 | The deletion of the list files | `internal/migrate/0008_price_lists.go` |
 
 Changed in place: the costs sections of `docs/usage.md` and

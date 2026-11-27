@@ -191,7 +191,8 @@ Anti-goals:
 
 | Concern | Owner |
 | --- | --- |
-| The schema, its upgrade, the compaction, the ID encoding, the names cache, every statement on `responses` | `internal/agent/costs/ledger.go` (the ID encoding may be its own file in the package) |
+| The schema, its upgrade and the compaction, the conversion and its check, the ID encoding, the names cache | `internal/agent/costs/schema.go`, `upgrade.go`, `slim.go`, `storedid.go`, `names.go` |
+| The writes to `responses` | `internal/agent/costs/responses.go`, `threads.go`, `tiers.go`, `accountresolution.go`, `sessionplans.go` |
 | The report's read | `internal/agent/costs/report.go`, `focus.go` |
 | The model list of `agent costs rates` | `internal/agent/costs/rates.go` |
 
