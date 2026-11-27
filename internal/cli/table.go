@@ -265,6 +265,22 @@ func wrapLines(text string, width, indent int) []string {
 	return lines
 }
 
+// labelledLines is value beside head, a label as it is drawn: value wraps to
+// the room past head, at least least cells, each line after the first under
+// the first's value.
+func labelledLines(head, value string, width, least int) []string {
+	headWidth := ansi.StringWidth(head)
+	lines := wrapLines(value, max(width-headWidth, least), 0)
+	for i := range lines {
+		if i == 0 {
+			lines[i] = head + lines[i]
+		} else {
+			lines[i] = strings.Repeat(" ", headWidth) + lines[i]
+		}
+	}
+	return lines
+}
+
 // tableWidth is how wide t prints, indent included, with every column at its
 // natural width.
 func tableWidth(indent int, t tableSpec) int {

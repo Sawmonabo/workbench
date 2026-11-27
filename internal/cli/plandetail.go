@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -84,16 +85,7 @@ func effectDetail(plan operation.Plan, effect operation.Effect, width int) []str
 // labelled is one label, value row of the panel: the label faint in its own
 // column, the value wrapped beside it.
 func labelled(label, value string, width int) []string {
-	room := max(width-labelWidth-1, 8)
-	var lines []string
-	for i, part := range wrapLines(value, room, 0) {
-		head := strings.Repeat(" ", labelWidth)
-		if i == 0 {
-			head = faint.Render(label + strings.Repeat(" ", max(labelWidth-len(label), 0)))
-		}
-		lines = append(lines, head+" "+part)
-	}
-	return lines
+	return labelledLines(faint.Render(fmt.Sprintf("%-*s", labelWidth, label))+" ", value, width, 8)
 }
 
 // effectStatus says whether the effect runs and why.

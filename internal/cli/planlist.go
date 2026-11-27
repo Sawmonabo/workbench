@@ -307,15 +307,7 @@ func alreadyLines(plan operation.Plan, already []int, width int, view planView) 
 // when they fit there, else stand on a line of their own.
 func wrapLabelled(label, names string, width int, note, emph string) []listLine {
 	var out []listLine
-	indent := strings.Repeat(" ", len(label)+1)
-	body := ansi.Wrap(forTerm(names), max(width-len(label)-1, 10), "")
-	for i, line := range strings.Split(body, "\n") {
-		line = strings.TrimRight(line, " ")
-		if i == 0 {
-			line = faint.Render(label) + " " + line
-		} else {
-			line = indent + line
-		}
+	for _, line := range labelledLines(faint.Render(label)+" ", names, width, 10) {
 		out = append(out, listLine{Text: line})
 	}
 	if note == "" {
@@ -327,6 +319,7 @@ func wrapLabelled(label, names string, width int, note, emph string) []listLine 
 		last.Text += joined
 		return out
 	}
+	indent := strings.Repeat(" ", len(label)+1)
 	own := faint.Render(note) + bold.Render(emph)
 	return append(out, listLine{Text: indent + fit(own, width-len(indent), false)})
 }

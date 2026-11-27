@@ -112,11 +112,8 @@ func costsStatus(info costs.StatusInfo, width int) string {
 	}
 	// A value wraps under itself, not under the labels.
 	for _, row := range rows {
-		var value strings.Builder
-		writeText(&value, width, labelWidth, row[1])
-		first, rest, _ := strings.Cut(value.String(), "\n")
-		b.WriteString(bold.Render(fmt.Sprintf("%-*s", labelWidth, row[0])) +
-			strings.TrimLeft(first, " ") + "\n" + rest)
+		head := bold.Render(fmt.Sprintf("%-*s", labelWidth, row[0]))
+		b.WriteString(strings.Join(labelledLines(head, row[1], width, 1), "\n") + "\n")
 	}
 	return b.String()
 }

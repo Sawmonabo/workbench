@@ -163,7 +163,7 @@ func (m *guardView) detailLines(width int) []string {
 	lines := append([]string{""}, m.facts(*r.view, width)...)
 	lines = append(lines, faint.Render(fmt.Sprintf("  %-11s", "Graph"))+m.graph(r, width))
 	if d.problem != "" {
-		lines = append(lines, field("", width, guardGold.Render(d.problem))...)
+		lines = append(lines, field("", guardGold.Render(d.problem), width)...)
 	}
 	head := faint.Render(fmt.Sprintf("  %-11s", "Command"))
 	shown := command
@@ -184,7 +184,7 @@ func (m *guardView) detailLines(width int) []string {
 // height while a command runs.
 func (m *guardView) facts(c guard.CommandView, width int) []string {
 	var lines []string
-	add := func(name, value string) { lines = append(lines, field(name, width, value)...) }
+	add := func(name, value string) { lines = append(lines, field(name, value, width)...) }
 	add("Folder", display.Path(c.Cwd))
 	add("Agent", c.Agent)
 	add("Subagent", cmp.Or(c.Subagent, "—"))
@@ -230,19 +230,10 @@ func styled(text string, style *lipgloss.Style) string {
 	return style.Render(text)
 }
 
-// field lays out a field's values beside its label, in a column a space past
-// the longest label (Started by), a value after the first starting on its own
-// line two spaces in, each wrapped to width.
-func field(name string, width int, values ...string) []string {
-	var lines []string
-	head := faint.Render(fmt.Sprintf("  %-11s", name))
-	for i, value := range values {
-		for _, line := range wrapLines(value, width-detailIndent, min(i, 1)*2) {
-			lines = append(lines, head+line)
-			head = strings.Repeat(" ", detailIndent)
-		}
-	}
-	return lines
+// field lays out a field's value beside its label, in a column a space past
+// the longest label (Started by), wrapped to width.
+func field(name, value string, width int) []string {
+	return labelledLines(faint.Render(fmt.Sprintf("  %-*s", detailIndent-2, name)), value, width, 1)
 }
 
 // heldText says in plain words why the guard itself will not stop a
@@ -423,12 +414,12 @@ func (p processList) line(i int) string {
 func (m *guardView) processRows(lines []string, procs processList, width int) []string {
 	switch {
 	case procs.reading:
-		return append(lines, field("Processes", width, faint.Render(forTerm("…")))...)
+		return append(lines, field("Processes", faint.Render(forTerm("…")), width)...)
 	case procs.n() == 0:
-		return append(lines, field("Processes", width, "none")...)
+		return append(lines, field("Processes", "none", width)...)
 	}
 	indent := strings.Repeat(" ", detailIndent)
-	lines = append(lines, field("Processes", width, procs.count())...)
+	lines = append(lines, field("Processes", procs.count(), width)...)
 	lines = append(lines, indent+procs.head())
 	shown := procs.n()
 	if shown > processesWhole {
