@@ -191,7 +191,7 @@ func (m *guardView) statusLines() []string {
 	}
 	var lines []string
 	for _, text := range texts {
-		for line := range strings.SplitSeq(ansi.Wrap(forTerm(text), m.width, ""), "\n") {
+		for _, line := range wrapLines(text, m.width, 0) {
 			lines = append(lines, guardGold.Render(line))
 		}
 	}

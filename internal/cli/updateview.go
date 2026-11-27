@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"strings"
 	"sync"
@@ -9,7 +10,6 @@ import (
 	"charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
-	"github.com/charmbracelet/x/ansi"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
@@ -353,14 +353,11 @@ func (m updateModel) lines() []string {
 	}
 	// The reason of a failure or a stop is wrapped, never cut.
 	if end := m.end; end != nil && (end.failed || end.stopped) && end.text != "" {
-		reason := end.text
-		if m.width > 4 {
-			reason = ansi.Wrap(reason, m.width-2, "")
+		width := m.width
+		if width <= 4 {
+			width = math.MaxInt // unknown or too narrow: never wrapped
 		}
-		wrapped := strings.Split(reason, "\n")
-		for i := range wrapped {
-			wrapped[i] = "  " + wrapped[i]
-		}
+		wrapped := wrapLines(end.text, width, 2)
 		lines = append(lines[:1], append(wrapped, lines[1:]...)...)
 	}
 	return lines

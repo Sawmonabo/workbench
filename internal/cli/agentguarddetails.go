@@ -237,9 +237,7 @@ func field(name string, width int, values ...string) []string {
 	var lines []string
 	head := faint.Render(fmt.Sprintf("  %-11s", name))
 	for i, value := range values {
-		var b strings.Builder
-		writeText(&b, width-detailIndent, min(i, 1)*2, value)
-		for line := range strings.SplitSeq(strings.TrimSuffix(b.String(), "\n"), "\n") {
+		for _, line := range wrapLines(value, width-detailIndent, min(i, 1)*2) {
 			lines = append(lines, head+line)
 			head = strings.Repeat(" ", detailIndent)
 		}
@@ -496,11 +494,10 @@ func (m *guardView) partLines(r listRow, part detailPart, width int) (string, []
 // each after the first two spaces in, and, when its text was cut where the
 // history keeps it, a last line saying how much was left out.
 func commandLines(command string, cut int64, width int) []string {
-	var b strings.Builder
+	var lines []string
 	for i, step := range commandSteps(command) {
-		writeText(&b, width, min(i, 1)*2, step)
+		lines = append(lines, wrapLines(step, width, min(i, 1)*2)...)
 	}
-	lines := strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
 	if cut > 0 {
 		lines = append(lines, faint.Render(forTerm("… "+textSize(cut)+" more were not kept")))
 	}

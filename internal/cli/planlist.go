@@ -351,21 +351,12 @@ func noteLines(plan operation.Plan, width int, view planView) []listLine {
 		}
 		out = append(out, listLine{}, listLine{Text: bold.Render(section.title)})
 		for _, line := range section.lines {
-			for _, part := range wrapPlain(line, width-2) {
+			for _, part := range wrapLines(line, width-2, 0) {
 				out = append(out, listLine{Text: "  " + part})
 			}
 		}
 	}
 	return out
-}
-
-// wrapPlain word-wraps text to width cells, trimming each line's end.
-func wrapPlain(s string, width int) []string {
-	lines := strings.Split(ansi.Wrap(forTerm(s), max(width, 1), ""), "\n")
-	for i := range lines {
-		lines[i] = strings.TrimRight(lines[i], " ")
-	}
-	return lines
 }
 
 // rowPrefix is the cursor and box columns of a row (or the plain indent of the
@@ -444,7 +435,7 @@ func effectLines(plan operation.Plan, index, width int, view planView) []string 
 	pad := strings.Repeat(" ", prefixWidth)
 	lines := []string{prefix + titleStyle.Render(title) + tags}
 	if summary != "" {
-		for _, line := range wrapPlain(summary, max(width-prefixWidth, 8)) {
+		for _, line := range wrapLines(summary, max(width-prefixWidth, 8), 0) {
 			lines = append(lines, pad+style.Render(line))
 		}
 	}
@@ -577,17 +568,17 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 		lines = []string{fit(first, width, false), fit(strings.Join(chips, "   "), width, false)}
 	}
 	if !plan.Complete {
-		for _, part := range wrapPlain("This plan is incomplete and cannot be applied as shown.", width) {
+		for _, part := range wrapLines("This plan is incomplete and cannot be applied as shown.", width, 0) {
 			lines = append(lines, yellow.Render(part))
 		}
 	}
 	// What the checked steps need the password or Touch ID for follows the boxes, so
 	// unticking Homebrew in the live list drops the line.
 	if line := machine.AdminLine(plan); line != "" {
-		lines = append(lines, wrapPlain(line, width)...)
+		lines = append(lines, wrapLines(line, width, 0)...)
 	}
 	for _, warning := range plan.Warnings {
-		for i, part := range wrapPlain(warning, width-9) {
+		for i, part := range wrapLines(warning, width-9, 0) {
 			prefix := "         "
 			if i == 0 {
 				prefix = yellow.Render("Warning:") + " "
