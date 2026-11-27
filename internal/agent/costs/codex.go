@@ -1,10 +1,6 @@
 package costs
 
 import (
-	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,6 +8,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/jsonc"
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/pelletier/go-toml/v2"
 )
 
@@ -206,12 +204,8 @@ func codexHookHash(event string, group codexGroup, hook codexHook) string {
 		!slices.Contains([]string{"UserPromptSubmit", "Stop", "Interrupt"}, event) {
 		identity["matcher"] = *group.Matcher
 	}
-	var buf bytes.Buffer
-	encoder := json.NewEncoder(&buf)
-	encoder.SetEscapeHTML(false)
-	_ = encoder.Encode(identity)
-	sum := sha256.Sum256(bytes.TrimSuffix(buf.Bytes(), []byte("\n")))
-	return "sha256:" + hex.EncodeToString(sum[:])
+	encoded, _ := jsonc.Marshal(identity) // strings, numbers and bools always encode
+	return "sha256:" + operation.SHA256Hex(encoded)
 }
 
 // Hooks reports, for each of hooks, whether hooks.json runs it on its event

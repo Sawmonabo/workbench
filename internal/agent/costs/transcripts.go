@@ -4,14 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 // transcriptRooter is a source that says where its transcripts live, so a
@@ -204,8 +204,7 @@ func firstLineDigest(file *os.File) (string, error) {
 	} else if n < headBytes {
 		return "", nil
 	}
-	sum := sha256.Sum256(buf)
-	return hex.EncodeToString(sum[:]), nil
+	return operation.SHA256Hex(buf), nil
 }
 
 func codexWalk(root, ext string) ([]string, error) {

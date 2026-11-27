@@ -1,10 +1,10 @@
 package costs
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
 func codexEvent(ts string, payload json.RawMessage, state *codexState, file *FileState) []Usage {
@@ -87,9 +87,9 @@ func codexTokenCount(ts string, event codexTokenInfo, state *codexState, file *F
 	if !decode(event.Info.Last, &last) || (last.Input == 0 && last.Output == 0) {
 		return nil // a synthetic estimate after compaction
 	}
-	sum := sha256.Sum256([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
+	sum := operation.SHA256Hex([]byte(total + "\n" + canonicalJSON(event.Info.Last) + "\n" +
 		canonicalJSON(event.RateLimits)))
-	u := state.row(ts, "tc:"+hex.EncodeToString(sum[:]))
+	u := state.row(ts, "tc:"+sum)
 	if first && state.Copies == 1 && total != canonicalJSON(event.Info.Last) {
 		u.CopyOf = state.Fork + "@" + state.Spawn // the parent's, copied into the fork
 	}
