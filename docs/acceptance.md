@@ -1013,6 +1013,15 @@ synthetic answers.
     `integrity_check` returned ok. Meanwhile the ledger's folder grew to
     1,367,744,512 bytes, and the volume held at most 593 MB more than
     before, `VACUUM`'s temporary copy included.
+  - On 2026-11-27, at a terminal (a pseudo-terminal in a disposable home),
+    the open that upgraded a copy printed on stderr a header, a status line
+    naming each step (the conversion, the check of every row, the
+    compaction) and then `✓ Ledger upgraded` with its time, for `agent costs
+    status` and `agent costs rates`, and the same steps in the status line
+    of `agent costs ingest --worker`. `status --json`, `ingest --worker
+    --quiet`, `status` with stderr to a file and the worker a hook started
+    printed none of it, and `status` with stdout to a file wrote there the
+    same bytes as the build before.
   - 58 runs of `agent costs` (both tools; every `--by`; `--since` and
     `--until` cutting inside a millisecond; `--top`, `--sort`, `--all`,
     `--detail`, `--tokens`, `--no-rollup`, `--csv`, `--json`), `agent costs

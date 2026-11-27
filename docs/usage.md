@@ -185,7 +185,11 @@ built-in list); before there is a ledger it shows the last two, and
 `--refresh` downloads nothing. A ledger an earlier release wrote takes in the
 prices it kept in `claude/rates-official.json` and `codex/rates-official.json`
 beside it the first time it is opened, and the **Move Workbench's files** step
-then deletes those files.
+then deletes those files. That first open also upgrades such a ledger to the
+current version and compacts it, about half a minute for a large one: at a
+terminal, `agent costs`, `agent costs status` and `agent costs rates` show each
+step and then its outcome on stderr, and `agent costs ingest --worker` shows the
+steps in its own progress line.
 The account table names each row's email and plan only from what Claude Code
 and Codex wrote down; usage they never recorded shows `not recorded`, with a
 note saying since when each tool records it. A Claude Code row belongs to the
