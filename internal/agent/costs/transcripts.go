@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -40,14 +39,12 @@ func toolOfTranscript(home, path string) (Tool, bool) {
 	return Tool{}, false
 }
 
-// within reports whether path is inside root, comparing resolved symlinks too
-// (the path need not exist yet: a session's transcript is written after its
-// SessionStart hook fires).
+// within reports whether path is inside root and not root itself, comparing
+// resolved symlinks too (the path need not exist yet: a session's transcript
+// is written after its SessionStart hook fires).
 func within(root, path string) bool {
 	inside := func(root, path string) bool {
-		rel, err := filepath.Rel(root, path)
-		return err == nil && rel != "." && rel != ".." &&
-			!strings.HasPrefix(rel, ".."+string(filepath.Separator))
+		return filepath.Clean(root) != filepath.Clean(path) && operation.Within(root, path)
 	}
 	if inside(filepath.Clean(root), filepath.Clean(path)) {
 		return true
