@@ -176,7 +176,9 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 // Claude Code's first run rewrites the settings.json in its config folder
 // once, then writes its .claude.json. So firstRun is set only when that folder
 // is ~/.claude, whose settings.json chezmoi wrote earlier in the apply, and
-// the .claude.json [toolconfig.ClaudeJSON] names is not there yet.
+// the .claude.json [toolconfig.ClaudeJSON] names is not there yet. It is
+// ~/.claude when [toolconfig.ClaudeMove] finds no move: CLAUDE_CONFIG_DIR is
+// unset or names the same folder, through a link included.
 func ClaudeMCPCommands(
 	c operation.Context,
 	a Answers,
@@ -190,7 +192,7 @@ func ClaudeMCPCommands(
 		)
 	}
 	nodeBin = nvmDefaultBin(c.Home)
-	if filepath.Clean(toolconfig.ClaudeDir(c.Home)) == filepath.Join(c.Home, ".claude") {
+	if move, _ := toolconfig.ClaudeMove(c.Home); move.Source == "" {
 		_, statErr := os.Lstat(toolconfig.ClaudeJSON(c.Home))
 		firstRun = errors.Is(statErr, fs.ErrNotExist)
 	}
