@@ -1017,11 +1017,13 @@ synthetic answers.
     the open that upgraded a copy printed on stderr a header, a status line
     naming each step (the conversion, the check of every row, the
     compaction) and then `✓ Ledger upgraded` with its time, for `agent costs
-    status` and `agent costs rates`, and the same steps in the status line
-    of `agent costs ingest --worker`. `status --json`, `ingest --worker
-    --quiet`, `status` with stderr to a file and the worker a hook started
-    printed none of it, and `status` with stdout to a file wrote there the
-    same bytes as the build before.
+    status`, `agent costs rates` and `agent costs` before its view, and the
+    same steps in the status line of `agent costs ingest --worker`. On a copy
+    with one row the conversion refuses, the line ended as `✗ Ledger upgrade
+    failed` before the error, and the copy kept its version. `status
+    --json`, `ingest --worker --quiet`, `status` with stderr to a file and
+    the worker a hook started printed none of it, and `status` with stdout
+    to a file wrote there the same bytes as the build before.
   - 58 runs of `agent costs` (both tools; every `--by`; `--since` and
     `--until` cutting inside a millisecond; `--top`, `--sort`, `--all`,
     `--detail`, `--tokens`, `--no-rollup`, `--csv`, `--json`), `agent costs
