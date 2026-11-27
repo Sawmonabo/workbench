@@ -168,7 +168,7 @@ func moveAgentFolders(
 // lockToMove takes with take the import lock that an import working in the
 // old folders holds. ok is false when an import holds it, or when the old
 // state folder moved in between. A lock that cannot be taken is named from
-// the home folder in err (see [sqlitefile.FileError]).
+// the home folder in err (see [operation.FileError]).
 //
 // That lock is in the old state folder. With no folder there, no import of
 // the release before can work in the old data folder, since an import makes

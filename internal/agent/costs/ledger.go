@@ -257,7 +257,7 @@ func (l *Ledger) fileError(err error) error {
 
 // ledgerProblem is the error of the file at path that is not a ledger this
 // release can use, for reason. Its message names path first, from the home
-// folder, as every file error does (see [sqlitefile.FileError]): an
+// folder, as every file error does (see [operation.FileError]): an
 // [operation.Error] is shown by its message alone, so the path is in it.
 func ledgerProblem(code operation.Exit, path, reason string) error {
 	return operation.Fail(code, "ledger", operation.FileError(path, errors.New(reason)).Error())
