@@ -326,12 +326,13 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 	if err != nil {
 		return err
 	}
-	history, err := guard.OpenHistory(root, false)
-	if err != nil && guard.HistoryFolderMoved(root) {
-		if root, err = guard.HistoryRoot(); err != nil {
-			return err
-		}
+	var history *guard.History
+	root, found, err := inHistoryFolder(root, guard.HistoryRoot, func(root string) (err error) {
 		history, err = guard.OpenHistory(root, false)
+		return err
+	})
+	if !found {
+		return err
 	}
 	facts := guardHistoryFacts{
 		Path:        guard.HistoryFile(root),
@@ -403,12 +404,13 @@ func setGuardHistoryKeep(
 	if err != nil {
 		return err
 	}
-	history, err := guard.OpenHistory(root, true)
-	if err != nil && guard.HistoryFolderMoved(root) {
-		if root, err = guard.MakeHistoryRoot(); err != nil {
-			return err
-		}
+	var history *guard.History
+	root, found, err := inHistoryFolder(root, guard.MakeHistoryRoot, func(root string) (err error) {
 		history, err = guard.OpenHistory(root, true)
+		return err
+	})
+	if !found {
+		return err
 	}
 	if err != nil {
 		return guardHistoryUnreadable(err, root)
@@ -443,12 +445,10 @@ func setGuardHistoryKeep(
 		line += ", as before."
 	}
 	since := time.Now().Add(-keep)
-	_, err = guard.CutLogUnwatched(root, since)
-	if err != nil && guard.HistoryFolderMoved(root) {
-		if root, err = guard.HistoryRoot(); err == nil {
-			_, err = guard.CutLogUnwatched(root, since)
-		}
-	}
+	root, _, err = inHistoryFolder(root, guard.HistoryRoot, func(root string) error {
+		_, err := guard.CutLogUnwatched(root, since)
+		return err
+	})
 	if err != nil {
 		return operation.Fail(operation.ExitFailed, "guard-history",
 			strings.TrimSuffix(line, ".")+", but the guard log's older records cannot be "+
@@ -549,6 +549,25 @@ func parseKeep(text string) (time.Duration, error) {
 // that cannot be read, as the view says it (see guard.HistoryUnreadable). A
 // file that is not a guard history is invalid state; any other reason a
 // failure.
+// inHistoryFolder runs work in the guard folder root and, when it fails
+// because the folder moved meanwhile (see guard.HistoryFolderMoved), once
+// more where find (guard.HistoryRoot or guard.MakeHistoryRoot) says the
+// folder is now. It gives the folder work last ran in, or, with found false,
+// the folder find gave and its error when find failed.
+func inHistoryFolder(
+	root string,
+	find func() (string, error),
+	work func(root string) error,
+) (_ string, found bool, err error) {
+	if err = work(root); err == nil || !guard.HistoryFolderMoved(root) {
+		return root, true, err
+	}
+	if root, err = find(); err != nil {
+		return root, false, err
+	}
+	return root, true, work(root)
+}
+
 func guardHistoryUnreadable(err error, root string) error {
 	code := operation.ExitFailed
 	if errors.Is(err, guard.ErrHistoryUnusable) {
