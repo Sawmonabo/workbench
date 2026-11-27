@@ -37,7 +37,7 @@ const (
 
 // markAccountsUnresolved adds sessions to accountsUnresolved.
 func markAccountsUnresolved(ctx context.Context, tx *sql.Tx, keys ...string) error {
-	note, err := metaIn(ctx, tx, accountsUnresolved)
+	note, err := meta(ctx, tx, accountsUnresolved)
 	if err != nil || note == dirtyRootsAll {
 		return err
 	}
@@ -174,11 +174,11 @@ func sinceBound(cond, since string) (string, []any) {
 // resolution, and whether every row is due instead: no resolution has run on
 // the ledger, or the note lists too many sessions or cannot be read.
 func accountsDue(ctx context.Context, tx *sql.Tx) (dirty []string, full bool, err error) {
-	checked, err := metaIn(ctx, tx, accountsChecked)
+	checked, err := meta(ctx, tx, accountsChecked)
 	if err != nil {
 		return nil, false, err
 	}
-	note, err := metaIn(ctx, tx, accountsUnresolved)
+	note, err := meta(ctx, tx, accountsUnresolved)
 	if err != nil {
 		return nil, false, err
 	}

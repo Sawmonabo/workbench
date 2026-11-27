@@ -48,10 +48,8 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 		return false, err
 	}
 	defer func() { _ = tx.Rollback() }()
-	var version string
-	if err := tx.QueryRowContext(
-		ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
-	).Scan(&version); err != nil {
+	version, err := meta(ctx, tx, "schema_version")
+	if err != nil {
 		return false, err
 	}
 	var statements []string

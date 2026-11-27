@@ -140,17 +140,17 @@ func loadAccountBasis(
 		return basis, err
 	}
 	for tool := range basis.observed {
-		if basis.through[tool], err = metaIn(ctx, tx, accountsThrough+tool); err != nil {
+		if basis.through[tool], err = meta(ctx, tx, accountsThrough+tool); err != nil {
 			return basis, err
 		}
 	}
 	if basis.stretches, err = loadStretches(ctx, tx, basis); err != nil {
 		return basis, err
 	}
-	if basis.marked, err = metaIn(ctx, tx, accountsMarked); err != nil {
+	if basis.marked, err = meta(ctx, tx, accountsMarked); err != nil {
 		return basis, err
 	}
-	note, err := metaIn(ctx, tx, accountsOwned)
+	note, err := meta(ctx, tx, accountsOwned)
 	if err != nil {
 		return basis, err
 	}

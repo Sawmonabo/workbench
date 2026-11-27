@@ -33,7 +33,7 @@ func (t *Tx) AddMark(tool string, m AccountMark) error {
 	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return err
 	}
-	note, err := metaIn(t.ctx, t.tx, accountsMarked)
+	note, err := meta(t.ctx, t.tx, accountsMarked)
 	switch {
 	case err != nil:
 		return err

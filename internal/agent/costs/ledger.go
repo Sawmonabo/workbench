@@ -211,18 +211,15 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 	if !exists {
 		return l.fileError(l.create(ctx))
 	}
-	var tables int
-	if err := l.db.QueryRowContext(
-		ctx,
-		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
-	).Scan(&tables); err != nil {
+	made, err := hasMeta(ctx, l.db)
+	if err != nil {
 		return operation.FileError(l.Path, err)
 	}
-	if tables == 0 {
+	if !made {
 		return ledgerProblem(operation.ExitInvalid, l.Path,
 			"not a Workbench costs ledger; move it aside")
 	}
-	version, err := l.Meta("schema_version")
+	version, err := meta(ctx, l.db, "schema_version")
 	if err != nil {
 		return operation.FileError(l.Path, err)
 	}
@@ -279,6 +276,29 @@ type execer interface {
 // querier is the database or a transaction, to read from.
 type querier interface {
 	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// hasMeta reports whether the database has a meta table, which every ledger
+// has from its creation.
+func hasMeta(ctx context.Context, q querier) (bool, error) {
+	var tables int
+	err := q.QueryRowContext(
+		ctx,
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
+	).Scan(&tables)
+	return tables > 0, err
+}
+
+// meta is the stored note key, read from the database or in a transaction,
+// "" when absent.
+func meta(ctx context.Context, q querier, key string) (string, error) {
+	var value string
+	err := q.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", key).Scan(&value)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return value, err
 }
 
 func setMeta(ctx context.Context, x execer, key, value string) error {
@@ -292,14 +312,7 @@ func setMeta(ctx context.Context, x execer, key, value string) error {
 }
 
 // Meta is a stored note, "" when absent.
-func (l *Ledger) Meta(key string) (string, error) {
-	var value string
-	err := l.db.QueryRow("SELECT value FROM meta WHERE key = ?", key).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return value, err
-}
+func (l *Ledger) Meta(key string) (string, error) { return meta(context.Background(), l.db, key) }
 
 // SetMeta stores a note.
 func (l *Ledger) SetMeta(key, value string) error {
@@ -316,16 +329,6 @@ func (l *Ledger) Empty(tool string) (bool, error) {
 		return true, nil
 	}
 	return false, err
-}
-
-// metaIn is a stored note read inside a transaction, "" when absent.
-func metaIn(ctx context.Context, tx *sql.Tx, key string) (string, error) {
-	var value string
-	err := tx.QueryRowContext(ctx, "SELECT value FROM meta WHERE key = ?", key).Scan(&value)
-	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
-	}
-	return value, err
 }
 
 // jsonText is values as a JSON array, for json_each. A list of strings or

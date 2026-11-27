@@ -192,20 +192,15 @@ CREATE TABLE price_lists(
 // happens to share a table name.
 func (l *Ledger) create(ctx context.Context) error {
 	return sqlitefile.Transact(ctx, l.db, func(tx *sql.Tx) error {
-		var made int
-		if err := tx.QueryRowContext(
-			ctx,
-			"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'meta'",
-		).Scan(&made); err != nil {
+		made, err := hasMeta(ctx, tx)
+		if err != nil {
 			return err
 		}
-		if made > 0 {
+		if made {
 			// Another process created it while this one waited; it must be a
 			// ledger of this version, as prepare requires of an existing one.
-			var version string
-			if err := tx.QueryRowContext(
-				ctx, "SELECT value FROM meta WHERE key = 'schema_version'",
-			).Scan(&version); err != nil || version != schemaVersion {
+			if version, err := meta(ctx, tx, "schema_version"); err != nil ||
+				version != schemaVersion {
 				return ledgerProblem(operation.ExitInvalid, l.Path,
 					"a database appeared that is not a Workbench costs ledger of schema version "+
 						schemaVersion+"; move it aside")
