@@ -71,7 +71,7 @@ func costsStatus(info costs.StatusInfo, width int) string {
 		c := tool.Coverage
 		add("sign-in"+suffix, signedIn(tool.SignIn))
 		add("coverage"+suffix, fmt.Sprintf(
-			"%s → %s, %s responses", c.First, c.Last, commas(c.Responses),
+			"%s → %s, %s responses", c.First, c.Last, display.Number(c.Responses),
 		))
 		add("email evidence"+suffix, attribution(c.AccountEvidence))
 		add("plan evidence"+suffix, attribution(c.SubscriptionEvidence))
@@ -160,7 +160,7 @@ func attribution(e costs.Evidence) string {
 		{e.Unknown, "unknown"},
 	} {
 		if level.n > 0 {
-			parts = append(parts, commas(level.n)+" "+level.name)
+			parts = append(parts, display.Number(level.n)+" "+level.name)
 		}
 	}
 	if len(parts) == 0 {

@@ -154,9 +154,9 @@ func (m *guardView) countLine() string {
 // some: "2,832", "12 of 2,832".
 func countOf(shown, total int) string {
 	if shown == total {
-		return commas(int64(total))
+		return display.Number(int64(total))
 	}
-	return commas(int64(shown)) + " of " + commas(int64(total))
+	return display.Number(int64(shown)) + " of " + display.Number(int64(total))
 }
 
 // statusLines say why no watcher answers or, when shown commands are dry
@@ -295,7 +295,9 @@ func (m *guardView) keyLine() string {
 	}
 	hints, count := m.keyHints(), ""
 	if m.mode == listMode && len(m.rows) > 0 {
-		count = "  " + bold.Render(commas(int64(m.cursor+1))+"/"+commas(int64(len(m.rows))))
+		count = "  " + bold.Render(
+			display.Number(int64(m.cursor+1))+"/"+display.Number(int64(len(m.rows))),
+		)
 	}
 	line := func() string {
 		parts := make([]string, len(hints))

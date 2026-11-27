@@ -175,7 +175,7 @@ func (m *guardView) detailLines(width int) []string {
 		head = strings.Repeat(" ", detailIndent)
 	}
 	if hidden := len(command) - len(shown); hidden > 0 {
-		lines = m.more(lines, commandPart, "… "+commas(int64(hidden))+" more lines")
+		lines = m.more(lines, commandPart, "… "+display.Number(int64(hidden))+" more lines")
 	}
 	return m.processRows(lines, procs, width)
 }
@@ -372,11 +372,11 @@ func (p processList) count() string {
 	n := int64(p.n())
 	switch {
 	case p.peaks == nil:
-		return commas(n) + " running"
+		return display.Number(n) + " running"
 	case p.unlisted > 0:
-		return commas(n) + " of " + commas(n+int64(p.unlisted)) + " kept"
+		return display.Number(n) + " of " + display.Number(n+int64(p.unlisted)) + " kept"
 	}
-	return commas(n) + " in all"
+	return display.Number(n) + " in all"
 }
 
 // head is the column heads of the list.
@@ -429,7 +429,7 @@ func (m *guardView) processRows(lines []string, procs processList, width int) []
 		lines = append(lines, indent+procs.line(i))
 	}
 	if hidden := procs.n() - shown; hidden > 0 {
-		lines = m.more(lines, processesPart, "… "+commas(int64(hidden))+" more processes")
+		lines = m.more(lines, processesPart, "… "+display.Number(int64(hidden))+" more processes")
 	}
 	return lines
 }
@@ -530,7 +530,7 @@ func (m *guardView) split(height int) []string {
 		from := m.pane.YOffset() + 1
 		to := min(from+m.pane.Height()-1, total)
 		pane = append(pane, faint.Render(forTerm(fmt.Sprintf("lines %s to %s of %s",
-			commas(int64(from)), commas(int64(to)), commas(int64(total))))))
+			display.Number(int64(from)), display.Number(int64(to)), display.Number(int64(total))))))
 	}
 	bar := faint.Render(forTerm(" │ "))
 	out := make([]string, height)

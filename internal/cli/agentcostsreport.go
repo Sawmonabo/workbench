@@ -105,7 +105,7 @@ func costsPage(
 	// below is for, not everything the ledger holds (agent costs status shows that).
 	period := fmt.Sprintf(
 		"%s responses · %s → %s",
-		commas(report.Total.Calls),
+		display.Number(report.Total.Calls),
 		day(report.First),
 		day(report.Last),
 	)
@@ -153,7 +153,9 @@ func costsPage(
 			}
 			add(bold.Render(display.Path(block.Project.Name))+"  "+
 				costStyle.Render(money(block.Project))+"  "+
-				faint.Render(fmt.Sprintf("%s · %s calls", share, commas(block.Project.Calls))),
+				faint.Render(
+					fmt.Sprintf("%s · %s calls", share, display.Number(block.Project.Calls)),
+				),
 				"model", "", block.Models, nil, "")
 		}
 		add("", "model (all projects)", "model", report.Models, &total, label)
@@ -259,7 +261,7 @@ func focusBody(tool costs.Tool, focus costs.Focus, report costs.Statement, width
 			fmt.Sprintf("%.1f%% of the total", focus.Total.Cost/report.GrandTotal*100),
 		)
 	}
-	notes = append(notes, commas(focus.Total.Calls)+" calls")
+	notes = append(notes, display.Number(focus.Total.Calls)+" calls")
 	dated := slices.DeleteFunc(
 		slices.Clone(focus.Days),
 		func(d costs.Row) bool { return d.Name == "unknown" },
@@ -322,7 +324,7 @@ func sessionTable(tool costs.Tool, sessions []costs.Session, pal palette) tableS
 		}
 		spec.Rows = append(spec.Rows, []string{
 			faint.Render(id), started, faint.Render(length), rowName(tool, session.Model),
-			costStyle.Render(money(session.Row)), faint.Render(commas(session.Calls)),
+			costStyle.Render(money(session.Row)), faint.Render(display.Number(session.Calls)),
 		})
 	}
 	return spec
@@ -359,7 +361,7 @@ func human(n float64) string {
 		scale  float64
 	}{{"B", 1e9}, {"M", 1e6}, {"K", 1e3}} {
 		if n >= unit.scale {
-			return commasFloat(n/unit.scale, 1) + unit.suffix
+			return display.Decimal(n/unit.scale, 1) + unit.suffix
 		}
 	}
 	return strconv.FormatInt(int64(n), 10)
@@ -369,7 +371,7 @@ func human(n float64) string {
 // rounds its exact sum once.
 func money(row costs.Row) string {
 	cents := row.Cents()
-	return fmt.Sprintf("$%s.%02d", commas(cents/100), cents%100)
+	return fmt.Sprintf("$%s.%02d", display.Number(cents/100), cents%100)
 }
 
 // localTime is an ingest timestamp in the machine's zone: "Sep 30 9:00 PM".

@@ -118,7 +118,12 @@ func reportCells(r reportSpec, name string, row costs.Row, total bool) []string 
 	}
 	out := []string{name, cost}
 	if r.tokens {
-		out = append(out, commas(row.Calls), human(float64(row.Input)), human(float64(row.Output)))
+		out = append(
+			out,
+			display.Number(row.Calls),
+			human(float64(row.Input)),
+			human(float64(row.Output)),
+		)
 		switch len(r.cacheHeads) {
 		case 0: // a tool without cache-write columns
 		case 1:
@@ -135,7 +140,7 @@ func reportCells(r reportSpec, name string, row costs.Row, total bool) []string 
 		if v, ok := row.CachedShare(); ok {
 			cached = fmt.Sprintf("%.1f%%", v*100)
 		}
-		out = append(out, share, faint.Render(commas(row.Calls)),
+		out = append(out, share, faint.Render(display.Number(row.Calls)),
 			faint.Render(human(float64(row.Total()))), faint.Render(cached))
 	}
 	return out
@@ -270,7 +275,7 @@ func unrecordedNotes(tool costs.Tool, report costs.Statement) []string {
 				come = "response comes"
 			}
 			return fmt.Sprintf("%s %s from %s conversations that never named the %s",
-				commas(missing), come, tool.Title, part)
+				display.Number(missing), come, tool.Title, part)
 		}
 		return fmt.Sprintf("%s records the %s only since %s; earlier usage has no record of it",
 			tool.Title, part, localTime(at))

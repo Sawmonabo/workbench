@@ -525,22 +525,3 @@ func writeStyled(b *strings.Builder, width, indent int, text string, style lipgl
 		b.WriteString(line + "\n")
 	}
 }
-
-func commas(n int64) string { return commasFloat(float64(n), 0) }
-
-// commasFloat formats v to decimals places with thousands separators.
-func commasFloat(v float64, decimals int) string {
-	s := strconv.FormatFloat(v, 'f', decimals, 64)
-	sign := ""
-	if strings.HasPrefix(s, "-") {
-		sign, s = "-", s[1:]
-	}
-	whole, fraction, _ := strings.Cut(s, ".")
-	for i := len(whole) - 3; i > 0; i -= 3 {
-		whole = whole[:i] + "," + whole[i:]
-	}
-	if fraction != "" {
-		whole += "." + fraction
-	}
-	return sign + whole
-}

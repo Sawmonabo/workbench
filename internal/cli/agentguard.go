@@ -362,7 +362,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 		return nil
 	}
 	if held == "" {
-		held = commas(int64(facts.Commands)) + " kept · " + textSize(facts.Bytes)
+		held = display.Number(int64(facts.Commands)) + " kept · " + textSize(facts.Bytes)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
 		forTerm("Finished commands are kept "+guard.KeepText(time.Duration(facts.KeepSeconds)*
@@ -500,7 +500,7 @@ func deletedText(n int) string {
 	case 1:
 		return "1 older one was deleted"
 	}
-	return commas(int64(n)) + " older ones were deleted"
+	return display.Number(int64(n)) + " older ones were deleted"
 }
 
 // textSize is a size of text or of a file as the guard shows memory (see
@@ -509,7 +509,7 @@ func deletedText(n int) string {
 // ("37 KB", "46 KB", "3 MB").
 func textSize(bytes int64) string {
 	if kb := (max(bytes, 0) + 1023) / 1024; kb < 1024 {
-		return commas(kb) + " KB"
+		return display.Number(kb) + " KB"
 	}
 	return guard.Size(uint64(bytes))
 }
