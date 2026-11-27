@@ -376,8 +376,8 @@ func money(row costs.Row) string {
 
 // localTime is an ingest timestamp in the machine's zone: "Sep 30 9:00 PM".
 func localTime(stamp string) string {
-	when, err := time.Parse(time.RFC3339, stamp)
-	if err != nil {
+	when, ok := costs.ParseTime(stamp)
+	if !ok {
 		return stamp
 	}
 	return when.Local().Format(display.DayTime)
