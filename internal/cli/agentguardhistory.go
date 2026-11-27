@@ -3,8 +3,6 @@ package cli
 import (
 	"context"
 	"errors"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"time"
@@ -25,7 +23,7 @@ type heldRow struct {
 }
 
 // viewHistory is the history as the view holds it (design 7.3): the file it
-// has open, by its path and identity; the finished commands read from it,
+// has open, by its path; the finished commands read from it,
 // lowest seq first and by ID, the highest seq read and the file's lowest when
 // it was last read; the time kept, whether the ENDED cells hold a date and
 // on which day they were made; the widest cell of each column of the held
@@ -39,7 +37,6 @@ type heldRow struct {
 type viewHistory struct {
 	db           *guard.History
 	path         string
-	file         os.FileInfo
 	held         []*heldRow
 	byID         map[string]*heldRow
 	last, lowest int64
@@ -104,13 +101,12 @@ func findInput() textinput.Model {
 }
 
 // historyRead is what a read of the history starts from: the file the view
-// has open, by its path and identity, the highest seq it holds and the
+// has open, by its path, the highest seq it holds and the
 // file's lowest when last read, whether its ENDED cells hold dates and on
 // which day they were made, and the snapshots taken by then.
 type historyRead struct {
 	db     *guard.History
 	path   string
-	file   os.FileInfo
 	after  int64
 	lowest int64
 	dated  bool
@@ -119,7 +115,7 @@ type historyRead struct {
 }
 
 // historyMsg is a read's outcome: what it started from; the history open
-// now, nil for none, and its path and identity; whether that is a new handle
+// now, nil for none, and its path; whether that is a new handle
 // on the file open before, found at another path once the guard folder moved;
 // whether the rows held go (a file not read before, ENDED cells made anew, or
 // a file that cannot be used); the rows read, above the last held unless
@@ -132,7 +128,6 @@ type historyMsg struct {
 	from    historyRead
 	db      *guard.History
 	path    string
-	file    os.FileInfo
 	moved   bool
 	reset   bool
 	rows    []*heldRow
@@ -154,56 +149,25 @@ func (m *guardView) readHistory() tea.Cmd {
 	}
 	m.hist.reading, m.hist.again = true, false
 	from := historyRead{
-		db: m.hist.db, path: m.hist.path, file: m.hist.file, after: m.hist.last,
+		db: m.hist.db, path: m.hist.path, after: m.hist.last,
 		lowest: m.hist.lowest, dated: m.hist.dated, day: m.hist.day, snaps: m.snaps,
 	}
 	return func() tea.Msg { return from.read() }
 }
 
-// read reads the history where the guard folder is now. A missing file, or
-// one without a history yet, is an empty history (design rule 10). A file
-// other than the one open, by identity, is opened and read whole: the writer
-// moves a damaged history aside and starts a new one at the same path, whose
-// seqs start at 1 again, and a reader that kept the old file open would go on
-// reading the one set aside. The file's identity is taken before it is
-// opened, so a file replaced in between is opened again at the next read.
-// The file open, found at another path once the guard folder moved, is read
-// through a new handle at that path, from the last row held, so the rows held
-// and the find answer stay as for a file that did not move: a connection the
-// handle open makes from then on names the old path, where the file is no
-// more. A handle that cannot be opened there leaves the one open, read as it
-// is, and the next read tries again.
+// read reads the history the guard's handle follows (see
+// guard.FollowHistory). No history yet is an empty history (design rule 10).
+// Another file than the one open, or none, makes the rows held go; a new
+// handle on the file open, found at another path once the guard folder moved,
+// is read from the last row held, so the rows held and the find answer stay.
 func (r historyRead) read() historyMsg {
-	out := historyMsg{from: r, keep: guard.HistoryKeepDefault, db: r.db, path: r.path, file: r.file}
-	root, err := guard.HistoryRoot()
-	if err != nil {
-		out.err, out.reset, out.db = err, true, nil
+	out := historyMsg{from: r, keep: guard.HistoryKeepDefault}
+	found, err := guard.FollowHistory(r.db)
+	out.db, out.path, out.damaged = found.History, found.Path, found.Damaged
+	out.reset, out.moved = found.Other, found.Moved
+	if err != nil || out.db == nil {
+		out.err = err
 		return out
-	}
-	out.damaged = guard.HistoryDamagedCopies(root)
-	path := guard.HistoryFile(root)
-	file, err := os.Stat(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		out.reset, out.db, out.path, out.file = true, nil, path, nil
-		return out
-	case err != nil:
-		out.err, out.reset, out.db, out.path = err, true, nil, path
-		return out
-	case r.db == nil || !os.SameFile(file, r.file):
-		out.reset, out.path, out.file = true, path, file
-		out.db, err = guard.OpenHistory(root, false)
-		if errors.Is(err, fs.ErrNotExist) {
-			return out
-		}
-		if err != nil {
-			out.err = err
-			return out
-		}
-	case path != r.path:
-		if db, err := guard.OpenHistory(root, false); err == nil {
-			out.db, out.path, out.file, out.moved = db, path, file, true
-		}
 	}
 	if err := out.fill(r); err != nil {
 		out.err, out.rows = err, nil
@@ -271,7 +235,7 @@ func (m *guardView) tookHistory(msg historyMsg) tea.Cmd {
 		old := h.db
 		go func() { _ = old.Close() }()
 	}
-	h.db, h.path, h.file = msg.db, msg.path, msg.file
+	h.db, h.path = msg.db, msg.path
 	h.keep, h.dated, h.day, h.problem = msg.keep, msg.dated, msg.day, ""
 	h.damaged = msg.damaged
 	if msg.err != nil {
