@@ -10,7 +10,6 @@ import (
 	"maps"
 	"math"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -18,13 +17,17 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
+	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 const (
 	ratesMaxAge  = 7 * 24 * time.Hour // refetch the official card after this
 	ratesRetry   = 24 * time.Hour     // but never try more often than this
 	fetchTimeout = 5 * time.Second
+	pageLimit    = 16 << 20 // the largest price page read; a longer one fails
 )
 
 // sourceOrder ranks where a rate came from, for rates that are equally
@@ -181,16 +184,16 @@ func longestPrefix(model string, card RateCard, tiers bool) (Rate, bool) {
 
 // Rates returns the merged card: built-in, then calibration, then the official
 // price lists the ledger keeps. It opens the ledger as a report does (see
-// [Paths.Open]) but never makes one: without a ledger the card holds the
-// built-in and calibrated rows only, and refresh downloads nothing. With one,
-// refresh downloads every official list first and reports each outcome in
-// Notes.
-func Rates(ctx context.Context, refresh bool) (Card, error) {
+// [Paths.Open], which steps is as it takes) but never makes one (see
+// [Paths.OpenExisting]): without a ledger the card holds the built-in and
+// calibrated rows only, and refresh downloads nothing. With one, refresh
+// downloads every official list first and reports each outcome in Notes.
+func Rates(ctx context.Context, refresh bool, steps UpgradeSteps) (Card, error) {
 	paths, err := Locations()
 	if err != nil {
 		return Card{}, err
 	}
-	ledger, err := paths.OpenExisting(ctx)
+	ledger, err := paths.openAgain(ctx, false, steps)
 	if err != nil {
 		return Card{}, err
 	}
@@ -242,7 +245,7 @@ func loadCard(ctx context.Context, home string, ledger *Ledger) (Card, error) {
 		}
 		card.Official[tool.Name] = official.rates()
 		if official.FetchedAt > 0 {
-			card.Fetched[tool.Name] = time.Unix(int64(official.FetchedAt), 0)
+			card.Fetched[tool.Name] = fromEpoch(official.FetchedAt)
 		}
 		maps.Copy(card.Rows, card.Official[tool.Name])
 	}
@@ -316,10 +319,12 @@ func PriceLists(ledger string) []string {
 
 // fillPrices reads each tool's price list file beside the ledger at ledger
 // into prices and price_lists, in tx, the transaction of the ledger's upgrade.
-// A file that is missing, is not a plain file or does not parse fills nothing
-// for its tool, whose list the import then downloads. A list without one
-// complete row still fills its price_lists row, which keeps when the page was
-// last asked, so the import still asks at most once a day.
+// A file that is missing, is not a plain file (see
+// [operation.OpenRegularFile]) or does not parse fills nothing for its tool,
+// whose list the import then downloads. The read has no bound: the list was
+// written from a page of up to 16 MiB, into the ledger's private folder. A
+// list without one complete row still fills its price_lists row, which keeps
+// when the page was last asked, so the import still asks at most once a day.
 //
 // The ledger's folder moving under agent/ while it reads (see
 // [MoveAgentFolders]) leaves a file where the lists were, which would fill
@@ -330,11 +335,12 @@ func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
 		if tool.Source == nil {
 			continue
 		}
-		path := officialPath(ledger, tool)
-		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		opened, err := operation.OpenRegularFile(officialPath(ledger, tool))
+		if err != nil {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := io.ReadAll(opened)
+		_ = opened.Close()
 		if err != nil {
 			continue
 		}
@@ -397,7 +403,11 @@ func (l *Ledger) officialRates(ctx context.Context, tool string) (officialFile, 
 // transaction: its complete rows replace the tool's prices, and its times and
 // validators the tool's price_lists row.
 func (l *Ledger) replaceOfficial(ctx context.Context, tool string, file officialFile) error {
-	return l.transact(ctx, func(tx *sql.Tx) error { return storeOfficial(ctx, tx, tool, file) })
+	return sqlitefile.Transact(
+		ctx,
+		l.db,
+		func(tx *sql.Tx) error { return storeOfficial(ctx, tx, tool, file) },
+	)
 }
 
 // storeOfficial is [Ledger.replaceOfficial] in tx.
@@ -448,26 +458,41 @@ func (l *Ledger) recordAttempt(ctx context.Context, tool string, checked, fetche
 	return err
 }
 
+// epoch is t as the price lists store a time: seconds since the epoch.
 func epoch(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 
-// refreshOfficial is a conditional GET of the tool's pricing page, made with
-// no transaction open, and then one short transaction that stores the list it
+// fromEpoch is the time of seconds since the epoch, as epoch stores it.
+func fromEpoch(seconds float64) time.Time { return time.Unix(0, int64(seconds*1e9)) }
+
+// ratesLabel names tool's price list in the rates notes: "rates" for the
+// first tool, "rates <tool>" for every other.
+func ratesLabel(tool string) string {
+	if tool == firstTool {
+		return "rates"
+	}
+	return "rates " + tool
+}
+
+// cachedText is the rates note of a price list kept as it is, age old.
+func cachedText(label string, age time.Duration) string {
+	return label + ": cached (" + display.Duration(age) + " old)"
+}
+
+// refreshOfficial is a conditional GET of the tool's pricing page (see
+// [release.Get]), made with no transaction open, and then one short transaction that stores the list it
 // brought (see [Ledger.replaceOfficial]); it needs no import lock. It is best
 // effort: any failure, or a page that holds no price, keeps the tool's prices,
 // records the attempt time and returns a one-line reason. Without force a
 // fresh enough list is left alone.
 func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool) string {
-	label := "rates"
-	if tool.Name != firstTool {
-		label += " " + tool.Name
-	}
+	label := ratesLabel(tool.Name)
 	cached, err := ledger.officialRates(ctx, tool.Name)
 	if err != nil {
 		return fmt.Sprintf("%s: the official card can't be read (%v)", label, err)
 	}
-	age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
+	age := time.Since(fromEpoch(cached.FetchedAt))
 	if !force && len(cached.rates()) > 0 && age < ratesMaxAge {
-		return fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+		return cachedText(label, age)
 	}
 	checked, fetched := epoch(time.Now()), 0.0
 	keep := func(msg string) string {
@@ -478,33 +503,19 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	// The timeout bounds the download only; the ledger is written with ctx.
 	download, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(download, http.MethodGet, url, nil)
-	if err != nil {
-		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
-	}
-	req.Header.Set("User-Agent", "workbench-costs")
+	header := http.Header{"User-Agent": {"workbench-costs"}}
 	if cached.ETag != "" {
-		req.Header.Set("If-None-Match", cached.ETag)
+		header.Set("If-None-Match", cached.ETag)
 	}
 	if cached.LastModified != "" {
-		req.Header.Set("If-Modified-Since", cached.LastModified)
+		header.Set("If-Modified-Since", cached.LastModified)
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
-	}
-	defer func() { _ = resp.Body.Close() }()
+	body, response, err := release.Get(download, url, pageLimit, "", header)
 	switch {
-	case resp.StatusCode == http.StatusNotModified && len(cached.rates()) > 0:
+	case errors.Is(err, release.ErrNotModified) && len(cached.rates()) > 0:
 		fetched = epoch(time.Now())
 		return keep(label + ": official card not modified")
-	case resp.StatusCode != http.StatusOK:
-		return keep(
-			fmt.Sprintf("%s: fetch failed (HTTP %d); keeping cached card", label, resp.StatusCode),
-		)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
+	case err != nil:
 		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
 	}
 	parsed := tool.Source.ParsePricing(string(body))
@@ -514,8 +525,8 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	file := officialFile{
 		FetchedAt:    epoch(time.Now()),
 		CheckedAt:    epoch(time.Now()),
-		ETag:         resp.Header.Get("ETag"),
-		LastModified: resp.Header.Get("Last-Modified"),
+		ETag:         response.Get("ETag"),
+		LastModified: response.Get("Last-Modified"),
 		URL:          url,
 		Rates:        map[string]map[string]float64{},
 	}
@@ -542,10 +553,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
 		if tool.Source == nil || tool.Source.PricingURL() == "" {
 			continue
 		}
-		label := "rates"
-		if tool.Name != firstTool {
-			label += " " + tool.Name
-		}
+		label := ratesLabel(tool.Name)
 		unpriced, err := unpricedModels(ctx, ledger, card, tool)
 		if err != nil {
 			messages = append(
@@ -562,27 +570,18 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
 			)
 			continue
 		}
-		age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
-		sinceCheck := time.Since(time.Unix(0, int64(cached.CheckedAt*1e9)))
+		age := time.Since(fromEpoch(cached.FetchedAt))
+		sinceCheck := time.Since(fromEpoch(cached.CheckedAt))
 		var msg string
 		switch {
 		case len(cached.rates()) > 0 && age < ratesMaxAge && len(unpriced) == 0:
-			msg = fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+			msg = cachedText(label, age)
 		case sinceCheck >= ratesRetry:
 			msg = refreshOfficial(ctx, ledger, tool, true)
 		case len(cached.rates()) > 0:
-			msg = fmt.Sprintf(
-				"%s: cached (%.1fd old), retry in %.0fh",
-				label,
-				age.Hours()/24,
-				(ratesRetry - sinceCheck).Hours(),
-			)
+			msg = cachedText(label, age) + ", retry in " + display.Duration(ratesRetry-sinceCheck)
 		default:
-			msg = fmt.Sprintf(
-				"%s: no official card, retry in %.0fh",
-				label,
-				(ratesRetry - sinceCheck).Hours(),
-			)
+			msg = label + ": no official card, retry in " + display.Duration(ratesRetry-sinceCheck)
 		}
 		if len(unpriced) > 0 {
 			var names []string
@@ -621,11 +620,13 @@ func (c Card) unpriced(tool Tool, model string) Unpriced {
 // unpricedModels are the tool's ledger models no source prices. A read of the
 // ledger that fails is its error, never a shorter list.
 func unpricedModels(ctx context.Context, ledger *Ledger, card Card, tool Tool) ([]Unpriced, error) {
-	rows, err := ledger.db.QueryContext(
-		ctx,
-		"SELECT DISTINCT model FROM responses WHERE tool = ?",
-		tool.Name,
-	)
+	// The tool's rows through the index of (tool, root), which read faster
+	// than the whole table for one tool.
+	rows, err := ledger.db.QueryContext(ctx, `SELECT n.name FROM
+	  (SELECT DISTINCT model FROM responses
+	    WHERE tool = (SELECT id FROM names WHERE kind = ?1 AND name = ?2)) m
+	  JOIN names n ON n.id = m.model`,
+		nameTool, tool.Name)
 	if err != nil {
 		return nil, err
 	}

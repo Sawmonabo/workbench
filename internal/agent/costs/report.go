@@ -3,8 +3,10 @@ package costs
 import (
 	"cmp"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -203,16 +205,17 @@ type Evidence struct {
 	Unknown    int64 `json:"unknown"`
 }
 
-// add counts n rows at a level; any other level counts as unknown.
-func (e *Evidence) add(level string, n int64) {
-	switch level {
-	case EvidenceTranscript:
+// add counts n rows at a level by its rank (EvidenceRank); any other rank
+// counts as unknown.
+func (e *Evidence) add(rank int, n int64) {
+	switch rank {
+	case 4:
 		e.Transcript += n
-	case EvidenceSession:
+	case 3:
 		e.Session += n
-	case EvidenceObserved:
+	case 2:
 		e.Observed += n
-	case EvidenceInferred:
+	case 1:
 		e.Inferred += n
 	default:
 		e.Unknown += n
@@ -264,9 +267,9 @@ func (r Statement) Empty() bool { return r.RowCount == 0 }
 
 type group struct {
 	project, model, account, subscription, label, month string
-	// first and last are the earliest and latest dated response time (ledger
-	// layout) of the group, "" for none.
-	first, last string
+	// first and last are the earliest and latest dated response time (in
+	// milliseconds) of the group, noTime for none.
+	first, last int64
 	Row
 }
 
@@ -337,14 +340,14 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 // span is the first and last local day with a dated response among groups,
 // "none" for a bound no group has.
 func span(groups []group) (first, last string) {
-	var lo, hi string
+	lo, hi := int64(noTime), int64(noTime)
 	for _, g := range groups {
-		if g.first != "" && (lo == "" || g.first < lo) {
+		if g.first != noTime && (lo == noTime || g.first < lo) {
 			lo = g.first
 		}
 		hi = max(hi, g.last)
 	}
-	return LocalDate(lo), LocalDate(hi)
+	return localDate(lo), localDate(hi)
 }
 
 // rollup folds a session's working directory into its repository: the first
@@ -377,7 +380,7 @@ func ScopeRoots(home string, roots []string) []string {
 	all := projectRoots(home, roots)
 	var existing []string
 	for _, root := range all {
-		if info, err := os.Stat(root); err == nil && info.IsDir() {
+		if operation.LeadsToFolder(root) {
 			existing = append(existing, root)
 		}
 	}
@@ -416,23 +419,25 @@ func loadGroups(
 	}
 	type key struct{ project, model, account, subscription, month string }
 	byKey := map[key]*group{}
+	var days localDays
 	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {
 		tally.add(r)
 		if !inPeriod(r.ts) {
 			return
 		}
-		k := key{r.project, r.model, shownAccount(r), r.subscription, localMonth(r.ts)}
+		k := key{r.project, r.model, shownAccount(r), r.subscription, days.month(r.ts)}
 		g := byKey[k]
 		if g == nil {
 			g = &group{
 				project: k.project, model: k.model, account: k.account,
 				subscription: k.subscription, label: labels[k.subscription], month: k.month,
+				first: noTime, last: noTime,
 			}
 			byKey[k] = g
 		}
 		g.Calls++
 		g.add(r.Tokens)
-		if r.ts != "" && (g.first == "" || r.ts < g.first) {
+		if r.ts != noTime && (g.first == noTime || r.ts < g.first) {
 			g.first = r.ts
 		}
 		g.last = max(g.last, r.ts)
@@ -483,44 +488,121 @@ func loadGroups(
 // earlier build stamped with whoever was signed in when it read the row, which
 // says nothing of who made it.
 func shownAccount(r response) string {
-	if EvidenceRank(r.accountSource) == 0 {
+	if r.accountRank == 0 {
 		return "unknown"
 	}
 	return r.account
 }
 
-// response is one ledger row as a report reads it.
+// response is one ledger row as a report reads it: its names, its time in
+// milliseconds (noTime for none) and the rank of each field's evidence
+// (EvidenceRank).
 type response struct {
-	project, model, account, subscription, ts, session string
-	accountSource, subscriptionSource                  string
+	project, model, account, subscription, session string
+	ts                                             int64
+	accountRank, subscriptionRank                  int
 	Tokens
 }
 
 // scanResponses calls visit with every response of tool, in no set order. A
 // report reads them once and sums them here: grouping in SQL sorted every row
 // by its text columns and worked out each local month with the 'localtime'
-// modifier, which took several times as long as reading the rows.
+// modifier, which took several times as long as reading the rows. It loads
+// the names once and reads the table straight through: with "+tool" SQLite
+// leaves the index on (tool, root) alone, through which it would read the
+// rows one lookup at a time.
 func scanResponses(ctx context.Context, ledger *Ledger, tool string, visit func(response)) error {
+	names, err := loadNames(ctx, ledger.db)
+	if err != nil {
+		return err
+	}
+	toolID := int64(slices.Index(names, nameKey{nameTool, tool}))
+	if toolID < 1 {
+		return nil // no name, no rows
+	}
 	rows, err := ledger.db.QueryContext(ctx,
-		`SELECT project, model, account, subscription, ts, session_id, account_source,
+		`SELECT project, model, account, subscription, IFNULL(ts, ?2), session, account_source,
 		        subscription_source, input, output, cache_write_5m, cache_write_1h, cache_read
-		   FROM responses WHERE tool = ?`, tool)
+		   FROM responses WHERE +tool = ?1`, toolID, int64(noTime))
 	if err != nil {
 		return err
 	}
 	defer func() { _ = rows.Close() }()
+	var ids [5]int64
+	kinds := [...]int{nameProject, nameModel, nameAccount, nameSubscription, nameSession}
+	kindNames := [...]string{"project", "model", "account", "plan", "session"}
+	reloaded := false
 	for rows.Next() {
 		var r response
 		if err := rows.Scan(
-			&r.project, &r.model, &r.account, &r.subscription, &r.ts, &r.session,
-			&r.accountSource, &r.subscriptionSource,
+			&ids[0], &ids[1], &ids[2], &ids[3], &r.ts, &ids[4],
+			&r.accountRank, &r.subscriptionRank,
 			&r.Input, &r.Output, &r.CacheWrite5m, &r.CacheWrite1h, &r.CacheRead,
 		); err != nil {
 			return err
 		}
+		for i, to := range [...]*string{&r.project, &r.model, &r.account, &r.subscription, &r.session} {
+			if ids[i] >= int64(len(names)) && !reloaded {
+				// An import committed the name with the row after the names
+				// were read. Names are never deleted, so a read now holds it.
+				if names, err = loadNames(ctx, ledger.db); err != nil {
+					return err
+				}
+				reloaded = true
+			}
+			if ids[i] <= 0 || ids[i] >= int64(len(names)) || names[ids[i]].kind != kinds[i] {
+				return fmt.Errorf(
+					"a response names %d, which the ledger's names do not hold as its %s",
+					ids[i], kindNames[i],
+				)
+			}
+			*to = names[ids[i]].name
+		}
 		visit(r)
 	}
 	return rows.Err()
+}
+
+// localDays is localDay with the last day it worked out kept: a report reads
+// a tool's rows in the order they were stored, which is mostly the order of
+// their times, so most rows fall in the day of the row before them.
+type localDays struct {
+	from, to int64 // the day, from its first millisecond up to the next day's
+	day      string
+}
+
+func (d *localDays) of(ms int64) string {
+	if ms == noTime {
+		return ""
+	}
+	if ms >= d.from && ms < d.to && d.day != "" {
+		return d.day
+	}
+	at := time.UnixMilli(ms)
+	d.day = at.Format(time.DateOnly)
+	start := time.Date(at.Year(), at.Month(), at.Day(), 0, 0, 0, 0, at.Location())
+	d.from, d.to = start.UnixMilli(), start.AddDate(0, 0, 1).UnixMilli()
+	// Where the clock changes at midnight, time.Date may pick a time on the
+	// other side of the change, in the day before or the next. A bound
+	// outside the day then becomes the row's own millisecond, and the rows
+	// past it work their day out again. Between two milliseconds of a day
+	// every millisecond is of that day, since the days follow each other.
+	if d.from > ms || time.UnixMilli(d.from).Format(time.DateOnly) != d.day {
+		d.from = ms
+	}
+	if d.to <= ms || time.UnixMilli(d.to-1).Format(time.DateOnly) != d.day {
+		d.to = ms + 1
+	}
+	return d.day
+}
+
+// month is the local month (YYYY-MM) of a response time in milliseconds, ""
+// for noTime.
+func (d *localDays) month(ms int64) string {
+	if day := d.of(ms); day != "" {
+		return day[:7]
+	}
+	return ""
 }
 
 func (g group) key(by string) string {
@@ -584,32 +666,37 @@ func total(rows []Row) Row {
 }
 
 // coverageTally is what a pass over a tool's responses learns for its
-// Coverage.
+// Coverage. Its times are in milliseconds.
 type coverageTally struct {
-	responses   int64
-	first, last string // the earliest dated and the latest response time
+	responses int64
+	// first and last are the earliest dated and the latest response time;
+	// counted says that a row was counted, and they hold one.
+	first, last int64
+	counted     bool
 	// accountSince and subscriptionSince are the earliest time of a row whose
 	// transcript named that, once named is set.
-	accountSince, subscriptionSince string
+	accountSince, subscriptionSince int64
 	accountNamed, subscriptionNamed bool
 	account, subscription           Evidence
 }
 
 func (t *coverageTally) add(r response) {
+	if !t.counted {
+		t.first, t.last, t.counted = noTime, noTime, true
+	}
 	t.responses++
-	if r.ts != "" && (t.first == "" || r.ts < t.first) {
+	if r.ts != noTime && (t.first == noTime || r.ts < t.first) {
 		t.first = r.ts
 	}
 	t.last = max(t.last, r.ts)
-	if r.accountSource == EvidenceTranscript && (!t.accountNamed || r.ts < t.accountSince) {
+	if r.accountRank == 4 && (!t.accountNamed || r.ts < t.accountSince) {
 		t.accountSince, t.accountNamed = r.ts, true
 	}
-	if r.subscriptionSource == EvidenceTranscript &&
-		(!t.subscriptionNamed || r.ts < t.subscriptionSince) {
+	if r.subscriptionRank == 4 && (!t.subscriptionNamed || r.ts < t.subscriptionSince) {
 		t.subscriptionSince, t.subscriptionNamed = r.ts, true
 	}
-	t.account.add(r.accountSource, 1)
-	t.subscription.add(r.subscriptionSource, 1)
+	t.account.add(r.accountRank, 1)
+	t.subscription.add(r.subscriptionRank, 1)
 }
 
 // coverage reads every response of tool for its Coverage.
@@ -629,10 +716,21 @@ func coverage(
 // coverage is the tally's Coverage, with the ledger's last ingest and the
 // time the official rates were fetched.
 func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, error) {
+	first, last := int64(noTime), int64(noTime)
+	if t.counted {
+		first, last = t.first, t.last
+	}
+	since := func(ms int64, named bool) string {
+		if !named {
+			return ""
+		}
+		return storedTime(ms)
+	}
 	c := Coverage{
-		First: LocalDate(t.first), Last: LocalDate(t.last), Responses: t.responses,
+		First: localDate(first), Last: localDate(last), Responses: t.responses,
 		AccountEvidence: t.account, SubscriptionEvidence: t.subscription,
-		AccountNamedSince: t.accountSince, SubscriptionNamedSince: t.subscriptionSince,
+		AccountNamedSince:      since(t.accountSince, t.accountNamed),
+		SubscriptionNamedSince: since(t.subscriptionSince, t.subscriptionNamed),
 	}
 	c.LastIngestAt, c.LastIngestSummary, c.LastError = "never", "", ""
 	if v, err := ledger.Meta("last_ingest_at"); err == nil && v != "" {
@@ -735,7 +833,7 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 			}
 			var fetched time.Time
 			if official.FetchedAt > 0 {
-				fetched = time.Unix(int64(official.FetchedAt), 0)
+				fetched = fromEpoch(official.FetchedAt)
 			}
 			if status.Coverage, err = coverage(ctx, ledger, fetched, tool.Name); err != nil {
 				return info, err

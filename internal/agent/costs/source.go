@@ -4,6 +4,8 @@
 package costs
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -106,6 +108,26 @@ func EvidenceRank(evidence string) int {
 	default:
 		return 0
 	}
+}
+
+// evidenceWords are the evidence levels by rank (EvidenceRank).
+var evidenceWords = [...]string{
+	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+}
+
+// evidenceWord is the evidence level of a stored rank.
+func evidenceWord(rank int64) string {
+	if rank < 0 || rank >= int64(len(evidenceWords)) {
+		return EvidenceUnknown
+	}
+	return evidenceWords[rank]
+}
+
+// storedRank is EvidenceRank of a stored word, ok false for a word that is
+// no evidence level: EvidenceRank ranks it as unknown.
+func storedRank(word []byte) (rank int, ok bool) {
+	rank = EvidenceRank(string(word))
+	return rank, rank > 0 || string(word) == EvidenceUnknown
 }
 
 // The states of a hook Workbench installs in a tool, as Hooks reports them.
@@ -474,4 +496,21 @@ func Lookup(name string) (Tool, bool) {
 		}
 	}
 	return Tool{}, false
+}
+
+// decode fills v from raw, tolerating fields of the wrong type (they stay
+// zero) but not a syntax error.
+func decode(raw []byte, v any) bool {
+	err := json.Unmarshal(raw, v)
+	var wrong *json.UnmarshalTypeError
+	return err == nil || errors.As(err, &wrong)
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }

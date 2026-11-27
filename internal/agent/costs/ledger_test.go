@@ -46,8 +46,9 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	defer func() { _ = ledger.Close() }()
 	var rows, tools int
 	var version string
-	if err := ledger.db.QueryRow("SELECT COUNT(*), SUM(tool = 'claude') FROM responses").
-		Scan(&rows, &tools); err != nil {
+	if err := ledger.db.QueryRow(`SELECT COUNT(*),
+	    SUM(tool = (SELECT id FROM names WHERE kind = ? AND name = 'claude')) FROM responses`,
+		nameTool).Scan(&rows, &tools); err != nil {
 		t.Fatal(err)
 	}
 	if version, err = ledger.Meta("schema_version"); err != nil {
@@ -89,7 +90,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 	stored := func() (output, cacheRead int64) {
 		t.Helper()
 		if err := ledger.db.QueryRow(
-			"SELECT output, cache_read FROM responses WHERE request_id = 'req-1'",
+			"SELECT output, cache_read FROM responses WHERE request_id = ?", packID("req-1"),
 		).Scan(&output, &cacheRead); err != nil {
 			t.Fatal(err)
 		}
@@ -300,14 +301,7 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 		"moved-org":  {"d@example.test", EvidenceTranscript, "claude:disk", EvidenceTranscript},
 		"unseen-org": {"unknown", EvidenceUnknown, "claude:unseen", EvidenceTranscript},
 	} {
-		var got [4]string
-		if err := ledger.db.QueryRow(
-			`SELECT account, account_source, subscription, subscription_source
-			   FROM responses WHERE request_id = ?`, id,
-		).Scan(&got[0], &got[1], &got[2], &got[3]); err != nil {
-			t.Fatal(err)
-		}
-		if got != want {
+		if got := attributionOf(t, ledger, id); got != want {
 			t.Errorf("%s is attributed to %v, want %v", id, got, want)
 		}
 	}
@@ -397,14 +391,7 @@ func TestInferredAccountYieldsToEvidence(t *testing.T) {
 			t.Fatal(err)
 		}
 		for id, want := range want {
-			var got [4]string
-			if err := ledger.db.QueryRow(
-				`SELECT account, account_source, subscription, subscription_source
-				   FROM responses WHERE request_id = ?`, id,
-			).Scan(&got[0], &got[1], &got[2], &got[3]); err != nil {
-				t.Fatal(err)
-			}
-			if got != want {
+			if got := attributionOf(t, ledger, id); got != want {
 				t.Errorf("%s is attributed to %v, want %v", id, got, want)
 			}
 		}
@@ -453,11 +440,11 @@ func upgradeToSix(t *testing.T, valid, other, otherList string) {
 		`INSERT INTO responses (request_id, ts, model, project, session_id, account,
 		   account_source, input, output, cache_write_5m, cache_write_1h, cache_read, tool)
 		 VALUES
-		   ('req-1', '2026-11-01T10:00:00Z', 'claude-opus-5-5', '/w/a', 's1', 'a@example.test',
+		   ('req-1', '2026-11-01T10:00:00.000Z', 'claude-opus-5-5', '/w/a', 's1', 'a@example.test',
 		    'transcript', 1000, 2000, 3000, 4000, 50000, 'claude'),
-		   ('req-2', '2026-11-02T10:00:00Z', 'claude-opus-5-5', '/w/b', 's2', 'a@example.test',
+		   ('req-2', '2026-11-02T10:00:00.000Z', 'claude-opus-5-5', '/w/b', 's2', 'a@example.test',
 		    'transcript', 7, 11, 13, 17, 19, 'claude'),
-		   ('codex:c-1', '2026-11-03T10:00:00Z', 'gpt-5.5', '/w/c', 'c1', 'b@example.test',
+		   ('codex:c-1', '2026-11-03T10:00:00.000Z', 'gpt-5.5', '/w/c', 'c1', 'b@example.test',
 		    'transcript', 3000, 5000, 0, 0, 70000, 'codex')`,
 		`INSERT INTO files VALUES ('/w/t.jsonl', 4096, 4096, 1, '2026-11-01T10:00:00+00:00', '', 'h')`,
 		`INSERT INTO subscriptions VALUES ('claude:personal', 'Max')`,
@@ -713,6 +700,9 @@ func ledgerRows(t *testing.T, path string) map[string][]string {
 			if err := rows.Scan(pointers...); err != nil {
 				t.Fatal(err)
 			}
+			for i, column := range columns {
+				values[i] = textValue(t, column, values[i])
+			}
 			out = append(out, strings.TrimSuffix(fmt.Sprintln(values...), "\n"))
 		}
 		if err := rows.Err(); err != nil {
@@ -722,16 +712,75 @@ func ledgerRows(t *testing.T, path string) map[string][]string {
 		return out
 	}
 	tables := map[string][]string{}
+	names := slices.Contains(read("SELECT name FROM sqlite_master WHERE type = 'table'"), "names")
 	for _, table := range read("SELECT name FROM sqlite_master WHERE type = 'table'") {
 		query := "SELECT * FROM " + table
-		if table == "responses" {
+		switch {
+		case table == "responses" && names:
+			query = `SELECT r.request_id, m.name, t.name, input, output, cache_write_5m,
+			                cache_write_1h, cache_read, ts, p.name, s.name, a.name, account_source,
+			                b.name, subscription_source, o.name
+			           FROM responses r JOIN names t ON t.id = r.tool JOIN names m ON m.id = r.model
+			           JOIN names p ON p.id = r.project JOIN names s ON s.id = r.session
+			           JOIN names o ON o.id = r.root JOIN names a ON a.id = r.account
+			           JOIN names b ON b.id = r.subscription`
+		case table == "responses":
 			query = `SELECT request_id, model, tool, input, output, cache_write_5m, cache_write_1h,
 			                cache_read, ts, project, session_id, account, account_source,
 			                subscription, subscription_source, root FROM responses`
+		case table == "tier_pending" && names:
+			query = `SELECT p.request_id, n.name FROM tier_pending p JOIN names n ON n.id = p.root`
 		}
 		tables[table] = read(query)
 	}
 	return tables
+}
+
+// textValue is a value of a version 7 ledger's column as an earlier version
+// stored it: a packed response id as its text, a response time in timeLayout
+// ("" for none), an evidence rank as its word.
+func textValue(t *testing.T, column string, value any) any {
+	t.Helper()
+	switch v := value.(type) {
+	case []byte:
+		if column != "request_id" {
+			return v
+		}
+		id, err := unpackID(v)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return id
+	case int64:
+		switch column {
+		case "ts":
+			return storedTime(v)
+		case "account_source", "subscription_source":
+			return evidenceWord(v)
+		}
+	case nil:
+		if column == "ts" {
+			return ""
+		}
+	}
+	return value
+}
+
+// attributionOf is the account, its evidence, the plan and its evidence of
+// the response id.
+func attributionOf(t *testing.T, ledger *Ledger, id string) [4]string {
+	t.Helper()
+	var got [4]string
+	var accountRank, subscriptionRank int64
+	if err := ledger.db.QueryRow(
+		`SELECT a.name, r.account_source, s.name, r.subscription_source FROM responses r
+		   JOIN names a ON a.id = r.account JOIN names s ON s.id = r.subscription
+		  WHERE r.request_id = ?`, packID(id),
+	).Scan(&got[0], &accountRank, &got[2], &subscriptionRank); err != nil {
+		t.Fatal(err)
+	}
+	got[1], got[3] = evidenceWord(accountRank), evidenceWord(subscriptionRank)
+	return got
 }
 
 // oldLedger writes a ledger of an earlier schema with statements and returns

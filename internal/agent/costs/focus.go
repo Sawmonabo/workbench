@@ -29,7 +29,8 @@ type Session struct {
 }
 
 type focusGroup struct {
-	project, model, day, session, first, last string
+	project, model, day, session string
+	first, last                  int64 // milliseconds, noTime for none
 	Row
 }
 
@@ -50,11 +51,12 @@ func FocusOn(
 	inPeriod := periodFilter(opts.Since, opts.Until)
 	type key struct{ project, model, day, session string }
 	byKey := map[key]*focusGroup{}
+	var days localDays
 	err = scanResponses(ctx, ledger, opts.Tool, func(r response) {
 		if !inPeriod(r.ts) || (kind == "model" && r.model != name) {
 			return
 		}
-		k := key{r.project, r.model, localDay(r.ts), r.session}
+		k := key{r.project, r.model, days.of(r.ts), r.session}
 		g := byKey[k]
 		if g == nil {
 			g = &focusGroup{
@@ -167,11 +169,11 @@ func sessions(groups []focusGroup) []Session {
 			modelCost[g.session] = map[string]int64{}
 			order = append(order, g.session)
 		}
-		if start, err := time.Parse(time.RFC3339, g.first); err == nil &&
+		if start := responseAt(g.first); !start.IsZero() &&
 			(s.Start.IsZero() || start.Before(s.Start)) {
 			s.Start = start
 		}
-		if end, err := time.Parse(time.RFC3339, g.last); err == nil && end.After(s.End) {
+		if end := responseAt(g.last); end.After(s.End) {
 			s.End = end
 		}
 		s.Calls += g.Calls
