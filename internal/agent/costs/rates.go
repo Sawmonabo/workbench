@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"math"
 	"net/http"
-	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -319,8 +319,10 @@ func PriceLists(ledger string) []string {
 
 // fillPrices reads each tool's price list file beside the ledger at ledger
 // into prices and price_lists, in tx, the transaction of the ledger's upgrade.
-// A file that is missing, is not a plain file or does not parse fills nothing
-// for its tool, whose list the import then downloads. A list without one
+// A file that is missing, is not a plain file (see
+// [operation.OpenRegularFile]) or does not parse fills nothing for its tool,
+// whose list the import then downloads. The read has no bound: the list was
+// written from a page of up to 16 MiB, into the ledger's private folder. A list without one
 // complete row still fills its price_lists row, which keeps when the page was
 // last asked, so the import still asks at most once a day.
 //
@@ -333,11 +335,12 @@ func fillPrices(ctx context.Context, tx *sql.Tx, ledger string) error {
 		if tool.Source == nil {
 			continue
 		}
-		path := officialPath(ledger, tool)
-		if info, err := os.Lstat(path); err != nil || !info.Mode().IsRegular() {
+		opened, err := operation.OpenRegularFile(officialPath(ledger, tool))
+		if err != nil {
 			continue
 		}
-		data, err := os.ReadFile(path)
+		data, err := io.ReadAll(opened)
+		_ = opened.Close()
 		if err != nil {
 			continue
 		}
