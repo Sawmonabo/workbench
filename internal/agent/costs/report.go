@@ -833,7 +833,7 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 			}
 			var fetched time.Time
 			if official.FetchedAt > 0 {
-				fetched = time.Unix(int64(official.FetchedAt), 0)
+				fetched = fromEpoch(official.FetchedAt)
 			}
 			if status.Coverage, err = coverage(ctx, ledger, fetched, tool.Name); err != nil {
 				return info, err

@@ -243,7 +243,7 @@ func loadCard(ctx context.Context, home string, ledger *Ledger) (Card, error) {
 		}
 		card.Official[tool.Name] = official.rates()
 		if official.FetchedAt > 0 {
-			card.Fetched[tool.Name] = time.Unix(int64(official.FetchedAt), 0)
+			card.Fetched[tool.Name] = fromEpoch(official.FetchedAt)
 		}
 		maps.Copy(card.Rows, card.Official[tool.Name])
 	}
@@ -453,7 +453,25 @@ func (l *Ledger) recordAttempt(ctx context.Context, tool string, checked, fetche
 	return err
 }
 
+// epoch is t as the price lists store a time: seconds since the epoch.
 func epoch(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
+
+// fromEpoch is the time of seconds since the epoch, as epoch stores it.
+func fromEpoch(seconds float64) time.Time { return time.Unix(0, int64(seconds*1e9)) }
+
+// ratesLabel names tool's price list in the rates notes: "rates" for the
+// first tool, "rates <tool>" for every other.
+func ratesLabel(tool string) string {
+	if tool == firstTool {
+		return "rates"
+	}
+	return "rates " + tool
+}
+
+// cachedText is the rates note of a price list kept as it is, age old.
+func cachedText(label string, age time.Duration) string {
+	return fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+}
 
 // refreshOfficial is a conditional GET of the tool's pricing page, made with
 // no transaction open, and then one short transaction that stores the list it
@@ -462,17 +480,14 @@ func epoch(t time.Time) float64 { return float64(t.UnixNano()) / 1e9 }
 // records the attempt time and returns a one-line reason. Without force a
 // fresh enough list is left alone.
 func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool) string {
-	label := "rates"
-	if tool.Name != firstTool {
-		label += " " + tool.Name
-	}
+	label := ratesLabel(tool.Name)
 	cached, err := ledger.officialRates(ctx, tool.Name)
 	if err != nil {
 		return fmt.Sprintf("%s: the official card can't be read (%v)", label, err)
 	}
-	age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
+	age := time.Since(fromEpoch(cached.FetchedAt))
 	if !force && len(cached.rates()) > 0 && age < ratesMaxAge {
-		return fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+		return cachedText(label, age)
 	}
 	checked, fetched := epoch(time.Now()), 0.0
 	keep := func(msg string) string {
@@ -547,10 +562,7 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
 		if tool.Source == nil || tool.Source.PricingURL() == "" {
 			continue
 		}
-		label := "rates"
-		if tool.Name != firstTool {
-			label += " " + tool.Name
-		}
+		label := ratesLabel(tool.Name)
 		unpriced, err := unpricedModels(ctx, ledger, card, tool)
 		if err != nil {
 			messages = append(
@@ -567,21 +579,17 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
 			)
 			continue
 		}
-		age := time.Since(time.Unix(0, int64(cached.FetchedAt*1e9)))
-		sinceCheck := time.Since(time.Unix(0, int64(cached.CheckedAt*1e9)))
+		age := time.Since(fromEpoch(cached.FetchedAt))
+		sinceCheck := time.Since(fromEpoch(cached.CheckedAt))
 		var msg string
 		switch {
 		case len(cached.rates()) > 0 && age < ratesMaxAge && len(unpriced) == 0:
-			msg = fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+			msg = cachedText(label, age)
 		case sinceCheck >= ratesRetry:
 			msg = refreshOfficial(ctx, ledger, tool, true)
 		case len(cached.rates()) > 0:
-			msg = fmt.Sprintf(
-				"%s: cached (%.1fd old), retry in %.0fh",
-				label,
-				age.Hours()/24,
-				(ratesRetry - sinceCheck).Hours(),
-			)
+			msg = fmt.Sprintf("%s, retry in %.0fh", cachedText(label, age),
+				(ratesRetry - sinceCheck).Hours())
 		default:
 			msg = fmt.Sprintf(
 				"%s: no official card, retry in %.0fh",
