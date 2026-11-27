@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"fmt"
 	"os"
 	"time"
 
@@ -185,7 +186,10 @@ const (
 )
 
 // The two stops the menu offers, polite first, as the guard's own stops go.
-var stopChoices = []string{"Stop (polite, force-killed after 5 s)", "Force kill now"}
+var stopChoices = []string{
+	fmt.Sprintf("Stop (polite, force-killed after %d s)", guard.KillAfter/time.Second),
+	"Force kill now",
+}
 
 // nextTick waits a second for the next tickMsg.
 func nextTick() tea.Cmd {
