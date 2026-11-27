@@ -184,7 +184,7 @@ anything else fails to compile, which replaces the run-time refusal in
 | `HasCasks` | Homebrew casks and Mac apps exist | the `darwin` tests in `machine/updates.go` and `agents.go` |
 | `ToolFolders(home, nvm)` | the folders searched for an agent's launcher, in order, with nvm's default Node in its place | the two branches in `machine.findAgent` |
 | `VSCodeUserFolder(home)` | VS Code's user settings folder | the branch in `machine` doctor |
-| `ClaudeManagedFolder` | Claude Code's managed settings folder | the branch in `toolconfig.ClaudeManagedSettings` |
+| `ClaudeManagedFolder` | Claude Code's managed settings folder | the branch in `toolconfig.claudeManagedSettings` |
 | `GroupFromFolder` | new files take their folder's group | the `darwin` test in `operation.inheritedGroup` |
 | `TouchIDPossible` | Touch ID for sudo can exist | the test in `operation.TouchIDForSudo` |
 | `AssetTriple` | the `apple-darwin` or `unknown-linux-gnu` asset name part | the map in `machine/setup.go` |

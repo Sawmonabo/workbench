@@ -1,7 +1,6 @@
 package toolconfig
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 )
@@ -19,7 +18,9 @@ func ClaudeDir(home string) string {
 // "" when nothing does and the folder is ~/.claude. Claude Code takes the
 // variable from its environment, its user settings or its managed settings;
 // a settings file's env replaces the environment's value, managed settings
-// override the user's, and project and local settings cannot set it. A
+// override the user's, and project and local settings cannot set it. The
+// user settings that can set it are those in the folder the environment
+// names, read with the managed settings as claudeSettings reads them. A
 // settings file's value is copied as written, so it must be an absolute path
 // (https://code.claude.com/docs/en/env-vars); one that is not depends on the
 // folder Claude Code starts in, so it is left out and returned in relative.
@@ -28,22 +29,16 @@ func claudeConfigDir(home string) (dir, source string, relative []RelativeSettin
 	if env := os.Getenv("CLAUDE_CONFIG_DIR"); env != "" {
 		dir, source = env, "the environment"
 	}
-	for _, path := range append(
-		[]string{filepath.Join(dir, "settings.json")},
-		ClaudeManagedSettings()...,
-	) {
-		var settings struct {
-			Env struct {
-				Dir string `json:"CLAUDE_CONFIG_DIR"`
-			} `json:"env"`
-		}
-		raw, err := os.ReadFile(path)
+	for _, settings := range claudeSettings(dir) {
 		switch {
-		case err != nil, json.Unmarshal(raw, &settings) != nil, settings.Env.Dir == "":
-		case !filepath.IsAbs(settings.Env.Dir):
-			relative = append(relative, RelativeSetting{File: path, Value: settings.Env.Dir})
+		case settings.ConfigDir == "":
+		case !filepath.IsAbs(settings.ConfigDir):
+			relative = append(
+				relative,
+				RelativeSetting{File: settings.Path, Value: settings.ConfigDir},
+			)
 		default:
-			dir, source = settings.Env.Dir, path
+			dir, source = settings.ConfigDir, settings.Path
 		}
 	}
 	return dir, source, relative

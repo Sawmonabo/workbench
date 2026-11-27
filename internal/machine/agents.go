@@ -499,35 +499,23 @@ func nvmDefaultBin(home string) string {
 
 // claudeUpdates returns the release channel Claude Code's own updates follow,
 // "stable" or "latest", and the minimumVersion below which its updates and
-// claude install install nothing, or "". The channel comes from the user's
-// settings (in CLAUDE_CONFIG_DIR when that is set), overridden by the
-// machine's managed settings files (toolconfig.ClaudeManagedSettings), the way
-// Claude Code merges them. The floor is the highest any of them sets, since a
-// managed minimum is one the user's settings cannot lower
-// (https://code.claude.com/docs/en/setup#pin-a-minimum-version). Project and
-// local settings depend on the folder Claude Code starts in and are not read.
-// A channel unset or anything else means latest, Claude Code's default.
+// claude install install nothing, or "". Both come from Claude Code's
+// settings files in the order it merges them, the user's settings (in
+// CLAUDE_CONFIG_DIR when that is set) overridden by the machine's managed
+// settings files (toolconfig.ClaudeSettings): the channel from the last one
+// that names it, and the floor the highest any of them sets, since a managed
+// minimum is one the user's settings cannot lower
+// (https://code.claude.com/docs/en/setup#pin-a-minimum-version). A channel
+// unset or other than stable means latest, Claude Code's default.
 func claudeUpdates(home string) (channel, minimum string) {
-	read := func(path string) {
-		var settings struct {
-			Channel *string `json:"autoUpdatesChannel"`
-			Minimum *string `json:"minimumVersion"`
+	for _, settings := range toolconfig.ClaudeSettings(home) {
+		if settings.Channel != "" {
+			channel = settings.Channel
 		}
-		data, err := os.ReadFile(path)
-		if err != nil || json.Unmarshal(data, &settings) != nil {
-			return
+		if ValidVersion(settings.Minimum) &&
+			(minimum == "" || newerVersion(settings.Minimum, minimum)) {
+			minimum = settings.Minimum
 		}
-		if settings.Channel != nil {
-			channel = *settings.Channel
-		}
-		if settings.Minimum != nil && ValidVersion(*settings.Minimum) &&
-			(minimum == "" || newerVersion(*settings.Minimum, minimum)) {
-			minimum = *settings.Minimum
-		}
-	}
-	read(filepath.Join(toolconfig.ClaudeDir(home), "settings.json"))
-	for _, path := range toolconfig.ClaudeManagedSettings() {
-		read(path)
 	}
 	if channel != "stable" {
 		channel = "latest"

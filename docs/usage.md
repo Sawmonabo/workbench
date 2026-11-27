@@ -679,8 +679,9 @@ and the tool then reads none of what Workbench installs. Workbench leaves that
 folder alone, as installing there would pick one of your accounts for you.
 When the variable points elsewhere, set in Workbench's environment or, for
 `CLAUDE_CONFIG_DIR`, in the `env` of Claude Code's user or managed settings
-files (where Claude Code also takes it from), the `apply` plan warns, `doctor`
-reports `claude-config-dir` or `codex-home` as a conflict, and `agent costs status`
+files (where Claude Code also takes it from; a file Claude Code skips for an
+error, such as one that is not JSON, sets nothing), the `apply` plan warns,
+`doctor` reports `claude-config-dir` or `codex-home` as a conflict, and `agent costs status`
 checks the hooks in that folder and adds a `config` line, each naming the
 variable, where it is set and how to undo it. A session started with the variable only
 in that session's environment, such as through the alias, is invisible to
@@ -869,7 +870,10 @@ updater follows, looked up while planning: Codex's latest channel, and for
 Claude Code the `autoUpdatesChannel` in its user settings (in
 `CLAUDE_CONFIG_DIR` when that is set; `stable` or `latest`) or its managed
 settings files, which override yours. Project settings are not read, as they
-depend on the folder Claude Code starts in. Approving it runs that installer:
+depend on the folder Claude Code starts in. A settings file Claude Code skips
+for an error counts for nothing here either: one that is not JSON, or whose
+`env`, `autoUpdatesChannel` or `minimumVersion` holds a value Claude Code
+refuses, `null` included. Approving it runs that installer:
 `npm install -g @openai/codex@VERSION` in the nvm Node it is in, OpenAI's
 standalone installer, or `claude install VERSION`, which leaves Claude Code's
 channel as it is. A copy as new as the target or newer is left alone; a
