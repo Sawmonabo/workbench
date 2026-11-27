@@ -490,7 +490,7 @@ holds the lock, rate card age, and whether both hooks are present in the live
 
 ## 9. Verification
 
-`internal/costs/ledger_test.go` guards a resumed session's smaller copy lowering
+`internal/agent/costs/ledger_test.go` guards a resumed session's smaller copy lowering
 stored usage, the version 1 and 2 upgrades dropping rows, and a weaker copy
 overwriting a stronger account attribution; `codex_test.go` guards a fork's copy
 being counted twice or dropped. Everything else is observed checks before
@@ -609,17 +609,38 @@ from one leaves that page printed.
 ### Package shape
 
 ```
-internal/costs/
-  source.go   Source interface, Usage row, the source list
-  claude.go   Claude Code: transcripts, record parsing, advisor rows, account, prices
-  ledger.go   SQLite ledger: open, schema check, max-wins upsert, files, meta
-  ingest.go   worker over every source: offsets, lock, log, rate refresh
-  rates.go    card resolution: the most specific prefix, then official, calibrated, built-in; the official prices the ledger keeps
-  report.go   groups, rollup, scope, totals; returns rows and prints nothing
+internal/agent/costs/
+  source.go          Source interface, Usage row, the source list
+  claude.go, claudeparse.go, claudeaccounts.go, claudeprices.go
+                     Claude Code: transcripts, record parsing, the signed-in account, prices
+  codex.go, codexparse.go, codexevents.go, codexaccounts.go, codexprices.go
+                     Codex: rollouts, record parsing, token events, the sign-in, prices
+  transcripts.go     the transcript walk and the bounded line reader both sources share
+  ledger.go          SQLite ledger: paths and open
+  schema.go, names.go, storedid.go, storedtime.go
+                     version 7 schema, the names table, stored IDs and times
+  upgrade.go, slim.go
+                     the in-place upgrade of an earlier version, and its version 6 to 7 step
+  transaction.go, responses.go, positions.go, threads.go
+                     writes: transactions, the max-wins upsert, file offsets, thread parents
+  accounts.go, accountresolution.go, signins.go, infer.go, sessionplans.go, tiers.go
+                     account attribution and its fix-up, subscriptions, plans, price tiers
+  ingest.go          worker over every source: offsets, lock, log, rate refresh
+  rates.go, pricepage.go, canonicaljson.go
+                     card resolution: the most specific prefix, then official, calibrated,
+                     built-in; the price pages; the official prices the ledger keeps
+  report.go, focus.go
+                     groups, rollup, scope, totals, a project's or model's page; returns rows
+                     and prints nothing
+  move.go, ledgermove.go, oldpaths.go, oldfolders.go
+                     the costs folders where they stand and their move under agent/
 internal/cli/
-  costs.go      the four commands and their flags; the plain report
-  costsview.go  the tabbed terminal view
-  table.go      terminal-width tables, shared with the apply checklist
+  agentcosts.go         the commands and their flags
+  agentcostsreport.go, agentcoststable.go, agentcostsstatus.go, agentcostsrates.go
+                        the plain report, its tables, status and the rate card
+  agentcostsview.go     the tabbed terminal view
+  agentcostsupgrade.go  the line an upgrading open shows at a terminal
+  table.go              terminal-width tables, shared with the apply checklist
 ```
 
 ```go
