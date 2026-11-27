@@ -71,16 +71,10 @@ func setUp(
 	if err != nil {
 		return c, err
 	}
-	tools := map[string]string{
-		"private-chezmoi": "chezmoi",
-		"private-uv":      "uv",
-		"private-python3": "Python",
-		"private-tomlkit": "TOML Kit",
-	}
 	var installed []string
 	for _, effect := range setup.Effects {
-		if name, ok := tools[effect.Name]; ok {
-			installed = append(installed, name)
+		if name, ok := machine.SetupTool(effect); ok {
+			installed = append(installed, machine.ToolTitle(name))
 		}
 	}
 	// Setup plans the answers as an input only when they were saved complete,

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
 )
@@ -292,16 +293,6 @@ func (m *updateModel) tool(msg toolMsg) {
 	})
 }
 
-// toolNames are the names the rows show.
-var toolNames = map[string]string{"python3": "Python", "tomlkit": "TOML Kit"}
-
-func toolName(name string) string {
-	if shown, ok := toolNames[name]; ok {
-		return shown
-	}
-	return name
-}
-
 func (m updateModel) View() tea.View {
 	var view tea.View
 	view.DisableBracketedPasteMode = true // nothing is read
@@ -328,13 +319,13 @@ func (m updateModel) lines() []string {
 	quiet := m.end != nil && m.end.unchanged
 	width := 0
 	for _, row := range m.rows {
-		width = max(width, lipgloss.Width(toolName(row.name)))
+		width = max(width, lipgloss.Width(machine.ToolTitle(row.name)))
 	}
 	for _, row := range m.rows {
 		if quiet && !row.touched {
 			continue
 		}
-		name := toolName(row.name)
+		name := machine.ToolTitle(row.name)
 		lines = append(
 			lines,
 			"  "+name+strings.Repeat(
@@ -372,7 +363,9 @@ func (m updateModel) working() string {
 		case end.failed:
 			for _, row := range m.rows {
 				if row.failed {
-					return red.Render(glyphs.Cross + " Update failed: " + toolName(row.name))
+					return red.Render(
+						glyphs.Cross + " Update failed: " + machine.ToolTitle(row.name),
+					)
 				}
 			}
 			return red.Render(glyphs.Cross + " Update failed")
