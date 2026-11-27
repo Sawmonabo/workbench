@@ -10,7 +10,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -37,7 +37,7 @@ type claudeMCPServers struct {
 // has none.
 func readClaudeMCPServers(home string) (claudeMCPServers, error) {
 	var servers claudeMCPServers
-	raw, err := os.ReadFile(costs.ClaudeJSON(home))
+	raw, err := os.ReadFile(toolconfig.ClaudeJSON(home))
 	if errors.Is(err, fs.ErrNotExist) {
 		return servers, nil
 	}
@@ -129,7 +129,7 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 	changes, err := claudeMCPPending(c, a)
 	if err != nil {
 		return []string{
-			"claude-mcp: ? " + c.ShowPath(costs.ClaudeJSON(c.Home)) +
+			"claude-mcp: ? " + c.ShowPath(toolconfig.ClaudeJSON(c.Home)) +
 				" can't be read, so which servers are registered is unknown",
 		}
 	}
@@ -176,7 +176,7 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 // Claude Code's first run rewrites the settings.json in its config folder
 // once, then writes its .claude.json. So firstRun is set only when that folder
 // is ~/.claude, whose settings.json chezmoi wrote earlier in the apply, and
-// the .claude.json [costs.ClaudeJSON] names is not there yet.
+// the .claude.json [toolconfig.ClaudeJSON] names is not there yet.
 func ClaudeMCPCommands(
 	c operation.Context,
 	a Answers,
@@ -186,12 +186,12 @@ func ClaudeMCPCommands(
 		return "", "", false, nil, operation.Fail(
 			operation.ExitBlocked,
 			"claude-mcp",
-			c.ShowPath(costs.ClaudeJSON(c.Home))+" can't be read, so no server was changed",
+			c.ShowPath(toolconfig.ClaudeJSON(c.Home))+" can't be read, so no server was changed",
 		)
 	}
 	nodeBin = nvmDefaultBin(c.Home)
-	if filepath.Clean(costs.ClaudeDir(c.Home)) == filepath.Join(c.Home, ".claude") {
-		_, statErr := os.Lstat(costs.ClaudeJSON(c.Home))
+	if filepath.Clean(toolconfig.ClaudeDir(c.Home)) == filepath.Join(c.Home, ".claude") {
+		_, statErr := os.Lstat(toolconfig.ClaudeJSON(c.Home))
 		firstRun = errors.Is(statErr, fs.ErrNotExist)
 	}
 	at := slices.IndexFunc(agents, func(agent agent) bool { return agent.command == "claude" })

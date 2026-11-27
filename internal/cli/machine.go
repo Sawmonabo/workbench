@@ -12,6 +12,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/migrate"
@@ -99,7 +100,7 @@ func agentHooks(home string) []operation.Component {
 		}
 		groups := []struct {
 			command string
-			hooks   []costs.HookCommand
+			hooks   []toolconfig.HookCommand
 		}{
 			{"agent costs", costs.IngestHooks},
 			{"agent guard", guard.Hooks(tool.Name)},
@@ -108,13 +109,13 @@ func agentHooks(home string) []operation.Component {
 		none, untrusted := true, false
 		for _, group := range groups {
 			var missing, idle []string
-			for i, state := range tool.Source.Hooks(home, group.hooks) {
+			for i, state := range tool.Hooks(home, group.hooks) {
 				switch state {
-				case costs.HookOK:
-				case costs.HookMissing:
+				case toolconfig.HookOK:
+				case toolconfig.HookMissing:
 					missing = append(missing, group.hooks[i].Event)
 				default:
-					untrusted = untrusted || state == costs.HookUntrusted
+					untrusted = untrusted || state == toolconfig.HookUntrusted
 					idle = append(idle, group.hooks[i].Event+" "+state)
 				}
 			}
@@ -165,7 +166,7 @@ func agentHooks(home string) []operation.Component {
 		}
 		// Workbench installs nothing in a folder a variable moved, which
 		// doctor's own line for the move explains.
-		moved := slices.ContainsFunc(costs.ConfigMoves(home), func(m costs.ConfigMove) bool {
+		moved := slices.ContainsFunc(toolconfig.Moves(home), func(m toolconfig.Move) bool {
 			return m.Tool == tool.Title && m.Source != ""
 		})
 		if len(fixes) > 0 && !moved {

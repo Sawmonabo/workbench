@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/migrate"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -433,7 +433,7 @@ func Doctor(ctx context.Context, c operation.Context) ([]operation.Component, er
 			)
 		}
 	}
-	for _, move := range costs.ConfigMoves(c.Home) {
+	for _, move := range toolconfig.Moves(c.Home) {
 		results = append(results, operation.Component{
 			Name:    strings.ToLower(strings.ReplaceAll(move.Variable, "_", "-")),
 			Status:  operation.StatusConflict,

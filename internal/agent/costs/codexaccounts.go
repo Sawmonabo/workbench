@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 )
 
 // SignIn is the sign-in Codex keeps in auth.json: the email and plan claims of
@@ -15,7 +17,7 @@ import (
 // "api-key" with no email. Anything unreadable is the account "unknown" with no
 // subscription.
 func (codex) SignIn(home string) SignIn {
-	auth, ok := readCodexAuth(filepath.Join(codexDir(home), "auth.json"))
+	auth, ok := readCodexAuth(filepath.Join(toolconfig.CodexDir(home), "auth.json"))
 	if !ok {
 		return SignIn{Account: "unknown"}
 	}
@@ -36,7 +38,7 @@ func (codex) SignIn(home string) SignIn {
 // An id that two sign-ins claim with different emails is left out rather than
 // guessed, so its rows fall back to the session and observed evidence.
 func (codex) Accounts(home string) map[string]string {
-	dir := codexDir(home)
+	dir := toolconfig.CodexDir(home)
 	paths := []string{filepath.Join(dir, "auth.json")}
 	extra, _ := filepath.Glob(filepath.Join(dir, "agent-overflow-accounts", "*", "auth.json"))
 	sort.Strings(extra)

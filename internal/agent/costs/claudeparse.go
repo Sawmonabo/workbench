@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -18,7 +19,8 @@ import (
 func projectFromPath(path string) string {
 	home, _ := os.UserHomeDir()
 	name := filepath.Base(filepath.Dir(path))
-	if projects := filepath.Join(ClaudeDir(home), "projects"); operation.Within(projects, path) {
+	projects := filepath.Join(toolconfig.ClaudeDir(home), "projects")
+	if operation.Within(projects, path) {
 		rel, _ := filepath.Rel(projects, path)
 		name = strings.Split(rel, string(filepath.Separator))[0]
 	}

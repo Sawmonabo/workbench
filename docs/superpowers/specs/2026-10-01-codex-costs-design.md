@@ -405,7 +405,7 @@ installs are trusted on the same apply. The entry's `enabled` key stays the
 user's: a hook turned off in Codex (`enabled = false`) stays off across
 applies. The entries of a hook Workbench does not install are dropped, so
 they do not stay trusted. A second apply changes nothing.
-`Hooks(home)` reports a state per event, as Codex decides whether to run a
+`toolconfig.CodexHooks` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
 recorded hash matches): `ok` when `hooks.json` has the command (one matching
 `(^|/)workbench'? costs ingest$`, the one matcher both tools' checks use, so
@@ -413,7 +413,7 @@ any bin folder and its quoting count) and its entry
 records the hash computed the same way, `disabled` when the entry sets
 `enabled = false`, `untrusted` when it records no hash or another one (as
 after Codex changed its normalization), and `missing` without the command.
-Claude Code's `Hooks` reports `ok` or `missing`. `costs status` prints the
+`toolconfig.ClaudeHooks` reports `ok` or `missing`. `costs status` prints the
 state words, adding `(workbench apply)` once to a hooks line with a `missing`
 or `untrusted` event, and `costs status --json` gives each event's state as a
 string.

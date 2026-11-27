@@ -6,14 +6,11 @@ package costs
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 )
 
 // Source is one AI tool whose transcripts the ledger records. Everything a
@@ -31,7 +28,6 @@ type Source interface {
 	Observations(
 		home string,
 	) []Observation // the tool's own (tokens, cost) pairs, for calibration; nil when none
-	Hooks(home string, hooks []HookCommand) []string // a Hook* state for each of hooks
 }
 
 // SignIn is who a tool is signed in as, and what pays for it: the account (an
@@ -130,21 +126,6 @@ func storedRank(word []byte) (rank int, ok bool) {
 	return rank, rank > 0 || string(word) == EvidenceUnknown
 }
 
-// The states of a hook Workbench installs in a tool, as Hooks reports them.
-const (
-	HookOK        = "ok"        // installed, and the tool runs it
-	HookMissing   = "missing"   // not installed as Workbench installs it
-	HookUntrusted = "untrusted" // installed, but the tool has not recorded it as trusted
-	HookDisabled  = "disabled"  // installed and trusted, but turned off in the tool
-)
-
-// HookCommand is one hook Workbench installs in a tool: the event it runs on and a
-// match for its command.
-type HookCommand struct {
-	Event   string
-	Command *regexp.Regexp
-}
-
 // ingestCommand matches the ingest hook's command as Workbench installs it:
 // the workbench executable, by name, by path or as a single-quoted path, then
 // "agent costs ingest" and nothing after.
@@ -152,98 +133,9 @@ var ingestCommand = regexp.MustCompile(`(^|/)workbench'? agent costs ingest$`)
 
 // IngestHooks are the ingest hook on each session event, the hooks that keep
 // the ledger.
-var IngestHooks = []HookCommand{
+var IngestHooks = []toolconfig.HookCommand{
 	{Event: "SessionStart", Command: ingestCommand},
 	{Event: "SessionEnd", Command: ingestCommand},
-}
-
-// ConfigMove is a tool's config folder moved by a variable away from the one
-// Workbench installs the tool's settings, instructions and hooks in, so the
-// tool reads none of them. Two folders side by side, one per account, are the
-// variable's documented use, so Workbench names the move and installs nothing
-// in the other folder. It also names a settings file that sets the variable
-// to a relative path, which Workbench ignores.
-type ConfigMove struct {
-	Tool     string `json:"tool"`     // "Claude Code", "Codex"
-	Variable string `json:"variable"` // CLAUDE_CONFIG_DIR, CODEX_HOME
-	// Source is "the environment", the settings file that sets it, or "" when
-	// it moves nothing.
-	Source   string            `json:"source"`
-	Dir      string            `json:"dir"`                // the folder the tool reads
-	Default  string            `json:"default"`            // the folder Workbench installs in
-	Relative []RelativeSetting `json:"relative,omitempty"` // settings files that set it to a relative path
-}
-
-// RelativeSetting is a settings file that sets a folder variable to a path
-// that is not absolute.
-type RelativeSetting struct {
-	File  string `json:"file"`
-	Value string `json:"value"`
-}
-
-// configMover is a source whose config folder a variable can move.
-type configMover interface {
-	ConfigMove(home string) (ConfigMove, bool)
-}
-
-// ConfigMoves is each tool's config folder that a variable moved (see
-// [ConfigMove]).
-func ConfigMoves(home string) []ConfigMove {
-	var moves []ConfigMove
-	for _, tool := range Tools {
-		if mover, ok := tool.Source.(configMover); ok {
-			if move, moved := mover.ConfigMove(home); moved {
-				moves = append(moves, move)
-			}
-		}
-	}
-	return moves
-}
-
-// Explain says what the move means and how to undo it, the same in the plan,
-// doctor and agent costs status.
-func (m ConfigMove) Explain(home string) string {
-	var parts []string
-	if m.Source != "" {
-		where, fix := m.Source, "unset it, or set it to "+display.PathFrom(home, m.Default)
-		if m.Source != "the environment" {
-			where, fix = display.PathFrom(
-				home,
-				m.Source,
-			), "remove it from that file, or set it there to "+m.Default
-		}
-		parts = append(parts, m.Variable+" in "+where+" points "+m.Tool+" at "+
-			display.PathFrom(home, m.Dir)+", so it does not read the settings, instructions "+
-			"and costs and guard hooks Workbench installs in "+display.PathFrom(home, m.Default)+
-			"; "+fix+", for them to apply")
-	}
-	for _, r := range m.Relative {
-		parts = append(parts, fmt.Sprintf(
-			"%s in %s is %q, not an absolute path: %s copies it as written and reads it from "+
-				"the folder it starts in, so Workbench ignores it and reads %s; write the "+
-				"absolute path there",
-			m.Variable, display.PathFrom(home, r.File), r.Value, m.Tool,
-			display.PathFrom(home, m.Dir),
-		))
-	}
-	return strings.Join(parts, "; ")
-}
-
-// sameDir reports whether a and b name the same folder: the same file when
-// both exist, else the same absolute path.
-func sameDir(a, b string) bool {
-	aInfo, aErr := os.Stat(a)
-	bInfo, bErr := os.Stat(b)
-	if aErr == nil && bErr == nil {
-		return os.SameFile(aInfo, bInfo)
-	}
-	absolute := func(path string) string {
-		if abs, err := filepath.Abs(path); err == nil {
-			return abs
-		}
-		return filepath.Clean(path)
-	}
-	return absolute(a) == absolute(b)
 }
 
 // Usage is one billed response, whatever tool produced it.
@@ -446,6 +338,13 @@ type Tool struct {
 	// which only its source composes; any other tool's ids are read as they
 	// are, so a vendor id such as "foo@latest" is never split.
 	Tiers bool
+	// Hooks is a toolconfig Hook* state for each of hooks, as the tool's own
+	// config runs them (toolconfig.ClaudeHooks, toolconfig.CodexHooks).
+	Hooks func(home string, hooks []toolconfig.HookCommand) []string
+	// Move reports a variable that moves the tool's config folder away from
+	// the one Workbench installs in (toolconfig.ClaudeMove,
+	// toolconfig.CodexMove); nil when no variable can.
+	Move func(home string) (toolconfig.Move, bool)
 }
 
 // SplitModel splits a model id of the tool into its model and service tier;
@@ -475,6 +374,8 @@ var Tools = []Tool{
 		SessionPlan: planEarlier,
 		OrgAccount:  true,
 		Tiers:       true, // fast mode: "claude-opus-5@fast"
+		Hooks:       toolconfig.ClaudeHooks,
+		Move:        toolconfig.ClaudeMove,
 	},
 	{
 		Name: "codex", Title: "Codex", Source: codex{},
@@ -485,6 +386,8 @@ var Tools = []Tool{
 		// rate_limits, which names the plan, can be null in a thread's first
 		// token counts; the thread names its plan a few responses later.
 		SessionPlan: planNext,
+		Hooks:       toolconfig.CodexHooks,
+		Move:        toolconfig.CodexMove,
 	},
 }
 

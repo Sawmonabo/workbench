@@ -634,6 +634,11 @@ internal/agent/costs/
                      and prints nothing
   move.go, ledgermove.go, oldpaths.go, oldfolders.go
                      the costs folders where they stand and their move under agent/
+internal/agent/toolconfig/
+  folders.go, settings.go
+                     the tools' config folders and Claude Code's settings files
+  moves.go           a variable that moves a tool's config folder
+  hooks.go           whether a tool runs the hooks Workbench installs
 internal/cli/
   agentcosts.go         the commands and their flags
   agentcostsreport.go, agentcoststable.go, agentcostsstatus.go, agentcostsrates.go
@@ -655,7 +660,6 @@ type Source interface {
 	PricingURL() string                         // official price page, "" when none
 	ParsePricing(page string) RateCard          // that page's prices
 	Observations(home string) []Observation     // the tool's own (tokens, cost) pairs, for calibration; nil when none
-	Hooks(home string) map[string]bool          // hook event → whether the ingest hook is installed
 	Session(file, transcript string) bool       // is file part of the session the hook's transcript names
 }
 

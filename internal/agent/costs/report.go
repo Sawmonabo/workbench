@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -778,7 +779,7 @@ type ToolStatus struct {
 	Coverage    Coverage          `json:"coverage"`
 	SignIn      SignInStatus      `json:"sign_in"`
 	Hooks       map[string]string `json:"hooks,omitempty"`         // event → a Hook* state
-	ConfigMove  *ConfigMove       `json:"config_move,omitempty"`   // nil unless a variable moved the tool's folder
+	ConfigMove  *toolconfig.Move  `json:"config_move,omitempty"`   // nil unless a variable moved the tool's folder
 	Skipped     int               `json:"skipped_files,omitempty"` // transcripts the source cannot read (compressed)
 }
 
@@ -845,11 +846,11 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 				Label:        subscriptionLabel(signIn.Subscription, signIn.Label),
 			}
 			status.Hooks = map[string]string{}
-			for i, state := range tool.Source.Hooks(paths.Home, IngestHooks) {
+			for i, state := range tool.Hooks(paths.Home, IngestHooks) {
 				status.Hooks[IngestHooks[i].Event] = state
 			}
-			if mover, ok := tool.Source.(configMover); ok {
-				if move, moved := mover.ConfigMove(paths.Home); moved {
+			if tool.Move != nil {
+				if move, moved := tool.Move(paths.Home); moved {
 					status.ConfigMove = &move
 				}
 			}

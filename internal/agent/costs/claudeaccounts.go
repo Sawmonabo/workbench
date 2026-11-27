@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -49,7 +50,7 @@ func readClaudeOAuth(path string) (claudeOAuth, bool) {
 // organizationUuid also leaves the subscription empty, since "claude:" would
 // merge unrelated sign-ins.
 func (claude) SignIn(home string) SignIn {
-	acct, ok := readClaudeOAuth(ClaudeJSON(home))
+	acct, ok := readClaudeOAuth(toolconfig.ClaudeJSON(home))
 	if !ok {
 		return SignIn{Account: "unknown"}
 	}
@@ -68,14 +69,16 @@ func (claude) SignIn(home string) SignIn {
 // backup keeps the organization of an earlier sign-in, which transcripts
 // still name.
 func claudeSignIns(home string) []claudeOAuth {
-	backups, _ := filepath.Glob(filepath.Join(ClaudeDir(home), "backups", ".claude.json.backup.*"))
+	backups, _ := filepath.Glob(
+		filepath.Join(toolconfig.ClaudeDir(home), "backups", ".claude.json.backup.*"),
+	)
 	stamp := func(path string) int64 {
 		n, _ := strconv.ParseInt(strings.TrimPrefix(filepath.Ext(path), "."), 10, 64)
 		return n
 	}
 	sort.Slice(backups, func(i, j int) bool { return stamp(backups[i]) < stamp(backups[j]) })
 	var out []claudeOAuth
-	for _, path := range append(backups, ClaudeJSON(home)) {
+	for _, path := range append(backups, toolconfig.ClaudeJSON(home)) {
 		if acct, ok := readClaudeOAuth(path); ok && acct.OrganizationUUID != "" {
 			out = append(out, acct)
 		}
@@ -140,7 +143,7 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 			})
 		}
 	}
-	path := filepath.Join(ClaudeDir(home), "history.jsonl")
+	path := filepath.Join(toolconfig.ClaudeDir(home), "history.jsonl")
 	file, err := os.Open(path)
 	switch {
 	case errors.Is(err, fs.ErrNotExist):

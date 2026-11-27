@@ -8,6 +8,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -125,8 +126,8 @@ func hookStates(tool costs.ToolStatus) string {
 	var hooks []string
 	fixable := false
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
-		state := cmp.Or(tool.Hooks[event], costs.HookMissing)
-		fixable = fixable || state == costs.HookMissing || state == costs.HookUntrusted
+		state := cmp.Or(tool.Hooks[event], toolconfig.HookMissing)
+		fixable = fixable || state == toolconfig.HookMissing || state == toolconfig.HookUntrusted
 		hooks = append(hooks, event+" "+state)
 	}
 	line := strings.Join(hooks, ", ")

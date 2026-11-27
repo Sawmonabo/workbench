@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -33,8 +33,8 @@ func guardCommand(part string) *regexp.Regexp {
 // ("claude" or "codex", the costs tool names): the session hook that starts
 // the watcher, the pre hook before a Bash call and the post hook after it,
 // which Claude Code also runs when a call fails.
-func Hooks(tool string) []costs.HookCommand {
-	hooks := []costs.HookCommand{
+func Hooks(tool string) []toolconfig.HookCommand {
+	hooks := []toolconfig.HookCommand{
 		{Event: "SessionStart", Command: guardCommand("session " + tool)},
 		{Event: "PreToolUse", Command: guardCommand("pre")},
 		{Event: "PostToolUse", Command: guardCommand("post")},
@@ -42,7 +42,7 @@ func Hooks(tool string) []costs.HookCommand {
 	if tool == "claude" {
 		hooks = append(
 			hooks,
-			costs.HookCommand{Event: "PostToolUseFailure", Command: guardCommand("post")},
+			toolconfig.HookCommand{Event: "PostToolUseFailure", Command: guardCommand("post")},
 		)
 	}
 	return hooks

@@ -18,7 +18,7 @@ import (
 	"github.com/ProtonMail/go-crypto/openpgp"
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/Sawmonabo/workbench/internal/agent/costs"
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"github.com/Sawmonabo/workbench/internal/release"
@@ -140,7 +140,7 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 // warning and left alone. The
 // latest-mode lookups run side by side. It first warns about each agent whose
 // config folder a variable moved away from the one Workbench installs its
-// settings in (costs.ConfigMoves).
+// settings in (toolconfig.Moves).
 func (p *preparation) planAgentUpdates(
 	ctx context.Context,
 	c operation.Context,
@@ -148,7 +148,7 @@ func (p *preparation) planAgentUpdates(
 	latest bool,
 ) {
 	c.Step("checking Codex and Claude Code")
-	for _, move := range costs.ConfigMoves(c.Home) {
+	for _, move := range toolconfig.Moves(c.Home) {
 		p.Plan.Warnings = append(p.Plan.Warnings, move.Explain(c.Home))
 	}
 	pins, err := agentPins(files)
@@ -501,7 +501,7 @@ func nvmDefaultBin(home string) string {
 // "stable" or "latest", and the minimumVersion below which its updates and
 // claude install install nothing, or "". The channel comes from the user's
 // settings (in CLAUDE_CONFIG_DIR when that is set), overridden by the
-// machine's managed settings files (costs.ClaudeManagedSettings), the way
+// machine's managed settings files (toolconfig.ClaudeManagedSettings), the way
 // Claude Code merges them. The floor is the highest any of them sets, since a
 // managed minimum is one the user's settings cannot lower
 // (https://code.claude.com/docs/en/setup#pin-a-minimum-version). Project and
@@ -525,8 +525,8 @@ func claudeUpdates(home string) (channel, minimum string) {
 			minimum = *settings.Minimum
 		}
 	}
-	read(filepath.Join(costs.ClaudeDir(home), "settings.json"))
-	for _, path := range costs.ClaudeManagedSettings() {
+	read(filepath.Join(toolconfig.ClaudeDir(home), "settings.json"))
+	for _, path := range toolconfig.ClaudeManagedSettings() {
 		read(path)
 	}
 	if channel != "stable" {

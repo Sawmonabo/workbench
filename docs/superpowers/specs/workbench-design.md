@@ -39,6 +39,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` | Bounded metadata discovery; configuration of existing uv Python projects/workspaces, Go modules and Cargo packages/workspaces, optional editor/ignore/CI edits and shared recovery. |
 | `internal/agent/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
+| `internal/agent/toolconfig/` | The AI tools' own config: Claude Code's and Codex's config folders and Claude Code's settings files, a variable that moves a tool away from the folder Workbench installs in, and whether a tool runs the hooks Workbench installs, read by `agent costs status`, `doctor` and the apply plan. |
 | `internal/migrate/` | Numbered, idempotent migrations that move files earlier releases wrote into Workbench's runtime folders, delete their old caches, remove the guard log's old free-text lines, move the costs and guard folders under `agent/` ([ADR 19](../../adr/0019-agent-folders.md)) and delete the downloaded price lists the costs ledger keeps; see the [migrations design](2026-10-14-workbench-migrations-design.md) and [ADR 8](../../adr/0008-migrations-move-workbench-files.md). |
 | `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why, and keeps the commands that finished in a history the live view reads; see the [guard design](2026-10-14-agent-command-guard-design.md) and the [guard history design](2026-11-19-agent-guard-history-design.md). |
 | `internal/sqlitefile/` | Opening Workbench's private SQLite files, the costs ledger and the guard history, through the pure-Go driver: a missing file made private before SQLite opens it, the connection string and the switch to WAL. |
@@ -108,6 +109,7 @@ internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
 internal/project/                  Discovery and project configuration
 internal/agent/costs/              AI-tool cost ledger and reports
+internal/agent/toolconfig/         The AI tools' own config folders and hook checks
 internal/migrate/                  Migrations of Workbench's own files
 internal/agent/guard/              Agent command memory guard
 internal/sqlitefile/               Private SQLite files: open, create, WAL
