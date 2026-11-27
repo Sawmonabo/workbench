@@ -34,12 +34,9 @@ import (
 type updateView struct {
 	output  *os.File
 	mu      sync.Mutex
-	program *tea.Program
-	done    chan struct{}
-	// drew is set, before done closes, when the program ran to its end and
-	// took the last frame it was sent, and final is then its last state.
-	drew  bool
-	final updateModel
+	program *inlineProgram
+	// ended is set once the program has ended: a late event changes nothing.
+	ended bool
 	// handedOff is set once the view has ended with its working line cleared
 	// for the activated release. That release replaces this process unless it
 	// cannot start, and then fail writes its line where the cursor was left.
@@ -140,33 +137,20 @@ func (v *updateView) send(msg tea.Msg) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	if v.program == nil {
-		if v.done != nil {
-			return // ended: a late event changes nothing
+		if v.ended {
+			return
 		}
 		v.start()
 	}
-	v.program.Send(msg)
+	v.program.send(msg)
 }
 
 // start runs the program; the caller holds mu.
 func (v *updateView) start() {
-	v.program = tea.NewProgram(
-		updateModel{spinner: spinner.New(
-			spinner.WithSpinner(updateSpinner()),
-			spinner.WithStyle(brand),
-		)},
-		tea.WithInput(nil),
-		tea.WithOutput(v.output),
-		// main owns SIGINT and SIGTERM through the command's context.
-		tea.WithoutSignalHandler(),
-	)
-	v.done = make(chan struct{})
-	go func(program *tea.Program, done chan struct{}) {
-		defer close(done)
-		model, err := program.Run()
-		final, ok := model.(updateModel)
-		v.drew, v.final = err == nil && ok && final.end != nil, final
-	}(v.program, v.done)
+	v.program = startInline(updateModel{spinner: spinner.New(
+		spinner.WithSpinner(inlineSpinner()),
+		spinner.WithStyle(brand),
+	)}, v.output)
 }
 
 // end sends the last message and waits for the program to finish. A kept
@@ -179,22 +163,14 @@ func (v *updateView) end(msg endMsg) {
 	if v.program == nil {
 		return
 	}
-	v.program.Send(msg)
-	<-v.done
-	v.program = nil
-	if v.drew && !msg.clear && !msg.keep {
-		_, _ = lipgloss.Fprint(v.output, strings.Join(v.final.lines(), "\n")+"\n")
+	model, err := v.program.end(msg)
+	v.program, v.ended = nil, true
+	// The program ran to its end and took the last frame it was sent.
+	final, drew := model.(updateModel)
+	if drew && err == nil && final.end != nil && !msg.clear && !msg.keep {
+		_, _ = lipgloss.Fprint(v.output, strings.Join(final.lines(), "\n")+"\n")
 		v.owned = true
 	}
-}
-
-// updateSpinner is the braille dots where the terminal's locale is UTF-8 and
-// a turning line elsewhere.
-func updateSpinner() spinner.Spinner {
-	if glyphs.Check == "✓" {
-		return spinner.MiniDot
-	}
-	return spinner.Line
 }
 
 type updatePhase int

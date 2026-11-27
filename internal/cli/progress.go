@@ -56,44 +56,29 @@ func (p progressLines) Step(step string)   { _, _ = fmt.Fprintln(p.w, "    "+ste
 func (p progressLines) Stop()              {}
 
 // statusLine draws a spinner, the title, the current step and the time so far
-// on one line, the inline pattern of Bubble Tea's package-manager example.
-// Each Start runs a Bubble Tea program that Stop quits, clearing the line, so
-// prompts and programs given the terminal never share it. The program reads
-// no input: the terminal stays in its normal mode, so ctrl+c and ctrl+z act
-// as usual, and no terminal query is sent whose late reply a following prompt
-// could read.
+// on one line. Each Start runs an inline program (inlineProgram) that Stop
+// quits, clearing the line, so prompts and programs given the terminal never
+// share it.
 type statusLine struct {
 	output  *os.File
-	program *tea.Program
-	done    chan struct{}
+	program *inlineProgram
 }
 
 func (s *statusLine) Start(title string) {
 	s.Stop()
-	s.program = tea.NewProgram(
-		statusModel{
-			title:   title,
-			started: time.Now(),
-			spinner: spinner.New(
-				spinner.WithSpinner(spinner.MiniDot),
-				spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Cyan)),
-			),
-		},
-		tea.WithInput(nil),
-		tea.WithOutput(s.output),
-		// main owns SIGINT and SIGTERM through the command's context.
-		tea.WithoutSignalHandler(),
-	)
-	s.done = make(chan struct{})
-	go func(program *tea.Program, done chan struct{}) {
-		defer close(done)
-		_, _ = program.Run()
-	}(s.program, s.done)
+	s.program = startInline(statusModel{
+		title:   title,
+		started: time.Now(),
+		spinner: spinner.New(
+			spinner.WithSpinner(inlineSpinner()),
+			spinner.WithStyle(lipgloss.NewStyle().Foreground(lipgloss.Cyan)),
+		),
+	}, s.output)
 }
 
 func (s *statusLine) Step(step string) {
 	if s.program != nil {
-		s.program.Send(stepMsg(step))
+		s.program.send(stepMsg(step))
 	}
 }
 
@@ -101,8 +86,7 @@ func (s *statusLine) Stop() {
 	if s.program == nil {
 		return
 	}
-	s.program.Send(stopMsg{})
-	<-s.done
+	_, _ = s.program.end(stopMsg{})
 	s.program = nil
 }
 
