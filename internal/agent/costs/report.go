@@ -380,7 +380,7 @@ func ScopeRoots(home string, roots []string) []string {
 	all := projectRoots(home, roots)
 	var existing []string
 	for _, root := range all {
-		if info, err := os.Stat(root); err == nil && info.IsDir() {
+		if operation.LeadsToFolder(root) {
 			existing = append(existing, root)
 		}
 	}

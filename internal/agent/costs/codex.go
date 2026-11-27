@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/jsonc"
@@ -62,26 +61,13 @@ func (codex) TranscriptRoots(home string) []string {
 
 // Transcripts lists every *.jsonl under sessions/ and archived_sessions/.
 func (codex) Transcripts(home string) ([]string, error) {
-	var files []string
-	for _, root := range (codex{}).TranscriptRoots(home) {
-		found, err := codexWalk(root, ".jsonl")
-		if err != nil {
-			return files, err
-		}
-		files = append(files, found...)
-	}
-	sort.Strings(files)
-	return files, nil
+	return transcriptFiles((codex{}).TranscriptRoots(home), ".jsonl")
 }
 
 // Skipped counts the compressed rollouts (.jsonl.zst) Workbench does not read.
 func (codex) Skipped(home string) int {
-	n := 0
-	for _, root := range []string{"sessions", "archived_sessions"} {
-		found, _ := codexWalk(filepath.Join(codexDir(home), root), ".zst")
-		n += len(found)
-	}
-	return n
+	found, _ := transcriptFiles((codex{}).TranscriptRoots(home), ".zst")
+	return len(found)
 }
 
 // ServedTier is the tier Codex sends a model's request at when tier is

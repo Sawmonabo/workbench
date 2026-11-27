@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -207,27 +208,37 @@ func firstLineDigest(file *os.File) (string, error) {
 	return operation.SHA256Hex(buf), nil
 }
 
-func codexWalk(root, ext string) ([]string, error) {
-	if info, err := os.Stat(root); err != nil || !info.IsDir() {
-		return nil, nil
-	}
+// transcriptFiles lists, sorted, the files named *ext under roots: regular
+// files and links to one. A root that is not a folder, or a link to one,
+// holds none, and a folder that vanished or cannot be read is passed over.
+func transcriptFiles(roots []string, ext string) ([]string, error) {
 	var files []string
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-		switch {
-		case err != nil:
-			if entry != nil && entry.IsDir() {
-				return fs.SkipDir
+	for _, root := range roots {
+		if !operation.LeadsToFolder(root) {
+			continue
+		}
+		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+			switch {
+			case err != nil:
+				// A folder that vanished or cannot be read holds nothing to ingest.
+				if entry != nil && entry.IsDir() {
+					return fs.SkipDir
+				}
+				return nil
+			case filepath.Ext(path) != ext:
+			case entry.Type().IsRegular():
+				files = append(files, path)
+			case entry.Type()&fs.ModeSymlink != 0:
+				if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
+					files = append(files, path)
+				}
 			}
 			return nil
-		case filepath.Ext(path) != ext:
-		case entry.Type().IsRegular():
-			files = append(files, path)
-		case entry.Type()&fs.ModeSymlink != 0:
-			if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-				files = append(files, path)
-			}
+		})
+		if err != nil {
+			return files, err
 		}
-		return nil
-	})
-	return files, err
+	}
+	sort.Strings(files)
+	return files, nil
 }

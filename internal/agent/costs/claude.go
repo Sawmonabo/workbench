@@ -1,10 +1,8 @@
 package costs
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/platform"
@@ -117,35 +115,7 @@ func (claude) TranscriptRoots(home string) []string {
 // Transcripts lists every *.jsonl under each transcript root, subagent
 // transcripts included.
 func (claude) Transcripts(home string) ([]string, error) {
-	var files []string
-	for _, root := range (claude{}).TranscriptRoots(home) {
-		if info, err := os.Stat(root); err != nil || !info.IsDir() {
-			continue
-		}
-		err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
-			switch {
-			case err != nil:
-				// A directory that vanished or cannot be read holds nothing to ingest.
-				if entry != nil && entry.IsDir() {
-					return fs.SkipDir
-				}
-				return nil
-			case filepath.Ext(path) != ".jsonl":
-			case entry.Type().IsRegular():
-				files = append(files, path)
-			case entry.Type()&fs.ModeSymlink != 0:
-				if info, statErr := os.Stat(path); statErr == nil && info.Mode().IsRegular() {
-					files = append(files, path)
-				}
-			}
-			return nil
-		})
-		if err != nil {
-			return files, err
-		}
-	}
-	sort.Strings(files)
-	return files, nil
+	return transcriptFiles((claude{}).TranscriptRoots(home), ".jsonl")
 }
 
 // Observations are the (tokens, costUSD) pairs Claude Code keeps per project
