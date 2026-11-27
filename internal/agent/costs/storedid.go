@@ -3,6 +3,7 @@ package costs
 import (
 	"encoding/hex"
 	"errors"
+	"iter"
 	"math/bits"
 	"strings"
 )
@@ -54,6 +55,16 @@ func packID(id string) []byte {
 		}
 	}
 	return append([]byte{idText}, id...)
+}
+
+// packedIDs is the stored bytes of each of ids in hex, as a JSON array, for
+// "unhex(value) FROM json_each(?)".
+func packedIDs(ids iter.Seq[string]) string {
+	var hexes []string
+	for id := range ids {
+		hexes = append(hexes, hex.EncodeToString(packID(id)))
+	}
+	return jsonText(hexes)
 }
 
 // lowerHex reports whether s is an even count, at least 2, of lowercase hex

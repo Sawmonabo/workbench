@@ -3,7 +3,6 @@ package costs
 import (
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"encoding/json"
 	"maps"
 	"slices"
@@ -89,12 +88,8 @@ func accountsQuery(
 	if scope == nil {
 		return query, nil, nil
 	}
-	ids := make([]string, 0, len(scope.seen))
-	for id := range scope.seen {
-		ids = append(ids, hex.EncodeToString(packID(id)))
-	}
 	conds := []string{"request_id IN (SELECT unhex(value) FROM json_each(?))"}
-	args := []any{jsonText(ids)}
+	args := []any{packedIDs(maps.Keys(scope.seen))}
 	roots := map[string][]string{}
 	for _, key := range slices.Concat(slices.Collect(maps.Keys(scope.roots)), dirty) {
 		if tool, root, ok := strings.Cut(key, ":"); ok {

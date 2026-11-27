@@ -4,7 +4,6 @@ import (
 	"cmp"
 	"context"
 	"database/sql"
-	"encoding/hex"
 	"maps"
 	"slices"
 	"sort"
@@ -278,10 +277,6 @@ SELECT r.id, r.model, IFNULL(r.ts, ?1), n.name, r.tool
 	if run == nil {
 		return query, []any{int64(noTime)}
 	}
-	ids := make([]string, 0, len(run.pending))
-	for id := range run.pending {
-		ids = append(ids, hex.EncodeToString(packID(id)))
-	}
 	// The ids of the threads' TierFroms are read from names first, so that
 	// each waiting row is matched by its root's id alone.
 	query += `
@@ -290,7 +285,7 @@ SELECT r.id, r.model, IFNULL(r.ts, ?1), n.name, r.tool
          THEN substr(name, 1, instr(name, '@') - 1) ELSE name END) IN (SELECT value FROM json_each(?3)))`
 	return query, []any{
 		int64(noTime),
-		jsonText(ids),
+		packedIDs(maps.Keys(run.pending)),
 		jsonText(slices.Collect(maps.Keys(run.threads))),
 		nameSession,
 	}
