@@ -169,15 +169,12 @@ func sessions(groups []focusGroup) []Session {
 			modelCost[g.session] = map[string]int64{}
 			order = append(order, g.session)
 		}
-		if g.first != noTime {
-			if start := time.UnixMilli(g.first).UTC(); s.Start.IsZero() || start.Before(s.Start) {
-				s.Start = start
-			}
+		if start := responseAt(g.first); !start.IsZero() &&
+			(s.Start.IsZero() || start.Before(s.Start)) {
+			s.Start = start
 		}
-		if g.last != noTime {
-			if end := time.UnixMilli(g.last).UTC(); end.After(s.End) {
-				s.End = end
-			}
+		if end := responseAt(g.last); end.After(s.End) {
+			s.End = end
 		}
 		s.Calls += g.Calls
 		s.addCost(g.exact)

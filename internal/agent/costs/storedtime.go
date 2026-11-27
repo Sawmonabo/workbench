@@ -15,7 +15,15 @@ func storedTime(ms int64) string {
 	if ms == noTime {
 		return ""
 	}
-	return time.UnixMilli(ms).UTC().Format(timeLayout)
+	return responseAt(ms).Format(timeLayout)
+}
+
+// ParseTime is the time in a text time the ledger keeps: a response time in
+// timeLayout, or last_ingest_at (see stamp). ok is false for text that holds
+// none, such as "".
+func ParseTime(text string) (time.Time, bool) {
+	at, err := time.Parse(time.RFC3339, text)
+	return at, err == nil
 }
 
 // parseStoredTime is the time text holds in milliseconds, ok only when text
@@ -35,6 +43,15 @@ func responseTime(t time.Time) int64 {
 		return noTime
 	}
 	return t.UnixMilli()
+}
+
+// responseAt is the time of a response time in milliseconds, in UTC, and the
+// zero time for noTime: responseTime's inverse.
+func responseAt(ms int64) time.Time {
+	if ms == noTime {
+		return time.Time{}
+	}
+	return time.UnixMilli(ms).UTC()
 }
 
 // sqlTime is a response time as SQL stores it, NULL for noTime.
@@ -76,11 +93,11 @@ func periodFilter(since, until time.Time) func(ts int64) bool {
 // LocalDate is the machine-local calendar day (YYYY-MM-DD) of a response time
 // in timeLayout, "none" when ts holds no time.
 func LocalDate(ts string) string {
-	when, err := time.Parse(time.RFC3339, ts)
-	if err != nil {
+	at, ok := ParseTime(ts)
+	if !ok {
 		return "none"
 	}
-	return localDate(when.UnixMilli())
+	return localDate(at.UnixMilli())
 }
 
 // localDate is LocalDate of a response time in milliseconds.
@@ -92,7 +109,7 @@ func localDay(ms int64) string {
 	if ms == noTime {
 		return ""
 	}
-	return time.UnixMilli(ms).Format(time.DateOnly)
+	return responseAt(ms).Local().Format(time.DateOnly)
 }
 
 // stamp is the time format of last_ingest_at and the log: RFC 3339 in UTC to
