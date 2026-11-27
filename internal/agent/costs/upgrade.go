@@ -35,7 +35,9 @@ func (l *Ledger) compactAgain(ctx context.Context, p Paths) {
 // compaction due. A row upgraded from version 1 or 2 keeps its email, its
 // subscription is unknown and its evidence is unknown, as the earlier
 // "session" and "sweep" sources are gone; a Claude Code row's root is its
-// session. upgraded is false when another process upgraded the ledger first.
+// session. upgraded is false when another process upgraded the ledger first;
+// a version this release cannot use, found there then, fails it as it fails
+// the open (see versionProblem).
 //
 // The upgrade of a large ledger takes seconds, and every other process that
 // opens the ledger meanwhile waits for it (see beginLong), then finds it
@@ -82,8 +84,10 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 	case "5":
 		statements, fill = append(statements, priceSchema), true
 	case "6":
-	default:
+	case schemaVersion:
 		return false, nil // another process upgraded it first
+	default:
+		return false, versionProblem(l.Path, version)
 	}
 	if err := execAll(ctx, tx, statements...); err != nil {
 		return false, err

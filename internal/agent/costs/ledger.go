@@ -240,10 +240,16 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 			l.compacted, l.compactErr = true, l.compact(ctx)
 		}
 	default:
-		return ledgerProblem(operation.ExitInvalid, l.Path,
-			fmt.Sprintf("schema version %q, this tool needs %s", version, schemaVersion))
+		return versionProblem(l.Path, version)
 	}
 	return nil
+}
+
+// versionProblem is the error of the ledger at path whose schema version is
+// version, which this release cannot use.
+func versionProblem(path, version string) error {
+	return ledgerProblem(operation.ExitInvalid, path,
+		fmt.Sprintf("schema version %q, this tool needs %s", version, schemaVersion))
 }
 
 // fileError is err as an error of the ledger's file: an [operation.Error],
