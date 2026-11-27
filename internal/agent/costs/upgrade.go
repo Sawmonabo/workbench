@@ -9,6 +9,21 @@ import (
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
+// UpgradeSteps is told what an open's upgrade of an earlier version's ledger
+// is doing: each step as it begins, then "" once the ledger is upgraded, by
+// this open or by another process it waited for, and compacted, whether or
+// not the compaction succeeded (see [Ledger.compact]). An upgrade that fails
+// ends without "", and the open returns its error. An open of a ledger that
+// needs no upgrade never calls it.
+type UpgradeSteps func(step string)
+
+// step tells l.steps, when set, that the upgrade is at step.
+func (l *Ledger) step(step string) {
+	if l.steps != nil {
+		l.steps(step)
+	}
+}
+
 // notCompacted begins the import log's line about a compaction that failed.
 const notCompacted = "the ledger is upgraded but not yet compacted: "
 
@@ -95,7 +110,7 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 			return false, err
 		}
 	}
-	if err := slim(ctx, tx, l.Path); err != nil {
+	if err := slim(ctx, tx, l.Path, l.step); err != nil {
 		return false, err
 	}
 	if err := setMeta(ctx, tx, compactDue, "1"); err != nil {

@@ -646,7 +646,7 @@ func moveTheLedgerWithItsWAL(t *testing.T) {
 
 	// A process that still names the old path fails there and makes nothing.
 	closed := readAll(t, []string{f.oldData, f.oldState})
-	if ledger, err := before.open(); err == nil {
+	if ledger, err := before.open(nil); err == nil {
 		_ = ledger.Close()
 		t.Fatal("the ledger opened through the old path")
 	}

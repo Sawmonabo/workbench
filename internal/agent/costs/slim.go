@@ -20,8 +20,9 @@ import (
 // packed key and its TierFrom's id. An evidence word other than the five, or
 // a time that is neither "" nor exactly in timeLayout, refuses the upgrade,
 // naming the file and the value. Before the old tables are dropped every
-// converted row is read back and compared with its old one (see checkSlim).
-func slim(ctx context.Context, tx *sql.Tx, path string) error {
+// converted row is read back and compared with its old one (see checkSlim),
+// which step is told first.
+func slim(ctx context.Context, tx *sql.Tx, path string, step func(string)) error {
 	if err := execAll(ctx, tx,
 		"ALTER TABLE responses RENAME TO responses_6",
 		"ALTER TABLE tier_pending RENAME TO tier_pending_6",
@@ -98,6 +99,7 @@ func slim(ctx context.Context, tx *sql.Tx, path string) error {
 	if err := slimPending(ctx, tx, names); err != nil {
 		return err
 	}
+	step("checking every row")
 	if err := checkSlim(ctx, tx); err != nil {
 		return err
 	}

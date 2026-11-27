@@ -48,25 +48,32 @@ func (p Paths) output() string { return filepath.Join(p.State, "ingest.err") }
 // first moves the costs folders under agent/ when it may, and the ledger is
 // opened where they are then. When the open fails because another process
 // moved them in between (see [Paths.moved]), it opens the ledger again where
-// they are now.
-func (p Paths) Open(ctx context.Context) (*Ledger, error) { return p.openAgain(ctx, true) }
+// they are now. steps, when set, is told what an upgrade of an earlier
+// version's ledger is doing while the open runs it (see [UpgradeSteps]).
+func (p Paths) Open(ctx context.Context, steps UpgradeSteps) (*Ledger, error) {
+	return p.openAgain(ctx, true, steps)
+}
 
 // OpenExisting is [Paths.Open] for a caller that must not make a ledger: when
 // there is none yet (or only an empty file), it returns nil and no error, and
 // makes nothing.
 func (p Paths) OpenExisting(ctx context.Context) (*Ledger, error) {
-	return p.openAgain(ctx, false)
+	return p.openAgain(ctx, false, nil)
 }
 
-func (p Paths) openAgain(ctx context.Context, create bool) (*Ledger, error) {
-	ledger, used, err := p.openGated(ctx, create)
+func (p Paths) openAgain(ctx context.Context, create bool, steps UpgradeSteps) (*Ledger, error) {
+	ledger, used, err := p.openGated(ctx, create, steps)
 	if err != nil && used.moved() {
-		ledger, _, err = p.openGated(ctx, create)
+		ledger, _, err = p.openGated(ctx, create, steps)
 	}
 	return ledger, err
 }
 
-func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, error) {
+func (p Paths) openGated(
+	ctx context.Context,
+	create bool,
+	steps UpgradeSteps,
+) (*Ledger, Paths, error) {
 	p, err := gate(ctx, p, false)
 	if err != nil {
 		return nil, p, err
@@ -82,22 +89,22 @@ func (p Paths) openGated(ctx context.Context, create bool) (*Ledger, Paths, erro
 			return nil, p, nil
 		}
 	}
-	ledger, err := p.open()
+	ledger, err := p.open(steps)
 	return ledger, p, err
 }
 
 // open opens the ledger, making a missing one (see [OpenLedger]), after making
 // its folder private (see [Paths.dataFolder]), which refuses one that exists
 // and isn't. Only the import calls it without [Paths.Open], after its own gate
-// has moved the ledger.
+// has moved the ledger. steps is as [Paths.Open] takes it.
 //
 // A compaction the open's upgrade left undone is noted in the import log, and
 // the next import worker tries it again (see Ledger.compact).
-func (p Paths) open() (*Ledger, error) {
+func (p Paths) open(steps UpgradeSteps) (*Ledger, error) {
 	if _, err := p.dataFolder(""); err != nil {
 		return nil, err
 	}
-	ledger, err := OpenLedger(p.Ledger, true)
+	ledger, err := openLedger(p.Ledger, true, true, steps)
 	if err == nil && ledger.compactErr != nil {
 		writeLog(p, notCompacted+ledger.compactErr.Error())
 	}
@@ -151,6 +158,8 @@ type Ledger struct {
 	// leaves due, and compactErr why it failed (see Ledger.compact).
 	compacted  bool
 	compactErr error
+	// steps is told what the open's upgrade is doing, nil for nothing.
+	steps UpgradeSteps
 }
 
 // OpenLedger opens the ledger at path. It never deletes, renames or rebuilds
@@ -166,14 +175,17 @@ type Ledger struct {
 // [Paths.Open]), the file is made 0600, and a ledger readable by others is
 // tightened, with its -wal and -shm files, once it is verified (the mode
 // only, never the content; see [sqlitefile.Open]).
-func OpenLedger(path string, create bool) (*Ledger, error) { return openLedger(path, create, true) }
+func OpenLedger(path string, create bool) (*Ledger, error) {
+	return openLedger(path, create, true, nil)
+}
 
 // openLedger is [OpenLedger], which upgrades a ledger of an earlier version
-// only with upgrade. The move of the costs files opens a ledger without it,
-// to verify it and fold its write-ahead log in, so the ledger keeps its
-// version until it is first opened at its new path, beside the price lists
-// moved there before it, which that upgrade takes in (see fillPrices).
-func openLedger(path string, create, upgrade bool) (*Ledger, error) {
+// only with upgrade, telling steps what the upgrade is doing when set. The
+// move of the costs files opens a ledger without it, to verify it and fold
+// its write-ahead log in, so the ledger keeps its version until it is first
+// opened at its new path, beside the price lists moved there before it,
+// which that upgrade takes in (see fillPrices).
+func openLedger(path string, create, upgrade bool, steps UpgradeSteps) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, operation.FileError(path, err)
@@ -183,7 +195,7 @@ func openLedger(path string, create, upgrade bool) (*Ledger, error) {
 		return nil, ledgerProblem(operation.ExitBlocked, path,
 			"no ledger yet; run `workbench agent costs ingest --worker` first")
 	}
-	ledger := &Ledger{Path: path}
+	ledger := &Ledger{Path: path, steps: steps}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
 	// wait on the busy timeout instead of failing when a read turns into a write.
 	// In WAL mode synchronous=NORMAL skips the sync at each commit and keeps the
@@ -229,13 +241,16 @@ func (l *Ledger) prepare(exists, upgrade bool) error {
 		if !upgrade {
 			break
 		}
+		l.step("converting responses")
 		upgraded, err := l.upgrade(ctx)
 		if err != nil {
 			return l.fileError(err)
 		}
 		if upgraded {
+			l.step("compacting")
 			l.compacted, l.compactErr = true, l.compact(ctx)
 		}
+		l.step("")
 	default:
 		return versionProblem(l.Path, version)
 	}

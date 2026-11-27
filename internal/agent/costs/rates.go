@@ -184,16 +184,16 @@ func longestPrefix(model string, card RateCard, tiers bool) (Rate, bool) {
 
 // Rates returns the merged card: built-in, then calibration, then the official
 // price lists the ledger keeps. It opens the ledger as a report does (see
-// [Paths.Open]) but never makes one: without a ledger the card holds the
-// built-in and calibrated rows only, and refresh downloads nothing. With one,
-// refresh downloads every official list first and reports each outcome in
-// Notes.
-func Rates(ctx context.Context, refresh bool) (Card, error) {
+// [Paths.Open], which steps is as it takes) but never makes one (see
+// [Paths.OpenExisting]): without a ledger the card holds the built-in and
+// calibrated rows only, and refresh downloads nothing. With one, refresh
+// downloads every official list first and reports each outcome in Notes.
+func Rates(ctx context.Context, refresh bool, steps UpgradeSteps) (Card, error) {
 	paths, err := Locations()
 	if err != nil {
 		return Card{}, err
 	}
-	ledger, err := paths.OpenExisting(ctx)
+	ledger, err := paths.openAgain(ctx, false, steps)
 	if err != nil {
 		return Card{}, err
 	}

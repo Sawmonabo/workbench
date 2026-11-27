@@ -181,7 +181,7 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 // release before the update: moving it then, or its log apart from it, would
 // corrupt it.
 func quiesce(ctx context.Context, path string) error {
-	ledger, err := openLedger(path, false, false)
+	ledger, err := openLedger(path, false, false, nil)
 	if err != nil {
 		return err
 	}
@@ -276,7 +276,7 @@ func fileStampOf(path string) (fileStamp, error) {
 // version.
 // problem is what the check found wrong with the copy (see checkCopy).
 func vacuumCopy(ctx context.Context, from, part string) (_ fileStamp, problem string, err error) {
-	ledger, err := openLedger(from, false, false)
+	ledger, err := openLedger(from, false, false, nil)
 	if err != nil {
 		return fileStamp{}, "", err
 	}

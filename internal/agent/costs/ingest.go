@@ -133,7 +133,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 	// Read the sign-in before the ledger can make this process wait.
 	signIn := tool.Source.SignIn(paths.Home)
 	at := time.Now()
-	ledger, err := paths.open()
+	ledger, err := paths.open(nil)
 	if err == nil {
 		err = ledger.BindSession(ctx, tool.Name, opts.SessionID, at, signIn)
 		_ = ledger.Close()
@@ -145,7 +145,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 
 func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string, error) {
 	started := time.Now()
-	ledger, err := paths.open()
+	ledger, err := paths.open(upgradeSteps(opts.Progress))
 	if err != nil {
 		return "", err
 	}
@@ -672,4 +672,18 @@ func readHookInput(stdin *os.File) (event, transcript, session string) {
 		return "", "", ""
 	}
 	return input.Event, input.Transcript, input.Session
+}
+
+// upgradeSteps shows an open's upgrade of the ledger (see [UpgradeSteps]) as
+// steps of the import's progress, nil without progress.
+func upgradeSteps(progress operation.Progress) UpgradeSteps {
+	if progress == nil {
+		return nil
+	}
+	return func(step string) {
+		if step != "" {
+			step = "upgrading the costs ledger, " + step
+		}
+		progress.Step(step)
+	}
 }
