@@ -1,8 +1,8 @@
 package costs
 
 import (
-	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -149,28 +149,12 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 		return marks, fmt.Errorf("can't read %w", operation.FileError(path, err))
 	}
 	defer func() { _ = file.Close() }()
-	reader := bufio.NewReaderSize(file, 1<<20)
-	var long []byte
-	over := false // the line is longer than historyLine
+	lines := newLineReader(context.Background(), file, historyLine)
 	for {
-		chunk, err := reader.ReadSlice('\n')
-		if errors.Is(err, bufio.ErrBufferFull) {
-			if over = over || len(long)+len(chunk) > historyLine; !over {
-				long = append(long, chunk...)
-			}
-			continue
+		line, err := lines.next()
+		if login, ok := loginMark(line); ok {
+			marks = append(marks, login)
 		}
-		line := chunk
-		if len(long) > 0 {
-			long = append(long, chunk...)
-			line = long
-		}
-		if !over {
-			if login, ok := loginMark(line); ok {
-				marks = append(marks, login)
-			}
-		}
-		long, over = long[:0], false
 		switch {
 		case errors.Is(err, io.EOF):
 			return marks, nil
@@ -180,7 +164,8 @@ func (claude) Marks(home string) ([]AccountMark, error) {
 	}
 }
 
-// historyLine bounds a line of history.jsonl that Marks reads.
+// historyLine bounds a line of history.jsonl that Marks reads: a longer one
+// is nil, which is no login mark.
 const historyLine = 64 << 20
 
 // loginMark is the mark of a line of history.jsonl that is a /login typed at

@@ -146,39 +146,19 @@ func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileR
 		read.err = err
 		return read
 	}
-	// A line is parsed in place in the reader's buffer; one longer than the
-	// buffer is gathered into long. Parse keeps nothing of the line.
-	reader := bufio.NewReaderSize(file, 1<<20)
-	var (
-		long      []byte
-		unchecked int // bytes read since ctx was last checked
-	)
+	// Parse keeps nothing of the line.
+	lines := newLineReader(ctx, file, 0)
 	for {
-		line, readErr := reader.ReadSlice('\n')
-		if unchecked += len(line); unchecked >= readUnit {
-			if read.err = ctx.Err(); read.err != nil {
-				return read
-			}
-			unchecked = 0
-		}
-		if errors.Is(readErr, bufio.ErrBufferFull) {
-			long = append(long, line...)
-			continue
-		}
-		if len(long) > 0 {
-			long = append(long, line...)
-			line = long
-		}
-		if len(line) == 0 || line[len(line)-1] != '\n' {
-			if readErr != nil && !errors.Is(readErr, io.EOF) {
-				read.err = readErr
+		line, err := lines.next()
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				read.err = err
 				return read
 			}
 			break
 		}
 		offset += int64(len(line))
 		read.usage = append(read.usage, tool.Source.Parse(bytes.TrimRight(line, "\r\n"), state)...)
-		long = long[:0]
 	}
 	read.take(tool, state)
 	read.row = FileRow{
@@ -189,6 +169,54 @@ func readFile(ctx context.Context, ledger *Ledger, tool Tool, path string) fileR
 		Head:         head,
 	}
 	return read
+}
+
+// lineReader reads a file of JSON lines a line at a time: a line in place in
+// its buffer when it fits there, gathered when it is longer. It gives up with
+// ctx's error within about readUnit bytes of ctx being cancelled, inside a
+// long line too.
+type lineReader struct {
+	ctx       context.Context
+	reader    *bufio.Reader
+	limit     int    // the longest line returned, 0 for any
+	long      []byte // a line longer than the buffer, gathered
+	unchecked int    // bytes read since ctx was last checked
+}
+
+func newLineReader(ctx context.Context, file io.Reader, limit int) *lineReader {
+	return &lineReader{ctx: ctx, reader: bufio.NewReaderSize(file, 1<<20), limit: limit}
+}
+
+// next is the next line with its '\n'. A line without one is the end of the
+// file, with io.EOF, or what was read before a read failed, with its error. A
+// line longer than limit is nil. The line is good until the next call.
+func (r *lineReader) next() ([]byte, error) {
+	r.long = r.long[:0]
+	over := false
+	for {
+		chunk, err := r.reader.ReadSlice('\n')
+		if r.unchecked += len(chunk); r.unchecked >= readUnit {
+			if ctxErr := r.ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			r.unchecked = 0
+		}
+		full := errors.Is(err, bufio.ErrBufferFull)
+		over = over || r.limit > 0 && len(r.long)+len(chunk) > r.limit
+		gathered := full || len(r.long) > 0
+		if gathered && !over {
+			r.long = append(r.long, chunk...)
+		}
+		switch {
+		case full:
+			continue
+		case over:
+			return nil, err
+		case gathered:
+			return r.long, err
+		}
+		return chunk, err
+	}
 }
 
 // firstLineDigest is the SHA-256 of the file's first line (its first
