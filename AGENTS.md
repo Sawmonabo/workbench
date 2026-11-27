@@ -72,6 +72,10 @@ Distinguish implemented code, observed checks and unqualified release targets.
 - Reuse common functionality at its existing owner. One Go/Cobra CLI, one Go
   module, focused internal packages; no public `pkg`, generic `utils`, mock-only
   interfaces, extra task runner or speculative plugin framework.
+- Group code by responsibility: each file holds one job a maintainer can name,
+  under a noun for that job, and stays near 600 lines. No Go file, tests
+  included, passes 900 lines, which revive's `file-length-limit` enforces;
+  split a file that would by responsibility, never by cutting it in pieces.
 - Keep tests near zero. Add one only for concrete catastrophic data loss
   (including silent, unrecoverable corruption of the costs ledger, the only
   lasting record of spend), credential exposure or unauthorized execution.

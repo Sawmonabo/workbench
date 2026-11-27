@@ -37,6 +37,13 @@ linters:
       rules:
         - name: exported
         - name: package-comments
+        # A file holds one responsibility; past 900 lines it holds several.
+        # Comments and blank lines count, and tests are held to it too.
+        - name: file-length-limit
+          arguments:
+            - max: 900
+              skipComments: false
+              skipBlankLines: false
   exclusions:
     rules:
       # Keep long user-facing strings whole; Go style says not to split them.
