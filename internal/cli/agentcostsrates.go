@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -20,15 +21,12 @@ type ratesView struct {
 	Rows     []rateRow         `json:"rows"`
 }
 
+// rateRow is one model prefix's rate as --json prints it, with whether the
+// rate calibrated from the tools' own cost records disagrees with it.
 type rateRow struct {
-	Model        string  `json:"model"`
-	Input        float64 `json:"input"`
-	Output       float64 `json:"output"`
-	CacheWrite5m float64 `json:"cache_write_5m"`
-	CacheWrite1h float64 `json:"cache_write_1h"`
-	CacheRead    float64 `json:"cache_read"`
-	Source       string  `json:"source"`
-	Disagrees    bool    `json:"calibrated_disagrees,omitempty"`
+	Model string `json:"model"`
+	costs.Rate
+	Disagrees bool `json:"calibrated_disagrees,omitempty"`
 }
 
 func agentCostsRatesCommand(o *options) *cobra.Command {
@@ -75,30 +73,10 @@ func ratesCard(card costs.Card) ratesView {
 		view.Official[tool] = fetched.Local().Format(time.DateOnly)
 	}
 	disagree := card.Disagreements()
-	for _, model := range slices.Sorted(mapKeys(card.Rows)) {
-		r := card.Rows[model]
-		view.Rows = append(view.Rows, rateRow{
-			model,
-			r.Input,
-			r.Output,
-			r.CacheWrite5m,
-			r.CacheWrite1h,
-			r.CacheRead,
-			r.Source,
-			disagree[model],
-		})
+	for _, model := range slices.Sorted(maps.Keys(card.Rows)) {
+		view.Rows = append(view.Rows, rateRow{model, card.Rows[model], disagree[model]})
 	}
 	return view
-}
-
-func mapKeys[V any](m map[string]V) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
-	}
 }
 
 func costsRates(card costs.Card, view ratesView, width int) string {

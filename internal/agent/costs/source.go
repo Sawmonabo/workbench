@@ -380,8 +380,12 @@ func isTier(name string) bool {
 
 // Rate is USD per million tokens for each token kind.
 type Rate struct {
-	Input, Output, CacheWrite5m, CacheWrite1h, CacheRead float64
-	Source                                               string // "override", "official", "calibrated" or "builtin"
+	Input        float64 `json:"input"`
+	Output       float64 `json:"output"`
+	CacheWrite5m float64 `json:"cache_write_5m"`
+	CacheWrite1h float64 `json:"cache_write_1h"`
+	CacheRead    float64 `json:"cache_read"`
+	Source       string  `json:"source"` // "override", "official", "calibrated" or "builtin"
 }
 
 // RateCard maps a model prefix to its rate.
