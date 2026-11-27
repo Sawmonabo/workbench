@@ -322,9 +322,9 @@ func PriceLists(ledger string) []string {
 // A file that is missing, is not a plain file (see
 // [operation.OpenRegularFile]) or does not parse fills nothing for its tool,
 // whose list the import then downloads. The read has no bound: the list was
-// written from a page of up to 16 MiB, into the ledger's private folder. A list without one
-// complete row still fills its price_lists row, which keeps when the page was
-// last asked, so the import still asks at most once a day.
+// written from a page of up to 16 MiB, into the ledger's private folder. A
+// list without one complete row still fills its price_lists row, which keeps
+// when the page was last asked, so the import still asks at most once a day.
 //
 // The ledger's folder moving under agent/ while it reads (see
 // [MoveAgentFolders]) leaves a file where the lists were, which would fill
