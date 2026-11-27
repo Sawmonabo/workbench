@@ -18,6 +18,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
@@ -470,7 +471,7 @@ func ratesLabel(tool string) string {
 
 // cachedText is the rates note of a price list kept as it is, age old.
 func cachedText(label string, age time.Duration) string {
-	return fmt.Sprintf("%s: cached (%.1fd old)", label, age.Hours()/24)
+	return label + ": cached (" + display.Duration(age) + " old)"
 }
 
 // refreshOfficial is a conditional GET of the tool's pricing page, made with
@@ -588,14 +589,9 @@ func refreshIfNeeded(ctx context.Context, ledger *Ledger, home string) string {
 		case sinceCheck >= ratesRetry:
 			msg = refreshOfficial(ctx, ledger, tool, true)
 		case len(cached.rates()) > 0:
-			msg = fmt.Sprintf("%s, retry in %.0fh", cachedText(label, age),
-				(ratesRetry - sinceCheck).Hours())
+			msg = cachedText(label, age) + ", retry in " + display.Duration(ratesRetry-sinceCheck)
 		default:
-			msg = fmt.Sprintf(
-				"%s: no official card, retry in %.0fh",
-				label,
-				(ratesRetry - sinceCheck).Hours(),
-			)
+			msg = label + ": no official card, retry in " + display.Duration(ratesRetry-sinceCheck)
 		}
 		if len(unpriced) > 0 {
 			var names []string
