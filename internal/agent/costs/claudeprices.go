@@ -2,8 +2,6 @@ package costs
 
 import (
 	"os"
-	"regexp"
-	"strconv"
 	"strings"
 )
 
@@ -61,17 +59,6 @@ func (claude) Builtin() RateCard {
 	return card
 }
 
-var (
-	moneyPattern  = regexp.MustCompile(`\$\s*([0-9]+(?:\.[0-9]+)?)`)
-	markupPattern = regexp.MustCompile(
-		"[`*_]|<[^>]*>|\\[|\\]\\([^)]*\\)",
-	) // emphasis, HTML tags, link targets
-	notePattern = regexp.MustCompile(
-		`\s*\(.*$`,
-	) // a trailing note such as "(retired)"
-	spacePattern = regexp.MustCompile(`[.\s]+`)
-)
-
 // normalizeModel turns 'Claude Opus 5.5' into 'claude-opus-5-5'; an id is
 // returned as is. A cell that names several models ('/', ',', ' and ') or none
 // gives "".
@@ -114,19 +101,6 @@ func containsAny(s string, parts []string) bool {
 		}
 	}
 	return false
-}
-
-// money reads the dollar amount of cell j.
-func money(cells []string, j int) (float64, bool) {
-	if j < 0 || j >= len(cells) {
-		return 0, false
-	}
-	m := moneyPattern.FindStringSubmatch(cells[j])
-	if m == nil {
-		return 0, false
-	}
-	v, err := strconv.ParseFloat(m[1], 64)
-	return v, err == nil
 }
 
 // pricedModels are the model ids the first cell of a price table row prices.
