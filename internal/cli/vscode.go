@@ -10,8 +10,8 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// maxVSCodeSettings is the largest settings file the filter reads.
-const maxVSCodeSettings = 16 << 20
+// maxFilterInput is the largest settings file a filter reads.
+const maxFilterInput = 16 << 20
 
 // vscodeSettingsCommand is the filter the VS Code settings modify_ sources
 // run:
@@ -32,18 +32,14 @@ func vscodeSettingsCommand(o *options) *cobra.Command {
 	}
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		managed := []byte(args[0])
-		existing, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxVSCodeSettings+1))
+		const lead = "VS Code settings.json was left unchanged: "
+		existing, err := o.filterInput(cmd, "vscode_settings", lead)
 		if err != nil {
-			return o.filterFailure(cmd, err, "")
-		}
-		if len(existing) > maxVSCodeSettings {
-			return o.filterFailure(cmd, operation.Fail(
-				operation.ExitBlocked, "vscode_settings", "it is larger than 16 MiB",
-			), "VS Code settings.json was left unchanged: ")
+			return err
 		}
 		merged, err := machine.MergeVSCodeSettings(existing, managed)
 		if err != nil {
-			return o.filterFailure(cmd, err, "VS Code settings.json was left unchanged: ")
+			return o.filterFailure(cmd, err, lead)
 		}
 		// An empty output would make native remove the file.
 		if len(merged) == 0 {
@@ -57,6 +53,22 @@ func vscodeSettingsCommand(o *options) *cobra.Command {
 		return nil
 	}
 	return cmd
+}
+
+// filterInput reads a filter's standard input, a settings file of at most
+// maxFilterInput bytes, and refuses a larger one under category, saying so
+// after lead.
+func (o *options) filterInput(cmd *cobra.Command, category, lead string) ([]byte, error) {
+	existing, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxFilterInput+1))
+	if err != nil {
+		return nil, o.filterFailure(cmd, err, "")
+	}
+	if len(existing) > maxFilterInput {
+		return nil, o.filterFailure(cmd, operation.Fail(
+			operation.ExitBlocked, category, "it is larger than 16 MiB",
+		), lead)
+	}
+	return existing, nil
 }
 
 // filterFailure says err in one line on standard error, after lead, and hands

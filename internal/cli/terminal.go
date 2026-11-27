@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"io"
 
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
@@ -49,15 +48,10 @@ func terminalDefaultCommand(o *options) *cobra.Command {
 				"give one of a GUID, --current or --lists",
 			), "")
 		}
-		existing, err := io.ReadAll(io.LimitReader(cmd.InOrStdin(), maxVSCodeSettings+1))
-		if err != nil {
-			return o.filterFailure(cmd, err, "")
-		}
 		const lead = "Windows Terminal settings.json was left unchanged: "
-		if len(existing) > maxVSCodeSettings {
-			return o.filterFailure(cmd, operation.Fail(
-				operation.ExitBlocked, "terminal_settings", "it is larger than 16 MiB",
-			), lead)
+		existing, err := o.filterInput(cmd, "terminal_settings", lead)
+		if err != nil {
+			return err
 		}
 		if lists {
 			text, err := machine.TerminalLists(existing)
