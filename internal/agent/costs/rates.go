@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"math"
 	"net/http"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/release"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
@@ -27,6 +27,7 @@ const (
 	ratesMaxAge  = 7 * 24 * time.Hour // refetch the official card after this
 	ratesRetry   = 24 * time.Hour     // but never try more often than this
 	fetchTimeout = 5 * time.Second
+	pageLimit    = 16 << 20 // the largest price page read; a longer one fails
 )
 
 // sourceOrder ranks where a rate came from, for rates that are equally
@@ -474,8 +475,8 @@ func cachedText(label string, age time.Duration) string {
 	return label + ": cached (" + display.Duration(age) + " old)"
 }
 
-// refreshOfficial is a conditional GET of the tool's pricing page, made with
-// no transaction open, and then one short transaction that stores the list it
+// refreshOfficial is a conditional GET of the tool's pricing page (see
+// [release.Get]), made with no transaction open, and then one short transaction that stores the list it
 // brought (see [Ledger.replaceOfficial]); it needs no import lock. It is best
 // effort: any failure, or a page that holds no price, keeps the tool's prices,
 // records the attempt time and returns a one-line reason. Without force a
@@ -499,33 +500,19 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	// The timeout bounds the download only; the ledger is written with ctx.
 	download, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
-	req, err := http.NewRequestWithContext(download, http.MethodGet, url, nil)
-	if err != nil {
-		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
-	}
-	req.Header.Set("User-Agent", "workbench-costs")
+	header := http.Header{"User-Agent": {"workbench-costs"}}
 	if cached.ETag != "" {
-		req.Header.Set("If-None-Match", cached.ETag)
+		header.Set("If-None-Match", cached.ETag)
 	}
 	if cached.LastModified != "" {
-		req.Header.Set("If-Modified-Since", cached.LastModified)
+		header.Set("If-Modified-Since", cached.LastModified)
 	}
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
-	}
-	defer func() { _ = resp.Body.Close() }()
+	body, response, err := release.Get(download, url, pageLimit, "", header)
 	switch {
-	case resp.StatusCode == http.StatusNotModified && len(cached.rates()) > 0:
+	case errors.Is(err, release.ErrNotModified) && len(cached.rates()) > 0:
 		fetched = epoch(time.Now())
 		return keep(label + ": official card not modified")
-	case resp.StatusCode != http.StatusOK:
-		return keep(
-			fmt.Sprintf("%s: fetch failed (HTTP %d); keeping cached card", label, resp.StatusCode),
-		)
-	}
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
-	if err != nil {
+	case err != nil:
 		return keep(fmt.Sprintf("%s: fetch failed (%v); keeping cached card", label, err))
 	}
 	parsed := tool.Source.ParsePricing(string(body))
@@ -535,8 +522,8 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	file := officialFile{
 		FetchedAt:    epoch(time.Now()),
 		CheckedAt:    epoch(time.Now()),
-		ETag:         resp.Header.Get("ETag"),
-		LastModified: resp.Header.Get("Last-Modified"),
+		ETag:         response.Get("ETag"),
+		LastModified: response.Get("Last-Modified"),
 		URL:          url,
 		Rates:        map[string]map[string]float64{},
 	}
