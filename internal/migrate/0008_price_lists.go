@@ -25,7 +25,7 @@ import (
 var priceLists = Migration{
 	ID:    "0008-price-lists",
 	Title: "Delete the price lists the costs ledger keeps",
-	Doing: "deleting the price lists the costs ledger keeps",
+	Doing: "opening the costs ledger, upgrading it when it is older (this can take a minute), and deleting the price lists it keeps",
 	What: "Opens the costs ledger, which keeps the official prices the import downloads and, " +
 		"when it is of an older schema, takes them from the price lists beside it, then " +
 		"deletes those lists (<tool>/rates-official.json in Workbench's data folder, " +
