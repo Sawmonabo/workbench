@@ -141,14 +141,14 @@ func get(
 		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
-			fmt.Sprintf("Release asset unavailable (HTTP %d)", response.StatusCode),
+			fmt.Sprintf("Download unavailable (HTTP %d)", response.StatusCode),
 		)
 	}
 	if response.ContentLength > limit {
 		return nil, nil, operation.Fail(
 			operation.ExitFailed,
 			"download",
-			"Release asset exceeds the download bound",
+			"Download exceeds its size bound",
 		)
 	}
 	body := counted(
