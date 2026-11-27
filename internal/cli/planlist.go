@@ -319,9 +319,9 @@ func wrapLabelled(label, names string, width int, note, emph string) []listLine 
 		last.Text += joined
 		return out
 	}
-	indent := strings.Repeat(" ", len(label)+1)
+	indent := ansi.StringWidth(label) + 1
 	own := faint.Render(note) + bold.Render(emph)
-	return append(out, listLine{Text: indent + fit(own, width-len(indent), false)})
+	return append(out, listLine{Text: strings.Repeat(" ", indent) + fit(own, width-indent, false)})
 }
 
 // noteLines are what the plan says besides its rows: the prerequisites and,
