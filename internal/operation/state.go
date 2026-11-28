@@ -38,22 +38,23 @@ type PartialOperation struct {
 }
 
 // Unfinished returns the blocked error when the state records an unfinished
-// operation that this scope may not replace: one for another scope or, when own
-// is given, one whose ID is not in own. Callers check it before overwriting
-// PartialOperation, which holds a single record.
-func (s *State) Unfinished(scope Scope, own ...string) error {
+// operation that c's scope may not replace: one for another scope or, when own
+// is given, one whose ID is not in own. Its fix is the apply of the recorded
+// destination, which finishes that operation first. Callers check it before
+// overwriting PartialOperation, which holds a single record.
+func (s *State) Unfinished(c Context, own ...string) error {
 	if s == nil || s.PartialOperation == nil {
 		return nil
 	}
 	partial := s.PartialOperation
-	if partial.Scope == scope && (len(own) == 0 || slices.Contains(own, partial.ID)) {
+	if partial.Scope == c.Scope && (len(own) == 0 || slices.Contains(own, partial.ID)) {
 		return nil
 	}
 	return Fail(
 		ExitBlocked,
 		"recovery",
 		"Apply "+partial.ID+" to "+display.Path(partial.Scope.Root)+" did not finish",
-		FixText("apply to that destination again first"),
+		FixText(c.ApplyCommand(partial.Scope.Root)),
 	)
 }
 

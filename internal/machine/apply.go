@@ -177,7 +177,7 @@ func (a *applyRun) write() error {
 	}
 	// The single partial-operation record is replaced or cleared below;
 	// another destination's unfinished apply must not be.
-	if err = state.Unfinished(a.c.Scope); err != nil {
+	if err = state.Unfinished(a.c); err != nil {
 		return err
 	}
 	settled, err := operation.SettleUnfinished(a.m, a.prepared.unfinished)

@@ -494,11 +494,7 @@ func Recover(
 				if err != nil {
 					return err
 				}
-				if err = state.Unfinished(
-					c.Scope,
-					cp.record.ID,
-					cp.journal.OperationID,
-				); err != nil {
+				if err = state.Unfinished(c, cp.record.ID, cp.journal.OperationID); err != nil {
 					return err
 				}
 			}
