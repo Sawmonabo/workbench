@@ -3,6 +3,7 @@ package costs
 import (
 	"iter"
 	"slices"
+	"strconv"
 )
 
 // The evidence the account (email) and the subscription of a row each rest on,
@@ -21,16 +22,40 @@ const (
 	EvidenceUnknown  = "unknown" // no evidence (a row keeps an email an earlier build stored, which no report shows)
 )
 
-// evidenceLevels are the evidence levels, weakest first: a level's index is
-// its rank (evidenceRank), which the ledger stores.
+// The ranks of the evidence levels, weakest first, the one place their order
+// is stated: the ledger stores a field's evidence as its rank, and a stronger
+// level has a higher one.
+const (
+	rankUnknown = iota
+	rankInferred
+	rankObserved
+	rankSession
+	rankTranscript
+)
+
+// evidenceLevels are the evidence levels by rank.
 var evidenceLevels = [...]string{
-	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+	rankUnknown:    EvidenceUnknown,
+	rankInferred:   EvidenceInferred,
+	rankObserved:   EvidenceObserved,
+	rankSession:    EvidenceSession,
+	rankTranscript: EvidenceTranscript,
 }
 
-// evidenceRank orders the evidence levels: 4 transcript, 3 session, 2
-// observed, 1 inferred, 0 unknown or anything else.
+// The ranks the ledger's SQL compares stored evidence with, as SQL integer
+// literals. A rank is part of a statement's text, never a bound value:
+// SQLite reads responses_open only for a query that states the index's
+// condition (openRows) in the same words.
+var (
+	sqlUnknown    = strconv.Itoa(rankUnknown)
+	sqlInferred   = strconv.Itoa(rankInferred)
+	sqlTranscript = strconv.Itoa(rankTranscript)
+)
+
+// evidenceRank is the rank of an evidence level, rankUnknown for anything
+// else.
 func evidenceRank(evidence string) int {
-	return max(slices.Index(evidenceLevels[:], evidence), 0)
+	return max(slices.Index(evidenceLevels[:], evidence), rankUnknown)
 }
 
 // evidenceWord is the evidence level of a stored rank.
@@ -45,7 +70,7 @@ func evidenceWord(rank int64) string {
 // no evidence level: evidenceRank ranks it as unknown.
 func storedRank(word []byte) (rank int, ok bool) {
 	rank = evidenceRank(string(word))
-	return rank, rank > 0 || string(word) == EvidenceUnknown
+	return rank, rank > rankUnknown || string(word) == EvidenceUnknown
 }
 
 // Evidence counts rows by the level of evidence one field of them rests on.
@@ -59,7 +84,13 @@ type Evidence struct {
 
 // counts are e's counts by rank (evidenceLevels).
 func (e *Evidence) counts() [len(evidenceLevels)]*int64 {
-	return [...]*int64{&e.Unknown, &e.Inferred, &e.Observed, &e.Session, &e.Transcript}
+	return [...]*int64{
+		rankUnknown:    &e.Unknown,
+		rankInferred:   &e.Inferred,
+		rankObserved:   &e.Observed,
+		rankSession:    &e.Session,
+		rankTranscript: &e.Transcript,
+	}
 }
 
 // add counts n rows at a level by its rank (evidenceRank); any other rank
@@ -67,7 +98,7 @@ func (e *Evidence) counts() [len(evidenceLevels)]*int64 {
 func (e *Evidence) add(rank int, n int64) {
 	counts := e.counts()
 	if rank < 0 || rank >= len(counts) {
-		rank = 0
+		rank = rankUnknown
 	}
 	*counts[rank] += n
 }

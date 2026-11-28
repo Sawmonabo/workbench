@@ -129,7 +129,8 @@ func accountsQuery(
 		return "", nil, err
 	}
 	if len(learned) > 0 {
-		conds = append(conds, `(subscription_source IN (4, 1) AND account_source < 4
+		conds = append(conds, `(subscription_source IN (`+sqlTranscript+`, `+sqlInferred+
+			`) AND account_source < `+sqlTranscript+`
 		   AND subscription IN (SELECT value FROM json_each(?)))`)
 		args = append(args, jsonText(slices.Sorted(maps.Values(learned))))
 	}
@@ -146,8 +147,8 @@ func accountsQuery(
 				since = basis.stretches[tool].start(basis.marked)
 			}
 			cond, bound := sinceBound("ts >= ?", since)
-			conds = append(conds, "(tool = ? AND "+cond+" AND account_source IN (0, 1) AND ("+
-				openRows+"))")
+			conds = append(conds, "(tool = ? AND "+cond+" AND account_source IN ("+sqlUnknown+
+				", "+sqlInferred+") AND ("+openRows+"))")
 			args = append(append(args, id), bound...)
 		}
 	}

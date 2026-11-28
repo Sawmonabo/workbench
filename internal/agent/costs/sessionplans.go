@@ -72,11 +72,11 @@ func fillSessionPlans(ctx context.Context, tx *sql.Tx, names *nameSet) error {
 				continue
 			}
 			account, accountSource := r.account, any(nil)
-			if from.emailNamed && r.accountRank < evidenceRank(EvidenceTranscript) {
-				account, accountSource = from.account, evidenceRank(EvidenceTranscript)
+			if from.emailNamed && r.accountRank < rankTranscript {
+				account, accountSource = from.account, rankTranscript
 			}
 			if _, err := tx.ExecContext(ctx,
-				`UPDATE responses SET subscription = ?, subscription_source = 4,
+				`UPDATE responses SET subscription = ?, subscription_source = `+sqlTranscript+`,
 				   account = ?, account_source = COALESCE(?, account_source)
 				 WHERE id = ?`,
 				from.subscription, account, accountSource, r.id,
@@ -104,12 +104,14 @@ type planRow struct {
 // group) that holds rows with and without a subscription their transcript
 // named.
 func mixedPlanRows(ctx context.Context, tx *sql.Tx, toolID int64, group string) ([]planRow, error) {
+	// Whether a row's transcript named its subscription, and its email.
+	named, emailNamed := "subscription_source = "+sqlTranscript, "account_source = "+sqlTranscript
 	rows, err := tx.QueryContext(ctx, `
 		WITH mixed AS (
 		  SELECT `+group+` FROM responses WHERE +tool = ?1 GROUP BY `+group+`
-		  HAVING MAX(subscription_source = 4) = 1 AND MIN(subscription_source = 4) = 0)
+		  HAVING MAX(`+named+`) = 1 AND MIN(`+named+`) = 0)
 		SELECT id, request_id, `+group+`, root, IFNULL(ts, ?2), subscription,
-		       subscription_source = 4, account, account_source = 4, account_source
+		       `+named+`, account, `+emailNamed+`, account_source
 		FROM responses WHERE +tool = ?1 AND `+group+` IN (SELECT `+group+` FROM mixed)`,
 		toolID, int64(noTime))
 	if err != nil {

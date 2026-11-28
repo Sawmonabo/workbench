@@ -264,17 +264,17 @@ func (r accountRow) update(want attribution) (next accountRow, ok bool) {
 	switch {
 	case want.byOrg && want.source != "":
 		next.accountSource = EvidenceUnknown
-		if named && rank > 0 {
+		if named && rank > rankUnknown {
 			next.account, next.accountSource = want.account, want.source
 		}
 		return next, next != r
 	case want.byOrg:
 		return r, false
 	}
-	if rank > 0 && rank >= evidenceRank(r.accountSource) && named {
+	if rank > rankUnknown && rank >= evidenceRank(r.accountSource) && named {
 		next.account, next.accountSource = want.account, want.source
 	}
-	if rank > 0 && rank >= evidenceRank(r.subscriptionSource) &&
+	if rank > rankUnknown && rank >= evidenceRank(r.subscriptionSource) &&
 		want.subscription != "" && want.subscription != "unknown" {
 		next.subscription, next.subscriptionSource = want.subscription, want.source
 	}

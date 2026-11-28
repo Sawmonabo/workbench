@@ -62,13 +62,13 @@ CREATE TABLE tier_pending (
 // of a thread root, and the rows whose account or plan is still open to
 // correction by time, which the account resolution reads (accountsQuery
 // states openRows in the same words, or SQLite cannot use the index).
-const responseIndexes = `
+var responseIndexes = `
 CREATE INDEX responses_root ON responses (tool, root);
 CREATE INDEX responses_open ON responses (tool, ts) WHERE ` + openRows + `;
 `
 
 // openRows is true for a row with a field its transcript did not decide.
-const openRows = "account_source < 4 OR subscription_source < 4"
+var openRows = "account_source < " + sqlTranscript + " OR subscription_source < " + sqlTranscript
 
 // The kinds of names.
 const (
@@ -80,7 +80,7 @@ const (
 	nameSubscription
 )
 
-const schema = responseSchema + responseIndexes + `
+var schema = responseSchema + responseIndexes + `
 CREATE TABLE files (
   path      TEXT PRIMARY KEY,
   offset    INTEGER NOT NULL,

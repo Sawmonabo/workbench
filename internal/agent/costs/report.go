@@ -442,7 +442,7 @@ func loadGroups(
 // earlier build stamped with whoever was signed in when it read the row, which
 // says nothing of who made it.
 func shownAccount(r response) string {
-	if r.accountRank == 0 {
+	if r.accountRank == rankUnknown {
 		return "unknown"
 	}
 	return r.account

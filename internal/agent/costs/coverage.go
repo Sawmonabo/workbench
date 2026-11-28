@@ -48,10 +48,11 @@ func (t *coverageTally) add(r response) {
 		t.first = r.ts
 	}
 	t.last = max(t.last, r.ts)
-	if r.accountRank == 4 && (!t.accountNamed || r.ts < t.accountSince) {
+	if r.accountRank == rankTranscript && (!t.accountNamed || r.ts < t.accountSince) {
 		t.accountSince, t.accountNamed = r.ts, true
 	}
-	if r.subscriptionRank == 4 && (!t.subscriptionNamed || r.ts < t.subscriptionSince) {
+	if r.subscriptionRank == rankTranscript &&
+		(!t.subscriptionNamed || r.ts < t.subscriptionSince) {
 		t.subscriptionSince, t.subscriptionNamed = r.ts, true
 	}
 	t.account.add(r.accountRank, 1)
