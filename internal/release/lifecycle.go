@@ -567,15 +567,9 @@ func checkEntryPoint(entry string, known []*operation.ReleaseRecord) error {
 }
 
 func runtimeEnvironment(c operation.Context) []string {
-	return []string{
-		"HOME=" + c.Home,
-		"PATH=/usr/bin:/bin",
-		"WORKBENCH_CONFIG_DIR=" + c.Paths.Config,
-		"WORKBENCH_DATA_DIR=" + c.Paths.Data,
-		"WORKBENCH_STATE_DIR=" + c.Paths.State,
-		"WORKBENCH_CACHE_DIR=" + c.Paths.Cache,
-		"WORKBENCH_BIN_DIR=" + c.Paths.Bin,
-	}
+	environment := []string{"HOME=" + c.Home, "PATH=/usr/bin:/bin"}
+	environment = append(environment, c.Paths.RuntimeVariables()...)
+	return append(environment, "WORKBENCH_BIN_DIR="+c.Paths.Bin)
 }
 
 // checkRuntime has the staged executable validate its own source and contract

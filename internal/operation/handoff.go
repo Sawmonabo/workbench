@@ -62,12 +62,9 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 	environment := []string{
 		"HOME=" + c.Home,
 		"PATH=" + strings.Join(search, string(os.PathListSeparator)),
-		"WORKBENCH_CONFIG_DIR=" + c.Paths.Config,
-		"WORKBENCH_DATA_DIR=" + c.Paths.Data,
-		"WORKBENCH_STATE_DIR=" + c.Paths.State,
-		"WORKBENCH_CACHE_DIR=" + c.Paths.Cache,
-		"WORKBENCH_BIN_DIR=" + c.Paths.Bin,
 	}
+	environment = append(environment, c.Paths.RuntimeVariables()...)
+	environment = append(environment, "WORKBENCH_BIN_DIR="+c.Paths.Bin)
 	environment = append(environment, passedThrough(handoffVariables)...)
 	environment = append(environment, NetworkEnvironment()...)
 	environment = append(environment, passedThrough(agentVariables)...)

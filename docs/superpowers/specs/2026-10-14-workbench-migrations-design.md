@@ -297,8 +297,9 @@ chezmoi gives every script one environment, so the apply adds to every
 script's environment, for its probe and its run:
 
 - **The resolved runtime folders**, `WORKBENCH_{CONFIG,DATA,STATE,CACHE}_DIR`,
-  as `Handoff` in `operation/handoff.go` and `runtimeEnvironment` in
-  `release/lifecycle.go` already pass them. Only Workbench reads these.
+  from `Paths.RuntimeVariables` in `operation/context.go`, which `Handoff` in
+  `operation/handoff.go` and `runtimeEnvironment` in `release/lifecycle.go`
+  pass too. Only Workbench reads these.
 - **The old locations' variables, under another name.** Each of
   `XDG_{DATA,STATE,CONFIG,CACHE}_HOME`, `CLAUDE_COSTS_LEDGER`,
   `CLAUDE_COSTS_STATE` and `CLAUDE_COSTS_CACHE` that is

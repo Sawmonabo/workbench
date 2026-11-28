@@ -62,13 +62,10 @@ func scriptEnvironment(
 	// Those reach the scripts as WORKBENCH_OLD_<NAME>, so no installer sees
 	// them, with their names in WORKBENCH_OLD_NAMES; home/.chezmoitemplates/
 	// old-locations.sh hands them back.
+	environment = append(environment, "WORKBENCH_BIN_DIR="+c.Paths.Bin)
+	environment = append(environment, c.Paths.RuntimeVariables()...)
 	environment = append(
 		environment,
-		"WORKBENCH_BIN_DIR="+c.Paths.Bin,
-		"WORKBENCH_CONFIG_DIR="+c.Paths.Config,
-		"WORKBENCH_DATA_DIR="+c.Paths.Data,
-		"WORKBENCH_STATE_DIR="+c.Paths.State,
-		"WORKBENCH_CACHE_DIR="+c.Paths.Cache,
 		"WORKBENCH_MIGRATIONS="+strings.Join(migrate.IDs(), " "),
 		"WORKBENCH_OLD_NAMES="+strings.Join(migrate.OldLocationVariables, " "),
 	)

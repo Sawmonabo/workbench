@@ -19,6 +19,21 @@ type Paths struct{ Config, Data, State, Cache, Bin string }
 // All are the five folders, in the order Config, Data, State, Cache, Bin.
 func (p Paths) All() []string { return []string{p.Config, p.Data, p.State, p.Cache, p.Bin} }
 
+// RuntimeVariables hand the four runtime folders to a Workbench process this
+// one starts, as NAME=value entries in the order Config, Data, State, Cache:
+// WORKBENCH_CONFIG_DIR, WORKBENCH_DATA_DIR, WORKBENCH_STATE_DIR and
+// WORKBENCH_CACHE_DIR, which [Resolve] reads before XDG and the platform's
+// defaults. The bin folder's WORKBENCH_BIN_DIR is not among them: each
+// environment that carries it lists it in its own place.
+func (p Paths) RuntimeVariables() []string {
+	return []string{
+		"WORKBENCH_CONFIG_DIR=" + p.Config,
+		"WORKBENCH_DATA_DIR=" + p.Data,
+		"WORKBENCH_STATE_DIR=" + p.State,
+		"WORKBENCH_CACHE_DIR=" + p.Cache,
+	}
+}
+
 // Entrypoint is the workbench command in the bin folder, the link that
 // activating a release points at its executable.
 func (p Paths) Entrypoint() string { return filepath.Join(p.Bin, "workbench") }
