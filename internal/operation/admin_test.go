@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // Prevent credential exposure: an apply at a terminal holds the Mac password so
@@ -22,6 +24,9 @@ import (
 // the sudo approval its answer left is dropped too. A stand-in script plays sudo
 // and records what it was given.
 func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
+	if !platform.ReadsPasswords {
+		t.Skip("no password can be read here (platform.ReadsPasswords)")
+	}
 	const wrong, right = "wrong-password", "right-password"
 	directory := t.TempDir()
 	log, stdin := filepath.Join(directory, "log"), filepath.Join(directory, "stdin")
@@ -141,6 +146,9 @@ func TestWithAdminKeepsThePasswordToTheApply(t *testing.T) {
 // SUDO_ASKPASS, and the approval it leaves is dropped when the apply ends. A
 // stand-in script plays sudo.
 func TestWithAdminAsksNothingItselfWhereSudoUsesTouchID(t *testing.T) {
+	if !platform.ReadsPasswords {
+		t.Skip("no password can be read here (platform.ReadsPasswords)")
+	}
 	directory := t.TempDir()
 	temp := filepath.Join(directory, "tmp")
 	if err := os.Mkdir(temp, 0o700); err != nil {

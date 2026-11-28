@@ -68,6 +68,10 @@ const GroupFromFolder = groupFromFolder
 // here: true on macOS, false on Linux.
 const TouchIDPossible = touchIDPossible
 
+// ReadsPasswords reports whether ReadPassword reads a password at a terminal
+// here: true on macOS, and false on Linux, where ReadPassword always fails.
+const ReadsPasswords = readsPasswords
+
 // KnowsOriginalParent reports whether ProcessLineage names the process that
 // forked one even after that parent exited, as macOS's kernel records it and
 // Linux's does not.

@@ -12,11 +12,6 @@ import (
 // termiosRequest is the ioctl request that reads a terminal's settings.
 const termiosRequest = unix.TIOCGETA
 
-// askpassSupported says the apply asks for the Mac password here and makes the
-// password helper, kept to the apply's own processes by the ancestry of
-// whichever process connects to its socket; elsewhere no helper is made.
-const askpassSupported = true
-
 // passwordLimit bounds what readPassword keeps of one typed line.
 const passwordLimit = 1024
 

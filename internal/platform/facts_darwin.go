@@ -74,6 +74,10 @@ const groupFromFolder = true
 // touchIDPossible is true: sudo can be set up to ask for Touch ID here.
 const touchIDPossible = true
 
+// readsPasswords is true: readPassword reads a password at a terminal with
+// echo off.
+const readsPasswords = true
+
 // knowsOriginalParent is true: macOS's kernel records the process that forked
 // one even after that parent exited (see processLineage).
 const knowsOriginalParent = true

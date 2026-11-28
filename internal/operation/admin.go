@@ -105,8 +105,9 @@ func TouchIDForSudo() bool {
 // Where sudo already asks for Touch ID (see [TouchIDForSudo]) Workbench reads no
 // password and makes no helper; see [Admin.withTouchID].
 //
-// Without a terminal, or off macOS, nothing is asked and no helper is made: a
-// plan that must install Homebrew finds a valid ticket or ends as Refusal says.
+// Without a terminal, or off macOS, where no password can be read
+// ([platform.ReadsPasswords]), nothing is asked and no helper is made: a plan
+// that must install Homebrew finds a valid ticket or ends as Refusal says.
 func WithAdmin(
 	ctx context.Context,
 	c Context,

@@ -88,6 +88,10 @@ const groupFromFolder = false
 // touchIDPossible is false: sudo cannot be set up to ask for Touch ID here.
 const touchIDPossible = false
 
+// readsPasswords is false: Workbench asks for no password on Linux or WSL,
+// so readPassword is not implemented here.
+const readsPasswords = false
+
 // knowsOriginalParent is false: Linux keeps no record of the process that
 // forked one once that parent exits and another adopts the child.
 const knowsOriginalParent = false

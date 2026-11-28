@@ -24,10 +24,11 @@ func TerminalSize(fd uintptr) (width, height int, err error) {
 	return int(size.Col), int(size.Row), nil
 }
 
-// ReadPassword reads a line from terminal with echo off, ending with ctx.
+// ReadPassword reads a line a person types at terminal with echo off, ending
+// with ctx, and keeps at most its first 1024 bytes, without the newline. It
+// never leaves a read waiting, echo is restored however it ends, and the
+// terminal stays canonical, so ctrl+c still signals. Where ReadsPasswords is
+// false, as on Linux, it always fails.
 func ReadPassword(ctx context.Context, terminal *os.File) (string, error) {
 	return readPassword(ctx, terminal)
 }
-
-// ReadsPasswords reports whether ReadPassword reads a password here.
-const ReadsPasswords = askpassSupported
