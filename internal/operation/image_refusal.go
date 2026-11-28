@@ -116,13 +116,6 @@ func (h holder) fix(command []string, path string) Part {
 	return noFix{}
 }
 
-// retry ends a one-sentence refusal of path with the command that clears its
-// cause, given as words a shell reads one by one and quoted where a shell
-// would read a character: "; run COMMAND PATH and retry".
-func retry(command []string, path string) string {
-	return "; run " + shellWords(command) + " " + shellHomePath(path) + " and retry"
-}
-
 // these is "that NOUN" for one, else "those NOUNs".
 func these(n int, noun string) string {
 	if n == 1 {

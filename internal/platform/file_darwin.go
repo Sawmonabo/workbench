@@ -197,9 +197,10 @@ const (
 )
 
 // aclBinds is kauth_acl_evaluate's rule for whether a's entry numbered entry
-// applies to this process, its GUID the entry's first 16 bytes in Data.
-// mbr_uid_to_uuid and mbr_check_membership (membership.h) return 0 or an
-// error code as their value, not -1 and errno, as Go's own getpwnam_r call in
+// applies to this process, its GUID the entry's first 16 bytes in Data. A
+// user whose GUID cannot be read counts as bound. mbr_check_membership
+// (membership.h), like mbr_uid_to_uuid (userUUID), returns 0 or an error
+// code as its value, not -1 and errno, as Go's own getpwnam_r call in
 // internal/syscall/unix/user_darwin.go reads it, so the result is the call's
 // first return.
 func aclBinds(a ACL, entry int) bool {
@@ -219,13 +220,8 @@ func aclBinds(a ACL, entry int) bool {
 			return false
 		}
 	}
-	var user [16]byte
-	if rc, _, _ := libcCall6(
-		mbrUIDToUUID,
-		uintptr(unix.Geteuid()),
-		uintptr(unsafe.Pointer(&user[0])),
-		0, 0, 0, 0,
-	); int32(rc) != 0 || user == holder {
+	user, err := userUUID(uint32(unix.Geteuid()))
+	if err != nil || user == holder {
 		return true
 	}
 	var member int32
