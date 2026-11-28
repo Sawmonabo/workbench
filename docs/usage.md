@@ -1149,10 +1149,11 @@ reported with the names of the changed files and a fix that keeps the edit
 as moved aside, writes what the checkpoint holds over nothing and says so in
 its plan (`~/.gitconfig is not there`, `result revert writes it as the
 checkpoint holds it`). A changed folder gets the `chmod` and `chgrp` that give
-back the mode and group Workbench wrote, and the commands that take off an
-attribute or ACL Workbench did not give it; a folder that lacks an attribute,
-ACL or hidden flag Workbench gave it keeps `undo those changes`, since no
-command gives one back without its value. Keep the reported checkpoint ID; do
+back the mode, group and hidden flag Workbench wrote, after the commands that
+take off an ACL Workbench did not give it and before those that take off such
+an attribute (on Linux `setfacl -b`, then `chmod 0755` and `chgrp`, then
+`setfattr -x NAME`); a folder that lacks an attribute or ACL Workbench gave it keeps
+`undo those changes`, since no command gives one back without its value. Keep the reported checkpoint ID; do
 not delete state to bypass a failure. A
 folder the apply created that now holds files Workbench did not write, such as
 `~/.config/tmux` with the tmux plugins a later step installed, stays with those
@@ -1190,8 +1191,9 @@ Workbench finished it` and `changed ~/.zshrc …`). Then the record is cleared,
 including when the plan changes no files because they already match, or the
 new apply's record replaces it. The stopped checkpoint keeps its images and
 stays revertable. A file whose group you may not give it, since you are not a
-member of that group, stops the plan with exit 5 (`~/.zshrc lacks its group
-wheel`, fix `sudo chgrp wheel ~/.zshrc`). An unfinished apply of another
+member of that group, stops the plan with exit 5, which names every such file
+and gives each its own fix line (`~/.zshrc lacks its group wheel`, fix `sudo
+chgrp wheel ~/.zshrc`). An unfinished apply of another
 destination blocks, with the command that applies there, and so does reverting
 a checkpoint other than the one the record names.
 

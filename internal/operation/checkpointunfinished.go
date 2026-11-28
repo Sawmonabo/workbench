@@ -75,6 +75,7 @@ func PlanUnfinished(c Context, state *State) (*Unfinished, error) {
 		u.Revert = true
 		return u, nil
 	}
+	var refused []lackedGroup
 	for i, known := range u.cp.journal.Known {
 		if known != outcomeUnknown {
 			continue
@@ -90,8 +91,12 @@ func PlanUnfinished(c Context, state *State) (*Unfinished, error) {
 			continue
 		}
 		if missing.group {
-			if err = settableGroup(c, u.ID, change.Path, *change.After.Group); err != nil {
+			permitted, err := canSetGroup(*change.After.Group)
+			if err != nil {
 				return nil, err
+			}
+			if !permitted {
+				refused = append(refused, lackedGroup{change.Path, *change.After.Group})
 			}
 		}
 		u.Targets = append(u.Targets, UnfinishedTarget{
@@ -103,25 +108,51 @@ func PlanUnfinished(c Context, state *State) (*Unfinished, error) {
 			newLabel: missing.newLabel,
 		})
 	}
+	if len(refused) > 0 {
+		return nil, groupRefusal(c, u.ID, refused)
+	}
 	return u, nil
 }
 
-// settableGroup refuses path, a file apply id left without group, the group
-// its approved image holds, when this user cannot give it that group: only
-// a member of a group may give a file it (chown(2)), and sudo may.
-func settableGroup(c Context, id, path string, group uint32) error {
-	permitted, err := canSetGroup(group)
-	if err != nil || permitted {
-		return err
+// lackedGroup is a file an unfinished apply left without group, the group
+// its approved image holds, which this user cannot give it.
+type lackedGroup struct {
+	path  string
+	group uint32
+}
+
+// groupRefusal refuses the files of refused, which apply id left without
+// the group its approved image holds, when this user cannot give them those
+// groups: only a member of a group may give a file it (chown(2)), and sudo
+// may. Each file gets its own sudo chgrp, so a copied line is one command.
+func groupRefusal(c Context, id string, refused []lackedGroup) error {
+	paths := make([]string, len(refused))
+	var groups []string
+	fixes := make([]Part, len(refused))
+	for i, r := range refused {
+		paths[i] = r.path
+		if name := groupName(r.group); !slices.Contains(groups, name) {
+			groups = append(groups, name)
+		}
+		fixes[i] = FixPath(r.path, "sudo", "chgrp", groupName(r.group))
+	}
+	headline := c.ShowPath(paths[0]) + " lacks its group " + groups[0]
+	cause := "apply " + id + " stopped after chezmoi wrote it, and you are not a member of group " +
+		groups[0] + ", so Workbench cannot give it that group"
+	if len(paths) > 1 {
+		which, those := "group "+groups[0], "that group"
+		if len(groups) > 1 {
+			which, those = "groups "+display.List(groups), "those groups"
+		}
+		headline = shownPaths(paths) + " lack their " + which
+		cause = "apply " + id + " stopped after chezmoi wrote them, and you are not a member of " +
+			which + ", so Workbench cannot give them " + those
 	}
 	return Fail(
 		ExitPartial,
 		"recovery",
-		c.ShowPath(path)+" lacks its group "+groupName(group),
-		Cause("apply "+id+" stopped after chezmoi wrote it, and you are not a member of group "+
-			groupName(group)+", so Workbench cannot give it that group"),
-		Changed("nothing"),
-		FixPath(path, "sudo", "chgrp", groupName(group)),
+		headline,
+		append([]Part{Cause(cause), Changed("nothing")}, fixes...)...,
 	)
 }
 
