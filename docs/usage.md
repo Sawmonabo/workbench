@@ -1134,9 +1134,9 @@ reverting a checkpoint other than the one the record names.
 
 A setup step that fails never stops the others: Workbench runs chezmoi with
 `--keep-going`, so every other step still runs. A step names what it could not
-do (`Runtime managers: blocked — nvm's installer could not be downloaded, so nvm
+do (`Runtime managers  blocked  nvm's installer could not be downloaded, so nvm
 was not installed`), and a step that needs one that did not finish says what is
-missing and skips only what needs it (`Language runtimes: blocked — nvm, uv not
+missing and skips only what needs it (`Language runtimes  blocked  nvm, uv not
 installed yet (earlier setup steps install them), so the runtimes that need them
 were skipped`). A script that ends nonzero without saying why is named too: it
 stopped with that exit status, and its output above says why. The apply then

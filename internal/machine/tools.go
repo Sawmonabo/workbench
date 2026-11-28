@@ -445,17 +445,21 @@ func wheelFiles(data []byte) (map[string][]byte, error) {
 	return files, nil
 }
 
-// InstallFix is the fix line that installs Workbench's tools: update, or
-// update --local-build in a checkout. update installs only Workbench's own
-// checked tool files and never asks, so a coding agent can run either; an
-// apply at a terminal installs them too, and is refused to an agent before it
-// installs anything (see the CLI's consent gate), so the fix never names it.
+// InstallFix is the fix lines that install Workbench's tools: update, or an
+// apply at a terminal, for a release; update --local-build for a checkout,
+// which installs the tools its versions.toml pins. update installs only
+// Workbench's own checked tool files and never asks, so a coding agent can
+// run either update; its apply is refused before it installs anything (see
+// the CLI's consent gate), so no line suggests an unattended apply.
 func InstallFix(c operation.Context) []operation.Part {
-	command := c.WorkbenchCommand() + " update"
+	command := c.WorkbenchCommand()
 	if c.Native.Developer {
-		command += " --local-build"
+		return []operation.Part{operation.FixText(command + " update --local-build")}
 	}
-	return []operation.Part{operation.FixText(command)}
+	return []operation.Part{
+		operation.FixText(command + " update"),
+		operation.FixText("or " + command + " apply at a terminal"),
+	}
 }
 
 // TomlkitPath is read-only and rechecks the trusted wheel and every installed

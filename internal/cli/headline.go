@@ -84,17 +84,37 @@ func fixCommandLines(lead, command string, width int) []string {
 // nbsp is the space the wrap never breaks at.
 const nbsp = "\u00a0"
 
-// keepQuoted is command with each space inside a single-quoted word (see
-// operation's shellWord) one the wrap never breaks at, so a fix line breaks
-// only between the words a shell reads.
+// keepQuoted is command with each space a shell reads as part of a word (in
+// '…' or $'…' quotes, or after a backslash, as operation's shellWord writes
+// them) one the wrap never breaks at, so a fix line breaks only between the
+// words a shell reads.
 func keepQuoted(command string) string {
 	var b strings.Builder
-	quoted := false
-	for _, r := range command {
+	const (
+		bare = iota
+		single
+		ansiC
+	)
+	state, escaped := bare, false
+	runes := []rune(command)
+	for i, r := range runes {
 		switch {
+		case escaped:
+			escaped = false
+		case r == '\\' && state != single:
+			escaped = true
+		case r == '\'' && state == bare:
+			state = single
+			if i > 0 && runes[i-1] == '$' {
+				state = ansiC
+			}
 		case r == '\'':
-			quoted = !quoted
-		case r == ' ' && quoted:
+			state = bare
+		case r == ' ' && state == bare:
+			b.WriteRune(r)
+			continue
+		}
+		if r == ' ' {
 			b.WriteString(nbsp)
 			continue
 		}

@@ -607,7 +607,7 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 	switch {
 	case readable && len(checked.Errors) > 0 && checked.Errors[0] != nil &&
 		strings.TrimSpace(checked.Errors[0].Message) != "":
-		cause = checked.Errors[0].Message
+		cause = checked.Errors[0].Error()
 	case err != nil:
 		cause = err.Error()
 	case !readable:
@@ -621,7 +621,9 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 	return operation.Fail(
 		operation.ExitBlocked,
 		"handoff",
-		"The new runtime failed its own check: "+cause+"; the installed runtime is kept",
+		"The new runtime failed its own check",
+		operation.Cause(cause),
+		operation.Line{Label: "kept", Text: "the installed runtime"},
 	)
 }
 

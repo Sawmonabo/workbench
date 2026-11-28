@@ -291,16 +291,16 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 	paint, warn := newPainter(out), newPainter(diagnostics)
 	for _, component := range result.Results {
 		// The machine plan prints as its own branded view, so its component
-		// line would only put "machine-plan: complete" before the brand.
+		// line would only put "machine-plan  complete" before the brand.
 		if plan, ok := component.Details.(operation.Plan); ok && component.Name == "machine-plan" {
 			if err := writePlanView(out, plan, verbose, false); err != nil {
 				return err
 			}
 			continue
 		}
-		line := cmp.Or(component.Title, component.Name) + ": " + string(component.Status)
+		line := cmp.Or(component.Title, component.Name) + "  " + string(component.Status)
 		if component.Message != "" {
-			line += " — " + component.Message
+			line += "  " + component.Message
 		}
 		var wrapped strings.Builder
 		writeHeadline(&wrapped, lineWidth(out), paint, paint.mark(component.Status), line,
