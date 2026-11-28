@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"slices"
 	"strings"
 
@@ -24,11 +23,17 @@ func (cp *Checkpoint) StartNative() error {
 	return cp.saveJournal()
 }
 
-// FinalizeNative restores only the approved group after native atomic creation
-// inherited its temporary directory's group, and the label a replaced target
-// had (see nativeLabel). Every target's expected content, type and mode is
-// checked first; unknown content never authorizes metadata edits. It is called
-// only following successful native execution.
+// FinalizeNative is the pass after native: it gives each target native wrote
+// what native's write leaves out. A file or link native replaced gets the ACL,
+// hidden flag and extended attributes the approved image carries from the one
+// it replaced, and a file native created, which took its label from native's
+// temporary folder, the label a file made in its own folder gets: Workbench
+// writes the approved image anew over native's (restageNative). Any other
+// target gets the approved group, which native's atomic creation may have
+// taken from its temporary folder, and the label a replaced target had (see
+// nativeLabel). Every target's expected content, type and mode is checked
+// first; unknown content never authorizes metadata edits. It is called only
+// following successful native execution.
 func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeMetadata(false) }
 
 // SettleFailedNative is FinalizeNative for a native run that failed (a script
@@ -68,6 +73,12 @@ func (cp *Checkpoint) restoreNativeMetadata(failed bool) error {
 		if !settled[i] || change.After.Kind == ImageAbsent {
 			continue
 		}
+		if missingCarried(change, observed[i]) || foreignLabel(change, observed[i]) {
+			if err := restageNative(c, change, observed[i]); err != nil && !failed {
+				return err
+			}
+			continue
+		}
 		label := nativeLabel(change, observed[i])
 		if *observed[i].Group == *change.After.Group && label == nil {
 			continue
@@ -98,16 +109,89 @@ func nativeLabel(change TargetChange, observed Image) []byte {
 	return label
 }
 
-// nativeOutput reads a target after a native run and returns it when it is the
-// approved image apart from a group that atomic creation may have inherited.
+// nativeImage reports whether current is what native wrote of change's
+// approved image before the pass after it: the approved image apart from the
+// group atomic creation may have taken from native's temporary folder, and,
+// on a file or link that replaced one of its kind, apart from the ACL and the
+// hidden flag native's new one lacks. Extended attributes are compared by
+// missingCarried and Finish.
+func nativeImage(current Image, change TargetChange) bool {
+	current.Group = change.After.Group
+	if carries(change) {
+		if current.ACL == nil {
+			current.ACL = change.After.ACL
+		}
+		current.Hidden = current.Hidden || change.After.Hidden
+	}
+	return sameImageContent(current, change.After)
+}
+
+// carries reports whether change's approved image carries the metadata of the
+// one it replaces (Carried): a file replacing a file, or a link a link.
+func carries(change TargetChange) bool {
+	kind := change.After.Kind
+	return change.Before.Kind == kind && (kind == ImageFile || kind == ImageSymlink)
+}
+
+// missingCarried reports whether observed, what native wrote of change, lacks
+// the ACL, hidden flag or an extended attribute the approved image carries
+// from the one it replaced.
+func missingCarried(change TargetChange, observed Image) bool {
+	return carries(change) && (!bytes.Equal(observed.ACL, change.After.ACL) ||
+		observed.Hidden != change.After.Hidden ||
+		!holdsAttributes(observed.Attributes, change.After.Attributes))
+}
+
+// foreignLabel reports whether observed is a file native made where no file
+// was, and holds a label: native stages a file in its temporary folder and a
+// rename keeps the label it got there (nativeLabel), not the one a file made
+// in its own folder gets.
+func foreignLabel(change TargetChange, observed Image) bool {
+	_, labeled := observed.Attributes[platform.LabelAttribute]
+	return labeled && observed.Kind == ImageFile && change.Before.Kind != ImageFile
+}
+
+// holdsAttributes reports whether held has each attribute of carried with its
+// value, apart from the label, which carryLabel's rule decides. held may have
+// more: the system adds some to a file it writes, such as macOS's provenance.
+func holdsAttributes(held, carried map[string][]byte) bool {
+	for name, value := range carried {
+		if name == platform.LabelAttribute {
+			continue
+		}
+		if other, ok := held[name]; !ok || !bytes.Equal(value, other) {
+			return false
+		}
+	}
+	return true
+}
+
+// restageNative writes change's approved image anew over observed, what
+// native wrote, with Workbench's own write (writeImage): a new file or link in
+// the target's own folder, with the approved data, group, attributes, mode,
+// hidden flag and ACL, renamed over native's once that is still there. A new
+// file made in its own folder gets the label the system gives a file there.
+func restageNative(c Context, change TargetChange, observed Image) error {
+	err := writeImage(c, change.Path, observed, change.After)
+	if problem, ok := errors.AsType[*Error](err); ok {
+		return Fail(
+			ExitPartial,
+			"native_image",
+			"chezmoi wrote "+display.Path(change.Path)+", and Workbench could not finish it: "+
+				problem.Message,
+		)
+	}
+	return err
+}
+
+// nativeOutput reads a target after a native run and returns it when it is
+// what native wrote of the approved image (nativeImage).
 func nativeOutput(c Context, change TargetChange) (Image, error) {
 	current, err := ReadImage(c, change.Path)
 	if err != nil {
 		return Image{}, err
 	}
-	comparison := current
-	comparison.Group = change.After.Group
-	if !sameImageContent(comparison, change.After) {
+	if !nativeImage(current, change) {
 		shown := display.Path(change.Path)
 		return Image{}, Fail(
 			ExitPartial,
@@ -115,7 +199,8 @@ func nativeOutput(c Context, change TargetChange) (Image, error) {
 			shown+" differs from what the plan approved after chezmoi wrote it, so Workbench did not change its group or label",
 		)
 	}
-	if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
+	if current.Kind == ImageSymlink && *current.Group != *change.After.Group &&
+		!missingCarried(change, current) {
 		return Image{}, Fail(
 			ExitBlocked,
 			"metadata",
@@ -146,19 +231,17 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 }
 
 // CheckPreservable is the native planner's check of one edit: it refuses
-// replacements of metadata native's replacement would not have
-// (nativeReplaceRefusal), group-exclusive modes of files and folders,
-// replacements that would change a target's group and files whose group
-// native's staging folder cannot keep.
+// group-exclusive modes of files and folders, replacements that would change
+// a target's group, files whose group native's staging folder cannot keep and
+// a folder the edit removes under an ACL entry that denies this user deleting
+// it (removedFolderACL). What native's replacement lacks of the file or link
+// it replaces, FinalizeNative gives it.
 func CheckPreservable(
 	c Context,
 	edit Edit,
 	before, after Image,
 	staging string,
 ) error {
-	if err := nativeReplaceRefusal(edit, before, after); err != nil {
-		return err
-	}
 	if edit.Action == "remove" && before.Kind == ImageDirectory {
 		if err := removedFolderACL(edit.Path); err != nil {
 			return err
@@ -199,56 +282,6 @@ func CheckPreservable(
 	return nil
 }
 
-// nativeReplaceRefusal refuses an edit in which native writes a new file or
-// link in place of before, a file or link, that has what native's
-// replacement does not have and the pass after native (FinalizeNative) does
-// not put back: the hidden flag, an ACL, or an extended attribute but the
-// label, which nativeLabel puts back, and, on macOS, the four small ones
-// macOS adds that grant no access: download provenance and quarantine,
-// Finder flags and the last used date. It checks them in that order, names
-// the first it finds and gives the command that removes it.
-func nativeReplaceRefusal(edit Edit, before, after Image) error {
-	replaced := func(kind ImageKind) bool { return kind == ImageFile || kind == ImageSymlink }
-	if edit.Action == "remove" || !replaced(before.Kind) || !replaced(after.Kind) {
-		return nil
-	}
-	h := replacedFile
-	if before.Kind == ImageSymlink {
-		h = replacedLink
-	}
-	switch {
-	case before.Hidden:
-		return flagRefusal(edit.Path, platform.HiddenFlag, h)
-	case before.ACL != nil:
-		return Fail(
-			ExitBlocked,
-			"metadata",
-			display.Path(
-				edit.Path,
-			)+" has an ACL, "+h.lost()+h.retry(
-				platform.ACLRemoval(),
-				edit.Path,
-			),
-		)
-	}
-	dropped := []string{
-		platform.LabelAttribute,
-		"com.apple.provenance",
-		"com.apple.quarantine",
-		"com.apple.FinderInfo",
-		"com.apple.lastuseddate#PS",
-	}
-	if platform.ACLsAreAttributes {
-		dropped = dropped[:1]
-	}
-	for _, name := range slices.Sorted(maps.Keys(before.Attributes)) {
-		if !slices.Contains(dropped, name) {
-			return attributeRefusal(edit.Path, name, h)
-		}
-	}
-	return nil
-}
-
 // Finish records each target's observed outcome after a native run and
 // returns runErr, or a partial or unknown-outcome error when targets changed. A
 // runErr that already reports a partial apply is returned as it is.
@@ -260,7 +293,8 @@ func (cp *Checkpoint) Finish(runErr error) error {
 			cp.journal.ObservedAttributes[i] = current.Attributes
 		}
 		switch {
-		case err == nil && sameImageContent(current, change.After):
+		case err == nil && sameImageContent(current, change.After) &&
+			holdsAttributes(current.Attributes, change.After.Attributes):
 			cp.journal.Known[i] = outcomeAfter
 			cp.journal.PostAttributes[i] = current.Attributes
 			cp.changes[i].After.Attributes = current.Attributes

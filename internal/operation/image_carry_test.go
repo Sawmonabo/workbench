@@ -85,6 +85,130 @@ func TestRevertRestoresACLAttributesAndFlag(t *testing.T) {
 	was.expect(t, "the restored file", readHeld(t, path))
 }
 
+// Prevent the same permission change and lost data where chezmoi writes the
+// file: chezmoi's new file has none of the ACL, attributes and hidden flag of
+// the one it replaces, so the pass after it must give them back, or they are
+// lost as surely as by a replace that dropped them.
+func TestNativeReplaceKeepsACLAttributesAndFlag(t *testing.T) {
+	c := carryContext(t)
+	path := filepath.Join(c.Scope.Root, "config")
+	giveMetadata(t, path)
+	changes, was := nativeChange(t, c, path)
+	withNative(t, c, changes, func(cp *Checkpoint) error {
+		nativeWrite(t, c, path, changes[0].After)
+		if err := cp.FinalizeNative(); err != nil {
+			return err
+		}
+		return cp.Finish(nil)
+	})
+	want := was
+	want.mode = changes[0].After.Mode
+	if platform.ACLsAreAttributes {
+		want.attributes[platform.AccessACLAttribute] = chmodACL(
+			t,
+			c,
+			was.attributes[platform.AccessACLAttribute],
+			want.mode,
+		)
+	}
+	want.expect(t, "the file chezmoi wrote", readHeld(t, path))
+}
+
+// Prevent lost data and a silent permission change when Workbench stops
+// between chezmoi's write and the pass after it: revert must still put back
+// the ACL, attributes and hidden flag the replaced file had, since nothing
+// else holds them.
+func TestRevertAfterInterruptedNativeRestoresACLAttributesAndFlag(t *testing.T) {
+	c := carryContext(t)
+	path := filepath.Join(c.Scope.Root, "config")
+	giveMetadata(t, path)
+	changes, was := nativeChange(t, c, path)
+	id := withNative(t, c, changes, func(*Checkpoint) error {
+		nativeWrite(t, c, path, changes[0].After)
+		return nil
+	})
+	if written := readHeld(t, path); written.acl != nil || written.hidden ||
+		written.attributes[noteAttribute] != nil {
+		t.Fatal("chezmoi's file kept metadata, so the revert proves nothing")
+	}
+	revertCheckpointed(t, c, id)
+	if data, err := os.ReadFile(path); err != nil || string(data) != "old" {
+		t.Fatalf("revert left %q, %v", data, err)
+	}
+	was.expect(t, "the restored file", readHeld(t, path))
+}
+
+// nativeChange is the change of path, which giveMetadata wrote, to new content
+// of mode 0640 that carries its metadata, and what path holds now.
+func nativeChange(t *testing.T, c Context, path string) ([]TargetChange, held) {
+	t.Helper()
+	before, err := ReadImage(c, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	after := Carried(
+		before,
+		Image{Kind: ImageFile, Mode: 0o640, Data: []byte("new"), Group: before.Group},
+	)
+	return []TargetChange{{Path: path, Before: before, After: after}}, readHeld(t, path)
+}
+
+// withNative runs native under a new checkpoint of changes in c, after the
+// journal marks every outcome unknown, as an apply hands the targets to
+// chezmoi, and returns the checkpoint's ID.
+func withNative(t *testing.T, c Context, changes []TargetChange, native func(*Checkpoint) error) string {
+	t.Helper()
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ChangesDigest(changes)},
+		Scope:    c.Scope,
+		Complete: true,
+		Inputs:   []Input{{Name: "checkpoint-images", Digest: ChangesDigest(changes)}},
+	}
+	id := ""
+	err := WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error {
+			cp, beginErr := BeginCheckpoint(m, plan, nil, changes)
+			if beginErr != nil {
+				return beginErr
+			}
+			id = cp.ID
+			if beginErr = cp.StartNative(); beginErr != nil {
+				return beginErr
+			}
+			return native(cp)
+		},
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return id
+}
+
+// nativeWrite writes image's data at path as chezmoi does: a new file of
+// image's mode in a folder beside c's, renamed over path.
+func nativeWrite(t *testing.T, c Context, path string, image Image) {
+	t.Helper()
+	scratch := filepath.Join(filepath.Dir(c.Scope.Root), "scratch")
+	if err := os.MkdirAll(scratch, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	staged := filepath.Join(scratch, filepath.Base(path))
+	if err := os.WriteFile(staged, image.Data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(staged, os.FileMode(image.Mode)); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(staged, path); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // Prevent credential exposure: a dotfile such as ~/.netrc is often a link
 // into a dotfiles folder, pointing at a secret of mode 0600. A link's ACL,
 // attributes and flag belong to the link: giving them to the file it points

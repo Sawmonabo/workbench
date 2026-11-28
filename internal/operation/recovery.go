@@ -113,19 +113,23 @@ func (cp *Checkpoint) preflight(reverse bool) (map[int]string, error) {
 // Workbench was stopped or crashed meanwhile, from what the target holds now:
 // the approved image means written, the earlier one untouched. Only an exact
 // match of either counts, so a revert never undoes anything the checkpoint did
-// not write. A target native created may still carry the group of its
-// temporary folder, as nativeOutput allows; it counts as written, and Recover gives it
-// the approved group before restoring anything. It returns false, and records
-// nothing, for a target that holds neither.
+// not write. A target native wrote before Workbench's pass after it
+// (nativeImage) may still carry the group of native's temporary folder, or
+// lack the ACL, hidden flag and attributes the pass gives a file or link that
+// replaced one; it counts as written, and Recover finishes that pass before
+// restoring anything (settleConfirmed). A link whose group differs is not
+// such a target unless the pass writes it anew, since a link's group is never
+// changed in place. It returns false, and records nothing, for a target that
+// holds neither.
 func (cp *Checkpoint) confirm(i int, current Image) bool {
 	change := cp.changes[i]
 	native := cp.journal.Direction == "forward" && !cp.journal.RecoveryCreated
-	inherited := current
-	inherited.Group = change.After.Group
 	known := outcomeAfter
 	switch {
-	case sameImageContent(current, change.After):
-	case native && current.Kind != ImageSymlink && sameImageContent(inherited, change.After):
+	case sameImageContent(current, change.After) &&
+		holdsAttributes(current.Attributes, change.After.Attributes):
+	case native && nativeImage(current, change) &&
+		(current.Kind != ImageSymlink || missingCarried(change, current)):
 		cp.regroup[i] = current
 	case sameImageContent(current, change.Before):
 		known = outcomeBefore
@@ -141,20 +145,32 @@ func (cp *Checkpoint) confirm(i int, current Image) bool {
 	return true
 }
 
-// regroupConfirmed gives each target preflight confirmed as written apart from
-// the group native creation gave it the group its apply approved, so it is
-// exactly the image the restore expects; the revert then restores it, or keeps
-// it if it is a folder holding other files.
-func (cp *Checkpoint) regroupConfirmed() error {
+// settleConfirmed finishes the pass after native on each target preflight
+// confirmed as what native wrote before it (see confirm): a file or link that
+// lacks what it carries is written anew (restageNative), and any other gets
+// the group its apply approved. Each is then exactly the image the restore
+// expects, whose attributes it records as observed; the revert then restores
+// it, or keeps it if it is a folder holding other files.
+func (cp *Checkpoint) settleConfirmed() error {
+	c := cp.mutation.context
 	for i, observed := range cp.regroup {
-		if err := correctNativeMetadata(
-			cp.mutation.context,
-			cp.changes[i],
-			observed,
-			nil,
-		); err != nil {
+		change := cp.changes[i]
+		var err error
+		if missingCarried(change, observed) {
+			err = restageNative(c, change, observed)
+		} else {
+			err = correctNativeMetadata(c, change, observed, nil)
+		}
+		if err != nil {
 			return err
 		}
+		current, err := ReadImage(c, change.Path)
+		if err != nil {
+			return err
+		}
+		cp.journal.ObservedAttributes[i] = current.Attributes
+		cp.journal.PostAttributes[i] = current.Attributes
+		cp.changes[i].After.Attributes = current.Attributes
 	}
 	return nil
 }
@@ -361,7 +377,7 @@ func Recover(
 					return err
 				}
 			}
-			if err = cp.regroupConfirmed(); err != nil {
+			if err = cp.settleConfirmed(); err != nil {
 				return err
 			}
 			operationID, err = NewID()

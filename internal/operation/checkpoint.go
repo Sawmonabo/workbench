@@ -90,8 +90,8 @@ type Checkpoint struct {
 	journal   checkpointJournal
 	changes   []TargetChange
 	directory string
-	// regroup holds the targets preflight confirmed as written apart from the
-	// group native creation gave them, with what it observed (see confirm).
+	// regroup holds the targets preflight confirmed as what native wrote
+	// before the pass after it, with what it observed (see confirm).
 	regroup map[int]Image
 }
 
