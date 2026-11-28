@@ -69,10 +69,9 @@ func applyCommand(o *options) *cobra.Command {
 						result.Body = operation.Explain(
 							operation.Line{
 								Label: "shell",
-								Text:  "a new shell uses the updated shell setup",
+								Text:  "a new shell or a new terminal uses the updated shell setup",
 							},
 							operation.NextText("exec "+shell),
-							operation.NextText("or open a new terminal"),
 						)
 					}
 				}
