@@ -99,6 +99,6 @@ Keep private runtime state on a qualified Linux filesystem. For Windows-host
 integration use the separate [WSL qualification notes](wsl.md), not native
 Windows binaries as substitutes for Linux tools.
 
-Workbench no longer installs the Bitwarden CLI. A `bw` installed earlier stays,
+Workbench does not install the Bitwarden CLI. A `bw` installed earlier stays,
 and so does the session key its wrapper cached in `~/.config/Bitwarden
 CLI/session`: run `bw lock` (or delete that file) and remove `bw` by hand.

@@ -12,8 +12,8 @@ provisioning runs the Linux scripts and the Windows host steps you leave on or
 tick. WSL networking (`.wslconfig`) is the one Windows step that is on by
 default. Windows setup (`windows-files`: prompt engine, fonts, ripgrep,
 editor settings and Notepad++ themes) starts off on a new WSL machine, and ticking it is
-remembered. Workbench no longer writes the RestartWSL helpers (`restart-wsl.ps1`,
-`Restart WSL.bat`, `setup-task.ps1`) or asks for their folder: a saved
+remembered. Workbench does not write the RestartWSL helpers (`restart-wsl.ps1`,
+`Restart WSL.bat`, `setup-task.ps1`) or ask for their folder: a saved
 `restart_wsl_path` answer is ignored and dropped the next time your answers
 are saved, and `answers import` refuses a file that still has it. Copies an earlier
 release wrote are yours and stay where they are, so delete them by hand if you
