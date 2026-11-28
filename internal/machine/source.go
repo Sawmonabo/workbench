@@ -289,7 +289,11 @@ func SourceSnapshot(
 			operation.ExitBlocked,
 			"source_trust",
 			"The active release has no release.json",
-			operation.FixText("reinstall the release"),
+			// An update keeps the active release's folder as it is, and one
+			// of the same release finds it installed: only once another
+			// release is active does this one's verified bundle replace it.
+			operation.FixText("install another release, then this one again"),
+			operation.Fix("workbench", "update", "--list"),
 		)
 	}
 }

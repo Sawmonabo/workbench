@@ -1311,6 +1311,9 @@ While no update runs, a `workbench` command that is missing or links to
 another release is refused with the `ln -sfn` command that links it to the
 active release; a plain file there is kept, and the refusal says to move it
 aside first.
+An active release whose folder lost its `release.json` is repaired by
+installing another release, then this one again: `update` keeps the active
+release's own folder as it is.
 Existing processes retain their inherited environment: Workbench never injects
 PATH changes into running terminals or AI sessions. A private tool or TOML Kit
 file is written to a `.NAME.partial` file beside its final path and linked into
