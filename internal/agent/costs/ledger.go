@@ -197,7 +197,7 @@ func openLedger(
 	exists := err == nil && info.Size() > 0
 	if !exists && !create {
 		return nil, ledgerProblem(operation.ExitBlocked, path,
-			"no ledger yet; run `workbench agent costs ingest --worker` first")
+			"no ledger yet", operation.Fix("workbench", "agent", "costs", "ingest", "--worker"))
 	}
 	ledger := &Ledger{Path: path, steps: steps}
 	// Write locks are taken at BEGIN, so two processes upgrading or ingesting
@@ -236,7 +236,7 @@ func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 	}
 	if !made {
 		return ledgerProblem(operation.ExitInvalid, l.Path,
-			"not a Workbench costs ledger; move it aside")
+			"not a Workbench costs ledger", operation.FixText("move it aside"))
 	}
 	version, err := meta(ctx, l.db, "schema_version")
 	if err != nil {
@@ -289,8 +289,12 @@ func (l *Ledger) fileError(err error) error {
 // release can use, for reason. Its message names path first, from the home
 // folder, as every file error does (see [operation.FileError]): an
 // [operation.Error] is shown by its message alone, so the path is in it.
-func ledgerProblem(code operation.Exit, path, reason string) error {
-	return operation.Fail(code, "ledger", operation.FileError(path, errors.New(reason)).Error())
+func ledgerProblem(code operation.Exit, path, reason string, parts ...operation.Part) error {
+	return operation.Fail(
+		code,
+		"ledger",
+		operation.FileError(path, errors.New(reason)).Error(),
+		parts...)
 }
 
 // Close releases the database.

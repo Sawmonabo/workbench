@@ -56,7 +56,7 @@ func OldLocations(home string) OldPaths {
 		}
 		why = relative
 		if relative != "" {
-			old.Notes = append(old.Notes, relative+", so the costs files it named can't be found")
+			old.Notes = append(old.Notes, relative+": the costs files it names can't be found")
 		}
 		return path
 	}

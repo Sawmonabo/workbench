@@ -63,7 +63,7 @@ func migrateCommand(o *options) *cobra.Command {
 		o,
 		cmd,
 		"migrations",
-		"migrate run is the apply's migrations step; run workbench migrate",
+		[]string{"workbench", "migrate"},
 		migrateProbe,
 		func(cmd *cobra.Command) error {
 			locations, err := migrate.Locate()
@@ -121,10 +121,23 @@ func migrateList(cmd *cobra.Command, c operation.Context) (operation.Result, err
 			component.Status, component.Message = operation.StatusConflict, f.Detail
 		case migrate.Unfinished:
 			component.Status = operation.StatusPending
-			component.Message = "unfinished: " + f.Detail + "; workbench migrate finishes it"
+			component.Message = "unfinished: " + f.Detail
+			component.Body = operation.Explain(operation.Fix("workbench", "migrate"))
 		default:
 			component.Status = operation.StatusPending
-			component.Message = f.Detail + "; workbench migrate runs it"
+			component.Message = f.Detail
+			component.Body = operation.Explain(operation.Fix("workbench", "migrate"))
+			if f.Refusal != nil {
+				// A run refuses it the same way, so the line says the
+				// refusal and its fix, not that a run does it.
+				component.Status = operation.StatusBlocked
+				component.Message, component.Body = operation.Explained(f.Refusal)
+				if f.Detail != "" {
+					component.Body = operation.Explain(
+						operation.Line{Label: "would also", Text: f.Detail},
+					).With(component.Body)
+				}
+			}
 		}
 		result.Results = append(result.Results, component)
 	}

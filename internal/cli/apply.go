@@ -300,8 +300,9 @@ func refreshHomebrew(
 		result.Warnings = append(
 			result.Warnings,
 			operation.Warn(
-				"Homebrew's package list was not refreshed, so the updates listed may be out of date; "+
-					"run brew update to see why",
+				"Homebrew's package list was not refreshed",
+				operation.Outcome("the updates listed may be out of date"),
+				operation.Fix("brew", "update"),
 			),
 		)
 	}

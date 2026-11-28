@@ -168,7 +168,7 @@ type Plan struct {
 	Dependencies  []Dependency   `json:"dependencies"`
 	Inputs        []Input        `json:"-"`
 	Edits         []Edit         `json:"edits"`
-	Prerequisites []string       `json:"prerequisites"`
+	Prerequisites []Warning      `json:"prerequisites"`
 	Effects       []Effect       `json:"effects"`
 	// Unlisted names the effects this machine offers that are left off the
 	// plan for having nothing to do. They take no part in the digest; --reset

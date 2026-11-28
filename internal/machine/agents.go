@@ -174,9 +174,19 @@ func (p *preparation) planAgentUpdates(
 		case len(install.others) > 0:
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				operation.Warn(agent.name+" has more than one copy ("+
-					strings.Join(append([]string{install.path}, install.others...), ", ")+
-					"), and which one runs depends on how the shell starts; Workbench updates none of them until only one is left, so remove the ones you don't use"),
+				operation.Warn(
+					agent.name+" has more than one copy",
+					operation.Line{
+						Label: "copies",
+						Text: strings.Join(
+							append([]string{install.path}, install.others...),
+							", ",
+						),
+					},
+					operation.Cause("which one runs depends on how the shell starts, "+
+						"and Workbench updates none of them until only one is left"),
+					operation.FixText("remove the ones you don't use"),
+				),
 			)
 			continue
 		case install.cask != "":
@@ -681,7 +691,7 @@ func (p *preparation) agentEnvironment(
 			stop()
 			if err != nil {
 				if err = reportBlocked(report, name, fmt.Sprintf(
-					"Claude Code was not updated to %s: its signed release manifest could not be checked (%s), so the next apply tries again",
+					"Claude Code was not updated to %s: its signed release manifest could not be checked (%s); the next apply tries again",
 					update.version,
 					strings.Join(strings.Fields(err.Error()), " "),
 				)); err != nil {

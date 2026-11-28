@@ -25,7 +25,9 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 		return Fail(
 			ExitConflict,
 			"handoff",
-			"Activated runtime changed before handoff; run workbench doctor, then rerun workbench update",
+			"Activated runtime changed before handoff",
+			Fix("workbench", "doctor"),
+			Fix("workbench", "update"),
 		)
 	}
 	entry, err := os.Readlink(c.Paths.Entrypoint())
@@ -33,7 +35,8 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 		return Fail(
 			ExitConflict,
 			"handoff",
-			"Runtime entry point changed before handoff; rerun workbench update",
+			"Runtime entry point changed before handoff",
+			Fix("workbench", "update"),
 		)
 	}
 	executable, err := trustedExecutable(expected.Executable, nil)
@@ -73,7 +76,9 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 	return Fail(
 		ExitFailed,
 		"handoff",
-		"Verified runtime could not start; installed and staged runtime files remain available; retry the selected command",
+		"Verified runtime could not start",
+		Line{Label: "kept", Text: "the installed and staged runtime files"},
+		FixText("run the same command again"),
 	)
 }
 

@@ -46,6 +46,11 @@ func Fail(code Exit, category, message string, parts ...Part) error {
 	return &Error{Category: category, Message: message, Body: Explain(parts...), Code: code}
 }
 
+// FailWith is [Fail] with a body already made, such as a [Component]'s.
+func FailWith(code Exit, category, message string, body Body) error {
+	return &Error{Category: category, Message: message, Body: body, Code: code}
+}
+
 // FailAs is err raised again with code and category: an [Error] keeps its
 // headline and body, any other error is its text as the headline.
 func FailAs(code Exit, category string, err error) error {
@@ -239,7 +244,10 @@ func (r *Result) SetError(err error) {
 		Code:     ExitCode(err),
 	}
 	if problem.Code == ExitInterrupted {
-		problem.Category, problem.Message = "interrupted", "Operation interrupted; inspect any recorded partial operation before retrying"
+		problem.Category, problem.Message = "interrupted", "Operation interrupted"
+		problem.Body = Explain(
+			FixText("check any partial operation it recorded before running it again"),
+		)
 	}
 	if known, ok := errors.AsType[*Error](err); ok {
 		problem = known

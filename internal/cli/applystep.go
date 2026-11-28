@@ -14,16 +14,18 @@ import (
 // --probe prints the step's probe lines and is never refused; without it, cmd
 // does what its own RunE does, and a cmd without one is only the step. Both
 // run inside an apply that holds the locks, so they resolve paths only and
-// print their own lines.
+// print their own lines. A run outside the step is refused with fix, the
+// words of the command that runs the step.
 func applyStep(
 	o *options,
 	cmd *cobra.Command,
-	effect, refusal string,
+	effect string,
+	fix []string,
 	probe func(io.Writer) error,
 	run func(*cobra.Command) error,
 ) {
 	var probing bool
-	own := cmd.RunE
+	own, step := cmd.RunE, cmd.Name()
 	cmd.RunE = func(cmd *cobra.Command, args []string) error {
 		switch {
 		case probing:
@@ -57,7 +59,12 @@ func applyStep(
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return o.runPrinted(cmd, func(*operation.Result) error {
 				if os.Getenv(machine.EffectVariable(effect)) != "1" || operation.AgentSession() {
-					return operation.Fail(operation.ExitBlocked, "consent", refusal)
+					return operation.Fail(
+						operation.ExitBlocked,
+						"consent",
+						step+" run is the apply's "+effect+" step",
+						operation.Fix(fix...),
+					)
 				}
 				return run(cmd)
 			})

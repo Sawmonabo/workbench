@@ -134,15 +134,16 @@ func outsideProjects(directory string, excluded []string) error {
 				return Fail(
 					ExitBlocked,
 					"tool",
-					display.Path(directory)+" is in a project, since "+display.Path(parent)+
-						" holds "+marker+", and Workbench does not run a project's own programs",
+					display.Path(directory)+" is in a project",
+					Cause(display.Path(parent)+" holds "+marker+
+						", and Workbench does not run a project's own programs"),
 				)
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return Fail(
 					ExitBlocked,
 					"tool",
-					"Cannot read "+FileError(filepath.Join(parent, marker), err).Error()+
-						", so Workbench cannot tell whether "+display.Path(directory)+" is in a project",
+					"Cannot tell whether "+display.Path(directory)+" is in a project",
+					Cause("cannot read "+FileError(filepath.Join(parent, marker), err).Error()),
 				)
 			}
 		}

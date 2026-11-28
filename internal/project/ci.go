@@ -32,7 +32,7 @@ type ownedJob struct {
 	// effect says what a future CI run of the job does.
 	effect string
 	// fail words a refusal for the job's language.
-	fail func(string) error
+	fail func(string, ...operation.Part) error
 }
 
 // addCI proposes each selected language's owned check job. Jobs aimed at the
@@ -117,7 +117,8 @@ func (p *Proposal) pythonCI(c operation.Context, owners []string) (string, owned
 	}
 	if !slices.ContainsFunc(jobs.Values, runsTests) {
 		return "", ownedJob{}, pythonCI.refuse(
-			"An existing test/tests job with an identifiable test command is required; tests will not be invented",
+			"An existing test/tests job with an identifiable test command is required",
+			operation.Cause("Workbench does not invent tests"),
 		)
 	}
 	requirements, err := machine.ManagementRequirements(c)
@@ -206,9 +207,15 @@ type ciRemedy string
 // pythonCI is the Python policy's remedy.
 const pythonCI ciRemedy = "adapt project/pythonpolicy/checks.example.yml manually"
 
-// refuse refuses a CI change with message and what to do by hand instead.
-func (r ciRemedy) refuse(message string) error {
-	return operation.Fail(operation.ExitBlocked, "project_ci", message+"; "+string(r))
+// refuse refuses a CI change with message and parts, its body, and what to
+// do by hand instead as its last fix line.
+func (r ciRemedy) refuse(message string, parts ...operation.Part) error {
+	return operation.Fail(
+		operation.ExitBlocked,
+		"project_ci",
+		message,
+		append(parts, operation.FixText(string(r)))...,
+	)
 }
 
 // pythonChoice reads the explicit Python version the CI job will use.
@@ -221,7 +228,8 @@ func (p *Proposal) pythonChoice(root string) (string, error) {
 	python := strings.TrimSpace(string(data))
 	if !pythonVersion.MatchString(python) {
 		return "", pythonCI.refuse(
-			"An existing explicit .python-version is required; no Python baseline is chosen",
+			"An existing explicit .python-version is required",
+			operation.Cause("Workbench chooses no Python baseline"),
 		)
 	}
 	p.Plan.Inputs = append(
@@ -274,7 +282,7 @@ func workflowFiles(root string) (workflows []string, readable bool) {
 // parseWorkflow parses a workflow that must hold one document that roundtrips
 // exactly and uses no YAML feature the merge could silently change. fail
 // words a refusal for the language whose job is being added.
-func parseWorkflow(data []byte, fail func(string) error) (*ast.File, error) {
+func parseWorkflow(data []byte, fail func(string, ...operation.Part) error) (*ast.File, error) {
 	file, err := parser.ParseBytes(data, parser.ParseComments)
 	if err != nil || len(file.Docs) != 1 {
 		return nil, fail("Workflow needs one valid YAML document without duplicate keys")
@@ -293,7 +301,10 @@ func parseWorkflow(data []byte, fail func(string) error) (*ast.File, error) {
 }
 
 // workflowJobs returns the workflow's jobs mapping.
-func workflowJobs(file *ast.File, fail func(string) error) (*ast.MappingNode, error) {
+func workflowJobs(
+	file *ast.File,
+	fail func(string, ...operation.Part) error,
+) (*ast.MappingNode, error) {
 	jobsPath, _ := yaml.PathString("$.jobs")
 	jobsNode, err := jobsPath.FilterFile(file)
 	if err != nil {
@@ -451,7 +462,7 @@ func mergeJob(
 	jobsPath *yaml.Path,
 	jobs *ast.MappingNode,
 	addition *ast.File,
-	fail func(string) error,
+	fail func(string, ...operation.Part) error,
 ) error {
 	root, ok := file.Docs[0].Body.(*ast.MappingNode)
 	if !ok {

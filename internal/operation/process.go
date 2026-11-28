@@ -130,7 +130,8 @@ func Run(
 		return output, Fail(
 			ExitFailed,
 			"output_limit",
-			"Subprocess output exceeded its limit; output withheld",
+			"Subprocess output exceeded its limit",
+			Line{Label: "output", Text: "withheld"},
 		)
 	}
 	stdoutText, stderrText := Redact(stdout.String(), secrets), Redact(stderr.String(), secrets)
@@ -153,7 +154,8 @@ func Run(
 		return ProcessOutput{}, Fail(
 			ExitFailed,
 			"output_limit",
-			"Redacted subprocess output exceeded its limit; output withheld",
+			"Redacted subprocess output exceeded its limit",
+			Line{Label: "output", Text: "withheld"},
 		)
 	}
 	return output, nil

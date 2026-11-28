@@ -285,7 +285,10 @@ func (p *preparation) checkPrerequisites(
 	plan.Dependencies = dependencies
 	for _, result := range results {
 		if result.Status != operation.StatusComplete {
-			plan.Prerequisites = append(plan.Prerequisites, result.Name+": "+result.Message)
+			plan.Prerequisites = append(plan.Prerequisites, operation.Warning{
+				Message: result.Name + ": " + result.Message,
+				Body:    result.Body,
+			})
 		}
 	}
 	if refusal != nil {
@@ -303,19 +306,39 @@ func (p *preparation) checkPrerequisites(
 			InstallFix(c)...)
 	}
 	if platform := checkPlatform(ctx, c); platform.Status != operation.StatusComplete {
-		plan.Prerequisites = append(plan.Prerequisites, platform.Message)
-		return nil, operation.Fail(operation.ExitBlocked, "platform", platform.Message)
+		plan.Prerequisites = append(
+			plan.Prerequisites,
+			operation.Warning{Message: platform.Message, Body: platform.Body},
+		)
+		return nil, operation.FailWith(
+			operation.ExitBlocked,
+			"platform",
+			platform.Message,
+			platform.Body,
+		)
 	}
-	answersRaw, err := ReadMachineConfig(c.Native.Config)
+	// A machine.toml that is there but refused is said as its refusal, with
+	// the exit code and category of missing answers: only a missing one is
+	// missing answers.
+	answersRaw, found, err := lookupMachineConfig(c.Native.Config)
 	if err != nil {
+		return nil, operation.FailAs(operation.ExitBlocked, "answers", err)
+	}
+	if !found {
 		command := c.WorkbenchCommand()
-		message := "Machine answers are missing; run " + command + " apply at a terminal to answer them, or " +
-			command + " answers import FILE"
+		fixes := []operation.Part{
+			operation.FixText("run " + command + " apply at a terminal to answer them"),
+			operation.FixText(command + " answers import FILE"),
+		}
 		if c.Native.Developer {
 			// apply --local-build never asks the questions.
-			message = "Machine answers are missing; save them with " + command + " answers import FILE"
+			fixes = fixes[1:]
 		}
-		return nil, operation.Fail(operation.ExitBlocked, "answers", message)
+		return nil, operation.Fail(
+			operation.ExitBlocked,
+			"answers",
+			"Machine answers are missing",
+			fixes...)
 	}
 	answers, err := parseAnswers(c, answersRaw)
 	if err != nil {

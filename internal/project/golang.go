@@ -60,7 +60,8 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"golangci-lint v2 refuses this v1 config; run `golangci-lint migrate`: "+existing,
+					"golangci-lint v2 refuses the v1 config "+existing,
+					operation.Fix("golangci-lint", "migrate"),
 				),
 			)
 		}
@@ -224,12 +225,14 @@ func (p *Proposal) goCI(c operation.Context, module Project) (string, ownedJob, 
 	}
 	if !isRepositoryRoot(c.Scope.Root) {
 		return "", ownedJob{}, goCI.refuse(
-			"GitHub reads workflows at the repository root; select the folder that holds .git",
+			"GitHub reads workflows at the repository root",
+			operation.FixText("select the folder that holds .git"),
 		)
 	}
 	if !goDirective.Match(p.Inventory.inputs[filepath.Join(module.Root, "go.mod")]) {
 		return "", ownedJob{}, goCI.refuse(
-			"go.mod needs a go line, which the job's actions/setup-go reads to choose the Go version",
+			"go.mod needs a go line",
+			operation.Cause("the job's actions/setup-go reads it to choose the Go version"),
 		)
 	}
 	path, err := p.testWorkflow(c.Scope.Root, "go test", goTest, goCI.refuse)
@@ -272,7 +275,7 @@ func isRepositoryRoot(root string) bool {
 func (p *Proposal) testWorkflow(
 	root, label string,
 	runs *regexp.Regexp,
-	fail func(string) error,
+	fail func(string, ...operation.Part) error,
 ) (string, error) {
 	workflows, readable := workflowFiles(root)
 	if !readable {
@@ -301,7 +304,8 @@ func (p *Proposal) testWorkflow(
 	switch len(matches) {
 	case 0:
 		return "", fail(
-			"No workflow has a run step that runs " + label + "; tests will not be invented",
+			"No workflow has a run step that runs "+label,
+			operation.Cause("Workbench does not invent tests"),
 		)
 	case 1:
 		return matches[0], nil

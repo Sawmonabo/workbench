@@ -75,7 +75,7 @@ decided = ['migrations']
 		if string(read(t, l.Runtime.MachineConfig())) != machine {
 			t.Fatal("machine.toml changed before the run")
 		}
-		if status, _ := WorkTokens.Check(l); status != Unfinished {
+		if status, _, _ := WorkTokens.Check(l); status != Unfinished {
 			t.Fatalf("Check = %v, want unfinished", status)
 		}
 		said := runAll(t, l)
@@ -113,7 +113,7 @@ decided = ['migrations']
 			1,
 		)
 		l := tokenLocations(t, personal)
-		status, text := WorkTokens.Check(l)
+		status, text, _ := WorkTokens.Check(l)
 		if status != Done || !strings.Contains(text, "delete them") {
 			t.Fatalf("Check = %v %q, want done naming the keys to delete", status, text)
 		}
@@ -157,12 +157,17 @@ func tokenLocations(t *testing.T, machine string) Locations {
 	return l
 }
 
+// checkSaid is what 0005's Check says, its refusal included.
+func checkSaid(l Locations) string {
+	status, text, refusal := WorkTokens.Check(l)
+	return Finding{WorkTokens, status, text, refusal}.Said()
+}
+
 // runAll runs every migration as the apply does and returns what 0005's
 // Check said first and what the run said.
 func runAll(t *testing.T, l Locations) []string {
 	t.Helper()
-	_, text := WorkTokens.Check(l)
-	said := []string{text}
+	said := []string{checkSaid(l)}
 	if err := Run(
 		context.Background(),
 		l,
@@ -178,7 +183,7 @@ func runAll(t *testing.T, l Locations) []string {
 // both files keep their bytes; an empty env means there is no work.env.
 func assertUntouched(t *testing.T, l Locations, machine, env string) {
 	t.Helper()
-	status, text := WorkTokens.Check(l)
+	status, text, _ := WorkTokens.Check(l)
 	if status != Conflict {
 		t.Fatalf("Check = %v, want conflict", status)
 	}
@@ -224,7 +229,7 @@ func assertKeysRemoved(t *testing.T, l Locations, original string) {
 	if !reflect.DeepEqual(got, want) {
 		t.Error("machine.toml is not the original without the two token keys")
 	}
-	if status, _ := WorkTokens.Check(l); status != Done {
+	if status, _, _ := WorkTokens.Check(l); status != Done {
 		t.Errorf("Check after the run = %v, want done", status)
 	}
 }
@@ -233,8 +238,7 @@ func assertKeysRemoved(t *testing.T, l Locations, original string) {
 // Check says.
 func assertNoToken(t *testing.T, lines []string, l Locations) {
 	t.Helper()
-	_, text := WorkTokens.Check(l)
-	for _, line := range append(lines, text) {
+	for _, line := range append(lines, checkSaid(l)) {
 		if strings.Contains(line, "synthetic") {
 			t.Errorf("a token appears in the output: %q", line)
 		}

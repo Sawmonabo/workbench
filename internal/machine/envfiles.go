@@ -94,7 +94,7 @@ func workTokensWaiting() bool {
 	if err != nil {
 		return true
 	}
-	status, _ := migrate.WorkTokens.Check(l)
+	status, _, _ := migrate.WorkTokens.Check(l)
 	return status != migrate.Done
 }
 

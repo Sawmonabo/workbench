@@ -138,8 +138,12 @@ func (a *applyRun) apply() error {
 	admin := operation.Admin{Terminal: a.terminal}
 	if installsHomebrew(effects) {
 		admin.Why = adminReason
-		admin.Refusal = "Installing Homebrew needs your Mac password; run " +
-			a.c.WorkbenchCommand() + " apply in a terminal"
+		admin.Refusal = operation.Fail(
+			operation.ExitBlocked,
+			"privilege",
+			"Installing Homebrew needs your Mac password",
+			operation.FixText("run "+a.c.WorkbenchCommand()+" apply in a terminal"),
+		)
 	}
 	return operation.WithAdmin(a.ctx, a.c, a.m, admin, func(askpass string) error {
 		a.prepared.askpass = askpass
@@ -410,7 +414,8 @@ func (a *applyRun) reportEffects(plan operation.Plan) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"effects",
-		"A step could not be done (marked blocked above); everything else was applied, and the next apply tries it again",
+		"A step could not be done (marked blocked above)",
+		operation.Changed("everything else; the next apply tries the step again"),
 	)
 }
 

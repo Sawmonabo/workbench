@@ -34,9 +34,12 @@ var WorkTokens = Migration{
 		"they are. Without the work role it changes nothing.",
 	Recovery: "nothing is lost: work.env holds the tokens, so copying them back into " +
 		"machine.toml by hand restores the old answers",
-	Check: func(l Locations) (Status, string) {
+	Check: func(l Locations) (Status, string, error) {
 		found := findWorkTokens(l)
-		return found.status, found.text
+		if found.status == Pending && found.err != nil {
+			return Pending, "", found.err
+		}
+		return found.status, found.text, nil
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		operation.RemoveStaleWrites(l.Runtime.Config)

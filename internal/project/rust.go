@@ -239,11 +239,10 @@ func (p *Proposal) memberOptIns(root Project, members []Project, hasLints bool) 
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				"Members that do not opt into the project's [workspace.lints] with [lints] workspace = true, left as they are: "+
-					strings.Join(
-						notOptedIn,
-						", ",
-					),
+				"Members left as they are: "+strings.Join(notOptedIn, ", "),
+				operation.Cause(
+					"they do not opt into the project's [workspace.lints] with [lints] workspace = true",
+				),
 			),
 		)
 	}
@@ -465,7 +464,10 @@ func (p *Proposal) rustToolchain(root string) error {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				path+" does not list both rustfmt and clippy in components, so cargo fmt and cargo clippy can be missing where it is installed",
+				path+" does not list both rustfmt and clippy in components",
+				operation.Outcome(
+					"cargo fmt and cargo clippy can be missing where it is installed",
+				),
 			),
 		)
 	}
@@ -487,7 +489,8 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 	}
 	if !isRepositoryRoot(c.Scope.Root) {
 		return "", ownedJob{}, rustCI.refuse(
-			"GitHub reads workflows at the repository root; select the folder that holds .git",
+			"GitHub reads workflows at the repository root",
+			operation.FixText("select the folder that holds .git"),
 		)
 	}
 	toolchain := false
@@ -500,7 +503,8 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 	}
 	if !toolchain {
 		return "", ownedJob{}, rustCI.refuse(
-			"An existing rust-toolchain.toml at the root is required; the job installs the toolchain it names and Workbench picks none",
+			"An existing rust-toolchain.toml at the root is required",
+			operation.Cause("the job installs the toolchain it names, and Workbench picks none"),
 		)
 	}
 	lock, err := p.readInput(filepath.Join(root.Root, "Cargo.lock"))
@@ -509,7 +513,8 @@ func (p *Proposal) rustCI(c operation.Context, root Project) (string, ownedJob, 
 	}
 	if lock == nil {
 		return "", ownedJob{}, rustCI.refuse(
-			"An existing Cargo.lock at the root is required; the job's cargo clippy --locked checks against it",
+			"An existing Cargo.lock at the root is required",
+			operation.Cause("the job's cargo clippy --locked checks against it"),
 		)
 	}
 	path, err := p.testWorkflow(

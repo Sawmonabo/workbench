@@ -107,7 +107,7 @@ func resumeCopy(ctx context.Context, home, from, to string) error {
 		case err != nil:
 			return err
 		case problem != "":
-			return badCopy(home, moved, problem, leftCopy(home, part))
+			return badCopy(home, moved, problem, leftCopy(home, part)...)
 		}
 		return placeCopy(ctx, home, from, to)
 	case exists(moved):
@@ -164,9 +164,15 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 		return ledgerConflict(home, moved, to)
 	case problem != "":
 		shown := display.PathFrom(home, to)
-		return operation.Fail(operation.ExitFailed, "ledger", "the ledger at "+shown+" "+problem+
-			", so the original at "+display.PathFrom(home, moved)+" is kept; delete "+shown+
-			", and the next run puts the original back and starts again")
+		return operation.Fail(
+			operation.ExitFailed,
+			"ledger",
+			"the ledger at "+shown+" "+problem,
+			operation.Line{Label: "kept", Text: "the original at " + display.PathFrom(home, moved)},
+			operation.FixText(
+				"delete "+shown+"; the next run puts the original back and starts again",
+			),
+		)
 	}
 	if err := os.Remove(moved); err != nil {
 		return err
@@ -225,9 +231,9 @@ func copyLedger(ctx context.Context, home, from, to string) error {
 			case err != nil:
 				return err
 			case removeErr != nil:
-				return badCopy(home, from, problem, leftCopy(home, part))
+				return badCopy(home, from, problem, leftCopy(home, part)...)
 			}
-			return badCopy(home, from, problem, "the copy was discarded")
+			return badCopy(home, from, problem, operation.Line{Label: "copy", Text: "discarded"})
 		}
 		if slices.ContainsFunc(sqlitefile.SideFiles(from), exists) {
 			_ = sqlitefile.Remove(part)
@@ -403,19 +409,21 @@ var copyCheck = sqlitefile.Options{
 }
 
 // leftCopy is what a badCopy error says of a copy left at part.
-func leftCopy(home, part string) string {
-	return "the copy stays at " + display.PathFrom(home, part) +
-		"; delete it, and the next run starts again from the original"
+func leftCopy(home, part string) []operation.Part {
+	return []operation.Part{
+		operation.Line{Label: "copy", Text: "stays at " + display.PathFrom(home, part)},
+		operation.FixText("delete it; the next run starts again from the original"),
+	}
 }
 
 // badCopy is the error of a copy of the ledger at original that checkCopy
 // found problem with. The original is kept; then says what became of the copy.
-func badCopy(home, original, problem, then string) error {
+func badCopy(home, original, problem string, then ...operation.Part) error {
 	return operation.Fail(
 		operation.ExitFailed,
 		"ledger",
-		"a copy of "+display.PathFrom(home, original)+" "+problem+
-			", so the original is kept and "+then,
+		"a copy of "+display.PathFrom(home, original)+" "+problem,
+		append([]operation.Part{operation.Line{Label: "kept", Text: "the original"}}, then...)...,
 	)
 }
 

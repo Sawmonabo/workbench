@@ -59,7 +59,9 @@ func Execute(ctx context.Context, args []string, in io.Reader, out, diagnostics 
 		err = operation.Fail(
 			operation.ExitInvalid,
 			"invocation",
-			"Invalid command, flags or arguments: "+err.Error()+"; run workbench --help",
+			"Invalid command, flags or arguments",
+			operation.Cause(err.Error()),
+			operation.Fix("workbench", "--help"),
 		)
 		name := "workbench"
 		if cmd != nil {
@@ -239,7 +241,7 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 				if err != nil {
 					var failure operation.Result
 					failure.SetError(err)
-					view.fail(interrupted, failure.Errors[0].Message)
+					view.fail(interrupted, failure.Errors[0])
 				}
 				stop()
 				// The view showed the outcome, or the failure or the stop with

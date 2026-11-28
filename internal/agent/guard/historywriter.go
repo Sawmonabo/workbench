@@ -552,7 +552,7 @@ func (r *writerRun) replace(cause error) error {
 	var kept string
 	switch {
 	case r.keep == 0:
-		kept = "the time kept was never read, so it keeps finished commands 24 hours"
+		kept = "it keeps finished commands 24 hours: the time kept was never read"
 	case fresh:
 		kept = "it keeps finished commands " + KeepText(r.keep) + ", as the old one did"
 	default:

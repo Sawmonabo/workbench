@@ -188,10 +188,21 @@ func (f *costsFlags) report(cmd *cobra.Command, o *options, result *operation.Re
 	f.roots, err = machine.RoleFolders(paths.Home, paths.Runtime.MachineConfig())
 	if err != nil {
 		// The report still runs, with the folders it uses when none is saved.
-		_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+display.PathFrom(
-			paths.Home,
-			paths.Runtime.MachineConfig(),
-		)+" can't be read, so the report groups projects under ~/dev and ~/repos"))
+		// The read's error is left out: a TOML error may quote the file.
+		var b strings.Builder
+		diagnostics := cmd.ErrOrStderr()
+		writeHeadline(
+			&b,
+			lineWidth(diagnostics),
+			newPainter(diagnostics),
+			forTerm("→ "),
+			display.PathFrom(paths.Home, paths.Runtime.MachineConfig())+" can't be read",
+			operation.Explain(operation.Line{
+				Label: "report",
+				Text:  "groups projects under ~/dev and ~/repos",
+			}),
+		)
+		_, _ = lipgloss.Fprint(diagnostics, b.String())
 	}
 	// The tabs need every tool's report; each reads its own rows, so they are
 	// read side by side.

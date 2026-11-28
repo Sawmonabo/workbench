@@ -220,8 +220,9 @@ func generatedAnswers(c operation.Context, path string) (Answers, error) {
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"answers",
-			"The machine questions were cancelled, so no answers were saved; run "+
-				c.WorkbenchCommand()+" apply to answer them",
+			"The machine questions were cancelled",
+			operation.Changed("no answers were saved"),
+			operation.FixText(c.WorkbenchCommand()+" apply"),
 		)
 	}
 	if err != nil {

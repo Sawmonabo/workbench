@@ -45,7 +45,7 @@ var AgentFolders = Migration{
 	Recovery: "nothing is lost: each folder moves whole with every file in it, and the " +
 		"logs, locks, sockets and price lists deleted from an old folder beside one in use " +
 		"are made again",
-	Check: func(l Locations) (Status, string) {
+	Check: func(l Locations) (Status, string, error) {
 		status := Done
 		var text []string
 		for _, s := range inspectAgentFolders(l) {
@@ -56,7 +56,7 @@ var AgentFolders = Migration{
 				text = append(text, t)
 			}
 		}
-		return status, strings.Join(text, " and ")
+		return status, strings.Join(text, " and "), nil
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		// A move whose only failure is a file system that can't swap two

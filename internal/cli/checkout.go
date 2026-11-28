@@ -31,7 +31,8 @@ func localCheckout() (string, error) {
 			return "", operation.Fail(
 				operation.ExitInvalid,
 				"source",
-				"--local-build needs a Workbench checkout; run it inside one",
+				"--local-build needs a Workbench checkout",
+				operation.FixText("run it inside one"),
 			)
 		}
 		directory = parent

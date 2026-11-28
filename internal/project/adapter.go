@@ -94,7 +94,9 @@ func (p *Proposal) adapter(
 	if err != nil {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Workbench's private Python and TOML Kit are missing",
+			operation.Warn(
+				"Workbench's private Python and TOML Kit are missing",
+				machine.InstallFix(c)...),
 		)
 		return nil, err
 	}
@@ -156,7 +158,10 @@ func (a *tomlAdapter) transform(
 		*refusal.Refused >= 0 && *refusal.Refused < len(documents) {
 		a.proposal.Plan.Prerequisites = append(
 			a.proposal.Plan.Prerequisites,
-			documents[*refusal.Refused].Path+": its layout cannot be merged safely: "+refusal.Reason,
+			operation.Warn(
+				documents[*refusal.Refused].Path+": its layout cannot be merged safely",
+				operation.Cause(refusal.Reason),
+			),
 		)
 		return nil, a.proposal.blocked(
 			"project_editor",

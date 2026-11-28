@@ -195,7 +195,7 @@ func Rates(ctx context.Context, refresh bool, steps UpgradeSteps) (Card, error) 
 	case ledger != nil:
 		defer func() { _ = ledger.Close() }()
 	case refresh:
-		notes = append(notes, "rates: there is no ledger yet, so nothing was downloaded")
+		notes = append(notes, "rates: nothing was downloaded: there is no ledger yet")
 	}
 	for _, tool := range Tools {
 		if refresh && ledger != nil && tool.Source != nil && tool.Source.PricingURL() != "" {

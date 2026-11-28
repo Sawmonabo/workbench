@@ -76,7 +76,7 @@ func writePlan(w io.Writer, plan operation.Plan) error {
 		title string
 		lines []operation.Warning
 	}{
-		{"Prerequisites", operation.WarnAll(plan.Prerequisites...)},
+		{"Prerequisites", plan.Prerequisites},
 		{"Warnings", plan.Warnings},
 		{"Recovery limits", operation.WarnAll(plan.RecoveryLimits...)},
 	} {

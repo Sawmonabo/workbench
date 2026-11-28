@@ -328,24 +328,25 @@ func wrapLabelled(label, names string, width int, note, emph string) []listLine 
 // under --verbose, the recovery limits.
 func noteLines(plan operation.Plan, width int, view planView) []listLine {
 	var out []listLine
-	sections := []struct {
+	type section struct {
 		title string
-		lines []string
-	}{{"Prerequisites", plan.Prerequisites}}
+		notes []operation.Warning
+	}
+	sections := []section{{"Prerequisites", plan.Prerequisites}}
 	if view.Verbose {
-		sections = append(sections, struct {
-			title string
-			lines []string
-		}{"Recovery limits", plan.RecoveryLimits})
+		sections = append(
+			sections,
+			section{"Recovery limits", operation.WarnAll(plan.RecoveryLimits...)},
+		)
 	}
 	for _, section := range sections {
-		if len(section.lines) == 0 {
+		if len(section.notes) == 0 {
 			continue
 		}
 		out = append(out, listLine{}, listLine{Text: bold.Render(section.title)})
-		for _, line := range section.lines {
-			for _, part := range wrapLines(line, width-2, 0) {
-				out = append(out, listLine{Text: "  " + part})
+		for _, note := range section.notes {
+			for _, line := range headlineLines(width, true, "  ", note.Message, note.Body) {
+				out = append(out, listLine{Text: line})
 			}
 		}
 	}

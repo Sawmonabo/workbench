@@ -80,18 +80,24 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 // it passes the private-file checks: it never creates missing state and
 // withholds unsafe or oversized input. what names the file as its reader
 // knows it, such as "the current Workbench state": every refusal of the file
-// starts "Cannot read" what, then says what is wrong, with the code and
-// category of the check that refused it.
+// is the headline "Cannot read" what, with what is wrong as its cause and the
+// refusal's own lines and fix, and the code and category of the check that
+// refused it.
 func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 	if limit < 1 || limit > 16<<20 {
 		return nil, Fail(ExitInvalid, "input", "Invalid private input bound")
 	}
-	refuse := func(code Exit, category, problem string) error {
-		return Fail(code, category, "Cannot read "+what+": "+problem)
+	refuse := func(code Exit, category, problem string, body Body) error {
+		return &Error{
+			Category: category,
+			Message:  "Cannot read " + what,
+			Body:     Explain(Cause(problem)).With(body),
+			Code:     code,
+		}
 	}
 	if err := checkPrivateFile(path); err != nil {
 		if problem, ok := errors.AsType[*Error](err); ok {
-			return nil, refuse(problem.Code, problem.Category, problem.Message)
+			return nil, refuse(problem.Code, problem.Category, problem.Message, problem.Body)
 		}
 		return nil, err
 	}
@@ -102,9 +108,10 @@ func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 			ExitInvalid,
 			"input",
 			display.Path(path)+" is larger than its "+display.Limit(limit)+" bound",
+			Body{},
 		)
 	case err != nil:
-		return nil, refuse(ExitInvalid, "input", FileError(path, err).Error())
+		return nil, refuse(ExitInvalid, "input", FileError(path, err).Error(), Body{})
 	}
 	return data, nil
 }
@@ -150,7 +157,8 @@ func (m *Mutation) WritePrivate(path string, data []byte) error {
 		return Fail(
 			ExitConflict,
 			"lock",
-			"Cannot establish the held operation lock directory; stop before metadata writes",
+			"Cannot find the folder of the operation lock Workbench holds",
+			Cause("Workbench writes no record without it"),
 		)
 	}
 	for ancestor := path; ; ancestor = filepath.Dir(ancestor) {
@@ -403,19 +411,16 @@ func checkPrivateFile(path string) error {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			display.Path(path)+" has other hard links; a private file must have exactly one",
+			display.Path(path)+" has other hard links",
+			Cause("a private file must have exactly one"),
 		)
 	}
 	if mode := info.Mode().Perm(); mode&0o077 != 0 {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			fmt.Sprintf(
-				"%s is open to other users (mode %04o); run chmod 600 %s and retry",
-				display.Path(path),
-				mode,
-				shellHomePath(path),
-			),
+			fmt.Sprintf("%s is open to other users (mode %04o)", display.Path(path), mode),
+			FixPath(path, "chmod", "600"),
 		)
 	}
 	return nil

@@ -107,7 +107,7 @@ func (v *updateView) finish(text string, changed bool) {
 // release could not start) the program has ended, so it writes those lines
 // once, where the cursor was left. It does nothing when the view never
 // started.
-func (v *updateView) fail(interrupted bool, reason string) {
+func (v *updateView) fail(interrupted bool, reason *operation.Error) {
 	v.mu.Lock()
 	if v.handedOff {
 		if !v.owned {
@@ -117,7 +117,7 @@ func (v *updateView) fail(interrupted bool, reason string) {
 			}
 			_, _ = lipgloss.Fprint(
 				v.output,
-				line+"\n"+strings.Join(reasonLines(reason, 0), "\n")+"\n",
+				line+"\n"+strings.Join(reasonLines(reason.Message, reason.Body, 0), "\n")+"\n",
 			)
 			v.owned = true
 		}
@@ -125,7 +125,12 @@ func (v *updateView) fail(interrupted bool, reason string) {
 		return
 	}
 	v.mu.Unlock()
-	v.end(endMsg{text: reason, failed: !interrupted, stopped: interrupted})
+	v.end(endMsg{
+		text:    reason.Message,
+		body:    reason.Body,
+		failed:  !interrupted,
+		stopped: interrupted,
+	})
 }
 
 // shown reports whether the view showed the outcome.
@@ -200,7 +205,9 @@ type (
 	// otherwise text is the outcome, or the reason under a failure or a stop.
 	// unchanged is an outcome that installed nothing.
 	endMsg struct {
-		text                                    string
+		text string
+		// body is what stands under the reason of a failure or a stop.
+		body                                    operation.Body
 		clear, keep, failed, stopped, unchanged bool
 	}
 )
@@ -348,19 +355,19 @@ func (m updateModel) lines() []string {
 	}
 	// The reason of a failure or a stop is wrapped, never cut.
 	if end := m.end; end != nil && (end.failed || end.stopped) && end.text != "" {
-		lines = append(lines[:1], append(reasonLines(end.text, m.width), lines[1:]...)...)
+		lines = append(lines[:1], append(reasonLines(end.text, end.body, m.width), lines[1:]...)...)
 	}
 	return lines
 }
 
-// reasonLines are the reason of a failure or a stop, two spaces in and
-// wrapped to width, never cut; a width that is unknown (0) or too narrow
-// leaves each line whole.
-func reasonLines(reason string, width int) []string {
+// reasonLines are the reason of a failure or a stop, two spaces in, and its
+// body under it (see headlineLines), wrapped to width, never cut; a width
+// that is unknown (0) or too narrow leaves each line whole.
+func reasonLines(reason string, body operation.Body, width int) []string {
 	if width <= 4 {
 		width = math.MaxInt
 	}
-	return wrapLines(reason, width, 2)
+	return headlineLines(width, true, "  ", reason, body)
 }
 
 // working is the working line: the phase, or the outcome at the end.

@@ -29,22 +29,22 @@ var completionCache = Migration{
 		"is named.",
 	Recovery: "nothing to undo: the deleted file is a cache the next shell rebuilds in " +
 		"Workbench's cache folder",
-	Check: func(l Locations) (Status, string) {
+	Check: func(l Locations) (Status, string, error) {
 		ours, other, unread := oldCompletions(l)
 		var text []string
 		if len(ours) > 0 {
 			text = append(text, "deletes "+strings.Join(ours, ", "))
 		}
-		if len(unread) > 0 {
-			text = append(text, unread...)
-		}
 		if len(other) > 0 {
 			text = append(text, keeps(other))
 		}
-		if len(ours) == 0 && len(unread) == 0 {
-			return Done, strings.Join(text, " and ")
+		if len(unread) > 0 {
+			return Pending, strings.Join(text, " and "), errors.New(strings.Join(unread, " and "))
 		}
-		return Pending, strings.Join(text, " and ")
+		if len(ours) == 0 {
+			return Done, strings.Join(text, " and "), nil
+		}
+		return Pending, strings.Join(text, " and "), nil
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		var kept []string

@@ -601,8 +601,7 @@ func cargoPatterns(workspace map[string]any) string {
 		}
 		for segment := range strings.SplitSeq(path.Clean(pattern), "/") {
 			if segment != "." && excludedDirectory(segment) {
-				return "Workspace member pattern names a folder discovery skips, so its members cannot be found: " +
-					pattern
+				return "Workspace members cannot be found under a folder discovery skips: " + pattern
 			}
 		}
 	}
@@ -798,7 +797,7 @@ func (r *Inventory) settleCargoMembers() {
 		case !r.cargo[project.Root]:
 			project.Owner = project.Root
 			project.Reason = "Not listed as a member of the Cargo workspace at " + r.Directory +
-				", so it is left untouched; a member listed only through a symbolic link is not followed"
+				" and left untouched (a member listed only through a symbolic link is not followed)"
 		default:
 			project.Supported, project.Reason = true, ""
 		}

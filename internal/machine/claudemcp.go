@@ -129,7 +129,7 @@ func ClaudeMCPProbe(c operation.Context, a Answers) []string {
 	if err != nil {
 		return []string{
 			"claude-mcp: ? " + c.ShowPath(toolconfig.ClaudeJSON(c.Home)) +
-				" can't be read, so which servers are registered is unknown",
+				" can't be read: which servers are registered is unknown",
 		}
 	}
 	if changes.wanted == nil {
@@ -187,7 +187,8 @@ func ClaudeMCPCommands(
 		return "", "", false, nil, operation.Fail(
 			operation.ExitBlocked,
 			"claude-mcp",
-			c.ShowPath(toolconfig.ClaudeJSON(c.Home))+" can't be read, so no server was changed",
+			c.ShowPath(toolconfig.ClaudeJSON(c.Home))+" can't be read",
+			operation.Changed("no server"),
 		)
 	}
 	nodeBin = nvmDefaultBin(c.Home)

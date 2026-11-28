@@ -94,7 +94,8 @@ func (p *Proposal) addRepositoryFiles(
 func (p *Proposal) repositoryLanguages(c operation.Context, selected []Project) ([]string, error) {
 	if !isRepositoryRoot(c.Scope.Root) {
 		return nil, repositoryFailure(
-			"Git and GitHub read lefthook.yml and .github/dependabot.yml at the repository root; select the folder that holds .git",
+			"Git and GitHub read lefthook.yml and .github/dependabot.yml at the repository root",
+			operation.FixText("select the folder that holds .git"),
 		)
 	}
 	var languages []string
@@ -109,8 +110,10 @@ func (p *Proposal) repositoryLanguages(c operation.Context, selected []Project) 
 		for _, project := range projects {
 			if project.Owner != c.Scope.Root {
 				return nil, repositoryFailure(
-					"--hooks and --dependabot write jobs and updates for projects at the repository root, and " +
-						project.Owner + " is below it",
+					project.Owner+" is below the repository root",
+					operation.Cause(
+						"--hooks and --dependabot write jobs and updates for projects at the root",
+					),
 				)
 			}
 		}
@@ -119,11 +122,14 @@ func (p *Proposal) repositoryLanguages(c operation.Context, selected []Project) 
 	return languages, nil
 }
 
-func repositoryFailure(message string) error {
+func repositoryFailure(message string, parts ...operation.Part) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"project_repository",
-		message+"; to add lefthook.yml or .github/dependabot.yml by hand, follow the policy READMEs in project/",
+		message,
+		append(parts, operation.FixText(
+			"to add lefthook.yml or .github/dependabot.yml by hand, follow the policy READMEs in project/",
+		))...,
 	)
 }
 

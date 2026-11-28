@@ -37,6 +37,14 @@ const CauseLabel = "cause"
 // so itself. It does not repeat the headline's path.
 func Cause(text string) Line { return Line{Label: CauseLabel, Text: text} }
 
+// Changed is the line that says what a refusal or failure changed, such as
+// "nothing", when the headline does not say so itself.
+func Changed(text string) Line { return Line{Label: "changed", Text: text} }
+
+// Outcome is the line that says what the headline leads to, such as a file
+// Git will not commit, when the headline does not say so itself.
+func Outcome(text string) Line { return Line{Label: "result", Text: text} }
+
 // Fix is a fix line: the command of words, each written as one word a shell
 // reads back as it (see shellWord).
 func Fix(words ...string) Part { return fixLine(shellWords(words)) }

@@ -174,7 +174,8 @@ func busy(why string) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"busy",
-		why+", so nothing was moved and the next import or apply tries again",
+		why,
+		operation.Changed("nothing moved; the next import or apply tries again"),
 	)
 }
 
@@ -408,7 +409,8 @@ func gate(ctx context.Context, paths Paths, move bool) (Paths, error) {
 		return paths, operation.Fail(
 			operation.ExitBlocked,
 			"migrate",
-			"The costs files are moving to Workbench's folders; run `workbench migrate`",
+			"The costs files are moving to Workbench's folders",
+			operation.Fix("workbench", "migrate"),
 		)
 	}
 	var moveErr error

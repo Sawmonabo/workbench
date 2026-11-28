@@ -61,7 +61,8 @@ func acquireLocks(c Context) (*locks, error) {
 			return nil, Fail(
 				ExitBlocked,
 				"locked",
-				"Another Workbench mutation holds the shared or selected scope lock; retry after it finishes",
+				"Another Workbench mutation holds the shared or selected scope lock",
+				FixText("wait for it to finish"),
 			)
 		}
 		if err := f.Truncate(0); err != nil {

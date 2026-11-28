@@ -85,7 +85,9 @@ func startAskpass(m *Mutation) (*askpassService, error) {
 		return nil, Fail(
 			ExitBlocked,
 			"privilege",
-			"Workbench could not set up its Mac password helper, so nothing was changed ("+err.Error()+")",
+			"Workbench could not set up its Mac password helper",
+			Cause(err.Error()),
+			Changed("nothing"),
 		)
 	}
 	go service.serve()

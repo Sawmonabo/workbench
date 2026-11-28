@@ -203,7 +203,7 @@ func (l *Ledger) create(ctx context.Context) error {
 				version != schemaVersion {
 				return ledgerProblem(operation.ExitInvalid, l.Path,
 					"a database appeared that is not a Workbench costs ledger of schema version "+
-						schemaVersion+"; move it aside")
+						schemaVersion, operation.FixText("move it aside"))
 			}
 			return nil
 		}

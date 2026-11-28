@@ -271,7 +271,10 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 				),
 			)
 		case !project.Supported:
-			p.Plan.Prerequisites = append(p.Plan.Prerequisites, unsupported(project))
+			p.Plan.Prerequisites = append(
+				p.Plan.Prerequisites,
+				operation.Warn(unsupported(project)),
+			)
 		default:
 			selected = append(selected, project)
 		}
@@ -282,7 +285,10 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 			func(project Project) bool { return project.Language == language.id },
 		)
 		if !chosen && (slices.Contains(languages, language.id) || len(selected) == 0) {
-			p.Plan.Prerequisites = append(p.Plan.Prerequisites, blocked[language.id]...)
+			p.Plan.Prerequisites = append(
+				p.Plan.Prerequisites,
+				operation.WarnAll(blocked[language.id]...)...,
+			)
 			continue
 		}
 		for _, reason := range blocked[language.id] {
@@ -293,7 +299,7 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 		}
 	}
 	if len(selected) == 0 {
-		p.Plan.Prerequisites = append(p.Plan.Prerequisites, noProject(languages))
+		p.Plan.Prerequisites = append(p.Plan.Prerequisites, operation.Warn(noProject(languages)))
 	}
 	return selected
 }
@@ -442,21 +448,32 @@ func (p *Proposal) addResolution(
 	if !options.ResolveDependencies {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Missing development checks at "+owner+": "+strings.Join(missing, ", ")+
-				"; select --resolve-dependencies to approve native resolution",
+			operation.Warn(
+				"Missing development checks at "+owner+": "+strings.Join(missing, ", "),
+				operation.FixText("add --resolve-dependencies to approve native resolution"),
+			),
 		)
 		return nil
 	}
 	if p.Inventory.owned(owner, customUVSettings) {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Custom uv resolution settings at "+owner+" need a native integration review; they will not be ignored or converted",
+			operation.Warn(
+				"Custom uv resolution settings at "+owner+" need a native integration review",
+				operation.Line{Label: "kept", Text: "the settings, neither ignored nor converted"},
+			),
 		)
 	}
 	if !options.AllowBuildHooks && p.Inventory.owned(owner, unsafeResolution) {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Dynamic metadata, local sources or nonstandard uv resolution requires explicit --allow-build-hooks and review; metadata-only staging may not support this project",
+			operation.Warn(
+				"Resolving "+owner+" needs --allow-build-hooks and review",
+				operation.Cause(
+					"it uses dynamic metadata, local sources or nonstandard uv resolution, "+
+						"which metadata-only staging may not support",
+				),
+			),
 		)
 	}
 	p.native = append(p.native, nativeRequest{Owner: owner, Missing: missing})
@@ -524,7 +541,7 @@ func (p *Proposal) finish(c operation.Context) error {
 	if len(p.native) > 0 && !hasUV {
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
-			"Qualified uv is required for native dependency resolution",
+			operation.Warn("Qualified uv is required for native dependency resolution"),
 		)
 	}
 	return p.blocked(

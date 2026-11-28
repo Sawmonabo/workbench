@@ -50,9 +50,9 @@ type Admin struct {
 	// Homebrew". Empty when the plan needs no password before its scripts run.
 	Why string
 	// Refusal is, when nobody can type the password and no ticket exists, the
-	// message of the blocked error that ends the apply before any change. Empty
-	// carries on without a ticket.
-	Refusal string
+	// error that ends the apply before any change. nil carries on without a
+	// ticket.
+	Refusal error
 }
 
 // TouchIDForSudo reports whether sudo on this Mac asks for Touch ID: an active
@@ -220,8 +220,10 @@ func (a Admin) prompt(ctx context.Context, c Context) error {
 	return Fail(
 		ExitBlocked,
 		"privilege",
-		"Workbench could not get administrator rights, so nothing was changed. "+
-			"Check that this account is an administrator, then run "+c.WorkbenchCommand()+" apply again",
+		"Workbench could not get administrator rights",
+		Changed("nothing"),
+		FixText("make sure this account is an administrator"),
+		FixText(c.WorkbenchCommand()+" apply"),
 	)
 }
 
@@ -241,8 +243,8 @@ func (a Admin) requireTicket(ctx context.Context, c Context, m *Mutation) error 
 	if ctx.Err() != nil {
 		return interruptedBeforeChange()
 	}
-	if a.Refusal != "" {
-		return Fail(ExitBlocked, "privilege", a.Refusal)
+	if a.Refusal != nil {
+		return a.Refusal
 	}
 	return nil
 }
@@ -264,8 +266,10 @@ func (a Admin) ask(ctx context.Context, c Context) (string, error) {
 	return "", Fail(
 		ExitBlocked,
 		"privilege",
-		"Workbench could not get administrator rights, so nothing was changed. "+
-			"Check that this account is an administrator, then run "+c.WorkbenchCommand()+" apply again",
+		"Workbench could not get administrator rights",
+		Changed("nothing"),
+		FixText("make sure this account is an administrator"),
+		FixText(c.WorkbenchCommand()+" apply"),
 	)
 }
 

@@ -501,10 +501,11 @@ func partialUpdate(command string, result *operation.Result, resultErr *error) {
 			redacted := operation.NewResult(command)
 			redacted.SetError(*resultErr)
 			problem := redacted.Errors[0]
-			*resultErr = operation.Fail(
+			*resultErr = operation.FailWith(
 				operation.ExitPartial,
 				problem.Category,
-				"Workbench is installed, but the rest of the update did not finish: "+problem.Message,
+				"Workbench is installed, but the rest of the update did not finish",
+				operation.Explain(operation.Cause(problem.Message)).With(problem.Body),
 			)
 			return
 		}
@@ -521,7 +522,8 @@ func localBuildInput(cmd *cobra.Command, developer bool) error {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"input",
-			"--local-build installs the checkout's tools; drop VERSION",
+			"--local-build installs the checkout's tools",
+			operation.FixText("drop VERSION"),
 		)
 	}
 	for _, name := range []string{"bundle", "runtime-ready"} {
@@ -529,7 +531,8 @@ func localBuildInput(cmd *cobra.Command, developer bool) error {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"input",
-				"--local-build installs the checkout's tools; drop --"+name,
+				"--local-build installs the checkout's tools",
+				operation.FixText("drop --"+name),
 			)
 		}
 	}

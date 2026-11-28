@@ -25,14 +25,14 @@ var oldCostsCache = Migration{
 		"~/.cache/claude-costs (CLAUDE_COSTS_CACHE), which Workbench never reads, and " +
 		"removes the folder once it is empty. Any other file there stays, and is named.",
 	Recovery: "nothing to undo: the deleted files are derived data Workbench never reads",
-	Check: func(l Locations) (Status, string) {
+	Check: func(l Locations) (Status, string, error) {
 		ours, other, err := oldCacheFiles(l)
 		folder := display.PathFrom(l.Home, l.OldScriptCache)
 		if err != nil {
-			return Pending, operation.Unread(l.Home, l.OldScriptCache, err)
+			return Pending, "", errors.New(operation.Unread(l.Home, l.OldScriptCache, err))
 		}
 		if operation.IsFolder(l.OldScriptCache) && len(ours) == 0 && len(other) == 0 {
-			return Pending, "removes the empty folder " + folder
+			return Pending, "removes the empty folder " + folder, nil
 		}
 		var text []string
 		if len(ours) > 0 {
@@ -49,9 +49,9 @@ var oldCostsCache = Migration{
 			text = append(text, keeps(other))
 		}
 		if len(ours) == 0 {
-			return Done, strings.Join(text, " and ")
+			return Done, strings.Join(text, " and "), nil
 		}
-		return Pending, strings.Join(text, " and ")
+		return Pending, strings.Join(text, " and "), nil
 	},
 	Run: func(_ context.Context, l Locations) ([]string, error) {
 		ours, other, err := oldCacheFiles(l)

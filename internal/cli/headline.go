@@ -28,17 +28,20 @@ func headlineLines(
 	body operation.Body,
 ) []string {
 	lines := hanging(mark, headline, width)
-	type row struct{ label, text string }
+	type row struct {
+		label, text string
+		command     bool
+	}
 	rows := make([]row, 0, len(body.Lines)+len(body.Fix))
 	for _, line := range body.Lines {
-		rows = append(rows, row{line.Label, line.Text})
+		rows = append(rows, row{line.Label, line.Text, false})
 	}
 	for i, fix := range body.Fix {
 		label := ""
 		if i == 0 {
 			label = fixLabel
 		}
-		rows = append(rows, row{label, fix})
+		rows = append(rows, row{label, fix, true})
 	}
 	column := 0
 	for _, r := range rows {
@@ -51,9 +54,53 @@ func headlineLines(
 		if paint {
 			label = faint.Render(label)
 		}
-		lines = append(lines, hanging(pad+label+"  ", r.text, width)...)
+		if !r.command {
+			lines = append(lines, hanging(pad+label+"  ", r.text, width)...)
+			continue
+		}
+		lines = append(lines, fixCommandLines(pad+label+"  ", r.text, width)...)
 	}
 	return lines
+}
+
+// fixCommandLines is command after lead, wrapped to width only between the words
+// a shell reads, each line after the first under the first's text: a word
+// wider than the room stays whole, past width, as a terminal shows a long
+// line, so a copied command keeps every word as it is.
+func fixCommandLines(lead, command string, width int) []string {
+	room := max(width-ansi.StringWidth(lead), 10)
+	wrapped := ansi.Wordwrap(glyphs.text.Replace(keepQuoted(command)), room, "")
+	lines := strings.Split(strings.ReplaceAll(wrapped, nbsp, " "), "\n")
+	for i, line := range lines {
+		if i == 0 {
+			lines[i] = lead + line
+		} else {
+			lines[i] = strings.Repeat(" ", ansi.StringWidth(lead)) + line
+		}
+	}
+	return lines
+}
+
+// nbsp is the space the wrap never breaks at.
+const nbsp = "\u00a0"
+
+// keepQuoted is command with each space inside a single-quoted word (see
+// operation's shellWord) one the wrap never breaks at, so a fix line breaks
+// only between the words a shell reads.
+func keepQuoted(command string) string {
+	var b strings.Builder
+	quoted := false
+	for _, r := range command {
+		switch {
+		case r == '\'':
+			quoted = !quoted
+		case r == ' ' && quoted:
+			b.WriteString(nbsp)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 // hanging is text after lead, word-wrapped to width with each line after the

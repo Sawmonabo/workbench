@@ -66,7 +66,7 @@ type Locations struct {
 // Migration is one numbered migration. Check changes nothing; its text says
 // what a run would do, or, for a Done migration, what it found and leaves. A
 // path it can't inspect counts as there, so nothing is called done that
-// isn't, and the run then says why. Run finishes whatever is left, and
+// isn't: Check returns why as its error, and the run refuses the same way. Run finishes whatever is left, and
 // running it twice only completes the remaining moves. Run returns the files,
 // home-relative, it found and left because Workbench didn't write them, or,
 // for a migration with Leaves, what Leaves turns into the text naming what it
@@ -77,7 +77,7 @@ type Migration struct {
 	Doing    string // "moving the costs files into Workbench's folders"
 	What     string // one paragraph naming every path it touches
 	Recovery string // how to undo it, for the plan
-	Check    func(Locations) (Status, string)
+	Check    func(Locations) (Status, string, error)
 	Run      func(context.Context, Locations) ([]string, error)
 	Leaves   func(left []string) string // nil: Run's files are named with keeps
 }
@@ -140,24 +140,35 @@ func Locate() (Locations, error) {
 func (l *Locations) shellDefault(name, fallback string) string {
 	path, relative := costs.ShellDefault(l.Home, name, fallback)
 	if relative != "" {
-		l.Notes = append(l.Notes, relative+", so the files it named can't be found")
+		l.Notes = append(l.Notes, relative+": the files it names can't be found")
 	}
 	return path
 }
 
-// Finding is one migration with what its Check found.
+// Finding is one migration with what its Check found: Detail, what a run
+// would do or what it found, and, for a Pending one that reads a file it is
+// refused or cannot read, Refusal, which a run gives the same way.
 type Finding struct {
 	Migration
-	Status Status
-	Detail string
+	Status  Status
+	Detail  string
+	Refusal error
+}
+
+// Said is Detail and the refusal, in one line.
+func (f Finding) Said() string {
+	if f.Refusal == nil {
+		return f.Detail
+	}
+	return strings.TrimPrefix(f.Detail+"; "+f.Refusal.Error(), "; ")
 }
 
 // Check runs every migration's Check, in number order.
 func Check(l Locations) []Finding {
 	findings := make([]Finding, len(registry))
 	for i, m := range registry {
-		status, detail := m.Check(l)
-		findings[i] = Finding{m, status, detail}
+		status, detail, refusal := m.Check(l)
+		findings[i] = Finding{m, status, detail, refusal}
 	}
 	return findings
 }
@@ -235,7 +246,9 @@ func Run(ctx context.Context, l Locations, wanted []string, say func(string)) er
 		return unfinished(failed, exit)
 	case len(newer) > 0:
 		return operation.Fail(operation.ExitBlocked, "migrate",
-			strings.Join(newer, ", ")+" "+needsNewer+", so run workbench update and apply again")
+			strings.Join(newer, ", ")+" "+needsNewer,
+			operation.Fix("workbench", "update"),
+			operation.Fix("workbench", "apply"))
 	}
 	return nil
 }
@@ -245,7 +258,7 @@ func conflicts(findings []Finding, say func(string)) []string {
 	var ids []string
 	for _, f := range findings {
 		if f.Status == Conflict {
-			say(f.ID + ": " + f.Detail)
+			say(f.ID + ": " + f.Said())
 			ids = append(ids, f.ID)
 		}
 	}
@@ -321,7 +334,7 @@ func keeps(names []string) string {
 func Probe(l Locations, wanted []string) []string {
 	var lines []string
 	for _, f := range Check(l) {
-		detail := strings.ReplaceAll(f.Detail, "; ", ", ")
+		detail := strings.ReplaceAll(f.Said(), "; ", ", ")
 		switch {
 		case due(f):
 			lines = append(lines, "migrations: "+f.ID+": "+detail)
@@ -356,7 +369,7 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 			{Name: "folders", Digest: operation.SHA256Hex([]byte(folders))},
 		},
 		Edits:         []operation.Edit{},
-		Prerequisites: []string{},
+		Prerequisites: []operation.Warning{},
 		Effects:       []operation.Effect{},
 		RecoveryLimits: []string{
 			"Migrations are not checkpointed; their moves keep every ledger row and every other file's bytes, and they delete only " +
@@ -374,11 +387,11 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 		case due(f):
 			plan.Effects = append(plan.Effects, operation.Effect{
 				Name:        f.ID,
-				Description: f.Detail,
+				Description: f.Said(),
 				Privilege:   "user",
 				Recovery:    f.Recovery,
 				Title:       f.Title,
-				Summary:     f.Detail,
+				Summary:     f.Said(),
 				What:        f.What,
 				RunsAs:      "you",
 				Fixed:       true,
