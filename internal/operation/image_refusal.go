@@ -22,8 +22,11 @@ import (
 type holder int
 
 const (
-	// replacedFile is a file or link Workbench writes a new one in place of.
+	// replacedFile is a file Workbench writes a new one in place of.
 	replacedFile holder = iota
+	// replacedLink is a link Workbench writes a new one in place of. The
+	// commands its refusals give change the link itself (platform.NoFollow).
+	replacedLink
 	// changedFolder is a folder Workbench changes in place and its checkpoint
 	// records, so revert can put it back: a target folder, or one that holds
 	// Workbench's own files.
@@ -32,19 +35,35 @@ const (
 	parentFolder
 )
 
-// holderOf is the holder of a target: changedFolder for a folder,
-// replacedFile for a file or link.
-func holderOf(folder bool) holder {
+// holderOf is the holder of a target of the type format, its status mode's
+// S_IFMT bits: changedFolder for a folder, replacedLink for a link and
+// replacedFile for any other.
+func holderOf(format uint32) holder {
+	switch format {
+	case unix.S_IFDIR:
+		return changedFolder
+	case unix.S_IFLNK:
+		return replacedLink
+	}
+	return replacedFile
+}
+
+// folderOrFile is changedFolder for a folder, else replacedFile.
+func folderOrFile(folder bool) holder {
 	if folder {
 		return changedFolder
 	}
 	return replacedFile
 }
 
+// replaced reports whether h is a file or link Workbench writes a new one in
+// place of, which a person can move aside.
+func (h holder) replaced() bool { return h == replacedFile || h == replacedLink }
+
 // locked is why a flag among platform.LockingFlags stops the write.
 func (h holder) locked() string {
 	switch h {
-	case replacedFile:
+	case replacedFile, replacedLink:
 		return "under which no file can replace it"
 	case changedFolder:
 		return "under which Workbench cannot change it"
@@ -58,11 +77,30 @@ func (h holder) lost() string {
 	switch h {
 	case replacedFile:
 		return "which the file Workbench writes in its place would not have"
+	case replacedLink:
+		return "which the link Workbench writes in its place would not have"
 	case changedFolder:
 		return "which Workbench's checkpoint of it cannot record, so revert could not put it back"
 	case parentFolder:
 	}
 	return "which Workbench has not checked against the files it writes there"
+}
+
+// retry ends a refusal of path, which is h to the write, with command, the
+// command that clears its cause, changed to act on a link itself when path is
+// one. A command that has no such form, or none at all, ends the refusal of
+// a file or link with moving it aside, and adds nothing for a folder.
+func (h holder) retry(command []string, path string) string {
+	if h == replacedLink {
+		command = platform.NoFollow(command)
+	}
+	switch {
+	case command != nil:
+		return retry(command, path)
+	case h.replaced():
+		return "; move it aside and retry"
+	}
+	return ""
 }
 
 // retry ends a refusal of path with the command that clears its cause, given
@@ -91,13 +129,7 @@ func flagRefusal(path string, flags uint32, h holder) error {
 		display.List(names),
 		cause,
 	)
-	switch command := platform.ClearFlags(flags); {
-	case command != nil:
-		message += retry(command, path)
-	case h == replacedFile:
-		message += "; move it aside and retry"
-	}
-	return Fail(ExitBlocked, "metadata", message)
+	return Fail(ExitBlocked, "metadata", message+h.retry(platform.ClearFlags(flags), path))
 }
 
 // attributeRefusal refuses path for the extended attribute name, which a
@@ -111,7 +143,7 @@ func attributeRefusal(path, name string, h holder) error {
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		display.Path(path)+" has "+kind+", "+h.lost()+retry(remove, path),
+		display.Path(path)+" has "+kind+", "+h.lost()+h.retry(remove, path),
 	)
 }
 
@@ -132,7 +164,7 @@ func ownershipRefusal(path string, uid, mode uint32) error {
 	if int(uid) != os.Geteuid() {
 		return ownerRefusal(path, uid, mode&unix.S_IFMT == unix.S_IFLNK)
 	}
-	return specialModeRefusal(path, mode, holderOf(mode&unix.S_IFMT == unix.S_IFDIR))
+	return specialModeRefusal(path, mode, holderOf(mode&unix.S_IFMT))
 }
 
 // ownerRefusal refuses path, which the user with ID uid owns, not the
@@ -142,13 +174,13 @@ func ownerRefusal(path string, uid uint32, link bool) error {
 }
 
 // notYours says that path belongs to the user with ID uid, not the current
-// user, and gives the chown, with -h for a link, that makes it theirs.
+// user, and gives the chown, of the link itself for a link, that makes it
+// theirs.
 func notYours(path string, uid uint32, link bool) string {
-	command := []string{"sudo", "chown"}
+	command := []string{"sudo", "chown", userName(uint32(os.Geteuid()))}
 	if link {
-		command = append(command, "-h")
+		command = platform.NoFollow(command)
 	}
-	command = append(command, userName(uint32(os.Geteuid())))
 	owner := display.Path(path) + " belongs to " + userName(uid)
 	return owner + ", not to you, and Workbench writes only what you own" + retry(command, path)
 }
@@ -204,7 +236,7 @@ func specialModeRefusal(path string, mode uint32, h holder) error {
 			display.Plural(len(bits), "bit"),
 			mode&0o7777,
 			h.lost(),
-		)+retry([]string{"chmod", strings.Join(clear, ",")}, path),
+		)+h.retry([]string{"chmod", strings.Join(clear, ",")}, path),
 	)
 }
 
@@ -266,16 +298,26 @@ func hardLinkRefusal(path string, links uint64) error {
 	)
 }
 
-// groupChangeRefusal refuses path, of group had, which native's replacement
-// would give group gets, the group a file made in its folder gets.
-func groupChangeRefusal(path string, had, gets uint32) error {
+// groupChangeRefusal refuses path, a file or a link when link, of group had,
+// which native's replacement would give group gets, the group a file made in
+// its folder gets. The chgrp it gives runs under sudo when the user is not a
+// member of gets (chown(2)).
+func groupChangeRefusal(path string, link bool, had, gets uint32) error {
 	group := groupName(gets)
+	command := []string{"chgrp", group}
+	if permitted, err := canSetGroup(gets); err != nil || !permitted {
+		command = append([]string{"sudo"}, command...)
+	}
+	h := replacedFile
+	if link {
+		h = replacedLink
+	}
 	found := display.Path(path) + " has group " + groupName(had)
 	return Fail(
 		ExitBlocked,
 		"metadata",
 		found+", but a file made in its folder gets group "+group+
-			", so native's replacement would change it"+retry([]string{"chgrp", group}, path),
+			", so native's replacement would change it"+h.retry(command, path),
 	)
 }
 
@@ -316,7 +358,9 @@ func imageKindName(kind ImageKind) string {
 		return "a folder"
 	case ImageSymlink:
 		return "a link"
-	case ImageAbsent, ImageFile:
+	case ImageAbsent:
+		return "missing"
+	case ImageFile:
 	}
 	return "a file"
 }

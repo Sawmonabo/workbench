@@ -78,11 +78,14 @@ every caller.
   and append-only flags, under which no file replaces a file;
   `AttributeRemoval` what an extended attribute is, where it has a name of
   its own (an ACL, file capabilities), and the command that removes it;
-  `TouchIDPossible` whether
-  Touch ID for sudo can exist; `ReadsPasswords` whether `ReadPassword` reads
-  a password at a terminal; `HostRelease` the release's name and version;
-  `AssetTriple` the `apple-darwin` or `unknown-linux-gnu` part of a release
-  asset's name.
+  `ACLRemoval` and `ACLEntryRemoval` the commands that remove a file's ACL
+  and one of its entries (`chmod -N`, `chmod -a#` on macOS); `NoFollow` a
+  command's form that changes a link itself, not the file it points to
+  (`chflags -h`, `xattr -s`, `setfattr -h`), or none; `TouchIDPossible`
+  whether Touch ID for sudo can exist; `ReadsPasswords` whether
+  `ReadPassword` reads a password at a terminal; `HostRelease` the release's
+  name and version; `AssetTriple` the `apple-darwin` or `unknown-linux-gnu`
+  part of a release asset's name.
 - **A fact learned from a command takes its runner.** The package starts no
   process, since `operation.Run` owns subprocesses, so `HostRelease` is
   handed a function that runs `/usr/bin/sw_vers -productVersion` on macOS

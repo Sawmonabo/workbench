@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"slices"
-	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -91,7 +90,7 @@ func metadata(
 	if err := attributeACL(fd, path, h); err != nil {
 		return err
 	}
-	entries, present, err := targetACL(fd, path, false)
+	entries, present, err := targetACL(fd, path, h)
 	return acl(path, h, entries, present, err)
 }
 
@@ -119,7 +118,7 @@ func checkFlags(path string, h holder, kept uint32) func(uint32, error) error {
 // folder and its standard folders such as ~/Library; it only stops the folder
 // itself from being deleted. A refusal names the entry by its number in
 // ls -le, which chmod -a# removes.
-func folderACL(path string, _ holder, entries []platform.ACE, _ bool, err error) error {
+func folderACL(path string, h holder, entries []platform.ACE, _ bool, err error) error {
 	if err != nil {
 		return err
 	}
@@ -140,7 +139,7 @@ func folderACL(path string, _ holder, entries []platform.ACE, _ bool, err error)
 				ExitBlocked,
 				"metadata",
 				display.Path(path)+" has an ACL entry "+cause+
-					retry([]string{"chmod", "-a#", strconv.Itoa(i)}, path),
+					h.retry(platform.ACLEntryRemoval(i), path),
 			)
 		}
 	}
@@ -154,18 +153,18 @@ func linkMetadata(path string) error {
 	}
 	if err := checkFlags(
 		path,
-		replacedFile,
+		replacedLink,
 		platform.KeptFlags,
 	)(
 		platform.FileFlags(-1, path),
 	); err != nil {
 		return err
 	}
-	if err := attributeACL(-1, path, replacedFile); err != nil {
+	if err := attributeACL(-1, path, replacedLink); err != nil {
 		return err
 	}
-	entries, present, err := targetACL(-1, path, true)
-	return noACL(path, replacedFile, entries, present, err)
+	entries, present, err := targetACL(-1, path, replacedLink)
+	return noACL(path, replacedLink, entries, present, err)
 }
 
 // noACL rejects any ACL, even an empty one, on a target Workbench writes:
@@ -176,17 +175,18 @@ func noACL(path string, h holder, _ []platform.ACE, present bool, err error) err
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(path)+" has an ACL, "+h.lost()+retry([]string{"chmod", "-N"}, path),
+			display.Path(path)+" has an ACL, "+h.lost()+h.retry(platform.ACLRemoval(), path),
 		)
 	}
 	return err
 }
 
-// targetACL reads the ACL of fd, or of path itself when byPath, failing
-// closed when it cannot be read or its layout is unknown.
-func targetACL(fd int, path string, byPath bool) ([]platform.ACE, bool, error) {
+// targetACL reads the ACL of fd, or of the link path itself when h is
+// replacedLink, failing closed when it cannot be read or its layout is
+// unknown.
+func targetACL(fd int, path string, h holder) ([]platform.ACE, bool, error) {
 	selector := ""
-	if byPath {
+	if h == replacedLink {
 		fd, selector = -1, path
 	}
 	entries, present, err := platform.FileSecurity(fd, selector)
@@ -197,7 +197,7 @@ func targetACL(fd int, path string, byPath bool) ([]platform.ACE, bool, error) {
 			ExitBlocked,
 			"metadata",
 			shown+" has an ACL in a form Workbench does not read,"+
-				" so it cannot tell what the ACL allows"+retry([]string{"chmod", "-N"}, path),
+				" so it cannot tell what the ACL allows"+h.retry(platform.ACLRemoval(), path),
 		)
 	case err != nil:
 		return nil, false, Fail(

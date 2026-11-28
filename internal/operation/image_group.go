@@ -29,12 +29,16 @@ func validateImageGroup(c Context, path string, image Image) error {
 		permitted = inheritErr == nil && inherited == *image.Group
 	}
 	if !permitted {
+		h := replacedFile
+		if image.Kind == ImageSymlink {
+			h = replacedLink
+		}
 		return Fail(
 			ExitBlocked,
 			"metadata",
 			display.Path(path)+" has group "+groupName(*image.Group)+
-				", which you are not a member of, so a file Workbench writes in its place could not keep it"+
-				retry([]string{"chgrp", groupName(groupID(os.Getegid()))}, path),
+				", which you are not a member of, so Workbench cannot give it that group when it writes it"+
+				h.retry([]string{"chgrp", groupName(groupID(os.Getegid()))}, path),
 		)
 	}
 	return nil

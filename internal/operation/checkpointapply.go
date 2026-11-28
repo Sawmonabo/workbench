@@ -3,7 +3,9 @@ package operation
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
+	"io/fs"
 	"slices"
 	"strings"
 
@@ -178,7 +180,7 @@ func CheckPreservable(
 		return err
 	}
 	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
-		return groupChangeRefusal(edit.Path, *before.Group, group)
+		return groupChangeRefusal(edit.Path, before.Kind == ImageSymlink, *before.Group, group)
 	}
 	return nil
 }
@@ -271,19 +273,36 @@ func (cp *Checkpoint) Finish(runErr error) error {
 	return runErr
 }
 
-// outcomeRefusal is the failure of a write to path whose result cannot be
-// read back, with err, or differs from what Workbench wrote, with err nil.
-func outcomeRefusal(path string, err error) error {
-	shown := display.Path(path)
-	found := shown + " does not hold what Workbench wrote"
-	if err != nil {
-		found = "Workbench cannot read " + shown + " after writing it (" + err.Error() + ")"
+// stoppedPartWay ends the failure of a write that stopped an apply after it
+// changed other files: the checkpoint keeps what they held, for revert.
+const stoppedPartWay = "; Workbench stopped there and kept the checkpoint of the files it changed before"
+
+// writeFailure is the failure of the write to path that stopped an apply,
+// which err says why: a refusal in its own words, which name the file,
+// otherwise led by the file, with an os error's path shown as people read
+// it (see [FileError]).
+func writeFailure(path string, err error) error {
+	reason := "Workbench did not finish writing " + display.Path(path) + ": " + err.Error()
+	if problem, ok := errors.AsType[*Error](err); ok {
+		reason = problem.Message
+	} else if problem, ok := errors.AsType[*fs.PathError](err); ok {
+		reason = "Workbench did not finish writing " + display.Path(path) + ": " +
+			FileError(problem.Path, err).Error()
 	}
-	return Fail(
-		ExitPartial,
-		"partial",
-		found+"; its outcome requires reconciliation, and retained images were preserved",
-	)
+	return Fail(ExitPartial, "partial", reason+stoppedPartWay)
+}
+
+// outcomeRefusal is the failure of a write to path whose result cannot be
+// read back, which err says why, or differs from what Workbench wrote, with
+// err nil.
+func outcomeRefusal(path string, err error) error {
+	reason := display.Path(path) + " does not hold what Workbench wrote"
+	if problem, ok := errors.AsType[*Error](err); ok {
+		reason = problem.Message
+	} else if err != nil {
+		reason = "Workbench cannot read " + display.Path(path) + " after writing it: " + err.Error()
+	}
+	return Fail(ExitPartial, "partial", reason+stoppedPartWay)
 }
 
 // Apply is the shared exact-write owner for project configuration and recovery.
@@ -356,12 +375,7 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		if err := writeImage(cp.mutation.context, change.Path, expected, desired); err != nil {
 			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
-			return Fail(
-				ExitPartial,
-				"partial",
-				"Workbench did not finish writing "+display.Path(change.Path)+": "+err.Error()+
-					"; retained checkpoint requires reconciliation before retry",
-			)
+			return writeFailure(change.Path, err)
 		}
 		observed, err := ReadImage(cp.mutation.context, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {

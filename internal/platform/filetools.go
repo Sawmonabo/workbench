@@ -1,6 +1,9 @@
 package platform
 
-import "strconv"
+import (
+	"slices"
+	"strconv"
+)
 
 // fileFlag is one file flag as this system's own tools name it: name as its
 // listing shows it, clear the word that clears it in its command, empty when
@@ -80,4 +83,36 @@ const LockingFlags = lockingFlags
 // attributes alone a file's owner may remove (xattr(7)).
 func AttributeRemoval(name string) (kind string, remove []string) {
 	return attributeRemoval(name)
+}
+
+// ACLRemoval is the command, as words without the file's path, that removes
+// a file's whole ACL: chmod -N on macOS, setfacl -b on Linux.
+func ACLRemoval() []string { return slices.Clone(aclRemoval) }
+
+// ACLEntryRemoval is the command, as words without the file's path, that
+// removes the ACL entry FileSecurity lists at index entry, which is its number
+// in ls -le: chmod -a# ENTRY on macOS. It is nil on Linux, where FileSecurity
+// lists no entries.
+func ACLEntryRemoval(entry int) []string { return aclEntryRemoval(entry) }
+
+// NoFollow is command, as words without the file's path, given the option
+// under which it changes a link itself instead of the file the link points
+// to, put after its name (and after a sudo before it): -h for chflags, chmod,
+// chgrp and chown and -s for xattr on macOS; -h for setfattr, chgrp and chown
+// on Linux. It is nil for a command without such an option: on Linux chattr,
+// which cannot open a link, and setfacl and setcap, since Linux keeps no ACL
+// or file capabilities on a link.
+func NoFollow(command []string) []string {
+	at := 0
+	if len(command) > 0 && command[0] == "sudo" {
+		at = 1
+	}
+	if at >= len(command) {
+		return nil
+	}
+	option, ok := noFollowOption[command[at]]
+	if !ok {
+		return nil
+	}
+	return append(append(slices.Clone(command[:at+1]), option), command[at+1:]...)
 }

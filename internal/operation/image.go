@@ -244,7 +244,7 @@ func ReadImage(c Context, path string) (Image, error) {
 		if err = linkMetadata(path); err != nil {
 			return Image{}, err
 		}
-		image.Attributes, err = readImageAttributes(-1, path, replacedFile)
+		image.Attributes, err = readImageAttributes(-1, path, replacedLink)
 		if err != nil {
 			return Image{}, err
 		}
@@ -278,7 +278,11 @@ func ReadImage(c Context, path string) (Image, error) {
 		if err = c.openMetadata(fd, path, directory); err != nil {
 			return Image{}, err
 		}
-		image.Attributes, err = readImageAttributes(fd, path, holderOf(directory))
+		image.Attributes, err = readImageAttributes(
+			fd,
+			path,
+			holderOf(uint32(stat.Mode&unix.S_IFMT)),
+		)
 		if err != nil {
 			return Image{}, err
 		}
@@ -309,7 +313,7 @@ func (c Context) openMetadata(fd int, path string, directory bool) error {
 	if directory && c.isContainer(path) {
 		return containerMetadata(fd, path)
 	}
-	return fileMetadata(fd, path, holderOf(directory))
+	return fileMetadata(fd, path, folderOrFile(directory))
 }
 
 func sameImage(a, b Image) bool {

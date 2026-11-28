@@ -42,6 +42,20 @@ func clearCommand(words []string) []string {
 // an immutable folder (inode_permission).
 const lockingFlags uint32 = immutableFlag | appendFlag
 
+// aclRemoval is setfacl -b, which removes a file's access ACL (setfacl(1)).
+var aclRemoval = []string{"setfacl", "-b"}
+
+// aclEntryRemoval is nil: fileSecurity lists no entries here.
+func aclEntryRemoval(int) []string { return nil }
+
+// noFollowOption is, by command, the option of setfattr(1), chgrp(1) and
+// chown(1) under which they change a link itself.
+var noFollowOption = map[string]string{
+	"setfattr": "-h",
+	"chgrp":    "-h",
+	"chown":    "-h",
+}
+
 // attributeRemoval names the POSIX ACLs and file capabilities, which their
 // own commands remove, and gives every other attribute setfattr -x, after
 // sudo outside the user namespace.

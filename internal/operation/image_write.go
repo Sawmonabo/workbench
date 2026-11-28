@@ -67,7 +67,7 @@ func enforceNativeMetadata(
 	current.Attributes, err = readImageAttributes(
 		fd,
 		path,
-		holderOf(observed.Kind == ImageDirectory),
+		folderOrFile(observed.Kind == ImageDirectory),
 	)
 	if err != nil {
 		return err
@@ -150,7 +150,7 @@ func stageLinkImage(fd int, temporary, path string, desired Image) error {
 		}
 	}
 	link := filepath.Join(filepath.Dir(path), temporary)
-	return writeImageAttributes(-1, link, desired.Attributes, replacedFile)
+	return writeImageAttributes(-1, link, desired.Attributes, replacedLink)
 }
 
 // stageFileImage writes the desired bytes, group, mode and attributes to a new

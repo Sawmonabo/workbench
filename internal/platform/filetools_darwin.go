@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
@@ -37,6 +38,25 @@ func clearCommand(words []string) []string {
 // lockingFlags are the owner's and the system's immutable and append-only
 // flags: rename(2) over such a file fails with EPERM.
 const lockingFlags uint32 = unix.UF_IMMUTABLE | unix.UF_APPEND | unix.SF_IMMUTABLE | unix.SF_APPEND
+
+// aclRemoval is chmod -N, which removes a file's ACL (chmod(1)).
+var aclRemoval = []string{"chmod", "-N"}
+
+// aclEntryRemoval is chmod -a#, which removes the ACL entry numbered entry as
+// ls -le numbers them (chmod(1)).
+func aclEntryRemoval(entry int) []string {
+	return []string{"chmod", "-a#", strconv.Itoa(entry)}
+}
+
+// noFollowOption is, by command, the option of chflags(1), chmod(1),
+// chgrp(1), chown(8) and xattr(1) under which they change a link itself.
+var noFollowOption = map[string]string{
+	"chflags": "-h",
+	"chmod":   "-h",
+	"chgrp":   "-h",
+	"chown":   "-h",
+	"xattr":   "-s",
+}
 
 // attributeRemoval is xattr -d for every attribute: macOS keeps ACLs apart
 // from extended attributes.
