@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
 	"os"
 	"path"
@@ -13,6 +12,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/pelletier/go-toml/v2"
@@ -506,7 +506,19 @@ func (r *Inventory) inputsList() []operation.Input {
 	return result
 }
 
-func unsupported(p Project) string { return fmt.Sprintf("%s: %s", p.Root, p.Reason) }
+// warning is headline with p's folder after it, named from the home folder.
+func (p Project) warning(headline string) operation.Warning {
+	return operation.Warn(headline + display.Path(p.Root))
+}
+
+// unsupported is warning with why p is not configured, when discovery says,
+// as its cause.
+func (p Project) unsupported(headline string) operation.Warning {
+	if p.Reason == "" {
+		return p.warning(headline)
+	}
+	return operation.Warn(headline+display.Path(p.Root), operation.Cause(p.Reason))
+}
 
 // cargoOwner decides who owns the Cargo package or workspace at p's root,
 // from the manifests' text alone: no cargo command runs, because a

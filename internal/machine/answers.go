@@ -511,7 +511,7 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 		description := fmt.Sprintf(
 			"Save machine answers (%s) from the [data] table of %s; its other keys are ignored",
 			answers.label(),
-			from,
+			c.ShowPath(from),
 		)
 		plan.Edits = []operation.Edit{{Path: target, Action: action, Description: description}}
 	}

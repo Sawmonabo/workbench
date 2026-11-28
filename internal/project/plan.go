@@ -259,34 +259,30 @@ func ownedBy(projects []Project, owner string) []Project {
 // language's plan.
 func (p *Proposal) selectProjects(languages []string) []Project {
 	var selected []Project
-	blocked := map[string][]string{}
+	blocked := map[string][]Project{}
 	for _, project := range p.Inventory.Projects {
 		switch {
 		case !slices.Contains(configurable, project.Language):
 			p.Warnings = append(
 				p.Warnings,
-				operation.Warn("Discovery-only component left untouched: "+project.Root),
+				project.warning("Discovery-only component left untouched: "),
 			)
 		case len(languages) > 0 && !slices.Contains(languages, project.Language):
 			p.Warnings = append(
 				p.Warnings,
-				operation.Warn(
-					"Component of a language not selected left untouched: "+project.Root,
-				),
+				project.warning("Component of a language not selected left untouched: "),
 			)
 		case project.Language != "python" && !project.Supported:
-			blocked[project.Language] = append(blocked[project.Language], unsupported(project))
+			blocked[project.Language] = append(blocked[project.Language], project)
 		case !project.Supported && project.Manager != "uv":
 			p.Warnings = append(
 				p.Warnings,
-				operation.Warn(
-					"Discovery-only Python component left untouched: "+unsupported(project),
-				),
+				project.unsupported("Discovery-only Python component left untouched: "),
 			)
 		case !project.Supported:
 			p.Plan.Prerequisites = append(
 				p.Plan.Prerequisites,
-				operation.Warn(unsupported(project)),
+				project.unsupported("Python component not configured: "),
 			)
 		default:
 			selected = append(selected, project)
@@ -298,16 +294,18 @@ func (p *Proposal) selectProjects(languages []string) []Project {
 			func(project Project) bool { return project.Language == language.id },
 		)
 		if !chosen && (slices.Contains(languages, language.id) || len(selected) == 0) {
-			p.Plan.Prerequisites = append(
-				p.Plan.Prerequisites,
-				operation.WarnAll(blocked[language.id]...)...,
-			)
+			for _, project := range blocked[language.id] {
+				p.Plan.Prerequisites = append(
+					p.Plan.Prerequisites,
+					project.unsupported(language.name+" component not configured: "),
+				)
+			}
 			continue
 		}
-		for _, reason := range blocked[language.id] {
+		for _, project := range blocked[language.id] {
 			p.Warnings = append(
 				p.Warnings,
-				operation.Warn(language.name+" component left untouched: "+reason),
+				project.unsupported(language.name+" component left untouched: "),
 			)
 		}
 	}
