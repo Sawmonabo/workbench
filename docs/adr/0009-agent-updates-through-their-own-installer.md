@@ -66,13 +66,15 @@ must not fight those updaters.
 - The target is the `versions.toml` pin in pinned mode. In latest mode it is
   the newest release on the channel the tool's own updater follows: Codex's
   `releases.openai.com/codex/channels/latest` or the npm `latest` tag, and for
-  Claude Code the channel `autoUpdatesChannel` names (`stable` or `latest`,
-  unset meaning latest), read from the user settings (`settings.json` in
+  Claude Code the channel `autoUpdatesChannel` names (`latest`, `stable` or
+  `rc`, unset meaning latest), read from the user settings (`settings.json` in
   `CLAUDE_CONFIG_DIR` when that is set, else in `~/.claude`) and the managed
   settings files (`managed-settings.json` and `managed-settings.d/*.json` in
   `/Library/Application Support/ClaudeCode` or `/etc/claude-code`), which
-  override it: `downloads.claude.ai/claude-code-releases/stable` or `/latest`,
-  or the npm `stable` or `latest` tag. A channel set only through an MDM
+  override it: `downloads.claude.ai/claude-code-releases/` followed by the
+  channel, or the npm tag of that name, as Claude Code's own updater looks it
+  up. Neither publishes `rc` today, so its lookup fails and the plan warns
+  that the update was not checked, as Claude Code itself finds no update. A channel set only through an MDM
   profile or the claude.ai console cannot be read from a file and counts as
   latest; project and local settings depend on the folder Claude Code starts
   in and are not read. Planning looks both versions up side by side, each within 3 seconds,

@@ -868,7 +868,8 @@ running it. When that version is older than the target, the plan lists
 pin, or in latest mode the newest release on the channel the tool's own
 updater follows, looked up while planning: Codex's latest channel, and for
 Claude Code the `autoUpdatesChannel` in its user settings (in
-`CLAUDE_CONFIG_DIR` when that is set; `stable` or `latest`) or its managed
+`CLAUDE_CONFIG_DIR` when that is set; `latest`, `stable` or `rc`, which
+nothing publishes yet, so its lookup fails with a warning) or its managed
 settings files, which override yours. Project settings are not read, as they
 depend on the folder Claude Code starts in. A settings file Claude Code skips
 for an error counts for nothing here either: one that is not JSON, or whose

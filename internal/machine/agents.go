@@ -209,7 +209,8 @@ func (p *preparation) planAgentUpdates(
 		case failed[i]:
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				agent.name+" updates were not checked; its newest version could not be looked up",
+				agent.name+" updates were not checked; the newest version on its "+channels[i]+
+					" channel could not be looked up",
 			)
 		case targets[i] == "":
 			p.Plan.Warnings = append(
@@ -505,8 +506,10 @@ func nvmDefaultBin(home string) string {
 // settings files (toolconfig.ClaudeSettings): the channel from the last one
 // that names it, and the floor the highest any of them sets, since a managed
 // minimum is one the user's settings cannot lower
-// (https://code.claude.com/docs/en/setup#pin-a-minimum-version). A channel
-// unset or other than stable means latest, Claude Code's default.
+// (https://code.claude.com/docs/en/setup#pin-a-minimum-version). An unset
+// channel means latest, Claude Code's default; any other is one its settings
+// accept (latest, stable or rc), looked up under its own name as Claude
+// Code's updater looks it up.
 func claudeUpdates(home string) (channel, minimum string) {
 	for _, settings := range toolconfig.ClaudeSettings(home) {
 		if settings.Channel != "" {
@@ -517,7 +520,7 @@ func claudeUpdates(home string) (channel, minimum string) {
 			minimum = settings.Minimum
 		}
 	}
-	if channel != "stable" {
+	if channel == "" {
 		channel = "latest"
 	}
 	return channel, minimum
