@@ -7,12 +7,15 @@ package download
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/url"
+	"strings"
 	"syscall"
 	"time"
 
@@ -111,7 +114,8 @@ func Get(
 		if err := cut(location, ctx, download); err != nil {
 			return nil, nil, err
 		}
-		return nil, nil, failure(location, cause(err))
+		text, fix := cause(err)
+		return nil, nil, failure(location, text, fix...)
 	}
 	stall.Reset(stallLimit)
 	defer func() { _ = response.Body.Close() }()
@@ -137,7 +141,8 @@ func Get(
 	}
 	switch {
 	case err != nil:
-		return nil, nil, failure(location, "ended early ("+cause(err)+")")
+		text, fix := cause(err)
+		return nil, nil, failure(location, "ended early: "+text, fix...)
 	case int64(len(data)) > limit:
 		return nil, nil, tooLarge
 	}
@@ -172,26 +177,97 @@ func statusLine(code int) string {
 	return fmt.Sprintf("HTTP %d", code)
 }
 
-// cause is why a request failed, in plain words: "timed out" for a timeout,
-// "host NAME not found", the operating system's reason, such as "connection
-// refused", or the error itself. A [url.Error]'s own address, which may be a
-// redirect's, is left out: [Get] names the address its caller asked for.
-func cause(err error) string {
+// cause is why a request failed, in words a person can act on, naming the
+// host that failed, and the fix lines that help: a name that does not resolve
+// or a name server that cannot be asked, a host or proxy that refuses or
+// closes the connection, cannot be reached or does not answer in time, a
+// certificate this system does not accept, or, failing those, the error
+// itself. A
+// [url.Error]'s own address, which may be a redirect's, is left out: [Get]
+// names the address its caller asked for; its host is the one named.
+func cause(err error) (string, []operation.Part) {
+	host := "the server"
 	if problem, ok := errors.AsType[*url.Error](err); ok {
+		if u, parseErr := url.Parse(problem.URL); parseErr == nil && u.Hostname() != "" {
+			host = u.Hostname()
+		}
 		err = problem.Err
 	}
+	network := []operation.Part{operation.FixText("check the network")}
+	// A proxy's failure is the transport's "proxyconnect" error around the
+	// dial to the proxy, whose address it names.
+	if outer, ok := errors.AsType[*net.OpError](err); ok && outer.Op == "proxyconnect" {
+		host = "the proxy"
+		if inner, ok := errors.AsType[*net.OpError](outer.Err); ok && inner.Addr != nil {
+			host += " at " + inner.Addr.String()
+		}
+		network = []operation.Part{operation.FixText("check the HTTPS_PROXY variable")}
+	}
 	var timeout interface{ Timeout() bool }
-	var host *net.DNSError
 	var errno syscall.Errno
+	switch dns, isDNS := errors.AsType[*net.DNSError](err); {
+	case isDNS && dns.IsNotFound:
+		return "host " + dns.Name + " not found", network
+	case isDNS && dns.IsTimeout:
+		return "the name server did not answer for " + dns.Name, network
+	case isDNS:
+		// Err is the lookup's own reason as text, its last clause the
+		// system's, such as "network is unreachable" or "server misbehaving".
+		reason := dns.Err[strings.LastIndex(dns.Err, ": ")+1:]
+		return "cannot look up " + dns.Name + ": " + strings.TrimSpace(reason), network
+	}
+	if text, fix, ok := certificateCause(host, err); ok {
+		return text, fix
+	}
 	switch {
 	case errors.As(err, &timeout) && timeout.Timeout():
-		return "timed out"
-	case errors.As(err, &host) && host.IsNotFound:
-		return "host " + host.Name + " not found"
+		return host + " did not answer in time", network
+	case errors.As(err, &errno) && errno == syscall.ECONNREFUSED:
+		return host + " refused the connection", network
+	case errors.As(err, &errno) && errno == syscall.ECONNRESET,
+		errors.Is(err, io.ErrUnexpectedEOF), errors.Is(err, io.EOF):
+		return host + " closed the connection", network
 	case errors.As(err, &errno):
-		return errno.Error()
+		return "cannot reach " + host + ": " + errno.Error(), network
 	}
-	return err.Error()
+	return err.Error(), nil
+}
+
+// certificateCause is the cause, and its fix lines, of a secure connection to
+// host that failed for its certificate or its TLS, and ok when err is one: a
+// certificate this system's authorities do not sign, which a proxy or
+// security software that reads HTTPS sends; one for other names; one past
+// or before its dates, which a wrong clock makes; or an answer that is not
+// TLS.
+func certificateCause(host string, err error) (string, []operation.Part, bool) {
+	intercept := []operation.Part{
+		operation.FixText("check for a proxy or security software that intercepts HTTPS"),
+	}
+	var authority x509.UnknownAuthorityError
+	var name x509.HostnameError
+	var record tls.RecordHeaderError
+	switch invalid, isInvalid := errors.AsType[x509.CertificateInvalidError](err); {
+	case errors.As(err, &authority):
+		return "the certificate sent for " + host + " is not signed by an authority this " +
+			"system trusts", intercept, true
+	case errors.As(err, &name) && name.Certificate != nil:
+		names := name.Certificate.DNSNames
+		if len(names) == 0 {
+			names = []string{name.Certificate.Subject.CommonName}
+		}
+		return "the certificate sent for " + host + " is for " + display.List(
+			names,
+		), intercept, true
+	case isInvalid && invalid.Reason == x509.Expired:
+		return "the certificate sent for " + host + " has expired or is not valid yet", []operation.Part{
+			operation.FixText("check this computer's date and time"),
+		}, true
+	case isInvalid:
+		return "the certificate sent for " + host + " is not valid: " + invalid.Error(), intercept, true
+	case errors.As(err, &record):
+		return host + " did not answer in TLS", intercept, true
+	}
+	return "", nil, false
 }
 
 // stallLimit is how long a download may go without receiving a byte.
