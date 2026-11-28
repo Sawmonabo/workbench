@@ -156,8 +156,20 @@ func (a *applyRun) apply() error {
 // planUnfinished reads the operation state records as unfinished in c's
 // scope, which the apply settles before it writes anything
 // ([operation.SettleUnfinished]): the plan shows it as a note, binds it, and
-// takes each file it finishes as that file will be once settled.
+// takes each file it finishes as that file will be once settled. The state
+// holds one such record, which this apply would replace, so one of another
+// destination is the plan's prerequisite and its refusal: the plan has no
+// digest, and an apply is refused before it is approved, sets anything up
+// or writes anything.
 func (p *preparation) planUnfinished(c operation.Context, state *operation.State) error {
+	if err := state.Unfinished(c); err != nil {
+		message, body := operation.Explained(err)
+		p.Plan.Prerequisites = append(
+			p.Plan.Prerequisites,
+			operation.Warning{Message: message, Body: body},
+		)
+		return err
+	}
 	var err error
 	p.unfinished, err = operation.PlanUnfinished(c, state)
 	if err != nil || p.unfinished == nil {
@@ -168,6 +180,20 @@ func (p *preparation) planUnfinished(c operation.Context, state *operation.State
 	return nil
 }
 
+// RefuseUnfinished is the refusal the plan gives (see planUnfinished) while
+// the state records another destination's unfinished apply, for an apply at
+// a terminal, which sets up its tools before it plans: nothing is
+// downloaded, installed, locked or written before it. State it cannot read
+// is the plan's to refuse, after setup has given Workbench's own folders the
+// mode they need.
+func RefuseUnfinished(c operation.Context) error {
+	state, err := operation.ReadState(c.Paths)
+	if err != nil {
+		return nil
+	}
+	return state.Unfinished(c)
+}
+
 // write settles an earlier apply that did not finish, then checkpoints,
 // provisions and records this one.
 func (a *applyRun) write() error {
@@ -176,7 +202,9 @@ func (a *applyRun) write() error {
 		return err
 	}
 	// The single partial-operation record is replaced or cleared below;
-	// another destination's unfinished apply must not be.
+	// another destination's unfinished apply must not be. The plan refused
+	// one already (planUnfinished), and the locks held since its recheck
+	// keep any other apply from recording one.
 	if err = state.Unfinished(a.c); err != nil {
 		return err
 	}

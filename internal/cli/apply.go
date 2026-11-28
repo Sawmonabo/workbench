@@ -198,6 +198,9 @@ func applyMachine(
 		}
 		return result, plan, err
 	}
+	if err = machine.RefuseUnfinished(c); err != nil {
+		return result, plan, err
+	}
 	terminal, progress, closeConsole := nativeConsole(o, cmd.ErrOrStderr())
 	defer closeConsole()
 	if c.Native.Developer {

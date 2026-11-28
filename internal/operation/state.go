@@ -54,6 +54,7 @@ func (s *State) Unfinished(c Context, own ...string) error {
 		ExitBlocked,
 		"recovery",
 		"Apply "+partial.ID+" to "+display.Path(partial.Scope.Root)+" did not finish",
+		Cause("it must finish before another apply or revert"),
 		FixText(c.ApplyCommand(partial.Scope.Root)),
 	)
 }
