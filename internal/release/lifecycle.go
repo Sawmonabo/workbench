@@ -573,7 +573,9 @@ func runtimeEnvironment(c operation.Context) []string {
 }
 
 // checkRuntime has the staged executable validate its own source and contract
-// before activation.
+// before activation. A refusal keeps the installed runtime and says why: the
+// first error of the result the candidate printed, or, without one, how its
+// run ended. The candidate's words are its redacted output.
 func checkRuntime(ctx context.Context, c operation.Context, executable, directory string) error {
 	probe := c
 	probe.Native.Source = ""
@@ -593,17 +595,36 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 		return interrupted // a stop, not a candidate that failed its check
 	}
 	var checked operation.Result
-	if err != nil || json.Unmarshal([]byte(output.Stdout), &checked) != nil ||
-		checked.Status != operation.StatusComplete ||
-		len(checked.Errors) != 0 ||
-		len(checked.Results) != 1 ||
-		checked.Results[0].Name != "release-check" ||
-		checked.Results[0].Status != operation.StatusComplete {
-		return operation.Fail(
-			operation.ExitBlocked,
-			"handoff",
-			"Candidate runtime did not validate its source and current contract; installed runtime retained",
-		)
+	readable := json.Unmarshal([]byte(output.Stdout), &checked) == nil
+	if err == nil && readable && checked.Status == operation.StatusComplete &&
+		len(checked.Errors) == 0 &&
+		len(checked.Results) == 1 &&
+		checked.Results[0].Name == "release-check" &&
+		checked.Results[0].Status == operation.StatusComplete {
+		return nil
 	}
-	return nil
+	cause := "its result reports no completed check"
+	switch {
+	case readable && len(checked.Errors) > 0 && checked.Errors[0] != nil &&
+		strings.TrimSpace(checked.Errors[0].Message) != "":
+		cause = checked.Errors[0].Message
+	case err != nil:
+		cause = err.Error()
+	case !readable:
+		cause = "it ended without printing a readable result"
+	}
+	// One line, of a bounded length, whatever the candidate printed.
+	cause = strings.Join(strings.Fields(cause), " ")
+	if runes := []rune(cause); len(runes) > causeLimit {
+		cause = string(runes[:causeLimit]) + "…"
+	}
+	return operation.Fail(
+		operation.ExitBlocked,
+		"handoff",
+		"The new runtime failed its own check: "+cause+"; the installed runtime is kept",
+	)
 }
+
+// causeLimit is the most characters of the candidate's own words a refused
+// activation quotes.
+const causeLimit = 500

@@ -51,7 +51,9 @@ type ProcessOutput struct{ Stdout, Stderr string }
 // no [Mutation]) and the sudo -v it runs on the terminal where sudo uses Touch
 // ID are the documented exceptions. Read-only requests are reviewed
 // native probes, not a sandbox for arbitrary tools; never label a modifying
-// command read-only.
+// command read-only. A run that exits nonzero returns its redacted output
+// beside the failure, unless the output is private or past its limit; a run
+// stopped by its deadline, an interruption or overflowing output returns none.
 func Run(
 	ctx context.Context,
 	c Context,
@@ -131,15 +133,19 @@ func Run(
 			"Subprocess output exceeded its limit; output withheld",
 		)
 	}
+	stdoutText, stderrText := Redact(stdout.String(), secrets), Redact(stderr.String(), secrets)
 	if err != nil {
-		return output, failure(
-			filepath.Base(executable),
-			err,
-			Redact(stderr.String(), secrets),
-		)
+		// A run that fails still gives back its redacted output, as
+		// exec.Cmd.Output does, for a child that says on stdout why it ends
+		// nonzero (release-check --json does); private output, and output
+		// that redaction took past the limit, stay withheld.
+		if !request.PrivateOutput && len(stdoutText) <= request.OutputLimit &&
+			len(stderrText) <= request.OutputLimit {
+			output = ProcessOutput{Stdout: stdoutText, Stderr: stderrText}
+		}
+		return output, failure(filepath.Base(executable), err, stderrText)
 	}
-	output.Stdout = Redact(stdout.String(), secrets)
-	output.Stderr = Redact(stderr.String(), secrets)
+	output = ProcessOutput{Stdout: stdoutText, Stderr: stderrText}
 	if request.PrivateOutput {
 		output.Stdout = stdout.String()
 	}
