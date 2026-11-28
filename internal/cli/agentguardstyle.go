@@ -6,6 +6,7 @@ import (
 	"charm.land/lipgloss/v2"
 
 	"github.com/Sawmonabo/workbench/internal/agent/guard"
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // The guard's colors, pinned rather than the terminal's own green, yellow
@@ -36,10 +37,10 @@ var (
 )
 
 // The sizes at which a command's memory is colored: gold from the size
-// [guard.Size] prints as 1.00 GB, red from the one it prints as 4.00 GB, so
-// the color and the text agree.
+// [display.Memory] prints as 1.00 GB, red from the one it prints as 4.00 GB,
+// so the color and the text agree.
 const (
-	guardSizeNoted = guard.MBLimit
+	guardSizeNoted = display.MemoryMBLimit
 	// guardSizeLarge is half a hundredth of a GB under 4 GB, where two
 	// decimals round up to 4.00.
 	guardSizeLarge = 4<<30 - (1<<30)/200

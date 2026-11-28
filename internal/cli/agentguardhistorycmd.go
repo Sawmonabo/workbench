@@ -141,7 +141,7 @@ func showGuardHistory(cmd *cobra.Command, o *options, result *operation.Result) 
 		return nil
 	}
 	if held == "" {
-		held = display.Number(int64(facts.Commands)) + " kept · " + textSize(facts.Bytes)
+		held = display.Number(int64(facts.Commands)) + " kept · " + display.DataSize(facts.Bytes)
 	}
 	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s\n%s\n",
 		forTerm("Finished commands are kept "+guard.KeepText(time.Duration(facts.KeepSeconds)*
@@ -280,17 +280,6 @@ func deletedText(n int) string {
 		return "1 older one was deleted"
 	}
 	return display.Number(int64(n)) + " older ones were deleted"
-}
-
-// textSize is a size of text or of a file as the guard shows memory (see
-// guard.Size: binary MB and GB, as Activity Monitor counts them), and under
-// a MB in whole KB of 1,024 bytes, rounded up, so a size is never 0 KB
-// ("37 KB", "46 KB", "3 MB").
-func textSize(bytes int64) string {
-	if kb := (max(bytes, 0) + 1023) / 1024; kb < 1024 {
-		return display.Number(kb) + " KB"
-	}
-	return guard.Size(uint64(bytes))
 }
 
 // keepPattern is a --keep value: a whole number of hours, days or weeks.

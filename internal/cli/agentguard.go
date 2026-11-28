@@ -133,20 +133,20 @@ func tookValue(seconds float64) string {
 	return display.Duration(took)
 }
 
-// sizeText is a measurement, [guard.Size] ("840 MB", "2.41 GB"); empty for
-// 0.
+// sizeText is a measurement, [display.Memory] ("840 MB", "2.41 GB"); empty
+// for 0.
 func sizeText(bytes uint64) string {
 	if bytes == 0 {
 		return ""
 	}
-	return guard.Size(bytes)
+	return display.Memory(bytes)
 }
 
-// capacityText is a capacity, [guard.Capacity] ("16 GB", "1.86 GB"); empty
-// for 0.
+// capacityText is a capacity, [display.MemoryCapacity] ("16 GB",
+// "1.86 GB"); empty for 0.
 func capacityText(bytes uint64) string {
 	if bytes == 0 {
 		return ""
 	}
-	return guard.Capacity(bytes)
+	return display.MemoryCapacity(bytes)
 }

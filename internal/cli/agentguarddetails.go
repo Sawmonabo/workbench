@@ -490,7 +490,8 @@ func commandLines(command string, cut int64, width int) []string {
 		lines = append(lines, wrapLines(step, width, min(i, 1)*2)...)
 	}
 	if cut > 0 {
-		lines = append(lines, faint.Render(forTerm("… "+textSize(cut)+" more were not kept")))
+		more := "… " + display.DataSize(cut) + " more were not kept"
+		lines = append(lines, faint.Render(forTerm(more)))
 	}
 	return lines
 }

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/spf13/cobra"
@@ -406,7 +407,7 @@ func (m updateModel) barCells(before int, done, total int64) int {
 	if m.width <= 0 {
 		return barCells
 	}
-	size := len("  " + transferSize(done, total))
+	size := len("  " + display.Transfer(done, total))
 	return max(4, min(barCells, m.width-before-size))
 }
 
@@ -447,12 +448,12 @@ func transferBar(done, total int64, cells int) string {
 		return faint.Render("[" + strings.Repeat(" ", cells) + "]")
 	}
 	if total <= 0 {
-		return faint.Render(transferSize(done, done))
+		return faint.Render(display.Transfer(done, done))
 	}
 	filled := min(cells, int(float64(cells)*float64(done)/float64(total)))
 	if line {
 		return brand.Render(strings.Repeat("━", filled)) +
-			faint.Render(strings.Repeat("━", cells-filled)+"  "+transferSize(done, total))
+			faint.Render(strings.Repeat("━", cells-filled)+"  "+display.Transfer(done, total))
 	}
 	head := ">"
 	if filled == cells {
@@ -460,21 +461,7 @@ func transferBar(done, total int64, cells int) string {
 	}
 	return faint.Render("[") + brand.Render(strings.Repeat("=", filled)+head) +
 		faint.Render(strings.Repeat(" ", max(0, cells-filled-len(head)))+"]") +
-		faint.Render("  "+transferSize(done, total))
-}
-
-// transferSize is done of total in decimal megabytes with one decimal, or in
-// whole kilobytes for a total under a megabyte.
-func transferSize(done, total int64) string {
-	unit, scale, format := "MB", 1e6, "%.1f"
-	if total < 1e6 {
-		unit, scale, format = "kB", 1e3, "%.0f"
-	}
-	amount := func(n int64) string { return fmt.Sprintf(format, float64(n)/scale) }
-	if done == total {
-		return amount(total) + " " + unit
-	}
-	return amount(done) + "/" + amount(total) + " " + unit
+		faint.Render("  "+display.Transfer(done, total))
 }
 
 // announceHandoff is what runs just before the activated release takes the
