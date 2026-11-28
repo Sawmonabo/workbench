@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"golang.org/x/sys/unix"
 )
 
@@ -63,33 +64,63 @@ func (cp *Checkpoint) removeStaged(c Context) error {
 // removeStagedAt removes name in folder, a folder of c's scope opened from the
 // scope's root without following a link, when it is this user's and a regular
 // file with one link, or a link when link is set. A folder that is not there
-// holds nothing to remove.
+// holds nothing to remove. A folder the system keeps this user from opening,
+// looking in or removing from (EACCES, EPERM: a mode such as 0311, 0644 or
+// 0555 the person gave it, or another owner's 0700) is passed over and the
+// file stays: it is a private file of this user's (mode 0600, or a link),
+// beside a target the same user owns, so leaving it exposes and loses
+// nothing, while refusing would stop every apply and revert of the scope
+// until the person changed a folder of theirs for a file of Workbench's. The
+// next settle, revert or apply of the scope removes it once the folder lets
+// it, while its checkpoint stays running or unknown; once retention removes
+// that checkpoint, nothing names it and it stays. Any other failure names
+// the folder (unreadFailure).
 func removeStagedAt(c Context, folder, name string, link bool) error {
 	fd, err := openScopeFolder(c, folder)
-	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) {
+	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.ENOTDIR) || errors.Is(err, unix.ELOOP) ||
+		closedFolder(err) {
 		return nil
 	}
 	if err != nil {
-		return err
+		return unreadFailure(folder, true, err)
 	}
 	defer func() { _ = unix.Close(fd) }()
 	var stat unix.Stat_t
 	err = unix.Fstatat(fd, name, &stat, unix.AT_SYMLINK_NOFOLLOW)
-	if errors.Is(err, unix.ENOENT) {
+	if errors.Is(err, unix.ENOENT) || closedFolder(err) {
 		return nil
 	}
 	if err != nil {
-		return err
+		return unreadFailure(folder, true, err)
 	}
 	kind := stat.Mode & unix.S_IFMT
 	staged := kind == unix.S_IFREG && stat.Nlink == 1 || link && kind == unix.S_IFLNK
 	if int(stat.Uid) != os.Geteuid() || !staged {
 		return nil
 	}
-	if err = unix.Unlinkat(fd, name, 0); err != nil && !errors.Is(err, unix.ENOENT) {
-		return err
+	err = unix.Unlinkat(fd, name, 0)
+	if errors.Is(err, unix.ENOENT) || closedFolder(err) {
+		return nil
 	}
-	return unix.Fsync(fd)
+	if err != nil {
+		return Fail(
+			ExitFailed,
+			"execution",
+			"Cannot remove the file Workbench staged at "+display.Path(filepath.Join(folder, name)),
+			Cause(err.Error()),
+		)
+	}
+	if err = unix.Fsync(fd); err != nil {
+		return FileError(folder, err)
+	}
+	return nil
+}
+
+// closedFolder reports whether err is the system keeping this user out of a
+// folder: EACCES from its mode or ACL, EPERM from a flag or another owner's
+// sticky folder.
+func closedFolder(err error) bool {
+	return errors.Is(err, unix.EACCES) || errors.Is(err, unix.EPERM)
 }
 
 // openScopeFolder opens folder, the scope's root or a folder below it, one
