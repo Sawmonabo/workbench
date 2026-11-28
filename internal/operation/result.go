@@ -153,11 +153,17 @@ func Annotate(err *error, format string, args ...any) {
 // is cut so: one that wraps it in words of its own is kept whole, with what
 // it matches besides.
 func FileError(path string, err error) error {
+	return fmt.Errorf("%s: %w", display.Path(path), FileReason(path, err))
+}
+
+// FileReason is what [FileError] says after path: the reason alone, for a
+// cause line under a headline that names path.
+func FileReason(path string, err error) error {
 	if problem, ok := errors.AsType[*fs.PathError](err); ok && problem.Path == path &&
 		problem.Error() == err.Error() {
-		err = problem.Err
+		return problem.Err
 	}
-	return fmt.Errorf("%s: %w", display.Path(path), err)
+	return err
 }
 
 // Unread is what a check that changes nothing says of a file or folder it

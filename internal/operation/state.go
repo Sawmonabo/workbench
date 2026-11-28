@@ -6,6 +6,8 @@ import (
 	"regexp"
 	"slices"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // State describes current selections only. Checkpoint/image validation belongs
@@ -49,8 +51,8 @@ func (s *State) Unfinished(scope Scope, own ...string) error {
 	return Fail(
 		ExitBlocked,
 		"recovery",
-		"Apply "+partial.ID+" to "+partial.Scope.Root+
-			" did not finish; rerun apply for that destination first",
+		"Apply "+partial.ID+" to "+display.Path(partial.Scope.Root)+" did not finish",
+		FixText("apply to that destination again first"),
 	)
 }
 
@@ -73,7 +75,8 @@ func (s State) Validate() error {
 		return Fail(
 			ExitInvalid,
 			"state_format",
-			"Unsupported Workbench state schema; state was left unchanged",
+			"Unsupported Workbench state schema",
+			Kept("the state as it is"),
 		)
 	}
 	seen := map[string]bool{}
@@ -140,7 +143,9 @@ func ReadState(paths Paths) (*State, error) {
 		return nil, Fail(
 			ExitInvalid,
 			"state_format",
-			"Malformed current Workbench state ("+err.Error()+"); no conversion or deletion attempted",
+			"Malformed current Workbench state",
+			Cause(err.Error()),
+			Kept("the state as it is"),
 		)
 	}
 	if err := state.Validate(); err != nil {

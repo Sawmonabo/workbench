@@ -41,7 +41,8 @@ func acquireLocks(c Context) (*locks, error) {
 			return nil, Fail(
 				ExitBlocked,
 				"lock",
-				"Cannot open the lock file "+FileError(path, err).Error(),
+				"Cannot open the lock file "+display.Path(path),
+				Cause(FileReason(path, err).Error()),
 			)
 		}
 		result.files = append(result.files, f)
@@ -55,7 +56,8 @@ func acquireLocks(c Context) (*locks, error) {
 				return nil, Fail(
 					ExitBlocked,
 					"lock",
-					"Cannot lock "+display.Path(path)+": "+err.Error(),
+					"Cannot lock "+display.Path(path),
+					Cause(err.Error()),
 				)
 			}
 			return nil, Fail(

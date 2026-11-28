@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // Handoff replaces this process with the activated runtime only after the
@@ -88,7 +90,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 // agent and the server.
 func Exec(command string, args, environment []string) error {
 	err := syscall.Exec(command, append([]string{command}, args...), environment)
-	return Fail(ExitFailed, "exec", command+" could not start: "+err.Error())
+	return Fail(ExitFailed, "exec", display.Path(command)+" could not start", Cause(err.Error()))
 }
 
 // networkVariables are the proxy and CA settings of the tools that download

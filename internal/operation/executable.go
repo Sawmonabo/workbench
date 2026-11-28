@@ -44,7 +44,8 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 		return "", Fail(
 			ExitBlocked,
 			"dependency",
-			"Cannot find the program "+FileError(path, err).Error(),
+			"Cannot find the program "+display.Path(path),
+			Cause(FileReason(path, err).Error()),
 		)
 	}
 	for _, candidate := range []string{path, canonical} {
@@ -57,7 +58,8 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 		return "", Fail(
 			ExitBlocked,
 			"tool",
-			"Cannot read the program "+FileError(canonical, err).Error(),
+			"Cannot read the program "+display.Path(canonical),
+			Cause(FileReason(canonical, err).Error()),
 		)
 	}
 	if err := programRefusal(canonical, info); err != nil {

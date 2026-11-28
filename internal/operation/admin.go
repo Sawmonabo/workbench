@@ -329,7 +329,8 @@ func interruptedBeforeChange() error {
 	return Fail(
 		ExitInterrupted,
 		"interrupted",
-		"Interrupted while asking for administrator rights; nothing was changed",
+		"Interrupted while asking for administrator rights",
+		Changed("nothing"),
 	)
 }
 

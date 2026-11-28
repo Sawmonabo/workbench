@@ -224,7 +224,8 @@ func AskPass(ctx context.Context, socket string, out io.Writer) error {
 		return Fail(
 			ExitBlocked,
 			"privilege",
-			"Workbench is not answering Mac password requests; it does so only while its apply runs",
+			"Workbench is not answering Mac password requests",
+			Cause("it answers them only while its apply runs"),
 		)
 	}
 	if !held {

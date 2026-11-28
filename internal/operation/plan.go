@@ -214,7 +214,8 @@ func CheckApproval(approved, digest string) error {
 		return Fail(
 			ExitConflict,
 			"plan",
-			"Approval digest does not match the current plan; review a new plan",
+			"The approved digest does not match the current plan",
+			FixText("review a new plan"),
 		)
 	}
 	return nil
@@ -335,7 +336,9 @@ func WithMutation(
 			return Fail(
 				ExitBlocked,
 				"consent",
-				"Approve at a terminal, or pass the displayed plan digest to --approve-plan",
+				"Nothing approved this plan",
+				FixText("approve it at a terminal"),
+				FixText("or pass the displayed plan digest to --approve-plan"),
 			)
 		}
 		accepted, err := consent.Confirm(ctx, displayed, digest)
@@ -343,7 +346,7 @@ func WithMutation(
 			return err
 		}
 		if !accepted {
-			return Fail(ExitBlocked, "consent", "Plan was not approved; no target changes made")
+			return Fail(ExitBlocked, "consent", "Plan was not approved", Changed("nothing"))
 		}
 	}
 	if err := ctx.Err(); err != nil {
@@ -370,7 +373,8 @@ func WithMutation(
 		return Fail(
 			ExitConflict,
 			"plan",
-			"Inputs changed after approval; review a new plan before writing",
+			"Inputs changed after approval",
+			FixText("review a new plan"),
 		)
 	}
 	m := &Mutation{context: c, active: true}
