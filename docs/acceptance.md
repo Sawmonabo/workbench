@@ -591,6 +591,24 @@ synthetic answers.
   VM, where the folder is 0700 by default, the first apply listed no edit for it
   and kept its mode and ACL and `Library`'s hidden flag. (target; the 0755
   tightening and its revert are not observed on a real Mac)
+- On November 28, 2026, on macOS 27.2 arm64 (Go 1.27.4 and 1.26.8, go.mod
+  1.26.8), in a disposable home with synthetic answers and a local build:
+  with `~/.zshrc` and `~/.bashrc` links of mode 0755 into a dotfiles folder,
+  `apply --dry-run` planned (exit 0), listing `~/.zshrc` to be replaced; with
+  that folder a git repository the plan stopped (exit 2) at `~/.zshrc links
+  to ~/dotfiles/zshrc: Machine configuration cannot write inside a project`. In
+  an isolated destination an apply replaced a 0755 `.zshrc` link and a 0700
+  `.gitconfig` link with files, and the next plan listed no edit; revert
+  restored both as links to their same targets with modes 0755 and 0700, the
+  0600 files they point to unchanged, and a second revert plan listed
+  nothing to restore. The same round in privileged Docker containers
+  (Ubuntu 24.04.5 and AlmaLinux 10.3, kernel 7.0.14-linuxkit, arm64), where
+  every link is 0777, restored both links to their targets with their files
+  unchanged. From a copy of the checkout whose source adds a `symlink_`
+  entry, which Workbench's own configuration does not have, an apply to an
+  isolated destination created the link chezmoi made, with mode 0755 under
+  umask 022 and 0700 under umask 077 on the Mac and 0777 in both containers,
+  and the next plan listed no edit.
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded

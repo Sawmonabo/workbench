@@ -145,8 +145,8 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 }
 
 // CheckPreservable is the native planner's check of one edit: it refuses
-// group-exclusive modes, replacements that would change a target's group and
-// files whose group native's staging folder cannot keep.
+// group-exclusive modes of files and folders, replacements that would change a
+// target's group and files whose group native's staging folder cannot keep.
 func CheckPreservable(
 	c Context,
 	edit Edit,
@@ -155,8 +155,11 @@ func CheckPreservable(
 ) error {
 	// Native atomic writes can initially inherit the scratch directory's
 	// group. Until corrected under the checkpoint owner's exact-image gate,
-	// never expose permissions available only to that transient group.
-	if ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
+	// never expose permissions available only to that transient group. Native
+	// makes a link in the folder of the path it writes, never in the scratch
+	// directory, and a link's group is never changed, so no transient group
+	// holds a link.
+	if after.Kind != ImageSymlink && ((after.Mode>>3)&7) & ^(after.Mode&7) != 0 {
 		return Fail(
 			ExitBlocked,
 			"metadata",

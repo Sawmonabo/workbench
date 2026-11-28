@@ -83,7 +83,12 @@ every caller.
   `ACLRemoval` and `ACLEntryRemoval` the commands that remove a file's ACL
   and one of its entries (`chmod -N`, `chmod -a#` on macOS); `NoFollow` a
   command's form that changes a link itself, not the file it points to
-  (`chflags -h`, `xattr -s`, `setfattr -h`), or none; `TouchIDPossible`
+  (`chflags -h`, `xattr -s`, `setfattr -h`), or none; `NewLinkMode` the
+  mode a new link gets under the process's umask, read from one made and
+  removed again (0777 less the umask on macOS; on Linux 0777, but on XFS
+  with its deprecated `irix_symlink_mode`), and `SetLinkMode` the call that
+  gives a link a mode on the link itself, never on the file it points to
+  (`lchmod` on macOS; Linux changes no link's mode); `TouchIDPossible`
   whether Touch ID for sudo can exist; `ReadsPasswords` whether
   `ReadPassword` reads a password at a terminal; `HostRelease` the release's
   name and version; `AssetTriple` the `apple-darwin` or `unknown-linux-gnu`

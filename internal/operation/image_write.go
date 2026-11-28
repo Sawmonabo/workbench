@@ -135,7 +135,10 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 }
 
 // stageLinkImage creates the desired symlink at temporary beside path, with
-// its group and attributes, ready to replace the target.
+// its group, attributes and mode, ready to replace the target. Each is set on
+// the link itself, never on the file it points to. The mode comes last: on
+// macOS writing a link's attributes needs its owner's write permission, which
+// the desired mode may not give.
 func stageLinkImage(fd int, temporary, path string, desired Image) error {
 	if err := unix.Symlinkat(desired.Link, fd, temporary); err != nil {
 		return err
@@ -151,7 +154,13 @@ func stageLinkImage(fd int, temporary, path string, desired Image) error {
 		}
 	}
 	link := filepath.Join(filepath.Dir(path), temporary)
-	return writeImageAttributes(-1, link, desired.Attributes, replacedLink)
+	if err := writeImageAttributes(-1, link, desired.Attributes, replacedLink); err != nil {
+		return err
+	}
+	if uint32(stat.Mode)&0o777 == desired.Mode {
+		return nil
+	}
+	return platform.SetLinkMode(fd, temporary, desired.Mode)
 }
 
 // stageFileImage writes the desired bytes, group, mode and attributes to a new

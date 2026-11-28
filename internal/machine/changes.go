@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Sawmonabo/workbench/internal/operation"
+	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
 // buildChanges records each edit's exact before image and the after image
@@ -24,6 +25,9 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 	if err != nil {
 		return err
 	}
+	// A link native makes gets the mode a link Workbench makes gets, since
+	// native inherits Workbench's umask; it is measured once, for the first.
+	linkMode, measured := uint32(0), false
 	var candidates []string
 	for _, edit := range p.Plan.Edits {
 		if edit.Action != "remove" {
@@ -53,7 +57,13 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 					"Native target missing from image enumeration",
 				)
 			}
-			if after, err = entry.image(); err != nil {
+			if entry.Type == "symlink" && !measured {
+				if linkMode, err = platform.NewLinkMode(p.scratch); err != nil {
+					return err
+				}
+				measured = true
+			}
+			if after, err = entry.image(linkMode); err != nil {
 				return err
 			}
 		}

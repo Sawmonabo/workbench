@@ -3,6 +3,7 @@ package platform
 import (
 	"errors"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -52,6 +53,42 @@ func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) 
 // which a link does not give, and chattr cannot set them on a link, so there
 // a path reports 0 without a call. The error is the call's errno.
 func FileFlags(fd int, path string) (uint32, error) { return fileFlags(fd, path) }
+
+// NewLinkMode is the permissions mode a link this process makes gets under
+// its umask, which a link made by a process it starts gets too, since that
+// process inherits the umask. It is read with lstat from a link made in a new folder
+// in folder, and both are removed again. On macOS a link has a mode of its
+// own, 0777 less the umask (symlinkat in xnu's vfs_syscalls.c), which decides
+// whether its owner may read the link and its attributes. On Linux ext4,
+// Btrfs and tmpfs make every link 0777, and XFS does too unless its
+// deprecated fs.xfs.irix_symlink_mode takes the umask off. The error is a
+// call's errno.
+func NewLinkMode(folder string) (uint32, error) {
+	made, err := os.MkdirTemp(folder, "link-mode-")
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = os.RemoveAll(made) }()
+	link := filepath.Join(made, "link")
+	if err = unix.Symlink(".", link); err != nil {
+		return 0, err
+	}
+	var stat unix.Stat_t
+	if err = unix.Lstat(link, &stat); err != nil {
+		return 0, err
+	}
+	return uint32(stat.Mode) & 0o777, nil
+}
+
+// SetLinkMode gives the link name in the folder fd the permissions mode
+// mode, on the link itself and never on the file it points to, with
+// fchmodat and AT_SYMLINK_NOFOLLOW: macOS changes the link's mode (chmod(2));
+// Linux changes no link's mode, as notify_change in fs/attr.c refuses with
+// EOPNOTSUPP, the error golang.org/x/sys gives too where the kernel has no
+// fchmodat2, so a caller sets one only where it differs from the link's.
+func SetLinkMode(fd int, name string, mode uint32) error {
+	return unix.Fchmodat(fd, name, mode, unix.AT_SYMLINK_NOFOLLOW)
+}
 
 // HiddenFlag is the file flag that only hides a file in Finder: UF_HIDDEN on
 // macOS, and 0 on Linux, which has no such flag.

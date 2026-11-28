@@ -194,15 +194,18 @@ func (p *preparation) readDesired(ctx context.Context, c operation.Context) erro
 	return nil
 }
 
-// nativeEntry is one target in native chezmoi's dump output.
+// nativeEntry is one target in native chezmoi's dump output, which gives a
+// link's target as linkname and no mode for a link.
 type nativeEntry struct {
 	Type     string `json:"type"`
 	Perm     uint32 `json:"perm"`
 	Contents string `json:"contents"`
-	Target   string `json:"target"`
+	Linkname string `json:"linkname"`
 }
 
-func (e nativeEntry) image() (operation.Image, error) {
+// image is the entry's image; a link gets linkMode, the mode a link native
+// makes in this run gets.
+func (e nativeEntry) image(linkMode uint32) (operation.Image, error) {
 	switch e.Type {
 	case "file":
 		return operation.Image{
@@ -213,7 +216,7 @@ func (e nativeEntry) image() (operation.Image, error) {
 	case "dir":
 		return operation.Image{Kind: operation.ImageDirectory, Mode: e.Perm}, nil
 	case "symlink":
-		return operation.Image{Kind: operation.ImageSymlink, Mode: 0o777, Link: e.Target}, nil
+		return operation.Image{Kind: operation.ImageSymlink, Mode: linkMode, Link: e.Linkname}, nil
 	}
 	return operation.Image{}, operation.Fail(
 		operation.ExitBlocked,

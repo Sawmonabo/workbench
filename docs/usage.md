@@ -1127,17 +1127,22 @@ revert checks those files again and names any it cannot undo.
 File recovery does not uninstall tools/extensions, undo runtime upgrades or
 revert registry, environment, services, package caches or uncheckpointed script
 effects. Supported bytes/types/modes/groups/link targets are recorded, along
-with the macOS provenance, quarantine, Finder info and last-used-date attributes
-and, on Linux, the SELinux label (`security.selinux`); other extended
+with a link's own mode (macOS gives each link one, 0777 less the umask, and a
+link Workbench writes gets its recorded mode on the link itself, never on the
+file it points to; on Linux every link is 0777), the macOS provenance,
+quarantine, Finder info and last-used-date attributes and, on Linux, the
+SELinux label (`security.selinux`); other extended
 attributes, ACLs, file flags, hard links and special files block preservation,
 and each refusal names the file, what it holds and the command that clears it.
 The exception is what macOS puts on its own folders: the default "deny delete"
 ACL on a folder Workbench writes into or one that holds its files, and the
 hidden flag on a folder Workbench writes into, such as `~/Library`. Native
-machine apply currently rejects group-exclusive modes such as `0640` and `0750`,
-avoiding transient exposure before group correction. The shared direct
-project/recovery writer sets the group before permissions and atomic
-replacement.
+machine apply currently rejects group-exclusive modes of files and folders, such
+as `0640` and `0750`, avoiding transient exposure before group correction; a
+link chezmoi makes is made in its own folder, never in the scratch folder, so
+it never holds the scratch folder's group, and its mode is not refused. The
+shared direct project/recovery writer sets the group before permissions and
+atomic replacement.
 
 On Linux a file Workbench replaces, or chezmoi replaces in an apply, gets the
 label the old file had, so a label set with `chcon` stays. Where SELinux is off,

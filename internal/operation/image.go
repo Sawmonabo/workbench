@@ -121,7 +121,7 @@ func (image Image) validate(c Context, path string) error {
 			return Fail(ExitInvalid, "image", "Malformed directory image of "+shown)
 		}
 	case ImageSymlink:
-		if len(image.Data) != 0 || image.Link == "" || image.Mode != 0o777 {
+		if len(image.Data) != 0 || image.Link == "" {
 			return Fail(ExitInvalid, "image", "Malformed symbolic link image of "+shown)
 		}
 		target := image.Link
@@ -247,9 +247,6 @@ func ReadImage(c Context, path string) (Image, error) {
 		image.Attributes, err = readImageAttributes(-1, path, replacedLink)
 		if err != nil {
 			return Image{}, err
-		}
-		if image.Mode != 0o777 {
-			return Image{}, linkModeRefusal(path, image.Mode)
 		}
 	case unix.S_IFREG, unix.S_IFDIR:
 		if stat.Mode&unix.S_IFMT == unix.S_IFREG && (stat.Nlink != 1 || stat.Size > MaxImageBytes) {
