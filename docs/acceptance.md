@@ -704,10 +704,15 @@ synthetic answers.
     put the link back to the same file.
   - On `~/.zshrc` a `deny delete` entry naming `nobody` planned (exit 0);
     one naming the user or `group:everyone` stopped the plan (exit 3) with
-    `~/.zshrc has an ACL entry that denies you deleting it, under which no
-    file can replace it; run chmod '-a#' 0 ~/.zshrc and retry`, and both
-    together named entries 0 and 1; removing entry 0 as advised, here the
-    one naming `nobody`, left the other, which the next plan named alone. On the home folder an entry denying
+    `~/.zshrc has an ACL entry that denies you deleting it`, the cause
+    `no file can replace it` and the fix `chmod '-a#' 0 ~/.zshrc`. With
+    entries for `nobody` (0) and the user (1), or `nobody` (0) and
+    `group:staff` (1), a group the user is in, the refusal named entry 1
+    alone, `chmod '-a#' 1 ~/.zshrc`, and the next plan passed; with entries
+    for the user (0), `nobody` (1) and `group:staff` (2), it named `ACL
+    entries 0 and 2 that deny you deleting it` with the fix lines
+    `chmod '-a#' 2 ~/.zshrc` and `chmod '-a#' 0 ~/.zshrc`, and typing both
+    once let the next plan pass with the entry for `nobody` kept. On the home folder an entry denying
     `add_file` and `delete_child` to `nobody`, and on `~/Library` one denying
     `add_file` to `nobody`, planned; the same entries for the user, or one
     denying `add_subdirectory` to `group:everyone`, stopped it (exit 3). From
@@ -716,13 +721,17 @@ synthetic answers.
     one for `nobody` the apply removed it and revert put it back with its
     entry.
   - A link into Workbench's config or data folder or to its entry point, and
-    a hard link to the entry point, stopped the plan (exit 2) with `move it
-    aside and retry`; a link whose ACL denies its owner reading it stopped
-    it (exit 3) the same way. For 21 of the 24 refusals the sweep gave, its
-    command, or moving the path aside, was then run, and the next plan
-    passed, but for the two `deny delete` entries above; the other three (a
-    hard link, a link to itself, a link among the folders above a target)
-    name their own way out.
+    a hard link to the entry point, stopped the plan (exit 2) with the fix
+    `move it aside`; a link whose ACL denies its owner reading it stopped
+    it (exit 3) with the same fix, and a link to itself with `rm ~/.zshrc`.
+    Planning the disposable home itself, 33 of the 35 plans the sweep
+    stopped cleared in one round: each fix line was typed as printed, or
+    the path moved aside where the fix says so, and the next plan passed.
+    The other two give no line to type: a link among the folders above a
+    target (`put what the link points to in its place`) and a `~/.config`
+    of mode 000, which failed (exit 1) with `Operation failed: plan machine
+    configuration: permission denied`. A build by Go 1.26.8 printed the
+    same for the seven of them it was given.
 - On November 28, 2026, in privileged Docker containers (Docker 29.8.2,
   kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3), with
   linux-arm64 local builds by Go 1.27.4 and 1.26.8, disposable homes and an
@@ -748,6 +757,22 @@ synthetic answers.
     creates made first as a link to its own file in a `git init` folder
     under the home: the apply replaced every link with a file, each linked
     file kept its inode, mode and content, and revert put every link back.
+  - With the Go 1.27.4 build, planning the disposable home itself, 19 of
+    the 21 plans a sweep of flags, attributes, ACLs, owners, groups and
+    Workbench's own folders stopped cleared in one round on each
+    distribution, each fix line typed as printed (a line led by `sudo` as
+    root; Ubuntu's user `ubuntu` shown, AlmaLinux's `dev` alike):
+    `~/.bashrc has group daemon`
+    with `chgrp ubuntu ~/.bashrc`, `~/.bashrc belongs to root, not to you`
+    with `sudo chown ubuntu ~/.bashrc`, `~/.config gives new files group
+    daemon, and you are not a member of it` (a set-group-ID `~/.config`)
+    with `chgrp ubuntu ~/.config`, `~/.config/Code is in a project` (a
+    `.git` in `~/.config`) by moving that `.git` aside, and a state folder
+    of mode 0777 holding a file of another user with the lines `find …
+    -not -user ubuntu`, `move aside what it lists` and `chmod 700 …`. A
+    ramfs mount at `~/.config/git` stopped it (exit 3) with `move it onto
+    one of those`, and a link among the folders above a target with `put
+    what the link points to in its place`, neither a line to type.
   - The safeguard tests of `internal/operation` passed as the home's user
     and as root, those that need a fact the container lacks skipped. A probe
     run as root, which gave a file chezmoi creates a label by hand in its
@@ -1844,17 +1869,21 @@ synthetic answers.
   unset, set to `~/.claude` or `~/.claude/`, `apply --local-build --dry-run
   --json` had no config-folder warning, `doctor` no `claude-config-dir` line
   and `agent costs status` the `(workbench apply)` hint; set to `~/alt`, the plan
-  warned `CLAUDE_CONFIG_DIR in the environment points Claude Code at ~/alt, so
-  it does not read the settings, instructions and costs and guard hooks
-  Workbench installs in ~/.claude; unset it, or set it to ~/.claude, for them
-  to apply`, `doctor` reported it as `claude-config-dir: conflict` (exit 0) and
+  warned that it points Claude Code elsewhere, `doctor` reported it as
+  `claude-config-dir: conflict` (exit 0) and
   `agent costs status` showed the hooks of `~/alt` as missing without the hint, plus
   a `config claude` line. The variable in `~/.claude/settings.json`'s `env` was
   named the same way with `remove it from that file`, and `CODEX_HOME` set to
   `~/codex-alt` gave `codex-home: conflict` and a `config codex` line. The
   ingest hook, with the variable unset and a transcript under
   `~/alt/projects`, recorded that transcript's response. Managed settings files
-  and a real Claude Code or Codex session were not observed.
+  and a real Claude Code or Codex session were not observed. On November 28,
+  2026, on macOS 27.2 (26B123) arm64 with a local build by Go 1.27.4, the plan
+  with the variable set to `~/alt` in a disposable home warned
+  `CLAUDE_CONFIG_DIR in the environment points Claude Code at ~/alt`, with the
+  cause `Claude Code does not read the settings, instructions and costs and
+  guard hooks Workbench installs in ~/.claude` and the fix lines
+  `unset CLAUDE_CONFIG_DIR` and `or set it to ~/.claude`.
 
 ### Output
 

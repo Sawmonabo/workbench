@@ -81,7 +81,10 @@ every caller.
   `AttributeRemoval` what an extended attribute is, where it has a name of
   its own (an ACL, file capabilities), and the command that removes it;
   `ACLRemoval` and `ACLEntryRemoval` the commands that remove a file's ACL
-  and one of its entries (`chmod -N`, `chmod -a#` on macOS); `NoFollow` a
+  and one of its entries (`chmod -N`, `chmod -a#` on macOS); `ACL.Binds`
+  whether an ACL entry applies to this process, by the kernel's rule for
+  whom an entry names, so a refusal names the entries that bind this user
+  and one round of the commands it gives clears it; `NoFollow` a
   command's form that changes a link itself, not the file it points to
   (`chflags -h`, `xattr -s`, `setfattr -h`), or none; `NewLinkMode` the
   mode a new link gets under the process's umask, read from one made and
@@ -125,13 +128,27 @@ every caller.
   Workbench already accepted that for two functions, and the alternative,
   purego, is beta and a new module. Apple marks `libproc.h`'s interfaces as
   subject to change, so every call through it fails safe: an unreadable value
-  leaves behavior as it was.
+  leaves behavior as it was. `ACL.Binds` asks `membership.h` the same way:
+  `mbr_uid_to_uuid` gives the process's effective user its GUID and
+  `mbr_check_membership` says whether that user is in the group an entry
+  names, directly or through a nested group; both return their error as
+  their value, as Go's own `getpwnam_r` call in
+  `internal/syscall/unix/user_darwin.go` reads it. As `kauth_acl_evaluate`
+  does, an entry only inherited never applies, one naming everyone always
+  and nobody never, and one naming the file's owner or group (owner@,
+  group@) counts as applying. On macOS 27.2 `mbr_check_membership` answered
+  0 for the user's GUID compared with itself, though its man page says 1, so
+  `Binds` compares the user's own GUID first, as the kernel does. A call
+  that fails counts the entry as applying, as the kernel assumes of a deny
+  entry whose membership it cannot resolve. `Binds` only chooses which
+  entries a refusal names; `Allowed` alone decides whether the system
+  denies a right.
 - **Words by `System`, behavior by facts.** Outside `internal/platform`,
   what Workbench does on a system follows a named fact, or for the steps it
   offers `machine`'s two effects files, never the system's name. Only a
   message that names each system's own things takes its words from a table
   keyed by `System`: the refusal of private state off a native file system
-  (`operation.foreignFilesystem`) and the platform check's note for an
+  (`operation.nativeFilesystems`) and the platform check's note for an
   unsupported release (`machine.supportNote`). The one rule that reads
   `System` is the support rule that note words, `machine.supportedRelease`:
   a release name means a release only on its own system, because on Linux
@@ -199,8 +216,13 @@ every caller.
     `restorecon` makes is the system's, not an edit, so it neither blocks a
     revert nor makes a write.
 - **What a target and its folders may hold.** `operation` decides each rule
-  from what `platform` reads and asks; a refusal names the path, what it holds
-  and the command that clears it, never a value or an entry.
+  from what `platform` reads and asks; a refusal's headline names the path and
+  what it holds, its cause line why that stops the write, and its fix lines
+  the commands that clear it, never a value or an entry. An ACL entry is
+  named by its number in `ls -le`; of the entries that deny the right, the
+  refusal names those that bind this user (`ACL.Binds`), with one `chmod -a#`
+  line each, the highest number first, so each number still names its entry
+  when its line runs.
 
   | Holder | Metadata | Rule | Source |
   | --- | --- | --- | --- |
@@ -287,6 +309,8 @@ every caller.
   [`vn_authorize_rmdir`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_subr.c#L8833-L8867),
   [`vnode_authorize_delete`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_subr.c#L9501-L9666),
   [`kauth_acl_evaluate`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_authorization.c#L608-L782),
+  [`kauth_wellknown_guid`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_credential.c#L1760-L1799),
+  mbr_check_membership(3) and mbr_uid_to_uuid(3) (the macOS SDK's man pages),
   [`_DELETE_OK` and `_RMFILE_OK`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/unistd.h#L103-L118),
   [entry flags](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/kauth.h#L588-L610),
   [the rights](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/kauth.h#L886-L898)

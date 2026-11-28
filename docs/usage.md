@@ -1236,25 +1236,30 @@ keeps the entry for `nobody` at the configuration's 0600 with a mask of `---`.
 A new file chezmoi makes, at a target that holds no file, gets on Linux the
 SELinux label a file made in its own folder gets.
 
-Some metadata still stops the plan, before any write, with the file, what it
-holds (never a value) and the command that clears it. A folder keeps its
+Some metadata still stops the plan, before any write, with the file and what
+it holds (never a value), why that stops the write, and the command that
+clears it. A folder keeps its
 set-group-ID bit: on Linux a folder made in a set-group-ID folder takes the bit
 and that folder's group (`inode_init_owner` in the kernel's `fs/inode.c`), so a
 folder the apply makes in one is planned with them, and a folder that is there
 keeps its own; the set-user-ID and sticky bits, and the set-group-ID bit on a
 file, stop the plan. Hard links, special files, a file over 8 MiB, an extended attribute over 4 KiB and file capabilities (`setcap`, which only root may
 set back) stop it, and so do the file flags a new file would not have
-(`chflags`, `chattr`): `~/.zshrc has the flag uchg, under which no file can
-replace it; run chflags nouchg ~/.zshrc and retry`. On macOS an ACL entry
+(`chflags`, `chattr`): `~/.zshrc has the flag uchg`, with the cause `no file
+can replace it while it has that flag` and the fix `chflags nouchg ~/.zshrc`.
+On macOS an ACL entry
 stops it only when it denies you what the write needs, as the system decides
 for your user and every group you are in: on a file or link, deleting it,
 without which no file can be renamed over it; on a folder Workbench writes
 into or one that holds its files, adding or removing files in it; on a folder
 a plan removes, deleting it. An entry for another account is kept:
 `user:nobody deny delete` on `~/.zshrc` plans, while `group:everyone deny
-delete` stops with `~/.zshrc has an ACL entry that denies you deleting it,
-under which no file can replace it; run chmod '-a#' 0 ~/.zshrc and retry`. An
-entry that files made in a folder inherit stops it too. On Linux a default
+delete` stops with `~/.zshrc has an ACL entry that denies you deleting it`,
+the cause `no file can replace it` and the fix `chmod '-a#' 0 ~/.zshrc`. Of
+several entries that deny it, the refusal names those that apply to you, by
+the same rule as the system, one `chmod '-a#'` line each, the highest number
+first, so typing the lines once clears it. An entry that files made in a
+folder inherit stops it too. On Linux a default
 ACL on a folder Workbench writes into stops it, since each file made there
 would take it; the folder may hold an access ACL and `user.*` attributes,
 whose effect on the files in it the folder's mode bounds (an ACL entry that
@@ -1266,8 +1271,9 @@ on a file Workbench replaces is not seen and is not kept. Of the inode flags
 those the file system sets itself, `e`, `I`, `N`, `h` and `E`. A folder
 Workbench writes into, or one that holds its files, may carry any flag but `i`
 and `a`, under which nothing in it can be added, replaced or removed:
-`~/.config has the flag a, under which no file in it can be added, replaced or
-removed; run sudo chattr -a ~/.config and retry`. A file system that keeps no
+`~/.config has the flag a`, with the cause `no file in it can be added,
+replaced or removed while it has that flag` and the fix
+`sudo chattr -a ~/.config`. A file system that keeps no
 inode flags, such as tmpfs on a kernel before Linux 6.0, counts as having
 none; FUSE and 9P mounts are refused before their flags are read.
 
@@ -1275,11 +1281,11 @@ Where a link at a target points is not checked: Workbench and chezmoi replace
 or remove the link itself and never write through it, so `~/.zshrc` may link
 into a dotfiles checkout or outside the home, and the linked file stays as it
 is. A link into Workbench's own files (its source, its config, data, state and
-cache folders, or its entry point) stops the plan with `move it aside and
-retry`, and so does a link among the folders above a target, which could send
-a write elsewhere. A link Workbench cannot read, such as one whose ACL denies
-its owner reading it, stops it the same way: `chmod -h` cannot change such a
-link, and `mv` can move it.
+cache folders, or its entry point) stops the plan with the fix `move it
+aside`; a link among the folders above a target, which could send a write
+elsewhere, stops it too. A link Workbench cannot read, such as one whose ACL
+denies its owner reading it, stops it with the same fix: `chmod -h` cannot
+change such a link, and `mv` can move it.
 
 Native machine apply rejects group-exclusive modes of files and folders, such
 as `0640` and `0750`, avoiding transient exposure before group correction; a
