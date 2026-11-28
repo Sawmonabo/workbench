@@ -31,8 +31,9 @@ func (cp *Checkpoint) FinalizeNative() error { return cp.restoreNativeMetadata(f
 // written before the failure carry the inherited group too, which
 // [Checkpoint.Finish] would record as unknown outcomes. FinalizeNative's rule
 // applies one target at a time: a target whose content, type and mode already
-// match its approved image gets the approved group, and any other target, such
-// as one the run never wrote or someone edited, is left exactly as it is. A
+// match its approved image gets the approved group and its earlier label, and
+// any other target, such as one the run never wrote or someone edited, is left
+// exactly as it is. A
 // target that cannot be corrected does not stop the others; Finish records each
 // as it finds it. The only error it could return, a lost mutation, makes Finish
 // fail as well.

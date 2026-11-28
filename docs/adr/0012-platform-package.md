@@ -67,7 +67,12 @@ every caller.
   folder; `GroupFromFolder` whether a new file takes its folder's group;
   `ACLsAreAttributes` whether a file's ACL is among its extended attributes,
   where `FileSecurity` cannot read it; `HiddenFlag` the file flag that only
-  hides a file in Finder, which `FileFlags` reads; `TouchIDPossible` whether
+  hides a file in Finder, `KeptFlags` the flags a file renamed over another
+  has too and `FolderFlags` those a folder may carry while its entries
+  change, all among the flags `FileFlags` reads (`chflags` flags on macOS,
+  inode flags on Linux); `LabelAttribute` the extended attribute that holds a
+  file's security label, among the names `ExtendedAttributeNames` lists;
+  `TouchIDPossible` whether
   Touch ID for sudo can exist; `ReadsPasswords` whether `ReadPassword` reads
   a password at a terminal; `HostRelease` the release's name and version;
   `AssetTriple` the `apple-darwin` or `unknown-linux-gnu` part of a release
@@ -120,6 +125,62 @@ every caller.
   and `effects_linux.go`, no file outside the package has a system suffix,
   and a safeguard test that needs one system's features builds on both and
   skips where a fact says they are missing.
+- **Linux file metadata.** A replace writes a new inode and renames it over
+  the target, so `operation` keeps what the new inode can carry and refuses
+  the rest at planning, before any write. On macOS `KeptFlags` is none,
+  `FolderFlags` the hidden flag and `LabelAttribute` empty.
+  - *Inode flags* (`chattr`). `FileFlags` reads them with `FS_IOC_GETFLAGS`
+    on the file's descriptor. A file system without them answers `ENOTTY`
+    (procfs, sysfs, 9P, FUSE, and tmpfs before Linux 6.0), or a FUSE server
+    `EOPNOTSUPP`, and reports none; planning refuses FUSE and 9P as foreign
+    file systems before it reads flags, so on its path that is tmpfs on an
+    older kernel. A link reports none without a call, since it cannot be
+    opened for one and `chattr` refuses links. A replaced target may carry only
+    `KeptFlags`, which the file system sets on a new file itself: `e`
+    (extents), `I` (indexed folder), `N` (inline data), `h` (huge file) and
+    `E` (encrypted, which every file made in an encrypted folder takes and
+    fscrypt requires of a file renamed into one). `i` (immutable) and `a`
+    (append-only) block it, since `may_delete` refuses to rename over or
+    unlink such a file. Every other flag blocks it too (`A`, `c`, `C`, `d`,
+    `D`, `j`, `m`, `P`, `s`, `S`, `t`, `T`, `u`, `x`, and the `F` and `V` of
+    case folding and verity), because it belongs to the old inode: a new
+    file takes a flag from its folder only as its file system inherits it
+    (ext4 `A`, `d`, `S` and others, btrfs only `c`, `m` and `C`, xfs by its
+    own rules), and native stages a file in a folder of its own, from which a
+    rename kept no inherited flag in a container. A folder written into, or
+    one holding Workbench's files, changes only in place, so `FolderFlags`
+    lets it keep every flag but `i`, under which no entry can be made
+    (`inode_permission`), and `a`, under which none can be renamed or
+    removed, a temporary file included (`may_delete`).
+  - *Extended attributes.* `ExtendedAttributeNames` lists a file's names.
+    Only `LabelAttribute`, `security.selinux`, is carried; every other name
+    blocks: the POSIX ACLs `system.posix_acl_access` and
+    `system.posix_acl_default`, which `FileSecurity` cannot read there and
+    which a replacement would drop or take from its folder;
+    `security.capability`, privilege a user cannot set back; and `user.*`
+    and `trusted.*`, which no replacement has. Only a process with
+    `CAP_SYS_ADMIN` is shown `trusted.*` names, so a user's Workbench
+    neither sees nor keeps one.
+  - *The SELinux label.* A replacement gets the label of the file it
+    replaces, as `sed -i` (`setfscreatecon`), Vim and Emacs (`setfilecon`
+    after the write) and `cp --preserve=context` give one, and as a rename
+    keeps it. `install` and systemd ask the policy for the path's default
+    instead (`selabel_lookup`), which drops a label set with `chcon` and
+    needs libselinux's file contexts, which Workbench does not link. The
+    label is written only when the system gave the new inode another, so
+    the common case needs no relabel permission. Where the new inode has no
+    label and the system refuses one (`EPERM`, `EOPNOTSUPP`), SELinux is
+    off: no new file gets a label then, setting one takes `CAP_SYS_ADMIN`
+    (`cap_inode_setxattr`), and turning SELinux back on relabels the file
+    systems, so the file stays unlabeled like every file made meanwhile.
+    Any other refusal, such as SELinux's `relabelfrom`, `relabelto` or
+    `associate` check, fails the write before its rename. After a native
+    run, a file or folder native replaced gets its earlier label back in
+    the opened-inode pass that gives it its group, since native stages its
+    files elsewhere; a file native creates keeps the label its write gave
+    it. Image comparisons leave the label out: a relabel such as
+    `restorecon` makes is the system's, not an edit, so it neither blocks a
+    revert nor makes a write.
 - **Kept that way.** A `forbidigo` rule in `.golangci.yml` forbids
   `runtime.GOOS` outside `internal/platform` and `internal/release/archive.go`,
   so a new platform test anywhere else fails `golangci-lint run`.
@@ -154,3 +215,52 @@ every caller.
   `kern.osproductversioncompat`](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/bsd/kern/kern_sysctl.c)
 - [xnu `libsyscall/wrappers/_libkernel_init.c`: the compat shim sets that
   task flag through `kern.system_version_compat`](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/libsyscall/wrappers/_libkernel_init.c)
+- Inode flags: [`include/uapi/linux/fs.h`, the flag values](https://github.com/torvalds/linux/blob/v6.12/include/uapi/linux/fs.h#L223-L298);
+  [`fs/namei.c` `may_delete`](https://github.com/torvalds/linux/blob/v6.12/fs/namei.c#L3037-L3097),
+  [`inode_permission`](https://github.com/torvalds/linux/blob/v6.12/fs/namei.c#L510-L545) and
+  [`vfs_rename`](https://github.com/torvalds/linux/blob/v6.12/fs/namei.c#L4892-L4927);
+  [`fs/attr.c` `may_setattr`](https://github.com/torvalds/linux/blob/v6.12/fs/attr.c#L322-L345);
+  [ext4's flags and the ones a new inode inherits](https://github.com/torvalds/linux/blob/v6.12/fs/ext4/ext4.h#L507-L568),
+  [ext4 `ialloc.c`](https://github.com/torvalds/linux/blob/v6.12/fs/ext4/ialloc.c#L1257-L1260),
+  [btrfs `inode.c`](https://github.com/torvalds/linux/blob/v6.12/fs/btrfs/inode.c#L6197-L6226),
+  [xfs `xfs_inode_util.c`](https://github.com/torvalds/linux/blob/v6.12/fs/xfs/libxfs/xfs_inode_util.c#L146-L235)
+  and [xfs.rst](https://github.com/torvalds/linux/blob/v6.12/Documentation/admin-guide/xfs.rst#L328-L351),
+  [tmpfs `shmem_fs.h`](https://github.com/torvalds/linux/blob/v6.12/include/linux/shmem_fs.h#L45-L48),
+  tmpfs `mm/shmem.c` without [`fileattr_get` in 5.19](https://github.com/torvalds/linux/blob/v5.19/mm/shmem.c)
+  and with it [in 6.0](https://github.com/torvalds/linux/blob/v6.0/mm/shmem.c#L3182-L3190),
+  [fscrypt.rst](https://github.com/torvalds/linux/blob/v6.12/Documentation/filesystems/fscrypt.rst),
+  [fsverity.rst](https://github.com/torvalds/linux/blob/v6.12/Documentation/filesystems/fsverity.rst);
+  [FS_IOC_SETFLAGS(2const)](https://man7.org/linux/man-pages/man2/FS_IOC_SETFLAGS.2const.html),
+  [ioctl(2): `ENOTTY`](https://man7.org/linux/man-pages/man2/ioctl.2.html),
+  [chattr(1)](https://man7.org/linux/man-pages/man1/chattr.1.html),
+  [e2fsprogs `fgetflags.c`](https://github.com/tytso/e2fsprogs/blob/v1.47.4/lib/e2p/fgetflags.c#L49-L112)
+- Extended attributes and labels in the kernel:
+  [`fs/xattr.c`, the `trusted.*` rule](https://github.com/torvalds/linux/blob/v7.3/fs/xattr.c#L126-L145),
+  [`cap_inode_setxattr`: a `security.*` name takes `CAP_SYS_ADMIN`](https://github.com/torvalds/linux/blob/v7.3/security/commoncap.c#L1009-L1045),
+  [`security.c`](https://github.com/torvalds/linux/blob/v7.3/security/security.c#L1924-L1942),
+  [SELinux's setxattr checks](https://github.com/torvalds/linux/blob/v7.3/security/selinux/hooks.c#L3383-L3465),
+  [a new file's label](https://github.com/torvalds/linux/blob/v7.3/security/selinux/ss/services.c#L1876-L1899);
+  [SELinux Notebook: `relabelfrom`, `relabelto`](https://github.com/SELinuxProject/selinux-notebook/blob/7cd56dc9beb67babed079dbbf57ffb9c472d5080/src/object_classes_permissions.md#L158-L166);
+  libselinux 3.11 [getfscreatecon(3)](https://github.com/SELinuxProject/selinux/blob/3.11/libselinux/man/man3/getfscreatecon.3)
+  and [setfilecon(3)](https://github.com/SELinuxProject/selinux/blob/3.11/libselinux/man/man3/setfilecon.3)
+- What other tools do: [sed `execute.c`](https://github.com/mirror/sed/blob/v4.9/sed/execute.c#L598-L630);
+  coreutils [`install.c`](https://github.com/coreutils/coreutils/blob/v9.7/src/install.c#L318-L353),
+  [`copy.c`](https://github.com/coreutils/coreutils/blob/v9.7/src/copy.c#L1021-L1067),
+  [`mv.c`](https://github.com/coreutils/coreutils/blob/v9.7/src/mv.c#L396-L406),
+  [cp](https://www.gnu.org/software/coreutils/manual/html_node/cp-invocation.html)
+  and [mv](https://www.gnu.org/software/coreutils/manual/html_node/mv-invocation.html) manuals;
+  [rsync `--xattrs`](https://github.com/RsyncProject/rsync/blob/v3.4.1/rsync.1.md#L1460-L1468);
+  systemd [`fileio.c`](https://github.com/systemd/systemd/blob/v262.2/src/basic/fileio.c#L217-L265)
+  and [`selinux-util.c`](https://github.com/systemd/systemd/blob/v262.2/src/shared/selinux-util.c#L742-L770);
+  [Git `tempfile.c`](https://github.com/git/git/blob/v2.52.0/tempfile.c#L336-L358), which sets no label;
+  [Vim `mch_copy_sec`](https://github.com/vim/vim/blob/v9.2.1417/src/os_unix.c#L2997-L3048);
+  Emacs [`files.el`](https://github.com/emacs-mirror/emacs/blob/emacs-31.1/lisp/files.el#L6283-L6302)
+  and [`fileio.c`](https://github.com/emacs-mirror/emacs/blob/emacs-31.1/src/fileio.c#L3446-L3530);
+  [renameio's temporary folder](https://github.com/google/renameio/blob/v2.0.2/tempfile.go#L86-L135)
+  and [chezmoi's writes through it](https://github.com/twpayne/chezmoi/blob/v2.70.5/internal/chezmoi/realsystem_unix.go#L67-L105)
+- Red Hat, Using SELinux: [RHEL 9](http://web.archive.org/web/20260204224549/https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/9/html-single/using_selinux/index)
+  (files made while SELinux is disabled are not labeled, and the file
+  systems are relabeled when it is turned back on; `mv` and `restorecon`),
+  [RHEL 10](http://web.archive.org/web/20260513082426/https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/10/html-single/using_selinux/index),
+  [RHEL 7 guide](http://web.archive.org/web/20260424224852/https://docs.redhat.com/en/documentation/red_hat_enterprise_linux/7/html-single/selinux_users_and_administrators_guide/index)
+  (a new file takes its folder's type; `cp` and `mv`)

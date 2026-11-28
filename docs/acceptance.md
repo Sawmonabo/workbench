@@ -601,6 +601,44 @@ synthetic answers.
 
 ### Linux
 
+- Observed in privileged Docker containers on November 27, 2026 (Docker
+  29.8.2, kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3,
+  disposable homes with synthetic answers, a linux-arm64 local build), as the
+  home's user. The kernel has no SELinux, so root set the labels by hand.
+  - With every file and folder of the home labeled `user_home_t`, `apply
+    --dry-run` planned (exit 0). An ACL set with `setfacl` on `~/.bashrc`,
+    with or without a label beside it, a default ACL or an ACL on `~/.config`,
+    a `user.*` attribute and a file capability (`setcap`) each stopped it
+    (exit 3). A `trusted.*` attribute was not listed to the user and planned;
+    run with an ambient `CAP_SYS_ADMIN` (`setpriv`), which lists it, the plan
+    stopped (exit 3), and a home without one planned with the same digest as
+    for the user.
+  - An apply with every step skipped but the fixed AI safety settings, over a
+    labeled home, replaced `~/.bashrc` with a new inode. As the user, which
+    may not set a label without SELinux, the new file had none; as the user
+    with an ambient `CAP_SYS_ADMIN` (`setpriv`), which may, it kept its
+    `custom_home_t` label. Both exited 0, and the next plan listed no file.
+  - `project apply` replaced a labeled `.workbench.toml` as root, and the new
+    inode kept the old label; `project revert --checkpoint` restored the file
+    with the same label. As the user, the replacement had none.
+  - `chattr +i` or `+a` on `~/.bashrc`, `+A` on it, `+A` on the home before
+    `~/.bashrc` was made (inherited), and `+i` or `+a` on `~/.config` each
+    stopped `apply --dry-run` (exit 3); `+d` on `~/.config` planned as without
+    it. A project whose `.workbench.toml` was immutable, or whose folder was
+    append-only, stopped at planning (exit 3), so nothing was applied. A
+    project on a folder Docker shares from the host (`fuseblk`, where `lsattr`
+    gives "Operation not supported") stopped as a foreign file system before
+    its flags were read (exit 3).
+  - An os-release with `ID=macOS` and `VERSION_ID=15` gave the doctor's
+    platform line as blocked with the Linux support note.
+  - Not observed: a host with SELinux enforcing. There a file native creates
+    keeps the label it got in native's scratch folder, not the one its own
+    folder would give, so a confined program may read it differently; the
+    relabel permissions (`relabelfrom`, `relabelto`, `associate`) decide
+    whether a label is carried, and a confined user may lack them; and a file
+    native replaces is staged with the scratch folder's label before Workbench
+    puts the old one back.
+
 - In an Ubuntu 24.04 container, not a native host, a new user with login
   umask 0002 installed a linux-arm64 bundle and setup qualified all tools. With
   `~/.local` group-writable, the install stopped with the `chmod go-w` that

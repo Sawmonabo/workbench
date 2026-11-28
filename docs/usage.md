@@ -1119,21 +1119,46 @@ other steps ran and what they did is kept. The output above says why; fix that,
 then run workbench apply again.` chezmoi writes the files before it runs the
 scripts that follow them, so they stay as approved and the checkpoint records
 them as written; where native creation gave a file a different group than the
-plan approved, only that group is put back, and a file whose content differs is
-never touched. When Workbench cannot confirm every file, the message says so;
+plan approved, only that group is put back, with, on Linux, the label of a file
+it replaced, and a file whose content differs is never touched. When Workbench cannot confirm every file, the message says so;
 revert checks those files again and names any it cannot undo.
 
-File recovery does not uninstall tools/extensions, undo runtime upgrades or revert
-registry, environment, services, package caches or uncheckpointed script effects.
-Supported bytes/types/modes/groups/link targets are recorded, along with the
-macOS provenance, quarantine, Finder info and last-used-date attributes; other
-extended attributes, ACLs, file flags, hard links and special files block
-preservation. The exception is what macOS puts on its own folders: the default
-"deny delete" ACL on a folder Workbench writes into or one that holds its files,
-and the hidden flag on a folder Workbench writes into, such as `~/Library`.
-Native machine apply currently rejects group-exclusive modes such as `0640` and
-`0750`, avoiding transient exposure before group correction. The shared direct
-project/recovery writer sets the group before permissions and atomic replacement.
+File recovery does not uninstall tools/extensions, undo runtime upgrades or
+revert registry, environment, services, package caches or uncheckpointed script
+effects. Supported bytes/types/modes/groups/link targets are recorded, along
+with the macOS provenance, quarantine, Finder info and last-used-date attributes
+and, on Linux, the SELinux label (`security.selinux`); other extended
+attributes, ACLs, file flags, hard links and special files block preservation.
+The exception is what macOS puts on its own folders: the default "deny delete"
+ACL on a folder Workbench writes into or one that holds its files, and the
+hidden flag on a folder Workbench writes into, such as `~/Library`. Native
+machine apply currently rejects group-exclusive modes such as `0640` and `0750`,
+avoiding transient exposure before group correction. The shared direct
+project/recovery writer sets the group before permissions and atomic
+replacement.
+
+On Linux a file Workbench replaces, or chezmoi replaces in an apply, gets the
+label the old file had, so a label set with `chcon` stays. Where SELinux is off,
+new files get no label and setting one takes `CAP_SYS_ADMIN`, so a replaced file
+has none, like every file made then; turning SELinux back on relabels the file
+systems. A refused label stops that write before the file is replaced. A change
+of label alone, such as `restorecon` makes, is not an edit: it does not stop a
+revert. These Linux attributes block planning: `system.posix_acl_access` and
+`system.posix_acl_default` (ACLs, which `getfacl` shows), `security.capability`
+(`setcap`) and any `user.*` or `trusted.*` attribute. Linux shows `trusted.*`
+names only to a process with `CAP_SYS_ADMIN`, so one on a file Workbench
+replaces is not seen and is not kept. Of the inode flags `chattr` sets and
+`lsattr` shows, a file Workbench replaces may carry only those the file system
+sets itself, `e`, `I`, `N`, `h` and `E`; any other, such as `i` (immutable), `a`
+(append-only) or `A`, stops the plan with `Target filesystem flags cannot be
+preserved`. A folder Workbench writes into, or one that holds its files, may
+carry any flag but `i` and `a`, under which nothing in it can be added, replaced
+or removed; with either the plan stops with `Target folder filesystem flags
+cannot be preserved`. Neither message names the file: `lsattr -d` on the targets
+and their folders shows which one has the flag, and `chattr -i` or `chattr -a`
+(as root) clears it. A file system that keeps no inode flags, such as tmpfs on a
+kernel before Linux 6.0, counts as having none; FUSE and 9P mounts are refused
+before their flags are read.
 
 Each scope retains the 20 most recent forward checkpoints plus their paired
 recovery records. At the limit, the plan lists removal of the oldest settled
