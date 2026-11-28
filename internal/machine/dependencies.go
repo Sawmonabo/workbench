@@ -135,11 +135,6 @@ func resolveDependencies(
 	return dependencies, results, firstRefusal
 }
 
-// probeVersion runs a bounded version probe of the tool at path and returns
-// the version it reports. chezmoi runs against an empty private scratch
-// context so it never reads the user's configuration. Workbench's refusal to
-// run the program at all ("tool"), or its finding no program there
-// ("dependency"), is returned as it is.
 // ownToolFolder gives the folders from the data folder down to the one that
 // holds path, a program Workbench installed there, the checks of a folder
 // that is only read (see [operation.CheckPrivateDirectory]) before the
@@ -155,6 +150,11 @@ func ownToolFolder(c operation.Context, path string) error {
 	return operation.CheckPrivateDirectory(c.Paths.Data, name)
 }
 
+// probeVersion runs a bounded version probe of the tool at path and returns
+// the version it reports. chezmoi runs against an empty private scratch
+// context so it never reads the user's configuration. Workbench's refusal to
+// run the program at all ("tool"), or its finding no program there
+// ("dependency"), is returned as it is.
 func probeVersion(ctx context.Context, c operation.Context, name, path string) (string, error) {
 	args := []string{"--version"}
 	environment := []string{"PATH=/usr/bin:/bin", "PYTHONDONTWRITEBYTECODE=1", "HOME=" + c.Home}

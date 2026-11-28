@@ -309,19 +309,33 @@ func unreachable(path string, folder bool, err error) []Part {
 			FixPath(held, "sudo", "chown", userName(uint32(os.Geteuid()))),
 		}
 	}
-	needed, cannot, grant := uint32(0o100), "search", "u+rwx"
+	needed, grant := uint32(0o100), "u+rwx"
 	switch {
 	case held == path && folder:
-		needed, cannot = 0o500, "read or search"
+		needed = 0o500
 	case held == path:
-		needed, cannot, grant = 0o400, "read", "u+r"
+		needed, grant = 0o400, "u+r"
 	}
 	mode := uint32(stat.Mode) & 0o7777
-	if mode&needed == needed {
+	var cannot []string
+	if mode&needed&0o400 != needed&0o400 {
+		cannot = append(cannot, "read")
+	}
+	if mode&needed&0o100 != needed&0o100 {
+		cannot = append(cannot, "search")
+	}
+	if cannot == nil {
 		return nil
 	}
 	return []Part{
-		Cause(fmt.Sprintf("%s has mode %04o, so you cannot %s it", shown, mode, cannot)),
+		Cause(
+			fmt.Sprintf(
+				"%s has mode %04o, so you cannot %s it",
+				shown,
+				mode,
+				strings.Join(cannot, " or "),
+			),
+		),
 		FixPath(held, "chmod", grant),
 	}
 }
