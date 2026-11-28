@@ -26,6 +26,7 @@ func TestCodexForkCountsEveryResponseOnce(t *testing.T) {
 	count := `{"timestamp":"2026-07-01T10:00:01.000Z","type":"event_msg","payload":{"type":"token_count",` +
 		`"info":{"total_token_usage":{"input_tokens":10000,"output_tokens":100},` +
 		`"last_token_usage":{"input_tokens":1000,"output_tokens":10}},"rate_limits":{"primary":{"used_percent":3}}}}`
+	ctx := t.Context()
 	for _, c := range []struct {
 		name       string
 		lines      []string
@@ -36,7 +37,7 @@ func TestCodexForkCountsEveryResponseOnce(t *testing.T) {
 		{"copied fork, parent's rollout not read: the copy is the only trace", []string{meta, copied, count}, false, 1},
 		{"fork that copied nothing: its own first response", []string{meta, settings, count}, true, 1},
 	} {
-		ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
+		ledger, err := openLedger(ctx, filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

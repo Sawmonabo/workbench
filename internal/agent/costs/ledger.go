@@ -89,22 +89,22 @@ func (p Paths) openGated(
 			return nil, p, nil
 		}
 	}
-	ledger, err := p.open(steps)
+	ledger, err := p.open(ctx, steps)
 	return ledger, p, err
 }
 
 // open opens the ledger, making a missing one (see openLedger), after making
 // its folder private (see [Paths.dataFolder]), which refuses one that exists
 // and isn't. Only the import calls it without [Paths.Open], after its own gate
-// has moved the ledger. steps is as [Paths.Open] takes it.
+// has moved the ledger. ctx and steps are as [Paths.Open] takes them.
 //
 // A compaction the open's upgrade left undone is noted in the import log, and
 // the next import worker tries it again (see Ledger.compact).
-func (p Paths) open(steps UpgradeSteps) (*Ledger, error) {
+func (p Paths) open(ctx context.Context, steps UpgradeSteps) (*Ledger, error) {
 	if _, err := p.dataFolder(""); err != nil {
 		return nil, err
 	}
-	ledger, err := openLedger(p.Ledger, true, true, steps)
+	ledger, err := openLedger(ctx, p.Ledger, true, true, steps)
 	if err == nil && ledger.compactErr != nil {
 		writeLog(p, notCompacted+ledger.compactErr.Error())
 	}
@@ -169,7 +169,9 @@ type Ledger struct {
 // any other version fails with the path and version and writes nothing. A
 // zero-byte file (a crash between creating the file and writing the schema)
 // holds nothing and is treated as absent. create makes a missing ledger, in a
-// folder that must exist, instead of failing.
+// folder that must exist, instead of failing. A cancel of ctx stops a wait
+// for another process's upgrade, or this open's own upgrade, which then
+// leaves the ledger as it was.
 //
 // The move of the costs files opens a ledger without upgrade, to verify it
 // and fold its write-ahead log in, so the ledger keeps its version until it
@@ -181,7 +183,12 @@ type Ledger struct {
 // [Paths.Open]), the file is made 0600, and a ledger readable by others is
 // tightened, with its -wal and -shm files, once it is verified (the mode
 // only, never the content; see [sqlitefile.Open]).
-func openLedger(path string, create, upgrade bool, steps UpgradeSteps) (*Ledger, error) {
+func openLedger(
+	ctx context.Context,
+	path string,
+	create, upgrade bool,
+	steps UpgradeSteps,
+) (*Ledger, error) {
 	info, err := os.Stat(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return nil, operation.FileError(path, err)
@@ -206,7 +213,7 @@ func openLedger(path string, create, upgrade bool, steps UpgradeSteps) (*Ledger,
 		TxLock:  "immediate",
 		Prepare: func(db *sql.DB) error {
 			ledger.db = db
-			return ledger.prepare(exists, upgrade)
+			return ledger.prepare(ctx, exists, upgrade)
 		},
 	}); err != nil {
 		return nil, err
@@ -214,8 +221,7 @@ func openLedger(path string, create, upgrade bool, steps UpgradeSteps) (*Ledger,
 	return ledger, nil
 }
 
-func (l *Ledger) prepare(exists, upgrade bool) error {
-	ctx := context.Background()
+func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 	if !exists {
 		return l.fileError(l.create(ctx))
 	}
@@ -323,11 +329,13 @@ func setMeta(ctx context.Context, x execer, key, value string) error {
 }
 
 // Meta is a stored note, "" when absent.
-func (l *Ledger) Meta(key string) (string, error) { return meta(context.Background(), l.db, key) }
+func (l *Ledger) Meta(ctx context.Context, key string) (string, error) {
+	return meta(ctx, l.db, key)
+}
 
 // SetMeta stores a note.
-func (l *Ledger) SetMeta(key, value string) error {
-	return setMeta(context.Background(), l.db, key, value)
+func (l *Ledger) SetMeta(ctx context.Context, key, value string) error {
+	return setMeta(ctx, l.db, key, value)
 }
 
 // Empty reports whether the ledger holds no responses of tool.

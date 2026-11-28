@@ -247,7 +247,7 @@ func Report(ctx context.Context, ledger *Ledger, opts ReportOptions) (Statement,
 		return report, err
 	}
 	report.Scope, report.Hidden = scopeRoots(paths.Home, opts.Roots), hidden
-	if report.Coverage, err = tally.coverage(ledger, card.Fetched[opts.Tool]); err != nil {
+	if report.Coverage, err = tally.coverage(ctx, ledger, card.Fetched[opts.Tool]); err != nil {
 		return report, err
 	}
 	seen := map[string]bool{}

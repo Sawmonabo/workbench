@@ -132,7 +132,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 	// Read the sign-in before the ledger can make this process wait.
 	signIn := tool.Source.SignIn(paths.Home)
 	at := time.Now()
-	ledger, err := paths.open(nil)
+	ledger, err := paths.open(ctx, nil)
 	if err == nil {
 		err = ledger.BindSession(ctx, tool.Name, opts.SessionID, at, signIn)
 		_ = ledger.Close()
@@ -144,7 +144,7 @@ func bindSession(ctx context.Context, paths Paths, opts IngestOptions) {
 
 func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string, error) {
 	started := time.Now()
-	ledger, err := paths.open(upgradeSteps(opts.Progress))
+	ledger, err := paths.open(ctx, upgradeSteps(opts.Progress))
 	if err != nil {
 		return "", err
 	}
@@ -152,7 +152,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 	ledger.compactAgain(ctx, paths)
 	var errs []string
 	files, rows := 0, 0
-	full, err := ledger.fullTierCheckDue()
+	full, err := ledger.fullTierCheckDue(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -245,7 +245,7 @@ func ingestLocked(ctx context.Context, paths Paths, opts IngestOptions) (string,
 		time.Since(started).Seconds(),
 		rates,
 	)
-	return summary, finishIngest(ledger, paths, summary, errs)
+	return summary, finishIngest(ctx, ledger, paths, summary, errs)
 }
 
 // keptSignIns are the sign-ins each tool keeps on disk now (signInDirectory),
@@ -332,13 +332,19 @@ func observeSignIns(ctx context.Context, ledger *Ledger, home string) error {
 }
 
 // finishIngest stores a run's notes in the ledger and writes them to the log.
-func finishIngest(ledger *Ledger, paths Paths, summary string, errs []string) error {
+func finishIngest(
+	ctx context.Context,
+	ledger *Ledger,
+	paths Paths,
+	summary string,
+	errs []string,
+) error {
 	for key, value := range map[string]string{
 		"last_ingest_at":      stamp(time.Now()),
 		"last_ingest_summary": summary,
 		"last_error":          strings.Join(errs, "; "),
 	} {
-		if err := ledger.SetMeta(key, value); err != nil {
+		if err := ledger.SetMeta(ctx, key, value); err != nil {
 			return err
 		}
 	}

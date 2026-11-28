@@ -153,7 +153,7 @@ const compactDue = "compact_due"
 // disk) leaves a valid ledger with free pages and the note, and the next
 // import worker tries again (see ingestLocked).
 func (l *Ledger) compact(ctx context.Context) error {
-	if due, err := l.Meta(compactDue); err != nil || due == "" {
+	if due, err := l.Meta(ctx, compactDue); err != nil || due == "" {
 		return err
 	}
 	if _, err := l.db.ExecContext(ctx, "VACUUM"); err != nil {

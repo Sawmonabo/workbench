@@ -231,7 +231,7 @@ func moveFixture(t *testing.T) (OldPaths, Paths) {
 // it wrote as readLedger lists it.
 func seedLedger(t *testing.T, path string, ids ...string) []string {
 	t.Helper()
-	ledger, err := openLedger(path, true, true, nil)
+	ledger, err := openLedger(t.Context(), path, true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -604,7 +604,7 @@ func moveTheLedgerWithItsWAL(t *testing.T) {
 		t.Fatalf("the old folders resolve to %s and %s", before.Ledger, before.State)
 	}
 	want := seedLedger(t, before.Ledger, "req-1")
-	writer, err := openLedger(before.Ledger, false, true, nil)
+	writer, err := openLedger(t.Context(), before.Ledger, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -646,11 +646,11 @@ func moveTheLedgerWithItsWAL(t *testing.T) {
 
 	// A process that still names the old path fails there and makes nothing.
 	closed := readAll(t, []string{f.oldData, f.oldState})
-	if ledger, err := before.open(nil); err == nil {
+	if ledger, err := before.open(t.Context(), nil); err == nil {
 		_ = ledger.Close()
 		t.Fatal("the ledger opened through the old path")
 	}
-	if ledger, err := openLedger(before.Ledger, true, true, nil); err == nil {
+	if ledger, err := openLedger(t.Context(), before.Ledger, true, true, nil); err == nil {
 		_ = ledger.Close()
 		t.Fatal("a ledger was made at the old path")
 	}

@@ -69,12 +69,16 @@ func coverage(
 	if err := scanResponses(ctx, ledger, tool, tally.add); err != nil {
 		return Coverage{}, err
 	}
-	return tally.coverage(ledger, fetched)
+	return tally.coverage(ctx, ledger, fetched)
 }
 
 // coverage is the tally's Coverage, with the ledger's last ingest and the
 // time the official rates were fetched.
-func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, error) {
+func (t coverageTally) coverage(
+	ctx context.Context,
+	ledger *Ledger,
+	fetched time.Time,
+) (Coverage, error) {
 	first, last := int64(noTime), int64(noTime)
 	if t.counted {
 		first, last = t.first, t.last
@@ -92,11 +96,11 @@ func (t coverageTally) coverage(ledger *Ledger, fetched time.Time) (Coverage, er
 		SubscriptionNamedSince: since(t.subscriptionSince, t.subscriptionNamed),
 	}
 	c.LastIngestAt, c.LastIngestSummary, c.LastError = "never", "", ""
-	if v, err := ledger.Meta("last_ingest_at"); err == nil && v != "" {
+	if v, err := ledger.Meta(ctx, "last_ingest_at"); err == nil && v != "" {
 		c.LastIngestAt = v
 	}
-	c.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
-	c.LastError, _ = ledger.Meta("last_error")
+	c.LastIngestSummary, _ = ledger.Meta(ctx, "last_ingest_summary")
+	c.LastError, _ = ledger.Meta(ctx, "last_error")
 	c.RatesFetched = "never"
 	if !fetched.IsZero() {
 		c.RatesFetched = fetched.Local().Format(time.DateOnly)

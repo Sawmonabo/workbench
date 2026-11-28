@@ -39,7 +39,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 		  'a@example.test', 'sweep', 1, 2, 3, 4, 5)`,
 	)
 
-	ledger, err := openLedger(path, false, true, nil)
+	ledger, err := openLedger(t.Context(), path, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,7 +51,7 @@ func TestLedgerKeepsLargestUsageAndUpgradesWithoutLoss(t *testing.T) {
 		nameTool).Scan(&rows, &tools); err != nil {
 		t.Fatal(err)
 	}
-	if version, err = ledger.Meta("schema_version"); err != nil {
+	if version, err = ledger.Meta(t.Context(), "schema_version"); err != nil {
 		t.Fatal(err)
 	}
 	if rows != 2 || tools != 2 || version != schemaVersion {
@@ -133,7 +133,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 		  'a@example.test', 'sweep', 100, 200, 300, 0, 1000, 'claude')`,
 		`INSERT INTO files VALUES ('/w/t.jsonl', 4096, 4096, 1, '2026-09-01T10:00:00+00:00')`,
 	)
-	ledger, err := openLedger(path, false, true, nil)
+	ledger, err := openLedger(t.Context(), path, false, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	version, err := ledger.Meta("schema_version")
+	version, err := ledger.Meta(t.Context(), "schema_version")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,7 +173,7 @@ func TestLedgerUpgradesVersionTwoWithoutLoss(t *testing.T) {
 // anyone notices.
 func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
+	ledger, err := openLedger(ctx, filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -314,7 +314,7 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 	copied := stamped("moved", 6, other)
 	copied.Root, copied.SubscriptionEvidence = "s9", EvidenceTranscript
 	store(copied)
-	if note, err := ledger.Meta(accountsUnresolved); err != nil ||
+	if note, err := ledger.Meta(ctx, accountsUnresolved); err != nil ||
 		!strings.Contains(note, rootKey("claude", "s1")) {
 		t.Errorf("rows of s1 are not marked for attribution: %q, %v", note, err)
 	}
@@ -327,7 +327,7 @@ func TestStrongerAttributionSurvivesWeakerEvidence(t *testing.T) {
 // transcripts that could show it have been deleted.
 func TestInferredAccountYieldsToEvidence(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := openLedger(filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
+	ledger, err := openLedger(ctx, filepath.Join(t.TempDir(), "ledger.sqlite"), true, true, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -493,12 +493,13 @@ func upgradeToSix(t *testing.T, valid, other, otherList string) {
 		writeFile(t, officialPath(path, otherTool), otherList, 0o600)
 	}
 
-	ledger, err := openLedger(path, false, true, nil)
+	ctx := t.Context()
+	ledger, err := openLedger(ctx, path, false, true, nil)
 	if err != nil {
 		t.Fatalf("the upgrade failed: %v", err)
 	}
 	defer func() { _ = ledger.Close() }()
-	if version, err := ledger.Meta("schema_version"); err != nil || version != schemaVersion {
+	if version, err := ledger.Meta(ctx, "schema_version"); err != nil || version != schemaVersion {
 		t.Fatalf("the ledger is at version %q (%v), want %s", version, err, schemaVersion)
 	}
 	after := ledgerRows(t, path)

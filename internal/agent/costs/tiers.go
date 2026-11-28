@@ -78,12 +78,12 @@ const (
 
 // fullTierCheckDue reports whether the next ResolveTiers must check every
 // waiting row rather than only those an ingest run wrote.
-func (l *Ledger) fullTierCheckDue() (bool, error) {
-	unresolved, err := l.Meta(tiersUnresolved)
+func (l *Ledger) fullTierCheckDue(ctx context.Context) (bool, error) {
+	unresolved, err := l.Meta(ctx, tiersUnresolved)
 	if err != nil {
 		return false, err
 	}
-	checked, err := l.Meta(tiersChecked)
+	checked, err := l.Meta(ctx, tiersChecked)
 	return unresolved != "" || checked != tiersRule, err
 }
 

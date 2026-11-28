@@ -74,14 +74,15 @@ func TestUpgradeToSevenKeepsEveryRow(t *testing.T) {
 		t.Fatalf("the version 6 ledger holds %d responses and %d waiting rows",
 			len(before["responses"]), len(before["tier_pending"]))
 	}
-	ledger, err := openLedger(path, false, true, nil)
+	ctx := t.Context()
+	ledger, err := openLedger(ctx, path, false, true, nil)
 	if err != nil {
 		t.Fatalf("the upgrade failed: %v", err)
 	}
-	if version, err := ledger.Meta("schema_version"); err != nil || version != schemaVersion {
+	if version, err := ledger.Meta(ctx, "schema_version"); err != nil || version != schemaVersion {
 		t.Fatalf("the ledger is at version %q (%v), want %s", version, err, schemaVersion)
 	}
-	if due, err := ledger.Meta(compactDue); err != nil || due != "" || !ledger.compacted ||
+	if due, err := ledger.Meta(ctx, compactDue); err != nil || due != "" || !ledger.compacted ||
 		ledger.compactErr != nil {
 		t.Errorf("the compaction is still due (%q, %v, %v)", due, err, ledger.compactErr)
 	}
@@ -121,7 +122,7 @@ func TestUpgradeToSevenRefusesWhatItCannotConvert(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			ledger, err := openLedger(path, false, true, nil)
+			ledger, err := openLedger(t.Context(), path, false, true, nil)
 			if err == nil {
 				_ = ledger.Close()
 				t.Fatal("the upgrade converted a value it cannot hold")

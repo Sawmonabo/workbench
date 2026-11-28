@@ -72,11 +72,11 @@ func status(ctx context.Context, ledger *Ledger, paths Paths) (StatusInfo, error
 		info.LedgerBytes = stat.Size()
 	}
 	info.LastIngestAt = "never"
-	if v, _ := ledger.Meta("last_ingest_at"); v != "" {
+	if v, _ := ledger.Meta(ctx, "last_ingest_at"); v != "" {
 		info.LastIngestAt = v
 	}
-	info.LastIngestSummary, _ = ledger.Meta("last_ingest_summary")
-	info.LastError, _ = ledger.Meta("last_error")
+	info.LastIngestSummary, _ = ledger.Meta(ctx, "last_ingest_summary")
+	info.LastError, _ = ledger.Meta(ctx, "last_error")
 	info.WorkerRunning = operation.IsLockHeld(paths.lock())
 	for _, tool := range Tools {
 		status := ToolStatus{Name: tool.Name, Title: tool.Title, Implemented: tool.Source != nil}
