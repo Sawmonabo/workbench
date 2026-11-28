@@ -35,9 +35,12 @@ every caller.
 ## Decision
 
 - **What it owns.** `internal/platform` owns every operating-system call (the
-  system calls, libc calls and `/proc` reads that differ between macOS and
-  Linux) and every fact that differs by system. The logic around a call stays
-  with its owner; only the call moves. It imports only the standard library,
+  system calls, libc calls and `/proc` and `/etc/os-release` reads that
+  differ between macOS and Linux) and every fact that differs by system. The
+  logic around a call stays with its owner; only the call moves: which file
+  metadata an image keeps, which releases Workbench supports and when the
+  apply asks for the Mac password are `operation` and `machine` policy, as
+  shared code that reads the facts. It imports only the standard library,
   `golang.org/x/sys` and, on macOS, the netdb package of the SQLite driver's
   C library (`modernc.org/libc`), whose tables `ReleaseServiceTables` lets go
   of, never another Workbench package, so every other package may import it.
@@ -62,8 +65,20 @@ every caller.
   order, for an agent's launcher; `VSCodeUserFolder(home)` VS Code's user
   settings folder; `ClaudeManagedFolder` Claude Code's managed settings
   folder; `GroupFromFolder` whether a new file takes its folder's group;
-  `TouchIDPossible` whether Touch ID for sudo can exist; `AssetTriple` the
-  `apple-darwin` or `unknown-linux-gnu` part of a release asset's name.
+  `ACLsAreAttributes` whether a file's ACL is among its extended attributes,
+  where `FileSecurity` cannot read it; `HiddenFlag` the file flag that only
+  hides a file in Finder, which `FileFlags` reads; `TouchIDPossible` whether
+  Touch ID for sudo can exist; `ReadsPasswords` whether `ReadPassword` reads
+  a password at a terminal; `HostRelease` the release's name and version;
+  `AssetTriple` the `apple-darwin` or `unknown-linux-gnu` part of a release
+  asset's name.
+- **A fact learned from a command takes its runner.** The package starts no
+  process, since `operation.Run` owns subprocesses, so `HostRelease` is
+  handed a function that runs `/usr/bin/sw_vers -productVersion` on macOS
+  through it. It does not read `kern.osproductversion` instead: that sysctl
+  holds the same ProductVersion, but gives a process whose environment sets
+  `SYSTEM_VERSION_COMPAT=1` the compatibility version 10.16 on a release that
+  keeps one, while `sw_vers` runs in an environment that sets only `PATH`.
 - **`System` is the Go name.** It is `darwin` or `linux`, not `macos`, so the
   doctor's platform line and the chezmoi asset name keep their exact bytes.
 - **WSL once.** `WSL()` is a `sync.OnceValue`: on Linux it reads
@@ -90,6 +105,16 @@ every caller.
   purego, is beta and a new module. Apple marks `libproc.h`'s interfaces as
   subject to change, so every call through it fails safe: an unreadable value
   leaves behavior as it was.
+- **Words by `System`, behavior by facts.** Outside `internal/platform`,
+  what Workbench does on a system follows a named fact, or for the steps it
+  offers `machine`'s two effects files, never the system's name. Only a
+  message that names each system's own things takes its words from a table
+  keyed by `System`: the refusal of private state off a native file system
+  (`operation.foreignFilesystem`) and the platform check's note for an
+  unsupported release (`machine.supportNote`). Apart from `effects_darwin.go`
+  and `effects_linux.go`, no file outside the package has a system suffix,
+  and a safeguard test that needs one system's features builds on both and
+  skips where a fact says they are missing.
 - **Kept that way.** A `forbidigo` rule in `.golangci.yml` forbids
   `runtime.GOOS` outside `internal/platform` and `internal/release/archive.go`,
   so a new platform test anywhere else fails `golangci-lint run`.
@@ -119,3 +144,8 @@ every caller.
 - [xnu `libproc.h`](https://git.saurik.com/apple/xnu.git/blob/HEAD:/libsyscall/wrappers/libproc/libproc.h)
 - Go source, `syscall/syscall_darwin.go`: the `syscall6` link name, "Do not
   remove or change the type signature"
+- [xnu `bsd/kern/kern_sysctl.c`: `kern.osproductversion`, "The ProductVersion
+  from SystemVersion.plist", answers a task with system version compat from
+  `kern.osproductversioncompat`](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/bsd/kern/kern_sysctl.c)
+- [xnu `libsyscall/wrappers/_libkernel_init.c`: the compat shim sets that
+  task flag through `kern.system_version_compat`](https://github.com/apple-oss-distributions/xnu/blob/xnu-11215.81.4/libsyscall/wrappers/_libkernel_init.c)

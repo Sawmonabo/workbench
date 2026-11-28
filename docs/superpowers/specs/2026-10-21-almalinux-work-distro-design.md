@@ -190,17 +190,16 @@ With role `work` (and for the work half of `both`):
 
 ### 4.2 The platform check accepts AlmaLinux 10
 
-`hostVersion` in `internal/machine/host_linux.go` also marks the platform
+`supportedRelease` in `internal/machine/host.go` also marks the platform
 complete when `ID` is `almalinux` and the major part of `VERSION_ID` is `10`.
 AlmaLinux 10 gets a minor release every six months under one major version
 until 2035, unlike Ubuntu's fixed LTS list, so the check uses the major
 version only. The message stays `ID VERSION_ID/arch`, plus the WSL note.
 
-The `forbidigo` rule in `.golangci.yml` forbids only `runtime.GOOS`, and the
-file already reads `/etc/os-release` behind its `_linux.go` suffix, so the
-check may stay where it is. The new package-manager fact (section 4.3) does
-belong in `internal/platform`; moving the `/etc/os-release` read there too is
-the builder's call.
+`platform.HostRelease` reads `/etc/os-release` in
+`internal/platform/host_linux.go`, and the support rule stays in `machine`.
+The new package-manager fact (section 4.3) belongs in `internal/platform`
+too.
 
 ### 4.3 The package step learns dnf
 

@@ -1,6 +1,7 @@
 // Package platform owns every operating-system call and every fact that
-// differs between macOS and Linux, so no other package asks which system it
-// runs on.
+// differs between macOS and Linux, so no other package tests which system it
+// runs on: each reads the facts it needs, and takes only a message's words
+// from a table keyed by System.
 //
 // Each subject declares every exported name once, in its file without a
 // suffix such as process.go, with one comment that states what callers rely
@@ -13,6 +14,10 @@
 // unexported one. What is the same on both systems has one body in the file
 // without a suffix. The system is fixed when the package is built, so no
 // interface stands between the two.
+//
+// The package starts no process: a fact learned from a command, as
+// HostRelease learns the macOS release from sw_vers, is handed a function
+// that runs it through the caller's subprocess owner.
 //
 // The package imports only the standard library, golang.org/x/sys and, on
 // macOS, the netdb package of the SQLite driver's C library
