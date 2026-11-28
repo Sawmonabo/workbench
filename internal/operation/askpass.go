@@ -135,10 +135,6 @@ func newAskpass(m *Mutation) (service *askpassService, err error) {
 	}, nil
 }
 
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
 func (s *askpassService) serve() {
 	defer close(s.stopped)
 	for {

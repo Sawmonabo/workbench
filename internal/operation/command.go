@@ -3,9 +3,6 @@ package operation
 import (
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"unicode"
 
 	"github.com/Sawmonabo/workbench/internal/display"
 )
@@ -72,55 +69,3 @@ func (c Context) ShowPath(path string) string { return display.PathFrom(c.Home, 
 // any other path as it is, all but the ~ quoted where a shell would read a
 // character (see shellWord).
 func (c Context) ShellPath(path string) string { return shellPath(c.Home, path) }
-
-// shellHomePath is [Context.ShellPath] from the current user's home folder,
-// as [display.Home] finds it, for a message made where no [Context] is at
-// hand.
-func shellHomePath(path string) string { return shellPath(display.Home(), path) }
-
-// shellPath is path as one word a shell reads back, written from home as
-// [Context.ShellPath] says. An empty home, or /, shortens nothing.
-func shellPath(home, path string) string {
-	if home != "" && filepath.Clean(home) != "/" && Within(home, path) {
-		if relative, err := filepath.Rel(home, path); err == nil {
-			if relative == "." {
-				return "~"
-			}
-			return "~/" + shellWord(filepath.ToSlash(relative))
-		}
-	}
-	return shellWord(path)
-}
-
-// shellSafe are the characters a POSIX shell reads as themselves anywhere in
-// a word that does not start with them.
-const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./,+@:"
-
-// shellWord is s as one word a shell reads back as s: as it is when it holds
-// only shellSafe characters, otherwise in single quotes (see shellQuote), and
-// one holding a control character as $'...' with every byte outside printable
-// ASCII written \xHH, so it stays on one line and prints no control
-// character, which bash, zsh and ksh read.
-func shellWord(s string) string {
-	switch {
-	case s != "" && strings.Trim(s, shellSafe) == "":
-		return s
-	case !strings.ContainsFunc(s, unicode.IsControl):
-		return shellQuote(s)
-	}
-	var b strings.Builder
-	b.WriteString("$'")
-	for i := range len(s) {
-		switch c := s[i]; {
-		case c == '\\' || c == '\'':
-			b.WriteByte('\\')
-			b.WriteByte(c)
-		case c < ' ' || c >= 0x7f:
-			b.WriteString(`\x` + strconv.FormatUint(uint64(c)|0x100, 16)[1:])
-		default:
-			b.WriteByte(c)
-		}
-	}
-	b.WriteByte('\'')
-	return b.String()
-}
