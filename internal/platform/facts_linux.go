@@ -85,6 +85,10 @@ const claudeManagedFolder = "/etc/claude-code"
 // group unless the folder is set-group-ID.
 const groupFromFolder = false
 
+// folderTakesSetgid is true: a folder made in a set-group-ID folder takes the
+// bit (inode_init_owner in fs/inode.c).
+const folderTakesSetgid = true
+
 // aclsAreAttributes is true: Linux keeps POSIX ACLs as the extended
 // attributes system.posix_acl_access and system.posix_acl_default.
 const aclsAreAttributes = true

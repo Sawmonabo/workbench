@@ -64,6 +64,14 @@ const ClaudeManagedFolder = claudeManagedFolder
 // set-group-ID, as on Linux.
 const GroupFromFolder = groupFromFolder
 
+// FolderTakesSetgid reports whether a folder made in a set-group-ID folder
+// is set-group-ID itself, so the folder's group passes on to everything made
+// below it: true on Linux, whose inode_init_owner (fs/inode.c) gives a new
+// folder the bit ("Directories are special, and always inherit S_ISGID"),
+// and false on macOS, whose new files take their folder's group whatever the
+// bit.
+const FolderTakesSetgid = folderTakesSetgid
+
 // ACLsAreAttributes reports whether a file's ACL is kept among its extended
 // attributes, where FileSecurity does not read it: true on Linux, whose POSIX
 // ACLs are the system.posix_acl_access and system.posix_acl_default

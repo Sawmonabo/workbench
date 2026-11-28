@@ -71,6 +71,10 @@ const claudeManagedFolder = "/Library/Application Support/ClaudeCode"
 // group.
 const groupFromFolder = true
 
+// folderTakesSetgid is false: a folder made in a set-group-ID folder is not
+// set-group-ID, as mkdir in one shows.
+const folderTakesSetgid = false
+
 // aclsAreAttributes is false: macOS keeps a file's ACL apart from its
 // extended attributes, and FileSecurity reads it.
 const aclsAreAttributes = false

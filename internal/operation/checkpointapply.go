@@ -12,6 +12,7 @@ import (
 
 	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
+	"golang.org/x/sys/unix"
 )
 
 // StartNative persists uncertainty before handing authority to the native engine.
@@ -104,7 +105,8 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]in
 		switch {
 		case missingCarried(change, current) || foreignLabel(change, current):
 			err = restageNative(c, change, current, cp.stagedName(i))
-		case *current.Group != *change.After.Group || label != nil:
+		case *current.Group != *change.After.Group || current.Mode != change.After.Mode ||
+			label != nil:
 			err = correctNativeMetadata(c, change, current, label)
 		default:
 			continue
@@ -142,12 +144,17 @@ func nativeLabel(change TargetChange, observed Image) []byte {
 
 // nativeImage reports whether current is what native wrote of change's
 // approved image before the pass after it: the approved image apart from the
-// group atomic creation may have taken from native's temporary folder, and,
-// on a file or link that replaced one of its kind, apart from the ACL and the
-// hidden flag native's new one lacks. Extended attributes are compared by
-// missingCarried and Finish.
+// group atomic creation may have taken from native's temporary folder, on a
+// folder apart from the set-group-ID bit native's chmod of it takes off (Go's
+// os.Chmod sets only the bits it is given) or a folder native made in such a
+// folder lacks, and, on a file or link that replaced one of its kind, apart
+// from the ACL and the hidden flag native's new one lacks. Extended attributes
+// are compared by missingCarried and Finish.
 func nativeImage(current Image, change TargetChange) bool {
 	current.Group = change.After.Group
+	if current.Kind == ImageDirectory {
+		current.Mode |= change.After.Mode & unix.S_ISGID
+	}
 	if carries(change) {
 		if current.ACL == nil {
 			current.ACL = change.After.ACL
@@ -247,8 +254,9 @@ func differsFromNative(path string) error {
 	)
 }
 
-// correctNativeMetadata gives a target the approved group and, unless label is
-// nil, that label, once it is still the image nativeOutput observed.
+// correctNativeMetadata gives a target the approved group, a folder its
+// approved set-group-ID bit, and, unless label is nil, that label, once it is
+// still the image nativeOutput observed.
 func correctNativeMetadata(c Context, change TargetChange, observed Image, label []byte) error {
 	current, err := ReadImage(c, change.Path)
 	if err != nil {
@@ -262,7 +270,14 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 			Outcome("Workbench left it as it is, without the group the plan approved"),
 		)
 	}
-	return enforceNativeMetadata(c, change.Path, observed, *change.After.Group, label)
+	return enforceNativeMetadata(
+		c,
+		change.Path,
+		observed,
+		*change.After.Group,
+		change.After.Mode,
+		label,
+	)
 }
 
 // CheckPreservable is the native planner's check of one edit: it refuses

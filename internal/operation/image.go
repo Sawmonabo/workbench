@@ -88,7 +88,7 @@ func ImageDigest(image Image) string {
 func (image Image) validate(c Context, path string) error {
 	shown := display.Path(path)
 	switch {
-	case image.Mode > 0o777:
+	case image.Mode&^0o777 != 0 && (image.Kind != ImageDirectory || image.Mode&^0o777 != unix.S_ISGID):
 		return Fail(
 			ExitBlocked,
 			"image",
@@ -273,11 +273,11 @@ func ReadImage(c Context, path string) (Image, error) {
 	if err != nil {
 		return Image{}, err
 	}
-	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 {
+	if int(stat.Uid) != os.Geteuid() || specialBits(uint32(stat.Mode)) != 0 {
 		return Image{}, ownershipRefusal(path, stat.Uid, uint32(stat.Mode))
 	}
 	group := uint32(stat.Gid)
-	image := Image{Mode: uint32(stat.Mode) & 0o777, Group: &group}
+	image := Image{Mode: imageMode(uint32(stat.Mode)), Group: &group}
 	var held security
 	switch stat.Mode & unix.S_IFMT {
 	case unix.S_IFLNK:

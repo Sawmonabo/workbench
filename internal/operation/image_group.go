@@ -45,8 +45,11 @@ func validateImageGroup(c Context, path string, image Image) error {
 }
 
 // ImageWithGroup makes group ownership explicit without granting ownership
-// changes. Existing targets retain their group; new targets use native parent
-// inheritance. Callers bind the completed image into their plan digest.
+// changes. Existing targets retain their group, and a folder its set-group-ID
+// bit; new targets use native parent inheritance: the group a new file at
+// path gets, and on a folder the set-group-ID bit where a new folder takes it
+// from the folder it is made in (platform.FolderTakesSetgid). Callers bind the
+// completed image into their plan digest.
 func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	if image.Kind == ImageAbsent {
 		image.Group = nil
@@ -58,15 +61,37 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	}
 	if before.Kind != ImageAbsent {
 		image.Group = before.Group
+		if before.Kind == ImageDirectory && image.Kind == ImageDirectory {
+			image.Mode |= before.Mode & unix.S_ISGID
+		}
 		return image, nil
 	}
-	group, err := creationGroup(c, path)
+	parent, err := creationParent(c, path)
 	if err != nil {
 		return Image{}, err
 	}
+	group := inheritedGroup(parent)
 	image.Group = &group
+	if image.Kind == ImageDirectory && platform.FolderTakesSetgid && parent.Mode&unix.S_ISGID != 0 {
+		image.Mode |= unix.S_ISGID
+	}
 	return image, nil
 }
+
+// imageMode is the part of mode, a file's, that an image keeps: its
+// permission bits, and on a folder the set-group-ID bit, which passes the
+// folder's group on to what is made in it.
+func imageMode(mode uint32) uint32 {
+	kept := uint32(0o777)
+	if mode&unix.S_IFMT == unix.S_IFDIR {
+		kept |= unix.S_ISGID
+	}
+	return mode & kept
+}
+
+// specialBits are the set-user-ID, set-group-ID and sticky bits of mode, a
+// file's, that an image does not keep (imageMode).
+func specialBits(mode uint32) uint32 { return mode & 0o7000 &^ imageMode(mode) }
 
 // canSetGroup reports whether the current user may give a file group: chown(2)
 // allows only its effective group and its supplementary groups.

@@ -10,7 +10,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// enforceNativeMetadata gives a target native wrote the approved group and,
+// enforceNativeMetadata gives a target native wrote the approved group, a
+// folder the approved mode (its set-group-ID bit, see nativeImage), and,
 // unless label is nil, that label (carryLabel). It uses the opened inode for
 // both the exact-image proof and the change, so replacing a path cannot
 // redirect the approved metadata write.
@@ -18,7 +19,7 @@ func enforceNativeMetadata(
 	c Context,
 	path string,
 	observed Image,
-	group uint32,
+	group, mode uint32,
 	label []byte,
 ) error {
 	if observed.Kind != ImageFile && observed.Kind != ImageDirectory {
@@ -49,7 +50,7 @@ func enforceNativeMetadata(
 	if err = unix.Fstat(fd, &stat); err != nil {
 		return err
 	}
-	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 ||
+	if int(stat.Uid) != os.Geteuid() || specialBits(uint32(stat.Mode)) != 0 ||
 		(observed.Kind == ImageFile && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
 		(observed.Kind == ImageDirectory && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
 		shown := display.Path(path)
@@ -59,7 +60,7 @@ func enforceNativeMetadata(
 			shown+" changed after chezmoi wrote it, before Workbench gave it its group",
 		)
 	}
-	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
+	current := Image{Kind: observed.Kind, Mode: imageMode(uint32(stat.Mode))}
 	currentGroup := uint32(stat.Gid)
 	current.Group = &currentGroup
 	held, err := c.openMetadata(fd, path, observed.Kind == ImageDirectory)
@@ -91,6 +92,11 @@ func enforceNativeMetadata(
 	}
 	if err = setImageGroup(fd, group); err != nil {
 		return err
+	}
+	if observed.Kind == ImageDirectory && current.Mode != mode {
+		if err = unix.Fchmod(fd, mode); err != nil {
+			return err
+		}
 	}
 	if label != nil {
 		if err = carryLabel(fd, path, current.Attributes, label); err != nil {
