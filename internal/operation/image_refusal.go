@@ -327,16 +327,16 @@ func groupChangeRefusal(path string, link bool, had, gets uint32) error {
 	if permitted, err := canSetGroup(gets); err != nil || !permitted {
 		command = append([]string{"sudo"}, command...)
 	}
-	h := replacedFile
+	h, written := replacedFile, "file"
 	if link {
-		h = replacedLink
+		h, written = replacedLink, "link"
 	}
 	found := display.Path(path) + " has group " + groupName(had)
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		found+", but a file made in its folder gets group "+group+
-			", so native's replacement would change it"+h.retry(command, path),
+		found+", but the "+written+" Workbench writes in its place would get group "+group+
+			", the group a new file in its folder gets"+h.retry(command, path),
 	)
 }
 
