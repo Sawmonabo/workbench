@@ -102,6 +102,10 @@ func versionCommand(o *options) *cobra.Command {
 	}
 }
 
+// listDrops are the flags update --list does not take: it shows the
+// releases, and its refusal's fix is the run without them and VERSION.
+var listDrops = []string{"dry-run", "bundle", "runtime-ready", "local-build", "destination"}
+
 // listReleases is update --list: the published full releases, newest first,
 // marking the installed one. The action has already read the state, so a
 // malformed one fails before the network round trip.
@@ -112,16 +116,16 @@ func listReleases(cmd *cobra.Command, c operation.Context) (operation.Result, er
 			operation.ExitInvalid,
 			"input",
 			"--list shows the releases",
-			operation.FixText("drop VERSION"),
+			runAgain(cmd, c, nil, listDrops...),
 		)
 	}
-	for _, name := range []string{"dry-run", "bundle", "runtime-ready", "local-build", "destination"} {
+	for _, name := range listDrops {
 		if cmd.Flags().Changed(name) {
 			return result, operation.Fail(
 				operation.ExitInvalid,
 				"input",
 				"--list shows the releases",
-				operation.FixText("drop --"+name),
+				runAgain(cmd, c, nil, listDrops...),
 			)
 		}
 	}

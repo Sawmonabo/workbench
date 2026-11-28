@@ -89,7 +89,6 @@ func answersImportCommand(o *options) *cobra.Command {
 				},
 			)
 			if err == nil {
-				shownAtPrompt(o, &result.Results[0])
 				result.Results = append(
 					result.Results,
 					operation.Component{
@@ -148,13 +147,17 @@ func askAnswers(
 			operation.ExitInvalid,
 			"ask",
 			"answers ask asks at a terminal",
-			operation.FixText("drop --json and --non-interactive"),
+			runAgain(cmd, c, ask, "json", "non-interactive"),
 		)
 	}
 	// An agent cannot answer the owner's machine questions, and what it typed
-	// at a pseudo-terminal would be saved as the owner's answers.
+	// at a pseudo-terminal would be saved as the owner's answers. answers ask
+	// takes no --approve-plan: the fix is the command, for a person to type.
 	if operation.AgentSession() {
-		return result, agentRefused()
+		return result, agentRefused(
+			operation.Cause("only a person at a terminal answers the machine questions"),
+			runAgain(cmd, c, ask),
+		)
 	}
 	if err := selectSource(&c); err != nil {
 		return result, err

@@ -30,6 +30,9 @@ type options struct {
 	// stopShown is set once a live line has said what an interrupt stopped,
 	// so the result does not print that error again.
 	stopShown bool
+	// prompted is the plan a Yes/No prompt showed, nil when none did, so the
+	// result does not print it again (see settlePrompt).
+	prompted *prompted
 }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
@@ -236,6 +239,9 @@ func (o *options) action(kind actionKind, run handler) func(*cobra.Command, []st
 			defer stop() // clears the status line on a panic
 			resolved.Progress = progress
 			result, err = run(cmd, resolved)
+			if o.prompted != nil {
+				settlePrompt(&result, *o.prompted)
+			}
 			if view, ok := progress.(*updateView); ok {
 				interrupted := operation.ExitCode(err) == operation.ExitInterrupted
 				if err != nil {

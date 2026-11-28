@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/spf13/cobra"
+
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -20,7 +22,8 @@ func TestAgentApplyIsRefusedBeforeSetup(t *testing.T) {
 		"--yes":      {yes: true},
 		"bare apply": {},
 	} {
-		if got := operation.ExitCode(checkApply(o, nil)); got != operation.ExitBlocked {
+		got := operation.ExitCode(checkApply(&cobra.Command{Use: "apply"}, operation.Context{}, o))
+		if got != operation.ExitBlocked {
 			t.Errorf("agent running apply %s exited %d, want %d", name, got, operation.ExitBlocked)
 		}
 	}

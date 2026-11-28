@@ -46,7 +46,7 @@ func applyCommand(o *options) *cobra.Command {
 				if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 					return machinePlan(cmd, c, o)
 				}
-				if err := checkApply(o, replan(cmd, c)); err != nil {
+				if err := checkApply(cmd, c, o); err != nil {
 					return operation.NewResult(cmd.CommandPath()), err
 				}
 				c.ReadOnly = false
@@ -101,44 +101,45 @@ func applyCommand(o *options) *cobra.Command {
 // checkApply is apply's one consent gate. It runs before anything else
 // happens, so a run that is certain to be refused downloads no tools and
 // touches no machine.toml. Flags that contradict each other are an invalid
-// invocation (exit 2), and [checkConsent] then refuses a run nobody approved.
-// --reset forgets the saved choices, so --yes would turn every step the owner
-// skipped back on and apply it unasked. replan is the run's new plan
-// commands (see [replan]).
-func checkApply(o *options, replan []operation.Part) error {
+// invocation (exit 2), whose fix is the run that asks, and [checkConsent]
+// then refuses a run nobody approved. --reset forgets the saved choices, so
+// --yes would turn every step the owner skipped back on and apply it
+// unasked.
+func checkApply(cmd *cobra.Command, c operation.Context, o *options) error {
+	args := cmd.Flags().Args()
 	switch {
 	case o.reset && o.yes:
 		return operation.Fail(
 			operation.ExitInvalid,
 			"reset",
 			"--reset asks and --yes does not",
-			operation.FixText("drop --reset or --yes"),
+			runAgain(cmd, c, args, "yes"),
 		)
 	case o.choose && o.yes:
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
 			"--choose asks and --yes does not",
-			operation.FixText("drop --choose or --yes"),
+			runAgain(cmd, c, args, "yes"),
 		)
 	case o.choose && o.approvePlan != "":
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
 			"--choose asks and --approve-plan does not",
-			operation.FixText("drop --choose or --approve-plan"),
+			runAgain(cmd, c, args, "approve-plan"),
 		)
 	case o.choose && !o.interactive():
 		return operation.Fail(
 			operation.ExitInvalid,
 			"choose",
 			"--choose asks at a terminal",
-			operation.FixText("drop --json and --non-interactive"),
+			runAgain(cmd, c, args, "json", "non-interactive"),
 		)
 	case o.choose && !operation.AgentSession() && !hasTerminal():
 		return operation.Fail(operation.ExitBlocked, "choose", "--choose needs a terminal")
 	}
-	return checkConsent(o, replan)
+	return checkConsent(cmd, c, o)
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply
@@ -275,7 +276,7 @@ func applyMachine(
 		if savedErr != nil {
 			return result, plan, savedErr
 		}
-		checked, approved, chooseErr := choosePlan(cmd.Context(), plan, o.verbose)
+		checked, approved, chooseErr := choosePlan(cmd.Context(), plan, o.verbose, consent.Replan)
 		if chooseErr != nil {
 			return result, plan, chooseErr
 		}

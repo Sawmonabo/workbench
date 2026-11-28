@@ -178,7 +178,6 @@ func projectApplyCommand(o *options) *cobra.Command {
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)
 			result.OperationID = checkpoint
 			if err == nil {
-				shownAtPrompt(o, &result.Results[0])
 				result.Summary = "Configured the project at " + c.ShowPath(c.Scope.Root)
 				if hooks := proposal.HooksFile(); hooks != "" {
 					result.Body = operation.Explain(
@@ -242,7 +241,6 @@ func projectRevertCommand(o *options) *cobra.Command {
 				restore.cmd.Context(), restore.c, restore.plan, restore.selector, restore.consent,
 			)
 			if err == nil {
-				shownAtPrompt(o, &result.Results[0])
 				result.Summary = "Restored the project's files from the checkpoint"
 			}
 			return result, err

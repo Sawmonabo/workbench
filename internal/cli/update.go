@@ -27,7 +27,7 @@ func updateRelease(
 	defer partialUpdate(cmd.CommandPath(), &result, &resultErr)
 	// Input errors come before the view, which would call them a failed update.
 	ready, _ := cmd.Flags().GetString("runtime-ready")
-	tag, err := "", localBuildInput(cmd, c.Native.Developer)
+	tag, err := "", localBuildInput(cmd, c)
 	if err == nil && !c.Native.Developer && ready == "" {
 		tag, err = releaseTag(cmd)
 	}
@@ -517,26 +517,28 @@ func partialUpdate(command string, result *operation.Result, resultErr *error) {
 }
 
 // localBuildInput refuses what --local-build does not take: VERSION,
-// --bundle and --runtime-ready. It accepts anything without --local-build.
-func localBuildInput(cmd *cobra.Command, developer bool) error {
-	if !developer {
+// --bundle and --runtime-ready, with the run without them as the fix. It
+// accepts anything without --local-build.
+func localBuildInput(cmd *cobra.Command, c operation.Context) error {
+	if !c.Native.Developer {
 		return nil
 	}
+	drops := []string{"bundle", "runtime-ready"}
 	if len(cmd.Flags().Args()) > 0 {
 		return operation.Fail(
 			operation.ExitInvalid,
 			"input",
 			"--local-build installs the checkout's tools",
-			operation.FixText("drop VERSION"),
+			runAgain(cmd, c, nil, drops...),
 		)
 	}
-	for _, name := range []string{"bundle", "runtime-ready"} {
+	for _, name := range drops {
 		if cmd.Flags().Changed(name) {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"input",
 				"--local-build installs the checkout's tools",
-				operation.FixText("drop --"+name),
+				runAgain(cmd, c, nil, drops...),
 			)
 		}
 	}

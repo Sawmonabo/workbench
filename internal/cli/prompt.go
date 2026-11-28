@@ -22,31 +22,59 @@ import (
 // interactive reports whether this run may prompt at all.
 func (o *options) interactive() bool { return !o.nonInteractive && !o.json }
 
-// shownAtPrompt drops a plan component's details after an approval that
-// showed the plan at a prompt. JSON and unattended runs keep them, and so does
-// --approve-plan at a terminal, which approves by digest without showing it.
-func shownAtPrompt(o *options, component *operation.Component) {
-	if o.interactive() && o.approvePlan == "" {
-		component.Details = nil
+// prompted is a plan a Yes/No prompt showed and the answer it got, which the
+// run's result does not say again (see settlePrompt).
+type prompted struct {
+	plan     operation.Plan
+	approved bool
+}
+
+// settlePrompt keeps a run's result from saying again what its Yes/No prompt
+// showed: the plan's warnings and recovery limits go, and so does a
+// component's plan. A plan not approved there ends the run as a No in the
+// apply checklist ends it, with the refusal alone: no component marked done.
+// JSON and unattended runs never prompt, and --approve-plan at a terminal
+// approves by digest without showing the plan, so they keep all of it.
+func settlePrompt(result *operation.Result, shown prompted) {
+	notes := append(
+		slices.Clone(shown.plan.Warnings),
+		operation.WarnAll(shown.plan.RecoveryLimits...)...)
+	result.Warnings = slices.DeleteFunc(result.Warnings, func(warning operation.Warning) bool {
+		return slices.ContainsFunc(notes, func(note operation.Warning) bool {
+			return sameNote(warning.Message, warning.Body, note.Message, note.Body)
+		})
+	})
+	if !shown.approved {
+		result.Results = nil
+		return
+	}
+	for i := range result.Results {
+		switch result.Results[i].Details.(type) {
+		case operation.Plan, *project.Proposal:
+			result.Results[i].Details = nil
+		}
 	}
 }
 
+// sameNote reports two headlines with their bodies that say the same: a
+// plan's note, a warning or an error.
+func sameNote(message string, body operation.Body, other string, otherBody operation.Body) bool {
+	return message == other && slices.Equal(body.Lines, otherBody.Lines) &&
+		slices.Equal(body.Fix, otherBody.Fix) && slices.Equal(body.Next, otherBody.Next)
+}
+
 // agentRefused is the refusal that keeps a coding agent's run from prompting
-// or applying unasked, with what it runs instead.
-func agentRefused() error {
-	return operation.Fail(
-		operation.ExitBlocked,
-		"consent",
-		"An agent runs this",
-		operation.FixText("use --dry-run --json, then --approve-plan DIGEST"),
-	)
+// or applying unasked, with fix what it runs instead.
+func agentRefused(fix ...operation.Part) error {
+	return operation.Fail(operation.ExitBlocked, "consent", "An agent runs this", fix...)
 }
 
 // openTerminal opens the controlling terminal for a prompt. A run without one,
-// or by an agent, never approves or chooses anything.
-func openTerminal() (*os.File, error) {
+// or by an agent, never approves or chooses anything, and is refused with fix,
+// the run's new plan commands (see [replan]).
+func openTerminal(fix ...operation.Part) (*os.File, error) {
 	if operation.AgentSession() {
-		return nil, agentRefused()
+		return nil, agentRefused(fix...)
 	}
 	terminal, err := operation.OpenTerminal()
 	if err != nil {
@@ -54,7 +82,7 @@ func openTerminal() (*os.File, error) {
 			operation.ExitBlocked,
 			"consent",
 			"No terminal is available",
-			operation.FixText("supply complete inputs and --approve-plan"),
+			fix...,
 		)
 	}
 	return terminal, nil
@@ -106,9 +134,16 @@ func promptFailure(
 }
 
 // confirmPlan shows the plan on the controlling terminal and asks Yes or No;
-// No is the default, so Enter alone approves nothing.
-func confirmPlan(ctx context.Context, plan operation.Plan, digest string) (bool, error) {
-	terminal, err := openTerminal()
+// No is the default, so Enter alone approves nothing. A run that cannot ask
+// is refused with replan, its new plan commands. Once the plan is shown, o
+// keeps it and the answer for the result (see settlePrompt).
+func (o *options) confirmPlan(
+	ctx context.Context,
+	plan operation.Plan,
+	digest string,
+	replan []operation.Part,
+) (bool, error) {
+	terminal, err := openTerminal(replan...)
 	if err != nil {
 		return false, err
 	}
@@ -116,6 +151,7 @@ func confirmPlan(ctx context.Context, plan operation.Plan, digest string) (bool,
 	if err := writePlan(terminal, plan); err != nil {
 		return false, err
 	}
+	o.prompted = &prompted{plan: plan}
 	if _, err := fmt.Fprintf(terminal, "\nPlan digest: %s\n\n", digest); err != nil {
 		return false, err
 	}
@@ -129,6 +165,7 @@ func confirmPlan(ctx context.Context, plan operation.Plan, digest string) (bool,
 		return false, promptFailure(ctx, "consent", "No complete approval was received")
 	}
 	approved = answered && approved
+	o.prompted.approved = approved
 	// huh clears the prompt once answered; leave the answer on screen.
 	answer := "No"
 	if approved {
@@ -148,8 +185,9 @@ func choosePlan(
 	ctx context.Context,
 	plan operation.Plan,
 	verbose bool,
+	replan []operation.Part,
 ) ([]string, bool, error) {
-	terminal, err := openTerminal()
+	terminal, err := openTerminal(replan...)
 	if err != nil {
 		return nil, false, err
 	}

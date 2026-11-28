@@ -82,7 +82,13 @@ func bodyLines(width int, long longWord, paint painter, body operation.Body) []s
 // writeSummary writes a successful run's summary with its body, in the one
 // drawing: where paint colors, the summary green and bold after a check, as
 // a success ends; plain, with no check, in plain output.
-func writeSummary(b *strings.Builder, width int, paint painter, summary string, body operation.Body) {
+func writeSummary(
+	b *strings.Builder,
+	width int,
+	paint painter,
+	summary string,
+	body operation.Body,
+) {
 	mark := ""
 	if paint {
 		mark = glyphs.Check + " "

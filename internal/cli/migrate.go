@@ -153,7 +153,7 @@ func (o *options) migrateApply(
 	c operation.Context,
 ) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
-	if err := checkConsent(o, replan(cmd, c)); err != nil {
+	if err := checkConsent(cmd, c, o); err != nil {
 		return result, err
 	}
 	stop := c.ShowProgress("Checking migrations")
