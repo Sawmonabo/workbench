@@ -737,7 +737,7 @@ Everything else reuses what Workbench already has:
 
 - **Agent detection**: `operation.AgentSession` (`internal/operation/plan.go`).
 - **Terminal view**: Bubble Tea v2, Lip Gloss v2 and Bubbles v2 as in go.mod,
-  built like the costs report's full-screen view (`internal/cli/costsview.go`,
+  built like the costs report's full-screen view (`internal/cli/agentcostsview.go`,
   `view.AltScreen`), with the shared styles and `painter` from
   `internal/cli/root.go` and widths from `lineWidth` and `terminalWidth`
   (`internal/cli/table.go`).
