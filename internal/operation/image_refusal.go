@@ -132,6 +132,10 @@ func flagRefusal(path string, flags uint32, h holder) error {
 	return Fail(ExitBlocked, "metadata", message+h.retry(platform.ClearFlags(flags), path))
 }
 
+// inheritedACL is why an ACL that files and folders made in a folder inherit
+// stops a write into it, after "that" or "which".
+const inheritedACL = " files and folders made in it inherit, so a file Workbench writes there would have an ACL"
+
 // attributeRefusal refuses path for the extended attribute name, which a
 // write cannot keep. It takes the name alone, so the attribute's value never
 // reaches the message.
@@ -140,10 +144,14 @@ func attributeRefusal(path, name string, h holder) error {
 	if kind == "" {
 		kind = "the extended attribute " + shellWord(name)
 	}
+	cause := h.lost()
+	if h == parentFolder && name == platform.DefaultACLAttribute {
+		cause = "which" + inheritedACL
+	}
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		display.Path(path)+" has "+kind+", "+h.lost()+h.retry(remove, path),
+		display.Path(path)+" has "+kind+", "+cause+h.retry(remove, path),
 	)
 }
 
@@ -285,16 +293,13 @@ func specialFileRefusal(path string, format uint32) error {
 
 // hardLinkRefusal refuses path, a file with links hard links to it.
 func hardLinkRefusal(path string, links uint64) error {
-	others, them := int(links)-1, "them"
-	if others == 1 {
-		them = "it"
-	}
+	others := int(links) - 1
 	return Fail(
 		ExitBlocked,
 		"image",
 		display.Path(path)+" has "+display.Count(others, "other hard link")+
-			", which would keep the old content once Workbench writes a new file in its place; remove "+
-			them+" and retry",
+			", which would keep the old content once Workbench writes a new file in its place; remove the "+
+			display.Plural(others, "other link")+" or move this one aside, and retry",
 	)
 }
 

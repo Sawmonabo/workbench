@@ -89,6 +89,9 @@ const groupFromFolder = false
 // attributes system.posix_acl_access and system.posix_acl_default.
 const aclsAreAttributes = true
 
+// defaultACLAttribute is the POSIX default ACL's attribute (acl(5)).
+const defaultACLAttribute = "system.posix_acl_default"
+
 // labelAttribute is SELinux's: a file's context is its security.selinux
 // attribute.
 const labelAttribute = "security.selinux"

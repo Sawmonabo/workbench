@@ -70,6 +70,12 @@ const GroupFromFolder = groupFromFolder
 // attributes, and false on macOS, whose ACLs FileSecurity reads.
 const ACLsAreAttributes = aclsAreAttributes
 
+// DefaultACLAttribute is the extended attribute that holds a folder's default
+// ACL, which each file and folder made in it inherits:
+// system.posix_acl_default on Linux, and empty on macOS, whose inherited ACL
+// entries FileSecurity reads.
+const DefaultACLAttribute = defaultACLAttribute
+
 // LabelAttribute is the extended attribute that holds a file's security
 // label, which a new file gets from the system's policy and a rename keeps:
 // security.selinux on Linux, where SELinux labels each file it sees and the

@@ -133,7 +133,7 @@ func folderACL(path string, h holder, entries []platform.ACE, _ bool, err error)
 		if inherited || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
 			cause := "that denies adding or removing files in it, so Workbench cannot write there"
 			if inherited {
-				cause = "that files and folders made in it inherit, so a file Workbench writes there would have an ACL"
+				cause = "that" + inheritedACL
 			}
 			return Fail(
 				ExitBlocked,

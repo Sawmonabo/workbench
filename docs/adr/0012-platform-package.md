@@ -71,7 +71,9 @@ every caller.
   has too and `FolderFlags` those a folder may carry while its entries
   change, all among the flags `FileFlags` reads (`chflags` flags on macOS,
   inode flags on Linux); `LabelAttribute` the extended attribute that holds a
-  file's security label, among the names `ExtendedAttributeNames` lists;
+  file's security label, among the names `ExtendedAttributeNames` lists, and
+  `DefaultACLAttribute` the one that holds the ACL a folder passes to what is
+  made in it;
   `FlagNames` a file's flags as the system's listing names them (`ls -lO`,
   `lsattr`), `ClearFlags` the `chflags` or `chattr` command that clears
   them, after `sudo` where only root may, and `LockingFlags` the immutable

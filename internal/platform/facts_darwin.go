@@ -75,6 +75,9 @@ const groupFromFolder = true
 // extended attributes, and FileSecurity reads it.
 const aclsAreAttributes = false
 
+// defaultACLAttribute is empty: macOS marks an ACL entry inherited instead.
+const defaultACLAttribute = ""
+
 // labelAttribute is empty: no macOS attribute holds a security label.
 const labelAttribute = ""
 
