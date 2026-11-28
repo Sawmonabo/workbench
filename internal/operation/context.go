@@ -379,7 +379,7 @@ func (c Context) ValidateTarget(path string) error {
 			path,
 		); targetErr == nil &&
 			os.SameFile(entryInfo, targetInfo) {
-			return Fail(ExitInvalid, "scope", "Target aliases the protected Workbench entry point")
+			return c.entrypointAlias(path)
 		}
 	} else if !errors.Is(entryErr, fs.ErrNotExist) {
 		return Fail(ExitInvalid, "scope", "Cannot inspect protected Workbench entry point")
@@ -390,6 +390,26 @@ func (c Context) ValidateTarget(path string) error {
 		return err
 	}
 	return nil
+}
+
+// entrypointAlias refuses path, which is Workbench's entry point under
+// another name: a link to it by validateLinkTarget's rule, and a hard link
+// to it as a file Workbench would replace, which moving it aside clears.
+func (c Context) entrypointAlias(path string) error {
+	if link, err := os.Readlink(path); err == nil {
+		if !filepath.IsAbs(link) {
+			link = filepath.Join(filepath.Dir(path), link)
+		}
+		if err = c.validateLinkTarget(path, filepath.Clean(link)); err != nil {
+			return err
+		}
+	}
+	return Fail(
+		ExitInvalid,
+		"scope",
+		display.Path(path)+" is Workbench's entry point under another name, which Workbench does not write"+
+			replacedFile.retry(nil, path),
+	)
 }
 
 // validateLinkTarget refuses the link at path when target, the cleaned path
