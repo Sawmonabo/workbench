@@ -208,15 +208,15 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 // mode mode. When its group or other users may write in it, what it holds
 // may not be Workbench's, so a chmod alone would keep in it what another user
 // put there: the refusal names the find that lists what is not this user's,
-// to move aside before the chmod. Otherwise it is a folder whose mode keeps
-// Workbench from opening it to set it to 0700, and the chmod is enough.
+// to move aside before the chmod. Otherwise it is a folder its owner may not
+// read or search, which Workbench cannot use, and the chmod is enough.
 func folderModeRefusal(path string, mode os.FileMode) error {
 	shown := fmt.Sprintf("%s has mode %04o", display.Path(path), uint32(mode.Perm()))
 	if mode.Perm()&0o022 == 0 {
 		return Fail(
 			ExitInvalid,
 			"permissions",
-			shown+", and Workbench keeps its own files only in a folder with mode 0700"+
+			shown+", and Workbench needs to read and search a folder of its own files"+
 				retry([]string{"chmod", "700"}, path),
 		)
 	}

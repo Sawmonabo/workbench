@@ -41,11 +41,12 @@ func privateDirectory(path string, create bool) error {
 }
 
 // ownFolder refuses path, a folder that holds Workbench's own files and that
-// info describes, unless it is a folder, this user's, and neither its group
-// nor other users may write in it: what others can write in may not be
-// Workbench's. Any other mode passes, so a check that only reads uses such a
-// folder as it is and a write sets it to 0700 (see [makeOwnFolder]).
-// category is the refusal's when path is not a folder.
+// info describes, unless it is a folder, this user's, one its owner may read
+// and search, and one neither its group nor other users may write in: what
+// others can write in may not be Workbench's. Any other mode passes, so a
+// check that only reads uses such a folder as it is and a write sets it to
+// 0700 (see [makeOwnFolder]). category is the refusal's when path is not a
+// folder.
 func ownFolder(category, path string, info os.FileInfo) error {
 	if !info.IsDir() {
 		return notFolderRefusal(category, path, info)
@@ -53,7 +54,7 @@ func ownFolder(category, path string, info os.FileInfo) error {
 	if err := owned(path, info); err != nil {
 		return err
 	}
-	if info.Mode().Perm()&0o022 != 0 {
+	if mode := info.Mode().Perm(); mode&0o022 != 0 || mode&0o500 != 0o500 {
 		return folderModeRefusal(path, info.Mode())
 	}
 	return nil
@@ -63,9 +64,7 @@ func ownFolder(category, path string, info os.FileInfo) error {
 // writes there, and then sets its mode to 0700 when it is not, keeping its
 // setuid, setgid and sticky bits. It checks and changes one descriptor,
 // opened without following a link, so the folder it checks is the folder it
-// changes. A link or a file there is refused as ownFolder refuses it, and a
-// folder its owner may not read, which cannot be opened, by
-// folderModeRefusal.
+// changes. A link or a file there is refused as ownFolder refuses it.
 func makeOwnFolder(category, path string) error {
 	folder, err := os.OpenFile(
 		path,
@@ -73,15 +72,10 @@ func makeOwnFolder(category, path string) error {
 		0,
 	)
 	if err != nil {
-		info, statErr := os.Lstat(path)
-		if statErr != nil {
-			return err
-		}
-		if refusal := ownFolder(category, path, info); refusal != nil {
-			return refusal
-		}
-		if errors.Is(err, fs.ErrPermission) {
-			return folderModeRefusal(path, info.Mode())
+		if info, statErr := os.Lstat(path); statErr == nil {
+			if refusal := ownFolder(category, path, info); refusal != nil {
+				return refusal
+			}
 		}
 		return err
 	}
