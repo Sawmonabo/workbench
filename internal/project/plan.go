@@ -537,7 +537,7 @@ func (p *Proposal) finish(c operation.Context) error {
 		)
 	}
 	p.Plan.RecoveryLimits = []string{
-		"Exact project files only; dependency caches, downloads and external execution are not reverted",
+		"Revert puts back the project's saved files only, not dependency caches, downloads or what commands ran",
 	}
 	if len(p.Changes) > 0 || len(p.native) > 0 {
 		retention, err := operation.RetentionEffect(c)

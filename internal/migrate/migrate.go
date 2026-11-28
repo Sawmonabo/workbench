@@ -393,13 +393,15 @@ func Plan(scope operation.Scope, l Locations, findings []Finding) operation.Plan
 		Prerequisites: []operation.Warning{},
 		Effects:       []operation.Effect{},
 		RecoveryLimits: []string{
-			"Migrations are not checkpointed; their moves keep every ledger row and every other file's bytes, and they delete only " +
-				"caches, logs or a log's old-format lines, locks, sockets and empty files Workbench wrote, and old copies whose new " +
-				"copy holds the same bytes",
-			"Migration 0007 moves each folder whole, in one swap with a small file that stays at the folder's old path until " +
-				"the machine restarts",
-			"Migration 0005 deletes the work tokens from machine.toml only once work.env holds them, and never " +
-				"replaces an existing work.env",
+			"Migrations are not checkpointed",
+			"Their moves keep every ledger row and every other file's bytes",
+			"They delete only caches, logs, locks, sockets and empty files Workbench wrote",
+			"From a log they delete only its old-format lines",
+			"They delete an old copy only when its new copy holds the same bytes",
+			"Migration 0007 moves each folder whole, in one swap",
+			"A small file stays at each folder's old path until the machine restarts",
+			"Migration 0005 deletes the work tokens from machine.toml only once work.env holds them",
+			"Migration 0005 never replaces an existing work.env",
 		},
 		Complete: true,
 	}

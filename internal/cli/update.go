@@ -333,7 +333,7 @@ func releasePlanner(
 		)
 		plan.RecoveryLimits = append(
 			plan.RecoveryLimits,
-			"Activation spans a journal, state record and entry point; interruption fails closed and requires rerunning this update",
+			"An interrupted activation needs this update run again",
 		)
 		if planErr == nil {
 			var removals []operation.Edit

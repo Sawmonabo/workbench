@@ -448,7 +448,8 @@ func AdoptionPlan(c operation.Context, from string) (operation.Plan, []byte, err
 	plan := operation.Plan{
 		Scope: c.Scope,
 		RecoveryLimits: []string{
-			"machine.toml is not checkpointed; the source config is left unchanged",
+			"machine.toml is not checkpointed",
+			"The file the answers come from stays as it is",
 		},
 	}
 	raw, err := operation.ReadPrivateInput(from, 1<<20, "the answers to import")

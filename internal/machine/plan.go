@@ -239,21 +239,17 @@ func (p *preparation) selectEffects(
 
 func recoveryLimits() []string {
 	limits := []string{
-		"Restores exact checkpointed files, modes and links only; packages, extensions, registry, services and uncheckpointed script writes are not reverted",
+		"Revert puts back the saved files only, not packages, extensions, the registry, services or script writes",
 		fmt.Sprintf(
-			"Limits: %d MiB/file, %d MiB image pairs, %d targets, %d forward plus paired recovery checkpoints and %d GiB per scope; at the checkpoint limit the plan lists removal of the oldest settled one",
-			operation.MaxImageBytes>>20,
-			operation.MaxCheckpointImageBytes>>20,
-			operation.MaxCheckpointTargets,
+			"At %d checkpoints the plan lists the oldest finished one for removal",
 			operation.MaxForwardCheckpoints,
-			operation.MaxScopeCheckpointBytes>>30,
 		),
 	}
 	if platform.WSL() {
 		limits = append(
 			limits,
-			"Revert leaves the Windows Terminal settings, PowerShell profile, .wslconfig and default distribution as they are, and "+
-				writerRecord+", which records which WSL distribution writes each of them; deleting that file is safe",
+			"Revert leaves the Windows Terminal settings, PowerShell profile, .wslconfig and default distribution",
+			"Revert leaves "+writerRecord+", which is safe to delete",
 		)
 	}
 	return limits

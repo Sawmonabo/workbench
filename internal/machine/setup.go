@@ -37,7 +37,8 @@ func setupPlan(
 		Scope:    c.Scope,
 		Complete: true,
 		RecoveryLimits: []string{
-			"Private tool acquisition and native answer initialization are separate from configuration apply; borrowed installations are retained",
+			"Revert does not undo installing the tools or saving the answers",
+			"Tools Workbench found installed stay as they are",
 		},
 	}
 	files, identity, err := SourceSnapshot(c.Native.Source, c.Native.Developer)
