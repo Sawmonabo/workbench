@@ -109,18 +109,18 @@ func (p *preparation) probeEffects(ctx context.Context, c operation.Context) err
 	if err = os.Mkdir(directory, 0o700); err != nil {
 		return ctx.Err()
 	}
-	environment := scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
+	environment := scriptEnvironment(
+		c,
+		p.Plan.Dependencies,
+		p.scratch,
+		filepath.Join(p.scratch, "bin"),
+	)
 	environment = append(
 		environment,
 		"WORKBENCH_PROBE=1",
 		"GOTELEMETRY=off",
 		"NODE_DISABLE_COMPILE_CACHE=1",
 	)
-	for i, value := range environment {
-		if rest, ok := strings.CutPrefix(value, "PATH="); ok {
-			environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
-		}
-	}
 	tally := &probeTally{results: map[string][]probeResult{}, outcome: map[string]probeOutcome{}}
 	p.probeMigrations(ctx, c, directory, environment, scripts, tally)
 	c.Step("checking what each step would do here")

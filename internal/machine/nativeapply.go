@@ -92,7 +92,12 @@ func (p *preparation) scriptsEnvironment(
 	if err = p.selectScripts(); err != nil {
 		return nil, "", err
 	}
-	environment = scriptEnvironment(c, p.Plan.Dependencies, p.scratch)
+	environment = scriptEnvironment(
+		c,
+		p.Plan.Dependencies,
+		p.scratch,
+		filepath.Join(p.scratch, "bin"),
+	)
 	report = filepath.Join(p.scratch, "effect-report")
 	if err = p.runScriptsThroughStepRunner(); err != nil {
 		return nil, "", err
@@ -122,11 +127,6 @@ func (p *preparation) scriptsEnvironment(
 		return nil, "", err
 	}
 	environment = append(environment, agents...)
-	for i, value := range environment {
-		if rest, ok := strings.CutPrefix(value, "PATH="); ok {
-			environment[i] = "PATH=" + filepath.Join(p.scratch, "bin") + ":" + rest
-		}
-	}
 	return environment, report, nil
 }
 

@@ -291,7 +291,7 @@ any machine, it costs only a few `Lstat` calls.
 ### 5.1 The environment
 
 The apply runs scripts with a fixed environment, not the owner's
-(`internal/machine/dependencies.go:213-247`, `internal/operation/process.go:196`).
+(`scriptEnvironment` in `internal/machine/environment.go`, `internal/operation/process.go:196`).
 chezmoi gives every script one environment, so the apply adds to every
 script's environment, for its probe and its run:
 
@@ -887,7 +887,7 @@ Its `Touches` becomes the ledger in the data folder the apply resolved,
 | `internal/machine/effects.go` | The `migrations` step and its `effectSources` entry; `costs-ingest` `Undo` and `Touches` |
 | `internal/machine/probe.go` | The `05-migrations` probe runs first, with the `checking migrations` steps; answered and unanswered probe text kept apart (5.2) |
 | `internal/cli/plandetail.go`, `internal/machine/apply.go` | The step's detail adds a `Not checked` line; the after-apply message skips a partial text (5.2) |
-| `internal/machine/dependencies.go` (or the probe and apply environment) | Section 5.1 variables for the migration and costs-ingest scripts |
+| `internal/machine/environment.go` (`scriptEnvironment`, the probe and apply environment) | Section 5.1 variables for the migration and costs-ingest scripts |
 | `home/.chezmoiscripts/shared/run_after_05-migrations.sh.tmpl` | New |
 | `home/.chezmoitemplates/old-locations.sh` | New: hands `WORKBENCH_OLD_<NAME>`, for each name in `WORKBENCH_OLD_NAMES`, back to the installed `workbench` (5.1) |
 | `home/.chezmoitemplates/installed-workbench.sh` | New: the installed `workbench` path both scripts run (5.2) |

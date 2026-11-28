@@ -19,11 +19,13 @@ import (
 // apply owner may add individually approved effect selectors.
 // Native and the scripts keep their temporary files in scratch, the run's
 // private folder, which is also where native stages its atomic writes (see
-// operation.CheckPreservable).
+// operation.CheckPreservable). bin, when not "", comes first on PATH: the
+// plan's own folder of the qualified python3 and this workbench, which the
+// modify scripts run (see stageNative).
 func scriptEnvironment(
 	c operation.Context,
 	dependencies []operation.Dependency,
-	scratch string,
+	scratch, bin string,
 ) []string {
 	directories := []string{}
 	environment := []string{
@@ -80,9 +82,10 @@ func scriptEnvironment(
 		"WORKBENCH_TOOL_PATH="+path,
 		// An empty part would make PATH name the current folder.
 		"PATH="+strings.Join(
-			slices.DeleteFunc([]string{path, strings.Join(system, ":")}, func(part string) bool {
-				return part == ""
-			}),
+			slices.DeleteFunc(
+				[]string{bin, path, strings.Join(system, ":")},
+				func(part string) bool { return part == "" },
+			),
 			":",
 		),
 	)

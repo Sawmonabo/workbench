@@ -98,7 +98,7 @@ func askAnswers(
 		args = append(args, "--no-tty")
 	}
 	args = append(args, "init", "--config-path", generated)
-	environment := scriptEnvironment(c, dependencies, scratch)
+	environment := scriptEnvironment(c, dependencies, scratch, "")
 	_, err = operation.Run(
 		ctx,
 		c,
