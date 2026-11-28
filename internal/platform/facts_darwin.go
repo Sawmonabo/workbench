@@ -81,6 +81,10 @@ const accessACLAttribute = ""
 // defaultACLAttribute is empty: macOS marks an ACL entry inherited instead.
 const defaultACLAttribute = ""
 
+// folderAttributeInert is false: a macOS folder's attributes are not read
+// for its ACL.
+func folderAttributeInert(string) bool { return false }
+
 // labelAttribute is empty: no macOS attribute holds a security label.
 const labelAttribute = ""
 

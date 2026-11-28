@@ -83,6 +83,22 @@ const AccessACLAttribute = accessACLAttribute
 // entries FileSecurity reads.
 const DefaultACLAttribute = defaultACLAttribute
 
+// FolderAttributeInert reports whether the extended attribute name, on a
+// folder, changes nothing about a file created, replaced or removed in it
+// beyond what the folder's mode and the caller's access decide. On Linux it
+// is true of the access ACL (AccessACLAttribute): posix_acl_permission in
+// fs/posix_acl.c limits every named user and group entry by the mask, which
+// the mode shows as its group bits (posix_acl_chmod, posix_acl_update_mode),
+// so the mode bounds who may change the folder's entries, and a new file takes
+// only the folder's default ACL (posix_acl_create). It is true of a user.*
+// attribute, which has no meaning to the kernel (xattr(7)); fs/xattr.c only
+// decides who may read and write it, but of overlayfs's user.overlay.*, which
+// an overlay mounted with userxattr reads on its layers
+// (OVL_XATTR_USER_PREFIX in fs/overlayfs/overlayfs.h). It is false of every
+// other name, and on macOS, which keeps a folder's ACL apart from its
+// attributes.
+func FolderAttributeInert(name string) bool { return folderAttributeInert(name) }
+
 // LabelAttribute is the extended attribute that holds a file's security
 // label, which a new file gets from the system's policy and a rename keeps:
 // security.selinux on Linux, where SELinux labels each file it sees and the

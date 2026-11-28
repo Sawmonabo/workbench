@@ -310,10 +310,12 @@ func targetACL(fd int, selector, path string, h holder) (platform.ACL, error) {
 // files written there could take up: FileSecurity sees no ACL there, and a
 // default ACL (platform.DefaultACLAttribute), which each file made in the
 // folder inherits, is such an attribute. As the folder a target is written
-// into (parentFolder) it refuses every attribute but the label, by its exact
-// name; as a folder of Workbench's own files it changes (changedFolder), the
-// default ACL alone, carrying the others, as folderACL refuses the entries
-// files made in a macOS folder inherit.
+// into (parentFolder) it refuses every attribute but the label and those
+// platform.FolderAttributeInert names, the access ACL and user.* attributes,
+// whose effect on the files written there the folder's mode bounds, which
+// safeParents checks; as a folder of Workbench's own files it changes
+// (changedFolder), the default ACL alone, carrying the others, as folderACL
+// refuses the entries files made in a macOS folder inherit.
 func attributeACL(fd int, path string, h holder) error {
 	if !platform.ACLsAreAttributes {
 		return nil
@@ -325,6 +327,7 @@ func attributeACL(fd int, path string, h holder) error {
 	for _, name := range names {
 		switch {
 		case name == platform.LabelAttribute:
+		case h == parentFolder && platform.FolderAttributeInert(name):
 		case h == parentFolder:
 			return attributeRefusal(path, name, h)
 		case name == platform.DefaultACLAttribute:

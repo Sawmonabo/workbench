@@ -95,6 +95,13 @@ const accessACLAttribute = "system.posix_acl_access"
 // defaultACLAttribute is the POSIX default ACL's attribute (acl(5)).
 const defaultACLAttribute = "system.posix_acl_default"
 
+// folderAttributeInert is true of the access ACL and of a user.* attribute
+// outside user.overlay.*.
+func folderAttributeInert(name string) bool {
+	return name == accessACLAttribute ||
+		strings.HasPrefix(name, "user.") && !strings.HasPrefix(name, "user.overlay.")
+}
+
 // labelAttribute is SELinux's: a file's context is its security.selinux
 // attribute.
 const labelAttribute = "security.selinux"
