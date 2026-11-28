@@ -342,8 +342,8 @@ func (p *preparation) planAgentUpdate(
 				" with OpenAI's standalone installer, which stops its background updates."
 		}
 		effect.Touches = "~/.codex/packages/standalone and ~/.local/bin/codex"
-		effect.Undo = "Not reverted automatically: the installer's --release " + install.version +
-			" selects the previous release again"
+		effect.Undo = "Not reverted automatically: OpenAI's installer with --release " +
+			install.version + " brings back the previous version"
 	case "native":
 		effect.Description = "Update Claude Code " + versions + " through its native installer" + source
 		effect.Recovery = "external; the installer keeps the newest earlier versions"
