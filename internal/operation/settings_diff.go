@@ -10,7 +10,8 @@ import (
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
-	"github.com/tailscale/hujson"
+
+	"github.com/Sawmonabo/workbench/internal/jsonc"
 )
 
 // SettingChange is one changed leaf of a merged settings file. Path is the key
@@ -77,13 +78,11 @@ func parseSettings(format string, data []byte) (any, bool) {
 			return nil, false
 		}
 	case "json":
-		// Standardize blanks comments in the buffer it parses, which is the
-		// caller's file image, so it works on a copy.
-		standard, err := hujson.Standardize(bytes.Clone(data))
+		doc, err := jsonc.Parse(data)
 		if err != nil {
 			return nil, false
 		}
-		decoder := json.NewDecoder(bytes.NewReader(standard))
+		decoder := json.NewDecoder(bytes.NewReader(jsonc.Plain(doc)))
 		decoder.UseNumber()
 		if decoder.Decode(&value) != nil || decoder.More() {
 			return nil, false
