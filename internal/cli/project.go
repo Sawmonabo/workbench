@@ -73,7 +73,8 @@ func projectInspectCommand(o *options) *cobra.Command {
 							Text:  "dependency and generated folders, and symbolic links",
 						},
 						operation.Line{Label: "not read", Text: "Git ignore rules"},
-						operation.Changed("no file; no project code ran"),
+						operation.Changed("no file"),
+						operation.Outcome("no project code ran"),
 					),
 				)
 				return result, err
