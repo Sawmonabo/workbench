@@ -70,7 +70,9 @@ Distinguish implemented code, observed checks and unqualified release targets.
   ACL, gets mode 0700 from a command that writes there, also one its owner
   cannot read or search (a command that only reads or previews uses it as it
   is, and refuses one its owner cannot read or search, naming the `chmod
-  700`), and `update` gives a tool file that holds exactly its pinned bytes
+  700`; so does every command for the config, data, state and cache
+  folders themselves, which each reads before it may write), and `update`
+  gives a tool file that holds exactly its pinned bytes
   the mode it is installed with. A folder others can write in, and a tool
   file with other bytes, stay refused and untouched; at an earlier path such
   a folder is neither moved nor locked. A file or link

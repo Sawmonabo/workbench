@@ -518,7 +518,7 @@ synthetic answers.
   Workbench's folders, the bin folder and the destination (1906 entries, with
   modes and modification times) was the same before and after: no lock file
   made, `state.json` not rewritten, no mode changed. The matching digest then
-  applied as before, and an approved apply with nothing to do left
+  applied (exit 0), and an approved apply with nothing to do left
   `state.json` as it was. A stale `migrate --approve-plan` and `answers import
   --approve-plan` each exited 4 with the same listing before and after.
 - On macOS 27.2 arm64, on November 28, 2026, in disposable homes, Workbench's
@@ -540,8 +540,16 @@ synthetic answers.
   each (the SessionStart hook, the import worker) gave it 0700. At 0775,
   `migrate --dry-run` listed 0007 blocked with the refusal of
   `state/costs`, `migrate --approve-plan` exited 3, and neither folder moved
-  or got a lock file; the build before moved both and made `watch.lock` and
-  `ingest.lock` in them.
+  or got a lock file.
+- On macOS 27.2 arm64, on November 28, 2026, in a disposable home whose home
+  folder and `~/Library` carried the `group:everyone deny delete` entry macOS
+  puts there, the import worker ran (exit 0). With an entry `everyone allow
+  add_file` added to `~/Library`, it exited 2 naming `~/Library` and the fix
+  `chmod '-a#' 1 ~/Library`; typed as printed, that removed only the added
+  entry, and the next import exited 0. With the state folder itself at 0300
+  or 0600, or the data folder, the import worker, a stale `migrate
+  --approve-plan` and `doctor` each exited 2 with `chmod 700` as the fix and
+  left the mode.
 
 ### On a WSL2 host
 
@@ -771,6 +779,8 @@ synthetic answers.
   gave it 0700, leaving that entry no effective rights. At 0300, 0600, 0200
   and 0000 the import gave the folder 0700, and `agent costs status`, which
   only reads it, refused it with `chmod 700` as the fix and left its mode.
+  The same held under a seccomp profile that refuses `fchmodat2` with
+  `ENOSYS`, where the mode is changed through `/proc/self/fd`.
 - Observed in privileged Docker containers on November 27, 2026 (Docker
   29.8.2, kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3,
   disposable homes with synthetic answers, a linux-arm64 local build), as the

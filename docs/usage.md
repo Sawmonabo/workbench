@@ -1295,9 +1295,9 @@ gives the folder the configuration's mode instead.
 A parent that other users can write to stops Workbench, naming the folder and
 giving the command to paste, quoted for the shell where the name needs it:
 `chmod go-w ~/.local`. On a Mac, a parent whose ACL lets another user or
-group add or delete in it stops Workbench too, with `ls -led` to list its
-entries and the one to remove; deny entries, such as the `deny delete` macOS
-puts on your home folder, never do.
+group add or delete in it stops Workbench too, with the `chmod -a#` that
+removes that one entry; deny entries, such as the `deny delete` macOS puts on
+your home folder, never do.
 
 Activation is journaled, not a multi-file atomic transaction. An interrupted
 entry-point/state switch fails closed while retaining the prior runtime. Rerun
