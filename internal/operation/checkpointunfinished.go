@@ -46,7 +46,7 @@ type UnfinishedTarget struct {
 	Lacks            []string
 	index            int
 	// newLabel is set when the file lacks the SELinux label a file made in
-	// its own folder gets, which only making one there tells (newFileLabel).
+	// its own folder gets, which only making one there tells (giveFolderLabel).
 	newLabel bool
 }
 
@@ -159,7 +159,7 @@ func (u *Unfinished) target(path string) *UnfinishedTarget {
 
 // Input binds u to a plan: the operation, its checkpoint's journal as it
 // stands, and each file's image now and once settled. A plan made before
-// any of them changed, or before the record went, then no longer matches.
+// any of them changed, or before the record went, does not match it.
 func (u *Unfinished) Input() Input {
 	type target struct{ Path, Current, Settled string }
 	bound := struct {

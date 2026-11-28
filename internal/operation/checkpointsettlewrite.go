@@ -23,7 +23,7 @@ import (
 // writes, then the file's mode again, which a stop in between leaves as the
 // owner could set it, the file's content and the rest unchanged. A file made
 // where none was gets the label a file made in its own folder gets
-// (newFileLabel). A link is given what it lacks by its path (settleLink).
+// (giveFolderLabel). A link is given what it lacks by its path (settleLink).
 func (cp *Checkpoint) settleTarget(t UnfinishedTarget) error {
 	c := cp.mutation.context
 	if t.Current.Kind == ImageSymlink {
@@ -105,9 +105,9 @@ func (cp *Checkpoint) settleTarget(t UnfinishedTarget) error {
 	return settledAs(c, t)
 }
 
-// holdsCurrent refuses t when fd, opened as name in the folder parent, is no
-// longer the file at its path, or that file no longer holds what the plan
-// found there: someone changed it after the plan was made.
+// holdsCurrent refuses t when fd, opened as name in the folder parent, is not
+// the file at its path, or that file does not hold what the plan found
+// there: someone changed it after the plan was made.
 func holdsCurrent(c Context, fd, parent int, name string, t UnfinishedTarget) error {
 	var opened, now unix.Stat_t
 	if err := unix.Fstat(fd, &opened); err != nil {

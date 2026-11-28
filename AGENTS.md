@@ -80,6 +80,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   attributes and hidden flag; a deny ACL entry stops a plan only when the system says it binds this
   user; where a link at a target points is not checked, but a link into
   Workbench's own files is refused. ADR 0012 holds each rule and its source.
+  An apply stopped after chezmoi wrote and before Workbench's pass after it
+  is finished by the next apply of that destination before that writes
+  anything, which its plan and `doctor` show and its digest binds: each file
+  gets, in place, what it lacks of its approved image, and keeps its content.
+  Revert refuses a file changed since its apply with `mv -n` to a free name
+  beside it, then the revert, which writes the checkpoint's image where the
+  file was (ADR 0006).
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the

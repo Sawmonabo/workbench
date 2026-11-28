@@ -1141,9 +1141,19 @@ there before needs nothing, and the plan says the files were checked now. On a
 Mac, a file chezmoi created may still have the group of the temporary folder
 Workbench gave it; revert gives it the group the apply approved, then restores
 it. A file holding anything else blocks like a later edit. A later edit is
-reported with the names of the changed files (`~/.gitconfig changed since
-Workbench wrote it`, then `changed nothing` and `fix undo those changes`). Keep the reported checkpoint
-ID and resolve conflicts manually; do not delete state to bypass a failure. A
+reported with the names of the changed files and a fix that keeps the edit
+(`~/.gitconfig changed since Workbench wrote it`, then `changed nothing`, then
+`fix mv -n ~/.gitconfig ~/.gitconfig.edited` and `workbench revert
+--checkpoint ID`): the changed file moves to a name beside it that nothing has
+(`.edited`, or `.edited-2` and on), and revert takes a file that is not there
+as moved aside, writes what the checkpoint holds over nothing and says so in
+its plan (`~/.gitconfig is not there`, `result revert writes it as the
+checkpoint holds it`). A changed folder gets the `chmod` and `chgrp` that give
+back the mode and group Workbench wrote, and the commands that take off an
+attribute or ACL Workbench did not give it; a folder that lacks an attribute,
+ACL or hidden flag Workbench gave it keeps `undo those changes`, since no
+command gives one back without its value. Keep the reported checkpoint ID; do
+not delete state to bypass a failure. A
 folder the apply created that now holds files Workbench did not write, such as
 `~/.config/tmux` with the tmux plugins a later step installed, stays with those
 files in it, and so does each folder that holds it; revert restores everything
@@ -1152,29 +1162,38 @@ stays`, with the cause `it holds files Workbench did not write`). Revert never d
 folder's contents.
 
 An apply that stops after it starts writing files is recorded as unfinished.
-Rerun `workbench apply`. Before it writes anything, the next apply of that
-destination finishes the stopped one. Each file chezmoi wrote before the stop
-gets the group, ACL, extended attributes, hidden flag and SELinux label its
-approved image holds. chezmoi's own write lacks them, and a plan, which
-compares content, does not show them. The result names those files
-(`Apply … did not finish earlier`, then `result Workbench finished it` and
-`changed ~/.zshrc …`). Then the record is cleared, including when the plan
-changes no files because they already match, or the new apply's record
-replaces it. The stopped checkpoint keeps its images and stays revertable.
+Rerun `workbench apply`, with `--destination` for an isolated destination, as
+`doctor` prints it. Each file chezmoi wrote before the stop may lack the group,
+a folder's set-group-ID bit, the ACL, extended attributes, hidden flag or
+SELinux label its approved image holds: chezmoi's own write leaves them out,
+and a plan, which compares content, would not show them. The plan shows the
+stopped apply as a warning, and `doctor` shows it in the same words: `Apply … to
+~/dest did not finish`, the cause `it stopped after chezmoi wrote files, before
+Workbench gave them what chezmoi leaves out`, a line for each set of files that
+lack the same (`files ~/.gitconfig and ~/.zshrc lack their group, ACL, extended
+attributes and hidden flag`), and `result the next apply gives each file what
+it lacks before it writes anything, and leaves its content as it is`. The plan
+takes each of those files as it will be once given what it lacks, so nothing
+it gives is refused, and binds the stopped apply and each file as it is and as
+it will be: an edit between the dry run and the apply, or the record going,
+stops the apply with exit 4.
 
-A file changed after chezmoi wrote it, which lacks what its approved image
-holds, keeps the apply unfinished (exit 5). The refusal names what it lacks:
-`~/.zshrc lacks its ACL, extended attributes and hidden flag` with the fix
-`undo those changes`, or `~/.config/git/ignore lacks its group` with the fix
-`chgrp staff ~/.config/git/ignore` when the group is all it lacks. Once you do
-that, the next apply finishes the stopped one. A plan that changes a file
-chezmoi wrote before the stop can first be refused for the group chezmoi's
-write gave it (`run chgrp staff ~/.zshrc and retry`). After that chgrp, the
-apply finishes the stopped one, then refuses with exit 4 (`~/.zshrc changed
-after the plan was made`, fix `plan again`), since the file it planned from
-has changed; the next plan and apply write it. An unfinished apply of another
-destination blocks, and so does reverting a checkpoint other than the one the
-record names.
+Before it writes anything, the apply removes the temporary files the stopped
+run staged beside its targets, each named `.workbench-` with that run's ID and
+the target's number, and only when it is that run's: your own regular file with
+one link, or a link where the target is one, at exactly that name. Then it
+gives each file what it lacks, on the file itself, and leaves its content
+alone, so a file edited after the stop keeps the edit; what a file holds of
+that metadata with another value stays. The
+result names those files (`Apply … did not finish earlier`, then `result
+Workbench finished it` and `changed ~/.zshrc …`). Then the record is cleared,
+including when the plan changes no files because they already match, or the
+new apply's record replaces it. The stopped checkpoint keeps its images and
+stays revertable. A file whose group you may not give it, since you are not a
+member of that group, stops the plan with exit 5 (`~/.zshrc lacks its group
+wheel`, fix `sudo chgrp wheel ~/.zshrc`). An unfinished apply of another
+destination blocks, with the command that applies there, and so does reverting
+a checkpoint other than the one the record names.
 
 A setup step that fails never stops the others: Workbench runs chezmoi with
 `--keep-going`, so every other step still runs. A step names what it could not
@@ -1216,8 +1235,12 @@ A new file chezmoi makes, at a target that holds no file, gets on Linux the
 SELinux label a file made in its own folder gets.
 
 Some metadata still stops the plan, before any write, with the file, what it
-holds (never a value) and the command that clears it. Hard links, special
-files, a file over 8 MiB, an extended attribute over 4 KiB and file capabilities (`setcap`, which only root may
+holds (never a value) and the command that clears it. A folder keeps its
+set-group-ID bit: on Linux a folder made in a set-group-ID folder takes the bit
+and that folder's group (`inode_init_owner` in the kernel's `fs/inode.c`), so a
+folder the apply makes in one is planned with them, and a folder that is there
+keeps its own; the set-user-ID and sticky bits, and the set-group-ID bit on a
+file, stop the plan. Hard links, special files, a file over 8 MiB, an extended attribute over 4 KiB and file capabilities (`setcap`, which only root may
 set back) stop it, and so do the file flags a new file would not have
 (`chflags`, `chattr`): `~/.zshrc has the flag uchg, under which no file can
 replace it; run chflags nouchg ~/.zshrc and retry`. On macOS an ACL entry
