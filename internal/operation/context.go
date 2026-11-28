@@ -392,6 +392,51 @@ func (c Context) ValidateTarget(path string) error {
 	return nil
 }
 
+// validateLinkTarget refuses the link at path when target, the cleaned path
+// it names, or the path that resolves to when it exists, lies in Workbench's
+// own files: its source, its config, data, state and cache folders, or its
+// entry point, which it also refuses through a hard link. Where else a link
+// points is not checked: Workbench writes a link at a target with
+// symlinkat(2) and renameat(2) and removes it with unlinkat(2), none of which
+// follows it, chezmoi replaces or removes a link the same way, and what reads
+// through one, such as a modify_ template's input, changes nothing.
+func (c Context) validateLinkTarget(path, target string) error {
+	targets := []string{target}
+	if resolved, err := filepath.EvalSymlinks(target); err == nil && resolved != target {
+		targets = append(targets, resolved)
+	}
+	entrypoint := c.Paths.Entrypoint()
+	protected := []string{
+		c.Native.Source,
+		c.Paths.Config,
+		c.Paths.Data,
+		c.Paths.State,
+		c.Paths.Cache,
+		entrypoint,
+	}
+	own := false
+	for _, candidate := range targets {
+		for _, excluded := range protected {
+			own = own || excluded != "" && Within(excluded, candidate)
+		}
+	}
+	if !own && entrypoint != "" {
+		entryInfo, entryErr := os.Stat(entrypoint)
+		targetInfo, targetErr := os.Stat(target)
+		own = entryErr == nil && targetErr == nil && os.SameFile(entryInfo, targetInfo)
+	}
+	if !own {
+		return nil
+	}
+	return Fail(
+		ExitInvalid,
+		"scope",
+		display.Path(path)+" links to "+display.Path(target)+
+			", among Workbench's own files, and Workbench does not keep a link into them"+
+			replacedLink.retry(nil, path),
+	)
+}
+
 // ValidateContainer permits an existing directory above protected paths, such
 // as ~/.config holding Workbench's config. Checkpoints may change only such a
 // directory's mode (see validateChanges); nothing may replace, remove or

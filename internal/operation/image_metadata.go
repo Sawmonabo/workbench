@@ -88,7 +88,13 @@ func metadata(fd int, path string, h holder, written bool) (security, error) {
 	if written {
 		kept, acl = platform.FolderFlags, folderACL
 	}
-	if err := privateFilesystem(path); err != nil {
+	// A link is an entry of its folder and on its folder's file system;
+	// statfs(2) of the link would follow it.
+	filesystem := path
+	if h == replacedLink {
+		filesystem = filepath.Dir(path)
+	}
+	if err := privateFilesystem(filesystem); err != nil {
 		return security{}, err
 	}
 	selector := ""

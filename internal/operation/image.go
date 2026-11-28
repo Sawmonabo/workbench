@@ -143,11 +143,8 @@ func (image Image) validate(c Context, path string) error {
 				shown+" is a link to itself, which Workbench does not keep; remove it or point it elsewhere, then retry",
 			)
 		}
-		if err := c.validateImagePath(target); err != nil {
-			return linkTargetError(path, target, err)
-		}
-		if err := safeParents(target); err != nil {
-			return linkTargetError(path, target, err)
+		if err := c.validateLinkTarget(path, target); err != nil {
+			return err
 		}
 	default:
 		return Fail(ExitInvalid, "image", "Unknown image type for "+shown)
@@ -201,19 +198,6 @@ func (image Image) validateCarried(shown string) error {
 		)
 	}
 	return nil
-}
-
-// linkTargetError is err, a refusal of target, which the link at path points
-// to, led by the link, so a person knows which file the refusal is about.
-func linkTargetError(path, target string, err error) error {
-	if problem, ok := errors.AsType[*Error](err); ok {
-		return Fail(
-			problem.Code,
-			problem.Category,
-			display.Path(path)+" links to "+display.Path(target)+": "+problem.Message,
-		)
-	}
-	return err
 }
 
 // Target parents are opened component by component without following links.
