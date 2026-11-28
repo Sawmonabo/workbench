@@ -211,7 +211,7 @@ func notFolderRefusal(category, path string, info os.FileInfo) error {
 // to move aside before the chmod. Otherwise it is a folder its owner may not
 // read or search, which Workbench cannot use, and the chmod is enough.
 func folderModeRefusal(path string, mode os.FileMode) error {
-	shown := fmt.Sprintf("%s has mode %04o", display.Path(path), uint32(mode.Perm()))
+	shown := fmt.Sprintf("%s has mode %04o", display.Path(path), modeBits(mode))
 	if mode.Perm()&0o022 == 0 {
 		return Fail(
 			ExitInvalid,
@@ -229,6 +229,23 @@ func folderModeRefusal(path string, mode os.FileMode) error {
 			"move aside what find "+folder+" -not -user "+user+" lists, "+
 			"then run chmod 700 "+folder+" and retry",
 	)
+}
+
+// modeBits is mode's permission bits with its setuid, setgid and sticky bits
+// where chmod and ls put them, so a refusal shows 1777 for a sticky folder
+// any user can write in.
+func modeBits(mode os.FileMode) uint32 {
+	bits := uint32(mode.Perm())
+	if mode&os.ModeSetuid != 0 {
+		bits |= unix.S_ISUID
+	}
+	if mode&os.ModeSetgid != 0 {
+		bits |= unix.S_ISGID
+	}
+	if mode&os.ModeSticky != 0 {
+		bits |= unix.S_ISVTX
+	}
+	return bits
 }
 
 // specialModeRefusal refuses path, whose mode has the setuid, setgid or

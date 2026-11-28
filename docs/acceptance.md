@@ -500,6 +500,12 @@ synthetic answers.
   cause on its `tool-chezmoi` line. Running the `chmod go-w` it gave made the
   next plan exit 0. With the file removed instead, the plan said the pinned
   tools are not installed, the chezmoi line naming the missing file.
+- On macOS 27.2 arm64, in a disposable home with a scratch `--destination`,
+  the chezmoi state folder followed the rule for Workbench's own folders:
+  made 0755 before the first apply, it was 0755 after `apply --dry-run`
+  (exit 0) and 0700 after the approved apply; set to 0755 again, a dry run
+  left it so; at 0775 a dry run exited 2 with the refusal that names the
+  mode and the `find` that lists what is not the user's.
 - On macOS 27.2 arm64, in a disposable home, `update --local-build` gave the
   pinned chezmoi its mode back: made 0720, and then 0600, the file was 0700
   after each `update` (exit 0, `Installed chezmoi`) and the next plan exited

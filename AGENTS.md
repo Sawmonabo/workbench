@@ -64,7 +64,13 @@ Distinguish implemented code, observed checks and unqualified release targets.
   a third damage while both copies are younger, `history.damaged.2.db`, the
   oldest, stays and the copy at `history.damaged.db`, of a history started
   after a damage, is deleted for the new one, so the history always starts
-  again (ADR 0020).
+  again (ADR 0020). A second exception: Workbench gives its own files the
+  mode it makes them with. A folder of its own files that is this user's and
+  that neither its group nor other users can write in gets mode 0700 from a
+  command that writes there (a command that only reads or previews uses it
+  as it is), and `update` gives a tool file that holds exactly its pinned
+  bytes the mode it is installed with. A folder others can write in, and a
+  tool file with other bytes, stay refused and untouched.
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the

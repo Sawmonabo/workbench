@@ -37,7 +37,7 @@ func (p *preparation) Apply(
 	if c.Native.PersistentState != filepath.Join(c.Paths.State, "chezmoi", "chezmoi.boltdb") {
 		return operation.Fail(operation.ExitInvalid, "state", "Unexpected native state target")
 	}
-	if err := os.MkdirAll(filepath.Dir(c.Native.PersistentState), 0o700); err != nil {
+	if _, err := operation.PrivateDirectory(c.Paths.State, "chezmoi"); err != nil {
 		return err
 	}
 	native := p.native

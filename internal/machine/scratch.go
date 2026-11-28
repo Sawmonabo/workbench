@@ -197,8 +197,12 @@ func writeRoleSources(source string, files map[string][]byte, answers Answers) e
 }
 
 // copyNativeState copies Workbench's native chezmoi state into the scratch
-// context and binds its digest, or records that none exists yet.
+// context and binds its digest, or records that none exists yet. Its folder
+// is checked as a folder of Workbench's own files, without changing it.
 func (p *preparation) copyNativeState(c operation.Context) error {
+	if err := operation.CheckPrivateDirectory(c.Paths.State, "chezmoi"); err != nil {
+		return err
+	}
 	data, found, err := operation.ReadPrivateRecord(
 		c.Native.PersistentState,
 		16<<20,
