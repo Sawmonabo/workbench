@@ -21,7 +21,7 @@ import (
 var envRoles = []struct {
 	role  string
 	names []string
-}{{"work", envfile.WorkEnvNames}, {"personal", nil}}
+}{{"work", envfile.WorkNames}, {"personal", nil}}
 
 // EnvFilesProbe is the env-files step's probe lines. The step only creates a
 // missing file for a role the machine has, so every other line has nothing to
@@ -31,8 +31,8 @@ var envRoles = []struct {
 func EnvFilesProbe(c operation.Context, a Answers) []string {
 	var lines []string
 	for _, env := range envRoles {
-		file := env.role + ".env"
-		path := filepath.Join(c.Paths.Config, file)
+		path := envfile.Path(c.Paths.Config, env.role)
+		file := filepath.Base(path)
 		_, err := os.Lstat(path)
 		missing, has := errors.Is(err, fs.ErrNotExist), a["has_"+env.role] == true
 		switch {
@@ -66,7 +66,7 @@ func envFileLines(path, file string, names []string) []string {
 			"= Workbench can't read " + file + " as a private file (mode 600, one link, yours)",
 		}
 	}
-	pairs, bad := envfile.ParseEnvFile(data)
+	pairs, bad := envfile.Parse(data)
 	set := map[string]bool{}
 	for _, pair := range pairs {
 		set[pair[0]] = true
@@ -110,8 +110,8 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 	values, _ := envfile.WorkValues(a)
 	said := false
 	for _, env := range envRoles {
-		file := env.role + ".env"
-		path := filepath.Join(c.Paths.Config, file)
+		path := envfile.Path(c.Paths.Config, env.role)
+		file := filepath.Base(path)
 		if _, err := os.Lstat(path); a["has_"+env.role] != true || err == nil {
 			continue
 		}
@@ -124,7 +124,7 @@ func EnvFilesRun(_ context.Context, c operation.Context, a Answers, say func(str
 		// lists no names, starts empty.
 		content := []byte{}
 		if env.role == "work" {
-			content = envfile.WorkEnv(values)
+			content = envfile.WorkFile(values)
 		}
 		if err := operation.CreatePrivateFile(path, content); err != nil {
 			return err

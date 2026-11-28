@@ -162,6 +162,7 @@ Distinguish implemented code, observed checks and unqualified release targets.
 | Private file writes (`ReplacePrivateFile`, and `CreatePrivateFile`, which never replaces a file), the folder swap (`MoveFolder`) with the file it leaves at the old path, and the `Exec` that `mcp-gate` replaces itself through | `internal/operation/` |
 | Native machine planning/setup/apply | `internal/machine/` |
 | Role env files (`work.env`, `personal.env`), the `env-files` and `claude-mcp` effects and the dispatch server definition | `internal/machine/` (scripts `06-env-files` and `46-claude-mcp`; shell hook in `home/private_dot_bashrc.tmpl` and `home/dot_zshrc.tmpl`; read deny rules in `home/private_dot_claude/modify_private_settings.json`) |
+| The role env files' format: the `work.env` names, the `<role>.env` path, `work.env` as written from the answers, the strict reading the shell hook and `mcp-gate` share, and migration 0005's read-back of a `work.env` | `internal/machine/envfile/` (it imports nothing of Workbench's, so `internal/migrate` and `internal/cli` import it) |
 | Bundle verification/staging/activation | `internal/release/` |
 | Existing-project discovery/planning | `internal/project/` |
 | Machine questions | `home/.chezmoi.toml.tmpl` |

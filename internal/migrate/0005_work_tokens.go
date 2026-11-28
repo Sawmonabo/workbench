@@ -47,8 +47,8 @@ var WorkTokens = Migration{
 				return nil, found.err
 			}
 			if err := operation.CreatePrivateFile(
-				envfile.WorkEnvPath(l.Runtime.Config),
-				envfile.WorkEnv(found.values),
+				envfile.Path(l.Runtime.Config, "work"),
+				envfile.WorkFile(found.values),
 			); err != nil {
 				return nil, err
 			}
@@ -56,7 +56,7 @@ var WorkTokens = Migration{
 		default:
 			return nil, operation.Fail(operation.ExitConflict, "conflict", found.text)
 		}
-		for _, key := range envfile.TokenKeys {
+		for _, key := range envfile.TokenAnswers {
 			delete(found.data, key[0])
 		}
 		encoded, err := toml.Marshal(found.config)
@@ -83,14 +83,14 @@ type tokensFound struct {
 // Its text names files and keys, never a value.
 func findWorkTokens(l Locations) tokensFound {
 	machine := display.PathFrom(l.Home, l.Runtime.MachineConfig())
-	env := display.PathFrom(l.Home, envfile.WorkEnvPath(l.Runtime.Config))
+	env := display.PathFrom(l.Home, envfile.Path(l.Runtime.Config, "work"))
 	config, err := readMachine(l.Runtime.MachineConfig())
 	if err != nil {
 		return tokensFound{status: Pending, text: "can't read " + machine, err: err}
 	}
 	data, _ := config["data"].(map[string]any)
 	var keys []string
-	for _, key := range envfile.TokenKeys {
+	for _, key := range envfile.TokenAnswers {
 		if _, ok := data[key[0]]; ok {
 			keys = append(keys, key[0])
 		}
@@ -115,7 +115,7 @@ func findWorkTokens(l Locations) tokensFound {
 		}
 	}
 	found := tokensFound{config: config, data: data, values: values}
-	held, there, err := operation.ReadPrivateRecord(envfile.WorkEnvPath(l.Runtime.Config), 1<<20)
+	held, there, err := operation.ReadPrivateRecord(envfile.Path(l.Runtime.Config, "work"), 1<<20)
 	if !there {
 		found.status, found.text = Pending, "moves "+named+" from "+machine+" into a new "+env
 		return found
@@ -123,8 +123,8 @@ func findWorkTokens(l Locations) tokensFound {
 	if err != nil {
 		return tokensFound{status: Conflict, text: "can't read " + env + byHand}
 	}
-	saved := envfile.EnvAssignments(held)
-	for _, key := range envfile.TokenKeys {
+	saved := envfile.Assignments(held)
+	for _, key := range envfile.TokenAnswers {
 		if _, ok := data[key[0]]; ok && saved[key[1]] != values[key[1]] {
 			return tokensFound{status: Conflict, text: env + " already holds other values" + byHand}
 		}

@@ -36,6 +36,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/cli/` | Cobra command tree, human/JSON presentation, progress display and consent selection. |
 | `internal/operation/` | Context, bounded execution, plan revalidation, private state/locks and scoped checkpoints/recovery. |
 | `internal/machine/` | Qualified dependencies, native questionnaire setup, release source checks, chezmoi planning/application and effect inventory. |
+| `internal/machine/envfile/` | The role env files' format (`work.env`, `personal.env`): the names, the path, `work.env` as written from the answers, the strict reading the shell hook and `mcp-gate` share, and migration 0005's read-back; it imports nothing of Workbench's. |
 | `internal/release/`, `install.sh` | Bounded verified bundles, staging, journaled activation and a minimal executable-download handoff. |
 | `internal/project/`, `project/pythonpolicy/`, `project/gopolicy/`, `project/rustpolicy/` | Bounded metadata discovery; configuration of existing uv Python projects/workspaces, Go modules and Cargo packages/workspaces, optional editor/ignore/CI edits and shared recovery. |
 | `internal/agent/costs/` | Durable SQLite ledger of AI-tool usage (Claude Code, Codex), hook-started ingest, rate cards and reports; see the [ledger design](2026-09-30-claude-costs-ledger-design.md) and [Codex costs](2026-10-01-codex-costs-design.md). |
@@ -107,6 +108,7 @@ internal/cli/                      Thin Cobra handlers
 internal/operation/                Shared plans, consent, state and checkpoints
 internal/release/                  Bundle verification, staging and selection
 internal/machine/                  Chezmoi context and provisioning coordination
+internal/machine/envfile/          The role env files' format
 internal/project/                  Discovery and project configuration
 internal/agent/costs/              AI-tool cost ledger and reports
 internal/agent/toolconfig/         The AI tools' own config folders and hook checks

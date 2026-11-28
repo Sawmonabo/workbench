@@ -44,7 +44,7 @@ func mcpGateCommand(o *options) *cobra.Command {
 				operation.ExitFailed, "mcp_gate", envFile+" is missing or readable by others",
 			), "mcp-gate: ")
 		}
-		pairs, bad := envfile.ParseEnvFile(data)
+		pairs, bad := envfile.Parse(data)
 		for _, line := range bad {
 			_, _ = fmt.Fprintf(
 				cmd.ErrOrStderr(),

@@ -47,7 +47,7 @@ func dispatchServers(a Answers, bin, config, home string) []dispatchServer {
 		server := &servers[i]
 		server.Command = bin
 		server.Args = []string{
-			"mcp-gate", "--folder", work, "--env-file", envfile.WorkEnvPath(config), "--",
+			"mcp-gate", "--folder", work, "--env-file", envfile.Path(config, "work"), "--",
 			filepath.Join(nvmRoot(home), "nvm-exec"), "node",
 			filepath.Join(checkout, server.Name, "dist", "index.js"),
 		}
