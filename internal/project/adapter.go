@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
@@ -66,7 +67,8 @@ func checkRecord(path string, doc map[string]any, provenance []string) error {
 	return operation.Fail(
 		operation.ExitBlocked,
 		"provenance",
-		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+path+" is invalid",
+		"The Workbench record ["+strings.Join(provenance, ".")+"] in "+display.Path(path)+
+			" is invalid",
 		operation.Line{
 			Label: "needs",
 			Text:  "the integer schema_version = 1 and a policies list of names",
@@ -164,7 +166,9 @@ func (a *tomlAdapter) transform(
 		a.proposal.Plan.Prerequisites = append(
 			a.proposal.Plan.Prerequisites,
 			operation.Warn(
-				documents[*refusal.Refused].Path+": its layout cannot be merged safely",
+				display.Path(
+					documents[*refusal.Refused].Path,
+				)+": its layout cannot be merged safely",
 				operation.Cause(refusal.Reason),
 			),
 		)

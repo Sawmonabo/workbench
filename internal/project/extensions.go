@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/jsonc"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
@@ -212,7 +213,7 @@ func (p *Proposal) warnIgnoredExtensions(owner string) error {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				path+" ignores .vscode/",
+				display.Path(path)+" ignores .vscode/",
 				operation.Outcome("Git will not commit .vscode/extensions.json"),
 				operation.FixText(
 					"to share the recommendations, ignore .vscode/* and add !.vscode/extensions.json",

@@ -443,7 +443,7 @@ func writeInventory(w io.Writer, inventory *project.Inventory) error {
 		for _, found := range inventory.Projects {
 			root, err := filepath.Rel(inventory.Directory, found.Root)
 			if err != nil {
-				root = found.Root
+				root = display.Path(found.Root)
 			}
 			about := found.Language + " with " + found.Manager
 			if !found.Supported {

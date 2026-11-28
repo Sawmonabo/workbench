@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
@@ -110,7 +111,7 @@ func (p *Proposal) repositoryLanguages(c operation.Context, selected []Project) 
 		for _, project := range projects {
 			if project.Owner != c.Scope.Root {
 				return nil, repositoryFailure(
-					project.Owner+" is below the repository root",
+					display.Path(project.Owner)+" is below the repository root",
 					operation.Cause(
 						"--hooks and --dependabot write jobs and updates for projects at the root",
 					),
@@ -180,7 +181,7 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 				p.Plan.Warnings,
 				operation.Warn(
 					"lefthook reads only one main configuration",
-					operation.Line{Label: "also present", Text: other},
+					operation.Line{Label: "also present", Text: display.Path(other)},
 				),
 			)
 		}
@@ -191,8 +192,10 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 			p.Plan.Warnings,
 			operation.Warn(
 				"No pre-push test job for Python",
-				operation.Cause("the dev group in "+filepath.Join(root, "pyproject.toml")+
-					" lists no pytest, and Workbench invents no tests"),
+				operation.Cause(
+					"the dev group in "+display.Path(filepath.Join(root, "pyproject.toml"))+
+						" lists no pytest, and Workbench invents no tests",
+				),
 			),
 		)
 	}
@@ -204,10 +207,8 @@ func (p *Proposal) addHooks(c operation.Context, selected []Project, languages [
 		if local != nil {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
-				operation.Warn("lefthook merges "+filepath.Join(
-					root,
-					name,
-				)+" over the lefthook.yml this plan writes"),
+				operation.Warn("lefthook merges "+display.Path(filepath.Join(root, name))+
+					" over the lefthook.yml this plan writes"),
 			)
 		}
 	}

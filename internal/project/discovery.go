@@ -221,7 +221,9 @@ func (r *Inventory) goOwner(p *Project) error {
 		// go.work makes the go command treat several modules as one build, and
 		// ./... does not cross modules, so checks at one module would cover only
 		// part of the code.
-		p.Reason = "Go workspaces are discovery-only in " + gopolicy.ID + ": " + workspace
+		p.Reason = "Go workspaces are discovery-only in " + gopolicy.ID + ": " + display.Path(
+			workspace,
+		)
 	case p.Root != r.Directory:
 		p.Reason = "Go module below the selected folder; select the module folder to configure it"
 	default:
@@ -261,7 +263,7 @@ func (r *Inventory) enclosingProject() error {
 			return false, err
 		}
 		p.Supported = false
-		p.Reason = "Select enclosing project root explicitly: " + p.Owner
+		p.Reason = "Select enclosing project root explicitly: " + display.Path(p.Owner)
 		r.Projects = append(r.Projects, p)
 		return true, nil
 	})
@@ -296,21 +298,24 @@ func (r *Inventory) pythonOwner(p *Project) error {
 	p.Manager = "uv"
 	manifest := filepath.Join(p.Root, "pyproject.toml")
 	if _, inherits := nested(p.metadata, "tool", "ruff")["extend"]; inherits {
-		p.Reason = "Ruff extend configuration requires inherited-policy ownership review: " + manifest
+		p.Reason = "Ruff extend configuration requires inherited-policy ownership review: " +
+			display.Path(manifest)
 		return nil
 	}
 	// basedpyright refuses a pyproject.toml that holds both tool tables, so the
 	// policy's [tool.basedpyright] cannot be added beside an existing one.
 	if hasTool(p.metadata, "pyright") {
 		p.Reason = "Pyright configuration competes with basedpyright; review it before configuring: " +
-			manifest
+			display.Path(
+				manifest,
+			)
 		return nil
 	}
 	p.Supported = true
 	p.Reason = ""
 	if !operation.Within(r.Directory, owner) {
 		p.Supported = false
-		p.Reason = "Select shared workspace root explicitly: " + owner
+		p.Reason = "Select shared workspace root explicitly: " + display.Path(owner)
 	}
 	return r.checkStandalone(p)
 }
@@ -333,7 +338,8 @@ func (r *Inventory) workspaceOwner(p *Project) (owner string, decided bool, err 
 		if parent != p.Root && inheritsToolPolicy(p.metadata, doc) {
 			p.Manager = "uv"
 			p.Owner = parent
-			p.Reason = "Inherited tool policy requires explicit ownership review: " + manifest
+			p.Reason = "Inherited tool policy requires explicit ownership review: " +
+				display.Path(manifest)
 			decided = true
 			return true, nil
 		}
@@ -437,7 +443,7 @@ func exactPattern(pattern string) bool {
 func (r *Inventory) checkStandalone(p *Project) error {
 	refuse := func(path string) {
 		p.Supported = false
-		p.Reason = "Standalone configuration requires reviewed integration: " + path
+		p.Reason = "Standalone configuration requires reviewed integration: " + display.Path(path)
 	}
 	err := ancestors(p.Root, func(parent string) (bool, error) {
 		for _, name := range []string{"ruff.toml", ".ruff.toml", "ty.toml", "pyrightconfig.json", "uv.toml"} {
@@ -567,7 +573,9 @@ func (r *Inventory) cargoOwner(p *Project) error {
 		// Cargo builds a package inside a workspace only as that workspace's
 		// member, so the root's settings are what apply to it.
 		p.Owner = root
-		p.Reason = "Inside the Cargo workspace at " + root + "; select the workspace root"
+		p.Reason = "Inside the Cargo workspace at " + display.Path(
+			root,
+		) + "; select the workspace root"
 	default:
 		// Membership at the selected root is settled once every manifest is
 		// read (settleCargoMembers).
@@ -808,10 +816,12 @@ func (r *Inventory) settleCargoMembers() {
 		}
 		switch {
 		case root == nil || !root.Supported:
-			project.Reason = "The Cargo workspace root needs review first: " + r.Directory
+			project.Reason = "The Cargo workspace root needs review first: " + display.Path(
+				r.Directory,
+			)
 		case !r.cargo[project.Root]:
 			project.Owner = project.Root
-			project.Reason = "Not a member of the Cargo workspace at " + r.Directory
+			project.Reason = "Not a member of the Cargo workspace at " + display.Path(r.Directory)
 		default:
 			project.Supported, project.Reason = true, ""
 		}

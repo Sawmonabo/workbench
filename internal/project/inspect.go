@@ -51,7 +51,7 @@ func Inspect(ctx context.Context, path string) (*Inventory, error) {
 	}
 	root, err := os.OpenRoot(directory)
 	if err != nil {
-		return nil, fmt.Errorf("open existing directory: %w", err)
+		return nil, fmt.Errorf("open existing directory: %w", operation.FileError(directory, err))
 	}
 	defer func() { _ = root.Close() }() // Read-only descriptor; no buffered writes to lose.
 	result := &Inventory{Directory: directory}

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
@@ -171,7 +172,8 @@ func (p *Proposal) addJobs(c operation.Context, path string, jobs []ownedJob) ([
 				p.Plan.Warnings = append(
 					p.Plan.Warnings,
 					operation.Warn(
-						"Kept "+job.name+" in "+path+": it differs from the recipe only in its uses: refs",
+						"Kept "+job.name+" in "+display.Path(path)+
+							": it differs from the recipe only in its uses: refs",
 					),
 				)
 			}

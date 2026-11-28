@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/goccy/go-yaml"
@@ -116,7 +117,8 @@ func (p *Proposal) addAutoMerge(c operation.Context, ids []string) error {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"Kept the project's own Dependabot auto-merge configuration: "+workflow,
+					"Kept the project's own Dependabot auto-merge configuration: "+
+						display.Path(workflow),
 				),
 			)
 			return nil

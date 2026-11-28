@@ -91,7 +91,7 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 		return operation.Fail(
 			operation.ExitInvalid,
 			"dependabot",
-			found[0]+" is not valid Dependabot configuration",
+			display.Path(found[0])+" is not valid Dependabot configuration",
 			operation.FixText("correct it"),
 		)
 	}
@@ -99,7 +99,9 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 	if len(found) > 1 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn("Dependabot reads "+found[0]+" and ignores "+found[1]),
+			operation.Warn(
+				"Dependabot reads "+display.Path(found[0])+" and ignores "+display.Path(found[1]),
+			),
 		)
 	}
 	var missing []string
@@ -115,7 +117,7 @@ func (p *Proposal) checkDependabot(root string, found, ecosystems []string, data
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				found[0]+" has no updates entry for "+display.List(missing),
+				display.Path(found[0])+" has no updates entry for "+display.List(missing),
 				operation.Outcome("Dependabot opens no update pull requests for them"),
 				operation.FixText("add them by hand"),
 			),
@@ -170,18 +172,19 @@ func (p *Proposal) warnRenovate(root string) error {
 	if err != nil {
 		return err
 	}
+	shown := shownPaths(found)
 	var doc map[string]json.RawMessage
 	if json.Unmarshal(data, &doc) == nil {
 		if _, ok := doc["renovate"]; ok {
-			found = append(found, manifest+" (renovate key)")
+			shown = append(shown, display.Path(manifest)+" (renovate key)")
 		}
 	}
-	if len(found) > 0 {
+	if len(shown) > 0 {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
 				"Renovate is configured",
-				operation.Line{Label: "found", Text: strings.Join(found, ", ")},
+				operation.Line{Label: "found", Text: strings.Join(shown, ", ")},
 				operation.Outcome("with Dependabot, two update bots would open pull requests "+
 					"for the same dependencies"),
 			),

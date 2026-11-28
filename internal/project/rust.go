@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/rustpolicy"
@@ -137,7 +138,7 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 		return nil, operation.Fail(
 			operation.ExitBlocked,
 			"rust_lints",
-			"The "+name+" table in "+manifest+" is not a table of lint groups",
+			"The "+name+" table in "+display.Path(manifest)+" is not a table of lint groups",
 			operation.Line{Label: "groups", Text: "rust, clippy, rustdoc"},
 			operation.FixText("review it"),
 		)
@@ -148,7 +149,7 @@ func (p *Proposal) rustManifests(root Project, members []Project) ([]rustManifes
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"Kept the project's own lint levels in "+manifest,
+					"Kept the project's own lint levels in "+display.Path(manifest),
 					operation.Outcome("Workbench adds no lints beside them"),
 				),
 			)
@@ -231,7 +232,7 @@ func (p *Proposal) memberOptIns(root Project, members []Project, hasLints bool) 
 			p.Plan.Warnings,
 			operation.Warn(
 				"Members with their own [lints] table keep it and get no workspace lints",
-				operation.Line{Label: "members", Text: strings.Join(ownLints, ", ")},
+				operation.Line{Label: "members", Text: strings.Join(shownPaths(ownLints), ", ")},
 			),
 		)
 	}
@@ -239,7 +240,7 @@ func (p *Proposal) memberOptIns(root Project, members []Project, hasLints bool) 
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				"Members left as they are: "+strings.Join(notOptedIn, ", "),
+				"Members left as they are: "+strings.Join(shownPaths(notOptedIn), ", "),
 				operation.Cause(
 					"they do not opt into the project's [workspace.lints] with [lints] workspace = true",
 				),
@@ -328,8 +329,10 @@ func (p *Proposal) rustFiles(root Project) ([]rustFile, error) {
 			p.Plan.Warnings,
 			operation.Warn(
 				"No rustfmt.toml written",
-				operation.Cause(filepath.Join(root.Root, "Cargo.toml")+" sets no edition "+
-					"(package.edition or workspace.package.edition) to format with"),
+				operation.Cause(
+					display.Path(filepath.Join(root.Root, "Cargo.toml"))+" sets no edition "+
+						"(package.edition or workspace.package.edition) to format with",
+				),
 			),
 		)
 	case !edition.MatchString(formatEdition):
@@ -408,7 +411,7 @@ func (p *Proposal) toolConfig(root, tool string, names []string, exclusive bool)
 			return false, operation.Fail(
 				operation.ExitBlocked,
 				"rust_config",
-				tool+" reads only one of "+strings.Join(here, " and "),
+				tool+" reads only one of "+strings.Join(shownPaths(here), " and "),
 				operation.FixText("keep one"),
 			)
 		}
@@ -428,8 +431,17 @@ func (p *Proposal) keep(root, path, name string, policy []byte, tool string) {
 	}
 	p.Plan.Warnings = append(
 		p.Plan.Warnings,
-		operation.Warn("Kept the project's own "+tool+" configuration: "+path),
+		operation.Warn("Kept the project's own "+tool+" configuration: "+display.Path(path)),
 	)
+}
+
+// shownPaths is each of paths as people read it (see [display.Path]).
+func shownPaths(paths []string) []string {
+	shown := make([]string, len(paths))
+	for i, path := range paths {
+		shown[i] = display.Path(path)
+	}
+	return shown
 }
 
 // rustToolchain warns when no rust-toolchain.toml or rust-toolchain pins
@@ -449,7 +461,7 @@ func (p *Proposal) rustToolchain(root string) error {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				"No rust-toolchain.toml pins the Rust toolchain at "+root,
+				"No rust-toolchain.toml pins the Rust toolchain at "+display.Path(root),
 				operation.FixText("add one by hand that lists rustfmt and clippy in components"),
 			),
 		)
@@ -473,7 +485,7 @@ func (p *Proposal) rustToolchain(root string) error {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
 			operation.Warn(
-				path+" does not list both rustfmt and clippy in components",
+				display.Path(path)+" does not list both rustfmt and clippy in components",
 				operation.Outcome(
 					"cargo fmt and cargo clippy can be missing where it is installed",
 				),

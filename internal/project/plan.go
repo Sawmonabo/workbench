@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
 	"github.com/Sawmonabo/workbench/project/pythonpolicy"
@@ -461,7 +462,12 @@ func (p *Proposal) addResolution(
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
 			operation.Warn(
-				"Missing development checks at "+owner+": "+strings.Join(missing, ", "),
+				"Missing development checks at "+display.Path(
+					owner,
+				)+": "+strings.Join(
+					missing,
+					", ",
+				),
 				operation.FixText("add --resolve-dependencies to approve native resolution"),
 			),
 		)
@@ -471,7 +477,8 @@ func (p *Proposal) addResolution(
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
 			operation.Warn(
-				"Custom uv resolution settings at "+owner+" need a native integration review",
+				"Custom uv resolution settings at "+display.Path(owner)+
+					" need a native integration review",
 				operation.Kept("the settings, neither ignored nor converted"),
 			),
 		)
@@ -480,7 +487,7 @@ func (p *Proposal) addResolution(
 		p.Plan.Prerequisites = append(
 			p.Plan.Prerequisites,
 			operation.Warn(
-				"Resolving "+owner+" needs --allow-build-hooks and review",
+				"Resolving "+display.Path(owner)+" needs --allow-build-hooks and review",
 				operation.Cause(
 					"it uses dynamic metadata, local sources or nonstandard uv resolution",
 				),

@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/machine"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/project/gopolicy"
@@ -50,7 +51,9 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 		!bytes.Equal(p.Inventory.inputs[existing], gopolicy.Golangci):
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
-			operation.Warn("Kept the project's own golangci-lint configuration: "+existing),
+			operation.Warn(
+				"Kept the project's own golangci-lint configuration: "+display.Path(existing),
+			),
 		)
 		v2, err := golangciV2(existing, p.Inventory.inputs[existing])
 		if err != nil {
@@ -60,8 +63,8 @@ func (p *Proposal) addGoPolicy(c operation.Context, module Project) error {
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"golangci-lint v2 refuses the v1 config "+existing,
-					operation.Fix("golangci-lint", "migrate"),
+					"golangci-lint v2 refuses the v1 config "+display.Path(existing),
+					operation.FixPath(existing, "golangci-lint", "migrate", "-c"),
 				),
 			)
 		}
@@ -110,7 +113,7 @@ func golangciV2(path string, data []byte) (bool, error) {
 		return false, operation.Fail(
 			operation.ExitInvalid,
 			"golangci",
-			path+" is not valid golangci-lint configuration",
+			display.Path(path)+" is not valid golangci-lint configuration",
 			operation.FixText("correct it"),
 		)
 	}
@@ -135,7 +138,7 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 			return operation.Fail(
 				operation.ExitInvalid,
 				"provenance",
-				"The Workbench record "+path+" is not valid TOML",
+				"The Workbench record "+display.Path(path)+" is not valid TOML",
 				operation.FixText("correct it"),
 			)
 		}
@@ -145,7 +148,7 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 			return operation.Fail(
 				operation.ExitBlocked,
 				"provenance",
-				"The Workbench record "+path+" is invalid",
+				"The Workbench record "+display.Path(path)+" is invalid",
 				operation.Line{
 					Label: "needs",
 					Text:  "the integer schema_version = 1 and a policies list, and nothing else",
@@ -159,7 +162,7 @@ func (p *Proposal) addRecord(c operation.Context, root string) error {
 				return operation.Fail(
 					operation.ExitBlocked,
 					"provenance",
-					"The Workbench record "+path+" is invalid",
+					"The Workbench record "+display.Path(path)+" is invalid",
 					operation.Line{Label: "needs", Text: "a policies list of strings"},
 					operation.FixText("correct it"),
 				)
@@ -299,7 +302,8 @@ func (p *Proposal) testWorkflow(
 			p.Plan.Warnings = append(
 				p.Plan.Warnings,
 				operation.Warn(
-					"Skipped a workflow that is not valid YAML while looking for "+label+": "+path,
+					"Skipped a workflow that is not valid YAML while looking for "+label+": "+
+						display.Path(path),
 				),
 			)
 			continue
@@ -317,7 +321,9 @@ func (p *Proposal) testWorkflow(
 	case 1:
 		return matches[0], nil
 	default:
-		return "", fail("Several workflows run " + label + ": " + strings.Join(matches, ", "))
+		return "", fail(
+			"Several workflows run " + label + ": " + strings.Join(shownPaths(matches), ", "),
+		)
 	}
 }
 
