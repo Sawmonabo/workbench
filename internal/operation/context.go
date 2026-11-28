@@ -245,23 +245,27 @@ func runtimePaths(home string) (Paths, error) {
 				"A Workbench directory must not be the filesystem root or home itself",
 			)
 		}
-		if err := safeParents(value); err != nil {
-			return Paths{}, err
-		}
 		if i < 4 {
+			if err := safeOwnFolder("runtime_path", value); err != nil {
+				return Paths{}, err
+			}
 			if err := privateFilesystem(value); err != nil {
 				return Paths{}, err
 			}
+		} else if err := safeParents(value); err != nil {
+			return Paths{}, err
 		}
 		if info, err := os.Lstat(value); err == nil {
-			if !info.IsDir() {
-				return Paths{}, notFolderRefusal("runtime_path", value, info)
+			switch {
+			case i < 4:
+				err = ownFolder("runtime_path", value, info)
+			case !info.IsDir():
+				err = notFolderRefusal("runtime_path", value, info)
+			default:
+				err = owned(value, info)
 			}
-			if err := owned(value, info); err != nil {
+			if err != nil {
 				return Paths{}, err
-			}
-			if i < 4 && info.Mode().Perm()&0o077 != 0 {
-				return Paths{}, folderModeRefusal(value, info.Mode())
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Paths{}, Fail(

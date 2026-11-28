@@ -178,10 +178,7 @@ func checkpointStorageBytes(directory string) (int64, error) {
 			return err
 		}
 		if entry.IsDir() {
-			if info.Mode().Perm() != 0o700 {
-				return folderModeRefusal(path, info.Mode())
-			}
-			return owned(path, info)
+			return ownFolder("permissions", path, info)
 		}
 		if entry.Name() == ".DS_Store" && info.Mode().IsRegular() {
 			return nil // Finder metadata; nothing reads it.

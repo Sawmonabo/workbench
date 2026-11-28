@@ -15,12 +15,13 @@ func ensurePrivateDirectory(path string) error { return privateDirectory(path, t
 
 // privateDirectory requires the folder at path to be private: no link and
 // no file from it up, nothing above it that another user owns or may write
-// (see safeParents), on a file system that keeps it private, a folder
-// itself, mode 0700 and this user's. With create it first makes it, 0700,
-// when it is missing; without, a missing folder fails with an error matching
-// fs.ErrNotExist and nothing is made.
+// (see safeParents), on a file system that keeps it private, and a folder of
+// Workbench's own files as [ownFolder] requires. With create it first makes
+// it, 0700, when it is missing, then sets it to 0700 when it is not (see
+// [makeOwnFolder]); without, it changes nothing, and a missing folder fails
+// with an error matching fs.ErrNotExist.
 func privateDirectory(path string, create bool) error {
-	if err := safeParents(path); err != nil {
+	if err := safeOwnFolder("permissions", path); err != nil {
 		return err
 	}
 	if err := privateFilesystem(path); err != nil {
@@ -30,24 +31,92 @@ func privateDirectory(path string, create bool) error {
 		if err := os.MkdirAll(path, 0o700); err != nil {
 			return err
 		}
+		return makeOwnFolder("permissions", path)
 	}
 	info, err := os.Lstat(path)
 	if err != nil {
 		return err
 	}
+	return ownFolder("permissions", path, info)
+}
+
+// ownFolder refuses path, a folder that holds Workbench's own files and that
+// info describes, unless it is a folder, this user's, and neither its group
+// nor other users may write in it: what others can write in may not be
+// Workbench's. Any other mode passes, so a check that only reads uses such a
+// folder as it is and a write sets it to 0700 (see [makeOwnFolder]).
+// category is the refusal's when path is not a folder.
+func ownFolder(category, path string, info os.FileInfo) error {
 	if !info.IsDir() {
-		return notFolderRefusal("permissions", path, info)
+		return notFolderRefusal(category, path, info)
 	}
-	if info.Mode().Perm() != 0o700 {
+	if err := owned(path, info); err != nil {
+		return err
+	}
+	if info.Mode().Perm()&0o022 != 0 {
 		return folderModeRefusal(path, info.Mode())
 	}
-	return owned(path, info)
+	return nil
+}
+
+// makeOwnFolder applies [ownFolder] to the folder at path, for a path that
+// writes there, and then sets its mode to 0700 when it is not, keeping its
+// setuid, setgid and sticky bits. It checks and changes one descriptor,
+// opened without following a link, so the folder it checks is the folder it
+// changes. A link or a file there is refused as ownFolder refuses it, and a
+// folder its owner may not read, which cannot be opened, by
+// folderModeRefusal.
+func makeOwnFolder(category, path string) error {
+	folder, err := os.OpenFile(
+		path,
+		os.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC,
+		0,
+	)
+	if err != nil {
+		info, statErr := os.Lstat(path)
+		if statErr != nil {
+			return err
+		}
+		if refusal := ownFolder(category, path, info); refusal != nil {
+			return refusal
+		}
+		if errors.Is(err, fs.ErrPermission) {
+			return folderModeRefusal(path, info.Mode())
+		}
+		return err
+	}
+	defer func() { _ = folder.Close() }()
+	info, err := folder.Stat()
+	if err != nil {
+		return err
+	}
+	if err = ownFolder(category, path, info); err != nil {
+		return err
+	}
+	if info.Mode().Perm() == 0o700 {
+		return nil
+	}
+	return folder.Chmod(info.Mode()&(os.ModeSetuid|os.ModeSetgid|os.ModeSticky) | 0o700)
+}
+
+// safeOwnFolder is safeParents for path, a folder that holds Workbench's own
+// files: a folder of this user's there is judged by [ownFolder] first, as
+// safeParents judges path before the folders above it, so one that others can
+// write in is refused in ownFolder's words. A link, a file or another user's
+// folder there is left to safeParents and the checks after it.
+func safeOwnFolder(category, path string) error {
+	if info, err := os.Lstat(path); err == nil && info.IsDir() && ownedByUser(info) {
+		if err = ownFolder(category, path, info); err != nil {
+			return err
+		}
+	}
+	return safeParents(path)
 }
 
 // ensureRoot creates a missing runtime root 0700. [makeParents] sets the modes
 // of its missing parents.
 func ensureRoot(root string) error {
-	if err := safeParents(root); err != nil {
+	if err := safeOwnFolder("permissions", root); err != nil {
 		return err
 	}
 	if err := privateFilesystem(root); err != nil {
@@ -88,11 +157,12 @@ func PrivateDirectory(root, name string) (string, error) {
 	return directory, nil
 }
 
-// CheckPrivateDirectory is [PrivateDirectory] making nothing, for an entry
+// CheckPrivateDirectory is [PrivateDirectory] changing nothing, for an entry
 // that must not make a folder where it looks, or only reads: root and each
-// folder of name below it, down to the first one that is missing, must be
-// private as PrivateDirectory requires, and one that is not fails it with
-// PrivateDirectory's words. A missing folder ends the check with no error,
+// folder of name below it, down to the first one that is missing, must pass
+// PrivateDirectory's checks, and one that does not fails it with
+// PrivateDirectory's words; a folder that passes but is not 0700 keeps its
+// mode. A missing folder ends the check with no error,
 // since it holds nothing; a caller that needs it fails when it uses it.
 // [PrivateTree] checks without creating too, but in other words, and fails
 // on a missing folder.
@@ -122,10 +192,11 @@ func CheckPrivateDirectory(root, name string) error {
 
 // PrivateTree rejects redirected, borrowed or permissive private trees: no
 // folder from target up may be a link or a file, and each one within root
-// must be this user's with mode 0700. With create it then makes the missing
-// folders; without, a missing one fails. It never repairs modes or follows
-// links while creating a selected descendant. Unlike [PrivateDirectory] it can
-// check without creating.
+// must be a folder of Workbench's own files as [ownFolder] requires. With
+// create it then sets each of those that is not 0700 to 0700 (see
+// [makeOwnFolder]) and makes the missing folders, 0700; without, it changes
+// nothing, and a missing one fails. It never follows a link. Unlike
+// [PrivateDirectory] it can check without creating.
 func PrivateTree(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !Within(root, target) {
 		return Fail(
@@ -134,11 +205,15 @@ func PrivateTree(root, target string, create bool) error {
 			"Private target escapes the selected runtime directory",
 		)
 	}
+	var own []string
 	for current := target; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if err == nil {
 			if err = treeFolder(root, current, info); err != nil {
 				return err
+			}
+			if Within(root, current) {
+				own = append(own, current)
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
@@ -149,32 +224,31 @@ func PrivateTree(root, target string, create bool) error {
 			break
 		}
 	}
-	if create {
-		if err := makeParents(root); err != nil {
+	if !create {
+		return nil
+	}
+	for _, folder := range own {
+		if err := makeOwnFolder("private_path", folder); err != nil {
 			return err
 		}
-		return os.MkdirAll(target, 0o700)
 	}
-	return nil
+	if err := makeParents(root); err != nil {
+		return err
+	}
+	return os.MkdirAll(target, 0o700)
 }
 
 // treeFolder refuses current, a folder at or above a [PrivateTree] target
-// that info describes, unless it is a folder and, within root, this user's
-// with mode 0700.
+// that info describes, unless it is a folder and, within root, a folder of
+// Workbench's own files as [ownFolder] requires.
 func treeFolder(root, current string, info os.FileInfo) error {
-	if !info.IsDir() {
-		return notFolderRefusal("private_path", current, info)
-	}
 	if !Within(root, current) {
+		if !info.IsDir() {
+			return notFolderRefusal("private_path", current, info)
+		}
 		return nil
 	}
-	if err := owned(current, info); err != nil {
-		return err
-	}
-	if info.Mode().Perm() != 0o700 {
-		return folderModeRefusal(current, info.Mode())
-	}
-	return nil
+	return ownFolder("private_path", current, info)
 }
 
 // makeParents creates the missing folders above a runtime root. They get 0755,
