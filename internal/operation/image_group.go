@@ -59,6 +59,15 @@ func ImageWithGroup(c Context, path string, image Image) (Image, error) {
 	if err != nil {
 		return Image{}, err
 	}
+	return imageWithGroup(c, path, before, image)
+}
+
+// imageWithGroup is [ImageWithGroup] of image at path, which holds before.
+func imageWithGroup(c Context, path string, before, image Image) (Image, error) {
+	if image.Kind == ImageAbsent {
+		image.Group = nil
+		return image, nil
+	}
 	if before.Kind != ImageAbsent {
 		image.Group = before.Group
 		if before.Kind == ImageDirectory && image.Kind == ImageDirectory {

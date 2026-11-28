@@ -187,17 +187,34 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 		}
 	}
 	results := []operation.Component{release, applied}
-	if partial := state.PartialOperation; partial != nil {
-		results = append(results, operation.Component{
-			Name:   "unfinished-apply",
-			Status: operation.StatusPartial,
-			Message: "Apply " + partial.ID + " to " + c.ShowPath(
-				partial.Scope.Root,
-			) + " did not finish",
-			Body: operation.Explain(operation.FixText(c.WorkbenchCommand() + " apply")),
-		})
+	if state.PartialOperation != nil {
+		results = append(results, unfinishedApply(c, state))
 	}
 	return results
+}
+
+// unfinishedApply is the operation state records as unfinished, in the words
+// the plan of the next apply to its destination shows it in
+// ([operation.Unfinished.Note]), with the command that applies there; where
+// that plan is refused, its refusal.
+func unfinishedApply(c operation.Context, state *operation.State) operation.Component {
+	partial := state.PartialOperation
+	scoped := c
+	scoped.Scope = partial.Scope
+	component := operation.Component{Name: "unfinished-apply", Status: operation.StatusPartial}
+	unfinished, err := operation.PlanUnfinished(scoped, state)
+	if err != nil {
+		component.Message, component.Body = operation.Explained(err)
+	} else {
+		note := unfinished.Note(scoped)
+		component.Message, component.Body = note.Message, note.Body
+	}
+	if len(component.Fix) == 0 {
+		component.Body = component.With(
+			operation.Explain(operation.FixText(c.ApplyCommand(partial.Scope.Root))),
+		)
+	}
+	return component
 }
 
 func checkPlatform(ctx context.Context, c operation.Context) operation.Component {

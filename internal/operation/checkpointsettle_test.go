@@ -44,13 +44,7 @@ func TestSettlingAnInterruptedApplyKeepsACLAttributesAndFlag(t *testing.T) {
 		plan,
 		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
 		func(context.Context, Context) (Plan, error) { return plan, nil },
-		func(m *Mutation) error {
-			settled, err := SettleUnfinished(m, state, nil)
-			if err == nil && (settled == nil || settled.ID != id) {
-				t.Fatalf("settled %+v, not apply %s", settled, id)
-			}
-			return err
-		},
+		func(m *Mutation) error { return settle(t, m, state, id) },
 	); err != nil {
 		t.Fatal(err)
 	}
@@ -72,4 +66,83 @@ func TestSettlingAnInterruptedApplyKeepsACLAttributesAndFlag(t *testing.T) {
 		t.Fatalf("revert left %q, %v", data, err)
 	}
 	was.expect(t, "the restored file", readHeld(t, path))
+}
+
+// Prevent lost data when a file chezmoi wrote is changed before the stopped
+// apply is settled: someone edits it in place after Workbench was killed,
+// so it holds neither the image the apply approved nor the one it replaced,
+// and lacks the ACL, extended attributes and hidden flag the replaced file
+// had and the apply's checkpoint alone still holds. Settling must give them
+// to that file itself, the same inode, and leave the edit in it as it is: a
+// file written anew with the approved content would lose the edit, and one
+// left without them loses them once the record of the apply goes.
+func TestSettlingKeepsAnEditAndGivesBackItsMetadata(t *testing.T) {
+	c := carryContext(t)
+	path := filepath.Join(c.Scope.Root, "config")
+	giveMetadata(t, path)
+	changes, was := nativeChange(t, c, path)
+	id := withNative(t, c, changes, func(*Checkpoint) error {
+		nativeWrite(t, c, path, changes[0].After)
+		return nil
+	})
+	const edit = "new, and a line someone added"
+	if err := os.WriteFile(path, []byte(edit), 0); err != nil {
+		t.Fatal(err)
+	}
+	edited := readHeld(t, path)
+	if edited.acl != nil || edited.hidden || edited.attributes[noteAttribute] != nil {
+		t.Fatal("the edited file kept metadata, so settling proves nothing")
+	}
+
+	plan := Plan{
+		Source:   SourceIdentity{Release: "fixture", ContentDigest: ChangesDigest(nil)},
+		Scope:    c.Scope,
+		Complete: true,
+	}
+	state := &State{SchemaVersion: 1, PartialOperation: &PartialOperation{ID: id, Scope: c.Scope}}
+	if err := WithMutation(
+		context.Background(),
+		c,
+		plan,
+		Consent{ApprovedDigest: plan.Digest(), CompleteInputs: true},
+		func(context.Context, Context) (Plan, error) { return plan, nil },
+		func(m *Mutation) error { return settle(t, m, state, id) },
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	if data, err := os.ReadFile(path); err != nil || string(data) != edit {
+		t.Fatalf("settling left %q, %v, not the edit", data, err)
+	}
+	want := was
+	want.attributes = maps.Clone(was.attributes)
+	want.mode = changes[0].After.Mode
+	if platform.ACLsAreAttributes {
+		want.attributes[platform.AccessACLAttribute] = chmodACL(
+			t,
+			c,
+			was.attributes[platform.AccessACLAttribute],
+			want.mode,
+		)
+	}
+	got := readHeld(t, path)
+	want.expect(t, "the edited file", got)
+	if got.inode != edited.inode {
+		t.Fatal("settling wrote the edited file anew instead of giving it its metadata")
+	}
+}
+
+// settle settles, under m, the apply id that state records as unfinished,
+// as PlanUnfinished finds it.
+func settle(t *testing.T, m *Mutation, state *State, id string) error {
+	t.Helper()
+	unfinished, err := PlanUnfinished(m.context, state)
+	if err != nil {
+		return err
+	}
+	settled, err := SettleUnfinished(m, unfinished)
+	if err == nil && (settled == nil || settled.ID != id || len(settled.Finished) != 1) {
+		t.Fatalf("settled %+v, not the file of apply %s", settled, id)
+	}
+	return err
 }

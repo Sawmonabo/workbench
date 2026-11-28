@@ -40,7 +40,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 		return err
 	}
 	for i, edit := range p.Plan.Edits {
-		before, err := operation.ReadImage(c, edit.Path)
+		before, err := p.unfinished.Image(c, edit.Path)
 		if err != nil {
 			return err
 		}
@@ -68,7 +68,7 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 				return err
 			}
 		}
-		after, err = operation.ImageWithGroup(c, edit.Path, operation.Carried(before, after))
+		after, err = p.unfinished.WithGroup(c, edit.Path, operation.Carried(before, after))
 		if err != nil {
 			return err
 		}

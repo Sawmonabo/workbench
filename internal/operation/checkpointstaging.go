@@ -36,6 +36,15 @@ func removeStagedFiles(c Context, checkpoints []*Checkpoint) error {
 	return nil
 }
 
+// removeStagedIn is removeStagedFiles for every checkpoint of c's scope.
+func removeStagedIn(c Context) error {
+	checkpoints, err := loadCheckpoints(c)
+	if err != nil {
+		return err
+	}
+	return removeStagedFiles(c, checkpoints)
+}
+
 // removeStaged removes, beside each target of cp, the file or link the
 // operation its journal records staged there under stagedName and left when it
 // was stopped: one that is this user's and a regular file with one link, or,
@@ -89,7 +98,8 @@ func removeStagedAt(c Context, folder, name string, link bool) error {
 // only removes a staged file from.
 func openScopeFolder(c Context, folder string) (int, error) {
 	relative, err := filepath.Rel(c.Scope.Root, folder)
-	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+	if err != nil || relative == ".." ||
+		strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
 		return -1, unix.ENOENT
 	}
 	flags := unix.O_RDONLY | unix.O_DIRECTORY | unix.O_NOFOLLOW | unix.O_CLOEXEC

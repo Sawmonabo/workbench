@@ -153,6 +153,21 @@ func (a *applyRun) apply() error {
 	})
 }
 
+// planUnfinished reads the operation state records as unfinished in c's
+// scope, which the apply settles before it writes anything
+// ([operation.SettleUnfinished]): the plan shows it as a note, binds it, and
+// takes each file it finishes as that file will be once settled.
+func (p *preparation) planUnfinished(c operation.Context, state *operation.State) error {
+	var err error
+	p.unfinished, err = operation.PlanUnfinished(c, state)
+	if err != nil || p.unfinished == nil {
+		return err
+	}
+	p.Plan.Warnings = append(p.Plan.Warnings, p.unfinished.Note(c))
+	p.Plan.Inputs = append(p.Plan.Inputs, p.unfinished.Input())
+	return nil
+}
+
 // write settles an earlier apply that did not finish, then checkpoints,
 // provisions and records this one.
 func (a *applyRun) write() error {
@@ -165,7 +180,7 @@ func (a *applyRun) write() error {
 	if err = state.Unfinished(a.c.Scope); err != nil {
 		return err
 	}
-	settled, err := operation.SettleUnfinished(a.m, state, a.prepared.Changes)
+	settled, err := operation.SettleUnfinished(a.m, a.prepared.unfinished)
 	if err != nil {
 		return err
 	}

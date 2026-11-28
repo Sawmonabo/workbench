@@ -59,6 +59,9 @@ type preparation struct {
 	askpass string
 	// desired is native's rendered image of every target, by relative path.
 	desired map[string]nativeEntry
+	// unfinished is the apply the state records as unfinished in this scope,
+	// which the apply settles first (see planUnfinished), or nil.
+	unfinished *operation.Unfinished
 	// blocked is, after Apply, the reason a script gave for each effect it
 	// could not do while it carried on with the rest, by effect name.
 	blocked map[string]string
@@ -265,6 +268,9 @@ func (p *preparation) checkPrerequisites(
 	plan := &p.Plan
 	state, err := operation.ReadState(c.Paths)
 	if err != nil {
+		return nil, err
+	}
+	if err = p.planUnfinished(c, state); err != nil {
 		return nil, err
 	}
 	var recorded []operation.Dependency

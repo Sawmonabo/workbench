@@ -37,8 +37,7 @@ func (cp *Checkpoint) StartNative() error {
 // first; unknown content never authorizes metadata edits. It is called only
 // following successful native execution.
 func (cp *Checkpoint) FinalizeNative() error {
-	_, err := cp.restoreNativeMetadata(cp.targets(), false)
-	return err
+	return cp.restoreNativeMetadata(cp.targets(), false)
 }
 
 // SettleFailedNative is FinalizeNative for a native run that failed (a script
@@ -52,7 +51,7 @@ func (cp *Checkpoint) FinalizeNative() error {
 // target that cannot be corrected does not stop the others; Finish records each
 // as it finds it. The only error it could return, a lost mutation, makes Finish
 // fail as well.
-func (cp *Checkpoint) SettleFailedNative() { _, _ = cp.restoreNativeMetadata(cp.targets(), true) }
+func (cp *Checkpoint) SettleFailedNative() { _ = cp.restoreNativeMetadata(cp.targets(), true) }
 
 // targets is the index of every target of the checkpoint.
 func (cp *Checkpoint) targets() []int {
@@ -64,15 +63,14 @@ func (cp *Checkpoint) targets() []int {
 }
 
 // restoreNativeMetadata is the pass after native on the targets indexed by
-// targets, the shared body of FinalizeNative, SettleFailedNative and
-// SettleUnfinished, and returns the index of each target it changed. Without
+// targets, the shared body of FinalizeNative and SettleFailedNative. Without
 // keepGoing, any target that does not match its approved image fails the call
 // before any group or label is changed. With it, a target that does not
 // match is left as it is and one that cannot be read or corrected does not
 // stop the others; the first such error is returned.
-func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]int, error) {
+func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) error {
 	if err := cp.mutation.Check(); err != nil {
-		return nil, err
+		return err
 	}
 	c := cp.mutation.context
 	var first error
@@ -84,7 +82,7 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]in
 		}
 		if err != nil {
 			if !keepGoing {
-				return nil, err
+				return err
 			}
 			first = cmp.Or(first, err)
 			continue
@@ -93,7 +91,6 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]in
 			observed[i] = current
 		}
 	}
-	var changed []int
 	for _, i := range targets {
 		current, ok := observed[i]
 		change := cp.changes[i]
@@ -113,14 +110,12 @@ func (cp *Checkpoint) restoreNativeMetadata(targets []int, keepGoing bool) ([]in
 		}
 		if err != nil {
 			if !keepGoing {
-				return nil, err
+				return err
 			}
 			first = cmp.Or(first, err)
-			continue
 		}
-		changed = append(changed, i)
 	}
-	return changed, first
+	return first
 }
 
 // nativeLabel is the label to put back on a file or folder native replaced, or
@@ -504,6 +499,7 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 	if err := cp.mutation.Check(); err != nil {
 		return err
 	}
+	c := cp.mutation.context
 	held, err := cp.preflight(reverse)
 	if err != nil {
 		return err
@@ -561,18 +557,12 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 		if err := cp.saveJournal(); err != nil {
 			return err
 		}
-		if err := writeImage(
-			cp.mutation.context,
-			change.Path,
-			expected,
-			desired,
-			cp.stagedName(i),
-		); err != nil {
+		if err := writeImage(c, change.Path, expected, desired, cp.stagedName(i)); err != nil {
 			cp.journal.Status = JournalPartial
 			_ = cp.saveJournal()
 			return writeFailure(change.Path, err)
 		}
-		observed, err := ReadImage(cp.mutation.context, change.Path)
+		observed, err := ReadImage(c, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {
 			cp.journal.Status = JournalUnknown
 			_ = cp.saveJournal()

@@ -50,6 +50,20 @@ func (c Context) WorkbenchCommand() string {
 	return c.ShellPath(entry)
 }
 
+// ApplyCommand is what to type to apply the machine configuration to root:
+// [Context.WorkbenchCommand]'s apply, with --destination for a root other
+// than c.Home and --local-build where c's source is a developer checkout.
+func (c Context) ApplyCommand(root string) string {
+	command := c.WorkbenchCommand() + " apply"
+	if root != c.Home {
+		command += " --destination " + c.ShellPath(root)
+	}
+	if c.Native.Developer {
+		command += " --local-build"
+	}
+	return command
+}
+
 // ShowPath writes path for a person with [display.PathFrom] from c.Home.
 func (c Context) ShowPath(path string) string { return display.PathFrom(c.Home, path) }
 

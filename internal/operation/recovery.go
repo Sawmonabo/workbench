@@ -151,7 +151,9 @@ func (cp *Checkpoint) confirm(i int, current Image) bool {
 	return true
 }
 
-// settleConfirmed finishes the pass after native on each target preflight
+// settleConfirmed first removes what a stopped writer of the scope staged
+// beside its targets (removeStagedIn), before the journal names this recovery
+// instead, then finishes the pass after native on each target preflight
 // confirmed as what native wrote before it (see confirm): a file or link that
 // lacks what it carries is written anew (restageNative), and any other gets
 // the group its apply approved. Each is then exactly the image the restore
@@ -159,6 +161,9 @@ func (cp *Checkpoint) confirm(i int, current Image) bool {
 // it, or keeps it if it is a folder holding other files.
 func (cp *Checkpoint) settleConfirmed() error {
 	c := cp.mutation.context
+	if err := removeStagedIn(c); err != nil {
+		return err
+	}
 	for i, observed := range cp.regroup {
 		change := cp.changes[i]
 		var err error
@@ -383,15 +388,6 @@ func Recover(
 				); err != nil {
 					return err
 				}
-			}
-			// What a stopped writer of the scope staged goes first, before
-			// the journal names this recovery instead.
-			checkpoints, err := loadCheckpoints(c)
-			if err != nil {
-				return err
-			}
-			if err = removeStagedFiles(c, checkpoints); err != nil {
-				return err
 			}
 			if err = cp.settleConfirmed(); err != nil {
 				return err
