@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/http"
 	"net/url"
 	"os"
 	"strings"
@@ -84,11 +86,11 @@ func Find(ctx context.Context, c operation.Context, tag string) (Remote, error) 
 // Bundle downloads and verifies the release's bundle, reporting its bytes to
 // progress when set.
 func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (Bundle, error) {
-	data, _, err := get(
+	data, err := getRelease(
 		ctx,
 		r.asset,
 		MaxDownload,
-		request{accept: "application/octet-stream", token: r.token, progress: progress},
+		Request{Accept: "application/octet-stream", Token: r.token, Progress: progress},
 	)
 	if err != nil {
 		return Bundle{}, err
@@ -99,11 +101,11 @@ func (r Remote) Bundle(ctx context.Context, progress func(done, total int64)) (B
 // githubAPI reads one JSON answer from the repository's GitHub REST API. tag
 // names the release asked for, if any, when GitHub has none.
 func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
-	data, _, err := get(
+	data, err := getRelease(
 		ctx,
 		"https://api.github.com/repos/"+repository+path,
 		4<<20,
-		request{accept: "application/vnd.github+json", token: token},
+		Request{Accept: "application/vnd.github+json", Token: token},
 	)
 	if errors.Is(err, errNotFound) {
 		message := "No published Workbench release found"
@@ -119,6 +121,42 @@ func githubAPI(ctx context.Context, token, path, tag string, answer any) error {
 		return operation.Fail(operation.ExitFailed, "release", "Unexpected GitHub release data")
 	}
 	return nil
+}
+
+// errNotFound is a release download's answer for a resource the server says
+// does not exist.
+var errNotFound = operation.Fail(operation.ExitBlocked, "release_unavailable", "Not found")
+
+// getRelease is [Get] for a release, from GitHub's API or a bundle's
+// address, returning the body: a missing resource is a release that is not
+// there, and GitHub's refusals say what to do about them.
+func getRelease(ctx context.Context, location string, limit int64, r Request) ([]byte, error) {
+	data, _, err := Get(ctx, location, limit, r)
+	status, ok := errors.AsType[*StatusError](err)
+	switch {
+	case !ok:
+		return data, err
+	case status.Status == http.StatusNotFound:
+		return nil, errNotFound
+	case status.Status == http.StatusForbidden &&
+		status.Header.Get("X-RateLimit-Remaining") == "0":
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			"GitHub's request limit is used up for now; wait an hour, or log in with gh auth login",
+		)
+	case r.Token != "" && (status.Status == http.StatusUnauthorized ||
+		status.Status == http.StatusForbidden):
+		return nil, operation.Fail(
+			operation.ExitFailed,
+			"download",
+			fmt.Sprintf(
+				"GitHub refused the request (HTTP %d); check gh auth status or the GH_TOKEN/GITHUB_TOKEN variables",
+				status.Status,
+			),
+		)
+	}
+	return nil, err
 }
 
 // githubToken returns the GitHub CLI's token for github.com, which raises

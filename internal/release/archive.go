@@ -20,7 +20,7 @@ import (
 
 // Conservative engineering ceilings, not production capacity qualification.
 const (
-	MaxDownload int64 = 128 << 20
+	MaxDownload       = MaxSize
 	maxExpanded int64 = 256 << 20
 	maxFiles          = 4096
 )

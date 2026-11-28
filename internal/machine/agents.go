@@ -555,7 +555,7 @@ func fetchJSON(ctx context.Context, location string, target any) error {
 func fetch(ctx context.Context, location string, timeout time.Duration) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	body, _, err := release.Get(ctx, location, 8<<20, "", nil)
+	body, _, err := release.Get(ctx, location, 8<<20, release.Request{})
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", location, err)
 	}

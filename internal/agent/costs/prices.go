@@ -273,7 +273,7 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	}
 	url := tool.Source.PricingURL()
 	// The timeout bounds the download only; the ledger is written with ctx.
-	download, cancel := context.WithTimeout(ctx, fetchTimeout)
+	fetchCtx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	header := http.Header{"User-Agent": {"workbench-costs"}}
 	if cached.ETag != "" {
@@ -282,7 +282,7 @@ func refreshOfficial(ctx context.Context, ledger *Ledger, tool Tool, force bool)
 	if cached.LastModified != "" {
 		header.Set("If-Modified-Since", cached.LastModified)
 	}
-	body, response, err := release.Get(download, url, pageLimit, "", header)
+	body, response, err := release.Get(fetchCtx, url, pageLimit, release.Request{Header: header})
 	switch {
 	case errors.Is(err, release.ErrNotModified) && len(cached.rates()) > 0:
 		fetched = epoch(time.Now())
