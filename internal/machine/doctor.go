@@ -165,8 +165,11 @@ func installed(c operation.Context, state *operation.State) []operation.Componen
 		Body:    operation.Explain(operation.FixText("install one with install.sh")),
 	}
 	if state.ActiveRelease != nil {
-		release.Status = operation.StatusComplete
-		release.Message = state.ActiveRelease.Identity.Release + " is active"
+		release = operation.Component{
+			Name:    "release",
+			Status:  operation.StatusComplete,
+			Message: state.ActiveRelease.Identity.Release + " is active",
+		}
 	}
 	applied := operation.Component{
 		Name:    "applied",
