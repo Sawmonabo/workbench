@@ -82,7 +82,7 @@ func answersImportCommand(o *options) *cobra.Command {
 				cmd.Context(),
 				c,
 				plan,
-				consentFor(o, o.approvePlan),
+				consentFor(cmd, c, o, o.approvePlan),
 				planner,
 				func(m *operation.Mutation) error {
 					return m.WritePrivate(c.Paths.MachineConfig(), encoded)

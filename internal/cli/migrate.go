@@ -153,7 +153,7 @@ func (o *options) migrateApply(
 	c operation.Context,
 ) (operation.Result, error) {
 	result := operation.NewResult(cmd.CommandPath())
-	if err := checkConsent(o, "migrate"); err != nil {
+	if err := checkConsent(o, replan(cmd, c)); err != nil {
 		return result, err
 	}
 	stop := c.ShowProgress("Checking migrations")
@@ -168,13 +168,16 @@ func (o *options) migrateApply(
 	result.Warnings = append(result.Warnings, operation.WarnAll(locations.Notes...)...)
 	result.Warnings = append(result.Warnings, plan.Warnings...)
 	result.PlanDigest = plan.Digest()
-	if err = operation.CheckApproval(o.approvePlan, result.PlanDigest); err != nil {
+	if err = operation.CheckApproval(
+		o.approvePlan,
+		result.PlanDigest,
+		replan(cmd, c)...); err != nil {
 		return result, err
 	}
 	if len(plan.Effects) == 0 {
 		return migrateShown(result, plan, findings)
 	}
-	consent := consentFor(o, o.approvePlan)
+	consent := consentFor(cmd, c, o, o.approvePlan)
 	if o.yes {
 		consent.ApprovedDigest = result.PlanDigest
 		if !o.json {

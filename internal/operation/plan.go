@@ -208,14 +208,16 @@ func (p Plan) Digest() string {
 }
 
 // CheckApproval refuses an approved digest that is not digest, the current
-// plan's; with nothing approved there is nothing to refuse.
-func CheckApproval(approved, digest string) error {
+// plan's, with replan, the commands that make and approve a new plan (see
+// [Consent]), as its fix lines; with nothing approved there is nothing to
+// refuse.
+func CheckApproval(approved, digest string, replan ...Part) error {
 	if approved != "" && approved != digest {
 		return Fail(
 			ExitConflict,
 			"plan",
 			"The approved digest does not match the current plan",
-			FixText("review a new plan"),
+			replan...,
 		)
 	}
 	return nil
@@ -227,6 +229,10 @@ type Consent struct {
 	ApprovedDigest string
 	NonInteractive bool
 	CompleteInputs bool
+	// Replan is the commands that make and approve a new plan of the same
+	// run, the fix lines of a refusal of a plan nobody approved and of an
+	// approval that no longer matches.
+	Replan []Part
 	// Confirm must display the same plan and only prompt on an actual terminal,
 	// and give up with ctx's error when ctx ends. JSON/noninteractive callers
 	// leave it nil.
@@ -328,18 +334,12 @@ func WithMutation(
 		return Fail(ExitConflict, "scope", "Plan does not match the selected scope")
 	}
 	digest := displayed.Digest()
-	if err := CheckApproval(consent.ApprovedDigest, digest); err != nil {
+	if err := CheckApproval(consent.ApprovedDigest, digest, consent.Replan...); err != nil {
 		return err
 	}
 	if consent.ApprovedDigest == "" {
 		if consent.NonInteractive || consent.Confirm == nil {
-			return Fail(
-				ExitBlocked,
-				"consent",
-				"Nothing approved this plan",
-				FixText("approve it at a terminal"),
-				FixText("or pass the displayed plan digest to --approve-plan"),
-			)
+			return Fail(ExitBlocked, "consent", "Nothing approved this plan", consent.Replan...)
 		}
 		accepted, err := consent.Confirm(ctx, displayed, digest)
 		if err != nil {
@@ -370,12 +370,7 @@ func WithMutation(
 	}
 	currentDigest := current.Digest()
 	if currentDigest != digest {
-		return Fail(
-			ExitConflict,
-			"plan",
-			"Inputs changed after approval",
-			FixText("review a new plan"),
-		)
+		return Fail(ExitConflict, "plan", "Inputs changed after approval", consent.Replan...)
 	}
 	m := &Mutation{context: c, active: true}
 	defer func() { m.active = false }()

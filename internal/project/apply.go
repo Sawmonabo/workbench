@@ -58,7 +58,7 @@ func Apply(
 						operation.ExitConflict,
 						"project_conflict",
 						"The project changed while uv resolved its dependencies",
-						operation.FixText("review a new plan"),
+						consent.Replan...,
 					)
 				}
 			}

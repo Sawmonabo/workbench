@@ -20,7 +20,7 @@ func TestAgentApplyIsRefusedBeforeSetup(t *testing.T) {
 		"--yes":      {yes: true},
 		"bare apply": {},
 	} {
-		if got := operation.ExitCode(checkApply(o)); got != operation.ExitBlocked {
+		if got := operation.ExitCode(checkApply(o, nil)); got != operation.ExitBlocked {
 			t.Errorf("agent running apply %s exited %d, want %d", name, got, operation.ExitBlocked)
 		}
 	}

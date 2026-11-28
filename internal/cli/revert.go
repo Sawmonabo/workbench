@@ -96,7 +96,7 @@ func (o *options) recoveryCommand(
 				c:        c,
 				plan:     plan,
 				selector: selector,
-				consent:  consentFor(o, o.approvePlan),
+				consent:  consentFor(cmd, c, o, o.approvePlan),
 				result:   result,
 			})
 		},

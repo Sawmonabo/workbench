@@ -171,7 +171,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 				result.Results[0].Status = operation.StatusUnchanged
 				return result, nil
 			}
-			consent := consentFor(o, o.approvePlan)
+			consent := consentFor(cmd, c, o, o.approvePlan)
 			consent.CompleteInputs = proposal.Plan.Complete
 			c.ReadOnly = false
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)

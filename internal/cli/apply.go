@@ -46,7 +46,7 @@ func applyCommand(o *options) *cobra.Command {
 				if dryRun, _ := cmd.Flags().GetBool("dry-run"); dryRun {
 					return machinePlan(cmd, c, o)
 				}
-				if err := checkApply(o); err != nil {
+				if err := checkApply(o, replan(cmd, c)); err != nil {
 					return operation.NewResult(cmd.CommandPath()), err
 				}
 				c.ReadOnly = false
@@ -91,8 +91,9 @@ func applyCommand(o *options) *cobra.Command {
 // touches no machine.toml. Flags that contradict each other are an invalid
 // invocation (exit 2), and [checkConsent] then refuses a run nobody approved.
 // --reset forgets the saved choices, so --yes would turn every step the owner
-// skipped back on and apply it unasked.
-func checkApply(o *options) error {
+// skipped back on and apply it unasked. replan is the run's new plan
+// commands (see [replan]).
+func checkApply(o *options, replan []operation.Part) error {
 	switch {
 	case o.reset && o.yes:
 		return operation.Fail(
@@ -125,7 +126,7 @@ func checkApply(o *options) error {
 	case o.choose && !operation.AgentSession() && !hasTerminal():
 		return operation.Fail(operation.ExitBlocked, "choose", "--choose needs a terminal")
 	}
-	return checkConsent(o, "apply")
+	return checkConsent(o, replan)
 }
 
 // needsChoice reports whether apply must show the checklist rather than apply
@@ -226,7 +227,7 @@ func applyMachine(
 			return result, plan, err
 		}
 	}
-	consent := consentFor(o, o.approvePlan)
+	consent := consentFor(cmd, c, o, o.approvePlan)
 	// checkApply already refused every run that is neither approved by digest,
 	// --yes nor at a person's terminal, so the cases below that ask, or apply
 	// the saved selection unasked, have a person to read the plan.
@@ -315,7 +316,7 @@ func approvedPlan(cmd *cobra.Command, c operation.Context, o *options) (operatio
 	if err != nil {
 		return plan, err
 	}
-	return plan, operation.CheckApproval(o.approvePlan, plan.Digest())
+	return plan, operation.CheckApproval(o.approvePlan, plan.Digest(), replan(cmd, c)...)
 }
 
 // refreshHomebrew refreshes Homebrew's package list before apply plans, so the
