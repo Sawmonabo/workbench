@@ -12,7 +12,8 @@ import (
 // [SettleUnfinished] settled: its ID and its scope's root, whether it is a
 // revert, whether its checkpoint is gone, so nothing of it could be checked,
 // how the root's folder is gone ([Unfinished.Removed]), and the paths of the
-// files the settling gave what they lacked.
+// files the settling gave what they lacked, apart from a new file that held
+// the label a file made in its folder gets.
 type Settled struct {
 	ID, Root string
 	Revert   bool
@@ -59,11 +60,14 @@ func SettleUnfinished(m *Mutation, u *Unfinished) (*Settled, error) {
 	cp.mutation = m
 	var first error
 	for _, t := range u.Targets {
-		if err := cp.settleTarget(t); err != nil {
+		changed, err := cp.settleTarget(t)
+		if err != nil {
 			first = cmp.Or(first, err)
 			continue
 		}
-		settled.Finished = append(settled.Finished, t.Path)
+		if changed {
+			settled.Finished = append(settled.Finished, t.Path)
+		}
 	}
 	if err := cp.observeSettled(u.unknown); err != nil {
 		return nil, err

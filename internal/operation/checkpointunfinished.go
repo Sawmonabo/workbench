@@ -54,10 +54,24 @@ type UnfinishedTarget struct {
 	Current, Settled Image
 	Lacks            []string
 	index            int
-	// newLabel is set when the file lacks the SELinux label a file made in
-	// its own folder gets, which only making one there tells (giveFolderLabel).
+	// newLabel is set for a file made at a target that held none, which holds
+	// a label: it may lack the SELinux label a file made in its own folder
+	// gets, which only making one there tells, so the settling compares the
+	// two (giveFolderLabel) and a plan says only that it may.
 	newLabel bool
 }
+
+// given names what settling t gives it, as a person reads it: what it
+// lacks, and the SELinux label a file made in its folder gets.
+func (t UnfinishedTarget) given() []string {
+	if t.newLabel && !slices.Contains(t.Lacks, labelName) {
+		return append(slices.Clone(t.Lacks), labelName)
+	}
+	return t.Lacks
+}
+
+// labelName names the SELinux label as a person reads it.
+const labelName = "SELinux label"
 
 // PlanUnfinished reads, in c's scope, the operation state records as
 // unfinished there, and what settling it does (see [Unfinished]); it returns
@@ -289,10 +303,18 @@ func (u *Unfinished) Note(c Context) Warning {
 		))
 	}
 	// One line for the files that lack the same, in the order the first of
-	// them comes in.
+	// them comes in, then one for the new files whose label only settling
+	// can compare with the one a file made in their folder gets.
 	var lacks []string
+	var labeled []string
 	paths := map[string][]string{}
 	for _, t := range u.Targets {
+		if t.newLabel {
+			labeled = append(labeled, t.Path)
+		}
+		if len(t.Lacks) == 0 {
+			continue
+		}
 		what := display.List(t.Lacks)
 		if paths[what] == nil {
 			lacks = append(lacks, what)
@@ -306,6 +328,13 @@ func (u *Unfinished) Note(c Context) Warning {
 			verb = " lack their "
 		}
 		parts = append(parts, Line{Label: "files", Text: shownPaths(c, files) + verb + what})
+	}
+	if len(labeled) > 0 {
+		verb := " is new, and may lack the SELinux label a file made in its folder gets"
+		if len(labeled) > 1 {
+			verb = " are new, and may lack the SELinux label a file made in their folder gets"
+		}
+		parts = append(parts, Line{Label: "files", Text: shownPaths(c, labeled) + verb})
 	}
 	if len(u.Missing) > 0 {
 		verb := " is not there"
@@ -329,9 +358,9 @@ type lacking struct {
 	// and setgid when a folder lacks the set-group-ID bit.
 	group, setgid bool
 	// label is the label a file or folder that replaced one of its kind had
-	// before, to put back (nativeLabel); newLabel is set for a file made
-	// where none was that holds a label, which gets the label a file made in
-	// its own folder gets (foreignLabel).
+	// before, to put back (nativeLabel); newLabel is set for a file made at
+	// a target that held none, which holds a label and may lack the label a
+	// file made in its own folder gets (foreignLabel): only settling tells.
 	label    []byte
 	newLabel bool
 	// attributes are the extended attributes it lacks, acl whether it lacks
@@ -395,7 +424,8 @@ func (l lacking) content() bool {
 	return l.none()
 }
 
-// names names what l lacks, as a person reads it.
+// names names what l lacks, as a person reads it: a label a new file may
+// lack is not known before settling (UnfinishedTarget.given).
 func (l lacking) names() []string {
 	var names []string
 	for _, lack := range []struct {
@@ -404,7 +434,7 @@ func (l lacking) names() []string {
 	}{
 		{l.group, "group"},
 		{l.setgid, "set-group-ID bit"},
-		{l.label != nil || l.newLabel, "SELinux label"},
+		{l.label != nil, labelName},
 		{l.acl, "ACL"},
 		{len(l.attributes) > 0, "extended attributes"},
 		{l.hidden, "hidden flag"},
