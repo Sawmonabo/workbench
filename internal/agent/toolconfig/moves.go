@@ -63,10 +63,13 @@ func ClaudeMove(home string) (Move, bool) {
 	return move, move.Source != "" || len(relative) > 0
 }
 
+// codexTitle is Codex's name as a [Move] names its tool.
+const codexTitle = "Codex"
+
 // CodexMove reports CODEX_HOME pointing Codex away from ~/.codex.
 func CodexMove(home string) (Move, bool) {
 	move := Move{
-		Tool:     "Codex",
+		Tool:     codexTitle,
 		Variable: "CODEX_HOME",
 		Source:   "the environment",
 		Dir:      CodexDir(home),

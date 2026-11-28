@@ -107,18 +107,17 @@ func agentHooks(home string) []operation.Component {
 			{"agent costs", costs.IngestHooks},
 			{"agent guard", guard.Hooks(tool.Name)},
 		}
-		var absent, idling []string
-		none, untrusted, skipped := true, false, false
+		var absent, idling, states []string
+		none := true
 		for _, group := range groups {
 			var missing, idle []string
 			for i, state := range tool.Hooks(home, group.hooks) {
+				states = append(states, state)
 				switch state {
 				case toolconfig.HookOK:
 				case toolconfig.HookMissing:
 					missing = append(missing, group.hooks[i].Event)
 				default:
-					untrusted = untrusted || state == toolconfig.HookUntrusted
-					skipped = skipped || state == toolconfig.HookSkipped
 					idle = append(idle, group.hooks[i].Event+" "+state)
 				}
 			}
@@ -158,37 +157,24 @@ func agentHooks(home string) []operation.Component {
 		case len(problems) > 0:
 			line.Message = tool.Title + " " + strings.Join(problems, " and ")
 		}
-		line.Message += hookFixes(home, tool, len(absent) > 0, untrusted, skipped)
+		line.Message += hookFixes(home, tool, states)
 		lines = append(lines, line)
 	}
 	return lines
 }
 
-// hookFixes is what the doctor line of tool's hooks adds on how to fix them:
-// the apply installs absent ones and, for Codex, trusts them, except in a
-// folder a variable moved, and a settings file Claude Code skips is named.
-func hookFixes(home string, tool costs.Tool, absent, untrusted, skipped bool) string {
+// hookFixes is what the doctor line of tool's hooks, in states, adds on how
+// to fix them: what the apply does about them (toolconfig.ApplyFixes; nothing
+// in a folder a variable moved, which doctor's own line for the move
+// explains), and a settings file Claude Code skips is named.
+func hookFixes(home string, tool costs.Tool, states []string) string {
 	var hint string
-	// Codex runs a hook only once it is recorded as trusted, which the
-	// apply does for the hooks it installs.
-	var fixes []string
-	if absent {
-		fixes = append(fixes, "installs")
-	}
-	if untrusted || (absent && tool.Name == "codex") {
-		fixes = append(fixes, "trusts")
-	}
-	// Workbench installs nothing in a folder a variable moved, which
-	// doctor's own line for the move explains.
-	moved := slices.ContainsFunc(toolconfig.Moves(home), func(m toolconfig.Move) bool {
-		return m.Tool == tool.Title && m.Source != ""
-	})
-	if len(fixes) > 0 && !moved {
+	if fixes := toolconfig.ApplyFixes(home, tool.Title, states); len(fixes) > 0 {
 		hint += "; workbench apply " + strings.Join(fixes, " and ") + " them"
 	}
 	// Claude Code skips a settings file with a setting it refuses, hooks
 	// and all, which no apply can fix: the apply keeps the user's settings.
-	if skipped {
+	if slices.Contains(states, toolconfig.HookSkipped) {
 		hint += "; Claude Code skips " + display.Path(toolconfig.ClaudeUserSettings(home)) +
 			" for a setting it refuses, so fix that setting"
 	}

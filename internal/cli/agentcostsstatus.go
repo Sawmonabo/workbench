@@ -120,18 +120,17 @@ func costsStatus(info costs.StatusInfo, width int) string {
 }
 
 // hookStates is a tool's ingest hook state for each session event, with the
-// command that installs or trusts them when the tool reads the folder
-// Workbench installs them in.
+// command that installs or trusts them when it does something about them
+// (toolconfig.ApplyFixes).
 func hookStates(tool costs.ToolStatus) string {
-	var hooks []string
-	fixable := false
+	var hooks, states []string
 	for _, event := range []string{"SessionStart", "SessionEnd"} {
 		state := cmp.Or(tool.Hooks[event], toolconfig.HookMissing)
-		fixable = fixable || state == toolconfig.HookMissing || state == toolconfig.HookUntrusted
+		states = append(states, state)
 		hooks = append(hooks, event+" "+state)
 	}
 	line := strings.Join(hooks, ", ")
-	if fixable && (tool.ConfigMove == nil || tool.ConfigMove.Source == "") {
+	if len(toolconfig.ApplyFixes(display.Home(), tool.Title, states)) > 0 {
 		line += " (workbench apply)"
 	}
 	return line
