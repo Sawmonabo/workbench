@@ -638,11 +638,28 @@ synthetic answers.
     apply replaced with a file, gave the file none of them, as only a
     replacement of the same kind carries them, and revert put the link back
     with all three. Killed (`SIGKILL`) right after chezmoi replaced `.zshrc`,
-    the apply left chezmoi's file with no entry and no `user.*` attribute;
-    revert restored the earlier file with its entry, attribute and flag. A
-    rerun of the apply after the kill instead found nothing to change and
-    settled it, leaving chezmoi's file without the three; revert of the
-    killed apply's checkpoint then restored them.
+    the apply left chezmoi's `.zshrc` and `.gitconfig` with no entry, no
+    `user.*` attribute and no flag, and the files it wrote with group `wheel`
+    instead of `staff`; revert restored the earlier files with all three. A
+    rerun after the kill planned no file edits, gave both files the entry
+    (its hash), the attribute and the flag and every file it wrote group
+    `staff`, and named them (`Apply … did not finish earlier`, `Workbench
+    finished it`). The next plan listed no edit, and revert of the killed
+    apply's checkpoint put back the listing from before it (mode, group,
+    flags, ACL hash, attribute names). The same held with a test build killed
+    after chezmoi ran and partway through the pass. Killed before chezmoi
+    wrote, the rerun recorded that checkpoint as failed and applied anew.
+    With `.zshrc` edited in place after the kill, the plan's `run chgrp
+    staff` led to an apply refused with exit 5 (`~/dest/.zshrc lacks its
+    ACL, extended attributes and hidden flag`, fix `undo those changes`),
+    which kept the apply unfinished; once the edit was undone, the next apply
+    finished it and revert restored the listing. With the merged
+    `.config/git/ignore` edited, the apply was refused for its group alone
+    (fix `chgrp staff ~/dest/.config/git/ignore`); after that chgrp, the next
+    apply finished the rest. From a copy of the checkout that changes
+    `.zshrc`, the apply after the plan's chgrp gave `.zshrc` its metadata,
+    then refused with exit 4 (`~/dest/.zshrc changed after the plan was
+    made`, fix `plan again`); the next plan and apply wrote the change.
   - `.zshrc` linking to a file in a `git init` folder under the home, and to
     a file outside the home, planned (exit 0); the apply replaced the link
     with a file and left the linked file byte for byte as it was, and revert
@@ -678,7 +695,17 @@ synthetic answers.
     mask `chmod` sets for 0600; the next plan listed no edit, and revert put
     the earlier file back at 0640 with the earlier ACL and attribute (their
     hashes). Killed right after chezmoi replaced `.bashrc`, the apply left a
-    file with neither; revert restored both.
+    file with neither; revert restored both. In a destination of group
+    `team`, with the setgid bit, whose new files get that group, chezmoi's
+    `.bashrc` and `.gitconfig` had the user's own group and neither the ACL
+    entry nor the attribute. A rerun planned no file edits, gave both group
+    `team`, the entry (its hash) and the attribute, and named them. The next
+    plan listed no edit, and revert of the killed checkpoint put back the
+    earlier listing. The other kill points and follow-ups listed for the Mac
+    ended the same way, the in-place edit refused with `~/dest/.bashrc lacks
+    its ACL and extended attributes`. The merged file's edit led to no
+    refusal: its folder, without the setgid bit, gives a new file its
+    writer's group, which chezmoi's write has.
   - `.bashrc` linking outside the home, and each of the 14 files the plan
     creates made first as a link to its own file in a `git init` folder
     under the home: the apply replaced every link with a file, each linked
@@ -688,14 +715,19 @@ synthetic answers.
     run as root, which gave a file chezmoi creates a label by hand in its
     temporary folder, as an SELinux host gives it that folder's, saw the
     pass after chezmoi write the file anew in its own folder: a new inode,
-    without that label, since this kernel gives a new file none.
+    without that label, since this kernel gives a new file none. Killed
+    before that pass, the settling a rerun does gave the same created file a
+    new inode without the label, and a file it replaced back the label set
+    on it by hand.
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
-  as the fallback when none is settled). A zero-edit apply settles a recorded
-  unfinished apply; one recorded for another destination blocks any apply, and
-  an incomplete checkpoint of the same destination does not block a later
-  apply. (target; the fixed step, the fallback and the unblocked later apply
-  are not yet observed on a real host)
+  as the fallback when none is settled). Every apply, a zero-edit one too,
+  first finishes a recorded unfinished apply of its destination, as observed
+  above in disposable homes; one recorded for another destination blocks any
+  apply, and an incomplete checkpoint of the same destination blocks a later
+  apply only while one of its files lacks what its approved image holds.
+  (target; the fixed step, the fallback and the later apply past an
+  incomplete checkpoint are not yet observed on a real host)
 
 ### Linux
 
