@@ -10,8 +10,6 @@ type Observation struct {
 	Cost   float64
 }
 
-// ---------------------------------------------------------------- calibration
-
 // calibrated solves rates from each tool's own (tokens, cost) pairs: at least
 // four observations of a model, a non-negative solution and a residual under
 // five percent of the observed cost. A field whose token column carries under

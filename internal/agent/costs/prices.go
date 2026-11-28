@@ -26,8 +26,6 @@ const (
 	pageLimit    = 16 << 20 // the largest price page read; a longer one fails
 )
 
-// ---------------------------------------------------------------- official card
-
 // officialFile is one tool's official price list: its rows by model prefix
 // and rate field, the page it came from, when it was downloaded and when the
 // page was last asked (seconds since the epoch), and the page's validators.
