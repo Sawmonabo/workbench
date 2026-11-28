@@ -178,19 +178,7 @@ func projectApplyCommand(o *options) *cobra.Command {
 			checkpoint, err := project.Apply(cmd.Context(), c, proposal, options, consent)
 			result.OperationID = checkpoint
 			if err == nil {
-				result.Summary = "Configured the project at " + c.ShowPath(c.Scope.Root)
-				if hooks := proposal.HooksFile(); hooks != "" {
-					result.Body = operation.Explain(
-						operation.Line{
-							Label: "hooks",
-							Text: "lefthook install turns on the Git hooks in " +
-								c.ShowPath(hooks) + ", once per clone",
-						},
-						operation.NextText(
-							"cd "+c.ShellPath(filepath.Dir(hooks))+" && lefthook install",
-						),
-					)
-				}
+				result.Summary, result.Body = configured(c, proposal.HooksFile())
 			}
 			outcome := operation.Component{
 				Name:   "project-configuration",
@@ -202,6 +190,24 @@ func projectApplyCommand(o *options) *cobra.Command {
 		},
 	)
 	return command
+}
+
+// configured is the summary of a project apply: the project it configured
+// and, when it wrote hooks, the lefthook.yml, what lefthook install does in
+// each clone and the command that runs it there.
+func configured(c operation.Context, hooks string) (string, operation.Body) {
+	summary := "Configured the project at " + c.ShowPath(c.Scope.Root)
+	if hooks == "" {
+		return summary, operation.Body{}
+	}
+	return summary, operation.Explain(
+		operation.Line{
+			Label: "hooks",
+			Text: "lefthook install turns on the Git hooks in " +
+				c.ShowPath(hooks) + ", once per clone",
+		},
+		operation.NextText("cd "+c.ShellPath(filepath.Dir(hooks))+" && lefthook install"),
+	)
 }
 
 // projectApplyOptions reads project apply's optional-change flags.
