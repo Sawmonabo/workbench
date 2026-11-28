@@ -367,7 +367,7 @@ func reasonLines(reason string, body operation.Body, width int) []string {
 	if width <= 4 {
 		width = math.MaxInt
 	}
-	return headlineLines(width, true, "  ", reason, body)
+	return headlineLines(width, keepLong, true, "  ", reason, body)
 }
 
 // working is the working line: the phase, or the outcome at the end.

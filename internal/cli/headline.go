@@ -19,15 +19,17 @@ const fixLabel = "fix"
 // drawn, "" for none) and headline, wrapped to width under the headline's
 // text; then each labeled line and the fix lines, the first labeled fix,
 // indented bodyIndent with the labels in one column and each text wrapped
-// under its text, never under its label. The labels are faint where paint
-// colors.
+// under its text, never under its label, each line broken only between two
+// words (see fitWords) and a word wider than its line treated as long says.
+// The labels are faint where paint colors.
 func headlineLines(
 	width int,
+	long longWord,
 	paint painter,
 	mark, headline string,
 	body operation.Body,
 ) []string {
-	lines := hanging(mark, headline, width)
+	lines := hanging(mark, headline, width, long)
 	type row struct {
 		label, text string
 		command     bool
@@ -55,15 +57,16 @@ func headlineLines(
 			label = faint.Render(label)
 		}
 		if !r.command {
-			lines = append(lines, hanging(pad+label+"  ", r.text, width)...)
+			lines = append(lines, hanging(pad+label+"  ", r.text, width, long)...)
 			continue
 		}
-		lines = append(lines, fixCommandLines(pad+label+"  ", r.text, width)...)
+		lines = append(lines, fixCommandLines(pad+label+"  ", r.text, width, long)...)
 	}
 	return lines
 }
 
-// writeHeadline writes headlineLines to b.
+// writeHeadline writes headlineLines to b, for printed output, which keeps a
+// word wider than its line whole (keepLong).
 func writeHeadline(
 	b *strings.Builder,
 	width int,
@@ -71,7 +74,7 @@ func writeHeadline(
 	mark, headline string,
 	body operation.Body,
 ) {
-	for _, line := range headlineLines(width, paint, mark, headline, body) {
+	for _, line := range headlineLines(width, keepLong, paint, mark, headline, body) {
 		b.WriteString(line + "\n")
 	}
 }

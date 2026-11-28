@@ -164,10 +164,10 @@ func countOf(shown, total int) string {
 // runs, that their stops are only logged: for all of them, or for how many;
 // then what is wrong with the history (see historyWarning). With none of
 // these they are one blank line. Each is drawn as every headline with its
-// cause and fix is (see headlineLines), wrapped to the window, a fix line
-// only between the words a shell reads and a path in the state folder only
-// where it is wider than the window (see holdPaths); the dry-run texts fit
-// 60 columns, so the stop menu never covers a second line of them.
+// cause and fix is (see headlineLines), wrapped to the window between two
+// words only, a path whole, and a word wider than the window broken
+// (breakLong); the dry-run texts fit 60 columns, so the stop menu never
+// covers a second line of them.
 func (m *guardView) statusLines() []string {
 	var notes []operation.Warning
 	dry, commands := 0, len(m.snap.Commands)
@@ -193,30 +193,11 @@ func (m *guardView) statusLines() []string {
 	}
 	var lines []string
 	for _, note := range notes {
-		held := operation.Warning{Message: m.holdPaths(note.Message), Body: note.Body}
-		held.Lines = slices.Clone(note.Lines) // a note's lines may be shared
-		for i, line := range held.Lines {
-			held.Lines[i].Text = m.holdPaths(line.Text)
-		}
-		for _, line := range headlineLines(m.width, false, "", held.Message, held.Body) {
-			lines = append(lines, guardGold.Render(strings.ReplaceAll(line, nbsp, " ")))
+		for _, line := range headlineLines(m.width, breakLong, false, "", note.Message, note.Body) {
+			lines = append(lines, guardGold.Render(line))
 		}
 	}
 	return lines
-}
-
-// holdPaths is text with the spaces of the state folder's path in it, from
-// the home folder or in full, made ones the wrap never breaks at (see
-// keepQuoted), so a path in the guard folder, under ~/Library/Application
-// Support on a Mac, breaks only where it is wider than the window.
-func (m *guardView) holdPaths(text string) string {
-	if m.state == "" {
-		return text
-	}
-	for _, path := range []string{display.Path(m.state), m.state} {
-		text = strings.ReplaceAll(text, path, strings.ReplaceAll(path, " ", nbsp))
-	}
-	return text
 }
 
 // historyWarnings are what is wrong with the history at now (design rules 3

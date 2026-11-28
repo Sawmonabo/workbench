@@ -153,6 +153,16 @@ type planFrame struct {
 // and not under it.
 const sideBySide = 100
 
+// long is what the plan's notes do with a word wider than their line: the
+// live list is a full-screen frame, which breaks it; the static view and the
+// final frame are printed, which keep it whole.
+func (view planView) long() longWord {
+	if view.Interactive && !view.Done {
+		return breakLong
+	}
+	return keepLong
+}
+
 // writePlanView prints the plan view once, at the writer's width: --dry-run, the
 // machine-plan result component and, with applying, an apply that uses the
 // saved choices without asking.

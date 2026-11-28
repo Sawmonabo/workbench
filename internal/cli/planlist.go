@@ -345,7 +345,8 @@ func noteLines(plan operation.Plan, width int, view planView) []listLine {
 		}
 		out = append(out, listLine{}, listLine{Text: bold.Render(section.title)})
 		for _, note := range section.notes {
-			for _, line := range headlineLines(width, true, "  ", note.Message, note.Body) {
+			for _, line := range headlineLines(width, view.long(), true, "  ", note.Message,
+				note.Body) {
 				out = append(out, listLine{Text: line})
 			}
 		}
@@ -572,7 +573,7 @@ func planHeader(plan operation.Plan, width int, view planView) []string {
 		lines = append(lines, wrapLines(line, width, 0)...)
 	}
 	for _, warning := range plan.Warnings {
-		lines = append(lines, headlineLines(width, true, painter(true).warningMark(),
+		lines = append(lines, headlineLines(width, view.long(), true, painter(true).warningMark(),
 			warning.Message, warning.Body)...)
 	}
 	return lines
