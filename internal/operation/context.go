@@ -107,7 +107,13 @@ func Resolve(options Options) (Context, error) {
 	c := Context{ReadOnly: options.ReadOnly}
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return c, Fail(ExitInvalid, "input", "Cannot resolve the current user's home")
+		return c, Fail(
+			ExitInvalid,
+			"input",
+			"Cannot find your home folder",
+			Cause(err.Error()),
+			FixText("set HOME to your home folder"),
+		)
 	}
 	c.Home, err = ExistingDirectory(home)
 	if err != nil {
@@ -161,20 +167,30 @@ func Resolve(options Options) (Context, error) {
 		if markerErr != nil || !info.Mode().IsRegular() {
 			return c, Fail(ExitInvalid, "source", "Source must contain a regular .chezmoiroot file")
 		}
-		if Within(c.Native.Source, c.Native.Destination) ||
-			c.Native.Source == c.Native.Destination {
+		if Within(c.Native.Source, c.Native.Destination) {
+			where := " is in the source "
+			if c.Native.Source == c.Native.Destination {
+				where = " is the source "
+			}
 			return c, Fail(
 				ExitInvalid,
 				"scope",
-				"Destination must not alias or lie inside the source",
+				"The destination "+display.Path(c.Native.Destination)+where+
+					display.Path(c.Native.Source),
+				Cause("chezmoi would write what it applies into the files it reads it from"),
+				FixText("pass --destination a folder outside "+shellHomePath(c.Native.Source)),
 			)
 		}
-		for _, path := range c.Paths.All() {
+		for i, path := range c.Paths.All() {
 			if Within(c.Native.Source, path) || Within(path, c.Native.Source) {
+				name := runtimeNames[i]
 				return c, Fail(
 					ExitInvalid,
 					"scope",
-					"Source and Workbench runtime directories must not overlap",
+					"Workbench's "+strings.ToLower(name)+" folder "+display.Path(path)+
+						overlaps(path, c.Native.Source, "the source "),
+					Cause("Workbench keeps its own files apart from the source it applies"),
+					FixText("set WORKBENCH_"+name+"_DIR to a folder apart from it"),
 				)
 			}
 		}
@@ -253,10 +269,13 @@ func WithinResolved(root, path string) bool {
 		Within(root, path)
 }
 
+// runtimeNames name the folders of [Paths.All], in its order, as their
+// WORKBENCH_NAME_DIR variables do.
+var runtimeNames = []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}
+
 func runtimePaths(home string) (Paths, error) {
 	defaults := platform.RuntimeFolders(home)
-	names := []string{"CONFIG", "DATA", "STATE", "CACHE", "BIN"}
-	for i, name := range names {
+	for i, name := range runtimeNames {
 		value := os.Getenv("WORKBENCH_" + name + "_DIR")
 		if value == "" && i < 4 {
 			if base := os.Getenv("XDG_" + name + "_HOME"); filepath.IsAbs(base) {
@@ -418,18 +437,71 @@ func (c Context) ValidateTarget(path string) error {
 			}
 		}
 	}
-	for _, excluded := range []string{c.Native.Source, c.Paths.Config, c.Paths.Data, c.Paths.State, c.Paths.Cache} {
-		if excluded != "" && (Within(excluded, path) || Within(path, excluded)) {
-			return Fail(ExitInvalid, "scope", "Target overlaps source or Workbench runtime state")
+	if err := c.ownFilesRefusal(path); err != nil {
+		return err
+	}
+	// Leaf symlinks are images for the checkpoint owner to qualify. Ancestor
+	// symlinks still cannot redirect a managed target outside its scope.
+	if err := safeParents(filepath.Dir(path)); err != nil {
+		return err
+	}
+	return nil
+}
+
+// overlaps is what a headline that names path says of other, the noun
+// naming it: that path is it, or, when they differ, that path overlaps it,
+// named by its path too.
+func overlaps(path, other, noun string) string {
+	if path == other {
+		return " is " + strings.TrimSuffix(noun, " ")
+	}
+	return " overlaps " + noun + display.Path(other)
+}
+
+// ownFilesRefusal refuses the target path when it overlaps what Workbench
+// keeps for itself: its source, its config, data, state and cache folders,
+// and its entry point, also under another name.
+func (c Context) ownFilesRefusal(path string) error {
+	if c.Native.Source != "" &&
+		(Within(c.Native.Source, path) || Within(path, c.Native.Source)) {
+		return Fail(
+			ExitInvalid,
+			"scope",
+			display.Path(path)+overlaps(path, c.Native.Source, "the source "),
+			Cause("Workbench does not write the source it applies"),
+			FixText("move the source out of "+shellHomePath(path)),
+		)
+	}
+	for i, own := range c.Paths.All()[:4] {
+		if Within(own, path) || Within(path, own) {
+			name := runtimeNames[i]
+			return Fail(
+				ExitInvalid,
+				"scope",
+				display.Path(path)+
+					overlaps(path, own, "Workbench's "+strings.ToLower(name)+" folder "),
+				Cause("Workbench does not write its own files as a target"),
+				FixText("set WORKBENCH_"+name+"_DIR to a folder apart from it"),
+			)
 		}
 	}
 	entrypoint := c.Paths.Entrypoint()
+	ownEntry := func(headline string) error {
+		return Fail(
+			ExitInvalid,
+			"scope",
+			headline,
+			Cause("Workbench does not write its own entry point"),
+			FixText("set WORKBENCH_BIN_DIR to a folder apart from it"),
+		)
+	}
 	if Within(entrypoint, path) {
-		return Fail(ExitInvalid, "scope", "Target is the protected Workbench entry point")
+		return ownEntry(display.Path(path) + " is Workbench's entry point")
 	}
 	if entryInfo, entryErr := os.Stat(entrypoint); entryErr == nil {
 		if Within(path, entrypoint) {
-			return Fail(ExitInvalid, "scope", "Target contains the protected Workbench entry point")
+			return ownEntry(display.Path(path) + " holds Workbench's entry point " +
+				display.Path(entrypoint))
 		}
 		if targetInfo, targetErr := os.Stat(
 			path,
@@ -438,12 +510,16 @@ func (c Context) ValidateTarget(path string) error {
 			return c.entrypointAlias(path)
 		}
 	} else if !errors.Is(entryErr, fs.ErrNotExist) {
-		return Fail(ExitInvalid, "scope", "Cannot inspect protected Workbench entry point")
-	}
-	// Leaf symlinks are images for the checkpoint owner to qualify. Ancestor
-	// symlinks still cannot redirect a managed target outside its scope.
-	if err := safeParents(filepath.Dir(path)); err != nil {
-		return err
+		parts := unreachable(entrypoint, false, entryErr)
+		if parts == nil {
+			parts = []Part{Cause(causeAt(entrypoint, entryErr))}
+		}
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Cannot read Workbench's entry point "+display.Path(entrypoint),
+			parts...,
+		)
 	}
 	return nil
 }
