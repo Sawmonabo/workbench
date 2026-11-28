@@ -390,9 +390,9 @@ func readGoPins(c operation.Context) (goPins, error) {
 	}
 	pins.gitleaksSHA256 = versions.CI.Gitleaks[pins.gitleaks]
 	return pins, checkPins([]pinCheck{
-		{"linux_binaries.golangci-lint", pins.golangciLint, machine.ValidVersion},
+		{"linux_binaries.golangci-lint", pins.golangciLint, machine.IsPlainVersion},
 		{"linux_go_tools govulncheck", pins.govulncheck, goVersion.MatchString},
-		{"linux_binaries.gitleaks", pins.gitleaks, machine.ValidVersion},
+		{"linux_binaries.gitleaks", pins.gitleaks, machine.IsPlainVersion},
 		{
 			"project_ci.gitleaks_linux_x64_sha256 for gitleaks " + pins.gitleaks,
 			pins.gitleaksSHA256,

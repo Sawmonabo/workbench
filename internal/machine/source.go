@@ -143,7 +143,7 @@ func (r Requirements) validate() error {
 		{"management.tomlkit", r.Tomlkit},
 		{"mbx.version", r.Mbx.Version},
 	} {
-		if !ValidVersion(pin.version) {
+		if !IsPlainVersion(pin.version) {
 			return fmt.Errorf("%s %q is not a version such as 1.2.3", pin.name, pin.version)
 		}
 	}

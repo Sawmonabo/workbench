@@ -174,7 +174,7 @@ func pythonState(home, mode string, pins runtimePins) runtimeState {
 		if match := uvPython.FindStringSubmatch(entry.Name()); match != nil && entry.IsDir() {
 			installed = append(installed, match[1])
 			state.found = true
-			if state.have == "" || newerVersion(match[1], state.have) {
+			if state.have == "" || newerDotted(match[1], state.have) {
 				state.have = match[1]
 			}
 		}

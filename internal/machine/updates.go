@@ -372,7 +372,7 @@ func installedVersions(
 	for _, cask := range info.Casks {
 		for i := range updates {
 			if updates[i].cask && updates[i].name == cask.Token &&
-				newerVersion(cask.BundleShortVersion, updates[i].installed) {
+				newerDotted(cask.BundleShortVersion, updates[i].installed) {
 				updates[i].installed = cask.BundleShortVersion
 			}
 		}

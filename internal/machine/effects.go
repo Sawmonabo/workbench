@@ -123,7 +123,7 @@ func checkMbx(
 	switch {
 	case have == "":
 		line.Message = "in ~/.local/bin; its version cannot be read"
-	case ticked && newerVersion(pin.Version, have):
+	case ticked && newerDotted(pin.Version, have):
 		line.Status = operation.StatusPending
 		line.Message = "mbx " + have + " in ~/.local/bin (pinned " + pin.Version + "); workbench apply installs " +
 			pin.Version

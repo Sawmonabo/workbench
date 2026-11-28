@@ -120,10 +120,10 @@ func (p *preparation) claudeFloor(files map[string][]byte, answers Answers) stri
 	pins, err := agentPins(files)
 	pin, _ := pins[agents[i].pin].(string)
 	installed := p.agentInstalls[i].version
-	if err != nil || !ValidVersion(pin) || !ValidVersion(installed) {
+	if err != nil || !IsPlainVersion(pin) || !IsPlainVersion(installed) {
 		return ""
 	}
-	if newerVersion(pin, installed) {
+	if newerDotted(pin, installed) {
 		return installed
 	}
 	return pin
@@ -229,8 +229,8 @@ func (p *preparation) planAgentUpdates(
 // settings set, for which the installer reports success and installs nothing.
 func (p *preparation) claudeFloorAbove(home, target string) bool {
 	_, minimum := claudeUpdates(home)
-	if !ValidVersion(minimum) || !ValidVersion(target) ||
-		!newerVersion(minimum, target) {
+	if !IsPlainVersion(minimum) || !IsPlainVersion(target) ||
+		!newerDotted(minimum, target) {
 		return false
 	}
 	p.Plan.Warnings = append(
@@ -249,7 +249,7 @@ func (p *preparation) planAgentUpdate(
 	install agentInstall,
 	target, channel string,
 ) {
-	newer, comparable := agentNewer(target, install.version)
+	newer, comparable := newerSemver(target, install.version)
 	if !comparable {
 		p.Plan.Warnings = append(
 			p.Plan.Warnings,
@@ -464,14 +464,14 @@ func nvmDefaultBin(home string) string {
 	best := ""
 	for _, entry := range entries {
 		version := strings.TrimPrefix(entry.Name(), "v")
-		if !ValidVersion(version) {
+		if !IsPlainVersion(version) {
 			continue
 		}
 		if want != "node" && want != "stable" && version != want &&
 			!strings.HasPrefix(version, want+".") {
 			continue
 		}
-		if best == "" || newerVersion(version, best) {
+		if best == "" || newerDotted(version, best) {
 			best = version
 		}
 	}
@@ -498,8 +498,8 @@ func claudeUpdates(home string) (channel, minimum string) {
 		if settings.Channel != "" {
 			channel = settings.Channel
 		}
-		if ValidVersion(settings.Minimum) &&
-			(minimum == "" || newerVersion(settings.Minimum, minimum)) {
+		if IsPlainVersion(settings.Minimum) &&
+			(minimum == "" || newerDotted(settings.Minimum, minimum)) {
 			minimum = settings.Minimum
 		}
 	}
