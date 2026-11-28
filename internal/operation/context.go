@@ -255,25 +255,13 @@ func runtimePaths(home string) (Paths, error) {
 		}
 		if info, err := os.Lstat(value); err == nil {
 			if !info.IsDir() {
-				return Paths{}, Fail(
-					ExitInvalid,
-					"runtime_path",
-					display.Path(
-						value,
-					)+" is not a directory, so Workbench can't keep its files there",
-				)
+				return Paths{}, notFolderRefusal("runtime_path", value, info)
 			}
 			if err := owned(value, info); err != nil {
 				return Paths{}, err
 			}
 			if i < 4 && info.Mode().Perm()&0o077 != 0 {
-				return Paths{}, Fail(
-					ExitInvalid,
-					"permissions",
-					"Existing "+display.Path(
-						value,
-					)+" must be a private directory (mode 0700); it was not changed",
-				)
+				return Paths{}, folderModeRefusal(value, info.Mode())
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return Paths{}, Fail(

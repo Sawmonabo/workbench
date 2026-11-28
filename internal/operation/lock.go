@@ -9,6 +9,8 @@ import (
 	"slices"
 	"syscall"
 	"time"
+
+	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 type locks struct{ files []*os.File }
@@ -36,7 +38,11 @@ func acquireLocks(c Context) (*locks, error) {
 		f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR|syscall.O_NOFOLLOW, 0o600)
 		if err != nil {
 			result.close()
-			return nil, Fail(ExitBlocked, "lock", "Cannot open private operation lock")
+			return nil, Fail(
+				ExitBlocked,
+				"lock",
+				"Cannot open the lock file "+FileError(path, err).Error(),
+			)
 		}
 		result.files = append(result.files, f)
 		if err := checkPrivateFile(path); err != nil {
@@ -46,7 +52,11 @@ func acquireLocks(c Context) (*locks, error) {
 		if held, err := flockNonBlocking(f); held || err != nil {
 			result.close()
 			if err != nil {
-				return nil, Fail(ExitBlocked, "lock", "Cannot lock the private operation lock")
+				return nil, Fail(
+					ExitBlocked,
+					"lock",
+					"Cannot lock "+display.Path(path)+": "+err.Error(),
+				)
 			}
 			return nil, Fail(
 				ExitBlocked,

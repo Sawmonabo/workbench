@@ -3,9 +3,11 @@ package operation
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -103,17 +105,20 @@ func nativeOutput(c Context, change TargetChange) (Image, error) {
 	comparison := current
 	comparison.Group = change.After.Group
 	if !sameImageContent(comparison, change.After) {
+		shown := display.Path(change.Path)
 		return Image{}, Fail(
 			ExitPartial,
 			"native_image",
-			"Native output differs from the approved images; metadata was not changed",
+			shown+" differs from its approved image after native ran, so Workbench did not change its group or label",
 		)
 	}
 	if current.Kind == ImageSymlink && *current.Group != *change.After.Group {
 		return Image{}, Fail(
 			ExitBlocked,
 			"metadata",
-			"Native link group correction is unqualified; retained images require review",
+			display.Path(change.Path)+" is a link native gave group "+groupName(*current.Group)+
+				", not "+groupName(*change.After.Group)+
+				", and Workbench does not correct a link's group; retained images require review",
 		)
 	}
 	return current, nil
@@ -127,10 +132,11 @@ func correctNativeMetadata(c Context, change TargetChange, observed Image, label
 		return err
 	}
 	if !sameImage(current, observed) {
+		shown := display.Path(change.Path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			"Native target changed before group preservation; stop for review",
+			shown+" changed before Workbench gave it its group; stop for review",
 		)
 	}
 	return enforceNativeMetadata(c, change.Path, observed, *change.After.Group, label)
@@ -152,7 +158,11 @@ func CheckPreservable(
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Native group-exclusive permissions require separately qualified atomic ownership handling",
+			fmt.Sprintf(
+				"The configuration gives %s mode %04o, which lets its group do more than other users, and native's atomic write cannot yet give such a file its group safely",
+				display.Path(edit.Path),
+				after.Mode,
+			),
 		)
 	}
 	if after.Kind == ImageFile {
@@ -168,11 +178,7 @@ func CheckPreservable(
 		return err
 	}
 	if edit.Action != "remove" && before.Group != nil && *before.Group != group {
-		return Fail(
-			ExitBlocked,
-			"metadata",
-			"Native replacement cannot preserve this target's group ownership",
-		)
+		return groupChangeRefusal(edit.Path, *before.Group, group)
 	}
 	return nil
 }
@@ -265,6 +271,21 @@ func (cp *Checkpoint) Finish(runErr error) error {
 	return runErr
 }
 
+// outcomeRefusal is the failure of a write to path whose result cannot be
+// read back, with err, or differs from what Workbench wrote, with err nil.
+func outcomeRefusal(path string, err error) error {
+	shown := display.Path(path)
+	found := shown + " does not hold what Workbench wrote"
+	if err != nil {
+		found = "Workbench cannot read " + shown + " after writing it (" + err.Error() + ")"
+	}
+	return Fail(
+		ExitPartial,
+		"partial",
+		found+"; its outcome requires reconciliation, and retained images were preserved",
+	)
+}
+
 // Apply is the shared exact-write owner for project configuration and recovery.
 func (cp *Checkpoint) Apply(ctx context.Context) error { return cp.applyImages(ctx, false, false) }
 
@@ -338,18 +359,15 @@ func (cp *Checkpoint) applyImages(ctx context.Context, reverse, keepHeld bool) e
 			return Fail(
 				ExitPartial,
 				"partial",
-				"A target write did not complete; retained checkpoint requires reconciliation before retry",
+				"Workbench did not finish writing "+display.Path(change.Path)+": "+err.Error()+
+					"; retained checkpoint requires reconciliation before retry",
 			)
 		}
 		observed, err := ReadImage(cp.mutation.context, change.Path)
 		if err != nil || !sameImageContent(observed, desired) {
 			cp.journal.Status = JournalUnknown
 			_ = cp.saveJournal()
-			return Fail(
-				ExitPartial,
-				"partial",
-				"Target outcome requires reconciliation; retained images were preserved",
-			)
+			return outcomeRefusal(change.Path, err)
 		}
 		cp.journal.ObservedAttributes[i] = observed.Attributes
 		if !reverse && !cp.journal.RecoveryCreated {

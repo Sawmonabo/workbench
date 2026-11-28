@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 
 	"golang.org/x/sys/unix"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
@@ -37,12 +39,13 @@ func carriedAttributes() []string {
 	}
 }
 
-// fileMetadata refuses metadata a target Workbench replaces cannot carry: any
+// fileMetadata refuses metadata a target Workbench writes cannot carry: any
 // file flag a replacement would not have (all but platform.KeptFlags), the
 // flags that stop a replace among them, any ACL and, where ACLs are extended
-// attributes, any attribute but the label (attributeACL).
-func fileMetadata(fd int, path string) error {
-	return metadata(fd, path, platform.KeptFlags, targetFlags, noACL)
+// attributes, any attribute but the label (attributeACL). h is what the
+// target is to the write.
+func fileMetadata(fd int, path string, h holder) error {
+	return metadata(fd, path, h, platform.KeptFlags, noACL)
 }
 
 // containerMetadata is fileMetadata for a folder that holds Workbench's own
@@ -53,7 +56,7 @@ func fileMetadata(fd int, path string) error {
 // flag, which the checkpoint records only on a folder Workbench writes into.
 // Any attribute but the label still blocks where ACLs are extended attributes.
 func containerMetadata(fd int, path string) error {
-	return metadata(fd, path, platform.FolderFlags&^platform.HiddenFlag, targetFlags, folderACL)
+	return metadata(fd, path, changedFolder, platform.FolderFlags&^platform.HiddenFlag, folderACL)
 }
 
 // parentMetadata admits the folder a target is written into. Workbench adds,
@@ -66,46 +69,57 @@ func containerMetadata(fd int, path string) error {
 // Where ACLs are extended attributes, any attribute there but the label
 // blocks planning, as on a target.
 func parentMetadata(fd int, path string) error {
-	return metadata(
-		fd,
-		path,
-		platform.FolderFlags,
-		"Target folder filesystem flags cannot be preserved",
-		folderACL,
-	)
+	return metadata(fd, path, parentFolder, platform.FolderFlags, folderACL)
 }
 
-// targetFlags is metadata's refusal of a target's flags.
-const targetFlags = "Target filesystem flags cannot be preserved"
-
 // metadata refuses fd at path off a native file system, with a flag outside
-// kept, whose refusal is flagRefusal, or with an attribute or ACL its system
-// cannot carry, as acl judges the ACL.
+// kept, or with an attribute or ACL its system cannot carry, as acl judges
+// the ACL; h is what path is to the write, which says why.
 func metadata(
 	fd int,
 	path string,
+	h holder,
 	kept uint32,
-	flagRefusal string,
-	acl func([]platform.ACE, bool, error) error,
+	acl func(string, holder, []platform.ACE, bool, error) error,
 ) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if flags, err := platform.FileFlags(fd, ""); err != nil || flags&^kept != 0 {
-		return Fail(ExitBlocked, "metadata", flagRefusal)
-	}
-	if err := attributeACL(fd, "", targetAttributes); err != nil {
+	if err := checkFlags(path, h, kept)(platform.FileFlags(fd, "")); err != nil {
 		return err
 	}
-	return acl(targetACL(fd, ""))
+	if err := attributeACL(fd, path, h); err != nil {
+		return err
+	}
+	entries, present, err := targetACL(fd, path, false)
+	return acl(path, h, entries, present, err)
+}
+
+// checkFlags refuses path, as h says, when its flags cannot be read or hold
+// one outside kept.
+func checkFlags(path string, h holder, kept uint32) func(uint32, error) error {
+	return func(flags uint32, err error) error {
+		if err != nil {
+			return Fail(
+				ExitBlocked,
+				"metadata",
+				"Cannot read the file flags of "+display.Path(path)+": "+err.Error(),
+			)
+		}
+		if flags&^kept != 0 {
+			return flagRefusal(path, flags&^kept, h)
+		}
+		return nil
+	}
 }
 
 // folderACL admits the ACL of a folder whose own entries Workbench leaves
 // alone: no entry may pass to new entries or deny adding or removing them.
 // macOS puts one admitted entry, "group:everyone deny delete", on the home
 // folder and its standard folders such as ~/Library; it only stops the folder
-// itself from being deleted.
-func folderACL(entries []platform.ACE, _ bool, err error) error {
+// itself from being deleted. A refusal names the entry by its number in
+// ls -le, which chmod -a# removes.
+func folderACL(path string, _ holder, entries []platform.ACE, _ bool, err error) error {
 	if err != nil {
 		return err
 	}
@@ -115,12 +129,18 @@ func folderACL(entries []platform.ACE, _ bool, err error) error {
 		deny         = 2                  // KAUTH_ACE_DENY
 		childChanges = 1<<2 | 1<<5 | 1<<6 // KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY, DELETE_CHILD
 	)
-	for _, entry := range entries {
-		if entry.Flags&inherits != 0 || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
+	for i, entry := range entries {
+		inherited := entry.Flags&inherits != 0
+		if inherited || entry.Flags&kind == deny && entry.Rights&childChanges != 0 {
+			cause := "that denies adding or removing files in it, so Workbench cannot write there"
+			if inherited {
+				cause = "that files and folders made in it inherit, so a file Workbench writes there would have an ACL"
+			}
 			return Fail(
 				ExitBlocked,
 				"metadata",
-				"Target folder ACL passes to new entries or denies changing them",
+				display.Path(path)+" has an ACL entry "+cause+
+					retry([]string{"chmod", "-a#", strconv.Itoa(i)}, path),
 			)
 		}
 	}
@@ -132,64 +152,79 @@ func linkMetadata(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if flags, err := platform.FileFlags(-1, path); err != nil || flags&^platform.KeptFlags != 0 {
-		return Fail(ExitBlocked, "metadata", "Target link flags cannot be preserved")
-	}
-	if err := attributeACL(
-		-1,
+	if err := checkFlags(
 		path,
-		"Links with extended attributes or unverified ACLs cannot be preserved",
+		replacedFile,
+		platform.KeptFlags,
+	)(
+		platform.FileFlags(-1, path),
 	); err != nil {
 		return err
 	}
-	return noACL(targetACL(-1, path))
+	if err := attributeACL(-1, path, replacedFile); err != nil {
+		return err
+	}
+	entries, present, err := targetACL(-1, path, true)
+	return noACL(path, replacedFile, entries, present, err)
 }
 
-// noACL rejects any ACL, even an empty one, on a target Workbench replaces:
-// the replacement would not carry it.
-func noACL(_ []platform.ACE, present bool, err error) error {
+// noACL rejects any ACL, even an empty one, on a target Workbench writes:
+// the replacement would not carry it, nor would revert put it back on a
+// folder. chmod -N removes it.
+func noACL(path string, h holder, _ []platform.ACE, present bool, err error) error {
 	if err == nil && present {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Targets with ACLs require reviewed preservation support",
+			display.Path(path)+" has an ACL, "+h.lost()+retry([]string{"chmod", "-N"}, path),
 		)
 	}
 	return err
 }
 
-// targetACL reads the ACL of fd, or of path when it is not empty, failing
+// targetACL reads the ACL of fd, or of path itself when byPath, failing
 // closed when it cannot be read or its layout is unknown.
-func targetACL(fd int, path string) ([]platform.ACE, bool, error) {
-	entries, present, err := platform.FileSecurity(fd, path)
+func targetACL(fd int, path string, byPath bool) ([]platform.ACE, bool, error) {
+	selector := ""
+	if byPath {
+		fd, selector = -1, path
+	}
+	entries, present, err := platform.FileSecurity(fd, selector)
 	switch {
 	case errors.Is(err, platform.ErrUnsupportedACL):
-		return nil, false, Fail(ExitBlocked, "metadata", "Unsupported target ACL metadata")
+		shown := display.Path(path)
+		return nil, false, Fail(
+			ExitBlocked,
+			"metadata",
+			shown+" has an ACL in a form Workbench does not read,"+
+				" so it cannot tell what the ACL allows"+retry([]string{"chmod", "-N"}, path),
+		)
 	case err != nil:
-		return nil, false, Fail(ExitBlocked, "metadata", "Cannot verify target ACL semantics")
+		return nil, false, Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot read the ACL of "+display.Path(path)+": "+err.Error(),
+		)
 	}
 	return entries, present, nil
 }
-
-// targetAttributes is attributeACL's refusal for a target or its folder.
-const targetAttributes = "Targets with extended attributes or unverified ACLs cannot be preserved"
 
 // attributeACL refuses, where ACLs are extended attributes
 // (platform.ACLsAreAttributes), fd, or path itself when fd is negative, when it
 // has an extended attribute images do not carry, or its names cannot be read:
 // FileSecurity sees no ACL there, and an ACL is such an attribute. The label
-// alone passes, by its exact name. refusal is the blocked error's message.
-func attributeACL(fd int, path, refusal string) error {
+// alone passes, by its exact name. h is what path is to the write.
+func attributeACL(fd int, path string, h holder) error {
 	if !platform.ACLsAreAttributes {
 		return nil
 	}
 	names, err := platform.ExtendedAttributeNames(fd, path)
 	if err != nil {
-		return Fail(ExitBlocked, "metadata", refusal)
+		return attributeReadError(path, "", err)
 	}
 	for _, name := range names {
 		if !slices.Contains(preservedAttributes, name) {
-			return Fail(ExitBlocked, "metadata", refusal)
+			return attributeRefusal(path, name, h)
 		}
 	}
 	return nil
@@ -241,7 +276,7 @@ func carryLabel(fd int, path string, current map[string][]byte, desired []byte) 
 	return err
 }
 
-func readImageAttributes(fd int, path string) (map[string][]byte, error) {
+func readImageAttributes(fd int, path string, h holder) (map[string][]byte, error) {
 	var names [4096]byte
 	var n int
 	var err error
@@ -250,12 +285,16 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 	} else {
 		n, err = unix.Flistxattr(fd, names[:])
 	}
-	if err != nil {
+	if errors.Is(err, unix.ERANGE) {
 		return nil, Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot inspect bounded target extended attributes",
+			"The names of the extended attributes of "+display.Path(path)+" take more than the "+
+				display.Limit(int64(len(names)))+" Workbench reads",
 		)
+	}
+	if err != nil {
+		return nil, attributeReadError(path, "", err)
 	}
 	attributes := map[string][]byte{}
 	for name := range strings.SplitSeq(string(names[:n]), "\x00") {
@@ -263,11 +302,7 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 			continue
 		}
 		if !slices.Contains(preservedAttributes, name) {
-			return nil, Fail(
-				ExitBlocked,
-				"metadata",
-				"Target extended attributes require preservation support",
-			)
+			return nil, attributeRefusal(path, name, h)
 		}
 		var data [4096]byte
 		if fd < 0 {
@@ -275,12 +310,17 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 		} else {
 			n, err = unix.Fgetxattr(fd, name, data[:])
 		}
-		if err != nil {
+		if errors.Is(err, unix.ERANGE) {
+			what := shellWord(name) + " of " + display.Path(path)
 			return nil, Fail(
 				ExitBlocked,
 				"metadata",
-				"Cannot read bounded target extended attribute",
+				"The extended attribute "+what+" is larger than the "+
+					display.Limit(int64(len(data)))+" Workbench keeps",
 			)
+		}
+		if err != nil {
+			return nil, attributeReadError(path, name, err)
 		}
 		attributes[name] = bytes.Clone(data[:n])
 	}
@@ -291,8 +331,8 @@ func readImageAttributes(fd int, path string) (map[string][]byte, error) {
 // exactly the attributes of an image, apart from the label: carryLabel writes
 // an image's label, and one the image lacks is left as the system gave it,
 // since SELinux lets no one remove a label.
-func writeImageAttributes(fd int, path string, attributes map[string][]byte) error {
-	existing, err := readImageAttributes(fd, path)
+func writeImageAttributes(fd int, path string, attributes map[string][]byte, h holder) error {
+	existing, err := readImageAttributes(fd, path, h)
 	if err != nil {
 		return err
 	}

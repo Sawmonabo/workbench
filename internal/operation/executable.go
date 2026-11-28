@@ -2,6 +2,7 @@ package operation
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -29,7 +30,8 @@ func FindExecutable(name, searchPath string, excluded []string) (string, error) 
 	return "", Fail(
 		ExitBlocked,
 		"dependency",
-		"Required executable was not found outside project-controlled PATH entries",
+		"No "+shellWord(name)+" on PATH outside project folders"+
+			" is a program that other users cannot change",
 	)
 }
 
@@ -39,7 +41,11 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 	}
 	canonical, err := filepath.EvalSymlinks(path)
 	if err != nil {
-		return "", Fail(ExitBlocked, "dependency", "Selected executable is unavailable")
+		return "", Fail(
+			ExitBlocked,
+			"dependency",
+			"Cannot find the program "+FileError(path, err).Error(),
+		)
 	}
 	for _, candidate := range []string{path, canonical} {
 		if err := outsideProjects(filepath.Dir(candidate), excluded); err != nil {
@@ -47,15 +53,46 @@ func trustedExecutable(path string, excluded []string) (string, error) {
 		}
 	}
 	info, err := os.Stat(canonical)
-	if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0o111 == 0 ||
-		info.Mode().Perm()&0o022 != 0 {
+	if err != nil {
 		return "", Fail(
 			ExitBlocked,
 			"tool",
-			"Selected executable must be a regular executable without group/other write access",
+			"Cannot read the program "+FileError(canonical, err).Error(),
 		)
 	}
+	if refusal := programRefusal(canonical, info); refusal != "" {
+		return "", Fail(ExitBlocked, "tool", refusal)
+	}
 	return canonical, nil
+}
+
+// programRefusal is why Workbench does not run the program at path, which
+// info describes, or empty when it does: it runs only a file marked
+// executable that no user but its owner can change.
+func programRefusal(path string, info os.FileInfo) string {
+	mode := info.Mode().Perm()
+	sudo := []string{}
+	if !ownedByUser(info) {
+		sudo = []string{"sudo"}
+	}
+	switch {
+	case !info.Mode().IsRegular():
+		return display.Path(path) + " is " + fileKind(info) + ", not a program Workbench can run"
+	case mode&0o111 == 0:
+		shown := fmt.Sprintf(
+			"%s is not marked executable (mode %04o)",
+			display.Path(path),
+			uint32(mode),
+		)
+		return shown + retry(append(sudo, "chmod", "+x"), path)
+	case mode&0o022 != 0:
+		return fmt.Sprintf(
+			"%s can be changed by other users (mode %04o), so Workbench does not run it",
+			display.Path(path),
+			uint32(mode),
+		) + retry(append(sudo, "chmod", "go-w"), path)
+	}
+	return ""
 }
 
 func outsideProjects(directory string, excluded []string) error {
@@ -64,7 +101,8 @@ func outsideProjects(directory string, excluded []string) error {
 			return Fail(
 				ExitBlocked,
 				"tool",
-				"Project-controlled management executable lookup is forbidden",
+				display.Path(directory)+" is in the project "+display.Path(root)+
+					", and Workbench does not run a project's own programs",
 			)
 		}
 	}
@@ -85,14 +123,15 @@ func outsideProjects(directory string, excluded []string) error {
 				return Fail(
 					ExitBlocked,
 					"tool",
-					"Project-controlled management executable lookup is forbidden because "+
-						display.Path(parent)+" contains "+marker,
+					display.Path(directory)+" is in a project, since "+display.Path(parent)+
+						" holds "+marker+", and Workbench does not run a project's own programs",
 				)
 			} else if !errors.Is(err, fs.ErrNotExist) {
 				return Fail(
 					ExitBlocked,
 					"tool",
-					"Cannot establish ownership of a management executable directory",
+					"Cannot read "+FileError(filepath.Join(parent, marker), err).Error()+
+						", so Workbench cannot tell whether "+display.Path(directory)+" is in a project",
 				)
 			}
 		}

@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"golang.org/x/sys/unix"
 )
@@ -24,7 +25,8 @@ func enforceNativeMetadata(
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Native group correction requires a regular file or directory",
+			display.Path(path)+" is "+imageKindName(observed.Kind)+
+				", and Workbench gives native's output its group only on a file or folder",
 		)
 	}
 	parent, name, err := imageParent(c, path)
@@ -53,7 +55,7 @@ func enforceNativeMetadata(
 		return Fail(
 			ExitPartial,
 			"native_image",
-			"Native target inode changed before group preservation",
+			display.Path(path)+" changed after native wrote it, before Workbench gave it its group",
 		)
 	}
 	current := Image{Kind: observed.Kind, Mode: uint32(stat.Mode) & 0o777}
@@ -62,7 +64,11 @@ func enforceNativeMetadata(
 	if err = c.openMetadata(fd, path, observed.Kind == ImageDirectory); err != nil {
 		return err
 	}
-	current.Attributes, err = readImageAttributes(fd, path)
+	current.Attributes, err = readImageAttributes(
+		fd,
+		path,
+		holderOf(observed.Kind == ImageDirectory),
+	)
 	if err != nil {
 		return err
 	}
@@ -73,10 +79,11 @@ func enforceNativeMetadata(
 		}
 	}
 	if !sameImage(current, observed) {
+		shown := display.Path(path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			"Native target differs from its verified image; group was not changed",
+			shown+" differs from what native wrote, so Workbench did not change its group",
 		)
 	}
 	if err = setImageGroup(fd, group); err != nil {
@@ -95,7 +102,12 @@ func enforceNativeMetadata(
 // non-directory.
 func writeDirectoryImage(fd int, name, path string, current, desired Image) error {
 	if current.Kind != ImageAbsent && current.Kind != ImageDirectory {
-		return Fail(ExitBlocked, "image", "Existing directory replacement is unsupported")
+		return Fail(
+			ExitBlocked,
+			"image",
+			display.Path(path)+" is "+imageKindName(current.Kind)+
+				", and Workbench does not replace it with a folder; move it aside and retry",
+		)
 	}
 	if current.Kind == ImageAbsent {
 		if err := unix.Mkdirat(fd, name, desired.Mode); err != nil {
@@ -107,7 +119,12 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 		return err
 	}
 	defer func() { _ = unix.Close(directoryFD) }()
-	if err = writeImageAttributes(directoryFD, path, desired.Attributes); err != nil {
+	if err = writeImageAttributes(
+		directoryFD,
+		path,
+		desired.Attributes,
+		changedFolder,
+	); err != nil {
 		return err
 	}
 	if err = setImageGroup(directoryFD, *desired.Group); err != nil {
@@ -133,7 +150,7 @@ func stageLinkImage(fd int, temporary, path string, desired Image) error {
 		}
 	}
 	link := filepath.Join(filepath.Dir(path), temporary)
-	return writeImageAttributes(-1, link, desired.Attributes)
+	return writeImageAttributes(-1, link, desired.Attributes, replacedFile)
 }
 
 // stageFileImage writes the desired bytes, group, mode and attributes to a new
@@ -153,7 +170,7 @@ func stageFileImage(fd int, temporary, path string, desired Image) error {
 		err = file.Chmod(os.FileMode(desired.Mode))
 	}
 	if err == nil {
-		err = writeImageAttributes(fileFD, path, desired.Attributes)
+		err = writeImageAttributes(fileFD, path, desired.Attributes, replacedFile)
 	}
 	if err == nil {
 		err = file.Sync()
@@ -176,7 +193,8 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return Fail(
 			ExitConflict,
 			"conflict",
-			"Target changed before its write; later edits were preserved",
+			display.Path(path)+" changed after the plan was made,"+
+				" so Workbench kept those edits and did not write it",
 		)
 	}
 	if sameImage(current, desired) {
@@ -205,7 +223,12 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return syncDirectory(parent)
 	}
 	if current.Kind == ImageDirectory {
-		return Fail(ExitBlocked, "image", "Directory replacement is unsupported")
+		return Fail(
+			ExitBlocked,
+			"image",
+			display.Path(path)+" is a folder, and Workbench does not replace a folder with "+
+				imageKindName(desired.Kind)+"; move it aside and retry",
+		)
 	}
 	id, err := NewID()
 	if err != nil {
@@ -227,7 +250,12 @@ func writeImage(c Context, path string, expected, desired Image) error {
 		return err
 	}
 	if !sameImage(current, expected) {
-		return Fail(ExitConflict, "conflict", "Target changed while preparing its replacement")
+		return Fail(
+			ExitConflict,
+			"conflict",
+			display.Path(path)+" changed while Workbench prepared its replacement,"+
+				" so Workbench kept those edits and did not write it",
+		)
 	}
 	if err = platform.RenameAt(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {
 		return err

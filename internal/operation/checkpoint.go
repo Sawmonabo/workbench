@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"golang.org/x/sys/unix"
 )
 
@@ -120,6 +121,36 @@ func scopeDigest(c Context) string {
 	return SHA256Hex([]byte(c.Scope.Kind + ":" + c.Scope.Root))
 }
 
+// ownFolderRefusal refuses a change to path, a folder that holds
+// Workbench's own files, whose image is not a folder other users cannot
+// write in: the image on disk, or the planned one when planned.
+func ownFolderRefusal(path string, image Image, planned bool) error {
+	shown := display.Path(path) + " holds Workbench's own files"
+	var message string
+	switch {
+	case planned && image.Kind != ImageDirectory:
+		message = shown + ", and the plan would replace or remove it, which would take those files with it"
+	case planned:
+		message = fmt.Sprintf(
+			"%s, and the plan would give it mode %04o, which lets other users write in it",
+			shown,
+			image.Mode,
+		)
+	case image.Kind == ImageAbsent:
+		message = display.Path(path) + ", where Workbench's own files go, does not exist"
+	case image.Kind != ImageDirectory:
+		message = shown + " but is " + imageKindName(image.Kind) + ", not a folder"
+	default:
+		message = fmt.Sprintf(
+			"%s, and its mode %04o lets other users write in it",
+			shown,
+			image.Mode,
+		)
+		message += retry([]string{"chmod", "go-w"}, path)
+	}
+	return Fail(ExitBlocked, "checkpoint", message)
+}
+
 func validateChanges(c Context, changes []TargetChange) error {
 	if len(changes) > MaxCheckpointTargets {
 		return Fail(ExitBlocked, "checkpoint", "Checkpoint permits at most 256 explicit targets")
@@ -138,13 +169,9 @@ func validateChanges(c Context, changes []TargetChange) error {
 			// A directory holding Workbench's own files may change only its
 			// mode, never to one other users can write: replacing or removing
 			// it would take Workbench's state and the user's files with it.
-			for _, image := range []Image{change.Before, change.After} {
+			for i, image := range []Image{change.Before, change.After} {
 				if image.Kind != ImageDirectory || image.Mode&0o022 != 0 {
-					return Fail(
-						ExitBlocked,
-						"checkpoint",
-						"A folder that holds Workbench's own files may change only its mode, to one other users cannot write",
-					)
+					return ownFolderRefusal(change.Path, image, i == 1)
 				}
 			}
 		}
@@ -162,11 +189,22 @@ func validateChanges(c Context, changes []TargetChange) error {
 		}
 		if change.Before.Kind == ImageDirectory && change.After.Kind != ImageAbsent &&
 			change.After.Kind != ImageDirectory {
-			return Fail(ExitBlocked, "checkpoint", "Existing directory replacement is unsupported")
+			shown := display.Path(change.Path)
+			return Fail(
+				ExitBlocked,
+				"checkpoint",
+				shown+" is a folder, and Workbench does not replace a folder with "+
+					imageKindName(change.After.Kind)+"; move it aside and retry",
+			)
 		}
 		if change.After.Kind == ImageDirectory && change.Before.Kind != ImageAbsent &&
 			change.Before.Kind != ImageDirectory {
-			return Fail(ExitBlocked, "checkpoint", "Directory replacement is unsupported")
+			return Fail(
+				ExitBlocked,
+				"checkpoint",
+				display.Path(change.Path)+" is "+imageKindName(change.Before.Kind)+
+					", and Workbench does not replace it with a folder; move it aside and retry",
+			)
 		}
 	}
 	if attributes > 16<<10 {
@@ -354,7 +392,12 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 			return err
 		}
 		if !sameImage(current, change.Before) {
-			return Fail(ExitConflict, "conflict", "Checkpoint target changed after preview")
+			shown := display.Path(change.Path)
+			return Fail(
+				ExitConflict,
+				"conflict",
+				shown+" changed after the plan was made, so nothing was written; plan again",
+			)
 		}
 	}
 	return preflightDirectories(c, changes, false)

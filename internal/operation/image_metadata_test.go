@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"golang.org/x/sys/unix"
@@ -190,5 +191,34 @@ func TestReplacementCarriesTheLabel(t *testing.T) {
 	if replaced.Ino == old.Ino || err != nil || string(got[:n]) != string(label) {
 		t.Fatalf("replacement (new inode: %v) has label %q (%v), want %q",
 			replaced.Ino != old.Ino, got[:max(n, 0)], err, label)
+	}
+}
+
+// Prevent credential exposure: an extended attribute can hold a secret, such
+// as a token a tool keeps beside a file, and a refusal is printed, logged and
+// returned in --json. A refusal of an attribute it cannot keep names the
+// attribute, so the person can remove it; if it ever quoted the value, the
+// secret would reach the terminal, logs and any caller reading the JSON.
+func TestAttributeRefusalNamesTheAttributeNotItsValue(t *testing.T) {
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := Context{Scope: Scope{Kind: "project", Root: root}}
+	file := filepath.Join(root, "file")
+	if err = os.WriteFile(file, []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	const name, secret = "user.workbench-test-token", "synthetic-secret-4f1c9a"
+	if err = unix.Setxattr(file, name, []byte(secret), 0); err != nil {
+		t.Skipf("cannot give the fixture an extended attribute here: %v", err)
+	}
+	_, err = ReadImage(c, file)
+	if Category(err) != "metadata" {
+		t.Fatalf("a file with the attribute %s was read as preservable: %v", name, err)
+	}
+	if message := err.Error(); !strings.Contains(message, name) ||
+		strings.Contains(message, secret) {
+		t.Fatalf("the refusal must name the attribute and never show its value: %s", message)
 	}
 }

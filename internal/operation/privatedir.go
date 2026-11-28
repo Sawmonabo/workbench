@@ -35,14 +35,11 @@ func privateDirectory(path string, create bool) error {
 	if err != nil {
 		return err
 	}
-	if !info.IsDir() || info.Mode().Perm() != 0o700 {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			"Existing "+display.Path(
-				path,
-			)+" must be a private directory (mode 0700); it was not changed",
-		)
+	if !info.IsDir() {
+		return notFolderRefusal("permissions", path, info)
+	}
+	if info.Mode().Perm() != 0o700 {
+		return folderModeRefusal(path, info.Mode())
 	}
 	return owned(path, info)
 }
@@ -140,30 +137,13 @@ func PrivateTree(root, target string, create bool) error {
 	for current := target; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
 		if err == nil {
-			if !info.IsDir() {
-				return Fail(
-					ExitInvalid,
-					"private_path",
-					"Private directory ancestry contains a link or non-directory",
-				)
-			}
-			if Within(root, current) {
-				if !ownedByUser(info) || info.Mode().Perm() != 0o700 {
-					return Fail(
-						ExitInvalid,
-						"permissions",
-						"Private runtime directories must be owned by this user with mode 0700",
-					)
-				}
+			if err = treeFolder(root, current, info); err != nil {
+				return err
 			}
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return err
 		} else if !create {
-			return Fail(
-				ExitBlocked,
-				"private_path",
-				"Required private runtime directory is absent",
-			)
+			return Fail(ExitBlocked, "private_path", display.Path(current)+" does not exist")
 		}
 		if current == filepath.Dir(current) {
 			break
@@ -174,6 +154,25 @@ func PrivateTree(root, target string, create bool) error {
 			return err
 		}
 		return os.MkdirAll(target, 0o700)
+	}
+	return nil
+}
+
+// treeFolder refuses current, a folder at or above a [PrivateTree] target
+// that info describes, unless it is a folder and, within root, this user's
+// with mode 0700.
+func treeFolder(root, current string, info os.FileInfo) error {
+	if !info.IsDir() {
+		return notFolderRefusal("private_path", current, info)
+	}
+	if !Within(root, current) {
+		return nil
+	}
+	if err := owned(current, info); err != nil {
+		return err
+	}
+	if info.Mode().Perm() != 0o700 {
+		return folderModeRefusal(current, info.Mode())
 	}
 	return nil
 }
@@ -293,14 +292,14 @@ func safeParents(path string) error {
 }
 
 func owned(path string, info os.FileInfo) error {
-	if !ownedByUser(info) {
-		return Fail(
-			ExitInvalid,
-			"permissions",
-			display.Path(path)+" must belong to the current user; it was not changed",
-		)
+	if ownedByUser(info) {
+		return nil
 	}
-	return nil
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok {
+		return Fail(ExitInvalid, "permissions", "Cannot tell who owns "+display.Path(path))
+	}
+	return Fail(ExitInvalid, "permissions", notYours(path, stat.Uid, false))
 }
 
 // ownedByUser reports whether info is of a file the current user owns.

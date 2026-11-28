@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"golang.org/x/sys/unix"
 )
 
@@ -57,40 +60,69 @@ func ImageDigest(image Image) string {
 }
 
 func (image Image) validate(c Context, path string) error {
-	if image.Mode > 0o777 || len(image.Data) > MaxImageBytes || len(image.Link) > 4096 {
+	shown := display.Path(path)
+	switch {
+	case image.Mode > 0o777:
 		return Fail(
 			ExitBlocked,
 			"image",
-			"Target image exceeds the supported byte or permission bounds",
+			fmt.Sprintf(
+				"An image of %s has mode %04o, beyond the 0777 an image keeps",
+				shown,
+				image.Mode,
+			),
+		)
+	case len(image.Data) > MaxImageBytes:
+		return Fail(
+			ExitBlocked,
+			"image",
+			"An image of "+shown+" holds more than the "+display.Limit(MaxImageBytes)+
+				" an image keeps of a file",
+		)
+	case len(image.Link) > 4096:
+		return Fail(
+			ExitBlocked,
+			"image",
+			"An image of "+shown+" links to a path longer than the 4096 bytes an image keeps",
 		)
 	}
 	if image.Kind != ImageAbsent {
 		if image.Group == nil {
-			return Fail(ExitInvalid, "image", "Present target image requires an explicit group")
+			return Fail(ExitInvalid, "image", "An image of "+shown+" has no group")
 		}
 	}
-	for name, value := range image.Attributes {
-		if !slices.Contains(preservedAttributes, name) || len(value) > 4096 ||
-			image.Kind == ImageAbsent {
-			return Fail(ExitBlocked, "metadata", "Unsupported target extended attributes")
+	if image.Kind == ImageAbsent && len(image.Attributes) > 0 {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"An image of "+shown+", which does not exist, holds extended attributes",
+		)
+	}
+	for _, name := range slices.Sorted(maps.Keys(image.Attributes)) {
+		held := "An image of " + shown + " holds the extended attribute " + shellWord(name)
+		switch {
+		case !slices.Contains(preservedAttributes, name):
+			return Fail(ExitBlocked, "metadata", held+", which images do not carry")
+		case len(image.Attributes[name]) > 4096:
+			return Fail(ExitBlocked, "metadata", held+", larger than the 4 KiB an image keeps")
 		}
 	}
 	switch image.Kind {
 	case ImageAbsent:
 		if image.Mode != 0 || len(image.Data) != 0 || image.Link != "" || image.Group != nil {
-			return Fail(ExitInvalid, "image", "Malformed absent image")
+			return Fail(ExitInvalid, "image", "Malformed absent image of "+shown)
 		}
 	case ImageFile:
 		if image.Link != "" {
-			return Fail(ExitInvalid, "image", "Malformed regular file image")
+			return Fail(ExitInvalid, "image", "Malformed regular file image of "+shown)
 		}
 	case ImageDirectory:
 		if len(image.Data) != 0 || image.Link != "" {
-			return Fail(ExitInvalid, "image", "Malformed directory image")
+			return Fail(ExitInvalid, "image", "Malformed directory image of "+shown)
 		}
 	case ImageSymlink:
 		if len(image.Data) != 0 || image.Link == "" || image.Mode != 0o777 {
-			return Fail(ExitInvalid, "image", "Malformed symbolic link image")
+			return Fail(ExitInvalid, "image", "Malformed symbolic link image of "+shown)
 		}
 		target := image.Link
 		if !filepath.IsAbs(target) {
@@ -98,18 +130,35 @@ func (image Image) validate(c Context, path string) error {
 		}
 		target = filepath.Clean(target)
 		if target == path {
-			return Fail(ExitBlocked, "image", "Self-referential target links are unsupported")
+			return Fail(
+				ExitBlocked,
+				"image",
+				shown+" is a link to itself, which Workbench does not keep; remove it or point it elsewhere, then retry",
+			)
 		}
 		if err := c.validateImagePath(target); err != nil {
-			return err
+			return linkTargetError(path, target, err)
 		}
 		if err := safeParents(target); err != nil {
-			return err
+			return linkTargetError(path, target, err)
 		}
 	default:
-		return Fail(ExitInvalid, "image", "Unknown target image type")
+		return Fail(ExitInvalid, "image", "Unknown image type for "+shown)
 	}
 	return nil
+}
+
+// linkTargetError is err, a refusal of target, which the link at path points
+// to, led by the link, so a person knows which file the refusal is about.
+func linkTargetError(path, target string, err error) error {
+	if problem, ok := errors.AsType[*Error](err); ok {
+		return Fail(
+			problem.Code,
+			problem.Category,
+			display.Path(path)+" links to "+display.Path(target)+": "+problem.Message,
+		)
+	}
+	return err
 }
 
 // Target parents are opened component by component without following links.
@@ -180,11 +229,7 @@ func ReadImage(c Context, path string) (Image, error) {
 		return Image{}, err
 	}
 	if int(stat.Uid) != os.Geteuid() || stat.Mode&0o7000 != 0 {
-		return Image{}, Fail(
-			ExitBlocked,
-			"metadata",
-			"Target ownership or special permissions cannot be preserved",
-		)
+		return Image{}, ownershipRefusal(path, stat.Uid, uint32(stat.Mode))
 	}
 	group := uint32(stat.Gid)
 	image := Image{Mode: uint32(stat.Mode) & 0o777, Group: &group}
@@ -193,23 +238,19 @@ func ReadImage(c Context, path string) (Image, error) {
 		data := make([]byte, 4097)
 		n, readErr := unix.Readlinkat(int(parent.Fd()), name, data)
 		if readErr != nil || n > 4096 {
-			return Image{}, Fail(ExitBlocked, "image", "Cannot capture target link")
+			return Image{}, linkReadRefusal(path, readErr)
 		}
 		image.Kind, image.Link = ImageSymlink, string(data[:n])
 		if err = linkMetadata(path); err != nil {
 			return Image{}, err
 		}
-		image.Attributes, err = readImageAttributes(-1, path)
+		image.Attributes, err = readImageAttributes(-1, path, replacedFile)
 		if err != nil {
 			return Image{}, err
 		}
 	case unix.S_IFREG, unix.S_IFDIR:
 		if stat.Mode&unix.S_IFMT == unix.S_IFREG && (stat.Nlink != 1 || stat.Size > MaxImageBytes) {
-			return Image{}, Fail(
-				ExitBlocked,
-				"image",
-				"Target has hard links or exceeds the 8 MiB image limit",
-			)
+			return Image{}, fileShapeRefusal(path, uint64(stat.Nlink))
 		}
 		fd, openErr := unix.Openat(
 			int(parent.Fd()),
@@ -227,16 +268,21 @@ func ReadImage(c Context, path string) (Image, error) {
 			return Image{}, err
 		}
 		if opened.Ino != stat.Ino || opened.Dev != stat.Dev {
-			return Image{}, Fail(ExitConflict, "conflict", "Target changed during image capture")
+			return Image{}, Fail(
+				ExitConflict,
+				"conflict",
+				display.Path(path)+" changed while Workbench read it; retry",
+			)
 		}
-		if err = c.openMetadata(fd, path, stat.Mode&unix.S_IFMT == unix.S_IFDIR); err != nil {
+		directory := stat.Mode&unix.S_IFMT == unix.S_IFDIR
+		if err = c.openMetadata(fd, path, directory); err != nil {
 			return Image{}, err
 		}
-		image.Attributes, err = readImageAttributes(fd, path)
+		image.Attributes, err = readImageAttributes(fd, path, holderOf(directory))
 		if err != nil {
 			return Image{}, err
 		}
-		if stat.Mode&unix.S_IFMT == unix.S_IFDIR {
+		if directory {
 			image.Kind = ImageDirectory
 		} else {
 			image.Kind = ImageFile
@@ -246,7 +292,7 @@ func ReadImage(c Context, path string) (Image, error) {
 			}
 		}
 	default:
-		return Image{}, Fail(ExitBlocked, "image", "Special filesystem targets are not supported")
+		return Image{}, specialFileRefusal(path, uint32(stat.Mode&unix.S_IFMT))
 	}
 	if err = image.validate(c, path); err != nil {
 		return Image{}, err
@@ -263,7 +309,7 @@ func (c Context) openMetadata(fd int, path string, directory bool) error {
 	if directory && c.isContainer(path) {
 		return containerMetadata(fd, path)
 	}
-	return fileMetadata(fd, path)
+	return fileMetadata(fd, path, holderOf(directory))
 }
 
 func sameImage(a, b Image) bool {

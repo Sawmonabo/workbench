@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/platform"
 	"golang.org/x/sys/unix"
 )
@@ -17,7 +18,7 @@ func validateImageGroup(c Context, path string, image Image) error {
 		return nil
 	}
 	if image.Group == nil {
-		return Fail(ExitInvalid, "image", "Missing target group")
+		return Fail(ExitInvalid, "image", "An image of "+display.Path(path)+" has no group")
 	}
 	permitted, err := canSetGroup(*image.Group)
 	if err != nil {
@@ -28,7 +29,13 @@ func validateImageGroup(c Context, path string, image Image) error {
 		permitted = inheritErr == nil && inherited == *image.Group
 	}
 	if !permitted {
-		return Fail(ExitBlocked, "metadata", "Target group cannot be preserved by the current user")
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			display.Path(path)+" has group "+groupName(*image.Group)+
+				", which you are not a member of, so a file Workbench writes in its place could not keep it"+
+				retry([]string{"chgrp", groupName(groupID(os.Getegid()))}, path),
+		)
 	}
 	return nil
 }
@@ -96,16 +103,27 @@ func creationParent(c Context, path string) (unix.Stat_t, error) {
 				return unix.Stat_t{}, Fail(
 					ExitBlocked,
 					"metadata",
-					"Cannot establish group inheritance through a non-directory",
+					display.Path(parent)+" is "+kindName(uint32(stat.Mode&unix.S_IFMT))+
+						", not a folder, so Workbench cannot make "+display.Path(path)+
+						" under it; move it aside and retry",
 				)
 			}
 			return stat, nil
 		}
-		if !errors.Is(err, unix.ENOENT) || parent == c.Scope.Root {
+		if !errors.Is(err, unix.ENOENT) {
 			return unix.Stat_t{}, Fail(
 				ExitBlocked,
 				"metadata",
-				"Cannot establish target group inheritance",
+				"Cannot read "+display.Path(parent)+" ("+err.Error()+
+					"), so Workbench cannot tell which group a new "+display.Path(path)+" gets",
+			)
+		}
+		if parent == c.Scope.Root {
+			return unix.Stat_t{}, Fail(
+				ExitBlocked,
+				"metadata",
+				display.Path(parent)+" does not exist, so Workbench cannot tell which group a new "+
+					display.Path(path)+" gets",
 			)
 		}
 	}
@@ -139,7 +157,11 @@ func checkStagedGroup(c Context, path, staging string) error {
 	}
 	var temporary unix.Stat_t
 	if err = unix.Stat(staging, &temporary); err != nil {
-		return Fail(ExitBlocked, "metadata", "Cannot inspect Workbench's temporary folder")
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot read Workbench's temporary folder "+display.Path(staging)+": "+err.Error(),
+		)
 	}
 	staged := inheritedGroup(temporary)
 	if temporary.Dev != parent.Dev || staged == group {
@@ -155,6 +177,16 @@ func checkStagedGroup(c Context, path, staging string) error {
 			c.ShowPath(path), groupName(staged), groupName(group), groupName(group),
 		),
 	)
+}
+
+// userName is the name of the user with ID uid, or its number when it has
+// none.
+func userName(uid uint32) string {
+	id := strconv.FormatUint(uint64(uid), 10)
+	if named, err := user.LookupId(id); err == nil {
+		return named.Username
+	}
+	return id
 }
 
 // groupName is the name of group, or its number when it has none.

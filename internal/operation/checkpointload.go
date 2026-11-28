@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/Sawmonabo/workbench/internal/display"
 )
 
 // LastApplied returns, for each target path in c's scope, the image the
@@ -181,13 +179,7 @@ func checkpointStorageBytes(directory string) (int64, error) {
 		}
 		if entry.IsDir() {
 			if info.Mode().Perm() != 0o700 {
-				return Fail(
-					ExitInvalid,
-					"permissions",
-					"Existing "+display.Path(
-						path,
-					)+" must be a private directory (mode 0700); it was not changed",
-				)
+				return folderModeRefusal(path, info.Mode())
 			}
 			return owned(path, info)
 		}

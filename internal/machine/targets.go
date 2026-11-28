@@ -252,7 +252,7 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 			operation.ExitBlocked,
 			"scope",
 			fmt.Sprintf(
-				"%s holds Workbench's own files, and revert could not restore its mode (%v); run chmod %04o %s to match the configuration, then retry",
+				"%s holds Workbench's own files, and revert could not restore its mode: %v; or run chmod %04o %s to match the configuration, then retry",
 				c.ShowPath(target),
 				err,
 				desired.Perm,
