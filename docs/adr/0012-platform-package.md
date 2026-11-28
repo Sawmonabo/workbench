@@ -72,6 +72,12 @@ every caller.
   change, all among the flags `FileFlags` reads (`chflags` flags on macOS,
   inode flags on Linux); `LabelAttribute` the extended attribute that holds a
   file's security label, among the names `ExtendedAttributeNames` lists;
+  `FlagNames` a file's flags as the system's listing names them (`ls -lO`,
+  `lsattr`), `ClearFlags` the `chflags` or `chattr` command that clears
+  them, after `sudo` where only root may, and `LockingFlags` the immutable
+  and append-only flags, under which no file replaces a file;
+  `AttributeRemoval` what an extended attribute is, where it has a name of
+  its own (an ACL, file capabilities), and the command that removes it;
   `TouchIDPossible` whether
   Touch ID for sudo can exist; `ReadsPasswords` whether `ReadPassword` reads
   a password at a terminal; `HostRelease` the release's name and version;
