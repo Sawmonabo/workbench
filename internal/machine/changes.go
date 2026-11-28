@@ -11,10 +11,11 @@ import (
 )
 
 // buildChanges records each edit's exact before image and the after image
-// native renders, refusing metadata the checkpoint owner cannot preserve. It
-// also gives each edit what the plan view shows: its plain title, whether it
-// is merged into or owned, whether an owned file was edited outside Workbench,
-// and the capped, redacted unified diff with its line counts.
+// native renders, refusing metadata the checkpoint owner cannot preserve, and
+// binds them as the plan's checkpoint-images input (bindImages). It also gives
+// each edit what the plan view shows: its plain title, whether it is merged
+// into or owned, whether an owned file was edited outside Workbench, and the
+// capped, redacted unified diff with its line counts.
 func (p *preparation) buildChanges(ctx context.Context, c operation.Context) error {
 	desired := p.desired
 	last, err := operation.LastApplied(c)
@@ -106,6 +107,17 @@ func (p *preparation) buildChanges(ctx context.Context, c operation.Context) err
 			operation.TargetChange{Path: edit.Path, Before: before, After: after},
 		)
 	}
+	return p.bindImages(c)
+}
+
+// bindImages binds the changes as the plan's checkpoint-images input once
+// they pass the checks the checkpoint makes of them.
+func (p *preparation) bindImages(c operation.Context) error {
+	images, err := operation.CheckpointImages(c, p.Changes)
+	if err != nil {
+		return err
+	}
+	p.Plan.Inputs = append(p.Plan.Inputs, images)
 	return nil
 }
 

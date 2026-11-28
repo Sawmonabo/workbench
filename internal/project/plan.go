@@ -487,10 +487,11 @@ func (p *Proposal) addResolution(
 // finish binds the proposed images and recovery terms into the plan and fails
 // while prerequisites remain.
 func (p *Proposal) finish(c operation.Context) error {
-	p.Plan.Inputs = append(
-		p.Plan.Inputs,
-		operation.Input{Name: "checkpoint-images", Digest: operation.ChangesDigest(p.Changes)},
-	)
+	images, err := operation.CheckpointImages(c, p.Changes)
+	if err != nil {
+		return err
+	}
+	p.Plan.Inputs = append(p.Plan.Inputs, images)
 	for _, change := range p.Changes {
 		p.Plan.Inputs = append(
 			p.Plan.Inputs,

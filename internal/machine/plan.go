@@ -159,13 +159,6 @@ func prepare(
 	if err = prepared.selectEffects(ctx, c, selection, shown); err != nil {
 		return prepared, err
 	}
-	plan.Inputs = append(
-		plan.Inputs,
-		operation.Input{
-			Name:   "checkpoint-images",
-			Digest: operation.ChangesDigest(prepared.Changes),
-		},
-	)
 	if len(prepared.Changes) > 0 {
 		retention, retentionErr := operation.RetentionEffect(c)
 		if retentionErr != nil {

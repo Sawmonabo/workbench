@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -110,6 +112,75 @@ type CheckpointSummary struct {
 func ChangesDigest(changes []TargetChange) string {
 	data, _ := json.Marshal(changes)
 	return SHA256Hex(data)
+}
+
+// CheckpointImages is the checkpoint-images input a plan binds for changes,
+// once they pass the checks BeginCheckpoint makes of them, so planning
+// refuses what applying the plan would refuse.
+func CheckpointImages(c Context, changes []TargetChange) (Input, error) {
+	if err := checkChanges(c, changes); err != nil {
+		return Input{}, err
+	}
+	return Input{Name: "checkpoint-images", Digest: ChangesDigest(changes)}, nil
+}
+
+// checkChanges is validateChanges for changes not yet checkpointed, which
+// also have to leave room in the journal (journalRoom).
+func checkChanges(c Context, changes []TargetChange) error {
+	if err := validateChanges(c, changes); err != nil {
+		return err
+	}
+	return journalRoom(changes)
+}
+
+// journalRoom refuses changes whose journal would not fit in the journalBytes
+// each of its two slots holds at its largest: every outcome unknown, a
+// recovery pair recorded, and each target's attributes, recorded as observed
+// and as written, those of its two images together, each value the longer.
+func journalRoom(changes []TargetChange) error {
+	largest := checkpointJournal{
+		SchemaVersion:      1,
+		Sequence:           math.MaxUint64,
+		OperationID:        strings.Repeat("0", 36),
+		Direction:          "forward",
+		Status:             JournalComplete,
+		Known:              make([]targetOutcome, len(changes)),
+		RecoveryCreated:    true,
+		PostAttributes:     make([]map[string][]byte, len(changes)),
+		PairPost:           make([]targetOutcome, len(changes)),
+		ObservedAttributes: make([]map[string][]byte, len(changes)),
+		Updated:            time.Date(9999, 12, 31, 23, 59, 59, 999999999, time.UTC),
+	}
+	for i, change := range changes {
+		attributes := maps.Clone(change.Before.Attributes)
+		for name, value := range change.After.Attributes {
+			if len(value) >= len(attributes[name]) {
+				if attributes == nil {
+					attributes = map[string][]byte{}
+				}
+				attributes[name] = value
+			}
+		}
+		largest.Known[i], largest.PairPost[i] = outcomeUnknown, outcomeBefore
+		largest.PostAttributes[i], largest.ObservedAttributes[i] = attributes, attributes
+	}
+	if envelope, err := encodeJournal(largest); err != nil || len(envelope) > journalBytes {
+		return Fail(
+			ExitBlocked,
+			"checkpoint_limit",
+			"Extended attributes exceed the "+display.Limit(journalBytes)+" recovery journal",
+		)
+	}
+	return nil
+}
+
+// encodeJournal is j in its envelope, as a journal slot holds it.
+func encodeJournal(j checkpointJournal) ([]byte, error) {
+	data, err := json.Marshal(j)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(journalEnvelope{Digest: SHA256Hex(data), Journal: j})
 }
 
 func checkpointScope(c Context) string { return filepath.Join(c.Paths.State, checkpointFolder(c)) }
@@ -378,7 +449,7 @@ func checkApproved(c Context, plan Plan, before *SourceIdentity, changes []Targe
 	if err := (State{SchemaVersion: 1, AppliedConfiguration: before}).Validate(); err != nil {
 		return err
 	}
-	if err := validateChanges(c, changes); err != nil {
+	if err := checkChanges(c, changes); err != nil {
 		return err
 	}
 	bound := slices.ContainsFunc(plan.Inputs, func(input Input) bool {
@@ -468,10 +539,7 @@ func (cp *Checkpoint) saveJournal() error {
 	}
 	cp.journal.Sequence++
 	cp.journal.Updated = time.Now().UTC()
-	data, _ := json.Marshal(cp.journal)
-	envelope, err := json.Marshal(
-		journalEnvelope{Digest: SHA256Hex(data), Journal: cp.journal},
-	)
+	envelope, err := encodeJournal(cp.journal)
 	if err != nil {
 		return err
 	}
