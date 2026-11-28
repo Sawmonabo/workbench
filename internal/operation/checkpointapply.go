@@ -161,7 +161,7 @@ func CheckPreservable(
 			ExitBlocked,
 			"metadata",
 			fmt.Sprintf(
-				"The configuration gives %s mode %04o, which lets its group do more than other users, and native's atomic write cannot yet give such a file its group safely",
+				"The configuration gives %s mode %04o, which lets its group do more than other users, and Workbench does not write such a file, since it first has the group of Workbench's temporary folder",
 				display.Path(edit.Path),
 				after.Mode,
 			),
