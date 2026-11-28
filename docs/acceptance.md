@@ -724,14 +724,20 @@ synthetic answers.
     a hard link to the entry point, stopped the plan (exit 2) with the fix
     `move it aside`; a link whose ACL denies its owner reading it stopped
     it (exit 3) with the same fix, and a link to itself with `rm ~/.zshrc`.
-    Planning the disposable home itself, 33 of the 35 plans the sweep
+    Planning the disposable home itself, 37 of the 38 plans the sweep
     stopped cleared in one round: each fix line was typed as printed, or
     the path moved aside where the fix says so, and the next plan passed.
-    The other two give no line to type: a link among the folders above a
-    target (`put what the link points to in its place`) and a `~/.config`
-    of mode 000, which failed (exit 1) with `Operation failed: plan machine
-    configuration: permission denied`. A build by Go 1.26.8 printed the
-    same for the seven of them it was given.
+    Among them a `~/.config` of mode 000 failed (exit 1) with `Cannot read
+    the folder ~/.config`, the cause `it has mode 0000, so you cannot read
+    or search it` and the fix `chmod u+rwx ~/.config`, and a `~/.zshrc` of
+    mode 000 with `Cannot read ~/.zshrc` and `chmod u+r ~/.zshrc`; a
+    `~/.config` of mode 0600 stopped it (exit 2) with `~/.config has mode
+    0600, so you cannot search it` and `chmod u+rwx ~/.config`, and a file
+    in its place with `~/.config is a file, not a folder` and `move
+    ~/.config aside`. The other, a link among the folders above a target,
+    gives no line to type (`put what the link points to in its place`).
+    Builds by Go 1.26.8 printed the same for the eleven of them they were
+    given.
 - On November 28, 2026, in privileged Docker containers (Docker 29.8.2,
   kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3), with
   linux-arm64 local builds by Go 1.27.4 and 1.26.8, disposable homes and an
@@ -757,13 +763,16 @@ synthetic answers.
     creates made first as a link to its own file in a `git init` folder
     under the home: the apply replaced every link with a file, each linked
     file kept its inode, mode and content, and revert put every link back.
-  - With the Go 1.27.4 build, planning the disposable home itself, 19 of
-    the 21 plans a sweep of flags, attributes, ACLs, owners, groups and
-    Workbench's own folders stopped cleared in one round on each
+  - With the Go 1.27.4 build, planning the disposable home itself, 23 of
+    the 25 plans a sweep of flags, attributes, ACLs, modes, owners, groups
+    and Workbench's own folders stopped cleared in one round on each
     distribution, each fix line typed as printed (a line led by `sudo` as
     root; Ubuntu's user `ubuntu` shown, AlmaLinux's `dev` alike):
     `~/.bashrc has group daemon`
-    with `chgrp ubuntu ~/.bashrc`, `~/.bashrc belongs to root, not to you`
+    with `chgrp ubuntu ~/.bashrc`, a `~/.bashrc` of mode 000 with `chmod
+    u+r ~/.bashrc`, a `~/.config/git` of mode 000 or 0600 with `chmod u+rwx
+    ~/.config/git` and a file in its place with `move ~/.config/git aside`,
+    `~/.bashrc belongs to root, not to you`
     with `sudo chown ubuntu ~/.bashrc`, `~/.config gives new files group
     daemon, and you are not a member of it` (a set-group-ID `~/.config`)
     with `chgrp ubuntu ~/.config`, `~/.config/Code is in a project` (a
@@ -772,7 +781,9 @@ synthetic answers.
     -not -user ubuntu`, `move aside what it lists` and `chmod 700 …`. A
     ramfs mount at `~/.config/git` stopped it (exit 3) with `move it onto
     one of those`, and a link among the folders above a target with `put
-    what the link points to in its place`, neither a line to type.
+    what the link points to in its place`, neither a line to type. The Go
+    1.26.8 build printed the same for the eight of them it was given on
+    Ubuntu.
   - The safeguard tests of `internal/operation` passed as the home's user
     and as root, those that need a fact the container lacks skipped. A probe
     run as root, which gave a file chezmoi creates a label by hand in its

@@ -1277,6 +1277,13 @@ replaced or removed while it has that flag` and the fix
 inode flags, such as tmpfs on a kernel before Linux 6.0, counts as having
 none; FUSE and 9P mounts are refused before their flags are read.
 
+A target Workbench cannot read, or a folder on the way to one it cannot open
+or search, stops the plan with what keeps it out: a mode that keeps you out,
+such as `~/.config has mode 0600, so you cannot search it` with the fix
+`chmod u+rwx ~/.config` (`chmod u+r` for a file), another user owning it,
+with `sudo chown`, or a file where a folder belongs, with `move ~/.config
+aside`.
+
 Where a link at a target points is not checked: Workbench and chezmoi replace
 or remove the link itself and never write through it, so `~/.zshrc` may link
 into a dotfiles checkout or outside the home, and the linked file stays as it
@@ -1323,6 +1330,10 @@ Runtime directories follow platform/XDG defaults; absolute overrides are
 `WORKBENCH_CACHE_DIR`, `WORKBENCH_BIN_DIR`. Exact defaults and supported private
 filesystems are in the [contracts](superpowers/specs/workbench-contracts.md#runtime-paths-and-context).
 Do not share these overrides with project-owned directories or Windows mounts.
+An override that overlaps a target, or the checkout `--local-build` applies,
+stops the run with the folder and the variable to change, such as
+`~/.config/git is Workbench's cache folder` with the fix `set
+WORKBENCH_CACHE_DIR to a folder apart from it`.
 
 Workbench runs with your umask plus 022, so nothing it, chezmoi or its tools
 create is writable by other users, even where the login default is 002, as on
