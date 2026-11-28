@@ -61,6 +61,31 @@ func (c Context) ApplyCommand(root string) string {
 	return command
 }
 
+// ScopeApplyCommand is what to type to plan and apply c's scope again: the
+// machine's [Context.ApplyCommand] of its destination, or project apply of
+// the project.
+func (c Context) ScopeApplyCommand() string {
+	if c.Scope.Kind == "project" {
+		return c.WorkbenchCommand() + " project apply " + c.ShellPath(c.Scope.Root)
+	}
+	return c.ApplyCommand(c.Scope.Root)
+}
+
+// RevertCommand is what to type to revert checkpoint id in c's scope: revert
+// with --destination for a root other than c.Home, or project revert of the
+// project.
+func (c Context) RevertCommand(id string) string {
+	switch {
+	case c.Scope.Kind == "project":
+		return c.WorkbenchCommand() + " project revert " + c.ShellPath(c.Scope.Root) +
+			" --checkpoint " + id
+	case c.Scope.Root != c.Home:
+		return c.WorkbenchCommand() + " revert --checkpoint " + id +
+			" --destination " + c.ShellPath(c.Scope.Root)
+	}
+	return c.WorkbenchCommand() + " revert --checkpoint " + id
+}
+
 // ShowPath writes path for a person with [display.PathFrom] from c.Home.
 func (c Context) ShowPath(path string) string { return display.PathFrom(c.Home, path) }
 

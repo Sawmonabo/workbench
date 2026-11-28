@@ -72,7 +72,7 @@ func selectCheckpoint(c Context, selector RecoverySelector) (*Checkpoint, bool, 
 			"recovery",
 			"Revert of checkpoint "+resume+" did not finish",
 			Cause("this would undo it before it finished"),
-			FixText("run that revert again first"),
+			FixText(c.RevertCommand(resume)),
 		)
 	}
 	return selected, reverse, nil
@@ -163,25 +163,17 @@ func (cp *Checkpoint) editedRefusal(edited []int, current []Image, reverse bool)
 			ExitConflict,
 			"conflict",
 			headline,
-			append(parts, FixText("run that project apply again"))...)
+			append(parts, FixText(c.ScopeApplyCommand()))...)
 	}
 	id := cp.record.ID
 	if !reverse {
 		id = cp.record.RecoveryID
 	}
-	command := c.WorkbenchCommand() + " revert --checkpoint " + id
-	switch {
-	case c.Scope.Kind == "project":
-		command = c.WorkbenchCommand() + " project revert " + c.ShellPath(c.Scope.Root) +
-			" --checkpoint " + id
-	case c.Scope.Root != c.Home:
-		command += " --destination " + c.ShellPath(c.Scope.Root)
-	}
 	return Fail(
 		ExitConflict,
 		"conflict",
 		headline,
-		append(append(parts, fixes...), FixText(command))...)
+		append(append(parts, fixes...), FixText(c.RevertCommand(id)))...)
 }
 
 // foundWarning is what a revert plan says of the target at path that holds
@@ -222,13 +214,19 @@ func movedAside(path string) string {
 // current, holds expected, the image Workbench wrote, or holds it lacking an
 // ACL, attributes or the hidden flag, which a revert writes over as it is
 // (lacksOnly): an ACL expected does not hold as it is comes off, then the
-// folder gets expected's mode and group, then each other attribute expected
+// folder gets expected's group and mode, then each other attribute expected
 // does not hold with its value comes off, and the hidden flag expected lacks.
 // What expected holds and the folder lacks needs no line, so none carries a
 // value. An ACL goes first, and the chmod follows a Linux access ACL's
 // removal even where the mode matched, since taking it off sets the mode's
 // group bits from its group entry (setfacl(1)); Linux and macOS let only a
-// writer remove the other attributes.
+// writer remove the other attributes. The chmod follows the chgrp, since
+// macOS clears a folder's set-group-ID bit when a user other than root
+// changes its group, and writes the mode in five octal digits, since GNU
+// chmod keeps a folder's set-user-ID and set-group-ID bits for a mode of four
+// digits (chmod 0755 leaves a folder of mode 2755 as it is) and clears them
+// for one with a leading zero more (chmod 00755 gives it 0755); BSD chmod
+// reads both forms as the same mode.
 func folderFixes(c Context, path string, current, expected Image) []Part {
 	shown := c.ShellPath(path)
 	var acls, others []Part
@@ -251,11 +249,12 @@ func folderFixes(c Context, path string, current, expected Image) []Part {
 		modeChanges = modeChanges || name == platform.AccessACLAttribute
 	}
 	fixes := acls
-	if modeChanges {
-		fixes = append(fixes, FixText(fmt.Sprintf("chmod %04o %s", expected.Mode, shown)))
-	}
 	if *current.Group != *expected.Group {
 		fixes = append(fixes, FixText("chgrp "+groupName(*expected.Group)+" "+shown))
+		modeChanges = true
+	}
+	if modeChanges {
+		fixes = append(fixes, FixText(fmt.Sprintf("chmod %05o %s", expected.Mode, shown)))
 	}
 	fixes = append(fixes, others...)
 	if current.Hidden && !expected.Hidden {

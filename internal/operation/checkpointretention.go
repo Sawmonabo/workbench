@@ -9,9 +9,11 @@ import (
 
 // RetentionEffect names the checkpoint that a new forward checkpoint replaces
 // once the scope holds MaxForwardCheckpoints: the oldest settled one, else the
-// oldest incomplete one that a newer checkpoint supersedes. Plans list
-// it so consent covers the removal. The checkpoint named by the recorded
-// partial operation is never a candidate.
+// oldest incomplete one that a newer checkpoint supersedes. A settled one
+// finished, failed before it changed a target, or stopped while prepared,
+// before it marked any target as being written, so none of them holds the
+// only record of a change. Plans list it so consent covers the removal. The
+// checkpoint named by the recorded partial operation is never a candidate.
 func RetentionEffect(c Context) (*Effect, error) {
 	oldest, err := retentionCandidate(c)
 	if oldest == nil || err != nil {
@@ -22,9 +24,9 @@ func RetentionEffect(c Context) (*Effect, error) {
 }
 
 func retentionEffect(cp *Checkpoint) Effect {
-	kind := "settled"
-	if cp.journal.Status != JournalComplete && cp.journal.Status != JournalFailed {
-		kind = "superseded incomplete"
+	kind := "superseded incomplete"
+	if settledJournal(cp.journal.Status) {
+		kind = "settled"
 	}
 	return Effect{
 		Name: "checkpoint-retention",
@@ -80,9 +82,9 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 			continue
 		}
 		slot := &settled
-		switch cp.journal.Status {
-		case JournalComplete, JournalFailed:
-		case JournalRunning, JournalPartial, JournalUnknown:
+		switch status := cp.journal.Status; {
+		case settledJournal(status):
+		case status == JournalRunning || status == JournalPartial || status == JournalUnknown:
 			if !cp.record.Created.Before(newest) {
 				continue
 			}
@@ -100,8 +102,20 @@ func retentionCandidate(c Context) (*Checkpoint, error) {
 	return superseded, nil
 }
 
+// settledJournal reports whether a checkpoint of status changed no target
+// it did not record: complete, failed before any change, or prepared, its
+// apply stopped before it started writing (see [JournalPrepared]).
+func settledJournal(status JournalStatus) bool {
+	return status == JournalComplete || status == JournalFailed || status == JournalPrepared
+}
+
 // pruneApproved removes only the checkpoint the approved plan names. A rename
 // out of the scope makes the removal atomic before its files are deleted.
+// The scope holds MaxForwardCheckpoints, and the plan names no removal or
+// another one, when the checkpoints changed after it was made: the scope's
+// apply makes a plan from them as they are. With no candidate at all, every
+// checkpoint is the newest or the one the state records as unfinished, which
+// that apply finishes first.
 func pruneApproved(c Context, plan Plan) error {
 	oldest, err := retentionCandidate(c)
 	if err != nil {
@@ -111,7 +125,13 @@ func pruneApproved(c Context, plan Plan) error {
 		return Fail(
 			ExitBlocked,
 			"checkpoint_limit",
-			"Scope retains 20 forward checkpoints and the plan approves no removal; resolve incomplete checkpoints and review a new plan",
+			fmt.Sprintf(
+				"%s keeps %d checkpoints, the most Workbench keeps",
+				c.ShowPath(c.Scope.Root),
+				MaxForwardCheckpoints,
+			),
+			Cause("this apply adds one, and its plan removes none of them"),
+			FixText(c.ScopeApplyCommand()),
 		)
 	}
 	// The trash is outside the scope, whose listing admits only checkpoints.
