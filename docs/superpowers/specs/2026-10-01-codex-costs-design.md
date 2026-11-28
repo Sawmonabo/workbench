@@ -16,8 +16,9 @@ checked against a large real history of rollout files written by Codex
   file per thread under `$CODEX_HOME/sessions/YYYY/MM/DD/rollout-*.jsonl`
   (`CODEX_HOME` defaults to `~/.codex`; archived threads move to the flat
   `archived_sessions/`). Codex resolves a set `CODEX_HOME` to its real
-  absolute path and uses `~/.codex` as is otherwise; Workbench does the same
-  for the rollouts, `auth.json` and the hooks trust keys. Its SQLite databases do not help: `state_*.sqlite`
+  absolute path and uses `~/.codex` as is otherwise, with `~` as `$HOME` is
+  set; Workbench does the same for the rollouts, `auth.json` and the hooks
+  trust keys (section 6). Its SQLite databases do not help: `state_*.sqlite`
   `threads.tokens_used` is one unsplit integer per thread with no model, and
   `thread_history_*.sqlite` is a projection of the rollout without usage. The
   Codex CLI has no usage or cost command and ships no prices
@@ -398,20 +399,41 @@ one>, "hooks": [{"type": "command", "command": ..., "timeout": <normalized:
 600 by default, SessionEnd 1 by default and at most 3>, "async": <bool>,
 "statusMessage": <only when set>}]}`. This was checked against the hash Codex
 itself recorded when the existing `UserPromptSubmit` hook was approved: it
-matches exactly. `modify_private_config.toml.tmpl` includes the rendered
-hooks.json, computes the hash of every handler in it and writes
-`trusted_hash` for each key as a managed value, so whatever hooks Workbench
-installs are trusted on the same apply. The entry's `enabled` key stays the
+matches exactly. The rule and the key are the same in every Codex release
+from 0.160.0 to 0.172.0 (`hook_hash`, `normalize_command_hook`, `hook_key`,
+`MatcherGroup`, `HookHandlerConfig` and `version_for_toml` at each tag;
+0.164.0 only adds events), and Codex 0.163.0 and 0.172.0 report every hook
+Workbench installs as `trusted` in `codex app-server`'s `hooks/list`.
+The `<hooks.json path>` is spelled as Codex finds the file
+(`codex-rs/utils/home-dir` `find_codex_home`, `discovery.rs`
+`load_hooks_json`): in `$CODEX_HOME` with its symlinks resolved when that is
+set, else in `$HOME/.codex` with `$HOME` as it is set, cleaned but with its
+symlinks kept. Workbench holds the home with its symlinks resolved, and
+chezmoi renders with that home, so the apply gives the merge the spellings
+as the `codex_hooks_files` answer (`toolconfig.CodexHooksFiles`):
+`$HOME/.codex/hooks.json` as `$HOME` is set, then the same file with its
+symlinks resolved, the spelling a `CODEX_HOME` naming that folder gives,
+when it differs. Both name the one file the apply installs; a `$HOME` that
+names another folder adds no spelling. Rendered without the answer, as
+`render-check.sh` does, the merge uses the home chezmoi renders with.
+`modify_private_config.toml.tmpl` includes the rendered hooks.json,
+computes the hash of every handler in it and writes `trusted_hash` for each
+key, under each spelling, as a managed value, so whatever hooks Workbench
+installs are trusted on the same apply. A Codex release that changes the
+rule leaves them `untrusted` until Workbench follows it, and the check below
+says so. The entry's `enabled` key stays the
 user's: a hook turned off in Codex (`enabled = false`) stays off across
-applies. The entries of a hook Workbench does not install are dropped, so
-they do not stay trusted. A second apply changes nothing.
+applies. The entries of a hook Workbench does not install, under either
+spelling, are dropped, so they do not stay trusted. A second apply changes
+nothing.
 `toolconfig.CodexHooks` reports a state per event, as Codex decides whether to run a
 hook (`discovery.rs`: enabled unless `enabled = false`, and trusted when the
 recorded hash matches): `ok` when `hooks.json` has the command (one matching
-`(^|/)workbench'? costs ingest$`, the one matcher both tools' checks use, so
-any bin folder and its quoting count) and its entry
-records the hash computed the same way, `disabled` when the entry sets
-`enabled = false`, `untrusted` when it records no hash or another one (as
+`(^|/)workbench'? agent costs ingest$`, the one matcher both tools' checks
+use, so any bin folder and its quoting count) and its entry, under the key
+Codex reads in this environment (`$CODEX_HOME` resolved when set, else
+`$HOME/.codex` as `$HOME` spells it), records the hash computed the same
+way, `disabled` when the entry sets `enabled = false`, `untrusted` when it records no hash or another one (as
 after Codex changed its normalization), and `missing` without the command.
 `toolconfig.ClaudeHooks` reports `ok` or `missing`, or `skipped` for every
 hook while Claude Code skips the whole `settings.json` for a setting it

@@ -128,15 +128,60 @@ func codexHookHash(event string, group codexGroup, hook codexHook) string {
 	return "sha256:" + operation.SHA256Hex(encoded)
 }
 
+// CodexHooksFiles are the spellings of the hooks.json Workbench installs in
+// home's .codex folder that Codex keys the trust of its hooks by, as
+// [codexHooksKeyFile] does: ~/.codex/hooks.json with ~ as $HOME spells it,
+// which Codex uses while CODEX_HOME is unset, then that file with its
+// symlinks resolved, which a CODEX_HOME naming the same folder gives, when it
+// differs. Workbench reads home with its symlinks resolved, so the two differ
+// when $HOME or ~/.codex is a symlink or crosses one. The apply trusts each
+// of Workbench's hooks under both, and both name the one file it installs.
+func CodexHooksFiles(home string) []string {
+	files := []string{filepath.Join(homeAsSpelled(home), ".codex", "hooks.json")}
+	dir := filepath.Join(home, ".codex")
+	if real, err := filepath.EvalSymlinks(dir); err == nil {
+		dir = real
+	} else if real, err = filepath.EvalSymlinks(home); err == nil {
+		dir = filepath.Join(real, ".codex") // the folder the apply creates
+	}
+	if real := filepath.Join(dir, "hooks.json"); real != files[0] {
+		files = append(files, real)
+	}
+	return files
+}
+
+// codexHooksKeyFile is hooks.json as Codex spells it in the trust keys of its
+// hooks (codex-rs utils/home-dir find_codex_home and hooks/src/engine/
+// discovery.rs load_hooks_json): in CODEX_HOME with its symlinks resolved
+// when that is set ([CodexDir]), else in ~/.codex with ~ as $HOME spells it,
+// cleaned as Codex cleans a path (utils/absolute-path), symlinks kept.
+func codexHooksKeyFile(home string) string {
+	if os.Getenv("CODEX_HOME") != "" {
+		return filepath.Join(CodexDir(home), "hooks.json")
+	}
+	return filepath.Join(homeAsSpelled(home), ".codex", "hooks.json")
+}
+
+// homeAsSpelled is $HOME as it is set, cleaned, when it is absolute and names
+// the folder home, which Workbench holds with its symlinks resolved; home
+// otherwise, such as for an isolated destination.
+func homeAsSpelled(home string) string {
+	if env := os.Getenv("HOME"); filepath.IsAbs(env) && SameDir(env, home) {
+		return filepath.Clean(env)
+	}
+	return home
+}
+
 // CodexHooks reports, for each of hooks, whether hooks.json runs it on its event
-// and Codex runs it: HookOK when config.toml trusts that exact hook and does
-// not disable it, HookDisabled when it sets enabled = false, HookUntrusted
-// when it records no trusted_hash or another one (Codex ignores the hook then),
-// and HookMissing without the hook. Of several matching hooks for an event the
-// best state counts.
+// and Codex runs it: HookOK when config.toml trusts that exact hook, under the
+// key Codex reads ([codexHooksKeyFile]), and does not disable it, HookDisabled
+// when it sets enabled = false, HookUntrusted when it records no trusted_hash
+// or another one (Codex ignores the hook then), and HookMissing without the
+// hook. Of several matching hooks for an event the best state counts.
 func CodexHooks(home string, hooks []HookCommand) []string {
 	dir := CodexDir(home)
 	path := filepath.Join(dir, "hooks.json")
+	key := codexHooksKeyFile(home)
 	var file struct {
 		Hooks map[string][]codexGroup `json:"hooks"`
 	}
@@ -165,7 +210,7 @@ func CodexHooks(home string, hooks []HookCommand) []string {
 				if hook.Type != "command" || !want.Command.MatchString(hook.Command) {
 					continue
 				}
-				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", path, codexEvents[event], gi, hi)]
+				state := config.Hooks.State[fmt.Sprintf("%s:%s:%d:%d", key, codexEvents[event], gi, hi)]
 				found := HookOK
 				switch {
 				case state.Enabled != nil && !*state.Enabled:

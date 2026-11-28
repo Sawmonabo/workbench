@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/Sawmonabo/workbench/internal/agent/toolconfig"
 	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
@@ -47,6 +48,10 @@ func (p *preparation) stageNative(
 	// with a fixed one), so the path reaches them as an answer.
 	workbench := filepath.Join(c.Paths.Bin, "workbench")
 	nativeAnswers["workbench_bin"] = workbench
+	// Codex keys the trust of its hooks by the spelling of hooks.json's path,
+	// which follows $HOME as it is set; chezmoi renders with the home's
+	// symlinks resolved, so the spellings reach the Codex config as an answer.
+	nativeAnswers["codex_hooks_files"] = toolconfig.CodexHooksFiles(c.Native.Destination)
 	// The env files live in the config folder this apply resolved, which the
 	// templates cannot derive from the environment either.
 	nativeAnswers["workbench_config"] = c.Paths.Config

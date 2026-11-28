@@ -1140,6 +1140,22 @@ synthetic answers.
   the fixed path (9 `BIN FAIL` lines). `agent costs status` with a spaced, quoted bin
   path reported both tools' hooks `ok`, and `missing` when the Claude Code path
   was altered.
+- On 2026-11-27, in disposable homes, Codex 0.163.0 and 0.172.0 (macOS arm64,
+  and Linux arm64 in a container without network) listed every hook rendered
+  from the `both` role as `trusted` in `codex app-server`'s `hooks/list`, with
+  each `currentHash` equal to the `trusted_hash` the config merge wrote.
+  Rendered with only the home chezmoi renders with, as `render-check.sh` does,
+  the hooks were `untrusted` when `$HOME` reached that home through a symlink,
+  or `CODEX_HOME` named `~/.codex` through one, because Codex keyed them by
+  that other spelling of `hooks.json`. Rendered with the `codex_hooks_files`
+  answer Workbench computed for a `$HOME` through a symlink, both releases
+  listed them `trusted` with `$HOME` through the link, with `CODEX_HOME` set
+  to `~/.codex` through it, and with `$HOME` the real folder, and `doctor` and
+  `agent costs status` reported them `ok`; on the config rendered without the
+  answer they reported them `untrusted`, as Codex did. A config Codex had
+  rewritten itself (`codex mcp add`, `codex features enable`) kept every trust
+  entry, and the next merge left them all `trusted`. Applying them to a real
+  machine is not yet observed.
 
 ### Agent command guard
 

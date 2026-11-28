@@ -163,6 +163,14 @@ matcher = "Bash"
 type = "command"
 command = "echo user-pretool"
 LIVE
+# Unauthorized-execution safeguard: Codex runs a hook in the hooks.json
+# Workbench installs without asking once config.toml records its hash under
+# its key, so a trust entry there for a hook Workbench does not install (a
+# Stop hook here) must be dropped; a trust entry for another file is the
+# user's own approval and stays.
+codex_hooks="$("${chez[@]}" execute-template '{{ .chezmoi.homeDir }}')/.codex/hooks.json"
+printf '\n[hooks.state."%s:stop:0:0"]\ntrusted_hash = "sha256:%064d"\n\n[hooks.state."/elsewhere/.codex/hooks.json:stop:0:0"]\ntrusted_hash = "sha256:%064d"\n' \
+    "$codex_hooks" 0 0 >> "$dest/.codex/config.toml"
 # The second SessionStart group is another copy of the managed hook (different
 # timeout); it must be replaced, not kept beside the current one. The same
 # holds for a guard PreToolUse group from another folder next to a user's own.
@@ -176,6 +184,8 @@ done
 for kept in 'default_tools_approval_mode = "prompt"' 'view_image = true' 'example.invalid' 'echo user-pretool'; do
     grep -qF -- "$kept" "$dest/.codex/config.toml" || { echo "MERGE FAIL: codex config lost $kept"; fail=1; }
 done
+grep -qF "\"$codex_hooks:stop:0:0\"" "$dest/.codex/config.toml" && { echo 'MERGE FAIL: codex config kept the trust of a hook Workbench does not install'; fail=1; }
+grep -qF '"/elsewhere/.codex/hooks.json:stop:0:0"' "$dest/.codex/config.toml" || { echo 'MERGE FAIL: codex config lost the trust of a hook in another file'; fail=1; }
 grep -qF 'echo user-start' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the user SessionStart hook'; fail=1; }
 grep -qF 'workbench agent costs ingest' "$dest/.claude/settings.json" || { echo 'MERGE FAIL: claude settings lost the managed hook'; fail=1; }
 [ "$(grep -cF 'workbench agent costs ingest' "$dest/.claude/settings.json")" = 2 ] || { echo 'MERGE FAIL: claude settings kept a stale copy of the managed hook'; fail=1; }

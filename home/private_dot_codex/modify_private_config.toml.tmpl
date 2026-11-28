@@ -24,15 +24,20 @@ import tomllib
 
 MANAGED = {{ includeTemplate "codex-config.toml.tmpl" . | toJson }}
 
-# The hooks.json chezmoi writes beside this file, and where Codex finds it.
-# Codex runs a hook from hooks.json only when [hooks.state."<path>:<event>:
-# <group>:<handler>"] holds its trusted_hash, so every hook Workbench installs
-# gets that trusted_hash here as a managed value and Codex never asks. The
-# entry's enabled key is the user's: a hook turned off in Codex stays off
-# across applies. The entries of a hook Workbench does not install are
-# dropped, so they do not stay trusted.
+# The hooks.json chezmoi writes beside this file, and the spellings of its
+# path Codex keys trust by: ~/.codex/hooks.json with ~ as $HOME is set, which
+# Codex uses while CODEX_HOME is unset, then that file with its symlinks
+# resolved, which a CODEX_HOME naming this folder gives, when it differs
+# (toolconfig.CodexHooksFiles, the codex_hooks_files answer; without the
+# answer, the home chezmoi renders with). Codex runs a hook from hooks.json
+# only when [hooks.state."<path>:<event>:<group>:<handler>"] holds its
+# trusted_hash, so every hook Workbench installs gets that trusted_hash here,
+# under each spelling, as a managed value and Codex never asks. The entry's
+# enabled key is the user's: a hook turned off in Codex stays off across
+# applies. The entries of a hook Workbench does not install are dropped, so
+# they do not stay trusted.
 HOOKS = json.loads({{ includeTemplate "codex-hooks.json.tmpl" . | toJson }})
-HOOKS_PATH = {{ printf "%s/.codex/hooks.json" .chezmoi.homeDir | toJson }}
+HOOKS_FILES = {{ get . "codex_hooks_files" | default (list (printf "%s/.codex/hooks.json" .chezmoi.homeDir)) | toJson }}
 HOOK_EVENTS = {
     "PreToolUse": "pre_tool_use", "PermissionRequest": "permission_request",
     "PostToolUse": "post_tool_use", "PreCompact": "pre_compact", "PostCompact": "post_compact",
@@ -220,27 +225,30 @@ def hook_hash(event, group, handler):
 
 
 def hook_keys():
-    """The [hooks.state] key of every hook in HOOKS."""
+    """The [hooks.state] keys of every hook in HOOKS, one per HOOKS_FILES spelling."""
     return {
-        "{}:{}:{}:{}".format(HOOKS_PATH, HOOK_EVENTS[event], group_index, handler_index)
+        "{}:{}:{}:{}".format(path, HOOK_EVENTS[event], group_index, handler_index)
         for event, groups in HOOKS.get("hooks", {}).items()
         for group_index, group in enumerate(groups)
         for handler_index, _ in enumerate(group.get("hooks", []))
+        for path in HOOKS_FILES
     }
 
 
 def trust_tables():
-    """The managed [hooks.state] entry of every hook in HOOKS."""
+    """The managed [hooks.state] entries of every hook in HOOKS, one per HOOKS_FILES spelling."""
     lines = []
     for event, groups in HOOKS.get("hooks", {}).items():
         for group_index, group in enumerate(groups):
             for handler_index, handler in enumerate(group.get("hooks", [])):
-                key = "{}:{}:{}:{}".format(HOOKS_PATH, HOOK_EVENTS[event], group_index, handler_index)
-                lines += [
-                    "",
-                    "[hooks.state.{}]".format(json.dumps(key, ensure_ascii=False)),
-                    "trusted_hash = {}".format(json.dumps(hook_hash(event, group, handler))),
-                ]
+                trusted = json.dumps(hook_hash(event, group, handler))
+                for path in HOOKS_FILES:
+                    key = "{}:{}:{}:{}".format(path, HOOK_EVENTS[event], group_index, handler_index)
+                    lines += [
+                        "",
+                        "[hooks.state.{}]".format(json.dumps(key, ensure_ascii=False)),
+                        "trusted_hash = {}".format(trusted),
+                    ]
     return lines
 
 
@@ -272,7 +280,8 @@ def main():
     state = hooks.get("state") if isinstance(hooks, dict) else None
     if isinstance(state, dict):
         current = hook_keys()
-        for key in [key for key in state if key.startswith(HOOKS_PATH + ":") and key not in current]:
+        ours = tuple(path + ":" for path in HOOKS_FILES)
+        for key in [key for key in state if key.startswith(ours) and key not in current]:
             del state[key]
         if not state:
             del hooks["state"]
