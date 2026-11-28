@@ -155,14 +155,19 @@ func attributeRefusal(path, name string, h holder) error {
 	)
 }
 
-// attributeReadError is the refusal of path whose extended attributes, or
-// the one named name when it is not empty, cannot be read.
-func attributeReadError(path, name string, err error) error {
+// attributeReadError is the refusal of path, which is h to the write, whose
+// extended attributes, or the one named name when it is not empty, cannot be
+// read.
+func attributeReadError(path, name string, h holder, err error) error {
 	what := "the extended attributes of "
 	if name != "" {
 		what = "the extended attribute " + shellWord(name) + " of "
 	}
-	return Fail(ExitBlocked, "metadata", "Cannot read "+what+display.Path(path)+": "+err.Error())
+	return Fail(
+		ExitBlocked,
+		"metadata",
+		"Cannot read "+what+display.Path(path)+": "+err.Error()+h.retry(nil, path),
+	)
 }
 
 // ownershipRefusal refuses path, owned by the user with ID uid and of the

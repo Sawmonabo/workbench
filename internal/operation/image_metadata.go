@@ -333,7 +333,7 @@ func attributeACL(fd int, path string, h holder) error {
 	}
 	names, err := platform.ExtendedAttributeNames(fd, path)
 	if err != nil {
-		return attributeReadError(path, "", err)
+		return attributeReadError(path, "", h, err)
 	}
 	for _, name := range names {
 		switch {
@@ -412,7 +412,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 		)
 	}
 	if err != nil {
-		return nil, attributeReadError(path, "", err)
+		return nil, attributeReadError(path, "", h, err)
 	}
 	attributes := map[string][]byte{}
 	for name := range strings.SplitSeq(string(names[:n]), "\x00") {
@@ -438,7 +438,7 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 			)
 		}
 		if err != nil {
-			return nil, attributeReadError(path, name, err)
+			return nil, attributeReadError(path, name, h, err)
 		}
 		attributes[name] = bytes.Clone(data[:n])
 	}

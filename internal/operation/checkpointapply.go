@@ -167,12 +167,12 @@ func holdsAttributes(held, carried map[string][]byte) bool {
 }
 
 // restageNative writes change's approved image anew over observed, what
-// native wrote, with Workbench's own write (writeImage): a new file or link in
+// native wrote, with Workbench's own write (rewriteImage): a new file or link in
 // the target's own folder, with the approved data, group, attributes, mode,
 // hidden flag and ACL, renamed over native's once that is still there. A new
 // file made in its own folder gets the label the system gives a file there.
 func restageNative(c Context, change TargetChange, observed Image) error {
-	err := writeImage(c, change.Path, observed, change.After)
+	err := rewriteImage(c, change.Path, observed, change.After)
 	if problem, ok := errors.AsType[*Error](err); ok {
 		return Fail(
 			ExitPartial,
