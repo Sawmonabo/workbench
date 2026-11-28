@@ -16,8 +16,6 @@ package migrate
 import (
 	"context"
 	"encoding/json"
-	"errors"
-	"io/fs"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -165,16 +163,6 @@ func Check(l Locations) []Finding {
 }
 
 func due(f Finding) bool { return f.Status == Pending || f.Status == Unfinished }
-
-// unreadable is what a Check says of a file or folder it would move or delete
-// and cannot read: the path from home, then the reason alone, as the os
-// package's error already names the path.
-func unreadable(home, path string, err error) string {
-	if problem, ok := errors.AsType[*fs.PathError](err); ok {
-		err = problem.Err
-	}
-	return "can't read " + display.PathFrom(home, path) + " (" + err.Error() + ")"
-}
 
 // Run runs every migration with something to do, in number order, and says
 // what it does through say, one line at a time: "checking", then for each

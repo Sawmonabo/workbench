@@ -10,6 +10,7 @@ import (
 	"syscall"
 
 	"github.com/Sawmonabo/workbench/internal/display"
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
@@ -234,8 +235,9 @@ func (o OldPaths) known(p Paths) []string {
 }
 
 // folderScan is what the old claude-costs folders hold, home-relative: empty
-// are real folders with nothing in them, unreadable those whose listing failed,
-// and kept the files the migration doesn't know. Workbench didn't write those,
+// are real folders with nothing in them, unreadable says of each one whose
+// listing failed why (see [operation.Unread]), and kept the files the
+// migration doesn't know. Workbench didn't write those,
 // so they stay; a file it knows that stays, such as one left in conflict, is
 // not one of them. An old folder that is a link, or anything else that isn't a
 // real folder, is one itself, and is never read through.
@@ -259,7 +261,7 @@ func (o OldPaths) scan(p Paths) folderScan {
 		entries, err := os.ReadDir(folder)
 		switch {
 		case err != nil:
-			scan.unreadable = append(scan.unreadable, shown)
+			scan.unreadable = append(scan.unreadable, operation.Unread(p.Home, folder, err))
 		case len(entries) == 0:
 			scan.empty = append(scan.empty, shown)
 		}

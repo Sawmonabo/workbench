@@ -103,9 +103,7 @@ func CheckFolders(old OldPaths, p Paths) FolderCheck {
 	for _, folder := range folders.empty {
 		text = append(text, "removes the empty folder "+folder)
 	}
-	for _, folder := range folders.unreadable {
-		text = append(text, "can't read "+folder)
-	}
+	text = append(text, folders.unreadable...)
 	text = append(text, conflicts...)
 	check.settle(
 		len(moved) > 0 || len(deleted) > 0 || len(folders.unreadable) > 0,

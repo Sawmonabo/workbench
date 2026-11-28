@@ -128,6 +128,17 @@ func FileError(path string, err error) error {
 	return fmt.Errorf("%s: %w", display.Path(path), err)
 }
 
+// Unread is what a check that changes nothing says of a file or folder it
+// would move or delete and cannot read: "can't read", the path from home (see
+// [display.PathFrom]), then the reason alone, as an error of the os package
+// names the path itself.
+func Unread(home, path string, err error) string {
+	if problem, ok := errors.AsType[*fs.PathError](err); ok {
+		err = problem.Err
+	}
+	return "can't read " + display.PathFrom(home, path) + " (" + err.Error() + ")"
+}
+
 // Component is one named part of a command's outcome.
 type Component struct {
 	Name string `json:"name"`

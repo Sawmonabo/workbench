@@ -82,14 +82,14 @@ func completionPaths(l Locations) []string {
 
 // oldCompletions are the old caches still there, home-relative: ours carry
 // the marker, other files of those names don't, and unread says of each one
-// that can't be read why (see unreadable), so they count as there.
+// that can't be read why (see [operation.Unread]), so they count as there.
 func oldCompletions(l Locations) (ours, other, unread []string) {
 	for _, path := range completionPaths(l) {
 		marked, err := writtenByStartup(path)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):
 		case err != nil:
-			unread = append(unread, unreadable(l.Home, path, err))
+			unread = append(unread, operation.Unread(l.Home, path, err))
 		case marked:
 			ours = append(ours, display.PathFrom(l.Home, path))
 		default:
