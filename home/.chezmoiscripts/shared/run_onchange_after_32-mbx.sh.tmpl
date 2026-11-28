@@ -137,14 +137,14 @@ if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
     elif [ "$install" = 1 ]; then
         changes+=("install mbx $version into ~/.local/bin")
     fi
-    [ "$setup" = 1 ] && changes+=("run mbx setup, so plain cargo and rust-analyzer's checks go through mbx")
-    [ ${#unset[@]} -gt 0 ] && changes+=("set the build budget in mbx's config file: $(budget_text) (change it with mbx settings set)")
+    [ "$setup" = 1 ] && changes+=("run mbx setup")
+    [ ${#unset[@]} -gt 0 ] && changes+=("set mbx's build budget: $(budget_text)")
     [ -n "$unreadable" ] && echo "mbx: ? $unreadable, so the build budget was not checked"
     if [ ${#changes[@]} -gt 0 ]; then
         printf -v joined '%s; ' "${changes[@]}"
         echo "mbx: ${joined%; }"
     elif [ -z "$unreadable" ]; then
-        echo "mbx: = mbx $have is set up, and its build budget is in mbx's config file (change it with mbx settings set)"
+        echo "mbx: = mbx $have is set up, with its build budget in mbx's config file"
     fi
     exit 0
 fi

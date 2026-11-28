@@ -168,7 +168,9 @@ Finished commands are kept 24 hours · 2,832 kept · 3 MB
 ~/.local/state/workbench/agent/guard/history.db
 
 $ workbench agent guard history --keep 12h
-Finished commands are kept 12 hours (was 24 hours); 1,204 older ones were deleted.
+Finished commands are kept 12 hours
+    was      24 hours
+    history  1,204 older ones were deleted
 ```
 
 `--keep` takes hours, days or weeks (`12h`, `3d`, `1w`) from one hour to

@@ -799,7 +799,7 @@ func (r *Inventory) settleCargoMembers() {
 			project.Reason = "The Cargo workspace root needs review first: " + r.Directory
 		case !r.cargo[project.Root]:
 			project.Owner = project.Root
-			project.Reason = "Not a member of the Cargo workspace at " + r.Directory + ", so left untouched"
+			project.Reason = "Not a member of the Cargo workspace at " + r.Directory
 		default:
 			project.Supported, project.Reason = true, ""
 		}

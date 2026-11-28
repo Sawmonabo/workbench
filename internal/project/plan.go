@@ -505,7 +505,7 @@ func (p *Proposal) addResolution(
 			},
 		)
 	}
-	privilege := "user; no build code runs"
+	privilege := "user; build code not selected"
 	if options.AllowBuildHooks {
 		privilege = "user; project and third-party build code may run"
 	}

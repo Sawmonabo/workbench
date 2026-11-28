@@ -27,7 +27,7 @@ fi
 {{ template "brew-askpass.sh" }}
 
 if [ "${WORKBENCH_PROBE:-}" = 1 ]; then
-    echo "brew-maintenance: refresh Homebrew's index unless this apply already did, then remove leftover packages, old versions and the download cache"
+    echo "brew-maintenance: refresh Homebrew's index unless this apply did, then remove leftovers, old versions and the cache"
     exit 0
 fi
 echo "==> Homebrew cleanup..."

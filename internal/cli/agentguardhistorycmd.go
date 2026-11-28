@@ -237,10 +237,15 @@ func setGuardHistoryKeep(
 		return err
 	})
 	if err != nil {
-		return operation.Fail(operation.ExitFailed, "guard-history",
-			"The guard log's older records cannot be deleted",
+		parts := []operation.Part{
 			operation.Cause(guard.ShowPaths(err.Error(), root)),
-			operation.Changed(strings.ToLower(line[:1])+line[1:]))
+			operation.Changed(strings.ToLower(line[:1]) + line[1:]),
+		}
+		for _, said := range said.Lines {
+			parts = append(parts, said)
+		}
+		return operation.Fail(operation.ExitFailed, "guard-history",
+			"The guard log's older records cannot be deleted", parts...)
 	}
 	if o.json {
 		result.Results = append(result.Results, operation.Component{

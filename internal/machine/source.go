@@ -275,6 +275,10 @@ func SourceSnapshot(
 				operation.ExitBlocked,
 				"source_trust",
 				"Release source differs from the source this executable was released with",
+				// As with a missing release.json: only once another release
+				// is active does this one's verified bundle replace it.
+				operation.FixText("install another release, then this one again"),
+				operation.Fix("workbench", "update", "--list"),
 			)
 		}
 		return files, identity, nil
