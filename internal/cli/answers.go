@@ -98,7 +98,7 @@ func answersImportCommand(o *options) *cobra.Command {
 						Message: "Saved; apply now uses them",
 					},
 				)
-				result.Summary = brandTag + " Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
+				result.Summary = brandTag + " Run " + c.WorkbenchCommand() + " apply to use them"
 			}
 			return result, err
 		},
@@ -168,6 +168,6 @@ func askAnswers(
 	if _, err := setUp(cmd, c, o, terminal, &result, true, ask); err != nil {
 		return result, err
 	}
-	result.Summary = brandTag + " Saved your machine answers; run " + c.WorkbenchCommand() + " apply"
+	result.Summary = brandTag + " Run " + c.WorkbenchCommand() + " apply to use them"
 	return result, nil
 }

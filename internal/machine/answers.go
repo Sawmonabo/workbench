@@ -98,9 +98,9 @@ var derivedAnswers = []string{"has_work", "has_personal", "is_wsl"}
 var retiredAnswers = []string{"jira_api_token", "gitlab_token"}
 
 // droppedAnswers are answers an earlier release saved that nothing uses now:
-// restart_wsl_path, the folder of the RestartWSL helpers Workbench no longer
-// writes. Never asked or carried, they are dropped the next time a change to
-// the answers is written.
+// restart_wsl_path, the folder of the RestartWSL helpers, which Workbench does
+// not write. Never asked or carried, they are dropped the next time a change
+// to the answers is written.
 var droppedAnswers = []string{"restart_wsl_path"}
 
 // carryRetired copies into answers each retired answer saved holds and
