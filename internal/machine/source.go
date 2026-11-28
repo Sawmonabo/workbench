@@ -276,9 +276,11 @@ func SourceSnapshot(
 				"source_trust",
 				"Release source differs from the source this executable was released with",
 				// As with a missing release.json: only once another release
-				// is active does this one's verified bundle replace it.
-				operation.FixText("install another release, then this one again"),
+				// is active does this one's verified bundle replace it. Which
+				// release is the person's pick, from the list, so that line
+				// is an instruction.
 				operation.Fix("workbench", "update", "--list"),
+				operation.FixText("install another release, then this one again"),
 			)
 		}
 		return files, identity, nil
@@ -296,8 +298,8 @@ func SourceSnapshot(
 			// An update keeps the active release's folder as it is, and one
 			// of the same release finds it installed: only once another
 			// release is active does this one's verified bundle replace it.
-			operation.FixText("install another release, then this one again"),
 			operation.Fix("workbench", "update", "--list"),
+			operation.FixText("install another release, then this one again"),
 		)
 	}
 }
