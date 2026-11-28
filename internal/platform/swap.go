@@ -15,6 +15,25 @@ import (
 // a folder in a lower layer. Nothing was swapped.
 var ErrSwapUnsupported = errors.New("the file system cannot swap two names")
 
+// SwapNames swaps the files at a and b, of any kind, in one system call, so
+// no moment exists in which either name is missing. Both must exist on one
+// file system. A file system that cannot swap them fails it with
+// ErrSwapUnsupported (see swapError).
+func SwapNames(a, b string) error { return swapNames(a, b) }
+
+// CanSwap reports whether the file system holding path, or its first
+// existing folder above, can swap two names (see SwapNames), without trying.
+// A folder [MarkCannotSwap] marked after a refused swap cannot swap. macOS
+// asks the volume; Linux has no call that asks, so there an overlay's folder
+// of a lower layer, which refuses the swap, is found only by trying. The
+// error is a statfs failure, or on macOS a getattrlist one.
+func CanSwap(path string) (bool, error) {
+	if markedCannotSwap(path) {
+		return false, nil
+	}
+	return canSwap(path)
+}
+
 // swapError gives the error of a swap of a and b: nil when it swapped,
 // ErrSwapUnsupported with the errno when the file system lacks the call or
 // its flag, and the errno itself otherwise, each with both names.

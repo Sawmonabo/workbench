@@ -7,24 +7,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// SwapNames swaps the files at a and b, of any kind, in one system call, so
-// no moment exists in which either name is missing: renamex_np with
-// RENAME_SWAP. Both must exist on one file system. A file system without the
-// flag fails it with ErrSwapUnsupported (see swapError).
-func SwapNames(a, b string) error {
+// swapNames is renamex_np with RENAME_SWAP. A file system without the flag
+// fails it with ErrSwapUnsupported (see swapError).
+func swapNames(a, b string) error {
 	return swapError(a, b, unix.RenamexNp(a, b, unix.RENAME_SWAP))
 }
 
-// CanSwap reports whether the file system holding path, or its first
-// existing folder above, can swap two names (see SwapNames), without trying:
-// whether its volume has VOL_CAP_INT_RENAME_SWAP, read with getattrlist on
-// the volume's mount point, as renamex_np(2) says. APFS has it and HFS+ does
-// not. A folder [MarkCannotSwap] marked after a refused swap cannot swap.
-// The error is a statfs or getattrlist failure.
-func CanSwap(path string) (bool, error) {
-	if markedCannotSwap(path) {
-		return false, nil
-	}
+// canSwap reports whether the volume holding path, or its first existing
+// folder above, has VOL_CAP_INT_RENAME_SWAP, read with getattrlist on the
+// volume's mount point, as renamex_np(2) says. APFS has it and HFS+ does
+// not. The error is a statfs or getattrlist failure.
+func canSwap(path string) (bool, error) {
 	stat, err := existingStatfs(path)
 	if err != nil {
 		return false, err

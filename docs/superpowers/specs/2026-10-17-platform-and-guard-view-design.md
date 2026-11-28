@@ -140,35 +140,59 @@ Each was read in the source named.
   keep their files, or whether Homebrew casks exist.
 - **WSL**, detected once at first use (`sync.OnceValue`), never again.
 
-It imports only the standard library and `golang.org/x/sys`, never another
-Workbench package, so every other package may import it.
+It imports only the standard library, `golang.org/x/sys` and, on macOS, the
+netdb package of the SQLite driver's C library (`modernc.org/libc`), whose
+tables `ReleaseServiceTables` lets go of, never another Workbench package, so
+every other package may import it.
 
 ### 3.2 Layout
 
 ```
 internal/platform/
-  doc.go               the package documentation
-  facts_darwin.go      macOS facts
-  facts_linux.go       Linux facts and WSL
-  process.go           shared process type and Exited
-  process_darwin.go    macOS process calls
-  process_linux.go     Linux process calls
-  memory.go            shared memory reading type
-  memory_darwin.go     macOS memory reading
-  memory_linux.go      Linux memory reading
-  file.go              shared file calls and types
-  file_darwin.go       macOS file calls
-  file_linux.go        Linux file calls
-  socket.go            shared peer credentials
-  socket_darwin.go     macOS peer credentials
-  socket_linux.go      Linux peer credentials
-  libc_darwin.go       libc trampolines (from internal/operation)
-  libc_darwin.s
+  doc.go               the package documentation and its layout
+  facts.go             the platform facts
+  facts_darwin.go        macOS values
+  facts_linux.go         Linux values and WSL
+  boot.go              the start identifier
+  boot_darwin.go         kern.bootsessionuuid
+  boot_linux.go          the kernel's boot_id
+  process.go           processes: listing, reads, memory and signals
+  process_darwin.go      sysctl and libproc
+  process_linux.go       /proc and pidfds
+  lineage.go           where a process came from
+  lineage_darwin.go      proc_pidinfo's unique identifiers
+  lineage_linux.go       none kept
+  waiter.go            waiting for a process to exit, fork or exec
+  waiter_darwin.go       kqueue
+  waiter_linux.go        pidfds
+  memory.go            the machine's and a cgroup's memory
+  memory_darwin.go       sysctl and host_statistics64
+  memory_linux.go        /proc/meminfo and cgroup v2
+  file.go              file calls and types
+  file_darwin.go         statfs names, renameatx_np and ACLs
+  file_linux.go          statfs magic numbers and renameat2
+  swap.go              swapping two names in one call
+  swap_darwin.go         renamex_np and the volume's capabilities
+  swap_linux.go          renameat2's exchange
+  socket.go            private sockets and peer credentials
+  socket_darwin.go       LOCAL_PEERCRED and LOCAL_PEERPID
+  socket_linux.go        SO_PEERCRED
+  netdb.go             the SQLite driver's service tables
+  netdb_darwin.go        let go of
+  netdb_linux.go         none built
+  libc_darwin.go       libSystem bindings
+  libc_darwin.s          their trampolines
 ```
 
-Each subject's `_darwin.go` and `_linux.go` files export the same names with
-the same signatures, so callers compile the same on both; a file without a
-suffix holds only what is identical on both systems. There is no third file
+Each subject declares every exported name once, in its file without a
+suffix, with one comment that states the contract callers rely on and how
+the systems differ in what they see, so callers compile the same on both.
+Its `_darwin.go` and `_linux.go` files declare only unexported names, with
+comments on how that system does it: an exported function calls the
+unexported one of the same signature, an exported type whose fields differ
+embeds an unexported per-system type, and a value that differs is set from
+an unexported constant or variable. Code that is the same on both has one
+body in the file without a suffix. There is no third file
 for other systems: Workbench ships for macOS and Linux only, so building for
 anything else fails to compile, which replaces the run-time refusal in
 `operation.runtimePaths`.

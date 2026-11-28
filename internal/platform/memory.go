@@ -18,3 +18,19 @@ type Memory struct {
 	SwapFree, SwapTotal uint64
 	FullAvg10           float64
 }
+
+// MachineMemory is one reading of the machine's memory. The error is the
+// system's when a figure the reading needs cannot be read.
+func MachineMemory() (Memory, error) { return machineMemory() }
+
+// CgroupMemory is the memory of the cgroup v2 at or above this process with
+// the lowest memory.max, as a container's --memory or a unit's MemoryMax=
+// sets it, where the kernel's OOM killer acts before the machine runs short;
+// machine is the MachineMemory reading it is weighed against. Available is
+// the limit less what the cgroup holds beyond inactive file cache; Total adds
+// its anonymous memory (earlyoom's figure within the cgroup); the swap is the
+// cgroup's when memory.swap.max is lower than the machine's. Used is what the
+// cgroup holds, of the limit as Installed. ok is false without cgroup v2 or
+// such a limit, when the limit is no lower than the machine's memory, and
+// always on macOS, which has no cgroups.
+func CgroupMemory(machine Memory) (Memory, bool) { return cgroupMemory(machine) }

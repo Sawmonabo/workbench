@@ -7,17 +7,17 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Waiter sleeps between ticks and wakes as soon as a watched process exits,
-// by polling the processes' pidfds. Without a pidfd it just sleeps.
-type Waiter struct{ fds map[int]int }
+// waiter polls the watched processes' pidfds. Without a pidfd it just
+// sleeps.
+type waiter struct{ fds map[int]int }
 
-// NewWaiter makes a Waiter that watches nothing yet.
-func NewWaiter() *Waiter { return &Waiter{fds: map[int]int{}} }
+// newWaiter makes a waiter with no pidfd yet.
+func newWaiter() waiter { return waiter{fds: map[int]int{}} }
 
-// Watch makes Wait return when pid exits, and says what it did (see Attach):
-// pidfd_open gives ESRCH for a process that is gone, a kernel without it
-// (ENOSYS) is Unsupported, and any other error (such as EMFILE) is Refused.
-func (w *Waiter) Watch(pid int) Attach {
+// watch opens pid's pidfd: pidfd_open gives ESRCH for a process that is
+// gone, a kernel without it (ENOSYS) is Unsupported, and any other error
+// (such as EMFILE) is Refused.
+func (w *waiter) watch(pid int) Attach {
 	if _, ok := w.fds[pid]; ok {
 		return Attached
 	}
@@ -34,16 +34,15 @@ func (w *Waiter) Watch(pid int) Attach {
 	return Refused
 }
 
-// Follow is Unsupported and does nothing: Linux cannot follow another
+// follow is Unsupported and does nothing: Linux cannot follow another
 // process's forks and execs here (FollowsForks).
-func (*Waiter) Follow(int) Attach { return Unsupported }
+func (*waiter) follow(int) Attach { return Unsupported }
 
-// Unfollow does nothing, since nothing is ever followed here.
-func (*Waiter) Unfollow(int) {}
+// unfollow does nothing, since nothing is ever followed here.
+func (*waiter) unfollow(int) {}
 
-// Wait sleeps for d or until a watched process exits, and returns the exits
-// it woke for, nil when d ran out.
-func (w *Waiter) Wait(d time.Duration) []Event {
+// wait polls the pidfds for up to d and returns the exits it woke for.
+func (w *waiter) wait(d time.Duration) []Event {
 	if len(w.fds) == 0 {
 		time.Sleep(d)
 		return nil
@@ -71,8 +70,8 @@ func (w *Waiter) Wait(d time.Duration) []Event {
 	return out
 }
 
-// Close releases the pidfds still watched.
-func (w *Waiter) Close() {
+// close releases the pidfds still watched.
+func (w *waiter) close() {
 	for _, fd := range w.fds {
 		_ = unix.Close(fd)
 	}

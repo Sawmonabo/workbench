@@ -150,7 +150,7 @@ Read from documentation and source:
   offset 72 is the figure Activity Monitor shows. Resident memory from `ps`
   is wrong both ways: it misses compressed memory and counts shared pages.
   Raw syscalls are unsupported on macOS, so `platform.Footprint`
-  (`internal/platform/libc_darwin.go`) calls the function the way
+  (`internal/platform/process_darwin.go`) calls the function the way
   `golang.org/x/sys` calls libSystem, through the runtime's `syscall.syscall6`
   and a trampoline in `internal/platform/libc_darwin.s`, beside the `getattrlist` and
   `fgetattrlist` calls of the ACL checks. cgo would break `CGO_ENABLED=0`
@@ -872,7 +872,7 @@ day.
 | Agent exit | `kqueue` `EVFILT_PROC` `NOTE_EXIT` | pidfd |
 
 The macOS footprint comes from `platform.Footprint`
-(`internal/platform/libc_darwin.go`), which calls libSystem through one
+(`internal/platform/process_darwin.go`), which calls libSystem through one
 trampoline file, `internal/platform/libc_darwin.s`, with the ACL checks' `getattrlist` and
 `fgetattrlist` (section 2):
 - an error fails closed: the process counts as size 0 and is logged once,

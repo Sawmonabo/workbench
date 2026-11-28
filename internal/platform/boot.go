@@ -5,6 +5,12 @@ import "strings"
 // hexDigits are the digits of a UUID, in either case.
 const hexDigits = "0123456789abcdefABCDEF"
 
+// BootID identifies this start of the system: the UUID the kernel makes anew
+// at each boot, which no clock change moves, in upper case on macOS and lower
+// case on Linux. The error is the system's when it cannot be read, or says
+// that it read empty.
+func BootID() (string, error) { return bootID() }
+
 // BootIDLength is the length of a start identifier [BootID] gives: a UUID.
 const BootIDLength = 36
 

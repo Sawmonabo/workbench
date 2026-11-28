@@ -13,15 +13,15 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// StartSecond is one second in Process.Start's units: microseconds of
+// startSecond is one second in Process.Start's units: microseconds of
 // kinfo_proc's p_starttime. That start time is the wall clock when the
 // process began, so a clock step between two processes' starts shifts one
 // against the other.
-const StartSecond = 1_000_000
+const startSecond = 1_000_000
 
-// StartTime is a Process.Start as a wall-clock time: Start already is one,
-// in microseconds since the epoch.
-func StartTime(start uint64) time.Time {
+// startTime is Start as the wall-clock time it already is, in microseconds
+// since the epoch.
+func startTime(start uint64) time.Time {
 	return time.UnixMicro(int64(start))
 }
 
@@ -49,19 +49,9 @@ func fromKinfo(k *unix.KinfoProc) Process {
 	}
 }
 
-// Processes lists every process. kern.proc.all reads them in one call, so
-// none is left out for want of a read.
-func Processes(unreadable func(pid int, err error)) ([]Process, error) {
-	var l ProcessList
-	return l.Read(unreadable)
-}
-
-// ProcessList lists every process again and again, as Processes does,
-// keeping the kernel's records and the list it gives between reads, so a
-// caller that lists the processes each second does not make a megabyte of
-// them anew each time on a busy machine (648 bytes a process). The list Read
-// gives is valid only until the next Read: a caller copies what it keeps.
-// The zero value is ready to use; a ProcessList is not for concurrent use.
+// processList keeps the kernel's records and the list it gives between
+// reads, so a caller that lists the processes each second does not make a
+// megabyte of them anew each time on a busy machine (648 bytes a process).
 //
 // The kernel's records are kept as words, not as []unix.KinfoProc. x/sys
 // declares several of the record's fields as Go pointers (P_vmspace, P_wchan,
@@ -70,7 +60,7 @@ func Processes(unreadable func(pid int, err error)) ([]Process, error) {
 // day filled such a field with an address would leave a word the collector
 // could take for a bad heap pointer, which makes the runtime throw. A
 // []uint64 holds no pointers, so the collector never looks inside it.
-type ProcessList struct {
+type processList struct {
 	words []uint64
 	out   []Process
 }
@@ -101,9 +91,10 @@ const (
 // than a loop that never ends.
 const readAttempts = 4
 
-// Read lists every process, as Processes does, into the list's buffers. A
-// buffer too small for every record fails with ENOMEM, and is then sized
-// again by asking the kernel how much it needs, plus an eighth for the
+// read lists every process through kern.proc.all, which reads them in one
+// call, so none is left out for want of a read and unreadable is never
+// called. A buffer too small for every record fails with ENOMEM, and is then
+// sized again by asking the kernel how much it needs, plus an eighth for the
 // processes that start meanwhile (a quarter, a half and the whole at the
 // next attempts), at most readAttempts times. A buffer four times larger
 // than the records it last held is let go, so a build that ends does not
@@ -113,7 +104,7 @@ const readAttempts = 4
 // kinfo_proc) bytes for each process, the size unix.KinfoProc mirrors; a
 // length that is not a whole number of them is an error, so a kernel whose
 // record had another size is never read at the wrong offsets.
-func (l *ProcessList) Read(_ func(pid int, err error)) ([]Process, error) {
+func (l *processList) read(_ func(pid int, err error)) ([]Process, error) {
 	headroom := 8
 	for range readAttempts {
 		if len(l.words) == 0 {
@@ -163,7 +154,7 @@ func (l *ProcessList) Read(_ func(pid int, err error)) ([]Process, error) {
 // layout because the kernel wrote a kinfo_proc there. The race detector's
 // checkptr instrumentation checks the alignment and the bounds. Only
 // fromKinfo reads it, and it copies out no field x/sys types as a pointer.
-func (l *ProcessList) record(i int) *unix.KinfoProc {
+func (l *processList) record(i int) *unix.KinfoProc {
 	words := (*[kinfoWords]uint64)(l.words[i*kinfoWords:])
 	return (*unix.KinfoProc)(unsafe.Pointer(words))
 }
@@ -187,11 +178,11 @@ func readProcs(buffer unsafe.Pointer, size *uintptr) error {
 	return nil
 }
 
-// ProcessInfo reads one process through kern.proc.pid. For a PID no process
+// processInfo reads one process through kern.proc.pid. For a PID no process
 // has, the sysctl returns no record and no error, because the kernel's
 // sysctl_prochandle walks the processes without reporting whether one
 // matched, so that case wraps ESRCH, which Exited reports as on Linux.
-func ProcessInfo(pid int) (Process, error) {
+func processInfo(pid int) (Process, error) {
 	found, err := unix.SysctlKinfoProcSlice("kern.proc.pid", pid)
 	if err != nil {
 		return Process{}, fmt.Errorf("kern.proc.pid %d: %w", pid, err)
@@ -202,15 +193,15 @@ func ProcessInfo(pid int) (Process, error) {
 	return fromKinfo(&found[0]), nil
 }
 
-// Folder is the process's working folder as the kernel reports it, a real
-// path: proc_pidinfo with PROC_PIDVNODEPATHINFO (9) fills the 2352-byte
-// proc_vnodepathinfo, whose pvi_cdir.vip_path is the NUL-terminated path at
-// byte 152, at most MAXPATHLEN (1024) bytes. proc_pidinfo returns the bytes
-// it wrote as a C int, and 0 on failure with an errno libcCall6 does not
-// read, so a shorter result is the error. For a process that has exited or
-// is a zombie, which has no working folder left, the error wraps ESRCH, which
-// Exited reports as on Linux.
-func Folder(pid int) (string, error) {
+// folder reads the process's working folder from proc_pidinfo with
+// PROC_PIDVNODEPATHINFO (9), which fills the 2352-byte proc_vnodepathinfo,
+// whose pvi_cdir.vip_path is the NUL-terminated path at byte 152, at most
+// MAXPATHLEN (1024) bytes. proc_pidinfo returns the bytes it wrote as a C
+// int, and 0 on failure with an errno libcCall6 does not read, so a shorter
+// result is the error. For a process that has exited or is a zombie, which
+// has no working folder left, the error wraps ESRCH, which Exited reports as
+// on Linux.
+func folder(pid int) (string, error) {
 	const (
 		vnodePathInfo = 9
 		size          = 2352
@@ -241,10 +232,9 @@ func Folder(pid int) (string, error) {
 	return unix.ByteSliceToString(info[pathAt : pathAt+pathMax]), nil
 }
 
-// Args is the process's command line as the kernel counts it, nil when it
-// cannot be read: the first p_argc strings of kern.procargs2. It is for
-// matching and deciding, never for showing, which is ShownArgs: a process
-// that rewrote its title can make its last strings environment strings.
+// args is the process's command line as the kernel counts it: the first
+// p_argc strings of kern.procargs2. A process that rewrote its title can make
+// its last strings environment strings.
 //
 // kern.procargs2 does not say where the arguments end. The kernel saves only
 // their count at exec (p_argc) and the length of the whole string area, which
@@ -255,26 +245,24 @@ func Folder(pid int) (string, error) {
 // the first p_argc strings run on into the environment: the kernel counts
 // them the same way when it cuts the environment of a restricted program, so
 // the strings it returns end with environment strings too.
-func Args(pid int) []string {
+func args(pid int) []string {
 	args, _ := procArgs(pid)
 	return args
 }
 
-// ShownArgs is the process's command line for showing to a person: Args
-// without any string that might be an environment string, and cut, true when
-// it left something out, so a view can mark the line as shortened. No parse
-// can tell an environment string that a rewritten title let in (see Args)
-// from an argument, and the environment follows the arguments, so what runs
-// into it is always at the end: ShownArgs drops the trailing strings shaped
-// like NAME=value and, when it drops any, keeps only the first argument,
-// since the area may have been rewritten and what lay between may be the tail
-// of an environment value. The cost: a real trailing argument of that shape
-// cuts the line to its program, so `make CC=clang` shows as `make` and
-// `bash -lc 'CI=1 npm test'` as `bash`. The case left: a process that writes
-// its title on past its arguments into its environment without clearing the
-// rest leaves the tail of a value, which shows when it is the last of the
-// p_argc strings.
-func ShownArgs(pid int) (args []string, cut bool) {
+// shownArgs is Args without any string that might be an environment string.
+// No parse can tell an environment string that a rewritten title let in (see
+// args) from an argument, and the environment follows the arguments, so what
+// runs into it is always at the end: shownArgs drops the trailing strings
+// shaped like NAME=value and, when it drops any, keeps only the first
+// argument, since the area may have been rewritten and what lay between may
+// be the tail of an environment value. The cost: a real trailing argument of
+// that shape cuts the line to its program, so `make CC=clang` shows as `make`
+// and `bash -lc 'CI=1 npm test'` as `bash`. The case left: a process that
+// writes its title on past its arguments into its environment without
+// clearing the rest leaves the tail of a value, which shows when it is the
+// last of the p_argc strings.
+func shownArgs(pid int) (args []string, cut bool) {
 	return withoutEnvironment(Args(pid))
 }
 
@@ -305,13 +293,7 @@ func environmentShaped(s string) bool {
 		!strings.ContainsAny(name, " \t\"'/")
 }
 
-// Environ is the variable name in the environment the process started with.
-// It is "" when absent or unreadable.
-func Environ(pid int, name string) string {
-	return ReadEnvironment(pid, name).Value(name)
-}
-
-// ReadEnvironment reads the named variables of the environment the process
+// readEnvironment reads the named variables of the environment the process
 // started with, once: the environment strings that follow the first p_argc
 // strings in kern.procargs2, up to the empty string that ends them. Readable
 // is false when the kernel gives no environment at all, as it does for a
@@ -319,11 +301,11 @@ func Environ(pid int, name string) string {
 // cannot be read.
 //
 // A process that rewrote its title can leave fewer strings in its argument
-// area than p_argc (see Args), so the first environment strings are counted
+// area than p_argc (see args), so the first environment strings are counted
 // as arguments and are missing from the environment proper. Those are kept
 // apart, from the trailing strings of the first p_argc that are shaped like
 // variables (see environmentShaped), and only Narrowing gives them.
-func ReadEnvironment(pid int, names ...string) Environment {
+func readEnvironment(pid int, names ...string) Environment {
 	args, rest := procArgs(pid)
 	e := Environment{values: map[string]string{}, inArgs: map[string]string{}}
 	for len(rest) > 0 {
@@ -384,10 +366,10 @@ func procArgs(pid int) ([]string, []byte) {
 	return args, rest
 }
 
-// Footprint is the process's physical footprint, the figure Activity
+// footprint is the process's physical footprint, the figure Activity
 // Monitor shows: proc_pid_rusage with RUSAGE_INFO_V0 (0), whose
 // ri_phys_footprint is the uint64 at offset 72 of the 96-byte rusage_info_v0.
-func Footprint(pid int) (uint64, error) {
+func footprint(pid int) (uint64, error) {
 	var info [96]byte
 	_, _, errno := libcCall6(
 		procPidRusage,
@@ -404,18 +386,15 @@ func Footprint(pid int) (uint64, error) {
 	return binary.LittleEndian.Uint64(info[72:80]), nil
 }
 
-// Resident is the memory the process holds for a live display. macOS has no
-// cheaper figure worth showing beside the physical footprint, so it is that
-// footprint again.
-func Resident(pid int) (uint64, error) {
+// resident is the physical footprint again: macOS has no cheaper figure
+// worth showing beside it.
+func resident(pid int) (uint64, error) {
 	return Footprint(pid)
 }
 
-// Signal sends sig to p, or with group to the process group p leads, once
-// p's start time still matches; a process that exited, is a zombie or whose
-// PID was reused is left alone, so it reports true only for a live process.
-// Only p's PID and Start are read.
-func Signal(p Process, group bool, sig unix.Signal) bool {
+// signal reads p again with ProcessInfo and, while its start time matches
+// and it is not a zombie, kills its PID, or the group's with -PID.
+func signal(p Process, group bool, sig unix.Signal) bool {
 	now, err := ProcessInfo(p.PID)
 	if err != nil || now.Start != p.Start || now.Zombie {
 		return false
@@ -427,15 +406,15 @@ func Signal(p Process, group bool, sig unix.Signal) bool {
 	return unix.Kill(pid, sig) == nil
 }
 
-// Children is the PIDs of pid's children now, zombies included, from
-// libproc's proc_listchildpids, which answers for any process without
-// privileges and returns a count of PIDs (it divides proc_listpids'
-// PROC_PPID_ONLY byte count by the size of one). It is one kernel walk of
-// the process list that copies out only the matches, cheaper and quicker
-// than kern.proc.all filtered by parent, so a child that forks and exits at
-// once is more often still there. A full buffer is read again with twice the
-// room. It is nil when pid has no children or cannot be read.
-func Children(pid int) []int {
+// children reads pid's children, zombies included, from libproc's
+// proc_listchildpids, which answers for any process without privileges and
+// returns a count of PIDs (it divides proc_listpids' PROC_PPID_ONLY byte
+// count by the size of one). It is one kernel walk of the process list that
+// copies out only the matches, cheaper and quicker than kern.proc.all
+// filtered by parent, so a child that forks and exits at once is more often
+// still there. A full buffer is read again with twice the room. It is nil
+// when pid has no children or cannot be read.
+func children(pid int) []int {
 	for room := 64; room <= 1<<16; room *= 2 {
 		buffer := make([]int32, room)
 		count, _, errno := libcCall6(

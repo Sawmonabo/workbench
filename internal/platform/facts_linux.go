@@ -5,24 +5,20 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 )
 
-// System is this system's Go name, used in messages and release asset names.
-const System = "linux"
+// system is Linux's Go name.
+const system = "linux"
 
-// WSL reports whether Workbench runs inside Windows Subsystem for Linux: the
-// kernel release names Microsoft. The file is read once, at the first call, and
-// an unreadable one means not WSL.
-var WSL = sync.OnceValue(func() bool {
+// wsl reports whether the kernel release names Microsoft. An unreadable
+// /proc/sys/kernel/osrelease means not WSL.
+func wsl() bool {
 	data, _ := os.ReadFile("/proc/sys/kernel/osrelease")
 	return strings.Contains(strings.ToLower(string(data)), "microsoft")
-})
+}
 
-// PackageManager is the system package manager the Linux scripts use: "apt"
-// when apt-get is on PATH, "dnf" when dnf is and apt-get is not, otherwise
-// empty. It is looked up once, at the first call.
-var PackageManager = sync.OnceValue(func() string {
+// packageManager looks for apt-get, then dnf, on PATH.
+func packageManager() string {
 	if _, err := exec.LookPath("apt-get"); err == nil {
 		return "apt"
 	}
@@ -30,12 +26,10 @@ var PackageManager = sync.OnceValue(func() string {
 		return "dnf"
 	}
 	return ""
-})
+}
 
-// RuntimeFolders are the default config, data, state, cache and bin folders,
-// in that order, before any WORKBENCH_*_DIR or XDG_*_HOME override: the XDG
-// base directory defaults.
-func RuntimeFolders(home string) [5]string {
+// runtimeFolders are the XDG base directory defaults.
+func runtimeFolders(home string) [5]string {
 	return [5]string{
 		filepath.Join(home, ".config", "workbench"),
 		filepath.Join(home, ".local", "share", "workbench"),
@@ -45,27 +39,23 @@ func RuntimeFolders(home string) [5]string {
 	}
 }
 
-// HomebrewPrefixes are Homebrew's default prefixes on Linux.
-var HomebrewPrefixes = []string{"/home/linuxbrew/.linuxbrew"}
+// homebrewPrefixes are Homebrew's default prefixes on Linux.
+var homebrewPrefixes = []string{"/home/linuxbrew/.linuxbrew"}
 
-// HomebrewRepositories are the Git checkouts Homebrew installs itself as at
+// homebrewRepositories are the Git checkouts Homebrew installs itself as at
 // its default prefixes.
-var HomebrewRepositories = []string{"/home/linuxbrew/.linuxbrew/Homebrew"}
+var homebrewRepositories = []string{"/home/linuxbrew/.linuxbrew/Homebrew"}
 
-// HasCasks reports whether Homebrew casks, and the Mac apps they install,
-// exist here.
-const HasCasks = false
+// hasCasks is false: Homebrew casks and Mac apps do not exist on Linux.
+const hasCasks = false
 
-// GoBunFromHomebrew reports whether Go and bun come from Homebrew here, which
-// installs only its current version, so the go and bun pins do not apply.
-const GoBunFromHomebrew = false
+// goBunFromHomebrew is false: Go and bun do not come from Homebrew here.
+const goBunFromHomebrew = false
 
-// ToolFolders are the folders searched for an agent's launcher, in the order
-// the managed shell startup files put them on PATH: ~/bin, bun's globals, nvm
-// (the bin folder of nvm's default Node, left out when empty), Cargo's bin
-// folder, ~/.local/bin, Go's bin folders, then Homebrew's and the system's
-// folders. Each call returns a new slice.
-func ToolFolders(home, nvm string) []string {
+// toolFolders are ~/bin, bun's globals, nvm (the bin folder of nvm's default
+// Node, left out when empty), Cargo's bin folder, ~/.local/bin, Go's bin
+// folders, then Homebrew's and the system's folders.
+func toolFolders(home, nvm string) []string {
 	folders := []string{filepath.Join(home, "bin"), filepath.Join(home, ".bun", "bin")}
 	if nvm != "" {
 		folders = append(folders, nvm)
@@ -83,32 +73,28 @@ func ToolFolders(home, nvm string) []string {
 	)
 }
 
-// VSCodeUserFolder is VS Code's user settings folder.
-func VSCodeUserFolder(home string) string {
+// vsCodeUserFolder is VS Code's user settings folder under ~/.config.
+func vsCodeUserFolder(home string) string {
 	return filepath.Join(home, ".config", "Code", "User")
 }
 
-// ClaudeManagedFolder is the folder that holds Claude Code's managed settings.
-const ClaudeManagedFolder = "/etc/claude-code"
+// claudeManagedFolder is the folder that holds Claude Code's managed settings.
+const claudeManagedFolder = "/etc/claude-code"
 
-// GroupFromFolder reports whether a new file always takes its folder's group,
-// as on macOS, rather than the creator's effective group unless the folder is
-// set-group-ID.
-const GroupFromFolder = false
+// groupFromFolder is false: on Linux a new file takes the creator's effective
+// group unless the folder is set-group-ID.
+const groupFromFolder = false
 
-// TouchIDPossible reports whether sudo can be set up to ask for Touch ID here.
-const TouchIDPossible = false
+// touchIDPossible is false: sudo cannot be set up to ask for Touch ID here.
+const touchIDPossible = false
 
-// KnowsOriginalParent reports whether ProcessLineage names the process that
-// forked one even after that parent exited, as macOS's kernel records it.
-const KnowsOriginalParent = false
+// knowsOriginalParent is false: Linux keeps no record of the process that
+// forked one once that parent exits and another adopts the child.
+const knowsOriginalParent = false
 
-// FollowsForks reports whether Waiter.Follow wakes a Wait when a process
-// forks or execs, as macOS's kqueue can. Linux has no unprivileged way to
-// learn of another process's forks that works in every namespace, so here
-// Follow is always Unsupported.
-const FollowsForks = false
+// followsForks is false: Linux has no unprivileged way to learn of another
+// process's forks that works in every namespace.
+const followsForks = false
 
-// AssetTriple is the operating-system part of a Rust-style release asset name,
-// such as uv's.
-const AssetTriple = "unknown-linux-gnu"
+// assetTriple is Linux's part of a Rust-style release asset name.
+const assetTriple = "unknown-linux-gnu"

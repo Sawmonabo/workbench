@@ -7,12 +7,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// Waiter sleeps between ticks and wakes as soon as a watched process exits,
-// or a followed one forks or execs, through kqueue's EVFILT_PROC. Any process
-// the caller can see may be watched and followed: the kernel checks
-// permission only for NOTE_EXITSTATUS, which is never asked for. Without a
-// kqueue it just sleeps.
-type Waiter struct {
+// waiter waits through kqueue's EVFILT_PROC. Any process the caller can see
+// may be watched and followed: the kernel checks permission only for
+// NOTE_EXITSTATUS, which is never asked for. Without a kqueue it just sleeps.
+type waiter struct {
 	kq int
 	// watched holds what was asked for each process the kqueue has a knote
 	// for: watching (Watch) and following (Follow).
@@ -25,18 +23,18 @@ type Waiter struct {
 
 type watch struct{ exit, follow bool }
 
-// NewWaiter opens the kqueue a Waiter waits on.
-func NewWaiter() *Waiter {
+// newWaiter opens the kqueue a waiter waits on; kq is -1 when it cannot.
+func newWaiter() waiter {
 	kq, err := unix.Kqueue()
 	if err != nil {
 		kq = -1
 	}
-	return &Waiter{kq: kq, watched: map[int]watch{}, events: make([]unix.Kevent_t, 64)}
+	return waiter{kq: kq, watched: map[int]watch{}, events: make([]unix.Kevent_t, 64)}
 }
 
-// Watch makes Wait return when pid exits, and says what it did (see Attach).
-// A followed process is already watched.
-func (w *Waiter) Watch(pid int) Attach {
+// watch adds a one-shot NOTE_EXIT knote for pid, or notes the watch on the
+// knote of a followed process, which is already watched.
+func (w *waiter) watch(pid int) Attach {
 	now, ok := w.watched[pid]
 	switch {
 	case w.kq < 0:
@@ -71,10 +69,10 @@ func attachResult(err error) Attach {
 	return Refused
 }
 
-// Follow makes Wait return when pid forks, execs or exits, until Unfollow or
-// its exit, after which the kernel drops the watch itself, and says what it
-// did (see Attach). The knote is kept after each event and cleared when read
-// (EV_CLEAR), so forks between two Waits come back as one Event.
+// follow adds a NOTE_FORK, NOTE_EXEC and NOTE_EXIT knote for pid, which the
+// kernel drops itself at the exit. The knote is kept after each event and
+// cleared when read (EV_CLEAR), so forks between two Waits come back as one
+// Event.
 //
 // Following a watched process replaces its one-shot exit knote. kqueue keys a
 // knote by process and filter, and EV_ADD on that pair changes the events it
@@ -84,7 +82,7 @@ func attachResult(err error) Attach {
 // the next Wait reports that exit itself, so a watched exit is never lost. A
 // watched process that is Refused gets its exit watch back where the system
 // allows it; one found Gone at that second try is Gone.
-func (w *Waiter) Follow(pid int) Attach {
+func (w *waiter) follow(pid int) Attach {
 	now, ok := w.watched[pid]
 	switch {
 	case w.kq < 0:
@@ -104,16 +102,16 @@ func (w *Waiter) Follow(pid int) Attach {
 	case !ok:
 	case result == Gone:
 		w.exited = append(w.exited, Event{PID: pid, Exit: true})
-	case w.Watch(pid) == Gone:
+	case w.watch(pid) == Gone:
 		w.exited = append(w.exited, Event{PID: pid, Exit: true})
 		return Gone
 	}
 	return result
 }
 
-// Unfollow stops following pid. A process also watched stays watched for its
-// exit; any other has its knote removed.
-func (w *Waiter) Unfollow(pid int) {
+// unfollow changes the knote of a process also watched to NOTE_EXIT alone,
+// in place, and removes any other's.
+func (w *waiter) unfollow(pid int) {
 	now, ok := w.watched[pid]
 	if !ok || !now.follow {
 		return
@@ -132,7 +130,7 @@ func (w *Waiter) Unfollow(pid int) {
 			// one-shot exit watch is tried, whose own Gone is reported.
 			_ = w.register(pid, unix.EV_DELETE, 0)
 			delete(w.watched, pid)
-			if w.Watch(pid) == Gone {
+			if w.watch(pid) == Gone {
 				w.exited = append(w.exited, Event{PID: pid, Exit: true})
 			}
 			return
@@ -146,7 +144,7 @@ func (w *Waiter) Unfollow(pid int) {
 
 // register applies one change to pid's EVFILT_PROC knote and gives the
 // kernel's error, nil when it took it.
-func (w *Waiter) register(pid int, flags int, fflags uint32) error {
+func (w *waiter) register(pid int, flags int, fflags uint32) error {
 	var event unix.Kevent_t
 	unix.SetKevent(&event, pid, unix.EVFILT_PROC, flags)
 	event.Fflags = fflags
@@ -154,11 +152,10 @@ func (w *Waiter) register(pid int, flags int, fflags uint32) error {
 	return err
 }
 
-// Wait sleeps for d or until a watched process exits or a followed one forks
-// or execs, and returns what it woke for, nil when d ran out. An exit ends
-// the process's watch and follow: the kernel posts it with EV_EOF and drops
-// the knote, one-shot or not.
-func (w *Waiter) Wait(d time.Duration) []Event {
+// wait reads the kqueue's events for up to d. An exit ends the process's
+// watch and follow: the kernel posts it with EV_EOF and drops the knote,
+// one-shot or not.
+func (w *waiter) wait(d time.Duration) []Event {
 	if w.kq < 0 {
 		time.Sleep(d)
 		return nil
@@ -191,8 +188,8 @@ func (w *Waiter) Wait(d time.Duration) []Event {
 	return out
 }
 
-// Close releases the kqueue.
-func (w *Waiter) Close() {
+// close releases the kqueue.
+func (w *waiter) close() {
 	if w.kq >= 0 {
 		_ = unix.Close(w.kq)
 	}

@@ -37,12 +37,21 @@ every caller.
 - **What it owns.** `internal/platform` owns every operating-system call (the
   system calls, libc calls and `/proc` reads that differ between macOS and
   Linux) and every fact that differs by system. The logic around a call stays
-  with its owner; only the call moves. It imports only the standard library
-  and `golang.org/x/sys`, never another Workbench package, so every other
-  package may import it.
-- **Layout.** Each subject has a `_darwin.go` and a `_linux.go` file
-  exporting the same names with the same signatures, so callers compile the
-  same on both; a file without a suffix holds only what is identical on both.
+  with its owner; only the call moves. It imports only the standard library,
+  `golang.org/x/sys` and, on macOS, the netdb package of the SQLite driver's
+  C library (`modernc.org/libc`), whose tables `ReleaseServiceTables` lets go
+  of, never another Workbench package, so every other package may import it.
+- **Layout.** Each subject declares every exported name once, in its file
+  without a suffix (`process.go`), with one comment that states the contract
+  callers rely on and how the systems differ in what they see, so callers
+  compile the same on both. Its `_darwin.go` and `_linux.go` files declare
+  only unexported names, with comments on how that system does it: an
+  exported function calls the unexported one of the same signature, an
+  exported type whose fields differ embeds an unexported per-system type, as
+  `os.File` holds `*file`, and a value that differs is set from an unexported
+  constant or variable. Code that is the same on both has one body in the
+  file without a suffix. The system is fixed at compile time, so no Go
+  interface with one implementation per build stands between the two.
   There is no third file for another system: Workbench ships for macOS and
   Linux only, so building for anything else fails to compile, which replaces
   the run-time refusal the runtime folders had.
@@ -88,7 +97,8 @@ every caller.
 ## Consequences
 
 - A question about the system is answered in one place, and a new platform
-  difference is a new name in two suffix files, not a test at its use.
+  difference is one exported name with its contract and an unexported name in
+  each suffix file, not a test at its use.
 - The move must change no behavior: the doctor's lines and the plan digest
   are compared before and after it, on macOS, on Linux and in the WSL
   simulation.

@@ -10,9 +10,9 @@ import (
 // termiosRequest is the ioctl request that reads a terminal's settings.
 const termiosRequest = unix.TIOCGETA
 
-// NativeFilesystem reports whether path, or its first existing ancestor, is
-// on APFS or HFS. The error is a statfs failure.
-func NativeFilesystem(path string) (bool, error) {
+// nativeFilesystem reports whether path, or its first existing ancestor, is
+// on APFS or HFS, by the file system type name statfs gives.
+func nativeFilesystem(path string) (bool, error) {
 	stat, err := existingStatfs(path)
 	if err != nil {
 		return false, err
@@ -21,14 +21,13 @@ func NativeFilesystem(path string) (bool, error) {
 	return name == "apfs" || name == "hfs", nil
 }
 
-// RenameNoReplace is renameatx_np with RENAME_EXCL.
-func RenameNoReplace(from, to string) error {
+// renameNoReplace is renameatx_np with RENAME_EXCL.
+func renameNoReplace(from, to string) error {
 	return unix.RenameatxNp(unix.AT_FDCWD, from, unix.AT_FDCWD, to, unix.RENAME_EXCL)
 }
 
-// RenameAt renames from to to, both in the folder fd, and with exclusive
-// fails when to exists: renameatx_np, with RENAME_EXCL when exclusive.
-func RenameAt(fd int, from, to string, exclusive bool) error {
+// renameAt is renameatx_np, with RENAME_EXCL when exclusive.
+func renameAt(fd int, from, to string, exclusive bool) error {
 	flags := uint32(0)
 	if exclusive {
 		flags = unix.RENAME_EXCL
@@ -36,9 +35,8 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 	return unix.RenameatxNp(fd, from, fd, to, flags)
 }
 
-// FileSecurity returns the ACL entries of fd, or of path itself, not a
-// link's target, when path is not empty, and whether an ACL is present at
-// all. Darwin does not expose ACLs through listxattr. getattrlist's
+// fileSecurity reads the ACL with getattrlist, or fgetattrlist for fd alone:
+// Darwin does not expose ACLs through listxattr. getattrlist's
 // extended-security attribute contains kauth_filesec (sys/kauth.h): magic,
 // owner and group GUIDs, then the entry count (KAUTH_FILESEC_NOACL when there
 // is no ACL), flags and 24-byte entries. An error is the call's errno, or
@@ -48,7 +46,7 @@ func RenameAt(fd int, from, to string, exclusive bool) error {
 // go through libcCall6; switch once x/sys adds the wrappers. Each pointer
 // becomes a uintptr inside the call's argument list, as the unsafe rules
 // require.
-func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
+func fileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
 	attributes := unix.Attrlist{
 		Bitmapcount: unix.ATTR_BIT_MAP_COUNT,
 		Commonattr:  unix.ATTR_CMN_EXTENDED_SECURITY,

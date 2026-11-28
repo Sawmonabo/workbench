@@ -15,11 +15,11 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// StartSecond is one second in Process.Start's units: clock ticks since boot
+// startSecond is one second in Process.Start's units: clock ticks since boot
 // (USER_HZ, 100 on every architecture Workbench ships for), the unit of
 // /proc/<pid>/stat's starttime. Ticks since boot never follow a wall-clock
 // step, such as WSL2's resync after the host sleeps.
-const StartSecond = 100
+const startSecond = 100
 
 // bootTime is the wall-clock second the system booted, the btime line of
 // /proc/stat, read once; the zero time when it cannot be read.
@@ -40,12 +40,11 @@ var bootTime = sync.OnceValue(func() time.Time {
 	return time.Time{}
 })
 
-// StartTime is a Process.Start as a wall-clock time: the boot time plus the
-// clock ticks since boot. It is the zero time when the boot time cannot be
-// read. The boot time is whole seconds, so the result can be up to a second
-// early, and it is read once, so a later step of the wall clock shifts every
-// result by the size of that step.
-func StartTime(start uint64) time.Time {
+// startTime is the boot time plus the clock ticks since boot. It is the zero
+// time when the boot time cannot be read. The boot time is whole seconds, so
+// the result can be up to a second early, and it is read once, so a later
+// step of the wall clock shifts every result by the size of that step.
+func startTime(start uint64) time.Time {
 	boot := bootTime()
 	if boot.IsZero() {
 		return time.Time{}
@@ -53,14 +52,14 @@ func StartTime(start uint64) time.Time {
 	return boot.Add(time.Duration(start) * (time.Second / StartSecond))
 }
 
-// ProcessInfo parses /proc/<pid>/stat. The name sits between the first "("
+// processInfo parses /proc/<pid>/stat. The name sits between the first "("
 // and the last ")", so a name holding either cannot shift the fields after
 // it: state (field 3), ppid (4), pgrp (5) and starttime (22). UID is the
 // owner of /proc/<pid>, which the kernel sets to the process's effective
 // user, except that a process whose dumpable attribute is not 1 (after a
 // set-user-ID exec, or prctl(PR_SET_DUMPABLE, 0)) has its /proc/<pid> owned
 // by root, so UID reads 0 for it.
-func ProcessInfo(pid int) (Process, error) {
+func processInfo(pid int) (Process, error) {
 	dir := "/proc/" + strconv.Itoa(pid)
 	var owner unix.Stat_t
 	if err := unix.Stat(dir, &owner); err != nil {
@@ -114,30 +113,20 @@ func procStat(pid int) (name string, fields []string, err error) {
 	return string(data[open+1 : end]), strings.Fields(string(data[end+2:])), nil
 }
 
-// Folder is the process's working folder as the kernel reports it, a real
-// path: the target of /proc/<pid>/cwd.
-func Folder(pid int) (string, error) {
+// folder is the target of /proc/<pid>/cwd.
+func folder(pid int) (string, error) {
 	return os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd")
 }
 
-// Processes lists every process. One whose stat cannot be read is left
-// out: it exited (ENOENT, ESRCH) or, for any other error, it is passed to
-// unreadable.
-func Processes(unreadable func(pid int, err error)) ([]Process, error) {
-	var l ProcessList
-	return l.Read(unreadable)
-}
-
-// ProcessList lists every process again and again, as Processes does,
-// keeping the list it gives between reads. The list Read gives is valid only
-// until the next Read: a caller copies what it keeps. The zero value is ready
-// to use; a ProcessList is not for concurrent use.
-type ProcessList struct {
+// processList keeps the list it gives between reads.
+type processList struct {
 	out []Process
 }
 
-// Read lists every process, as Processes does, into the list's buffer.
-func (l *ProcessList) Read(unreadable func(pid int, err error)) ([]Process, error) {
+// read lists the numbered entries of /proc and reads each with ProcessInfo,
+// into the list's buffer. One whose stat cannot be read is left out: it
+// exited (ENOENT, ESRCH) or, for any other error, it is passed to unreadable.
+func (l *processList) read(unreadable func(pid int, err error)) ([]Process, error) {
 	entries, err := os.ReadDir("/proc")
 	if err != nil {
 		return nil, err
@@ -160,33 +149,30 @@ func (l *ProcessList) Read(unreadable func(pid int, err error)) ([]Process, erro
 	return out, nil
 }
 
-// Args is the process's command line from /proc/<pid>/cmdline, nil when it
-// cannot be read. It is for matching and deciding, never for showing, which
-// is ShownArgs: a process that rewrote its title can make its last string
-// run on into its environment.
+// args is the process's command line from /proc/<pid>/cmdline. A process
+// that rewrote its title can make its last string run on into its
+// environment.
 //
 // The kernel's get_mm_cmdline returns exactly the argument area, from
 // arg_start to arg_end, unless the area's last byte is no longer NUL: it then
 // takes the process for one that rewrote its title with setproctitle and
 // returns the string from arg_start to the first NUL, which may run on into
 // the environment strings that follow. Where the kernel shows the area's
-// bounds (see argumentArea), Args cuts what it reads at their length, which
+// bounds (see argumentArea), args cuts what it reads at their length, which
 // leaves the read of a process that kept its arguments as it was.
-func Args(pid int) []string {
+func args(pid int) []string {
 	data, _, _ := argumentBytes(pid)
 	return splitArgs(data)
 }
 
-// ShownArgs is the process's command line for showing to a person: Args
-// without anything that might come from the environment, and cut, true when
-// it left something out, so a view can mark the line as shortened. Cut at
-// the argument area, a title longer than the arguments loses its end. Where
-// the kernel hides the area's bounds (another user's process, or one that is
-// not dumpable), a read with fewer than two NULs could be the one string a
-// rewritten title runs on into the environment with, so ShownArgs gives nil
-// and cut for it; a read with more came from the argument area alone, since
-// the kernel's run-on read is one string.
-func ShownArgs(pid int) (args []string, cut bool) {
+// shownArgs is Args cut at the argument area, so a title longer than the
+// arguments loses its end. Where the kernel hides the area's bounds (another
+// user's process, or one that is not dumpable), a read with fewer than two
+// NULs could be the one string a rewritten title runs on into the
+// environment with, so shownArgs gives nil and cut for it; a read with more
+// came from the argument area alone, since the kernel's run-on read is one
+// string.
+func shownArgs(pid int) (args []string, cut bool) {
 	data, bounded, cut := argumentBytes(pid)
 	if !bounded && len(data) > 0 && bytes.Count(data, []byte{0}) < 2 {
 		return nil, true
@@ -233,13 +219,7 @@ func argumentArea(pid int) (uint64, bool) {
 	return end - start, true
 }
 
-// Environ is the variable name in the environment the process started with.
-// It is "" when absent or unreadable.
-func Environ(pid int, name string) string {
-	return ReadEnvironment(pid, name).Value(name)
-}
-
-// ReadEnvironment reads the named variables in /proc/<pid>/environ, the
+// readEnvironment reads the named variables in /proc/<pid>/environ, the
 // environment the process started with, once. Readable is false when the
 // kernel gives no environment at all: the file cannot be read, as for
 // another user's process, or it reads empty with no error, as for a zombie,
@@ -259,7 +239,7 @@ func Environ(pid int, name string) string {
 // "=" after a name) is not Readable: the process is then judged as one whose
 // environment is hidden, which only makes the guard do less. The values read
 // are kept as they are, so Environ is unchanged.
-func ReadEnvironment(pid int, names ...string) Environment {
+func readEnvironment(pid int, names ...string) Environment {
 	e := Environment{values: map[string]string{}}
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
 	if err != nil || len(data) == 0 {
@@ -281,9 +261,10 @@ func ReadEnvironment(pid int, names ...string) Environment {
 	return e
 }
 
-// Footprint is the process's proportional set size (Pss), which counts a
-// shared page once across the processes sharing it.
-func Footprint(pid int) (uint64, error) {
+// footprint is the process's proportional set size (Pss), the Pss line of
+// /proc/<pid>/smaps_rollup, which counts a shared page once across the
+// processes sharing it.
+func footprint(pid int) (uint64, error) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/smaps_rollup")
 	if err != nil {
 		return 0, err
@@ -298,11 +279,11 @@ func Footprint(pid int) (uint64, error) {
 	return 0, errors.New("smaps_rollup has no Pss line")
 }
 
-// Resident is the process's resident set size for a live display: the
+// resident is the process's resident set size for a live display: the
 // second field of /proc/<pid>/statm, in pages. The kernel counts it
 // approximately, which is fine for a display; the stop decision reads
 // Footprint's Pss instead.
-func Resident(pid int) (uint64, error) {
+func resident(pid int) (uint64, error) {
 	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/statm")
 	if err != nil {
 		return 0, err
@@ -318,18 +299,17 @@ func Resident(pid int) (uint64, error) {
 	return pages * uint64(os.Getpagesize()), nil
 }
 
-// Signal sends sig to p, or with group to the process group p leads, once
-// p's start time still matches, it is not a zombie and, for a group, it
-// still leads that group, so it reports true only for a live process. Only
-// p's PID and Start are read. It goes through a pidfd, which never reaches a
-// later process that reuses the PID; a group through the leader's pidfd with
-// PIDFD_SIGNAL_PROCESS_GROUP (Linux 6.9), else with kill(-pgid). The pidfd is
-// a refinement, not a requirement: when pidfd_open fails for any reason but
-// ESRCH (no such process), such as ENOMEM or EMFILE near out-of-memory, it
-// signals by PID after the same checks, as earlyoom does without a pidfd.
-// After SIGKILL through a pidfd, process_mrelease frees the memory at once,
-// as earlyoom does; a kernel without it just frees it at exit.
-func Signal(p Process, group bool, sig unix.Signal) bool {
+// signal sends sig once p's start time still matches, it is not a zombie
+// and, for a group, it still leads that group. It goes through a pidfd,
+// which never reaches a later process that reuses the PID; a group through
+// the leader's pidfd with PIDFD_SIGNAL_PROCESS_GROUP (Linux 6.9), else with
+// kill(-pgid). The pidfd is a refinement, not a requirement: when pidfd_open
+// fails for any reason but ESRCH (no such process), such as ENOMEM or EMFILE
+// near out-of-memory, it signals by PID after the same checks, as earlyoom
+// does without a pidfd. After SIGKILL through a pidfd, process_mrelease frees
+// the memory at once, as earlyoom does; a kernel without it just frees it at
+// exit.
+func signal(p Process, group bool, sig unix.Signal) bool {
 	fd, err := unix.PidfdOpen(p.PID, 0)
 	if errors.Is(err, unix.ESRCH) {
 		return false
@@ -364,9 +344,9 @@ func Signal(p Process, group bool, sig unix.Signal) bool {
 	return true
 }
 
-// Children is the PIDs of pid's children now, from the processes whose
-// parent is pid in a listing of /proc; nil when there are none.
-func Children(pid int) []int {
+// children is the processes whose parent is pid in a listing of /proc; nil
+// when there are none.
+func children(pid int) []int {
 	all, err := Processes(func(int, error) {})
 	if err != nil {
 		return nil

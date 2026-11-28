@@ -7,9 +7,9 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// BootID identifies this start of the system: kern.bootsessionuuid, a new
-// UUID at each boot that no clock change moves.
-func BootID() (string, error) {
+// bootID is kern.bootsessionuuid, a new UUID at each boot that no clock
+// change moves.
+func bootID() (string, error) {
 	id, err := unix.Sysctl("kern.bootsessionuuid")
 	if err != nil {
 		return "", err

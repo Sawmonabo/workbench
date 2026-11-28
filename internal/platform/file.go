@@ -35,6 +35,32 @@ func TerminalSize(fd uintptr) (width, height int, err error) {
 	return int(size.Col), int(size.Row), nil
 }
 
+// NativeFilesystem reports whether path, or its first existing ancestor, is
+// on a file system native to this system: APFS or HFS on macOS; on Linux
+// ext, XFS, Btrfs, tmpfs or overlay, including under WSL, and not Windows,
+// 9P, FUSE or network mounts. The error is a statfs failure.
+func NativeFilesystem(path string) (bool, error) { return nativeFilesystem(path) }
+
+// RenameNoReplace renames from to to in one system call, which fails,
+// renaming nothing, when a file is at to. The error is the call's errno.
+func RenameNoReplace(from, to string) error { return renameNoReplace(from, to) }
+
+// RenameAt renames from to to, both in the folder fd, and with exclusive
+// fails, renaming nothing, when to exists. The error is the call's errno.
+func RenameAt(fd int, from, to string, exclusive bool) error {
+	return renameAt(fd, from, to, exclusive)
+}
+
+// FileSecurity returns the ACL entries of fd, or of path itself, not a
+// link's target, when path is not empty, and whether an ACL is present at
+// all. An error is the call's errno, or ErrUnsupportedACL for security data
+// whose layout it does not recognize, so a caller fails closed. On Linux it
+// always reports no ACL and no error: POSIX ACLs there are extended
+// attributes, which ExtendedAttributeCount counts.
+func FileSecurity(fd int, path string) (entries []ACE, present bool, err error) {
+	return fileSecurity(fd, path)
+}
+
 // existingStatfs is statfs of path or, while path does not exist yet, of its
 // first existing ancestor, the filesystem a new file at path would be on.
 func existingStatfs(path string) (unix.Statfs_t, error) {

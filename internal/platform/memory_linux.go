@@ -8,9 +8,9 @@ import (
 	"strings"
 )
 
-// MachineMemory reads /proc/meminfo and, when the kernel has it,
+// machineMemory reads /proc/meminfo and, when the kernel has it,
 // /proc/pressure/memory.
-func MachineMemory() (Memory, error) {
+func machineMemory() (Memory, error) {
 	data, err := os.ReadFile("/proc/meminfo")
 	if err != nil {
 		return Memory{}, err
@@ -72,16 +72,18 @@ func cgroupNumber(path string) (uint64, error) {
 	return strconv.ParseUint(strings.TrimSpace(string(data)), 10, 64)
 }
 
-// CgroupMemory is the memory of the cgroup v2 at or above this process with
-// the lowest memory.max, as a container's --memory or a unit's MemoryMax=
-// sets it: the kernel's OOM killer acts there before the machine runs short.
-// Available is the limit less what the cgroup holds beyond inactive file
-// cache; Total adds its anonymous memory (earlyoom's figure within the
-// cgroup); the swap is the cgroup's when memory.swap.max is lower than the
-// machine's. Used is what the cgroup holds, of the limit as Installed. ok is
-// false without cgroup v2 or such a limit, or when the limit
-// is no lower than the machine's memory.
-func CgroupMemory(machine Memory) (Memory, bool) {
+// cgroupMemory finds this process's cgroup in the 0:: line of
+// /proc/self/cgroup and walks up from it to cgroupRoot for the lowest
+// memory.max, as a container's --memory or a unit's MemoryMax= sets it: the
+// kernel's OOM killer acts there before the machine runs short. It reads
+// that cgroup's memory.current, memory.stat, memory.pressure and, with
+// memory.swap.current, memory.swap.max. Available is the limit less what the
+// cgroup holds beyond inactive file cache (memory.current less
+// inactive_file); Total adds its anonymous memory (anon, earlyoom's figure
+// within the cgroup); the swap is the cgroup's when memory.swap.max is lower
+// than the machine's. Used is what the cgroup holds, of the limit as
+// Installed.
+func cgroupMemory(machine Memory) (Memory, bool) {
 	data, err := os.ReadFile("/proc/self/cgroup")
 	if err != nil {
 		return Memory{}, false

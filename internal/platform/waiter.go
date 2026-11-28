@@ -1,5 +1,7 @@
 package platform
 
+import "time"
+
 // Attach is what Waiter.Watch or Waiter.Follow did for a process. Only
 // Refused and Unsupported say anything lasting; Gone is a moment's answer.
 type Attach int
@@ -34,3 +36,38 @@ type Event struct {
 	PID              int
 	Fork, Exec, Exit bool
 }
+
+// Waiter sleeps between ticks and wakes as soon as a watched process exits,
+// or, where the system can follow forks (FollowsForks), a followed one forks
+// or execs. Where it has nothing to wait on it just sleeps. Make one with
+// NewWaiter.
+type Waiter struct{ waiter }
+
+// NewWaiter makes a Waiter that watches nothing yet.
+func NewWaiter() *Waiter { return &Waiter{newWaiter()} }
+
+// Watch makes Wait return when pid exits, and says what it did (see Attach).
+// A followed process is already watched.
+func (w *Waiter) Watch(pid int) Attach { return w.watch(pid) }
+
+// Follow makes Wait return when pid forks, execs or exits, until Unfollow or
+// its exit, and says what it did (see Attach). Forks between two Waits come
+// back as one Event. Following a watched process never loses its exit: one
+// that is Refused keeps its exit watch where the system allows it, and when
+// the process is Gone the next Wait reports its exit. Where forks cannot be
+// followed (FollowsForks) it is Unsupported and does nothing.
+func (w *Waiter) Follow(pid int) Attach { return w.follow(pid) }
+
+// Unfollow stops following pid. A process also watched stays watched for its
+// exit where the system allows it, and when it is found gone the next Wait
+// reports its exit.
+func (w *Waiter) Unfollow(pid int) { w.unfollow(pid) }
+
+// Wait sleeps for d or until a watched process exits or a followed one forks
+// or execs, and returns what it woke for, nil when d ran out. An exit ends
+// the process's watch and follow.
+func (w *Waiter) Wait(d time.Duration) []Event { return w.wait(d) }
+
+// Close releases what the Waiter holds of the system: its kqueue on macOS,
+// and on Linux the pidfds still watched.
+func (w *Waiter) Close() { w.close() }

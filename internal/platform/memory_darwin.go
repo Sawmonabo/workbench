@@ -9,10 +9,10 @@ import (
 	"golang.org/x/sys/unix"
 )
 
-// MachineMemory reads the kernel's pressure level, the RAM, the pages in use
+// machineMemory reads the kernel's pressure level, the RAM, the pages in use
 // (usedPages) times hw.pagesize and vm.swapusage (struct xsw_usage: total,
 // avail, used as uint64).
-func MachineMemory() (Memory, error) {
+func machineMemory() (Memory, error) {
 	level, err := unix.SysctlUint32("kern.memorystatus_vm_pressure_level")
 	if err != nil {
 		return Memory{}, err
@@ -94,8 +94,8 @@ func usedPages() (uint64, error) {
 	return internal - min(internal, purgeable) + page(wireAt) + page(compressorAt), nil
 }
 
-// CgroupMemory reports false: macOS has no cgroups, so no process is confined
+// cgroupMemory reports false: macOS has no cgroups, so no process is confined
 // to less memory than the machine's.
-func CgroupMemory(_ Memory) (Memory, bool) {
+func cgroupMemory(_ Memory) (Memory, bool) {
 	return Memory{}, false
 }

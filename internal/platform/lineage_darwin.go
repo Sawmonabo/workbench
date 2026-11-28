@@ -5,7 +5,7 @@ import (
 	"unsafe"
 )
 
-// ProcessLineage is the process's Lineage from proc_pidinfo with
+// processLineage reads the process's Lineage from proc_pidinfo with
 // PROC_PIDUNIQIDENTIFIERINFO (17), a flavor absent from the public SDK
 // headers that answers for another process without privileges. It
 // fills struct proc_uniqidentifierinfo, whose p_idversion, the int32 at byte
@@ -18,7 +18,7 @@ import (
 // it wrote (56) as a C int; fewer than the 40 the two fields need, as for a
 // process that has exited, reports false, which tells callers nothing about
 // where the process came from.
-func ProcessLineage(pid int) (Lineage, bool) {
+func processLineage(pid int) (Lineage, bool) {
 	const (
 		uniqIdentifierInfo = 17
 		size               = 64

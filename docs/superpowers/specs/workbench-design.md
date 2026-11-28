@@ -44,7 +44,7 @@ Native qualification and final acceptance are tracked separately in
 | `internal/agent/guard/` | Agent command memory guard: `Bash` hooks that note each agent shell command, one watcher per user that stops the largest one near out-of-memory and tells the agent why, and keeps the commands that finished in a history the live view reads; see the [guard design](2026-10-14-agent-command-guard-design.md) and the [guard history design](2026-11-19-agent-guard-history-design.md). |
 | `internal/sqlitefile/` | Opening Workbench's private SQLite files, the costs ledger and the guard history, through the pure-Go driver: a missing file made private before SQLite opens it, the connection string and the switch to WAL. |
 | `internal/jsonc/` | Editing JSON with comments in place, the way an editor does, for the VS Code settings merge, the Windows Terminal default profile and the project editor files. |
-| `internal/platform/` | Every operating-system call and platform fact, in `_darwin.go`/`_linux.go` pairs with the same names; no other package asks which system it runs on (ADR 0012). |
+| `internal/platform/` | Every operating-system call and platform fact, each exported name declared once with its contract in a file without a suffix and carried out by unexported names in `_darwin.go`/`_linux.go` files; no other package asks which system it runs on (ADR 0012). |
 | `.chezmoiroot`, `home/` | Canonical native machine source, platform/role selection and provisioning scripts. |
 | `home/.chezmoidata/` | One package/extension/version/global-editor policy source. |
 | `home/.chezmoitemplates/` | Shared shell/native configuration fragments and merges. |
