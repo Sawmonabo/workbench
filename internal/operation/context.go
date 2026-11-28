@@ -24,8 +24,8 @@ func (p Paths) All() []string { return []string{p.Config, p.Data, p.State, p.Cac
 func (p Paths) Entrypoint() string { return filepath.Join(p.Bin, "workbench") }
 
 // Locks is the folder in the state folder that holds the operation locks
-// and the migrations' lock. No private write replaces a file in it (see
-// [Mutation.WritePrivate]): flock(2) stays on the file it opened.
+// and the migrations' lock. [Mutation.WritePrivate] refuses to replace a file
+// in it: flock(2) stays on the file it opened.
 func (p Paths) Locks() string { return filepath.Join(p.State, "locks") }
 
 // MigrateLock is the lock one run of Workbench's migrations holds while it

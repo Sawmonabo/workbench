@@ -79,9 +79,9 @@ func ReadRegularFile(path string, limit int64) ([]byte, error) {
 // ReadPrivateInput reads the private file at path, at most limit bytes, once
 // it passes the private-file checks: it never creates missing state and
 // withholds unsafe or oversized input. what names the file as its reader
-// knows it, such as "the current Workbench state": every refusal starts
-// "Cannot read" what, then says what is wrong, with the code and category of
-// the check that refused it.
+// knows it, such as "the current Workbench state": every refusal of the file
+// starts "Cannot read" what, then says what is wrong, with the code and
+// category of the check that refused it.
 func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 	if limit < 1 || limit > 16<<20 {
 		return nil, Fail(ExitInvalid, "input", "Invalid private input bound")
