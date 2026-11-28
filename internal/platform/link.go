@@ -9,11 +9,11 @@ import "golang.org/x/sys/unix"
 // symbolic link itself, not what it links to" (open(2)), which fsetxattr,
 // fchflags and fsetattrlist take as the link; opening one takes its owner's
 // read permission. On Linux it is a descriptor opened with O_PATH and
-// O_NOFOLLOW, which "refer[s] to the symbolic link" (open(2)) and which the
-// extended attribute calls refuse (EBADF) up to the setxattrat family of
-// Linux 6.13: they reach the link as /proc/self/fd/N, with the calls that
-// follow a link, since that name leads to the file the descriptor holds,
-// the link itself (proc_pid_fd(5)). A Linux link has no hidden flag and no
+// O_NOFOLLOW, which "refer[s] to the symbolic link" (open(2)) and which
+// fsetxattr refuses (EBADF, seen on Linux 7.0): the extended attribute calls
+// reach the link as /proc/self/fd/N, with the calls that follow a link,
+// since that name leads to the file the descriptor holds, the link itself
+// (proc_pid_fd(5)). A Linux link has no hidden flag and no
 // ACL.
 type Link struct{ fd int }
 

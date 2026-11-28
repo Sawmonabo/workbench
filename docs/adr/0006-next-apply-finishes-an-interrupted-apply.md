@@ -77,19 +77,20 @@ run.
 - Finishing gives each file or folder what it lacks in place, through a
   descriptor, and leaves its content alone, whether chezmoi wrote it or
   someone edited it afterwards. What it holds of that metadata with another
-  value stays, as someone's. A link, and a file that lacks an extended
-  attribute while its owner may not write it (mode 0444), are written anew
-  the way every apply writes them: staged beside the target under the name
+  value stays, as someone's. A file that lacks an extended attribute while
+  its owner may not write it (mode 0444) is written anew the way every apply
+  writes a file: staged beside the target under the name
   its apply stages it under, with its content as it is and its attributes
   written before its mode, then renamed over it once it still holds what the
   plan found. Writing a `user.*` attribute takes the owner's write
   permission on Linux (`xattr_permission` in `fs/xattr.c`), and any
   attribute does on macOS, so a write in place would make the file writable
-  for a moment, and a stop then would leave it so. A link's attributes,
-  hidden flag and ACL are written through the link opened as itself (with
-  `O_SYMLINK` on macOS; on Linux with `O_PATH`, reached as
-  `/proc/self/fd/N`, since the attribute calls refuse that descriptor before
-  Linux 6.13's `setxattrat`). A file whose group its user may not give it is refused at the plan
+  for a moment, and a stop then would leave it so; a folder that does not
+  let the user add files to it is refused, with the `chmod u+w` that lets
+  it. A link is given what it lacks in place, through the link opened as
+  itself, as every apply gives a link it stages (with `O_SYMLINK` on macOS;
+  on Linux with `O_PATH`, reached as `/proc/self/fd/N`, since `fsetxattr`
+  refuses that descriptor with `EBADF`). A file whose group its user may not give it is refused at the plan
   with `sudo chgrp`. The temporary files the stopped run staged beside its
   targets, named by the operation and the target's place in its checkpoint, go
   first.

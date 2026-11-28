@@ -3,6 +3,7 @@ package operation
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
@@ -19,12 +20,16 @@ import (
 // not (setImageMode), then the extended attributes it lacks, then
 // the hidden flag and the ACL (writeImageSecurity), each only where it
 // differs. A new file, which replaces none, gets the label a file made in its
-// own folder gets (giveFolderLabel). A link, and a file that lacks an extended
-// attribute its owner may not write, are written anew (settleAnew). It
+// own folder gets (giveFolderLabel). A link is given what it lacks through
+// the link opened as itself (settleLink), and a file that lacks an extended
+// attribute its owner may not write is written anew (settleAnew). It
 // reports whether it changed anything: a new file that lacks nothing but may
 // lack that label holds it already when the two are the same.
 func (cp *Checkpoint) settleTarget(t UnfinishedTarget) (bool, error) {
 	c := cp.mutation.context
+	if t.Current.Kind == ImageSymlink {
+		return true, settleLink(c, t)
+	}
 	if writtenAnew(t) {
 		return len(t.Lacks) > 0 || t.newLabel, cp.settleAnew(c, t)
 	}
@@ -47,7 +52,11 @@ func (cp *Checkpoint) settleTarget(t UnfinishedTarget) (bool, error) {
 	}
 	file := os.NewFile(uintptr(fd), t.Path)
 	defer func() { _ = file.Close() }()
-	if err = holdsCurrent(c, fd, int(parent.Fd()), name, t); err != nil {
+	var opened unix.Stat_t
+	if err = unix.Fstat(fd, &opened); err != nil {
+		return false, err
+	}
+	if err = holdsCurrent(c, opened, int(parent.Fd()), name, t); err != nil {
 		return false, err
 	}
 	current, settled := t.Current, t.Settled
@@ -85,14 +94,17 @@ func (cp *Checkpoint) settleTarget(t UnfinishedTarget) (bool, error) {
 	return changed, settledAs(c, t)
 }
 
-// holdsCurrent refuses t when fd, opened as name in the folder parent, is not
-// the file at its path, or that file does not hold what the plan found
-// there: someone changed it after the plan was made.
-func holdsCurrent(c Context, fd, parent int, name string, t UnfinishedTarget) error {
-	var opened, now unix.Stat_t
-	if err := unix.Fstat(fd, &opened); err != nil {
-		return err
-	}
+// holdsCurrent refuses t when the file of status opened, opened as name in
+// the folder parent, is not the file at its path, or that file does not hold
+// what the plan found there: someone changed it after the plan.
+func holdsCurrent(
+	c Context,
+	opened unix.Stat_t,
+	parent int,
+	name string,
+	t UnfinishedTarget,
+) error {
+	var now unix.Stat_t
 	current, err := ReadImage(c, t.Path)
 	if err != nil {
 		return err
@@ -109,14 +121,59 @@ func holdsCurrent(c Context, fd, parent int, name string, t UnfinishedTarget) er
 }
 
 // writtenAnew reports whether t is settled by writing it anew (settleAnew):
-// a link, and a file that lacks an extended attribute while its owner may not
-// write it. Writing a user.* attribute on Linux (xattr_permission in
-// fs/xattr.c) and any attribute on macOS takes the owner's write permission,
-// which a file of mode 0444 does not give; a write in place would have to
-// give it for a moment, and a stop then would leave the file writable.
+// a file that lacks an extended attribute while its owner may not write it.
+// Writing a user.* attribute on Linux (xattr_permission in fs/xattr.c) and
+// any attribute on macOS takes the owner's write permission, which a file of
+// mode 0444 does not give; a write in place would have to give it for a
+// moment, and a stop then would leave the file writable.
 func writtenAnew(t UnfinishedTarget) bool {
-	return t.Current.Kind == ImageSymlink || t.Current.Kind == ImageFile &&
-		t.Current.Mode&0o200 == 0 && !sameAttributes(t.Current.Attributes, t.Settled.Attributes)
+	return t.Current.Kind == ImageFile && t.Current.Mode&0o200 == 0 &&
+		!sameAttributes(t.Current.Attributes, t.Settled.Attributes)
+}
+
+// settleLink gives t, a link of an unfinished apply, the extended attributes,
+// hidden flag and ACL it lacks, through the link opened as itself
+// (platform.Link), as Workbench gives a link it stages them, once that link
+// is the one at its path and holds what the plan found there.
+func settleLink(c Context, t UnfinishedTarget) error {
+	parent, name, err := imageParent(c, t.Path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = parent.Close() }()
+	link, err := platform.OpenLink(int(parent.Fd()), name)
+	if errors.Is(err, unix.ENOENT) || errors.Is(err, unix.EINVAL) {
+		return settleChanged(c, t.Path)
+	}
+	if err != nil {
+		return carryFailure(t.Path, changedFolder, false, "its "+display.List(t.given()), err)
+	}
+	defer func() { _ = link.Close() }()
+	var opened unix.Stat_t
+	if err = link.Stat(&opened); err != nil {
+		return err
+	}
+	if err = holdsCurrent(c, opened, int(parent.Fd()), name, t); err != nil {
+		return err
+	}
+	if err = writeImageAttributes(
+		onLink(link),
+		t.Path,
+		t.Settled.Attributes,
+		changedFolder,
+	); err != nil {
+		return err
+	}
+	if err = writeImageSecurity(
+		onLink(link),
+		t.Path,
+		t.Current,
+		t.Settled,
+		changedFolder,
+	); err != nil {
+		return err
+	}
+	return settledAs(c, t)
 }
 
 // settleAnew writes t anew with its settled image, which holds its content
@@ -124,8 +181,25 @@ func writtenAnew(t UnfinishedTarget) bool {
 // link (rewriteImage): staged under the name its apply stages it under, its
 // attributes written before its mode, then renamed over it once it still
 // holds what the plan found. A new file, which replaces none, keeps the
-// label the staged file gets in its folder.
+// label the staged file gets in its folder. A folder that does not let the
+// user add files to it is refused, with the chmod that lets it.
 func (cp *Checkpoint) settleAnew(c Context, t UnfinishedTarget) error {
+	folder := filepath.Dir(t.Path)
+	if err := unix.Access(folder, unix.W_OK|unix.X_OK); errors.Is(err, unix.EACCES) {
+		var stat unix.Stat_t
+		_ = unix.Stat(folder, &stat)
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot give "+c.ShowPath(t.Path)+" its "+display.List(t.given()),
+			Cause(fmt.Sprintf(
+				"%s has mode %04o, so you cannot add files to it, and Workbench writes the file anew beside it",
+				c.ShowPath(folder),
+				uint32(stat.Mode)&0o7777,
+			)),
+			FixPath(folder, "chmod", "u+w"),
+		)
+	}
 	desired := t.Settled
 	if t.newLabel {
 		desired.Attributes = maps.Clone(desired.Attributes)
