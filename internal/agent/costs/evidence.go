@@ -1,5 +1,10 @@
 package costs
 
+import (
+	"iter"
+	"slices"
+)
+
 // The evidence the account (email) and the subscription of a row each rest on,
 // strongest first; the ledger stores them as account_source and
 // subscription_source. A stronger copy of a row replaces a weaker one for that
@@ -16,34 +21,24 @@ const (
 	EvidenceUnknown  = "unknown" // no evidence (a row keeps an email an earlier build stored, which no report shows)
 )
 
+// evidenceLevels are the evidence levels, weakest first: a level's index is
+// its rank (EvidenceRank), which the ledger stores.
+var evidenceLevels = [...]string{
+	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+}
+
 // EvidenceRank orders the evidence levels: 4 transcript, 3 session, 2
 // observed, 1 inferred, 0 unknown or anything else.
 func EvidenceRank(evidence string) int {
-	switch evidence {
-	case EvidenceTranscript:
-		return 4
-	case EvidenceSession:
-		return 3
-	case EvidenceObserved:
-		return 2
-	case EvidenceInferred:
-		return 1
-	default:
-		return 0
-	}
-}
-
-// evidenceWords are the evidence levels by rank (EvidenceRank).
-var evidenceWords = [...]string{
-	EvidenceUnknown, EvidenceInferred, EvidenceObserved, EvidenceSession, EvidenceTranscript,
+	return max(slices.Index(evidenceLevels[:], evidence), 0)
 }
 
 // evidenceWord is the evidence level of a stored rank.
 func evidenceWord(rank int64) string {
-	if rank < 0 || rank >= int64(len(evidenceWords)) {
+	if rank < 0 || rank >= int64(len(evidenceLevels)) {
 		return EvidenceUnknown
 	}
-	return evidenceWords[rank]
+	return evidenceLevels[rank]
 }
 
 // storedRank is EvidenceRank of a stored word, ok false for a word that is
@@ -62,19 +57,29 @@ type Evidence struct {
 	Unknown    int64 `json:"unknown"`
 }
 
+// counts are e's counts by rank (evidenceLevels).
+func (e *Evidence) counts() [len(evidenceLevels)]*int64 {
+	return [...]*int64{&e.Unknown, &e.Inferred, &e.Observed, &e.Session, &e.Transcript}
+}
+
 // add counts n rows at a level by its rank (EvidenceRank); any other rank
 // counts as unknown.
 func (e *Evidence) add(rank int, n int64) {
-	switch rank {
-	case 4:
-		e.Transcript += n
-	case 3:
-		e.Session += n
-	case 2:
-		e.Observed += n
-	case 1:
-		e.Inferred += n
-	default:
-		e.Unknown += n
+	counts := e.counts()
+	if rank < 0 || rank >= len(counts) {
+		rank = 0
+	}
+	*counts[rank] += n
+}
+
+// Levels are e's counts by evidence level, strongest first.
+func (e Evidence) Levels() iter.Seq2[string, int64] {
+	return func(yield func(level string, rows int64) bool) {
+		counts := e.counts()
+		for rank := len(counts) - 1; rank >= 0; rank-- {
+			if !yield(evidenceLevels[rank], *counts[rank]) {
+				return
+			}
+		}
 	}
 }

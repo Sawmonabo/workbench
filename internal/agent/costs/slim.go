@@ -451,8 +451,8 @@ func (p packedRow) decodesTo(old textRow, names []nameKey, buf []byte) (bool, []
 	}
 	for _, col := range []int{colAccountSource, colSubscriptionSource} {
 		v := p.cols[col-1]
-		if !v.Valid || v.Int64 < 0 || v.Int64 >= int64(len(evidenceWords)) ||
-			evidenceWords[v.Int64] != string(old.text[col]) {
+		if !v.Valid || v.Int64 < 0 || v.Int64 >= int64(len(evidenceLevels)) ||
+			evidenceLevels[v.Int64] != string(old.text[col]) {
 			return false, buf, nil
 		}
 	}

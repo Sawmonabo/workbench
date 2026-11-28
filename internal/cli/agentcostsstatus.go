@@ -150,18 +150,9 @@ func signedIn(s costs.SignInStatus) string {
 // levels with none.
 func attribution(e costs.Evidence) string {
 	var parts []string
-	for _, level := range []struct {
-		n    int64
-		name string
-	}{
-		{e.Transcript, "transcript"},
-		{e.Session, "session"},
-		{e.Observed, "observed"},
-		{e.Inferred, "inferred"},
-		{e.Unknown, "unknown"},
-	} {
-		if level.n > 0 {
-			parts = append(parts, display.Number(level.n)+" "+level.name)
+	for level, n := range e.Levels() {
+		if n > 0 {
+			parts = append(parts, display.Number(n)+" "+level)
 		}
 	}
 	if len(parts) == 0 {
