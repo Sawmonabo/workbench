@@ -731,8 +731,8 @@ it covers every waiting row (Codex costs design, section 4). After the
 commit the same process
 runs `VACUUM`, which gives back the pages the old rows held, and a checkpoint
 that empties the write-ahead log; the meta key `compact_due` marks it until
-it succeeds, a failure goes to the import log, and each import worker tries
-again. Any other version is refused without modification. Later ingests refine
+it succeeds, a failure goes to the import log (a cancel instead fails the
+open with an error saying so), and each import worker tries again. Any other version is refused without modification. Later ingests refine
 the account, subscription and tier of rows they recorded and drop duplicate fork
 copies (Codex costs design, sections 3 and 4); nothing else rewrites existing
 rows.

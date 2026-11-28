@@ -14,8 +14,9 @@ import (
 // is doing: each step as it begins, [UpgradeWaiting] while it waits for
 // another process's upgrade, then "" once the ledger is upgraded, by this
 // open or by the process it waited for, and compacted, whether or not the
-// compaction succeeded (see [Ledger.compact]). An upgrade that fails, or that
-// a cancel of the open's context stops, ends without "", and the open
+// compaction succeeded (see [Ledger.compact]); when a cancel of the open's
+// context stopped the compaction, the open then returns its error. An
+// upgrade that fails, or that a cancel stops, ends without "", and the open
 // returns its error. An open of a ledger that needs no upgrade never calls
 // it.
 type UpgradeSteps func(step string)

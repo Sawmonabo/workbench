@@ -135,14 +135,19 @@ Anti-goals:
    seconds, for as long as an upgrade of the largest ledger measured takes,
    with a margin), then finds version 7 and uses it. Readers of a version 6
    ledger, such as the release before, keep reading the last committed state
-   meanwhile.
+   meanwhile. Its status line says it waits for another Workbench, and a
+   cancel stops the wait with an error saying the other upgrade goes on; a
+   cancel of a process's own upgrade rolls its transaction back, with an
+   error saying the ledger is unchanged.
 6. **Compaction.** The upgrade's transaction sets the meta key
    `compact_due`. After it commits, the same process runs `VACUUM`, then a
    checkpoint that truncates the write-ahead log, and deletes the key. When
    the `VACUUM` fails (busy, a full disk) the ledger is a valid version 7
    with free pages; the key stays, the reason goes to the import log, and
    each import worker tries again, holding the import lock, until it
-   succeeds. Nothing else rewrites the file.
+   succeeds. A cancel that stops it leaves the key too, and the open fails
+   with an error saying the ledger is upgraded and the next import compacts
+   it. Nothing else rewrites the file.
 7. **Times meet times.** Only `responses.ts` becomes a number; every other
    table and meta key keeps its `timeLayout` text. In SQLite a number sorts
    below any text, so `ts > '2026-…Z'` matches nothing, without an error.
