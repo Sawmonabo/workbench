@@ -103,6 +103,7 @@ func SelectedSource(c operation.Context) (map[string][]byte, error) {
 			operation.ExitBlocked,
 			"source",
 			"No Workbench release is active to read tool versions from",
+			operation.Fix("workbench", "update"),
 			operation.FixText(release.InstallCommand),
 		)
 	}

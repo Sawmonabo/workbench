@@ -124,9 +124,10 @@ func ownProgramRefusal(path, canonical, folder string, info os.FileInfo) error {
 // refused with the move of the whole folder aside, then install, the lines
 // the caller gives, since what else of it they changed cannot be told. What
 // others can change but cannot reach is refused with the commands that close
-// it to them. folder itself and the folders above it are the caller's to
-// judge (see [CheckPrivateDirectory]). A missing folder holds nothing to
-// refuse.
+// it to them. A folder of it that its owner may not read or search gets
+// 0700 first (see [settleFolder]). folder itself and the folders above it
+// are the caller's to judge (see [CheckPrivateDirectory]). A missing folder
+// holds nothing to refuse.
 func CheckToolFolder(root, folder string, install ...Part) error {
 	reach := map[string]bool{folder: othersReach(root, folder)}
 	var exposed, closable *toolEntry
@@ -155,6 +156,15 @@ func CheckToolFolder(root, folder string, install ...Part) error {
 		}
 		if info.IsDir() {
 			reach[path] = reach[filepath.Dir(path)] && othersSearch(path, info)
+			// A folder of the tool its owner may not read or search gets
+			// 0700, the mode Workbench installs its folders with, as each
+			// folder of Workbench's own files does, so that the walk reads
+			// it; one others may change is refused below instead.
+			if found == nil && info.Mode().Perm()&0o500 != 0o500 {
+				if err = settleFolder("tool", path, false); err != nil {
+					return err
+				}
+			}
 		}
 		switch {
 		case found == nil:
