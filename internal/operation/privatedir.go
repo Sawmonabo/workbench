@@ -6,6 +6,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -70,18 +71,17 @@ func trustedFolder(category, path string, info os.FileInfo, fd int) error {
 	if fd < 0 {
 		at = path
 	}
-	others, err := platform.OthersMayWrite(fd, at)
+	entry, err := platform.OthersMayWrite(fd, at)
 	if err != nil {
 		return Fail(ExitInvalid, "permissions", "Cannot read the ACL of "+display.Path(path),
 			Cause(err.Error()))
 	}
-	if others {
+	if entry >= 0 {
 		return othersWriteRefusal(
 			path,
 			display.Path(path)+" has an ACL that lets other users write in it",
 			"what it holds may not be Workbench's",
-			"chmod",
-			"-N",
+			platform.ACLRemoval()...,
 		)
 	}
 	return nil
@@ -231,9 +231,11 @@ func CheckPrivateDirectory(root, name string) error {
 // folder from target up may be a link or a file, and each one within root
 // must be a folder of Workbench's own files that others cannot write in (see
 // [trustedFolder]). With create it then sets each of those that is not 0700
-// to 0700 (see [makeOwnFolder]) and makes the missing folders, 0700; without,
-// it changes nothing, each must be one its owner may read and search (see
-// [ownFolder]), and a missing one fails. It never follows a link. Unlike
+// to 0700, from root down (see [makeOwnFolder]), so one its owner may not
+// search is opened to the folders below it before they are checked, and
+// makes the missing folders, 0700; without, it changes nothing, each must be
+// one its owner may read and search (see [ownFolder]), and a missing one
+// fails. It never follows a link. Unlike
 // [PrivateDirectory] it can check without creating.
 func PrivateTree(root, target string, create bool) error {
 	if !filepath.IsAbs(root) || !Within(root, target) {
@@ -246,16 +248,21 @@ func PrivateTree(root, target string, create bool) error {
 	var own []string
 	for current := target; ; current = filepath.Dir(current) {
 		info, err := os.Lstat(current)
-		if err == nil {
+		switch {
+		case err == nil:
 			if err = treeFolder(root, current, info, create); err != nil {
 				return err
 			}
 			if Within(root, current) {
 				own = append(own, current)
 			}
-		} else if !errors.Is(err, fs.ErrNotExist) {
+		case create && errors.Is(err, fs.ErrPermission) && current != root && Within(root, current):
+			// A folder above it that its owner may not search hides it, and
+			// gets 0700 below before it is checked.
+			own = append(own, current)
+		case !errors.Is(err, fs.ErrNotExist):
 			return err
-		} else if !create {
+		case !create:
 			return Fail(ExitBlocked, "private_path", display.Path(current)+" does not exist")
 		}
 		if current == filepath.Dir(current) {
@@ -265,8 +272,12 @@ func PrivateTree(root, target string, create bool) error {
 	if !create {
 		return nil
 	}
-	for _, folder := range own {
-		if err := makeOwnFolder("private_path", folder); err != nil {
+	for _, folder := range slices.Backward(own) {
+		err := makeOwnFolder("private_path", folder)
+		if errors.Is(err, fs.ErrNotExist) {
+			break // made below
+		}
+		if err != nil {
 			return err
 		}
 	}
@@ -406,19 +417,18 @@ func safeParent(path, current string, info os.FileInfo) error {
 	case !info.IsDir():
 		return nil
 	}
-	others, err := platform.OthersMayWrite(-1, current)
+	// Only the entry is removed, not the whole ACL, which may hold entries
+	// the system put there, such as the deny delete of the home folder.
+	entry, err := platform.OthersMayWrite(-1, current)
 	switch {
 	case err != nil:
 		return Fail(ExitInvalid, "permissions", "Cannot read the ACL of "+shown, Cause(err.Error()))
-	case others:
+	case entry >= 0:
 		return Fail(
 			ExitInvalid,
 			"permissions",
 			shown+" has an ACL that lets other users write in it",
-			FixPath(current, "ls", "-led"),
-			FixText(
-				"remove each entry it lists that allows another user or group to add or delete",
-			),
+			FixPath(current, platform.ACLEntryRemoval(entry)...),
 		)
 	}
 	return nil

@@ -40,5 +40,5 @@ func chmodFolder(f *os.File, mode os.FileMode) error {
 	return err
 }
 
-// othersMayWrite is false: the mode's group bits hold the ACL's mask.
-func othersMayWrite(int, string) (bool, error) { return false, nil }
+// othersMayWrite is -1: the mode's group bits hold the ACL's mask.
+func othersMayWrite(int, string) (int, error) { return -1, nil }

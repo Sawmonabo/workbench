@@ -39,10 +39,10 @@ const (
 // its kauth_ace, with the user's own from mbr_uid_to_uuid, which it asks for
 // only when there is such an entry: the deny entries macOS puts on the home
 // folder and the folders of ~/Library never need it.
-func othersMayWrite(fd int, path string) (bool, error) {
+func othersMayWrite(fd int, path string) (int, error) {
 	acl, err := fileSecurity(fd, path)
 	if err != nil {
-		return false, err
+		return -1, err
 	}
 	var own *[16]byte
 	for i, entry := range acl.Entries {
@@ -53,15 +53,15 @@ func othersMayWrite(fd int, path string) (bool, error) {
 		if own == nil {
 			uuid, err := userUUID(uint32(os.Geteuid()))
 			if err != nil {
-				return false, err
+				return -1, err
 			}
 			own = &uuid
 		}
 		if !bytes.Equal(acl.Data[filesecHeader+aceSize*i:][:16], own[:]) {
-			return true, nil
+			return i, nil
 		}
 	}
-	return false, nil
+	return -1, nil
 }
 
 // userUUID is mbr_uid_to_uuid(3) of uid, which returns 0 or the error

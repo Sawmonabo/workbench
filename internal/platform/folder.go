@@ -20,19 +20,20 @@ func OpenFolder(path string) (*os.File, error) { return openFolder(path) }
 // holds, whatever is at its path by then. The error is the call's errno.
 func ChmodFolder(f *os.File, mode os.FileMode) error { return chmodFolder(f, mode) }
 
-// OthersMayWrite reports whether the ACL of the folder fd, or of path
-// itself, not a link's target, when path is not empty, has an entry that
-// allows a user or group other than this process's user to add or remove
-// entries in it, or to change its ACL or owner, by which one could give
-// itself those rights: on macOS a KAUTH_ACE_PERMIT entry with
+// OthersMayWrite is the index, as FileSecurity lists it (and ACLEntryRemoval
+// takes it), of the first entry of the ACL of the folder fd, or of path
+// itself, not a link's target, when path is not empty, that allows a user or
+// group other than this process's user to add or remove entries in it, or to
+// change its ACL or owner, by which one could give itself those rights, and
+// -1 when there is none: on macOS a KAUTH_ACE_PERMIT entry with
 // KAUTH_VNODE_ADD_FILE, ADD_SUBDIRECTORY, DELETE_CHILD, WRITE_SECURITY,
 // TAKE_OWNERSHIP, KAUTH_ACE_GENERIC_ALL or KAUTH_ACE_GENERIC_WRITE whose
 // applicable GUID is not the user's own, as mbr_uid_to_uuid(3) gives it (a
 // group's, everyone's or another user's), whether the entry applies to the
 // folder or only to what is made in it. Entries that only allow reading, and
-// deny entries, do not count. On Linux it is always false: a POSIX ACL's
+// deny entries, do not count. On Linux it is always -1: a POSIX ACL's
 // named entries take effect only within its mask, which stat shows as the
 // group's permission bits (acl(5)), so the mode already says whether anyone
 // but the owner may write in the folder. The error is the call's errno, or
 // ErrUnsupportedACL for an ACL whose layout FileSecurity does not recognize.
-func OthersMayWrite(fd int, path string) (bool, error) { return othersMayWrite(fd, path) }
+func OthersMayWrite(fd int, path string) (entry int, err error) { return othersMayWrite(fd, path) }
