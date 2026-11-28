@@ -36,9 +36,11 @@ func validateImageGroup(c Context, path string, image Image) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(path)+" has group "+groupName(*image.Group)+
-				", which you are not a member of, so Workbench cannot give it that group when it writes it"+
-				h.retry([]string{"chgrp", groupName(groupID(os.Getegid()))}, path),
+			display.Path(path)+" has group "+groupName(*image.Group),
+			Cause(
+				"you are not a member of it, so Workbench cannot give it that group when it writes it",
+			),
+			h.fix([]string{"chgrp", groupName(groupID(os.Getegid()))}, path),
 		)
 	}
 	return nil
@@ -75,7 +77,7 @@ func imageWithGroup(c Context, path string, before, image Image) (Image, error) 
 		}
 		return image, nil
 	}
-	parent, err := creationParent(c, path)
+	_, parent, err := creationParent(c, path)
 	if err != nil {
 		return Image{}, err
 	}
@@ -120,7 +122,7 @@ func canSetGroup(group uint32) (bool, error) {
 // asks it: an atomic native replacement must not silently change an existing
 // group.
 func creationGroup(c Context, path string) (uint32, error) {
-	parent, err := creationParent(c, path)
+	_, parent, err := creationParent(c, path)
 	if err != nil {
 		return 0, err
 	}
@@ -128,40 +130,45 @@ func creationGroup(c Context, path string) (uint32, error) {
 }
 
 // creationParent is the nearest existing folder above path, where a new file
-// at path would be created.
-func creationParent(c Context, path string) (unix.Stat_t, error) {
+// at path would be created, and its status.
+func creationParent(c Context, path string) (string, unix.Stat_t, error) {
 	if err := c.validateImagePath(path); err != nil {
-		return unix.Stat_t{}, err
+		return "", unix.Stat_t{}, err
 	}
+	unknown := "Cannot tell which group a new " + display.Path(path) + " gets"
 	for parent := filepath.Dir(path); ; parent = filepath.Dir(parent) {
 		var stat unix.Stat_t
 		err := unix.Lstat(parent, &stat)
 		if err == nil {
 			if stat.Mode&unix.S_IFMT != unix.S_IFDIR {
-				return unix.Stat_t{}, Fail(
+				return "", unix.Stat_t{}, Fail(
 					ExitBlocked,
 					"metadata",
-					display.Path(parent)+" is "+kindName(uint32(stat.Mode&unix.S_IFMT))+
-						", not a folder, so Workbench cannot make "+display.Path(path)+
-						" under it; move it aside and retry",
+					display.Path(
+						parent,
+					)+" is "+kindName(
+						uint32(stat.Mode&unix.S_IFMT),
+					)+", not a folder",
+					Cause("Workbench cannot make "+display.Path(path)+" under it"),
+					FixText(moveAside),
 				)
 			}
-			return stat, nil
+			return parent, stat, nil
 		}
 		if !errors.Is(err, unix.ENOENT) {
-			return unix.Stat_t{}, Fail(
+			return "", unix.Stat_t{}, Fail(
 				ExitBlocked,
 				"metadata",
-				"Cannot read "+display.Path(parent)+" ("+err.Error()+
-					"), so Workbench cannot tell which group a new "+display.Path(path)+" gets",
+				unknown,
+				Cause("Workbench cannot read "+display.Path(parent)+": "+err.Error()),
 			)
 		}
 		if parent == c.Scope.Root {
-			return unix.Stat_t{}, Fail(
+			return "", unix.Stat_t{}, Fail(
 				ExitBlocked,
 				"metadata",
-				display.Path(parent)+" does not exist, so Workbench cannot tell which group a new "+
-					display.Path(path)+" gets",
+				unknown,
+				Cause(display.Path(parent)+" does not exist"),
 			)
 		}
 	}
@@ -185,7 +192,7 @@ func inheritedGroup(folder unix.Stat_t) uint32 {
 // cannot set the approved group, that correction would fail after native
 // wrote, so the plan stops first.
 func checkStagedGroup(c Context, path, staging string) error {
-	parent, err := creationParent(c, path)
+	folder, parent, err := creationParent(c, path)
 	if err != nil {
 		return err
 	}
@@ -198,7 +205,8 @@ func checkStagedGroup(c Context, path, staging string) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot read Workbench's temporary folder "+display.Path(staging)+": "+err.Error(),
+			"Cannot read Workbench's temporary folder "+display.Path(staging),
+			Cause(err.Error()),
 		)
 	}
 	staged := inheritedGroup(temporary)
@@ -208,12 +216,21 @@ func checkStagedGroup(c Context, path, staging string) error {
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		fmt.Sprintf(
-			"chezmoi stages %s in Workbench's temporary folder, of group %s, and you are not a "+
-				"member of group %s, which its folder gives new files; give that folder one of "+
-				"your groups (chgrp), or set TMPDIR to a folder that gives new files group %s",
-			c.ShowPath(path), groupName(staged), groupName(group), groupName(group),
+		c.ShowPath(
+			folder,
+		)+" gives new files group "+groupName(
+			group,
+		)+", and you are not a member of it",
+		Cause(fmt.Sprintf(
+			"chezmoi stages %s in Workbench's temporary folder, of group %s, and only a member can give it group %s",
+			c.ShowPath(path),
+			groupName(staged),
+			groupName(group),
+		)),
+		FixText(
+			shellWords([]string{"chgrp", groupName(groupID(os.Getegid()))})+" "+c.ShellPath(folder),
 		),
+		FixText("or set TMPDIR to a folder that gives new files group "+groupName(group)),
 	)
 }
 

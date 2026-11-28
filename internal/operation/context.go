@@ -138,7 +138,9 @@ func Resolve(options Options) (Context, error) {
 			return c, Fail(
 				ExitInvalid,
 				"language",
-				"Unknown language; use python, javascript, typescript, rust or go",
+				"Unknown language "+shellWord(language),
+				Cause("--language takes "+strings.Join(Languages[:len(Languages)-1], ", ")+
+					" or "+Languages[len(Languages)-1]),
 			)
 		}
 		if !slices.Contains(c.Languages, language) {
@@ -188,17 +190,49 @@ func ExistingDirectory(path string) (string, error) {
 	}
 	absolute, err := filepath.Abs(path)
 	if err != nil {
-		return "", Fail(ExitInvalid, "path", "Cannot resolve the selected directory")
+		return "", Fail(
+			ExitInvalid,
+			"path",
+			"Cannot find the folder "+shellWord(path),
+			Cause(err.Error()),
+		)
 	}
 	canonical, err := filepath.EvalSymlinks(absolute)
 	if err != nil {
-		return "", Fail(ExitInvalid, "path", "Selected directory must exist and be accessible")
+		return "", Fail(
+			ExitInvalid,
+			"path",
+			"Cannot find the folder "+display.Path(absolute),
+			Cause(causeAt(absolute, err)),
+		)
 	}
 	info, err := os.Stat(canonical)
-	if err != nil || !info.IsDir() {
-		return "", Fail(ExitInvalid, "path", "Selected path must be an existing directory")
+	if err != nil {
+		return "", Fail(
+			ExitInvalid,
+			"path",
+			"Cannot find the folder "+display.Path(canonical),
+			Cause(causeAt(canonical, err)),
+		)
+	}
+	if !info.IsDir() {
+		return "", Fail(ExitInvalid, "path", display.Path(canonical)+" is not a folder")
 	}
 	return canonical, nil
+}
+
+// causeAt is err as the cause of a refusal whose headline names path: the
+// reason alone when err is of path itself, else the path it is of from home
+// and its reason ([FileError]).
+func causeAt(path string, err error) string {
+	problem, ok := errors.AsType[*fs.PathError](err)
+	switch {
+	case !ok:
+		return err.Error()
+	case problem.Path == path:
+		return problem.Err.Error()
+	}
+	return FileError(problem.Path, problem.Err).Error()
 }
 
 // Within includes equality; both paths must be canonical absolute paths.
@@ -236,15 +270,21 @@ func runtimePaths(home string) (Paths, error) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"WORKBENCH directory overrides must be absolute",
+				"WORKBENCH_"+name+"_DIR must be an absolute path",
 			)
 		}
 		value = filepath.Clean(value)
 		if value == "/" || value == home {
+			what := "the file system root"
+			if value == home {
+				what = "your home folder"
+			}
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"A Workbench directory must not be the filesystem root or home itself",
+				display.Path(value)+" cannot be Workbench's "+strings.ToLower(name)+" folder",
+				Cause("it is "+what),
+				FixText("set WORKBENCH_"+name+"_DIR to a folder of its own"),
 			)
 		}
 		if i < 4 {
@@ -273,7 +313,8 @@ func runtimePaths(home string) (Paths, error) {
 			return Paths{}, Fail(
 				ExitInvalid,
 				"runtime_path",
-				"Cannot inspect the Workbench runtime directory "+display.Path(value),
+				"Cannot read the Workbench folder "+display.Path(value),
+				Cause(causeAt(value, err)),
 			)
 		}
 		defaults[i] = value
@@ -352,14 +393,23 @@ func (c Context) ValidateTarget(path string) error {
 				if filepath.Join(parent, marker) == ruffConfig {
 					continue
 				}
-				if _, err := os.Lstat(filepath.Join(parent, marker)); err == nil {
+				found := filepath.Join(parent, marker)
+				if _, err := os.Lstat(found); err == nil {
 					return Fail(
 						ExitInvalid,
 						"scope",
-						"Machine configuration cannot write inside a project",
+						display.Path(path)+" is in a project",
+						Cause(display.Path(parent)+" holds "+shellWord(marker)+
+							", and machine configuration stays out of projects"),
+						FixText("move "+shellHomePath(found)+" aside"),
 					)
 				} else if !errors.Is(err, fs.ErrNotExist) {
-					return Fail(ExitInvalid, "scope", "Cannot establish machine target ownership")
+					return Fail(
+						ExitInvalid,
+						"scope",
+						"Cannot tell whether "+display.Path(path)+" is in a project",
+						Cause(FileError(found, err).Error()),
+					)
 				}
 			}
 		}
@@ -410,8 +460,9 @@ func (c Context) entrypointAlias(path string) error {
 	return Fail(
 		ExitInvalid,
 		"scope",
-		shown+" is Workbench's entry point under another name, which Workbench does not write"+
-			replacedFile.retry(nil, path),
+		shown+" is Workbench's entry point under another name",
+		Cause("Workbench does not write its own entry point"),
+		replacedFile.fix(nil, path),
 	)
 }
 
@@ -454,9 +505,9 @@ func (c Context) validateLinkTarget(path, target string) error {
 	return Fail(
 		ExitInvalid,
 		"scope",
-		display.Path(path)+" links to "+display.Path(target)+
-			", among Workbench's own files, and Workbench does not keep a link into them"+
-			replacedLink.retry(nil, path),
+		display.Path(path)+" links to "+display.Path(target)+", among Workbench's own files",
+		Cause("Workbench does not keep a link into them"),
+		replacedLink.fix(nil, path),
 	)
 }
 
@@ -520,7 +571,12 @@ func (c Context) validateImagePath(path string) error {
 func (s Scope) Validate() error {
 	if (s.Kind != "machine" && s.Kind != "project") || !filepath.IsAbs(s.Root) ||
 		filepath.Clean(s.Root) != s.Root {
-		return Fail(ExitInvalid, "scope", "Invalid scope; resolve an absolute existing directory")
+		return Fail(
+			ExitInvalid,
+			"scope",
+			"Invalid scope",
+			Cause("a scope is a machine or project folder given by its absolute path"),
+		)
 	}
 	canonical, err := ExistingDirectory(s.Root)
 	if err != nil || canonical != s.Root {

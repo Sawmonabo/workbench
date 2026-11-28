@@ -512,13 +512,7 @@ func owned(path string, info os.FileInfo) error {
 	if !ok {
 		return Fail(ExitInvalid, "permissions", "Cannot tell who owns "+display.Path(path))
 	}
-	return Fail(
-		ExitInvalid,
-		"permissions",
-		display.Path(path)+" belongs to "+userName(stat.Uid),
-		Cause("Workbench writes only what you own"),
-		FixPath(path, "sudo", "chown", userName(uint32(os.Geteuid()))),
-	)
+	return ownerRefusal(ExitInvalid, "permissions", path, stat.Uid, false)
 }
 
 // ownedByUser reports whether info is of a file the current user owns.

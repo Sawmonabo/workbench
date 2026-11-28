@@ -26,8 +26,8 @@ func enforceNativeMetadata(
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(path)+" is "+imageKindName(observed.Kind)+
-				", and Workbench gives what chezmoi wrote its group only on a file or folder",
+			display.Path(path)+" is "+imageKindName(observed.Kind),
+			Cause("Workbench gives what chezmoi wrote its group only on a file or folder"),
 		)
 	}
 	parent, name, err := imageParent(c, path)
@@ -53,11 +53,11 @@ func enforceNativeMetadata(
 	if int(stat.Uid) != os.Geteuid() || specialBits(uint32(stat.Mode)) != 0 ||
 		(observed.Kind == ImageFile && (stat.Mode&unix.S_IFMT != unix.S_IFREG || stat.Nlink != 1)) ||
 		(observed.Kind == ImageDirectory && stat.Mode&unix.S_IFMT != unix.S_IFDIR) {
-		shown := display.Path(path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			shown+" changed after chezmoi wrote it, before Workbench gave it its group",
+			display.Path(path)+" changed after chezmoi wrote it",
+			Outcome("Workbench did not give it its group"),
 		)
 	}
 	current := Image{Kind: observed.Kind, Mode: imageMode(uint32(stat.Mode))}
@@ -83,11 +83,11 @@ func enforceNativeMetadata(
 		}
 	}
 	if !sameImage(current, observed) {
-		shown := display.Path(path)
 		return Fail(
 			ExitPartial,
 			"native_image",
-			shown+" differs from what chezmoi wrote, so Workbench did not change its group",
+			display.Path(path)+" differs from what chezmoi wrote",
+			Outcome("Workbench did not change its group"),
 		)
 	}
 	if err = setImageGroup(fd, group); err != nil {
@@ -115,8 +115,9 @@ func writeDirectoryImage(fd int, name, path string, current, desired Image) erro
 		return Fail(
 			ExitBlocked,
 			"image",
-			display.Path(path)+" is "+imageKindName(current.Kind)+
-				", and Workbench does not replace it with a folder; move it aside and retry",
+			display.Path(path)+" is "+imageKindName(current.Kind),
+			Cause("Workbench does not replace it with a folder"),
+			FixText(moveAside),
 		)
 	}
 	if current.Kind == ImageAbsent {
@@ -231,14 +232,15 @@ func carryFailure(path string, h holder, remove bool, what string, err error) er
 		subject = "the link Workbench writes in place of " + shown
 	case changedFolder, parentFolder:
 	}
-	message := "Cannot give " + subject + " " + what + ": " + err.Error()
+	headline := "Cannot give " + subject + " " + what
 	if remove {
-		message = "Cannot take " + what + " off " + subject + ": " + err.Error()
+		headline = "Cannot take " + what + " off " + subject
 	}
+	kept := Part(noFix{})
 	if h.replaced() {
-		message += ", so Workbench left " + shown + " as it is"
+		kept = Outcome("Workbench left " + shown + " as it is")
 	}
-	return Fail(ExitBlocked, "metadata", message)
+	return Fail(ExitBlocked, "metadata", headline, Cause(err.Error()), kept)
 }
 
 // writeImage gives path, which must hold expected, the image desired, and
@@ -269,8 +271,9 @@ func putImage(c Context, path string, expected, desired Image, anew bool, tempor
 		return Fail(
 			ExitConflict,
 			"conflict",
-			display.Path(path)+" changed after the plan was made,"+
-				" so Workbench kept those edits and did not write it",
+			display.Path(path)+" changed after the plan was made",
+			Outcome("Workbench kept those edits and did not write it"),
+			FixText("plan again"),
 		)
 	}
 	fresh := anew && (desired.Kind == ImageFile || desired.Kind == ImageSymlink)
@@ -303,8 +306,9 @@ func putImage(c Context, path string, expected, desired Image, anew bool, tempor
 		return Fail(
 			ExitBlocked,
 			"image",
-			display.Path(path)+" is a folder, and Workbench does not replace a folder with "+
-				imageKindName(desired.Kind)+"; move it aside and retry",
+			display.Path(path)+" is a folder",
+			Cause("Workbench does not replace a folder with "+imageKindName(desired.Kind)),
+			FixText(moveAside),
 		)
 	}
 	defer func() { _ = unix.Unlinkat(fd, temporary, 0) }()
@@ -325,8 +329,9 @@ func putImage(c Context, path string, expected, desired Image, anew bool, tempor
 		return Fail(
 			ExitConflict,
 			"conflict",
-			display.Path(path)+" changed while Workbench prepared its replacement,"+
-				" so Workbench kept those edits and did not write it",
+			display.Path(path)+" changed while Workbench prepared its replacement",
+			Outcome("Workbench kept those edits and did not write it"),
+			FixText("plan again"),
 		)
 	}
 	if err = platform.RenameAt(fd, temporary, name, expected.Kind == ImageAbsent); err != nil {

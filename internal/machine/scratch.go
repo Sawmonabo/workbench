@@ -68,9 +68,13 @@ func (p *preparation) stageNative(
 			}
 			entry := server.Args[len(server.Args)-1]
 			if _, err := os.Stat(entry); errors.Is(err, fs.ErrNotExist) {
-				p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(server.Name+
-					" is registered for Claude Code and Codex but not built yet ("+c.ShowPath(entry)+
-					" is missing), so it fails in sessions in the work folder; build it in its checkout"))
+				p.Plan.Warnings = append(p.Plan.Warnings, operation.Warn(
+					server.Name+" is registered for Claude Code and Codex but not built yet",
+					operation.Cause(
+						c.ShowPath(entry)+" is missing, so it fails in sessions in the work folder",
+					),
+					operation.FixText("build it in its checkout"),
+				))
 			}
 		}
 	}

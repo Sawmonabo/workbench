@@ -112,7 +112,7 @@ func metadata(fd int, path string, h holder, written bool) (security, error) {
 	}
 	found, err := targetACL(fd, selector, path, h)
 	if err == nil {
-		err = acl(fd, path, h, found.Entries)
+		err = acl(fd, path, h, found)
 	}
 	if err != nil {
 		return security{}, err
@@ -127,7 +127,9 @@ func flagsRefusal(path string, h holder, flags uint32, err error) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot read the file flags of "+display.Path(path)+": "+err.Error()+h.retry(nil, path),
+			"Cannot read the file flags of "+display.Path(path),
+			Cause(err.Error()),
+			h.fix(nil, path),
 		)
 	}
 	return flagRefusal(path, flags, h)
@@ -141,22 +143,28 @@ func flagsRefusal(path string, h holder, flags uint32, err error) error {
 // and when it may, no entry denies it. macOS puts one admitted entry,
 // "group:everyone deny delete", on the home folder and its standard folders
 // such as ~/Library; it only stops the folder itself from being deleted. A
-// refusal names the entry by its number in ls -le, which chmod -a# removes
-// (entryRefusal). A folder whose mode does not give its owner, this user,
-// those rights is refused for any such entry, since the mode alone would
-// deny them.
-func folderACL(fd int, path string, h holder, entries []platform.ACE) error {
-	for i, entry := range entries {
+// refusal names the entries by their numbers in ls -le, which chmod -a#
+// removes (entryRefusal). A folder whose mode does not give its owner, this
+// user, those rights is refused for every such entry, since the mode alone
+// would deny them, and a folder with entries that pass to new entries for
+// every one of those.
+func folderACL(fd int, path string, h holder, found platform.ACL) error {
+	var inherited []int
+	for i, entry := range found.Entries {
 		if entry.Inherited() {
-			return Fail(
-				ExitBlocked,
-				"metadata",
-				display.Path(path)+" has an ACL entry that"+inheritedACL+
-					h.retry(platform.ACLEntryRemoval(i), path),
-			)
+			inherited = append(inherited, i)
 		}
 	}
-	denying := denyingEntries(entries, platform.ChildRights)
+	if len(inherited) > 0 {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			entriesHeadline(path, inherited, "files and folders made in it inherit"),
+			Cause(inheritedACL),
+			entryFixes(path, h, inherited),
+		)
+	}
+	denying := denyingEntries(found.Entries, platform.ChildRights)
 	if len(denying) == 0 {
 		return nil
 	}
@@ -168,14 +176,18 @@ func folderACL(fd int, path string, h holder, entries []platform.ACE) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			display.Path(path)+" has an ACL entry that denies adding or removing files in it,"+
-				" and Workbench writes only in a folder without one"+
-				h.retry(platform.ACLEntryRemoval(denying[0]), path),
+			entriesHeadline(
+				path,
+				denying,
+				denyVerb(len(denying))+" adding or removing files in it",
+			),
+			Cause("Workbench writes only in a folder without one"),
+			entryFixes(path, h, denying),
 		)
 	}
 	if err := entryAllows(path, platform.ChildRights); err != nil {
-		return entryRefusal(path, h, denying, err, "adding or removing files in it",
-			"so Workbench cannot write there")
+		return entryRefusal(path, h, found, denying, err, "adding or removing files in it",
+			"Workbench cannot write there")
 	}
 	return nil
 }
@@ -191,11 +203,11 @@ func folderACL(fd int, path string, h holder, entries []platform.ACE) error {
 // remove files, since vnode_authorize_delete asks the folder only after the
 // file's ACL; otherwise the folder decides, and its own check names it. A
 // folder Workbench changes in place keeps any ACL.
-func replacedACL(_ int, path string, h holder, entries []platform.ACE) error {
+func replacedACL(_ int, path string, h holder, found platform.ACL) error {
 	if !h.replaced() {
 		return nil
 	}
-	return deleteACL(path, h, entries, h.locked())
+	return deleteACL(path, h, found, "no file can replace it")
 }
 
 // removedFolderACL refuses a folder a plan removes that has an ACL entry
@@ -206,13 +218,13 @@ func removedFolderACL(path string) error {
 	if err != nil {
 		return err
 	}
-	return deleteACL(path, changedFolder, found.Entries, "under which Workbench cannot remove it")
+	return deleteACL(path, changedFolder, found, "Workbench cannot remove it")
 }
 
 // deleteACL is replacedACL's rule for path, which is h to the write, with
-// entries its ACL entries and cause why a denial stops the write.
-func deleteACL(path string, h holder, entries []platform.ACE, cause string) error {
-	denying := denyingEntries(entries, platform.DeleteRight)
+// found its ACL and cause why a denial stops the write.
+func deleteACL(path string, h holder, found platform.ACL, cause string) error {
+	denying := denyingEntries(found.Entries, platform.DeleteRight)
 	if len(denying) == 0 {
 		return nil
 	}
@@ -221,15 +233,15 @@ func deleteACL(path string, h holder, entries []platform.ACE, cause string) erro
 		return nil
 	}
 	if !errors.Is(denied, errDenied) {
-		return entryRefusal(path, h, denying, denied, "deleting it", cause)
+		return entryRefusal(path, h, found, denying, denied, "deleting it", cause)
 	}
 	if err := entryAllows(filepath.Dir(path), platform.RemoveChildRight); err != nil {
 		if errors.Is(err, errDenied) {
 			return nil
 		}
-		return entryRefusal(path, h, denying, err, "deleting it", cause)
+		return entryRefusal(path, h, found, denying, err, "deleting it", cause)
 	}
-	return entryRefusal(path, h, denying, denied, "deleting it", cause)
+	return entryRefusal(path, h, found, denying, denied, "deleting it", cause)
 }
 
 // errDenied is entryAllows's error when the system denies the rights.
@@ -260,35 +272,90 @@ func denyingEntries(entries []platform.ACE, rights uint32) []int {
 }
 
 // entryRefusal refuses path, which is h to the write, for its ACL entries
-// numbered denying, which deny what, with cause why that stops the write;
-// err is errDenied, or the error of asking the system. One entry is the one
-// that denies this user; of several, ls -le names whom each binds and
-// Workbench does not read it, so the command removes the first, and planning
-// again names any that still denies.
-func entryRefusal(path string, h holder, denying []int, err error, what, cause string) error {
-	shown := display.Path(path)
+// numbered denying, of found, which deny what, with cause why that stops the
+// write; err is errDenied, or the error of asking the system. It names the
+// entries that bind this user (platform.ACL.Binds), so removing those
+// clears the denial in one round; when none resolves as binding, it names
+// every denying entry, one or more of which binds this user.
+func entryRefusal(
+	path string,
+	h holder,
+	found platform.ACL,
+	denying []int,
+	err error,
+	what, cause string,
+) error {
 	if !errors.Is(err, errDenied) {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot check whether its ACL lets you change "+shown+": "+err.Error()+
-				h.retry(nil, path),
+			"Cannot check what the ACL of "+display.Path(path)+" lets you do",
+			Cause(err.Error()),
+			h.fix(nil, path),
 		)
 	}
-	message := shown + " has an ACL entry that denies you " + what + ", " + cause
-	if len(denying) > 1 {
-		numbers := make([]string, len(denying))
-		for i, entry := range denying {
-			numbers[i] = strconv.Itoa(entry)
+	var binding []int
+	for _, i := range denying {
+		if found.Binds(i) {
+			binding = append(binding, i)
 		}
-		message = shown + " has ACL entries " + display.List(numbers) + " that deny " + what +
-			", one or more of them denying you, " + cause
+	}
+	verb := denyVerb(len(binding)) + " you " + what
+	if len(binding) == 0 {
+		binding, verb = denying, denyVerb(len(denying))+" "+what
+		if len(denying) > 1 {
+			cause = "one or more of them deny you, so " + cause
+		}
 	}
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		message+h.retry(platform.ACLEntryRemoval(denying[0]), path),
+		entriesHeadline(path, binding, verb),
+		Cause(cause),
+		entryFixes(path, h, binding),
 	)
+}
+
+// denyVerb is "denies" for one entry, else "deny".
+func denyVerb(n int) string {
+	if n == 1 {
+		return "denies"
+	}
+	return "deny"
+}
+
+// entriesHeadline is the headline of a refusal of path for its ACL entries
+// numbered numbers, that do what: one entry is "an ACL entry", which the fix
+// numbers; several are named by number, as ls -le lists them.
+func entriesHeadline(path string, numbers []int, what string) string {
+	if len(numbers) == 1 {
+		return display.Path(path) + " has an ACL entry that " + what
+	}
+	named := make([]string, len(numbers))
+	for i, entry := range numbers {
+		named[i] = strconv.Itoa(entry)
+	}
+	return display.Path(path) + " has ACL entries " + display.List(named) + " that " + what
+}
+
+// entryFixes is the fix lines that remove the ACL entries numbered numbers
+// of path, which is h to the write: one chmod -a# each, the highest first, so
+// each number still names its entry when its line runs.
+func entryFixes(path string, h holder, numbers []int) Part {
+	lines := make(fixLines, 0, len(numbers))
+	for _, entry := range slices.Backward(numbers) {
+		lines = append(lines, h.fix(platform.ACLEntryRemoval(entry), path))
+	}
+	return lines
+}
+
+// fixLines is several fix lines as one part.
+type fixLines []Part
+
+func (f fixLines) addTo(b *Body) {
+	for _, part := range f {
+		part.addTo(b)
+	}
 }
 
 // targetACL reads the ACL of fd, or of the link selector itself when it is
@@ -298,18 +365,20 @@ func targetACL(fd int, selector, path string, h holder) (platform.ACL, error) {
 	acl, err := platform.FileSecurity(fd, selector)
 	switch {
 	case errors.Is(err, platform.ErrUnsupportedACL):
-		shown := display.Path(path)
 		return platform.ACL{}, Fail(
 			ExitBlocked,
 			"metadata",
-			shown+" has an ACL in a form Workbench does not read,"+
-				" so it cannot tell what the ACL allows"+h.retry(platform.ACLRemoval(), path),
+			display.Path(path)+" has an ACL in a form Workbench does not read",
+			Cause("Workbench cannot tell what the ACL allows"),
+			h.fix(platform.ACLRemoval(), path),
 		)
 	case err != nil:
 		return platform.ACL{}, Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot read the ACL of "+display.Path(path)+": "+err.Error()+h.retry(nil, path),
+			"Cannot read the ACL of "+display.Path(path),
+			Cause(err.Error()),
+			h.fix(nil, path),
 		)
 	}
 	return acl, nil
@@ -404,11 +473,13 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 		n, err = unix.Flistxattr(fd, names[:])
 	}
 	if errors.Is(err, unix.ERANGE) {
+		limit := display.Limit(int64(len(names)))
 		return nil, Fail(
 			ExitBlocked,
 			"metadata",
-			"The names of the extended attributes of "+display.Path(path)+" take more than the "+
-				display.Limit(int64(len(names)))+" Workbench reads"+h.retry(nil, path),
+			"The extended attribute names of "+display.Path(path)+" take more than "+limit,
+			Cause("Workbench reads at most "+limit+" of them"),
+			h.fix(nil, path),
 		)
 	}
 	if err != nil {
@@ -429,12 +500,14 @@ func readImageAttributes(fd int, path string, h holder) (map[string][]byte, erro
 			n, err = unix.Fgetxattr(fd, name, data[:])
 		}
 		if errors.Is(err, unix.ERANGE) {
-			what := shellWord(name) + " of " + display.Path(path)
+			limit := display.Limit(int64(len(data)))
 			return nil, Fail(
 				ExitBlocked,
 				"metadata",
-				"The extended attribute "+what+" is larger than the "+
-					display.Limit(int64(len(data)))+" Workbench keeps"+h.retry(nil, path),
+				"The extended attribute "+shellWord(name)+" of "+display.Path(path)+
+					" is larger than "+limit,
+				Cause("Workbench keeps at most "+limit+" of an attribute"),
+				h.fix(nil, path),
 			)
 		}
 		if err != nil {

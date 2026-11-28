@@ -5,12 +5,15 @@ import (
 	"github.com/Sawmonabo/workbench/internal/platform"
 )
 
-// foreignFilesystem is, by system (platform.System), the refusal
-// privateFilesystem gives, after the path, for a path that is not on a native
-// file system.
-var foreignFilesystem = map[string]string{
-	"darwin": " is on a file system other than APFS or HFS, the only ones whose permissions Workbench has checked; move it onto one and retry",
-	"linux":  " is on a file system other than ext, XFS, Btrfs, tmpfs or overlay, such as a Windows or network mount, and those are the only ones whose permissions Workbench has checked; move it onto one and retry",
+// nativeFilesystems is, by system (platform.System), the file systems
+// privateFilesystem admits, as its refusal of a path on any other names them,
+// and why it admits no other.
+var nativeFilesystems = map[string]struct{ names, cause string }{
+	"darwin": {"APFS or HFS", "those are the only ones whose permissions Workbench has checked"},
+	"linux": {
+		"ext, XFS, Btrfs, tmpfs or overlay",
+		"those are the only ones whose permissions Workbench has checked, and no Windows or network mount is one",
+	},
 }
 
 // privateFilesystem refuses a path for private state, or a target or its
@@ -23,14 +26,18 @@ func privateFilesystem(path string) error {
 		return Fail(
 			ExitBlocked,
 			"filesystem",
-			"Cannot tell which file system "+display.Path(path)+" is on: "+err.Error(),
+			"Cannot tell which file system "+display.Path(path)+" is on",
+			Cause(err.Error()),
 		)
 	}
 	if !native {
+		admitted := nativeFilesystems[platform.System]
 		return Fail(
 			ExitBlocked,
 			"filesystem",
-			display.Path(path)+foreignFilesystem[platform.System],
+			display.Path(path)+" is on a file system other than "+admitted.names,
+			Cause(admitted.cause),
+			FixText("move it onto one of those"),
 		)
 	}
 	return nil

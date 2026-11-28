@@ -172,7 +172,7 @@ for effect in $effects; do
     fi
 done
 for effect in $effects; do
-    printf '%%s\t%%s\n' "$effect" "its script stopped with exit status $status before it finished; the output above says why, and the next apply tries again" >>"$WORKBENCH_EFFECT_REPORT"
+    printf '%%s\t%%s\n' "$effect" "its script stopped with exit status $status before it finished (the output above says why)" >>"$WORKBENCH_EFFECT_REPORT"
 done
 exit "$status"
 `

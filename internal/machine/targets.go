@@ -241,34 +241,36 @@ func (p *preparation) folderMode(c operation.Context, target string, action byte
 		return operation.Fail(
 			operation.ExitBlocked,
 			"scope",
-			"Native plan would replace or loosen "+c.ShowPath(
-				target,
-			)+", which holds Workbench's own files",
+			"Native plan would replace or loosen "+c.ShowPath(target),
+			operation.Cause("it holds Workbench's own files"),
 		)
 	}
 	// Revert must be able to restore the mode, so the checkpoint has to record
 	// the folder, with its attributes, ACL and hidden flag, such as the "deny
 	// delete" ACL macOS puts on ~/Library/Application Support and the hidden
 	// flag on ~/Library. A folder whose flags or ACL the folder rules refuse
-	// (containerMetadata) is refused with the chmod to run.
+	// (containerMetadata) is refused with its own headline, cause and fix,
+	// then, as a fix of its own, the chmod that gives it the configuration's
+	// mode without a checkpoint.
 	if _, err = operation.ReadImage(c, target); err != nil {
-		// A refusal names the folder and its cause in its own words; another
-		// error is said after the folder.
-		shown, cause := c.ShowPath(target), err.Error()
-		reason := shown + " holds Workbench's own files, and Workbench cannot record it" +
-			" to undo the mode the plan gives it: " + cause
-		if problem, ok := errors.AsType[*operation.Error](err); ok {
-			reason = problem.Message
+		// Another error than a refusal says why Workbench cannot record the
+		// folder as its cause.
+		headline, body := operation.Explained(err)
+		if _, ok := errors.AsType[*operation.Error](err); !ok {
+			headline = "Cannot record " + c.ShowPath(target) + " to undo the mode the plan gives it"
+			body = operation.Explain(operation.Cause(err.Error()))
 		}
-		return operation.Fail(
+		return operation.FailWith(
 			operation.ExitBlocked,
 			"scope",
-			fmt.Sprintf(
-				"%s. Instead, you can run chmod %04o %s to give it the configuration's mode yourself, then retry",
-				strings.TrimSuffix(reason, "."),
-				desired.Perm,
-				c.ShellPath(target),
-			),
+			headline,
+			body.With(operation.Explain(
+				operation.FixText(fmt.Sprintf(
+					"or run chmod %04o %s to give it the configuration's mode yourself",
+					desired.Perm,
+					c.ShellPath(target),
+				)),
+			)),
 		)
 	}
 	p.Plan.Edits = append(p.Plan.Edits, operation.Edit{

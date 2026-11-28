@@ -92,24 +92,22 @@ func (image Image) validate(c Context, path string) error {
 		return Fail(
 			ExitBlocked,
 			"image",
-			fmt.Sprintf(
-				"An image of %s has mode %04o, beyond the 0777 an image keeps",
-				shown,
-				image.Mode,
-			),
+			fmt.Sprintf("An image of %s has mode %04o", shown, image.Mode),
+			Cause("an image keeps a mode up to 0777"),
 		)
 	case len(image.Data) > MaxImageBytes:
 		return Fail(
 			ExitBlocked,
 			"image",
-			"An image of "+shown+" holds more than the "+display.Limit(MaxImageBytes)+
-				" an image keeps of a file",
+			"An image of "+shown+" holds more than "+display.Limit(MaxImageBytes),
+			Cause("an image keeps at most "+display.Limit(MaxImageBytes)+" of a file"),
 		)
 	case len(image.Link) > 4096:
 		return Fail(
 			ExitBlocked,
 			"image",
-			"An image of "+shown+" links to a path longer than the 4096 bytes an image keeps",
+			"An image of "+shown+" links to a path longer than 4096 bytes",
+			Cause("an image keeps at most 4096 bytes of a link"),
 		)
 	}
 	if image.Kind != ImageAbsent {
@@ -146,7 +144,9 @@ func (image Image) validate(c Context, path string) error {
 			return Fail(
 				ExitBlocked,
 				"image",
-				shown+" is a link to itself, which Workbench does not keep; remove it or point it elsewhere, then retry",
+				shown+" is a link to itself",
+				Cause("Workbench does not keep such a link"),
+				FixPath(path, "rm"),
 			)
 		}
 		if err := c.validateLinkTarget(path, target); err != nil {
@@ -165,16 +165,22 @@ func (image Image) validateCarried(shown string) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"An image of "+shown+", which does not exist, holds extended attributes",
+			"An image of "+shown+" holds extended attributes",
+			Cause("it is of a file that does not exist"),
 		)
 	}
 	for _, name := range slices.Sorted(maps.Keys(image.Attributes)) {
 		held := "An image of " + shown + " holds the extended attribute " + shellWord(name)
 		switch {
 		case !carriedAttribute(name):
-			return Fail(ExitBlocked, "metadata", held+", which images do not carry")
+			return Fail(ExitBlocked, "metadata", held, Cause("images do not carry it"))
 		case len(image.Attributes[name]) > 4096:
-			return Fail(ExitBlocked, "metadata", held+", larger than the 4 KiB an image keeps")
+			return Fail(
+				ExitBlocked,
+				"metadata",
+				held+" larger than 4 KiB",
+				Cause("an image keeps at most 4 KiB of an attribute"),
+			)
 		}
 	}
 	switch {
@@ -182,25 +188,29 @@ func (image Image) validateCarried(shown string) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"An image of "+shown+", which does not exist, holds an ACL or the hidden flag",
+			"An image of "+shown+" holds an ACL or the hidden flag",
+			Cause("it is of a file that does not exist"),
 		)
 	case image.ACL != nil && platform.ACLsAreAttributes:
 		return Fail(
 			ExitInvalid,
 			"image",
-			"An image of "+shown+" holds an ACL apart from its extended attributes, which keep ACLs here",
+			"An image of "+shown+" holds an ACL apart from its extended attributes",
+			Cause("extended attributes keep ACLs here"),
 		)
 	case len(image.ACL) > 4096:
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"An image of "+shown+" holds an ACL larger than the 4 KiB an image keeps",
+			"An image of "+shown+" holds an ACL larger than 4 KiB",
+			Cause("an image keeps at most 4 KiB of an ACL"),
 		)
 	case image.Hidden && platform.HiddenFlag == 0:
 		return Fail(
 			ExitInvalid,
 			"image",
-			"An image of "+shown+" holds the hidden flag, which files here do not have",
+			"An image of "+shown+" holds the hidden flag",
+			Cause("files here do not have it"),
 		)
 	}
 	return nil
@@ -317,7 +327,8 @@ func ReadImage(c Context, path string) (Image, error) {
 			return Image{}, Fail(
 				ExitConflict,
 				"conflict",
-				display.Path(path)+" changed while Workbench read it; retry",
+				display.Path(path)+" changed while Workbench read it",
+				FixText("run the same command again"),
 			)
 		}
 		directory := stat.Mode&unix.S_IFMT == unix.S_IFDIR

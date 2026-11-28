@@ -1,9 +1,10 @@
 package operation
 
 // This file holds the words of the refusals of a file or folder on disk that
-// holds what an image cannot keep: each names the path, says why in plain
-// words and ends with the command that clears the cause where one does.
-// Attributes are named, never shown: no value or content reaches a message.
+// holds what an image cannot keep: each headline names the path and what it
+// holds, a cause line says why that stops the write, and the fix line gives
+// the command that clears the cause where one does. Attributes are named,
+// never shown: no value or content reaches a message.
 
 import (
 	"fmt"
@@ -60,81 +61,94 @@ func folderOrFile(folder bool) holder {
 // place of, which a person can move aside.
 func (h holder) replaced() bool { return h == replacedFile || h == replacedLink }
 
-// locked is why a flag among platform.LockingFlags stops the write.
-func (h holder) locked() string {
+// locked is why flags among platform.LockingFlags stop the write; what names
+// them ("that flag", "those flags").
+func (h holder) locked(what string) string {
 	switch h {
 	case replacedFile, replacedLink:
-		return "under which no file can replace it"
+		return "no file can replace it while it has " + what
 	case changedFolder:
-		return "under which Workbench cannot change it"
+		return "Workbench cannot change it while it has " + what
 	case parentFolder:
 	}
-	return "under which no file in it can be added, replaced or removed"
+	return "no file in it can be added, replaced or removed while it has " + what
 }
 
-// lost is why any other metadata Workbench cannot keep stops the write.
-func (h holder) lost() string {
+// lost is why any other metadata Workbench cannot keep stops the write; what
+// names it ("that flag", "that attribute").
+func (h holder) lost(what string) string {
 	switch h {
 	case replacedFile:
-		return "which the file Workbench writes in its place would not have"
+		return "the file Workbench writes in its place would not have " + what
 	case replacedLink:
-		return "which the link Workbench writes in its place would not have"
+		return "the link Workbench writes in its place would not have " + what
 	case changedFolder:
-		return "which Workbench's checkpoint of it cannot record, so revert could not put it back"
+		return "Workbench's checkpoint of it cannot record " + what + ", so revert could not put it back"
 	case parentFolder:
 	}
-	return "which Workbench has not checked against the files it writes there"
+	return "Workbench has not checked " + what + " against the files it writes there"
 }
 
-// retry ends a refusal of path, which is h to the write, with command, the
-// command that clears its cause, changed to act on a link itself when path is
-// one. A command that has no such form, or none at all, ends the refusal of
-// a file or link with moving it aside, and adds nothing for a folder.
-func (h holder) retry(command []string, path string) string {
+// moveAside is the fix of a file or link whose cause no command clears.
+const moveAside = "move it aside"
+
+// noFix is the fix of a folder whose cause no command clears: no line.
+type noFix struct{}
+
+func (noFix) addTo(*Body) {}
+
+// fix is the fix line of a refusal of path, which is h to the write: command,
+// the command that clears its cause, changed to act on a link itself when
+// path is one. A command that has no such form, or none at all, gives a file
+// or link moving it aside, and a folder no line.
+func (h holder) fix(command []string, path string) Part {
 	if h == replacedLink {
 		command = platform.NoFollow(command)
 	}
 	switch {
 	case command != nil:
-		return retry(command, path)
+		return FixPath(path, command...)
 	case h.replaced():
-		return "; move it aside and retry"
+		return FixText(moveAside)
 	}
-	return ""
+	return noFix{}
 }
 
-// retry ends a refusal of path with the command that clears its cause, given
-// as words a shell reads one by one and quoted where a shell would read a
-// character: "; run COMMAND PATH and retry".
+// retry ends a one-sentence refusal of path with the command that clears its
+// cause, given as words a shell reads one by one and quoted where a shell
+// would read a character: "; run COMMAND PATH and retry".
 func retry(command []string, path string) string {
-	words := make([]string, len(command))
-	for i, word := range command {
-		words[i] = shellWord(word)
+	return "; run " + shellWords(command) + " " + shellHomePath(path) + " and retry"
+}
+
+// these is "that NOUN" for one, else "those NOUNs".
+func these(n int, noun string) string {
+	if n == 1 {
+		return "that " + noun
 	}
-	return "; run " + strings.Join(words, " ") + " " + shellHomePath(path) + " and retry"
+	return "those " + display.Plural(n, noun)
 }
 
 // flagRefusal refuses path for flags, the file flags on it a write cannot
 // keep, named as the system's listing names them (platform.FlagNames).
 func flagRefusal(path string, flags uint32, h holder) error {
 	names := platform.FlagNames(flags)
-	cause := h.lost()
+	cause := h.lost(these(len(names), "flag"))
 	if flags&platform.LockingFlags != 0 {
-		cause = h.locked()
+		cause = h.locked(these(len(names), "flag"))
 	}
-	message := fmt.Sprintf(
-		"%s has the %s %s, %s",
-		display.Path(path),
-		display.Plural(len(names), "flag"),
-		display.List(names),
-		cause,
+	return Fail(
+		ExitBlocked,
+		"metadata",
+		display.Path(path)+" has the "+display.Plural(len(names), "flag")+" "+display.List(names),
+		Cause(cause),
+		h.fix(platform.ClearFlags(flags), path),
 	)
-	return Fail(ExitBlocked, "metadata", message+h.retry(platform.ClearFlags(flags), path))
 }
 
 // inheritedACL is why an ACL that files and folders made in a folder inherit
-// stops a write into it, after "that" or "which".
-const inheritedACL = " files and folders made in it inherit, so a file Workbench writes there would have an ACL"
+// stops a write into it.
+const inheritedACL = "a file Workbench writes there would have an ACL"
 
 // attributeRefusal refuses path for the extended attribute name, which a
 // write cannot keep. It takes the name alone, so the attribute's value never
@@ -144,14 +158,21 @@ func attributeRefusal(path, name string, h holder) error {
 	if kind == "" {
 		kind = "the extended attribute " + shellWord(name)
 	}
-	cause := h.lost()
+	held := "it"
+	if !strings.HasPrefix(kind, "a ") && !strings.HasPrefix(kind, "an ") &&
+		!strings.HasPrefix(kind, "the ") {
+		held = "them"
+	}
+	cause := h.lost(held)
 	if h == parentFolder && name == platform.DefaultACLAttribute {
-		cause = "which" + inheritedACL
+		cause = "files and folders made in it inherit it, so " + inheritedACL
 	}
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		display.Path(path)+" has "+kind+", "+cause+h.retry(remove, path),
+		display.Path(path)+" has "+kind,
+		Cause(cause),
+		h.fix(remove, path),
 	)
 }
 
@@ -166,7 +187,9 @@ func attributeReadError(path, name string, h holder, err error) error {
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		"Cannot read "+what+display.Path(path)+": "+err.Error()+h.retry(nil, path),
+		"Cannot read "+what+display.Path(path),
+		Cause(err.Error()),
+		h.fix(nil, path),
 	)
 }
 
@@ -175,27 +198,26 @@ func attributeReadError(path, name string, h holder, err error) error {
 // an owner other than the current user, then the setuid, setgid or sticky bit.
 func ownershipRefusal(path string, uid, mode uint32) error {
 	if int(uid) != os.Geteuid() {
-		return ownerRefusal(path, uid, mode&unix.S_IFMT == unix.S_IFLNK)
+		return ownerRefusal(ExitBlocked, "metadata", path, uid, mode&unix.S_IFMT == unix.S_IFLNK)
 	}
 	return specialModeRefusal(path, mode, holderOf(mode&unix.S_IFMT))
 }
 
 // ownerRefusal refuses path, which the user with ID uid owns, not the
-// current user; a link is changed with chown -h.
-func ownerRefusal(path string, uid uint32, link bool) error {
-	return Fail(ExitBlocked, "metadata", notYours(path, uid, link))
-}
-
-// notYours says that path belongs to the user with ID uid, not the current
-// user, and gives the chown, of the link itself for a link, that makes it
-// theirs.
-func notYours(path string, uid uint32, link bool) string {
+// current user, with code and category, and gives the chown, of the link
+// itself for a link, that makes it theirs.
+func ownerRefusal(code Exit, category, path string, uid uint32, link bool) error {
 	command := []string{"sudo", "chown", userName(uint32(os.Geteuid()))}
 	if link {
 		command = platform.NoFollow(command)
 	}
-	owner := display.Path(path) + " belongs to " + userName(uid)
-	return owner + ", not to you, and Workbench writes only what you own" + retry(command, path)
+	return Fail(
+		code,
+		category,
+		display.Path(path)+" belongs to "+userName(uid)+", not to you",
+		Cause("Workbench writes only what you own"),
+		FixPath(path, command...),
+	)
 }
 
 // specialModeRefusal refuses path, whose mode has the setuid, setgid or
@@ -218,13 +240,14 @@ func specialModeRefusal(path string, mode uint32, h holder) error {
 		ExitBlocked,
 		"metadata",
 		fmt.Sprintf(
-			"%s has the %s %s (mode %04o), %s",
+			"%s has the %s %s (mode %04o)",
 			display.Path(path),
 			display.List(bits),
 			display.Plural(len(bits), "bit"),
 			mode&0o7777,
-			h.lost(),
-		)+h.retry([]string{"chmod", strings.Join(clear, ",")}, path),
+		),
+		Cause(h.lost(these(len(bits), "bit"))),
+		h.fix([]string{"chmod", strings.Join(clear, ",")}, path),
 	)
 }
 
@@ -239,14 +262,17 @@ func linkReadRefusal(path string, err error) error {
 		return Fail(
 			ExitBlocked,
 			"image",
-			"Cannot read the link "+shown+": "+err.Error()+replacedLink.retry(nil, path),
+			"Cannot read the link "+shown,
+			Cause(err.Error()),
+			FixText(moveAside),
 		)
 	}
 	return Fail(
 		ExitBlocked,
 		"image",
-		shown+" links to a path longer than the 4096 bytes Workbench keeps of a link"+
-			replacedLink.retry(nil, path),
+		shown+" links to a path longer than 4096 bytes",
+		Cause("Workbench keeps at most 4096 bytes of a link"),
+		FixText(moveAside),
 	)
 }
 
@@ -257,11 +283,13 @@ func fileShapeRefusal(path string, links uint64) error {
 	if links != 1 {
 		return hardLinkRefusal(path, links)
 	}
+	limit := display.Limit(MaxImageBytes)
 	return Fail(
 		ExitBlocked,
 		"image",
-		display.Path(path)+" is larger than the "+display.Limit(MaxImageBytes)+
-			" Workbench keeps of a file it replaces; move it aside and retry",
+		display.Path(path)+" is larger than "+limit,
+		Cause("Workbench keeps at most "+limit+" of a file it replaces"),
+		FixText(moveAside),
 	)
 }
 
@@ -271,8 +299,9 @@ func specialFileRefusal(path string, format uint32) error {
 	return Fail(
 		ExitBlocked,
 		"image",
-		display.Path(path)+" is "+kindName(format)+
-			", and Workbench writes only files, folders and links; move it aside and retry",
+		display.Path(path)+" is "+kindName(format),
+		Cause("Workbench writes only files, folders and links"),
+		FixText(moveAside),
 	)
 }
 
@@ -282,9 +311,14 @@ func hardLinkRefusal(path string, links uint64) error {
 	return Fail(
 		ExitBlocked,
 		"image",
-		display.Path(path)+" has "+display.Count(others, "other hard link")+
-			", which would keep the old content once Workbench writes a new file in its place; remove the "+
-			display.Plural(others, "other link")+" or move this one aside, and retry",
+		display.Path(path)+" has "+display.Count(others, "other hard link"),
+		Cause(
+			these(
+				others,
+				"link",
+			)+" would keep the old content once Workbench writes a new file in its place",
+		),
+		FixText("remove the "+display.Plural(others, "other link")+", or move this one aside"),
 	)
 }
 
@@ -302,12 +336,13 @@ func groupChangeRefusal(path string, link bool, had, gets uint32) error {
 	if link {
 		h, written = replacedLink, "link"
 	}
-	found := display.Path(path) + " has group " + groupName(had)
 	return Fail(
 		ExitBlocked,
 		"metadata",
-		found+", but the "+written+" Workbench writes in its place would get group "+group+
-			", the group a new file in its folder gets"+h.retry(command, path),
+		display.Path(path)+" has group "+groupName(had),
+		Cause("the "+written+" Workbench writes in its place would get group "+group+
+			", the group a new file in its folder gets"),
+		h.fix(command, path),
 	)
 }
 
