@@ -279,19 +279,23 @@ func specialModeRefusal(path string, mode uint32, h holder) error {
 }
 
 // linkReadRefusal refuses the link at path whose destination cannot be read,
-// with err, or is longer than an image keeps, with err nil.
+// with err, or is longer than an image keeps, with err nil. Both end with
+// moving the link aside, which needs only the right to delete it: a link whose
+// ACL denies its owner reading it cannot have that ACL taken off either, since
+// chmod -h reads it first.
 func linkReadRefusal(path string, err error) error {
 	if err != nil {
 		return Fail(
 			ExitBlocked,
 			"image",
-			"Cannot read the link "+display.Path(path)+": "+err.Error(),
+			"Cannot read the link "+display.Path(path)+": "+err.Error()+replacedLink.retry(nil, path),
 		)
 	}
 	return Fail(
 		ExitBlocked,
 		"image",
-		display.Path(path)+" links to a path longer than the 4096 bytes Workbench keeps of a link",
+		display.Path(path)+" links to a path longer than the 4096 bytes Workbench keeps of a link"+
+			replacedLink.retry(nil, path),
 	)
 }
 
