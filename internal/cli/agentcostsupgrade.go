@@ -62,19 +62,23 @@ func (u *upgradeLine) show(title string) {
 	}
 }
 
-// close ends a line the open left running, as err, the open's error, says:
-// an interrupt stopped the wait for another Workbench's upgrade, which goes
-// on, or the open's own upgrade, which left the ledger unchanged; anything
-// else failed it.
+// close ends a line the open left running, as err, the open's error, says. A
+// failure ends it as failed, and the result prints the error after it. An
+// interrupt ends it as one faint line, the error's own message, which says
+// what stopped and what that leaves (see costs.Paths.Open); the result then
+// leaves the error out, as it does a stop the update view showed.
 func (u *upgradeLine) close(err error) {
-	switch {
-	case operation.ExitCode(err) != operation.ExitInterrupted:
-		u.end(red.Render(glyphs.Cross + " Ledger upgrade failed"))
-	case u.title == waitingTitle:
-		u.end(faint.Render(forTerm("· Stopped waiting for another Workbench's upgrade")))
-	default:
-		u.end(faint.Render(forTerm("· Ledger upgrade stopped")))
+	if u.line == nil {
+		return
 	}
+	if operation.ExitCode(err) != operation.ExitInterrupted {
+		u.end(red.Render(glyphs.Cross + " Ledger upgrade failed"))
+		return
+	}
+	var stopped operation.Result
+	stopped.SetError(err)
+	u.end(faint.Render(forTerm("· " + stopped.Errors[0].Message)))
+	u.o.stopShown = true
 }
 
 func (u *upgradeLine) end(mark string) {

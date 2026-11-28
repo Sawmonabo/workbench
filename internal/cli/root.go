@@ -27,6 +27,9 @@ type options struct {
 	yes, reset, choose, localBuild bool
 	approvePlan                    string
 	rendered                       bool
+	// stopShown is set once a live line has said what an interrupt stopped,
+	// so the result does not print that error again.
+	stopShown bool
 }
 
 // Execute owns one output envelope even when Cobra rejects flags/arguments.
@@ -421,6 +424,9 @@ func (o *options) runPrinted(cmd *cobra.Command, run func(*operation.Result) err
 	result := operation.NewResult(cmd.CommandPath())
 	err := run(&result)
 	result.SetError(err)
+	if o.stopShown {
+		result.Errors = nil
+	}
 	o.rendered = true
 	if renderErr := render(
 		cmd.OutOrStdout(),
