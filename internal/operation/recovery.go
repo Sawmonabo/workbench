@@ -186,30 +186,53 @@ func movedAside(path string) string {
 }
 
 // folderFixes are the commands that give the folder at path, which holds
-// current, back the mode and group of expected, the image Workbench wrote,
-// and take off an extended attribute or ACL expected does not have; complete
-// is false when it differs otherwise too, in an attribute, ACL or hidden flag
-// expected has, which no command can give back without its value.
+// current, back the mode, group and hidden flag of expected, the image
+// Workbench wrote, and take off an extended attribute or ACL expected does
+// not have; complete is false when it differs otherwise too, in an attribute
+// or ACL expected has, which no command can give back without its value. An
+// ACL goes first, since taking a Linux ACL off sets the mode's group bits from
+// its group entry (setfacl(1)), then the mode and group, then the other
+// attributes, which Linux and macOS let only a writer remove.
 func folderFixes(c Context, path string, current, expected Image) (fixes []Part, complete bool) {
 	shown := c.ShellPath(path)
+	var acls, others []Part
+	acl := bytes.Equal(current.ACL, expected.ACL)
+	if current.ACL != nil && expected.ACL == nil {
+		acls = append(acls, FixText(shellWords(platform.ACLRemoval())+" "+shown))
+		acl = true
+	}
+	for _, name := range slices.Sorted(maps.Keys(current.Attributes)) {
+		if _, kept := expected.Attributes[name]; kept || name == platform.LabelAttribute {
+			continue
+		}
+		kind, remove := platform.AttributeRemoval(name)
+		fix := FixText(shellWords(remove) + " " + shown)
+		if kind != "" {
+			acls = append(acls, fix)
+		} else {
+			others = append(others, fix)
+		}
+	}
+	fixes = acls
 	if current.Mode != expected.Mode {
 		fixes = append(fixes, FixText(fmt.Sprintf("chmod %04o %s", expected.Mode, shown)))
 	}
 	if *current.Group != *expected.Group {
 		fixes = append(fixes, FixText("chgrp "+groupName(*expected.Group)+" "+shown))
 	}
-	acl := bytes.Equal(current.ACL, expected.ACL)
-	if current.ACL != nil && expected.ACL == nil {
-		fixes = append(fixes, FixText(shellWords(platform.ACLRemoval())+" "+shown))
-		acl = true
-	}
-	complete = acl && current.Hidden == expected.Hidden
-	for _, name := range slices.Sorted(maps.Keys(current.Attributes)) {
-		if _, kept := expected.Attributes[name]; !kept && name != platform.LabelAttribute {
-			_, remove := platform.AttributeRemoval(name)
-			fixes = append(fixes, FixText(shellWords(remove)+" "+shown))
+	fixes = append(fixes, others...)
+	hidden := current.Hidden == expected.Hidden
+	if !hidden {
+		command := platform.ClearFlags(platform.HiddenFlag)
+		if expected.Hidden {
+			command = platform.SetFlags(platform.HiddenFlag)
+		}
+		if command != nil {
+			fixes = append(fixes, FixText(shellWords(command)+" "+shown))
+			hidden = true
 		}
 	}
+	complete = acl && hidden
 	for name, value := range expected.Attributes {
 		if name != platform.LabelAttribute && !bytes.Equal(current.Attributes[name], value) {
 			complete = false
