@@ -185,7 +185,7 @@ func (r historyRead) read() historyMsg {
 // is another file's, and the ENDED cells are made anew when they start or
 // stop holding dates, or with dates on a new day.
 func (out *historyMsg) fill(r historyRead) error {
-	ctx := context.Background()
+	ctx := context.Background() // it runs in read's tea.Cmd, which has no context
 	keep, err := out.db.Keep(ctx)
 	if err != nil {
 		return err
@@ -368,6 +368,7 @@ func (m *guardView) readParts() tea.Cmd {
 	d.reading = true
 	id, seq, gen, db := d.id, r.seq, m.hist.gen, m.hist.db
 	return func() tea.Msg {
+		// A tea.Cmd is given no context.
 		parts, err := db.Details(context.Background(), seq)
 		return partsMsg{id: id, gen: gen, db: db, parts: parts, err: err}
 	}
