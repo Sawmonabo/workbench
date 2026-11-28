@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -109,8 +110,42 @@ func setupPlan(
 	return plan, nil
 }
 
+// keepIdentical accepts the regular file at target when it holds exactly
+// data, and gives it mode when its permission or special bits are others: the
+// bytes are the ones Workbench installs, so the mode it installs them with is
+// theirs, and a tool whose mode lets other users change it, which Workbench
+// does not run, runs again after an update. The file is read and changed
+// through one descriptor, so the file compared is the file changed. Any other
+// content is a conflict and is retained.
+func keepIdentical(target string, data []byte, mode os.FileMode) error {
+	differs := operation.Fail(
+		operation.ExitConflict,
+		"dependency_conflict",
+		"Existing private tool differs; it was retained",
+	)
+	file, err := operation.OpenRegularFile(target)
+	if err != nil {
+		return differs
+	}
+	defer func() { _ = file.Close() }()
+	existing, err := io.ReadAll(io.LimitReader(file, int64(len(data))+1))
+	if err != nil || !bytes.Equal(existing, data) {
+		return differs
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	const bits = fs.ModePerm | fs.ModeSetuid | fs.ModeSetgid | fs.ModeSticky
+	if info.Mode()&bits == mode&bits {
+		return nil
+	}
+	return file.Chmod(mode)
+}
+
 // writeNewOrIdentical installs data at target, or accepts a target that already
-// holds exactly data; any other existing target is a conflict and is retained.
+// holds exactly data, giving it mode when it has another (see keepIdentical);
+// any other existing target is a conflict and is retained.
 //
 // New content is written and flushed to a temporary file beside target, then
 // linked into place. A crash or a full disk therefore leaves at most the
@@ -142,15 +177,7 @@ func writeNewOrIdentical(target string, data []byte, mode os.FileMode) error {
 				"Existing private tool has unsupported file type",
 			)
 		}
-		existing, readErr := operation.ReadRegularFile(target, int64(len(data)))
-		if readErr != nil || !bytes.Equal(existing, data) {
-			return operation.Fail(
-				operation.ExitConflict,
-				"dependency_conflict",
-				"Existing private tool differs; it was retained",
-			)
-		}
-		return nil
+		return keepIdentical(target, data, mode)
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}

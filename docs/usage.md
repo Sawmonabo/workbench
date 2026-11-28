@@ -807,12 +807,14 @@ are missing, `apply --dry-run` exits 3 and says to run `workbench update`, or
 `workbench apply` at a terminal; from a checkout it says to run
 `workbench update --local-build`, which installs the tools it pins and which an
 agent may run, for example after a pin changes. A tool that is there but that
-other users can change is not missing: Workbench does not run it, and
-installing it again keeps a file that already holds its bytes as it is, so
-`apply --dry-run`, `doctor` and `update` exit 3 naming the tool, its mode and
-the command that fixes it: `~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi
+other users can change is not missing: Workbench does not run it, so
+`apply --dry-run` and `doctor` exit 3 naming the tool, its mode and the
+command that fixes it: `~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi
 can be changed by other users (mode 0720), so Workbench does not run it; run
 chmod go-w ~/.local/share/workbench/tools/chezmoi/2.70.3/chezmoi and retry`.
+`update` fixes it as well: a tool file that holds exactly the pinned bytes gets
+the mode Workbench installs it with, and one that holds anything else is kept
+and reported (`Existing private tool differs; it was retained`).
 
 `apply` and `update` ask nothing about installing Workbench and its pinned
 tools: running the command is the go-ahead, they change only Workbench's own

@@ -497,11 +497,15 @@ synthetic answers.
   Workbench's pinned chezmoi (mode 0720), on Go 1.27.4 and 1.26.8 builds alike:
   `apply --dry-run` exited 3 (category `prerequisites`) naming the file,
   its mode and `chmod go-w` with its path; `doctor --local-build` gave the same
-  cause on its `tool-chezmoi` line, and `update --local-build` on the Mac
-  exited 3 with it after its `downloading chezmoi` step. Running the `chmod
-  go-w` it gave made the next plan exit 0. With the file removed instead, the
-  plan said the pinned tools are not installed, the chezmoi line naming the
-  missing file.
+  cause on its `tool-chezmoi` line. Running the `chmod go-w` it gave made the
+  next plan exit 0. With the file removed instead, the plan said the pinned
+  tools are not installed, the chezmoi line naming the missing file.
+- On macOS 27.2 arm64, in a disposable home, `update --local-build` gave the
+  pinned chezmoi its mode back: made 0720, and then 0600, the file was 0700
+  after each `update` (exit 0, `Installed chezmoi`) and the next plan exited
+  0. With one byte added to it and mode 0720, `update` exited 4 (`Existing
+  private tool differs; it was retained`) and the file kept its bytes and its
+  mode.
 
 ### On a WSL2 host
 
