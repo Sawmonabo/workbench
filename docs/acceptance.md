@@ -615,9 +615,7 @@ synthetic answers.
 - On November 28, 2026, on macOS 27.2 arm64 (Go 1.27.4 and 1.26.8, go.mod
   1.26.8), in a disposable home with synthetic answers and a local build:
   with `~/.zshrc` and `~/.bashrc` links of mode 0755 into a dotfiles folder,
-  `apply --dry-run` planned (exit 0), listing `~/.zshrc` to be replaced; with
-  that folder a git repository the plan stopped (exit 2) at `~/.zshrc links
-  to ~/dotfiles/zshrc: Machine configuration cannot write inside a project`. In
+  `apply --dry-run` planned (exit 0), listing `~/.zshrc` to be replaced. In
   an isolated destination an apply replaced a 0755 `.zshrc` link and a 0700
   `.gitconfig` link with files, and the next plan listed no edit; revert
   restored both as links to their same targets with modes 0755 and 0700, the
@@ -630,6 +628,63 @@ synthetic answers.
   isolated destination created the link chezmoi made, with mode 0755 under
   umask 022 and 0700 under umask 077 on the Mac and 0777 in both containers,
   and the next plan listed no edit.
+- On November 28, 2026, on macOS 27.2 (26B123) arm64, with local builds by
+  Go 1.27.4 and 1.26.8 (go.mod 1.26.8), in a disposable home with synthetic
+  answers and an isolated destination (`--destination`):
+  - `.zshrc` with an ACL entry, a `user.*` attribute and the hidden flag: the
+    apply replaced it with a file holding the same entry (its hash), the
+    attribute and the flag; the next plan listed no edit, and revert put the
+    earlier file back with all three. A link with the same three, which the
+    apply replaced with a file, gave the file none of them, as only a
+    replacement of the same kind carries them, and revert put the link back
+    with all three. Killed (`SIGKILL`) right after chezmoi replaced `.zshrc`,
+    the apply left chezmoi's file with no entry and no `user.*` attribute;
+    revert restored the earlier file with its entry, attribute and flag. A
+    rerun of the apply after the kill instead found nothing to change and
+    settled it, leaving chezmoi's file without the three; revert of the
+    killed apply's checkpoint then restored them.
+  - `.zshrc` linking to a file in a `git init` folder under the home, and to
+    a file outside the home, planned (exit 0); the apply replaced the link
+    with a file and left the linked file byte for byte as it was, and revert
+    put the link back to the same file.
+  - On `~/.zshrc` a `deny delete` entry naming `nobody` planned (exit 0);
+    one naming the user or `group:everyone` stopped the plan (exit 3) with
+    `~/.zshrc has an ACL entry that denies you deleting it, under which no
+    file can replace it; run chmod '-a#' 0 ~/.zshrc and retry`, and both
+    together named entries 0 and 1; removing entry 0 as advised, here the
+    one naming `nobody`, left the other, which the next plan named alone. On the home folder an entry denying
+    `add_file` and `delete_child` to `nobody`, and on `~/Library` one denying
+    `add_file` to `nobody`, planned; the same entries for the user, or one
+    denying `add_subdirectory` to `group:everyone`, stopped it (exit 3). From
+    a copy of the checkout whose `.chezmoiremove` lists a folder, that folder
+    with a `deny delete` entry for the user stopped the plan (exit 3); with
+    one for `nobody` the apply removed it and revert put it back with its
+    entry.
+  - A link into Workbench's config or data folder or to its entry point, and
+    a hard link to the entry point, stopped the plan (exit 2) with `move it
+    aside and retry`; a link whose ACL denies its owner reading it stopped
+    it (exit 3) the same way. For 21 of the 24 refusals the sweep gave, its
+    command, or moving the path aside, was then run, and the next plan
+    passed, but for the two `deny delete` entries above; the other three (a
+    hard link, a link to itself, a link among the folders above a target)
+    name their own way out.
+- On November 28, 2026, in privileged Docker containers (Docker 29.8.2,
+  kernel 7.0.14-linuxkit, arm64, Ubuntu 24.04.5 and AlmaLinux 10.3), with
+  linux-arm64 local builds by Go 1.27.4 and 1.26.8, disposable homes and an
+  isolated destination:
+  - `.bashrc` at 0640 with `setfacl -m u:nobody:r` and a `user.*` attribute:
+    the apply gave the new file the configuration's 0600 and the same
+    attribute value (its hash), with the ACL entry for `nobody` kept and the
+    mask `chmod` sets for 0600; the next plan listed no edit, and revert put
+    the earlier file back at 0640 with the earlier ACL and attribute (their
+    hashes). Killed right after chezmoi replaced `.bashrc`, the apply left a
+    file with neither; revert restored both.
+  - `.bashrc` linking outside the home, and each of the 14 files the plan
+    creates made first as a link to its own file in a `git init` folder
+    under the home: the apply replaced every link with a file, each linked
+    file kept its inode, mode and content, and revert put every link back.
+  - The safeguard tests of `internal/operation` passed as the home's user
+    and as root, those that need a fact the container lacks skipped.
 - At the 20-checkpoint limit, a plan names the oldest settled checkpoint's
   removal as an effect (a fixed step, with a superseded-incomplete checkpoint
   as the fallback when none is settled). A zero-edit apply settles a recorded
@@ -645,13 +700,18 @@ synthetic answers.
   disposable homes with synthetic answers, a linux-arm64 local build), as the
   home's user. The kernel has no SELinux, so root set the labels by hand.
   - With every file and folder of the home labeled `user_home_t`, `apply
-    --dry-run` planned (exit 0). An ACL set with `setfacl` on `~/.bashrc`,
-    with or without a label beside it, a default ACL or an ACL on `~/.config`,
-    a `user.*` attribute and a file capability (`setcap`) each stopped it
-    (exit 3). A `trusted.*` attribute was not listed to the user and planned;
-    run with an ambient `CAP_SYS_ADMIN` (`setpriv`), which lists it, the plan
-    stopped (exit 3), and a home without one planned with the same digest as
-    for the user.
+    --dry-run` planned (exit 0). On November 28, with a later build of the
+    same kind, an ACL set with `setfacl` on `~/.bashrc`, with or without a
+    label beside it, a `user.*` attribute on it, and an access ACL or a
+    `user.*` attribute on `~/.config` or on the home folder each planned too,
+    the home folder's with the same digest as a plain home. A default ACL on
+    either folder, a `user.overlay.*` attribute on the home folder and a file
+    capability (`setcap`) stopped it (exit 3), and `setfacl -m u:nobody:rwx
+    ~`, which shows as group write, stopped it (exit 2) with `chmod go-w ~`;
+    each stopped plan passed once its refusal's command ran. A `trusted.*`
+    attribute was not listed to the user and planned; run with an ambient
+    `CAP_SYS_ADMIN` (`setpriv`), which lists it, the plan carried it and
+    planned too.
   - An apply with every step skipped but the fixed AI safety settings, over a
     labeled home, replaced `~/.bashrc` with a new inode. As the user, which
     may not set a label without SELinux, the new file had none; as the user
@@ -670,13 +730,16 @@ synthetic answers.
     its flags were read (exit 3).
   - An os-release with `ID=macOS` and `VERSION_ID=15` gave the doctor's
     platform line as blocked with the Linux support note.
-  - Not observed: a host with SELinux enforcing. There a file native creates
-    keeps the label it got in native's scratch folder, not the one its own
-    folder would give, so a confined program may read it differently; the
-    relabel permissions (`relabelfrom`, `relabelto`, `associate`) decide
-    whether a label is carried, and a confined user may lack them; and a file
-    native replaces is staged with the scratch folder's label before Workbench
-    puts the old one back.
+  - Not observed: a host with SELinux enforcing, which these containers
+    cannot show, since their kernel gives a new file no label. There a file native
+    creates is written anew in its own folder after native's run, so it
+    should hold the label a file made there gets, not the one native's
+    scratch folder gave it: `ls -Z` of such a file and of a file `touch`
+    makes beside it show the same label. The relabel permissions
+    (`relabelfrom`, `relabelto`, `associate`) decide whether a label is
+    carried, and a confined user may lack them; and a file native replaces is
+    staged with the scratch folder's label before Workbench puts the old one
+    back.
 
 - In an Ubuntu 24.04 container, not a native host, a new user with login
   umask 0002 installed a linux-arm64 bundle and setup qualified all tools. With

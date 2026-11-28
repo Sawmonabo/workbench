@@ -261,7 +261,7 @@ Native package-manager calls may need elevation, network access or executable bu
 
 ## 7. Recovery, privacy and bounded operation
 
-Before modifying configuration, record the exact affected paths, previous existence, content, object type, permissions, group and link targets. Record post-application images and the owning scope afterward. Include supported script-written configuration targets explicitly; unsupported external effects stay separately reported.
+Before modifying configuration, record the exact affected paths, previous existence, content, object type, permissions, group, link targets and the ACL, extended attributes and hidden flag a file or link holds, which its replacement keeps. Record post-application images and the owning scope afterward. Include supported script-written configuration targets explicitly; unsupported external effects stay separately reported.
 
 Revert uses recorded checkpoints, not reverse-running old scripts. Preflight all recovery targets against recorded post-images. If the user changed a target afterward, stop and show a conflict; do not silently overwrite their work. Remove a newly created file only when its prior absence and unchanged post-image are established. Never recursively delete a broad directory to implement recovery: a folder that now holds files Workbench did not write stays, named in the result, and everything else is restored.
 

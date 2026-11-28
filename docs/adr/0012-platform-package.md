@@ -169,14 +169,14 @@ every caller.
     (`inode_permission`), and `a`, under which none can be renamed or
     removed, a temporary file included (`may_delete`).
   - *Extended attributes.* `ExtendedAttributeNames` lists a file's names.
-    Only `LabelAttribute`, `security.selinux`, is carried; every other name
-    blocks: the POSIX ACLs `system.posix_acl_access` and
-    `system.posix_acl_default`, which `FileSecurity` cannot read there and
-    which a replacement would drop or take from its folder;
-    `security.capability`, privilege a user cannot set back; and `user.*`
-    and `trusted.*`, which no replacement has. Only a process with
-    `CAP_SYS_ADMIN` is shown `trusted.*` names, so a user's Workbench
-    neither sees nor keeps one.
+    A replacement of the same kind carries every one but
+    `CapabilityAttribute`, `security.capability`, privilege a user cannot set
+    back, which blocks; the access ACL `system.posix_acl_access` among them,
+    rewritten as `ACLForMode` says the new mode leaves it. Only a process with
+    `CAP_SYS_ADMIN` is shown `trusted.*` names, so a user's Workbench neither
+    sees nor keeps one. The folder a target is written into blocks on a
+    default ACL and on every name but the label and those
+    `FolderAttributeInert` names, as the table below says.
   - *The SELinux label.* A replacement gets the label of the file it
     replaces, as `sed -i` (`setfscreatecon`), Vim and Emacs (`setfilecon`
     after the write) and `cp --preserve=context` give one, and as a rename
@@ -193,10 +193,29 @@ every caller.
     `associate` check, fails the write before its rename. After a native
     run, a file or folder native replaced gets its earlier label back in
     the opened-inode pass that gives it its group, since native stages its
-    files elsewhere; a file native creates keeps the label its write gave
-    it. Image comparisons leave the label out: a relabel such as
+    files elsewhere; a file native creates that holds a label is written
+    anew in its own folder, where the system gives it the label a file made
+    there gets. Image comparisons leave the label out: a relabel such as
     `restorecon` makes is the system's, not an edit, so it neither blocks a
     revert nor makes a write.
+- **What a target and its folders may hold.** `operation` decides each rule
+  from what `platform` reads and asks; a refusal names the path, what it holds
+  and the command that clears it, never a value or an entry.
+
+  | Holder | Metadata | Rule | Source |
+  | --- | --- | --- | --- |
+  | File or link replaced by one of its kind | ACL, extended attributes, hidden flag | Carried onto the new file or link itself, by Workbench's write and by the pass after chezmoi, which writes the approved image anew; revert puts each back | `setattrlist(2)`, `chflags(2)`; Linux `__posix_acl_chmod_masq` for the ACL the new mode leaves |
+  | File or link, macOS | ACL entry denying delete | Refused only when the system denies this user deleting it (`Allowed` with `DeleteRight`) while the folder lets it remove files: no file can be renamed over it | xnu `access1`, `vnode_authorize_delete`, `vn_authorize_renamex_with_paths`; `_DELETE_OK` in `sys/unistd.h` |
+  | Folder a plan removes, macOS | ACL entry denying delete | Refused by the same rule: `rmdir` needs it | xnu `vn_authorize_rmdir` |
+  | Folder written into, or holding Workbench's files, macOS | ACL entry denying adding or removing entries (by name or a generic right) | Refused when the system denies this user `ChildRights` there; on a folder that is not this user's, or whose mode denies its owner those rights, any such entry is refused, since the mode alone would deny them | xnu `access1`, `kauth_acl_evaluate`; `KAUTH_VNODE_GENERIC_WRITE_BITS` in `sys/kauth.h` |
+  | Same folders, macOS | Inherited ACL entry | Refused: each file made there takes it | `KAUTH_ACE_FILE_INHERIT`, `KAUTH_ACE_DIRECTORY_INHERIT` |
+  | Folder written into, Linux | Access ACL, `user.*` | Admitted: named entries are limited by the mask, which the mode shows as its group bits and `safeParents` checks, and a new file takes only a default ACL; `user.*` has no meaning to the kernel | `posix_acl_permission`, `posix_acl_create`, `posix_acl_update_mode`; `xattr_permission`; xattr(7) |
+  | Same folder, Linux | Default ACL, `user.overlay.*`, any other name but the label | Refused: a default ACL passes to each new file; overlayfs reads `user.overlay.*` on its layers | `posix_acl_create`; `OVL_XATTR_USER_PREFIX` in `fs/overlayfs/overlayfs.h` |
+  | File, Linux | File capabilities | Refused: only `CAP_SETFCAP` sets them | `cap_convert_nscap` and `cap_inode_setxattr` in `security/commoncap.c` |
+  | File chezmoi creates, Linux | SELinux label | Written anew in its own folder, as Workbench's own writes are made there, so it gets that folder's label, not that of chezmoi's temporary folder | SELinux's label of a new file (`services.c`, below) |
+  | Link at a target | Where it points | Not checked, but into Workbench's own files: Workbench writes with `symlinkat` and `renameat` and removes with `unlinkat`, none of which follows it, and chezmoi replaces or removes it the same way | renameio, chezmoi `realsystem_unix.go` |
+  | Folder above a target | A link | Refused, as `safeParents` refuses it: a write would go where it points | `openat(2)` with `O_NOFOLLOW` |
+
 - **Kept that way.** A `forbidigo` rule in `.golangci.yml` forbids
   `runtime.GOOS` outside `internal/platform` and `internal/release/archive.go`,
   so a new platform test anywhere else fails `golangci-lint run`.
@@ -259,6 +278,26 @@ every caller.
   [SELinux Notebook: `relabelfrom`, `relabelto`](https://github.com/SELinuxProject/selinux-notebook/blob/7cd56dc9beb67babed079dbbf57ffb9c472d5080/src/object_classes_permissions.md#L158-L166);
   libselinux 3.11 [getfscreatecon(3)](https://github.com/SELinuxProject/selinux/blob/3.11/libselinux/man/man3/getfscreatecon.3)
   and [setfilecon(3)](https://github.com/SELinuxProject/selinux/blob/3.11/libselinux/man/man3/setfilecon.3)
+- ACLs and deletion on macOS, xnu-12377.121.6:
+  [`access1` and `faccessat`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_syscalls.c#L6902-L6952),
+  [`vn_authorize_renamex_with_paths`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_subr.c#L8554-L8789),
+  [`vn_authorize_rmdir`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_subr.c#L8833-L8867),
+  [`vnode_authorize_delete`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/vfs/vfs_subr.c#L9501-L9666),
+  [`kauth_acl_evaluate`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/kern/kern_authorization.c#L608-L782),
+  [`_DELETE_OK` and `_RMFILE_OK`](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/unistd.h#L103-L118),
+  [entry flags](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/kauth.h#L588-L610),
+  [the rights](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/kauth.h#L886-L898)
+  and [the generic write rights](https://github.com/apple-oss-distributions/xnu/blob/xnu-12377.121.6/bsd/sys/kauth.h#L975-L981)
+- POSIX ACLs and attributes on Linux, v7.3:
+  [`posix_acl_permission`](https://github.com/torvalds/linux/blob/v7.3/fs/posix_acl.c#L381-L449),
+  [`__posix_acl_chmod_masq`](https://github.com/torvalds/linux/blob/v7.3/fs/posix_acl.c#L516-L559),
+  [`posix_acl_create`](https://github.com/torvalds/linux/blob/v7.3/fs/posix_acl.c#L640-L687),
+  [`posix_acl_update_mode`](https://github.com/torvalds/linux/blob/v7.3/fs/posix_acl.c#L712-L729),
+  [`acl_permission_check`](https://github.com/torvalds/linux/blob/v7.3/fs/namei.c#L438-L497),
+  [`xattr_permission`](https://github.com/torvalds/linux/blob/v7.3/fs/xattr.c#L125-L179),
+  [overlayfs's attribute prefixes](https://github.com/torvalds/linux/blob/v7.3/fs/overlayfs/overlayfs.h#L29-L39),
+  [xattr(7)](https://man7.org/linux/man-pages/man7/xattr.7.html),
+  [`cap_convert_nscap`: setting file capabilities takes `CAP_SETFCAP`](https://github.com/torvalds/linux/blob/v7.3/security/commoncap.c#L569-L620)
 - What other tools do: [sed `execute.c`](https://github.com/mirror/sed/blob/v4.9/sed/execute.c#L598-L630);
   coreutils [`install.c`](https://github.com/coreutils/coreutils/blob/v9.7/src/install.c#L318-L353),
   [`copy.c`](https://github.com/coreutils/coreutils/blob/v9.7/src/copy.c#L1021-L1067),

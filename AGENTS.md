@@ -70,7 +70,11 @@ Distinguish implemented code, observed checks and unqualified release targets.
   command that writes there (a command that only reads or previews uses it
   as it is), and `update` gives a tool file that holds exactly its pinned
   bytes the mode it is installed with. A folder others can write in, and a
-  tool file with other bytes, stay refused and untouched.
+  tool file with other bytes, stay refused and untouched. A file or link
+  Workbench or chezmoi replaces keeps its ACL, extended attributes and hidden
+  flag; a deny ACL entry stops a plan only when the system says it binds this
+  user; where a link at a target points is not checked, but a link into
+  Workbench's own files is refused. ADR 0012 holds each rule and its source.
 - Platform tests live only in `internal/platform/`: other packages read its
   facts and calls and never test `runtime.GOOS` or WSL themselves, which a
   `forbidigo` rule enforces (ADR 0012); `release.Target()` alone names the
