@@ -95,8 +95,8 @@ func (cp *Checkpoint) restoreNativeMetadata(failed bool) error {
 // folder whenever a rename from there reaches the target (renameio's
 // TempDir), and a rename keeps the label the file got there, so a file that
 // was there before gets its earlier label again, as Workbench's own replace
-// keeps it (carryLabel). A file native creates keeps the label native's write
-// gave it: it had none to keep.
+// keeps it (carryLabel). A file native creates has no label to put back: one
+// that holds a label is written anew in its own folder (foreignLabel).
 func nativeLabel(change TargetChange, observed Image) []byte {
 	if change.Before.Kind != change.After.Kind ||
 		change.Before.Kind != ImageFile && change.Before.Kind != ImageDirectory {
@@ -142,8 +142,8 @@ func missingCarried(change TargetChange, observed Image) bool {
 		!holdsAttributes(observed.Attributes, change.After.Attributes))
 }
 
-// foreignLabel reports whether observed is a file native made where no file
-// was, and holds a label: native stages a file in its temporary folder and a
+// foreignLabel reports whether observed is a file native made at a target
+// that held no file, and holds a label: native stages a file in its temporary folder and a
 // rename keeps the label it got there (nativeLabel), not the one a file made
 // in its own folder gets.
 func foreignLabel(change TargetChange, observed Image) bool {

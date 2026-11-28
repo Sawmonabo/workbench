@@ -63,8 +63,8 @@ func containerMetadata(fd int, path string) (security, error) {
 // flags platform.FolderFlags names: the hidden flag macOS puts on ~/Library,
 // which only hides the folder in Finder, and on Linux any inode flag but the
 // immutable and append-only ones, under which those entries cannot change.
-// Where ACLs are extended attributes, any attribute there but the label
-// blocks planning, as on a target.
+// Where ACLs are extended attributes, any attribute there but the label, the
+// access ACL and user.* attributes blocks planning (attributeACL).
 func parentMetadata(fd int, path string) error {
 	_, err := metadata(fd, path, parentFolder, true)
 	return err
@@ -127,7 +127,7 @@ func flagsRefusal(path string, h holder, flags uint32, err error) error {
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot read the file flags of "+display.Path(path)+": "+err.Error(),
+			"Cannot read the file flags of "+display.Path(path)+": "+err.Error()+h.retry(nil, path),
 		)
 	}
 	return flagRefusal(path, flags, h)
@@ -271,7 +271,7 @@ func entryRefusal(path string, h holder, denying []int, err error, what, cause s
 		return Fail(
 			ExitBlocked,
 			"metadata",
-			"Cannot check whether its ACL lets you change "+shown+": "+err.Error(),
+			"Cannot check whether its ACL lets you change "+shown+": "+err.Error()+h.retry(nil, path),
 		)
 	}
 	message := shown + " has an ACL entry that denies you " + what + ", " + cause

@@ -82,8 +82,8 @@ func (e ACE) Denies(rights uint32) bool { return aceDenies(e, rights) }
 func (e ACE) Inherited() bool { return aceInherited(e) }
 
 // Allowed reports whether this process may take rights on the file or folder
-// at path, or the link itself when path is one, as the system decides it now
-// with the process's own user and every group it is in. On macOS it asks
+// at path, or the link itself when path is one, as the system decides it at
+// the call with the process's own user and every group it is in. On macOS it asks
 // faccessat(2) with the rights in its extended access bits (_DELETE_OK,
 // _RMFILE_OK and the others in sys/unistd.h are the kauth rights shifted left
 // by 8), AT_EACCESS and AT_SYMLINK_NOFOLLOW: access1 in xnu's vfs_syscalls.c
@@ -96,7 +96,7 @@ func Allowed(path string, rights uint32) (bool, error) { return allowed(path, ri
 // ACLForMode is the access ACL data, as AccessACLAttribute holds it, as it
 // becomes on a file chmod gives mode. On Linux chmod rewrites the owner's
 // entry, the mask (or, without one, the owning group's entry) and the other
-// entry from mode and keeps every named entry (posix_acl_chmod_masq in
+// entry from mode and keeps every named entry (__posix_acl_chmod_masq in
 // fs/posix_acl.c), so a file given data and then mode holds what this
 // returns; data whose layout it does not know is returned as it is. On macOS,
 // which keeps ACLs apart from the mode, it is data.
