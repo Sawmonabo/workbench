@@ -99,8 +99,8 @@ const moveAside = "move it aside"
 // moveAsideFix is the fix line that moves path, a file, link or folder in
 // the place Workbench needs, to a name beside it that nothing has: path with
 // .moved, or .moved-2 and on after it. mv -n replaces nothing, so a name
-// taken after the line was shown leaves path where it is, and the command
-// names it again.
+// taken between the refusal and the move leaves path where it is, and the
+// command names it again.
 func moveAsideFix(path string) Part { return moveFix(path, path+".moved") }
 
 // moveFix is the fix line that moves path to name, or, when name is taken,
