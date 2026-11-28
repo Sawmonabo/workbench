@@ -345,19 +345,21 @@ func render(out, diagnostics io.Writer, asJSON, verbose bool, result operation.R
 }
 
 // unsaid is plan without the prerequisites an error of the run says as
-// well, headline and body alike, so the text says each once: as the error,
-// the last lines, which the exit status goes with. --json keeps both.
+// well, so the text says each once: as the error, the last lines, which the
+// exit status goes with. An error says a prerequisite with the same body
+// and its headline, or its headline after the name of what it is about
+// ("uv: HEADLINE"). --json keeps both.
 func unsaid(plan operation.Plan, errors []*operation.Error) operation.Plan {
 	plan.Prerequisites = slices.DeleteFunc(
 		slices.Clone(plan.Prerequisites),
 		func(prerequisite operation.Warning) bool {
 			return slices.ContainsFunc(errors, func(problem *operation.Error) bool {
-				return sameNote(
-					prerequisite.Message,
-					prerequisite.Body,
-					problem.Message,
-					problem.Body,
-				)
+				headline := prerequisite.Message
+				if _, about, named := strings.Cut(headline, ": "); named &&
+					about == problem.Message {
+					headline = about
+				}
+				return sameNote(headline, prerequisite.Body, problem.Message, problem.Body)
 			})
 		},
 	)
