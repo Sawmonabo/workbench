@@ -916,7 +916,7 @@ There is no new framework. Each concern stays with its existing owner.
 | Planning | `internal/project/plan.go` | `Plan` accepts `go` and `rust`; the source is the selected IDs joined by `_` (a release identifier allows no `,`), with a digest over their assets; new files `golang.go` and `rust.go` hold each language's additions |
 | `Cargo.toml` edits | `internal/project/adapter.py` (TOML Kit) | The request names the provenance path, `tool.workbench`, `workspace.metadata.workbench` or `package.metadata.workbench`. The Ruff selection branch runs only for the Python policy. |
 | Whole-file writes | `Proposal.add` | No editor; absent means create |
-| `.vscode/extensions.json`, `.gitignore` | `extensions.go`, `ignore.go` | Policy-aware. `mergeIgnore` now checks negations only when it has something to append. |
+| `.vscode/extensions.json`, `.gitignore` | `extensions.go`, `ignore.go` | Policy-aware. `mergeIgnore` checks negations only when it has something to append. |
 | Hooks and Dependabot | new `internal/project/hooks.go`, `dependabot.go` and `automerge.go` | Renders and combines each language's jobs; writes the grouped `dependabot.yml` and the auto-merge workflow, its `dependabot/fetch-metadata` pin read from `[github_actions]` |
 | Workflow | `internal/project/ci.go` | The workflow choice of section 6.3 and the shared merge; `goJob`, the Go workflow choice and the Go pins (read from the selected source's `versions.toml`) live in `golang.go`, and `rustJob` and the Rust pins in `rust.go`; the workflow choice (`testWorkflow`) and the pin reading (`readSourceVersions`) are shared |
 | Flags | `internal/cli/project.go` | `--hooks` and `--dependabot`; `--gitignore` help made general |
