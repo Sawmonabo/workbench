@@ -397,7 +397,10 @@ func integrityCheck(ctx context.Context, conn *sql.Conn) (string, error) {
 // runs only queries, so the content never changes; like any last connection
 // to close, it may fold a WAL ledger's log into the file when no other
 // process has the ledger open.
-var copyCheck = sqlitefile.Options{ReadOnly: true, Pragmas: []string{"busy_timeout(5000)"}}
+var copyCheck = sqlitefile.Options{
+	ReadOnly: true,
+	Pragmas:  []string{"busy_timeout(" + busyTimeout + ")"},
+}
 
 // leftCopy is what a badCopy error says of a copy left at part.
 func leftCopy(home, part string) string {

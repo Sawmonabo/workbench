@@ -316,7 +316,7 @@ func openIngested(cmd *cobra.Command, o *options) (*costs.Ledger, costs.Paths, e
 	}
 	upgrade := &upgradeLine{o: o, diagnostics: cmd.ErrOrStderr()}
 	ledger, err := paths.Open(cmd.Context(), upgrade.step)
-	upgrade.close()
+	upgrade.close(err)
 	if err != nil {
 		return nil, costs.Paths{}, err
 	}

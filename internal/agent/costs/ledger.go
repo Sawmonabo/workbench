@@ -209,7 +209,7 @@ func openLedger(
 	// the last committed state while a worker ingests.
 	if _, err := sqlitefile.Open(ctx, path, sqlitefile.Options{
 		Create:  !exists,
-		Pragmas: []string{"busy_timeout(5000)", "synchronous(NORMAL)"},
+		Pragmas: []string{"busy_timeout(" + busyTimeout + ")", "synchronous(NORMAL)"},
 		TxLock:  "immediate",
 		Prepare: func(ctx context.Context, db *sql.DB) error {
 			ledger.db = db
@@ -220,6 +220,10 @@ func openLedger(
 	}
 	return ledger, nil
 }
+
+// busyTimeout is how long, in milliseconds, a connection to the ledger
+// waits for a lock another connection holds before it fails with BUSY.
+const busyTimeout = "5000"
 
 func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 	if !exists {
@@ -243,7 +247,6 @@ func (l *Ledger) prepare(ctx context.Context, exists, upgrade bool) error {
 		if !upgrade {
 			break
 		}
-		l.step("converting responses")
 		upgraded, err := l.upgrade(ctx)
 		if err != nil {
 			return l.fileError(err)

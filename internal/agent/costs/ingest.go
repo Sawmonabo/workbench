@@ -579,7 +579,7 @@ func upgradeSteps(progress operation.Progress) UpgradeSteps {
 		return nil
 	}
 	return func(step string) {
-		if step != "" {
+		if step != "" && step != UpgradeWaiting {
 			step = "upgrading the costs ledger, " + step
 		}
 		progress.Step(step)

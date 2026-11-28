@@ -6,16 +6,26 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/Sawmonabo/workbench/internal/operation"
 	"github.com/Sawmonabo/workbench/internal/sqlitefile"
 )
 
 // UpgradeSteps is told what an open's upgrade of an earlier version's ledger
-// is doing: each step as it begins, then "" once the ledger is upgraded, by
-// this open or by another process it waited for, and compacted, whether or
-// not the compaction succeeded (see [Ledger.compact]). An upgrade that fails
-// ends without "", and the open returns its error. An open of a ledger that
-// needs no upgrade never calls it.
+// is doing: each step as it begins, [UpgradeWaiting] while it waits for
+// another process's upgrade, then "" once the ledger is upgraded, by this
+// open or by the process it waited for, and compacted, whether or not the
+// compaction succeeded (see [Ledger.compact]). An upgrade that fails, or that
+// a cancel of the open's context stops, ends without "", and the open
+// returns its error. An open of a ledger that needs no upgrade never calls
+// it.
 type UpgradeSteps func(step string)
+
+// UpgradeWaiting is the step of an open that waits for another process
+// holding the ledger's write lock, as another Workbench does while it
+// upgrades the ledger (see beginLong). The wait ends with "" when that
+// process upgraded the ledger, or with this open's own steps when the ledger
+// still needs its upgrade.
+const UpgradeWaiting = "waiting for another Workbench to upgrade the costs ledger"
 
 // step tells l.steps, when set, that the upgrade is at step.
 func (l *Ledger) step(step string) {
@@ -56,9 +66,20 @@ func (l *Ledger) compactAgain(ctx context.Context, p Paths) {
 //
 // The upgrade of a large ledger takes seconds, and every other process that
 // opens the ledger meanwhile waits for it (see beginLong), then finds it
-// upgraded.
+// upgraded. A cancel of ctx stops the upgrade, whose transaction then rolls
+// back, or the wait, and the error says which (see stopped).
 func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
-	tx, err := l.beginLong(ctx)
+	conn, err := l.db.Conn(ctx)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = conn.Close() }()
+	tx, waited, err := l.beginLong(ctx, conn)
+	stop := upgradeStopped
+	if waited {
+		stop = waitStopped
+	}
+	defer func() { err = stopped(ctx, err, stop) }()
 	if err != nil {
 		return false, err
 	}
@@ -102,6 +123,8 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 	default:
 		return false, versionProblem(l.Path, version)
 	}
+	stop = upgradeStopped
+	l.step("converting responses")
 	if err := execAll(ctx, tx, statements...); err != nil {
 		return false, err
 	}
@@ -127,19 +150,60 @@ func (l *Ledger) upgrade(ctx context.Context) (upgraded bool, err error) {
 // took 20 to 24 seconds, and a slower computer may take a few times that.
 const upgradeWait = 2 * time.Minute
 
-// beginLong begins the upgrade's transaction, which takes the write lock. A
-// connection waits on a lock for its busy timeout, five seconds, and an
-// upgrade holds it longer: while another process holds it, BEGIN is tried
-// again until upgradeWait has passed.
-func (l *Ledger) beginLong(ctx context.Context) (*sql.Tx, error) {
+// beginLong begins the upgrade's transaction on conn, which takes the write
+// lock, and reports whether it waited for another process. Its first BEGIN
+// does not wait: while another process holds the lock, as one does while it
+// upgrades the ledger, the open learns so at once and tells steps it waits
+// (UpgradeWaiting). A connection waits on a lock for its busy timeout, and an
+// upgrade holds it longer, so BEGIN is then tried again until upgradeWait has
+// passed.
+func (l *Ledger) beginLong(ctx context.Context, conn *sql.Conn) (*sql.Tx, bool, error) {
+	if _, err := conn.ExecContext(ctx, "PRAGMA busy_timeout = 0"); err != nil {
+		return nil, false, err
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	// The connection waits its busy timeout again from here on, a cancel or
+	// not.
+	if _, resetErr := conn.ExecContext(
+		context.WithoutCancel(ctx),
+		"PRAGMA busy_timeout = "+busyTimeout,
+	); resetErr != nil {
+		if tx != nil {
+			_ = tx.Rollback()
+		}
+		return nil, false, resetErr
+	}
+	if !sqlitefile.IsBusy(err) {
+		return tx, false, err
+	}
+	l.step(UpgradeWaiting)
 	deadline := time.Now().Add(upgradeWait)
 	for {
-		tx, err := l.db.BeginTx(ctx, nil)
-		if !sqlitefile.IsBusy(err) || time.Now().After(deadline) {
-			return tx, err
-		}
 		time.Sleep(10 * time.Millisecond)
+		tx, err = conn.BeginTx(ctx, nil)
+		if !sqlitefile.IsBusy(err) || time.Now().After(deadline) {
+			return tx, true, err
+		}
 	}
+}
+
+// The errors of an open a cancel of its context stopped: during its own
+// upgrade, whose transaction rolled back, or while it waited for another
+// process's (see beginLong), which goes on.
+const (
+	upgradeStopped = "Stopped the costs ledger's upgrade: the ledger is unchanged, " +
+		"and the next command that opens it upgrades it"
+	waitStopped = "Stopped waiting for another Workbench to upgrade the costs ledger: " +
+		"that upgrade goes on"
+)
+
+// stopped is err, or, when err is an error of an upgrade a cancel of ctx
+// stopped, an interrupted [operation.Error] saying so, as message.
+func stopped(ctx context.Context, err error, message string) error {
+	if err == nil || ctx.Err() == nil {
+		return err
+	}
+	return operation.Fail(operation.ExitInterrupted, "interrupted", message)
 }
 
 // compactDue is the meta note the upgrade to version 7 stores: the rows it

@@ -46,7 +46,7 @@ func agentCostsRatesCommand(o *options) *cobra.Command {
 			return o.runPrinted(cmd, func(result *operation.Result) error {
 				upgrade := &upgradeLine{o: o, diagnostics: cmd.ErrOrStderr()}
 				card, err := costs.Rates(cmd.Context(), refresh, upgrade.step)
-				upgrade.close()
+				upgrade.close(err)
 				for _, note := range card.Notes {
 					_, _ = fmt.Fprintln(cmd.ErrOrStderr(), glyphs.text.Replace("→ "+note))
 				}
