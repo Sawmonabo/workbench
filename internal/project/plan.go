@@ -460,7 +460,7 @@ func (p *Proposal) addResolution(
 			p.Plan.Prerequisites,
 			operation.Warn(
 				"Custom uv resolution settings at "+owner+" need a native integration review",
-				operation.Line{Label: "kept", Text: "the settings, neither ignored nor converted"},
+				operation.Kept("the settings, neither ignored nor converted"),
 			),
 		)
 	}

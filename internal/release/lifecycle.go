@@ -623,7 +623,7 @@ func checkRuntime(ctx context.Context, c operation.Context, executable, director
 		"handoff",
 		"The new runtime failed its own check",
 		operation.Cause(cause),
-		operation.Line{Label: "kept", Text: "the installed runtime"},
+		operation.Kept("the installed runtime"),
 	)
 }
 

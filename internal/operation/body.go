@@ -41,6 +41,10 @@ func Cause(text string) Line { return Line{Label: CauseLabel, Text: text} }
 // "nothing", when the headline does not say so itself.
 func Changed(text string) Line { return Line{Label: "changed", Text: text} }
 
+// Kept is the line that says what a refusal or failure left as it was, such
+// as "the installed runtime", when the headline does not say so itself.
+func Kept(text string) Line { return Line{Label: "kept", Text: text} }
+
 // Outcome is the line that says what the headline leads to, such as a file
 // Git will not commit, when the headline does not say so itself.
 func Outcome(text string) Line { return Line{Label: "result", Text: text} }

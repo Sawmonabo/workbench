@@ -77,7 +77,7 @@ func Handoff(c Context, expected ReleaseRecord, args []string, ready func()) err
 		ExitFailed,
 		"handoff",
 		"Verified runtime could not start",
-		Line{Label: "kept", Text: "the installed and staged runtime files"},
+		Kept("the installed and staged runtime files"),
 		FixText("run the same command again"),
 	)
 }

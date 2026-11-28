@@ -168,7 +168,7 @@ func finishCopy(ctx context.Context, home, moved, to string) error {
 			operation.ExitFailed,
 			"ledger",
 			"the ledger at "+shown+" "+problem,
-			operation.Line{Label: "kept", Text: "the original at " + display.PathFrom(home, moved)},
+			operation.Kept("the original at "+display.PathFrom(home, moved)),
 			operation.FixText(
 				"delete "+shown+"; the next run puts the original back and starts again",
 			),
@@ -423,7 +423,7 @@ func badCopy(home, original, problem string, then ...operation.Part) error {
 		operation.ExitFailed,
 		"ledger",
 		"a copy of "+display.PathFrom(home, original)+" "+problem,
-		append([]operation.Part{operation.Line{Label: "kept", Text: "the original"}}, then...)...,
+		append([]operation.Part{operation.Kept("the original")}, then...)...,
 	)
 }
 
