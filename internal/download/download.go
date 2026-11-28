@@ -116,7 +116,7 @@ func Get(
 			err:    failure(location, statusLine(response.StatusCode)),
 		}
 	}
-	tooLarge := failure(location, "larger than its "+display.Size(limit)+" bound")
+	tooLarge := failure(location, "larger than its "+display.Limit(limit)+" bound")
 	if response.ContentLength > limit {
 		return nil, nil, tooLarge
 	}

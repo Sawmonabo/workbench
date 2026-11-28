@@ -17,18 +17,6 @@ func Plural(n int, noun string) string {
 	return noun
 }
 
-// Size is size bytes in the largest binary unit that divides it: "1 MiB",
-// "64 KiB", "900 bytes".
-func Size(size int64) string {
-	switch {
-	case size != 0 && size%(1<<20) == 0:
-		return strconv.FormatInt(size>>20, 10) + " MiB"
-	case size != 0 && size%(1<<10) == 0:
-		return strconv.FormatInt(size>>10, 10) + " KiB"
-	}
-	return Count(int(size), "byte")
-}
-
 // Number is n with a comma between each group of three digits: "12,096".
 func Number(n int64) string { return Decimal(float64(n), 0) }
 

@@ -1,11 +1,12 @@
 package display
 
-// This file is byte sizes, by the two rules the package comment states:
-// memory, and the data the guard keeps, in binary units; downloads in
-// decimal ones.
+// This file is byte sizes, by the rules the package comment states: memory,
+// and the data the guard keeps, in binary units; downloads in decimal ones;
+// a limit in the exact binary unit it is set in.
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -59,4 +60,17 @@ func Transfer(done, total int64) string {
 		return amount(total) + " " + unit
 	}
 	return amount(done) + "/" + amount(total) + " " + unit
+}
+
+// Limit is a bound Workbench sets on a size, in the largest binary unit that
+// divides it, named as every message that states a bound names it: "1 MiB",
+// "64 KiB", "900 bytes".
+func Limit(bytes int64) string {
+	switch {
+	case bytes != 0 && bytes%(1<<20) == 0:
+		return strconv.FormatInt(bytes>>20, 10) + " MiB"
+	case bytes != 0 && bytes%(1<<10) == 0:
+		return strconv.FormatInt(bytes>>10, 10) + " KiB"
+	}
+	return Count(int(bytes), "byte")
 }

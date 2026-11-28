@@ -101,7 +101,7 @@ func ReadPrivateInput(path string, limit int64, what string) ([]byte, error) {
 		return nil, refuse(
 			ExitInvalid,
 			"input",
-			display.Path(path)+" is larger than its "+display.Size(limit)+" bound",
+			display.Path(path)+" is larger than its "+display.Limit(limit)+" bound",
 		)
 	case err != nil:
 		return nil, refuse(ExitInvalid, "input", FileError(path, err).Error())

@@ -5,6 +5,8 @@
 // follow macOS: memory, and the text and files the guard keeps, in binary
 // units, as Activity Monitor counts memory (a MB is 1,024 KB of 1,024
 // bytes); downloads in decimal units, as Finder shows file sizes (a MB is
-// 1,000 kB of 1,000 bytes). Each form has one rule here, so every command,
-// view and message writes it alike. It imports nothing from Workbench.
+// 1,000 kB of 1,000 bytes). A limit Workbench sets on a size is named in the
+// exact binary unit it is set in (KiB, MiB). Each form has one rule here, so
+// every command, view and message writes it alike. It imports nothing from
+// Workbench.
 package display
