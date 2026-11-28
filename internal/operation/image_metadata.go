@@ -84,8 +84,8 @@ func metadata(
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if err := checkFlags(path, h, kept)(platform.FileFlags(fd, "")); err != nil {
-		return err
+	if flags, err := platform.FileFlags(fd, ""); err != nil || flags&^kept != 0 {
+		return flagsRefusal(path, h, flags&^kept, err)
 	}
 	if err := attributeACL(fd, path, h); err != nil {
 		return err
@@ -94,22 +94,17 @@ func metadata(
 	return acl(path, h, entries, present, err)
 }
 
-// checkFlags refuses path, as h says, when its flags cannot be read or hold
-// one outside kept.
-func checkFlags(path string, h holder, kept uint32) func(uint32, error) error {
-	return func(flags uint32, err error) error {
-		if err != nil {
-			return Fail(
-				ExitBlocked,
-				"metadata",
-				"Cannot read the file flags of "+display.Path(path)+": "+err.Error(),
-			)
-		}
-		if flags&^kept != 0 {
-			return flagRefusal(path, flags&^kept, h)
-		}
-		return nil
+// flagsRefusal refuses path, which is h to the write, whose flags could not
+// be read, with err, or hold flags, those a write cannot keep.
+func flagsRefusal(path string, h holder, flags uint32, err error) error {
+	if err != nil {
+		return Fail(
+			ExitBlocked,
+			"metadata",
+			"Cannot read the file flags of "+display.Path(path)+": "+err.Error(),
+		)
 	}
+	return flagRefusal(path, flags, h)
 }
 
 // folderACL admits the ACL of a folder whose own entries Workbench leaves
@@ -151,14 +146,8 @@ func linkMetadata(path string) error {
 	if err := privateFilesystem(path); err != nil {
 		return err
 	}
-	if err := checkFlags(
-		path,
-		replacedLink,
-		platform.KeptFlags,
-	)(
-		platform.FileFlags(-1, path),
-	); err != nil {
-		return err
+	if flags, err := platform.FileFlags(-1, path); err != nil || flags&^platform.KeptFlags != 0 {
+		return flagsRefusal(path, replacedLink, flags&^platform.KeptFlags, err)
 	}
 	if err := attributeACL(-1, path, replacedLink); err != nil {
 		return err
@@ -169,7 +158,7 @@ func linkMetadata(path string) error {
 
 // noACL rejects any ACL, even an empty one, on a target Workbench writes:
 // the replacement would not carry it, nor would revert put it back on a
-// folder. chmod -N removes it.
+// folder. platform.ACLRemoval removes it.
 func noACL(path string, h holder, _ []platform.ACE, present bool, err error) error {
 	if err == nil && present {
 		return Fail(
