@@ -679,28 +679,41 @@ synthetic answers.
 - On the same umask, an apply with every effect unchecked writes files at 0644
   and folders at 0755, except `~/.config` at 0700. (target; not yet observed in
   the container)
-- A folder of Workbench's own files that is the user's and that neither its
-  group nor other users may write in, but whose mode is not 0700, is used as
-  it is by a command that only reads and set to 0700 by one that writes
-  there. Observed on macOS 27.2 arm64 in disposable homes, with a local build
-  of v0.1.32-rc.10 (`--local-build`, answers imported, tools installed): with
-  the state folder at 0755, `doctor` (exit 3 for the missing release, its
-  only blocked line), `apply --dry-run --local-build` and `migrate --dry-run`
-  (both exit 0) left it at 0755, and `answers import` of a changed answer
-  with `--approve-plan` (exit 0) left it at 0700. With the config, data,
-  state and cache folders and `agent/guard` and `agent/costs` at 0755,
-  `doctor`, `apply --dry-run --local-build` and `agent guard history` changed
-  none, and `agent costs status`, which reads new usage into the ledger and
-  makes it when missing, set the data folder, `agent/` and `agent/costs/` to
-  0700. With the data, `tools` and `tools/tomlkit` folders at 0755 and TOML
-  Kit's version folder moved aside, `update --local-build` installed it and
-  left all four at 0700. A state folder at 0775, 0757 or 1777 stayed refused
-  (exit 2, category `permissions`) by `doctor` and `answers import`, its
-  mode unchanged, saying that other users can write in it and naming the
-  `find … -not -user NAME` to run before the `chmod 700`; both refused a
-  link there as a link (category `path`) and a file as not a folder
-  (category `runtime_path`). The tests of this rule passed in Ubuntu 24.04 and
-  AlmaLinux 10 arm64 containers, run as a normal user.
+- A folder of Workbench's own files that is the user's, that its owner can
+  read and search and that neither its group nor other users may write in,
+  but whose mode is not 0700, is used as it is by a command that only reads
+  and set to 0700 by one that writes there through the private folder
+  helpers. Observed on macOS 27.2 arm64 in disposable homes, with a local
+  build of v0.1.32-rc.10 (`--local-build`, answers imported, tools
+  installed): with the state folder at 0755, `doctor` (exit 3 for the
+  missing release, its only blocked line), `apply --dry-run --local-build`
+  and `migrate --dry-run` (both exit 0) and an `apply --local-build` nobody
+  approved (exit 3) left it at 0755, and `answers import` of a changed
+  answer with `--approve-plan` (exit 0) left it at 0700. With the config,
+  data, state and cache folders and `agent/guard` and `agent/costs` at 0755,
+  `doctor`, `apply --dry-run --local-build` and `agent guard history`
+  changed none, and `agent costs status`, which reads new usage into the
+  ledger and makes it when missing, set the data folder, `agent/` and
+  `agent/costs/` to 0700. With the data, `tools` and `tools/tomlkit` folders
+  at 0755 and TOML Kit's version folder moved aside, `update --local-build`
+  installed it and left all four at 0700. With every folder of a project's
+  checkpoint at 0755, `project revert --dry-run` changed none, `project
+  revert --approve-plan` (exit 0) set the checkpoint's own folder, where it
+  saves the journal, to 0700, and a later `project apply --approve-plan`
+  (exit 0) set `checkpoints/` and the scope's folder to 0700. The state's
+  `locks` folder at 2755 became 2700 under `answers import`. A state folder
+  at 0775, 0757 or 1777 stayed refused (exit 2) by `doctor --json` (category
+  `permissions`) and `answers import`, and a checkpoint's folder at 0775 by
+  `project revert --dry-run --json` (category `permissions`), the mode
+  unchanged, saying that other users can write in it and naming the
+  `find … -not -user NAME` to run before the `chmod 700`; both commands
+  refused a link there as a link and a file as not a folder (categories
+  `path` and `runtime_path` in `doctor --json`). The `locks` folder at 0300
+  under `answers import`, and the guard's `notes` folder at 0300 under
+  `agent guard history`, stayed refused (exit 2) with the `chmod 700` that
+  fixes them. The tests of
+  this rule passed in Ubuntu 24.04 and AlmaLinux 10 arm64 containers, run as
+  a normal user.
 - On an Ubuntu 24.04 arm64 VM (not a container; login umask 0002), from a local
   linux-arm64 bundle with synthetic personal/pinned answers: saving the answers
   created `~/.config` 0700 (`~/.local` and `~/.local/share` 0755) and the plan

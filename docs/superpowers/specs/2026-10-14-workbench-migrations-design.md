@@ -56,7 +56,9 @@ Every path below was traced to the code or template that writes it.
 - **Each folder that exists must be owned by the user,** and neither the group
   nor other users may write in the config, data, state and cache folders
   (`context.go` `runtimePaths`). Workbench makes them `0700`, and sets one
-  that is not to `0700` when it writes there.
+  that is not to `0700` when it writes there through its private folder
+  helpers (a private metadata write, a private tree it creates, a
+  checkpoint); a command that only reads leaves the mode as it is.
 - **What writes there:** every write through `c.Paths.*` in
   `internal/machine`, `internal/release` and `internal/operation`.
 - **No history to migrate:** the defaults are unchanged since `3d4f6c4`, which
@@ -794,8 +796,8 @@ _workbench_completion=$_workbench_cache/completion.zsh
   existing folder keeps its mode. The shell uses an existing folder as it is and
   doesn't change it; a runtime folder its group or other users can write in
   makes every Workbench command refuse to start (`context.go` `runtimePaths`),
-  which reports it, and Workbench sets a `0755` one to `0700` the first time
-  it writes there.
+  which reports it, and a `0755` one is used as it is until Workbench writes
+  in it through its private folder helpers, which set it to `0700`.
 - **The file is written in the same subshell under `umask 077`,** so it's
   `0600`, to `completion.<shell>.$$`, and renamed into place only when the
   marker line and `workbench completion` both succeed; otherwise the
