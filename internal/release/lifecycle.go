@@ -5,12 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
+	"github.com/Sawmonabo/workbench/internal/display"
 	"github.com/Sawmonabo/workbench/internal/operation"
 )
 
@@ -159,27 +161,50 @@ func Inspect(directory string) (Metadata, error) {
 }
 
 // ReadMetadata strictly decodes directory's release.json and checks its
-// versions, target and identity.
+// versions, target and identity. Each refusal names the file and what is
+// wrong with it.
 func ReadMetadata(directory string) (Metadata, error) {
 	var metadata Metadata
-	raw, err := operation.ReadRegularFile(filepath.Join(directory, "release.json"), 1<<20)
-	if err != nil {
+	path := filepath.Join(directory, "release.json")
+	refuse := func(format string, args ...any) error {
+		return operation.Fail(
+			operation.ExitInvalid,
+			"release",
+			display.Path(path)+" "+fmt.Sprintf(format, args...),
+		)
+	}
+	raw, err := operation.ReadRegularFile(path, 1<<20)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return metadata, refuse("is missing")
+	case errors.Is(err, operation.ErrNotRegular):
+		return metadata, refuse("is not a regular file")
+	case errors.Is(err, operation.ErrTooLarge):
+		return metadata, refuse("is larger than its 1 MiB bound")
+	case err != nil:
 		return metadata, operation.Fail(
 			operation.ExitInvalid,
 			"release",
-			"Missing bounded release metadata",
+			"Cannot read "+operation.FileError(path, err).Error(),
 		)
 	}
-	unsupported := operation.Fail(operation.ExitInvalid, "release", "Unsupported release metadata")
-	if operation.DecodeStrict(raw, &metadata) != nil {
-		return metadata, unsupported
+	if err = operation.DecodeStrict(raw, &metadata); err != nil {
+		return metadata, refuse("is not valid release metadata JSON (%v)", err)
 	}
-	supported := metadata.SchemaVersion == 1 && metadata.StateVersion == 1 &&
-		metadata.Target == Target()
-	identified := operation.ValidReleaseName(metadata.Release) &&
-		operation.ValidDigest(metadata.SourceDigest)
-	if !supported || !identified || len(metadata.Files) > maxFiles {
-		return metadata, unsupported
+	switch {
+	case metadata.SchemaVersion != 1 || metadata.StateVersion != 1:
+		return metadata, refuse(
+			"has schema version %d and state version %d; this Workbench reads version 1 of both",
+			metadata.SchemaVersion,
+			metadata.StateVersion,
+		)
+	case metadata.Target != Target():
+		return metadata, refuse("is built for %q, not this system's %s", metadata.Target, Target())
+	case !operation.ValidReleaseName(metadata.Release) ||
+		!operation.ValidDigest(metadata.SourceDigest):
+		return metadata, refuse("names no valid release and source digest")
+	case len(metadata.Files) > maxFiles:
+		return metadata, refuse("lists more than %d files", maxFiles)
 	}
 	return metadata, nil
 }
